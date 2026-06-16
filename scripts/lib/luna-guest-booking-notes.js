@@ -163,6 +163,48 @@ async function appendBookingStaffNote(pg, opts = {}) {
   return { success: true, note: entry, luna_guest_notes: existing };
 }
 
+/**
+ * Remove a staff-authored note from booking metadata.
+ *
+ * @param {import('pg').Client} pg
+ * @param {object} opts
+ */
+async function deleteBookingStaffNote(pg, opts = {}) {
+  const clientSlug = trimStr(opts.client_slug) || 'wolfhouse-somo';
+  const bookingId = trimStr(opts.booking_id);
+  const noteId = trimStr(opts.note_id);
+
+  if (!pg || !bookingId || !noteId) {
+    return { success: false, error: 'missing_required_fields' };
+  }
+
+  const metadata = await loadBookingMetadata(pg, clientSlug, bookingId);
+  const existing = normalizeNotesList(metadata.luna_guest_notes);
+  const idx = existing.findIndex((n) => n.id === noteId);
+  if (idx < 0) {
+    return { success: false, error: 'note_not_found' };
+  }
+
+  if (existing[idx].source !== 'staff') {
+    return { success: false, error: 'only_staff_notes_deletable' };
+  }
+
+  existing.splice(idx, 1);
+  metadata.luna_guest_notes = existing;
+
+  await pg.query(
+    `UPDATE bookings b
+        SET metadata = $3::jsonb, updated_at = NOW()
+       FROM clients c
+      WHERE b.client_id = c.id
+        AND c.slug = $1
+        AND b.id = $2::uuid`,
+    [clientSlug, bookingId, JSON.stringify(metadata)],
+  );
+
+  return { success: true, deleted_note_id: noteId, luna_guest_notes: existing };
+}
+
 function getLunaGuestNotesFromMetadata(metadata) {
   const meta = parseMetadata(metadata);
   return normalizeNotesList(meta.luna_guest_notes);
@@ -172,6 +214,7 @@ module.exports = {
   extractLunaNoteCandidates,
   appendBookingLunaNotes,
   appendBookingStaffNote,
+  deleteBookingStaffNote,
   getLunaGuestNotesFromMetadata,
   normalizeNotesList,
 };

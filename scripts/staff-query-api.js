@@ -229,8 +229,10 @@ const {
 } = require('./lib/booking-transfers');
 const {
   appendBookingStaffNote,
+  deleteBookingStaffNote,
   getLunaGuestNotesFromMetadata,
 } = require('./lib/luna-guest-booking-notes');
+const { getStaffPortalI18nBootstrapScript } = require('./lib/staff-portal-i18n');
 const {
   sumActiveTransferChargesCents,
   transferInvoiceLineItems,
@@ -14502,6 +14504,11 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
 #banner .badge-sm{background:rgba(68,80,74,.18);color:#FBF7F0;font-size:10px;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.04em}
+.staff-lang-switch{display:flex;align-items:center;gap:0;margin-right:4px;font-size:11px;font-weight:600;letter-spacing:.1em}
+.staff-lang-btn{background:none;border:none;color:rgba(255,255,255,.68);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
+.staff-lang-btn:hover{color:#fff}
+.staff-lang-btn.is-active{color:#fff;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,255,255,.55)}
+.staff-lang-sep{color:rgba(255,255,255,.32);user-select:none;font-size:10px}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;padding:0 28px;box-shadow:var(--shadow-soft)}
 .tab-btn{padding:14px 22px;font-size:13px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s}
@@ -14743,15 +14750,20 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
-.bc-room-hdr-inner{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
-.bc-room-hdr-label{flex:1;min-width:0}
-.bc-room-hide-btn{font-size:10px;font-weight:500;letter-spacing:.02em;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:2px 9px;cursor:pointer;flex-shrink:0;transition:background .12s,opacity .12s}
-.bc-room-hide-btn:hover{background:rgba(255,255,255,.22)}
+.bc-room-hdr-inner{display:inline;align-items:baseline}
+.bc-room-hide-btn{font-size:10px;font-weight:400;letter-spacing:.02em;background:none;border:none;color:rgba(255,255,255,.92);padding:0;margin-left:6px;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:rgba(255,255,255,.55)}
+.bc-room-hide-btn:hover{color:#fff;text-decoration-color:#fff}
 tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .luna-global-pause-card .luna-global-pause-row{display:flex;flex-direction:column;gap:8px}
-.luna-global-pause-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text)}
-.luna-global-pause-toggle input{width:16px;height:16px;accent-color:var(--olive)}
-.luna-global-pause-card.luna-global-paused{border-color:#E8C9A8;background:#FBF3EA}
+.luna-global-pause-toggle{display:flex;align-items:center;justify-content:space-between;gap:14px;font-size:13px;font-weight:600;color:var(--text)}
+.luna-global-pause-switch{position:relative;display:inline-block;width:46px;height:26px;flex-shrink:0}
+.luna-global-pause-switch input{opacity:0;width:0;height:0;position:absolute}
+.luna-global-pause-slider{position:absolute;cursor:pointer;inset:0;background:#D8D0C4;border-radius:999px;transition:background .2s,box-shadow .2s}
+.luna-global-pause-slider:before{content:'';position:absolute;height:20px;width:20px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 3px rgba(0,0,0,.18)}
+.luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#C74A4A;box-shadow:inset 0 0 0 1px rgba(120,30,30,.25)}
+.luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(20px)}
+.luna-global-pause-switch input:focus-visible + .luna-global-pause-slider{outline:2px solid rgba(199,74,74,.45);outline-offset:2px}
+.luna-global-pause-card.luna-global-paused{border-color:#E0A8A8;background:#FFF5F5}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
 .bc-block{min-height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:4px 6px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
@@ -15132,6 +15144,14 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .bc-move-source-pill:hover{background:#d9ecfb;border-color:#6cb8df}
 .bc-move-source-pill.is-selected{background:#b8dff5;color:#1a5f85;border:2px solid #4da3d4;font-weight:700;box-shadow:0 1px 3px rgba(36,116,161,.22);padding:2px 11px}
 .bc-move-source-pill:focus{outline:2px solid #90c8e8;outline-offset:2px}
+.bc-move-target-field .bk-input-sm,#bc-move-target-bed-id.bk-input-sm{width:100%;max-width:220px;box-sizing:border-box}
+.bc-luna-notes-compose{display:flex;gap:6px;align-items:flex-start;margin-top:8px;max-width:280px}
+.bc-luna-notes-compose .bk-input-sm{flex:1;min-width:0;resize:vertical}
+.bc-luna-notes-compose .btn{flex-shrink:0;align-self:flex-start}
+.bc-luna-note-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px}
+.bc-luna-note-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;min-width:0}
+.bc-luna-note-delete{background:none;border:none;color:var(--text-3,#71717a);cursor:pointer;font-size:15px;line-height:1;padding:0 2px;flex-shrink:0;opacity:.75}
+.bc-luna-note-delete:hover{color:#9C5742;opacity:1}
 .bk-quote-banner{background:#fffbe6;border-left:3px solid #e6c200;padding:8px 12px;border-radius:4px;font-size:11px;color:#7a6a00;margin-bottom:10px;font-style:italic}
 .bk-quote-section{margin-top:10px}
 .bk-quote-section-title{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:0 0 6px}
@@ -15226,21 +15246,29 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </style>
 </head>
 <body>
+${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
-  <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;">Luna Front Desk</a>
-  <button class="btn-logout" id="btn-logout" onclick="doLogout()">Sign out</button>
+  <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;" data-i18n="app.brand">Luna Front Desk</a>
+  <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
+    <button type="button" class="staff-lang-btn is-active" data-lang="en">EN</button>
+    <span class="staff-lang-sep">|</span>
+    <button type="button" class="staff-lang-btn" data-lang="es">ES</button>
+    <span class="staff-lang-sep">|</span>
+    <button type="button" class="staff-lang-btn" data-lang="it">IT</button>
+  </div>
+  <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
 </div>
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn active" data-tab="bed-calendar">Booking Calendar</button>
-  <button class="tab-btn" data-tab="conversations">WhatsApp</button>
-  <button class="tab-btn" data-tab="ask-luna">Luna Staff</button>
-  <button class="tab-btn" data-tab="tour-operator">Tour Operator</button>
-  <button class="tab-btn dev-tab" data-tab="query-tools">&#128736; Developer Tools</button>
-  <button class="tab-btn dev-tab" data-tab="luna-guest-simulator">Luna Guest Simulator</button>
+  <button class="tab-btn active" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
+  <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
+  <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
+  <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
+  <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
+  <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
 </div>
 
 <!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
@@ -15282,15 +15310,15 @@ textarea.bk-input{resize:vertical;min-height:60px}
       <div class="inbox-left-toolbar">
         <div class="inbox-toolbar-top">
           <select id="c-client" title="Company" class="inbox-client-select"></select>
-          <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" title="Refresh conversation list">&#8635;</button>
+          <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         </div>
         <div class="inbox-filters">
-          <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all">All Conversations</button>
-          <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human">Needs Human <span class="hq-count" id="hq-badge">0</span></button>
+          <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>
+          <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human"><span data-i18n="inbox.filter.needsHuman">Needs Human</span> <span class="hq-count" id="hq-badge">0</span></button>
         </div>
       </div>
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
-      <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0">Loading conversations&hellip;</div>
+      <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0" data-i18n="inbox.loading">Loading conversations&hellip;</div>
       <div class="inbox-left-rows">
         <div id="conv-list" class="conv-list"></div>
       </div>
@@ -15300,8 +15328,8 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="conv-detail">
       <div id="detail-content">
         <div class="inbox-empty-right">
-          <p class="main-msg">Select a conversation to review.</p>
-          <p class="sub-msg">Luna drafts and booking context will appear here.</p>
+          <p class="main-msg" data-i18n="inbox.empty.main">Select a conversation to review.</p>
+          <p class="sub-msg" data-i18n="inbox.empty.sub">Luna drafts and booking context will appear here.</p>
         </div>
       </div>
     </div>
@@ -15430,35 +15458,35 @@ textarea.bk-input{resize:vertical;min-height:60px}
   <!-- Controls card -->
   <div class="card">
     <div class="toolbar">
-      <h2>Booking Calendar</h2>
+      <h2 id="bc-calendar-title" data-i18n="calendar.title">Booking Calendar</h2>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        From&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
+        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        To&nbsp;<input id="bc-end" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
+        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
       </label>
       <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
-      <button class="btn btn-primary" id="bc-load">&#128197; Load</button>
+      <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
     </div>
 
     <!-- Date shortcut chips + compact legend (Stage 26h.5) -->
     <div class="bc-controls-row">
     <div class="bc-chips" id="bc-chips">
-      <span class="bc-chip" data-chip="week">This week</span>
-      <span class="bc-chip bc-chip-active" data-chip="30days">Next 30 days</span>
-      <span class="bc-chip" data-chip="apr-may">Apr - May</span>
-      <span class="bc-chip" data-chip="may-jun">May - Jun</span>
-      <span class="bc-chip" data-chip="jun-jul">Jun - Jul</span>
-      <span class="bc-chip" data-chip="jul-aug">Jul - Aug</span>
-      <span class="bc-chip" data-chip="aug-sept">Aug - Sep</span>
-      <span class="bc-chip" data-chip="sep-oct">Sep - Oct</span>
-      <span class="bc-chip" data-chip="oct-nov">Oct - Nov</span>
+      <span class="bc-chip" data-chip="week" data-i18n="calendar.chip.week">This week</span>
+      <span class="bc-chip bc-chip-active" data-chip="30days" data-i18n="calendar.chip.30days">Next 30 days</span>
+      <span class="bc-chip" data-chip="apr-may" data-i18n="calendar.chip.aprMay">Apr - May</span>
+      <span class="bc-chip" data-chip="may-jun" data-i18n="calendar.chip.mayJun">May - Jun</span>
+      <span class="bc-chip" data-chip="jun-jul" data-i18n="calendar.chip.junJul">Jun - Jul</span>
+      <span class="bc-chip" data-chip="jul-aug" data-i18n="calendar.chip.julAug">Jul - Aug</span>
+      <span class="bc-chip" data-chip="aug-sept" data-i18n="calendar.chip.augSept">Aug - Sep</span>
+      <span class="bc-chip" data-chip="sep-oct" data-i18n="calendar.chip.sepOct">Sep - Oct</span>
+      <span class="bc-chip" data-chip="oct-nov" data-i18n="calendar.chip.octNov">Oct - Nov</span>
     </div>
 
     <div class="bc-legend" id="bc-legend">
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span>Luna</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span>Staff</span>
-      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span>Tour</span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span><span data-i18n="calendar.legend.luna">Luna</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
     </div>
     </div>
 
@@ -15466,7 +15494,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
     <div id="bc-warnings" style="display:none;font-size:12px;color:#9C5742;background:#F6E7E1;border:1px solid #E6C7BC;border-radius:10px;padding:10px 14px;margin-bottom:12px"></div>
 
     <!-- State message -->
-    <div id="bc-state" class="state-msg">Select a date range and click Load.</div>
+    <div id="bc-state" class="state-msg" data-i18n="calendar.state.initial">Select a date range and click Load.</div>
 
     <!-- Grid (vertically resizable — Stage 47a) -->
     <div id="bc-grid-shell" class="bc-grid-shell">
@@ -15477,26 +15505,24 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
   <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
-    <div class="bc-sel-title">
-      &#128203; Create New Booking
-    </div>
+    <div class="bc-sel-title"><span aria-hidden="true">&#128203;</span> <span data-i18n="calendar.create.title">Create New Booking</span></div>
 
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
 
     <!-- Section: Selected Stay (pre-filled from selection, read-only) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Selected Stay</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.stay">Selected Stay</div>
       <div class="bk-compact-grid">
         <div class="bk-compact-row">
-          <label class="bk-label" for="bc-sel-cin">Check-in</label>
+          <label class="bk-label" for="bc-sel-cin" data-i18n="calendar.create.checkIn">Check-in</label>
           <input type="date" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bc-sel-cout">Check-out</label>
+          <label class="bk-label" for="bc-sel-cout" data-i18n="calendar.create.checkOut">Check-out</label>
           <input type="date" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bc-sel-nights">Nights</label>
+          <label class="bk-label" for="bc-sel-nights" data-i18n="calendar.create.nights">Nights</label>
           <input type="text" id="bc-sel-nights" class="bk-input bk-input-sm" readonly>
         </div>
       </div>
@@ -15509,48 +15535,48 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
     <!-- Section: Guest (Stage 8.7.18 — compact left-aligned) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Guest</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.guest">Guest</div>
       <div class="bk-compact-grid">
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-guest-name">Guest name</label>
-          <input type="text" id="bk-guest-name" class="bk-input bk-input-sm" placeholder="Full name">
+          <label class="bk-label" for="bk-guest-name" data-i18n="calendar.create.guestName">Guest name</label>
+          <input type="text" id="bk-guest-name" class="bk-input bk-input-sm" data-i18n-placeholder="calendar.create.fullName" placeholder="Full name">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-phone">Phone</label>
+          <label class="bk-label" for="bk-phone" data-i18n="calendar.create.phone">Phone</label>
           <input type="tel" id="bk-phone" class="bk-input bk-input-sm" placeholder="+34 600 000 000">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-email">Email</label>
+          <label class="bk-label" for="bk-email" data-i18n="calendar.create.email">Email</label>
           <input type="email" id="bk-email" class="bk-input bk-input-sm" placeholder="guest@example.com">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-guest-count">Guest count</label>
+          <label class="bk-label" for="bk-guest-count" data-i18n="calendar.create.guestCount">Guest count</label>
           <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-package">Package</label>
+          <label class="bk-label" for="bk-package" data-i18n="calendar.create.package">Package</label>
           <select id="bk-package" class="bk-input bk-input-sm">
-            <option value="">&mdash; select package &mdash;</option>
+            <option value="" data-i18n="calendar.create.selectPackage">&mdash; select package &mdash;</option>
             <option value="malibu">Malibu</option>
             <option value="uluwatu">Uluwatu</option>
             <option value="waimea">Waimea</option>
-            <option value="package_none">No package / accommodation only</option>
-            <option value="manual_override">Manual Price Override</option>
+            <option value="package_none" data-i18n="calendar.create.noPackage">No package / accommodation only</option>
+            <option value="manual_override" data-i18n="calendar.create.manualOverride">Manual Price Override</option>
           </select>
         </div>
         <div class="bk-compact-row" id="bk-manual-price-row" style="display:none">
-          <label class="bk-label" for="bk-manual-price-night">Price per night</label>
+          <label class="bk-label" for="bk-manual-price-night" data-i18n="calendar.create.pricePerNight">Price per night</label>
           <input type="number" id="bk-manual-price-night" class="bk-input bk-input-sm" placeholder="40.00" step="0.01" min="0.01" aria-label="Price per night EUR">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-source">Source / channel</label>
+          <label class="bk-label" for="bk-source" data-i18n="calendar.create.source">Source / channel</label>
           <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-room-type">Room type</label>
+          <label class="bk-label" for="bk-room-type" data-i18n="calendar.create.roomType">Room type</label>
           <select id="bk-room-type" class="bk-input bk-input-sm">
-            <option value="shared" selected>Shared</option>
-            <option value="private">Private (+&euro;10/person/night)</option>
+            <option value="shared" selected data-i18n="calendar.create.shared">Shared</option>
+            <option value="private" data-i18n="calendar.create.private">Private (+&euro;10/person/night)</option>
           </select>
         </div>
       </div>
@@ -15558,109 +15584,109 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
     <!-- Section: Add Services (Stage 8.4.7 — qty &gt; 0 selects add-on; Stage 8.7.15) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Add Services</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.addServices">Add Services</div>
       <div class="bk-ao-grid">
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Wetsuit + Soft board combo</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.wsSoft">Wetsuit + Soft board combo</span>
           <input type="number" id="bk-ao-ws-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Soft board combo days">
-          <span class="bk-ao-unit">days</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.days">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Wetsuit + Hard board combo</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.wsHard">Wetsuit + Hard board combo</span>
           <input type="number" id="bk-ao-wb-combo-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit + Hard board combo days">
-          <span class="bk-ao-unit">days</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.days">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Wetsuit rental</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.wetsuit">Wetsuit rental</span>
           <input type="number" id="bk-ao-wetsuit-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Wetsuit rental days">
-          <span class="bk-ao-unit">days</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.days">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Soft board rental</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.softBoard">Soft board rental</span>
           <input type="number" id="bk-ao-softtop-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Soft board rental days">
-          <span class="bk-ao-unit">days</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.days">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Hard board rental</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.hardBoard">Hard board rental</span>
           <input type="number" id="bk-ao-hardboard-days" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Hard board rental days">
-          <span class="bk-ao-unit">days</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.days">days</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Surf lessons</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.surfLessons">Surf lessons</span>
           <input type="number" id="bk-ao-surf-lessons" class="bk-input bk-ao-qty" value="0" min="0" max="20" aria-label="Surf lessons quantity">
-          <span class="bk-ao-unit">lessons</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.lessons">lessons</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Yoga classes</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.yoga">Yoga classes</span>
           <input type="number" id="bk-ao-yoga" class="bk-input bk-ao-qty" value="0" min="0" max="30" aria-label="Yoga classes quantity">
-          <span class="bk-ao-unit">classes</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.classes">classes</span>
         </div>
         <div class="bk-ao-row">
-          <span class="bk-ao-label">Meal</span>
+          <span class="bk-ao-label" data-i18n="calendar.create.addon.meal">Meal</span>
           <input type="number" id="bk-ao-meals" class="bk-input bk-ao-qty" value="0" min="0" max="60" aria-label="Meal quantity">
-          <span class="bk-ao-unit">meals</span>
+          <span class="bk-ao-unit" data-i18n="calendar.create.meals">meals</span>
         </div>
       </div>
-      <div class="bk-ao-note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate. Enter a quantity &gt; 0 to include an add-on.</div>
+      <div class="bk-ao-note" data-i18n="calendar.create.addon.note">Combos replace individual rentals. 1 surf lesson = single rate; 2+ = bundle rate. Enter a quantity &gt; 0 to include an add-on.</div>
     </div>
 
     <!-- Section: Payment (Stage 8.7.18 — compact left-aligned) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Payment</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.payment">Payment</div>
       <div class="bk-compact-grid">
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-payment-choice">Payment choice</label>
+          <label class="bk-label" for="bk-payment-choice" data-i18n="calendar.create.paymentChoice">Payment choice</label>
           <select id="bk-payment-choice" class="bk-input bk-input-sm">
-            <option value="stripe_deposit">Deposit payment link</option>
-            <option value="stripe_full">Full secure payment link</option>
-            <option value="paid_cash">Already paid cash</option>
-            <option value="paid_bank_transfer">Already paid bank transfer</option>
-            <option value="no_payment_yet">No payment yet</option>
+            <option value="stripe_deposit" data-i18n="calendar.create.pay.depositLink">Deposit payment link</option>
+            <option value="stripe_full" data-i18n="calendar.create.pay.fullLink">Full secure payment link</option>
+            <option value="paid_cash" data-i18n="calendar.create.pay.paidCash">Already paid cash</option>
+            <option value="paid_bank_transfer" data-i18n="calendar.create.pay.paidBank">Already paid bank transfer</option>
+            <option value="no_payment_yet" data-i18n="calendar.create.pay.noPayment">No payment yet</option>
           </select>
         </div>
         <div class="bk-compact-row" id="bk-paid-amount-type-row" style="display:none">
-          <label class="bk-label" for="bk-paid-amount-type">Paid amount</label>
+          <label class="bk-label" for="bk-paid-amount-type" data-i18n="calendar.create.paidAmount">Paid amount</label>
           <select id="bk-paid-amount-type" class="bk-input bk-input-sm">
-            <option value="deposit">Deposit</option>
-            <option value="full">Full invoice total</option>
-            <option value="custom">Custom amount</option>
+            <option value="deposit" data-i18n="calendar.create.pay.deposit">Deposit</option>
+            <option value="full" data-i18n="calendar.create.pay.full">Full invoice total</option>
+            <option value="custom" data-i18n="calendar.create.pay.custom">Custom amount</option>
           </select>
         </div>
         <div class="bk-compact-row" id="bk-paid-amount-custom-row" style="display:none">
-          <label class="bk-label" for="bk-paid-amount-custom">Custom paid amount (&euro;)</label>
+          <label class="bk-label" for="bk-paid-amount-custom" data-i18n="calendar.create.customPaidAmount">Custom paid amount (&euro;)</label>
           <input type="number" id="bk-paid-amount-custom" class="bk-input bk-input-sm" placeholder="0.00" step="0.01" min="0.01">
         </div>
-        <div class="bk-compact-hint" id="bk-payment-choice-hint">Secure payment links are created at booking save &mdash; nothing is sent automatically.</div>
+        <div class="bk-compact-hint" id="bk-payment-choice-hint" data-i18n="calendar.create.paymentHint">Secure payment links are created at booking save &mdash; nothing is sent automatically.</div>
       </div>
     </div>
 
     <!-- Section: Notes -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.notesSection">Notes</div>
       <div class="bk-notes-block">
-        <label class="bk-label" for="bk-notes">Staff notes</label>
-        <textarea id="bk-notes" class="bk-input" rows="3" placeholder="Internal booking notes..."></textarea>
+        <label class="bk-label" for="bk-notes" data-i18n="calendar.create.staffNotes">Staff notes</label>
+        <textarea id="bk-notes" class="bk-input" rows="3" data-i18n-placeholder="calendar.create.notesPlaceholder" placeholder="Internal booking notes..."></textarea>
       </div>
     </div>
 
     <!-- Section: Quote Preview (Stage 8.4.5 — calls /staff/quote-preview, no writes) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Quote Preview</div>
+      <div class="bk-form-section-title" data-i18n="calendar.create.quotePreview">Quote Preview</div>
       <div id="bc-quote-result">
-        <div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>
+        <div class="bk-preview-not-run" data-i18n="calendar.create.quoteNotRun">Select beds, dates, and package, then click Calculate Quote.</div>
       </div>
     </div>
 
     <!-- Actions -->
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn btn-ghost" id="bc-sel-clear">Clear Selection</button>
+      <button class="btn btn-ghost" id="bc-sel-clear" data-i18n="calendar.create.clearSelection">Clear Selection</button>
       <button class="btn btn-bc-quote-soft" disabled id="bc-sel-quote"
-        title="Select beds, dates, and package to calculate quote">
-        Calculate Quote
+        data-i18n-title="calendar.create.quoteTitleHint" title="Select beds, dates, and package to calculate quote">
+        <span data-i18n="calendar.create.calculateQuote">Calculate Quote</span>
       </button>
       <button class="btn btn-bc-create-soft" disabled id="bc-sel-create"
-        title="Calculate Quote first, then fill required fields to create.">
-        Create New Booking
+        data-i18n-title="calendar.create.createTitleHint" title="Calculate Quote first, then fill required fields to create.">
+        <span data-i18n="calendar.create.createBooking">Create New Booking</span>
       </button>
     </div>
     <!-- Stage 8.4.8: Create result panel -->
@@ -15845,34 +15871,37 @@ textarea.bk-input{resize:vertical;min-height:60px}
 
   <div class="al-hero">
     <div>
-      <div class="al-hero-title">Luna Staff</div>
-      <div class="al-hero-sub">Operations questions and owner business insights from structured data. Read-only &mdash; no writes, no WhatsApp sends.</div>
+      <div class="al-hero-title" data-i18n="lunaStaff.hero.title">Luna Staff</div>
+      <div class="al-hero-sub" data-i18n="lunaStaff.hero.sub">Operations questions and owner business insights from structured data. Read-only &mdash; no writes, no WhatsApp sends.</div>
     </div>
   </div>
 
   <div class="card cc-section luna-global-pause-card" id="cc-luna-global-pause">
-    <div class="cc-section-hdr">Luna guest automation</div>
-    <div class="cc-section-sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.pause.section">Luna guest automation</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.pause.sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
     <div class="luna-global-pause-row">
       <label class="luna-global-pause-toggle" for="luna-global-pause-switch">
-        <input type="checkbox" id="luna-global-pause-switch">
-        <span>Global Pause Luna</span>
+        <span data-i18n="lunaStaff.pause.toggle">Global Pause Luna</span>
+        <span class="luna-global-pause-switch">
+          <input type="checkbox" id="luna-global-pause-switch">
+          <span class="luna-global-pause-slider"></span>
+        </span>
       </label>
-      <div class="al-hint" id="luna-global-pause-help">Luna is active for all guest conversations.</div>
+      <div class="al-hint" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active">Luna is active for all guest conversations.</div>
       <div id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></div>
     </div>
   </div>
 
   <div class="card cc-section">
-    <div class="cc-section-hdr">Operations</div>
-    <div class="cc-section-sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.ops.section">Operations</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.ops.sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
     <div class="al-form-row">
-      <input id="al-input" type="text" placeholder="What&rsquo;s happening today?"
+      <input id="al-input" type="text" data-i18n-placeholder="lunaStaff.ops.placeholder" placeholder="What&rsquo;s happening today?"
              autocomplete="off" spellcheck="false"
              onkeydown="if(event.key==='Enter')alAsk()">
-      <button class="btn btn-primary" id="al-btn" onclick="alAsk()">Ask</button>
+      <button class="btn btn-primary" id="al-btn" onclick="alAsk()" data-i18n="lunaStaff.ops.ask">Ask</button>
     </div>
-    <div class="al-hint">Tap an example or type your own question:</div>
+    <div class="al-hint" data-i18n="lunaStaff.ops.examplesHint">Tap an example or type your own question:</div>
     <div class="al-examples" id="al-examples">
       <button type="button" class="al-example-chip" data-q="What's happening today?">What&rsquo;s happening today?</button>
       <button type="button" class="al-example-chip" data-q="What should I prepare for tomorrow?">What should I prepare for tomorrow?</button>
@@ -15897,17 +15926,17 @@ textarea.bk-input{resize:vertical;min-height:60px}
   </div>
 
   <div class="card cc-section" id="cc-owner-insights">
-    <div class="cc-section-hdr">Owner Insights</div>
-    <div class="cc-section-sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
-    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none">Owner Insights requires owner access.</div>
+    <div class="cc-section-hdr" data-i18n="lunaStaff.owner.section">Owner Insights</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.owner.sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
+    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none" data-i18n="lunaStaff.owner.denied">Owner Insights requires owner access.</div>
     <div id="cc-owner-insights-active">
     <div class="oi-form-row">
-      <input id="oi-input" type="text" placeholder="How much revenue this month?"
+      <input id="oi-input" type="text" data-i18n-placeholder="lunaStaff.owner.placeholder" placeholder="How much revenue this month?"
              autocomplete="off" spellcheck="false"
              onkeydown="if(event.key==='Enter')oiAsk()">
-      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()">Ask Owner Insights</button>
+      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()" data-i18n="lunaStaff.owner.ask">Ask Owner Insights</button>
     </div>
-    <div class="al-hint">Example owner questions:</div>
+    <div class="al-hint" data-i18n="lunaStaff.owner.examplesHint">Example owner questions:</div>
     <div class="oi-examples" id="oi-examples">
       <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
       <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
@@ -15932,6 +15961,17 @@ function el(id){ return document.getElementById(id); }
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function bcQuoteNotRunHtml(){
+  return '<div class="bk-preview-not-run">' + escHtml(t('calendar.create.quoteNotRun')) + '</div>';
+}
+function bcBedsSelectedLabel(count){
+  return t('calendar.create.bedsSelected', { count: String(count) });
+}
+function bcNightsLabel(n){
+  n = Number(n) || 0;
+  if (n <= 0) return '\u2014';
+  return String(n) + ' ' + (n === 1 ? t('drawer.field.night') : t('drawer.field.nightsPlural'));
 }
 /* Stage 8.4.10 / 10.7c — payment link URL from copy button or sibling anchor */
 function bcPaymentLinkUrlFromCopyBtn(btn){
@@ -17066,14 +17106,14 @@ function bcSyncConversationButtons(data){
   var toolbarBtn = el('bc-open-conversation-toolbar');
   if (!ctx){
     if (toolbarBtn){
-      toolbarBtn.textContent = 'Start Conversation';
+      toolbarBtn.textContent = t('drawer.footer.startConv');
       toolbarBtn.disabled = true;
       toolbarBtn.onclick = null;
     }
     return;
   }
   var hasConv = bcHasLinkedConversation(ctx);
-  var label = hasConv ? 'Open Conversation' : 'Start Conversation';
+  var label = hasConv ? t('drawer.footer.openConv') : t('drawer.footer.startConv');
   var handler = function(){ bcOpenOrStartConversationFromBooking(ctx); };
   if (toolbarBtn){
     toolbarBtn.textContent = label;
@@ -17082,12 +17122,12 @@ function bcSyncConversationButtons(data){
   }
   var openBtn = el('bc-open-conv-btn');
   if (openBtn){
-    openBtn.textContent = 'Open Conversation';
+    openBtn.textContent = t('drawer.footer.openConv');
     openBtn.onclick = handler;
   }
   var startBtn = el('bc-new-conversation-btn');
   if (startBtn){
-    startBtn.textContent = 'Start Conversation';
+    startBtn.textContent = t('drawer.footer.startConv');
     startBtn.onclick = handler;
   }
 }
@@ -17914,12 +17954,11 @@ function lunaGlobalPauseUpdateUi(paused, meta){
   if (sw) sw.checked = !!paused;
   if (card) card.classList.toggle('luna-global-paused', !!paused);
   if (help){
-    help.textContent = paused
-      ? 'Luna is paused globally — automated guest replies are blocked for all conversations.'
-      : 'Luna is active for all guest conversations.';
+    help.textContent = paused ? t('lunaStaff.pause.paused') : t('lunaStaff.pause.active');
+    help.setAttribute('data-i18n', paused ? 'lunaStaff.pause.paused' : 'lunaStaff.pause.active');
   }
   if (paused && meta && meta.paused_at){
-    lunaGlobalPauseSetStatus('Paused since ' + String(meta.paused_at).slice(0, 16).replace('T', ' '), false);
+    lunaGlobalPauseSetStatus(t('lunaStaff.pause.pausedSince', { date: String(meta.paused_at).slice(0, 16).replace('T', ' ') }), false);
   } else {
     lunaGlobalPauseSetStatus('', false);
   }
@@ -18470,7 +18509,7 @@ function bcWireRoomHideButtons(){
       wrap.querySelectorAll('tr.bc-room-bed-row[data-room="' + roomCode + '"]').forEach(function(row){
         row.classList.toggle('bc-room-collapsed', nextCollapsed);
       });
-      btn.textContent = nextCollapsed ? 'Show' : 'Hide';
+      btn.textContent = nextCollapsed ? t('calendar.grid.show') : t('calendar.grid.hide');
     });
   });
 }
@@ -18553,9 +18592,9 @@ function bcClearSelection(){
   if (panel) panel.style.display = 'none';
   /* Reset quote result and disable Calculate Quote button (Stage 8.4.5) */
   var _qrClear = el('bc-quote-result');
-  if (_qrClear) _qrClear.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
+  if (_qrClear) _qrClear.innerHTML = bcQuoteNotRunHtml();
   var _qBtnClear = el('bc-sel-quote');
-  if (_qBtnClear){ _qBtnClear.disabled = true; _qBtnClear.title = 'Select beds, dates, and package to calculate quote'; }
+  if (_qBtnClear){ _qBtnClear.disabled = true; _qBtnClear.title = t('calendar.create.quoteTitleHint'); }
 }
 
 function bcApplySelectionHighlight(){
@@ -18604,7 +18643,7 @@ function bcApplySelectionHighlight(){
     }).join('');
   }
   var _bcEl = el('bc-sel-bed-count');
-  if (_bcEl) _bcEl.textContent = bcSelectedBeds.length + ' bed' + (bcSelectedBeds.length === 1 ? '' : 's') + ' selected';
+  if (_bcEl) _bcEl.textContent = bcBedsSelectedLabel(bcSelectedBeds.length);
 
   /* Auto-update guest count to match bed count if still at default (Stage 8.4.5) */
   var gcEl = el('bk-guest-count');
@@ -18619,7 +18658,7 @@ function bcApplySelectionHighlight(){
   bcLastQuote = null;
   bcLastQuoteResp = null;
   var _qrSel = el('bc-quote-result');
-  if (_qrSel) _qrSel.innerHTML = '<div class="bk-preview-not-run">Select beds, dates, and package, then click Calculate Quote.</div>';
+  if (_qrSel) _qrSel.innerHTML = bcQuoteNotRunHtml();
   bcApplyDefaultPackageForStay(formNights);
   bcUpdateQuoteButton();
   bcUpdateCreateButton();
@@ -18810,7 +18849,7 @@ function bcUpdateCreateButton(){
   /* Server gates manual create on MANUAL_BOOKING_ENABLED only (not STAFF_ACTIONS_ENABLED). */
   if (!BC_MANUAL_BOOKING){
     btn.disabled = true;
-    btn.title    = 'Manual booking creation disabled. Set MANUAL_BOOKING_ENABLED=true.';
+    btn.title    = t('calendar.create.manualDisabled');
     if (note){ note.textContent = ''; note.style.display = 'none'; }
     return;
   }
@@ -18823,20 +18862,21 @@ function bcUpdateCreateButton(){
   var gname        = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim() : '';
   var quoteOk      = !!bcLastQuote;
   var missing = [];
-  if (!hasSelection) missing.push('bed selection');
-  if (!cin || !cout) missing.push('dates');
-  if (gc < 1) missing.push('guest count');
-  if (!pkg) missing.push('package');
-  if (!pc) missing.push('payment choice');
-  if (!gname) missing.push('guest name');
-  if (!quoteOk) missing.push('quote (click Calculate Quote)');
+  if (!hasSelection) missing.push(t('calendar.create.missing.bedSelection'));
+  if (!cin || !cout) missing.push(t('calendar.create.missing.dates'));
+  if (gc < 1) missing.push(t('calendar.create.missing.guestCount'));
+  if (!pkg) missing.push(t('calendar.create.missing.package'));
+  if (!pc) missing.push(t('calendar.create.missing.paymentChoice'));
+  if (!gname) missing.push(t('calendar.create.missing.guestName'));
+  if (!quoteOk) missing.push(t('calendar.create.missing.quote'));
   var ready = missing.length === 0;
   btn.disabled = !ready;
+  var missingText = missing.join(', ');
   btn.title    = ready
-    ? 'Create manual booking (availability checked on click)'
-    : ('Still needed: ' + missing.join(', '));
+    ? t('calendar.create.createReadyTitle')
+    : t('calendar.create.stillNeeded', { items: missingText });
   if (note){
-    note.textContent = ready ? '' : ('Still needed: ' + missing.join(', ') + '.');
+    note.textContent = ready ? '' : (t('calendar.create.stillNeeded', { items: missingText }) + '.');
     note.style.display = note.textContent ? '' : 'none';
   }
 }
@@ -18857,11 +18897,11 @@ function bcUpdateManualBookingPaidFields(){
   }
   if (hint) {
     if (choice === 'stripe_deposit' || choice === 'stripe_full') {
-      hint.textContent = 'A secure payment link is created when you save the booking. Nothing is sent automatically.';
+      hint.textContent = t('calendar.create.paymentHintStripe');
     } else if (showPaid) {
-      hint.textContent = 'Paid amount is recorded in Payment history immediately. No payment link.';
+      hint.textContent = t('calendar.create.paymentHintPaid');
     } else {
-      hint.textContent = 'No payment row or link at create. Balance remains due.';
+      hint.textContent = t('calendar.create.paymentHintNone');
     }
   }
 }
@@ -18913,11 +18953,11 @@ function runManualBookingCreate(){
   if (!cr) return;
   if (bcManualCreateInFlight) return;
   if (!BC_MANUAL_BOOKING){
-    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Disabled</div>Manual booking creation is disabled in this environment.</div>';
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.disabled')) + '</div>' + escHtml(t('calendar.create.manualDisabledEnv')) + '</div>';
     return;
   }
   if (!bcLastQuote){
-    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">No quote</div>Calculate Quote first.</div>';
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.noQuote')) + '</div>' + escHtml(t('calendar.create.calculateQuoteFirst')) + '</div>';
     return;
   }
   var checkIn      = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
@@ -19277,7 +19317,7 @@ function runQuotePreview(){
   var checkIn  = el('bc-sel-cin')  ? el('bc-sel-cin').value  : '';
   var checkOut = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
   if (!checkIn || !checkOut || bcSelectedBeds.length === 0){
-    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and a date range first.</div>';
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.missingInput')) + '</div>' + escHtml(t('calendar.create.quote.selectBedsDates')) + '</div>';
     return;
   }
   var client = getBcClient();
@@ -19307,13 +19347,13 @@ function runQuotePreview(){
   payload.add_ons = buildAddOns();
   var quoteNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
   if (!quoteNightVal.ok) {
-    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Package stay rule</div>' + escHtml(quoteNightVal.error) + '</div>';
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.packageRule')) + '</div>' + escHtml(quoteNightVal.error) + '</div>';
     bcLastQuote = null;
     bcLastQuoteResp = null;
     bcUpdateCreateButton();
     return;
   }
-  qr.innerHTML = '<div class="bk-preview-loading">Calculating quote\u2026</div>';
+  qr.innerHTML = '<div class="bk-preview-loading">' + escHtml(t('calendar.create.loadingQuote')) + '</div>';
   fetch('/staff/quote-preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -19322,7 +19362,7 @@ function runQuotePreview(){
   })
   .then(function(r){
     if (r.status === 401 || r.status === 403){
-      qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Auth error</div>Please refresh or log in again.</div>';
+      qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.authError')) + '</div>' + escHtml(t('calendar.create.quote.refreshLogin')) + '</div>';
       return null;
     }
     return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
@@ -19336,7 +19376,7 @@ function runQuotePreview(){
     bcUpdateCreateButton();
   })
   .catch(function(){
-    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Network error</div>Please try again.</div>';
+    qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('common.networkError')) + '</div>' + escHtml(t('login.networkError')) + '</div>';
     bcLastQuote = null;
     bcLastQuoteResp = null;
     bcUpdateCreateButton();
@@ -19437,7 +19477,7 @@ function bcQuoteAccommodationNote(li, fmtEur){
 }
 
 function renderQuoteResult(resp){
-  if (!resp){ return '<div class="bk-preview-error"><div class="bk-preview-badge">No response</div>Quote request failed.</div>'; }
+  if (!resp){ return '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.noResponse')) + '</div>' + escHtml(t('calendar.create.quote.requestFailed')) + '</div>'; }
   var q = resp.quote || {};
   var fmtEur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
@@ -19446,11 +19486,11 @@ function renderQuoteResult(resp){
   var paymentChoice = (el('bk-payment-choice') && el('bk-payment-choice').value) || 'stripe_deposit';
   var paidAmountType = (el('bk-paid-amount-type') && el('bk-paid-amount-type').value) || 'deposit';
   if (!q.success){
-    var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 Quote not available</div>';
+    var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 ' + escHtml(t('calendar.create.quote.notAvailable')) + '</div>';
     (q.blockers||[]).forEach(function(b){ html += '<div class="bk-preview-meta">' + escHtml(String(b)) + '</div>'; });
     html += '</div>';
-    if (q.missing_config) html += '<div class="bk-preview-warn">Missing config \u2014 staff review required.</div>';
-    else if (q.staff_review_required) html += '<div class="bk-preview-warn">Staff review required before booking.</div>';
+    if (q.missing_config) html += '<div class="bk-preview-warn">' + escHtml(t('calendar.create.quote.missingConfig')) + '</div>';
+    else if (q.staff_review_required) html += '<div class="bk-preview-warn">' + escHtml(t('calendar.create.quote.staffReview')) + '</div>';
     return html;
   }
   var invoiceTotal = Number(q.total_cents || 0);
@@ -19458,33 +19498,33 @@ function renderQuoteResult(resp){
   var balanceAfter = Math.max(invoiceTotal - paidNow, 0);
   var html = '<div class="bk-quote-items">';
 
-  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Accommodation</div>';
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">' + escHtml(t('calendar.create.quote.section.accommodation')) + '</div>';
   (q.line_items||[]).forEach(function(li){
     html += '<div class="bk-quote-item"><span class="bk-quote-item-label">' + escHtml(li.label||li.code||'') + '</span>' +
       '<span class="bk-quote-item-amount">' + escHtml(fmtEur(li.total_cents)) + '</span></div>';
     if (li.note) html += '<div class="bk-quote-item-note">' + escHtml(bcQuoteAccommodationNote(li, fmtEur)) + '</div>';
   });
   if (q.discount_cents > 0) {
-    html += '<div class="bk-quote-item"><span>Discount</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
+    html += '<div class="bk-quote-item"><span>' + escHtml(t('calendar.create.quote.discount')) + '</span><span>\u2212' + escHtml(fmtEur(q.discount_cents)) + '</span></div>';
   }
   if (Number(q.subtotal_cents) !== invoiceTotal && Number(q.subtotal_cents) > 0) {
-    html += '<div class="bk-quote-item bk-quote-total"><span>Invoice total</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
+    html += '<div class="bk-quote-item bk-quote-total"><span>' + escHtml(t('calendar.create.quote.invoiceTotal')) + '</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
   } else if ((q.line_items||[]).length === 0) {
-    html += '<div class="bk-quote-item bk-quote-total"><span>Invoice total</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
+    html += '<div class="bk-quote-item bk-quote-total"><span>' + escHtml(t('calendar.create.quote.invoiceTotal')) + '</span><span><b>' + escHtml(fmtEur(invoiceTotal)) + '</b></span></div>';
   }
   html += '</div>';
 
-  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Deposit</div>';
-  html += '<div class="bk-quote-item"><span>Deposit required</span><span>' + escHtml(fmtEur(q.deposit_required_cents)) + '</span></div>';
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">' + escHtml(t('calendar.create.quote.section.deposit')) + '</div>';
+  html += '<div class="bk-quote-item"><span>' + escHtml(t('calendar.create.quote.depositRequired')) + '</span><span>' + escHtml(fmtEur(q.deposit_required_cents)) + '</span></div>';
   html += '</div>';
 
-  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">Selected payment</div>';
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">' + escHtml(t('calendar.create.quote.section.payment')) + '</div>';
   html += '<div class="bk-quote-item"><span>' + escHtml(bcQuoteSelectedPaymentLabel(paymentChoice, paidAmountType, q)) + '</span></div>';
   html += '</div>';
 
-  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">After create</div>';
-  html += '<div class="bk-quote-item"><span>Paid now</span><span>' + escHtml(fmtEur(paidNow)) + '</span></div>';
-  html += '<div class="bk-quote-item"><span>Balance due</span><span>' + escHtml(fmtEur(balanceAfter)) + '</span></div>';
+  html += '<div class="bk-quote-section"><div class="bk-quote-section-title">' + escHtml(t('calendar.create.quote.section.afterCreate')) + '</div>';
+  html += '<div class="bk-quote-item"><span>' + escHtml(t('calendar.create.quote.paidNow')) + '</span><span>' + escHtml(fmtEur(paidNow)) + '</span></div>';
+  html += '<div class="bk-quote-item"><span>' + escHtml(t('calendar.create.quote.balanceDue')) + '</span><span>' + escHtml(fmtEur(balanceAfter)) + '</span></div>';
   html += '</div>';
 
   html += '</div>';
@@ -19616,9 +19656,9 @@ function bcFormatTransferSummaryLabel(summary){
   var dirs = summary.directions || [];
   var hasArrival = dirs.indexOf('arrival') >= 0;
   var hasDeparture = dirs.indexOf('departure') >= 0;
-  if (hasArrival && hasDeparture) return 'Transfer: Arrival + Departure';
-  if (hasArrival) return 'Transfer: Arrival';
-  if (hasDeparture) return 'Transfer: Departure';
+  if (hasArrival && hasDeparture) return t('drawer.transfers.arrivalPlusDeparture');
+  if (hasArrival) return t('drawer.transfers.arrivalOnly');
+  if (hasDeparture) return t('drawer.transfers.departureOnly');
   return '';
 }
 
@@ -19687,7 +19727,7 @@ function renderBedCalendar(data){
 
   /* Date header row */
   html += '<thead><tr>';
-  html += '<th class="bc-bed-head">Room / Bed</th>';
+  html += '<th class="bc-bed-head">' + escHtml(t('calendar.grid.roomBed')) + '</th>';
   days.forEach(function(day){
     html += '<th style="min-width:44px">' + escHtml(day.label) + '</th>';
   });
@@ -19702,22 +19742,25 @@ function renderBedCalendar(data){
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     var roomLabel = escHtml(room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
-    var roomMeta = [];
-    if (room.gender_strategy) roomMeta.push(escHtml(room.gender_strategy));
-    if (room.room_type) roomMeta.push(escHtml(room.room_type));
-    if (room.capacity)  roomMeta.push(room.capacity + ' beds');
-    var roomMetaHtml = roomMeta.length
-      ? ' <span style="font-weight:400;opacity:.65;font-size:10px;margin-left:6px">' + roomMeta.join(' &middot; ') + '</span>'
+    var metaParts = [];
+    if (room.gender_strategy) metaParts.push(escHtml(room.gender_strategy));
+    if (room.room_type) metaParts.push(escHtml(room.room_type));
+    var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
+    var metaHtml = metaParts.length
+      ? ' <span style="' + metaStyle + '">' + metaParts.join(' &middot; ') + '</span>'
       : '';
+    var bedsHtml = room.capacity
+      ? ' <span style="' + metaStyle + '">' + room.capacity + ' ' + escHtml(t('calendar.grid.beds')) + '</span>'
+      : '';
+    var hideBtn = ' <button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
+      escHtml(roomCollapsed ? t('calendar.grid.show') : t('calendar.grid.hide')) + '</button>';
     html += '<tr class="bc-room-hdr-row" data-room="' + escHtml(roomCode) + '"><td colspan="' + totalCols + '" class="bc-room-hdr">' +
-      '<span class="bc-room-hdr-inner"><span class="bc-room-hdr-label">' + roomLabel + roomMetaHtml + '</span>' +
-      '<button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
-      (roomCollapsed ? 'Show' : 'Hide') + '</button></span></td></tr>';
+      '<span class="bc-room-hdr-inner">' + roomLabel + metaHtml + bedsHtml + hideBtn + '</span></td></tr>';
 
     var beds = bcSortBedsForDisplay(room.beds || []);
     if (beds.length === 0){
       html += '<tr class="bc-room-bed-row' + (roomCollapsed ? ' bc-room-collapsed' : '') + '" data-room="' + escHtml(roomCode) + '">' +
-        '<td class="bc-bed-cell" style="color:#9aabb8;font-style:italic">no beds</td>';
+        '<td class="bc-bed-cell" style="color:#9aabb8;font-style:italic">' + escHtml(t('calendar.grid.noBeds')) + '</td>';
       for (var e = 0; e < N; e++) html += '<td class="bc-day-cell"></td>';
       html += '</tr>';
     }
@@ -20004,7 +20047,7 @@ function renderBookingBlock(blk, idx, spanDays, turnoverCheckout){
 function bcDrawerConvModeRowHtml(conv){
   conv = conv || {};
   var paused = isLunaGuestAutomationPaused([conv]);
-  return '<div class="kv" id="bc-drawer-conv-bot-mode-row"><span class="k">Bot mode</span>' +
+  return '<div class="kv" id="bc-drawer-conv-bot-mode-row"><span class="k">' + escHtml(t('drawer.kv.botMode')) + '</span>' +
     '<span class="v" id="bc-drawer-conv-bot-mode-v">' + inboxLunaStaffPill(paused) + '</span></div>';
 }
 
@@ -20069,27 +20112,45 @@ function formatThreadMessageHtml(text){
 function bcRenderLunaGuestNotesHtml(data){
   var notes = (data && data.luna_guest_notes) || [];
   var html = '<div class="bc-luna-notes-wrap" id="bc-luna-notes-wrap" style="margin-top:12px">';
-  html += '<div class="bc-drawer-card-title" style="font-size:12px;margin-bottom:6px">Notes</div>';
+  html += '<div class="bc-drawer-card-title" style="font-size:12px;margin-bottom:6px">' + escHtml(t('drawer.notes')) + '</div>';
   if (!notes.length){
-    html += '<div class="ctx-none" id="bc-luna-notes-empty">No notes yet.</div>';
+    html += '<div class="ctx-none" id="bc-luna-notes-empty">' + escHtml(t('drawer.notes.empty')) + '</div>';
   } else {
     html += '<ul class="bc-luna-notes-list" id="bc-luna-notes-list" style="margin:0;padding:0;list-style:none">';
     notes.forEach(function(n){
-      var src = (n.source === 'staff') ? 'Staff' : 'Luna';
+      var src = (n.source === 'staff') ? t('drawer.notes.staff') : t('drawer.notes.luna');
       var when = n.at ? new Date(n.at).toLocaleString() : '';
-      html += '<li class="bc-luna-note-item" style="margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-2,#f4f4f5);font-size:12px;line-height:1.45">';
-      html += '<div style="display:flex;justify-content:space-between;gap:8px;margin-bottom:4px">';
+      var noteId = String(n.id || '');
+      html += '<li class="bc-luna-note-item" style="margin:0 0 8px;padding:8px 10px;border-radius:8px;background:var(--surface-2,#f4f4f5);font-size:12px;line-height:1.45"' +
+        (noteId ? ' data-note-id="' + escHtml(noteId) + '"' : '') + '>';
+      html += '<div class="bc-luna-note-head">';
+      html += '<div class="bc-luna-note-meta">';
       html += '<span class="pill pill-neutral" style="font-size:10px">' + escHtml(src) + '</span>';
       if (when) html += '<span style="font-size:10px;color:var(--muted,#71717a)">' + escHtml(when) + '</span>';
+      html += '</div>';
+      if (n.source === 'staff' && noteId) {
+        html += '<button type="button" class="bc-luna-note-delete" data-note-id="' + escHtml(noteId) + '" title="' + escHtml(t('drawer.notes.delete')) + '" aria-label="' + escHtml(t('drawer.notes.delete')) + '">\u00d7</button>';
+      }
       html += '</div><div>' + escHtml(n.text || '') + '</div></li>';
     });
     html += '</ul>';
   }
-  html += '<div style="margin-top:8px;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
-  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm" rows="2" placeholder="Add a staff note..." style="flex:1;min-width:180px;resize:vertical"></textarea>';
-  html += '<button type="button" class="btn btn-secondary btn-sm" id="bc-luna-staff-note-save">Add note</button>';
+  html += '<div class="bc-luna-notes-compose">';
+  html += '<textarea id="bc-luna-staff-note-input" class="bk-input-sm" rows="2" placeholder="' + escHtml(t('drawer.notes.placeholder')) + '"></textarea>';
+  html += '<button type="button" class="btn btn-secondary btn-sm" id="bc-luna-staff-note-save">' + escHtml(t('drawer.notes.add')) + '</button>';
   html += '</div><div id="bc-luna-staff-note-result" style="margin-top:4px;font-size:11px"></div></div>';
   return html;
+}
+
+function bcRefreshLunaNotesInDrawer(){
+  if (!bcLastBookingContext) return;
+  var card = el('bc-drawer-card-conversation');
+  var old = el('bc-luna-notes-wrap');
+  if (!card || !old) return;
+  old.remove();
+  card.insertAdjacentHTML('beforeend', bcRenderLunaGuestNotesHtml(bcLastBookingContext));
+  bcBindLunaNotesSave();
+  bcBindLunaNotesDelete();
 }
 
 function bcBindLunaNotesSave(){
@@ -20130,20 +20191,54 @@ function bcBindLunaNotesSave(){
       if (resultEl) resultEl.textContent = 'Note saved.';
       if (bcLastBookingContext){
         bcLastBookingContext.luna_guest_notes = j.luna_guest_notes || [];
-        var panel = el('bc-drawer-tab-overview');
-        if (panel && bcLastBookingContext){
-          var card = el('bc-drawer-card-conversation');
-          if (card){
-            var old = el('bc-luna-notes-wrap');
-            if (old) old.remove();
-            card.insertAdjacentHTML('beforeend', bcRenderLunaGuestNotesHtml(bcLastBookingContext));
-            bcBindLunaNotesSave();
-          }
-        }
+        bcRefreshLunaNotesInDrawer();
       }
     }).catch(function(err){
       btn.disabled = false;
       if (resultEl) resultEl.textContent = err && err.message ? err.message : 'Save failed';
+    });
+  });
+}
+
+function bcBindLunaNotesDelete(){
+  if (document._bcLunaNoteDeleteBound) return;
+  document._bcLunaNoteDeleteBound = true;
+  document.addEventListener('click', function(ev){
+    var btn = ev.target && ev.target.closest ? ev.target.closest('.bc-luna-note-delete') : null;
+    if (!btn) return;
+    var noteId = String(btn.getAttribute('data-note-id') || '').trim();
+    if (!noteId) return;
+    var ctx = bcLastBookingContext || {};
+    var bk = ctx.booking || {};
+    var resultEl = el('bc-luna-staff-note-result');
+    if (!bk.booking_id){
+      if (resultEl) resultEl.textContent = 'Booking id missing.';
+      return;
+    }
+    btn.disabled = true;
+    if (resultEl) resultEl.textContent = 'Deleting...';
+    fetch('/staff/bookings/' + encodeURIComponent(bk.booking_id) + '/luna-notes', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'same-origin',
+      body: JSON.stringify({
+        client_slug: toGetClient(),
+        note_id: noteId,
+      }),
+    }).then(function(r){ return r.json(); }).then(function(j){
+      if (!j || !j.success){
+        btn.disabled = false;
+        if (resultEl) resultEl.textContent = (j && j.error) ? j.error : 'Delete failed';
+        return;
+      }
+      if (resultEl) resultEl.textContent = 'Note deleted.';
+      if (bcLastBookingContext){
+        bcLastBookingContext.luna_guest_notes = j.luna_guest_notes || [];
+        bcRefreshLunaNotesInDrawer();
+      }
+    }).catch(function(err){
+      btn.disabled = false;
+      if (resultEl) resultEl.textContent = err && err.message ? err.message : 'Delete failed';
     });
   });
 }
@@ -20341,22 +20436,22 @@ function bcRenderBlockSummaryPreviewHtml(blk){
   blk = blk || {};
   var html = '<div class="bc-drawer-preview" id="bc-drawer-preview">';
   html += '<div class="bc-drawer-overview-card">';
-  html += '<h3 class="bc-drawer-card-title">Booking details</h3>';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.bookingDetails')) + '</h3>';
   html += '<div class="kv-grid">';
-  if (blk.guest_name) html += kvBC('Guest', blk.guest_name);
-  if (blk.phone) html += kvBC('Phone', blk.phone);
+  if (blk.guest_name) html += kvBC(t('drawer.preview.guest'), blk.guest_name);
+  if (blk.phone) html += kvBC(t('drawer.field.phone'), blk.phone);
   var cin = blk.check_in || blk.start_date;
   var cout = blk.check_out || blk.end_date;
-  if (cin) html += kvBC('Check-in', cin);
-  if (cout) html += kvBC('Check-out', cout);
+  if (cin) html += kvBC(t('drawer.field.checkIn'), cin);
+  if (cout) html += kvBC(t('drawer.field.checkOut'), cout);
   if (blk.room_code){
     var roomLabel = blk.room_code + (blk.bed_code ? ' / ' + blk.bed_code : '');
-    html += kvBC('Room / bed', roomLabel);
+    html += kvBC(t('drawer.preview.roomBed'), roomLabel);
   }
-  if (blk.status) html += kvBC('Status', String(blk.status).replace(/_/g, ' '));
-  if (blk.payment_status) html += kvBC('Payment', String(blk.payment_status).replace(/_/g, ' '));
+  if (blk.status) html += kvBC(t('drawer.kv.status'), String(blk.status).replace(/_/g, ' '));
+  if (blk.payment_status) html += kvBC(t('drawer.preview.payment'), String(blk.payment_status).replace(/_/g, ' '));
   html += '</div></div>';
-  html += '<div class="ctx-loading">Loading full details\u2026</div>';
+  html += '<div class="ctx-loading">' + escHtml(t('calendar.create.loadingDetails')) + '</div>';
   html += '</div>';
   return html;
 }
@@ -20373,8 +20468,8 @@ function showBlockDetail(blk){
     '<span class="bc-detail-meta" id="bc-detail-meta">' + bcDetailHeaderMetaHtml(blk, null) + '</span></h2>' +
     '<div class="bc-detail-toolbar-actions">' +
     '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
-    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">Start Conversation</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="Refresh booking details">\u21bb Refresh</button>' +
+    '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">' + escHtml(t('drawer.footer.startConv')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="' + escHtml(t('drawer.toolbar.refresh')) + '">\u21bb ' + escHtml(t('drawer.toolbar.refresh')) + '</button>' +
     '</div></div>' +
     '<div id="bc-ctx-body">' + bcRenderBlockSummaryPreviewHtml(blk) + '</div>';
   el('bc-detail').style.display = 'block';
@@ -20435,6 +20530,7 @@ function loadBlockDetail(bookingCode, opts){
       bcInitNewConversationShell(res.data);
       bcWireOpenConversationButtons(res.data);
       bcBindLunaNotesSave();
+      bcBindLunaNotesDelete();
     })
     .catch(function(e){
       var ctxEl = el('bc-ctx-body');
@@ -20531,8 +20627,8 @@ function bcRenderMoveTargetEmpty(placeholder){
   var note = el('bc-move-target-note');
   if (!wrap) return;
   bcMoveCtx.targetsLoadFailed = false;
-  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled>' +
-    '<option value="">' + escHtml(placeholder || '\u2014 select target bed \u2014') + '</option></select>';
+  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" disabled>' +
+    '<option value="">' + escHtml(placeholder || t('drawer.moveBed.selectTarget')) + '</option></select>';
   if (note) note.textContent = '';
   bcUpdateMoveButtons();
 }
@@ -20542,7 +20638,7 @@ function bcRenderMoveTargetFailed(message){
   var note = el('bc-move-target-note');
   if (!wrap) return;
   bcMoveCtx.targetsLoadFailed = true;
-  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled>' +
+  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" disabled>' +
     '<option value="">\u2014 unavailable \u2014</option></select>';
   if (note) note.textContent = message || 'Could not load available beds.';
   bcUpdateMoveButtons();
@@ -20554,12 +20650,12 @@ function bcRenderMoveTargetsFiltered(targets){
   if (!wrap) return;
   bcMoveCtx.targetsLoadFailed = false;
   var available = (targets || []).filter(function(t){ return t.available; });
-  var opts = '<option value="">\u2014 select target bed \u2014</option>';
+  var opts = '<option value="">' + escHtml(t('drawer.moveBed.selectTarget')) + '</option>';
   available.forEach(function(t){
     var label = (t.room_code || '') + ' / ' + (t.bed_code || '');
     opts += '<option value="' + escHtml(t.bed_id) + '">' + escHtml(label) + '</option>';
   });
-  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px">' + opts + '</select>';
+  wrap.innerHTML = '<select id="bc-move-target-bed-id" class="bk-input-sm">' + opts + '</select>';
   if (note) note.textContent = available.length ? '' : 'No available target beds for this stay.';
   bcWireMoveTargetField();
   bcUpdateMoveButtons();
@@ -21013,9 +21109,9 @@ function bcSumActiveTransferChargesCents(transferRows){
 
 function bcTransferDirectionLabel(direction){
   var d = String(direction || '').toLowerCase();
-  if (d === 'arrival') return 'Arrival transfer';
-  if (d === 'departure') return 'Departure transfer';
-  return 'Transfer';
+  if (d === 'arrival') return t('drawer.transfers.arrival');
+  if (d === 'departure') return t('drawer.transfers.departure');
+  return t('drawer.tab.transfers');
 }
 
 function bcTransferInvoiceLineItems(transferRows){
@@ -21290,7 +21386,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   /* Accommodation */
   html += '<div class="ctx-inv-group" id="bc-inv-accommodation">';
-  html += '<div class="ctx-inv-group-title">Accommodation</div>';
+  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.accommodation')) + '</div>';
   if (guestAccLines.length) {
     guestAccLines.forEach(function(line){
       var pkgName = line.package_label || bcFieldEditPackageDisplayLabel(line.package_code || 'no_package');
@@ -21298,38 +21394,43 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
       var cents = line.accommodation_cents;
       var accLine;
       if (cents != null && lineNights > 0) {
-        accLine = 'Guest ' + line.guest_number + ' \u2014 ' + pkgName +
-          ' \u2014 ' + lineNights + ' night' + (lineNights === 1 ? '' : 's') +
-          ' \u2014 ' + eur(cents);
+        accLine = t('drawer.invoice.guestLine', {
+          number: String(line.guest_number),
+          detail: pkgName + ' \u2014 ' + bcNightsLabel(lineNights) + ' \u2014 ' + eur(cents),
+        });
       } else {
-        accLine = 'Guest ' + line.guest_number + ' \u2014 ' + pkgName + ' \u2014 Not available';
+        accLine = t('drawer.invoice.guestLine', {
+          number: String(line.guest_number),
+          detail: pkgName + ' \u2014 ' + t('drawer.invoice.notAvailable'),
+        });
       }
       html += '<div class="ctx-inv-line">' + escHtml(accLine) + '</div>';
     });
   } else {
     var accLine = null;
     if (accCents != null && pkgLabel && nights > 0 && accCents > 0 && accCents % nights === 0){
-      accLine = pkgLabel + ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') +
+      accLine = pkgLabel + ' \u2014 ' + bcNightsLabel(nights) +
         ' \u00d7 ' + eur(accCents / nights) + ' = ' + eur(accCents);
     } else if (accCents != null){
       var accParts = [];
       if (pkgLabel) accParts.push(pkgLabel);
-      if (nights > 0) accParts.push(nights + ' night' + (nights === 1 ? '' : 's'));
-      accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') + 'Accommodation total: ' + eur(accCents);
+      if (nights > 0) accParts.push(bcNightsLabel(nights));
+      accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') +
+        t('drawer.invoice.accommodationTotal', { amount: eur(accCents) });
     } else if (pkgLabel || nights > 0){
-      accLine = (pkgLabel || 'Accommodation') +
-        (nights > 0 ? ' \u2014 ' + nights + ' night' + (nights === 1 ? '' : 's') : '') +
-        ' \u2014 Not available';
+      accLine = (pkgLabel || t('drawer.invoice.accommodation')) +
+        (nights > 0 ? ' \u2014 ' + bcNightsLabel(nights) : '') +
+        ' \u2014 ' + t('drawer.invoice.notAvailable');
     }
-    html += '<div class="ctx-inv-line">' + escHtml(accLine || 'Not available') + '</div>';
+    html += '<div class="ctx-inv-line">' + escHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
   }
   html += '</div>';
 
   /* Services — booking_service_records only */
   html += '<div class="ctx-inv-group" id="bc-inv-services">';
-  html += '<div class="ctx-inv-group-title">Services</div>';
+  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.services')) + '</div>';
   if (svcRows.length === 0){
-    html += '<div class="ctx-inv-line ctx-none">No services recorded.</div>';
+    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noServices')) + '</div>';
   } else {
     svcRows.forEach(function(sr){
       html += '<div class="ctx-inv-line ctx-inv-addon-line" data-service-type="' + escHtml(sr.service_type || '') + '">' +
@@ -21340,9 +21441,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   /* Transfers — booking_transfers charge lines */
   html += '<div class="ctx-inv-group" id="bc-inv-transfers">';
-  html += '<div class="ctx-inv-group-title">Transfers</div>';
+  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.transfers')) + '</div>';
   if (transferLines.length === 0){
-    html += '<div class="ctx-inv-line ctx-none">No transfer charges.</div>';
+    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noTransfers')) + '</div>';
   } else {
     transferLines.forEach(function(line){
       html += '<div class="ctx-inv-line ctx-inv-transfer-line">' +
@@ -21353,24 +21454,24 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   /* Totals / payment status */
   html += '<div class="ctx-inv-group ctx-inv-totals" id="bc-inv-totals">';
-  html += '<div class="ctx-inv-group-title">Totals</div>';
+  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.totals')) + '</div>';
   if (invoiceTotal != null){
-    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Invoice total</span><span class="ctx-inv-total-amount">' + escHtml(eur(invoiceTotal)) + '</span></div>';
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.invoiceTotal')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(invoiceTotal)) + '</span></div>';
   }
   if (paidCents != null){
-    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Paid</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.paid')) + '</span><span class="ctx-inv-total-amount paid">' + escHtml(eur(paidCents)) + '</span></div>';
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
-      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Balance due</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span></div>';
+      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span></div>';
     } else if (invoiceTotal === paidCents){
-      html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>Paid in full</span></div>';
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
     } else if (invoiceTotal < paidCents){
-      html += '<div class="ctx-inv-total-row ctx-inv-status-msg needs-refund"><span>Needs refund / credit review</span></div>';
-      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Credit review</span><span class="ctx-inv-total-amount">' + escHtml(eur(paidCents - invoiceTotal)) + '</span></div>';
+      html += '<div class="ctx-inv-total-row ctx-inv-status-msg needs-refund"><span>' + escHtml(t('drawer.invoice.needsRefund')) + '</span></div>';
+      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.creditReview')) + '</span><span class="ctx-inv-total-amount">' + escHtml(eur(paidCents - invoiceTotal)) + '</span></div>';
     }
   } else if (bk.balance_due_cents != null && paidCents == null){
-    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">Balance due</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
+    html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(bk.balance_due_cents)) + '</span></div>';
   }
   html += '</div>';
 
@@ -21394,7 +21495,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
 
   /* Payment history ledger */
   html += '<div class="ctx-inv-payment-records" id="bc-inv-payment-records">';
-  html += '<div class="ctx-inv-subtitle">Payment history</div>';
+  html += '<div class="ctx-inv-subtitle">' + escHtml(t('drawer.invoice.paymentHistory')) + '</div>';
   if (sortedLedgerRows.length > 0){
     sortedLedgerRows.forEach(function(pr){
       var isPaid = bcPaymentLedgerIsPaidStatus(pr.payment_status);
@@ -21418,56 +21519,56 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
         'ctx-pay-record-badge ctx-pay-record-badge-default';
       html += '<span class="' + badgeCls + '">' + escHtml(displayLabel) + '</span>';
       if (isStale){
-        html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">Outdated amount</span>';
+        html += '<span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">' + escHtml(t('drawer.payments.outdatedAmount')) + '</span>';
       }
       if (canCancel){
         html += '<button type="button" class="btn-bc-cancel-link-icon" data-payment-id="' + escHtml(pid) + '" ' +
-          'title="Cancel payment link" aria-label="Cancel payment link">\u2715</button>';
+          'title="' + escHtml(t('drawer.payments.cancelLink')) + '" aria-label="' + escHtml(t('drawer.payments.cancelLink')) + '">\u2715</button>';
       }
       html += '</div>';
       html += '<div class="ctx-pay-block" style="margin:0 0 4px">';
       var showAmt = isPaid && pr.amount_paid_cents != null ? pr.amount_paid_cents : pr.amount_due_cents;
       if (showAmt != null){
         html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' +
-          (isPaid ? 'Amount' : 'Amount due') + '</span><span class="ctx-pay-amount' +
+          escHtml(isPaid ? t('drawer.payments.amountLabel') : t('drawer.payments.amountDue')) + '</span><span class="ctx-pay-amount' +
           (isPaid ? ' paid' : '') + '">' + escHtml(eur(showAmt)) + '</span></div>';
       }
       if (pr.created_at)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Created</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.created_at)) + '</span></div>';
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.created')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.created_at)) + '</span></div>';
       if (pr.paid_at)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Paid</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.paidAt')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(fmtDate(pr.paid_at)) + '</span></div>';
       if (md.note)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Note</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(String(md.note)) + '</span></div>';
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.note')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px">' + escHtml(String(md.note)) + '</span></div>';
       if (pr.payment_id)
-        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">Ref</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px"><code>' + escHtml(shortId(pr.payment_id)) + '</code></span></div>';
+        html += '<div class="ctx-pay-row"><span class="ctx-pay-label">' + escHtml(t('drawer.payments.ref')) + '</span><span class="ctx-pay-amount" style="font-weight:400;font-size:11px"><code>' + escHtml(shortId(pr.payment_id)) + '</code></span></div>';
       html += '</div>';
       if (isStale){
-        html += '<div class="ctx-pay-record-stale-note">Current balance changed. Generate a new link.</div>';
+        html += '<div class="ctx-pay-record-stale-note">' + escHtml(t('drawer.payments.staleNote')) + '</div>';
       }
       if (canCancel){
         var confirmAmt = pr.amount_due_cents != null ? eur(pr.amount_due_cents) : '\u2014';
         var confirmDate = pr.created_at ? fmtDate(pr.created_at) : '';
         html += '<div class="ctx-cancel-link-confirm" id="bc-cancel-link-confirm-' + escHtml(pid) + '" style="display:none" data-payment-id="' + escHtml(pid) + '">';
-        html += '<div><strong>Cancel this payment link?</strong></div>';
+        html += '<div><strong>' + escHtml(t('drawer.payments.confirmCancel')) + '</strong></div>';
         if (confirmAmt !== '\u2014' || confirmDate){
           html += '<div style="margin-top:4px">';
-          if (confirmAmt !== '\u2014') html += 'Amount: ' + escHtml(confirmAmt);
+          if (confirmAmt !== '\u2014') html += escHtml(t('drawer.payments.amountLabel')) + ': ' + escHtml(confirmAmt);
           if (confirmAmt !== '\u2014' && confirmDate) html += ' \u00b7 ';
-          if (confirmDate) html += 'Created: ' + escHtml(confirmDate);
+          if (confirmDate) html += escHtml(t('drawer.payments.created')) + ': ' + escHtml(confirmDate);
           html += '</div>';
         }
-        html += '<div style="margin-top:6px;color:var(--text-2)">This does not refund or change paid totals. The guest should not use this link.</div>';
+        html += '<div style="margin-top:6px;color:var(--text-2)">' + escHtml(t('drawer.payments.confirmCancelHint')) + '</div>';
         html += '<div class="ctx-cancel-link-confirm-actions">';
-        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-confirm" data-payment-id="' + escHtml(pid) + '">Confirm cancel</button>';
-        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-keep" data-payment-id="' + escHtml(pid) + '">Keep link</button>';
+        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-confirm" data-payment-id="' + escHtml(pid) + '">' + escHtml(t('drawer.payments.confirmCancelBtn')) + '</button>';
+        html += '<button type="button" class="btn btn-ghost btn-bc-cancel-link-keep" data-payment-id="' + escHtml(pid) + '">' + escHtml(t('drawer.payments.keepLink')) + '</button>';
         html += '</div></div>';
       }
       if (pr.stripe_checkout_session_id || pr.stripe_payment_intent_id){
         html += '<div class="ctx-pay-record-meta">';
         if (pr.stripe_checkout_session_id)
-          html += '<div>Session: <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
+          html += '<div>' + escHtml(t('drawer.payments.session')) + ': <code>' + escHtml(shortId(pr.stripe_checkout_session_id)) + '</code></div>';
         if (pr.stripe_payment_intent_id)
-          html += '<div>Intent: <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
+          html += '<div>' + escHtml(t('drawer.payments.intent')) + ': <code>' + escHtml(shortId(pr.stripe_payment_intent_id)) + '</code></div>';
         html += '</div>';
       }
       var linkUrl = bcPaymentLedgerRowLinkUrl(pr);
@@ -21478,13 +21579,13 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
           'style="word-break:break-all;font-size:11px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;color:var(--accent)">' +
           escHtml(linkUrl.slice(0, 50)) + '\u2026</a>';
         html += '<button type="button" class="btn-bc-copy-link-icon" data-url="' + escHtml(linkUrl) + '" ' +
-          'title="Copy payment link" aria-label="Copy payment link">\uD83D\uDCCB</button>';
+          'title="' + escHtml(t('drawer.payments.copyLink')) + '" aria-label="' + escHtml(t('drawer.payments.copyLink')) + '">\uD83D\uDCCB</button>';
         html += '</div></div>';
       }
       html += '</div>';
     });
   } else {
-    html += '<div class="ctx-none" style="margin-top:4px">No payments recorded yet.</div>';
+    html += '<div class="ctx-none" style="margin-top:4px">' + escHtml(t('drawer.payments.noPayments')) + '</div>';
   }
   html += '</div>';
 
@@ -21499,13 +21600,13 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
   if (bcBookingStatusIsCancelled(bk.status)) return '';
   if (needsRefund) {
     return '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
-      '<div class="state-msg error" style="font-size:12px;margin:0">Refund / credit review needed before creating a payment link.</div></div>';
+      '<div class="state-msg error" style="font-size:12px;margin:0">' + escHtml(t('drawer.payments.refundReviewBlock')) + '</div></div>';
   }
   var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
   if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
 
   var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:8px">';
-  html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">Generate Payment Link</button>';
+  html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">' + escHtml(t('drawer.payments.generateLink')) + '</button>';
   html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite"></div>';
   html += '</div>';
   return html;
@@ -21514,13 +21615,13 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
 function bcCopyPaymentLinkIcon(btn){
   var u = bcPaymentLinkUrlFromCopyBtn(btn);
   if (!u) return;
-  var origTitle = btn.getAttribute('title') || 'Copy payment link';
+  var origTitle = btn.getAttribute('title') || t('drawer.payments.copyLink');
   var origLabel = btn.getAttribute('aria-label') || origTitle;
   var origText = btn.textContent;
   function showCopied(){
     btn.textContent = '\u2713';
-    btn.setAttribute('title', 'Copied');
-    btn.setAttribute('aria-label', 'Copied');
+    btn.setAttribute('title', t('drawer.payments.copied'));
+    btn.setAttribute('aria-label', t('drawer.payments.copied'));
     setTimeout(function(){
       btn.textContent = origText;
       btn.setAttribute('title', origTitle);
@@ -21558,7 +21659,7 @@ function bcInitPaymentLinkShell(data){
     genBtn.disabled = true;
     genBtn.setAttribute('title', 'Set STAFF_ACTIONS_ENABLED=true and STRIPE_LINKS_ENABLED=true to enable');
     if (resultEl) {
-      resultEl.innerHTML = '<div class="state-msg" style="font-size:11px;margin-top:6px">Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.</div>';
+      resultEl.innerHTML = '<div class="state-msg" style="font-size:11px;margin-top:6px">' + escHtml(t('drawer.payments.stripeDisabled')) + '</div>';
       resultEl.style.display = 'block';
     }
     return;
@@ -21591,14 +21692,14 @@ function bcInitPaymentLinkShell(data){
         genBtn.disabled = false;
         if (!res.ok || !res.data.success){
           if (resultEl){
-            resultEl.innerHTML = escHtml((res.data && res.data.error) || (res.data && res.data.message) || 'Payment link failed');
+            resultEl.innerHTML = escHtml((res.data && res.data.error) || (res.data && res.data.message) || t('drawer.payments.linkFailed'));
             resultEl.classList.add('is-visible', 'is-blocked');
             resultEl.style.display = 'block';
           }
           return;
         }
         if (resultEl) {
-          resultEl.innerHTML = escHtml('Payment link ready in Payment history.');
+          resultEl.innerHTML = escHtml(t('drawer.payments.linkReady'));
           resultEl.classList.add('is-visible');
           resultEl.style.display = 'block';
         }
@@ -21725,17 +21826,17 @@ function bcRenderCashPaymentFormHtml(bk, invoiceTotal, paidCents, needsRefund){
   if (invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal) return '';
   var today = new Date().toISOString().slice(0, 10);
   return '<div class="ctx-cash-payment" id="bc-cash-payment" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
-    '<button type="button" class="btn btn-ghost" id="bc-record-cash-btn">Record Cash Payment</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-record-cash-btn">' + escHtml(t('drawer.payments.recordCash')) + '</button>' +
     '<div class="bc-cash-payment-form-wrap ctx-field-edit" id="bc-cash-payment-form-wrap" style="display:none;margin-top:10px">' +
-    '<label class="ctx-field-label" for="bc-cash-payment-amount">Amount (\u20ac)</label>' +
+    '<label class="ctx-field-label" for="bc-cash-payment-amount">' + escHtml(t('drawer.payments.amount')) + '</label>' +
     '<input type="number" id="bc-cash-payment-amount" class="bk-input bk-input-sm" min="0.01" step="0.01" placeholder="0.00">' +
-    '<label class="ctx-field-label" for="bc-cash-payment-date">Payment date</label>' +
+    '<label class="ctx-field-label" for="bc-cash-payment-date">' + escHtml(t('drawer.payments.paymentDate')) + '</label>' +
     '<input type="date" id="bc-cash-payment-date" class="bk-input bk-input-sm" value="' + escHtml(today) + '">' +
-    '<label class="ctx-field-label" for="bc-cash-payment-note">Note / reference (optional)</label>' +
-    '<input type="text" id="bc-cash-payment-note" class="bk-input bk-input-sm" maxlength="500" placeholder="Paid cash at reception">' +
+    '<label class="ctx-field-label" for="bc-cash-payment-note">' + escHtml(t('drawer.payments.noteRef')) + '</label>' +
+    '<input type="text" id="bc-cash-payment-note" class="bk-input bk-input-sm" maxlength="500" placeholder="' + escHtml(t('drawer.payments.notePlaceholder')) + '">' +
     '<div class="ctx-field-edit-actions">' +
-    '<button type="button" class="btn btn-primary" id="bc-cash-payment-save-btn">Save payment</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-cash-payment-cancel-btn">Cancel</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-cash-payment-save-btn">' + escHtml(t('drawer.payments.savePayment')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-cash-payment-cancel-btn">' + escHtml(t('drawer.field.cancel')) + '</button>' +
     '</div>' +
     '<div class="ctx-field-preview-result" id="bc-cash-payment-result" aria-live="polite"></div>' +
     '</div></div>';
@@ -22493,18 +22594,18 @@ function bcRenderFieldEditReadRowSub(kvInnerHtml, colTemplate){
 function bcRenderFieldEditActionsHtml(group){
   var saveBtn;
   if (group === 'contact'){
-    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">Save</button>';
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-contact-save="contact" id="bc-field-save-contact">' + escHtml(t('drawer.field.save')) + '</button>';
   } else if (group === 'dates'){
-    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-dates-save="dates" id="bc-field-save-dates">Save</button>';
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-dates-save="dates" id="bc-field-save-dates">' + escHtml(t('drawer.field.save')) + '</button>';
   } else if (group === 'package'){
-    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-package-save="package" id="bc-field-save-package">Save</button>';
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-package-save="package" id="bc-field-save-package">' + escHtml(t('drawer.field.save')) + '</button>';
   } else if (group === 'guests'){
-    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-guests-save="guests" id="bc-field-save-guests">Save</button>';
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-guests-save="guests" id="bc-field-save-guests">' + escHtml(t('drawer.field.save')) + '</button>';
   } else {
-    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">Save</button>';
+    saveBtn = '<button type="button" class="btn btn-primary" data-bc-field-preview="' + escHtml(group) + '" id="bc-field-preview-' + escHtml(group) + '">' + escHtml(t('drawer.field.save')) + '</button>';
   }
   return '<div class="ctx-field-edit-actions">' + saveBtn +
-    '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">Cancel</button>' +
+    '<button type="button" class="btn btn-ghost" data-bc-field-cancel="' + escHtml(group) + '" id="bc-field-cancel-' + escHtml(group) + '">' + escHtml(t('drawer.field.cancel')) + '</button>' +
     '</div>' +
     '<div class="ctx-field-preview-result" id="bc-field-' + escHtml(group) + '-preview-result" aria-live="polite"></div>';
 }
@@ -22529,41 +22630,41 @@ function bcRenderFieldEditSectionsHtml(data, mode){
 
   if (mode === 'all' || mode === 'before-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-contact" data-bc-field-group="contact">';
-  var contactKv = kvBC('Name', bk.guest_name) + kvBC('Phone', bk.phone) + kvBC('Email', bk.email);
-  html += bcRenderFieldEditReadRow('contact', 'Edit contact', contactKv, 3);
+  var contactKv = kvBC(t('drawer.field.name'), bk.guest_name) + kvBC(t('drawer.field.phone'), bk.phone) + kvBC(t('drawer.field.email'), bk.email);
+  html += bcRenderFieldEditReadRow('contact', t('drawer.field.editContact'), contactKv, 3);
   var contactExtraKv = '';
-  if (bk.language) contactExtraKv += kvBC('Language', bk.language);
-  if (bk.booking_source && bk.booking_source !== 'manual_staff') contactExtraKv += kvBC('Source', bk.booking_source);
+  if (bk.language) contactExtraKv += kvBC(t('drawer.field.language'), bk.language);
+  if (bk.booking_source && bk.booking_source !== 'manual_staff') contactExtraKv += kvBC(t('drawer.field.source'), bk.booking_source);
   if (contactExtraKv) html += bcRenderFieldEditReadRowSub(contactExtraKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-contact-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-contact-name">Name</label>';
+  html += '<label class="ctx-field-label" for="bc-field-contact-name">' + escHtml(t('drawer.field.name')) + '</label>';
   html += '<input type="text" id="bc-field-contact-name" class="bk-input bk-input-sm" value="' + escHtml(bk.guest_name || '') + '">';
-  html += '<label class="ctx-field-label" for="bc-field-contact-phone">Phone</label>';
+  html += '<label class="ctx-field-label" for="bc-field-contact-phone">' + escHtml(t('drawer.field.phone')) + '</label>';
   html += '<input type="tel" id="bc-field-contact-phone" class="bk-input bk-input-sm" value="' + escHtml(bk.phone || '') + '">';
-  html += '<label class="ctx-field-label" for="bc-field-contact-email">Email</label>';
+  html += '<label class="ctx-field-label" for="bc-field-contact-email">' + escHtml(t('drawer.field.email')) + '</label>';
   html += '<input type="email" id="bc-field-contact-email" class="bk-input bk-input-sm" value="' + escHtml(bk.email || '') + '">';
   html += bcRenderFieldEditActionsHtml('contact');
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-dates" data-bc-field-group="dates">';
-  var datesKv = kvBC('Check-in', bk.check_in) + kvBC('Check-out', bk.check_out);
-  if (nights > 0) datesKv += kvBC('Nights', nights);
-  html += bcRenderFieldEditReadRow('dates', 'Edit dates', datesKv, 3);
+  var datesKv = kvBC(t('drawer.field.checkIn'), bk.check_in) + kvBC(t('drawer.field.checkOut'), bk.check_out);
+  if (nights > 0) datesKv += kvBC(t('drawer.field.nights'), nights);
+  html += bcRenderFieldEditReadRow('dates', t('drawer.field.editDates'), datesKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-dates-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-dates-check-in">Check-in</label>';
+  html += '<label class="ctx-field-label" for="bc-field-dates-check-in">' + escHtml(t('drawer.field.checkIn')) + '</label>';
   html += '<input type="date" id="bc-field-dates-check-in" class="bk-input bk-input-sm" value="' + escHtml(bk.check_in || '') + '">';
-  html += '<label class="ctx-field-label" for="bc-field-dates-check-out">Check-out</label>';
+  html += '<label class="ctx-field-label" for="bc-field-dates-check-out">' + escHtml(t('drawer.field.checkOut')) + '</label>';
   html += '<input type="date" id="bc-field-dates-check-out" class="bk-input bk-input-sm" value="' + escHtml(bk.check_out || '') + '">';
   html += '<div class="ctx-field-dates-nights" id="bc-field-dates-nights">' +
-    (nights > 0 ? escHtml(String(nights) + ' night' + (nights === 1 ? '' : 's')) : '\u2014') + '</div>';
-  html += '<div class="ctx-field-dates-error" id="bc-field-dates-error">Check-out must be after check-in.</div>';
+    (nights > 0 ? escHtml(bcNightsLabel(nights)) : '\u2014') + '</div>';
+  html += '<div class="ctx-field-dates-error" id="bc-field-dates-error">' + escHtml(t('drawer.field.datesError')) + '</div>';
   html += bcRenderFieldEditActionsHtml('dates');
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  html += bcRenderFieldEditReadRow('guests', 'Edit guests', kvBC('Guests', guestCount), 3);
+  html += bcRenderFieldEditReadRow('guests', t('drawer.field.editGuests'), kvBC(t('drawer.field.guests'), guestCount), 3);
   html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
-  html += '<label class="ctx-field-label" for="bc-field-guests-select">Guest count</label>';
+  html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
   html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
   for (var g = guestCount; g >= 1; g--){
     html += '<option value="' + g + '">' + g + '</option>';
@@ -22576,9 +22677,9 @@ function bcRenderFieldEditSectionsHtml(data, mode){
 
   if (mode === 'all' || mode === 'after-addons'){
   html += '<div class="ctx-field-edit-group" id="bc-field-group-package" data-bc-field-group="package">';
-  var packageKv = kvBCHtml('Package', bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
-  if (roomPref) packageKv += kvBC('Room pref', roomPref);
-  html += bcRenderFieldEditReadRow('package', 'Edit package', packageKv, 3);
+  var packageKv = kvBCHtml(t('drawer.field.package'), bcRenderPackagePebblesHtml(bcGuestPackages(bk)));
+  if (roomPref) packageKv += kvBC(t('drawer.field.roomPref'), roomPref);
+  html += bcRenderFieldEditReadRow('package', t('drawer.field.editPackage'), packageKv, 3);
   html += '<div class="ctx-field-edit" id="bc-field-package-edit" style="display:none">';
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
   html += bcRenderFieldEditActionsHtml('package');
@@ -22810,7 +22911,7 @@ function bcFieldEditUpdateDatesPreview(){
   if (!cin || !cout) return;
   var nights = bcStayNightsFromCheckInOut(cin.value, cout.value);
   if (nightsEl){
-    nightsEl.textContent = nights > 0 ? (nights + ' night' + (nights === 1 ? '' : 's')) : '\u2014';
+    nightsEl.textContent = nights > 0 ? bcNightsLabel(nights) : '\u2014';
   }
   var invalid = cin.value && cout.value && cout.value <= cin.value;
   if (errEl){
@@ -22857,32 +22958,32 @@ function bcRenderAddServicePanelHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) return '';
   return '<div class="ctx-section ctx-add-ons-panel bc-svc-add-remove-panel" id="bc-add-ons-panel">' +
     '<div class="bc-add-ons-actions">' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">Add</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">Remove</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-btn">' + escHtml(t('drawer.services.add')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-btn" style="display:none">' + escHtml(t('drawer.services.remove')) + '</button>' +
     '</div>' +
     '<div id="bc-add-ons-remove-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
-    '<label class="ctx-field-label" for="bc-add-ons-remove-select">Select services to remove</label>' +
+    '<label class="ctx-field-label" for="bc-add-ons-remove-select">' + escHtml(t('drawer.services.selectRemove')) + '</label>' +
     '<select id="bc-add-ons-remove-select" class="bk-input bk-input-sm" multiple size="6"></select>' +
-    '<div class="ctx-field-hint" id="bc-add-ons-remove-empty" style="display:none">No services to remove.</div>' +
+    '<div class="ctx-field-hint" id="bc-add-ons-remove-empty" style="display:none">' + escHtml(t('drawer.services.noRemove')) + '</div>' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
-    '<button type="button" class="btn btn-primary" id="bc-add-ons-remove-confirm-btn">Confirm remove</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-cancel-btn">Cancel</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-remove-confirm-btn">' + escHtml(t('drawer.services.confirmRemove')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-remove-cancel-btn">' + escHtml(t('drawer.field.cancel')) + '</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-form-wrap" class="bc-add-ons-form-wrap" style="display:none">' +
     '<div id="bc-add-ons-entry-rows"></div>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-add-row-btn" style="margin:8px 0">Add another service</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-add-row-btn" style="margin:8px 0">' + escHtml(t('drawer.services.addAnother')) + '</button>' +
     '<div id="bc-add-ons-date-wrap">' +
-    '<label class="ctx-field-label" for="bc-add-ons-date" id="bc-add-ons-date-label">Service Date</label>' +
+    '<label class="ctx-field-label" for="bc-add-ons-date" id="bc-add-ons-date-label">' + escHtml(t('drawer.services.serviceDate')) + '</label>' +
     '<input type="date" id="bc-add-ons-date" class="bk-input bk-input-sm">' +
     '<div class="bc-add-ons-sched-mode-links" id="bc-add-ons-sched-mode-links">' +
-    '<button type="button" class="bc-add-ons-sched-link" data-mode="span_across_booking">Span Across Booking</button>' +
-    '<button type="button" class="bc-add-ons-sched-link" data-mode="schedule_later">Schedule Later</button>' +
+    '<button type="button" class="bc-add-ons-sched-link" data-mode="span_across_booking">' + escHtml(t('drawer.services.spanBooking')) + '</button>' +
+    '<button type="button" class="bc-add-ons-sched-link" data-mode="schedule_later">' + escHtml(t('drawer.services.scheduleLater')) + '</button>' +
     '</div></div>' +
-    '<label class="ctx-field-label" for="bc-add-ons-note">Note (optional)</label>' +
+    '<label class="ctx-field-label" for="bc-add-ons-note">' + escHtml(t('drawer.services.noteOptional')) + '</label>' +
     '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
-    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">Confirm Add</button>' +
-    '<button type="button" class="btn btn-ghost" id="bc-add-ons-cancel-btn">Cancel</button>' +
+    '<button type="button" class="btn btn-primary" id="bc-add-ons-save-btn">' + escHtml(t('drawer.services.confirmAdd')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="bc-add-ons-cancel-btn">' + escHtml(t('drawer.field.cancel')) + '</button>' +
     '</div></div>' +
     '<div id="bc-add-ons-result" aria-live="polite"></div>' +
     '</div>';
@@ -23372,17 +23473,17 @@ function bcRenderBookingDrawerFooterHtml(data){
   html += '<div class="bc-drawer-footer" id="bc-drawer-footer">';
   html += '<div class="bc-drawer-footer-left">';
   if (data.conversation){
-    html += '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">Open Conversation</button>';
+    html += '<button type="button" class="btn btn-success-light" id="bc-open-conv-btn">' + escHtml(t('drawer.footer.openConv')) + '</button>';
   } else {
     html += '<button type="button" class="btn btn-success-light" id="bc-new-conversation-btn" ' +
       'data-booking-id="' + escHtml(bk.booking_id || '') + '" ' +
-      'data-booking-code="' + escHtml(bk.booking_code || '') + '">Start Conversation</button>';
+      'data-booking-code="' + escHtml(bk.booking_code || '') + '">' + escHtml(t('drawer.footer.startConv')) + '</button>';
     html += '<div id="bc-new-conversation-result" class="bc-footer-conv-result"></div>';
   }
   html += '</div>';
   html += '<div class="bc-drawer-footer-right">';
   if (!bcBookingStatusIsCancelled(bk.status)){
-    html += '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">Cancel Booking</button>';
+    html += '<button type="button" class="btn btn-danger-light" id="bc-cancel-reservation-btn">' + escHtml(t('drawer.footer.cancelBooking')) + '</button>';
   }
   html += '</div>';
   html += '</div>';
@@ -23645,9 +23746,9 @@ function bcTransferPricingHtml(pricing){
   if (!pricing) return '';
   if (!pricing.available){
     return '<div class="bc-transfer-pricing">' +
-      escHtml(pricing.pricing_note || pricing.error_code || 'Unavailable') + '</div>';
+      escHtml(pricing.pricing_note || pricing.error_code || t('drawer.transfers.unavailable')) + '</div>';
   }
-  if (pricing.included_in_package) return '<div class="bc-transfer-pricing">Included in package</div>';
+  if (pricing.included_in_package) return '<div class="bc-transfer-pricing">' + escHtml(t('drawer.transfers.includedInPackage')) + '</div>';
   return '<div class="bc-transfer-pricing">' +
     escHtml(pricing.pricing_note || ('\u20ac' + (Number(pricing.price_cents || 0) / 100).toFixed(2))) + '</div>';
 }
@@ -23671,18 +23772,18 @@ function bcTransferIsScheduled(transfer){
 }
 
 function bcTransferSaveButtonLabel(direction){
-  return direction === 'arrival' ? 'Save Arrival Transfer' : 'Save Departure Transfer';
+  return direction === 'arrival' ? t('drawer.transfers.saveArrival') : t('drawer.transfers.saveDeparture');
 }
 
 function bcTransferScheduledPebbleHtml(){
-  return ' <span class="pill pill-purple bc-transfer-scheduled-pebble">Transfer Scheduled</span>';
+  return ' <span class="pill pill-purple bc-transfer-scheduled-pebble">' + escHtml(t('drawer.transfers.scheduledPebble')) + '</span>';
 }
 
 function bcTransferUpdateScheduledUi(direction, transfer){
   var card = el('bc-transfer-card-' + direction);
   if (!card) return;
   var scheduled = bcTransferIsScheduled(transfer);
-  var title = direction === 'arrival' ? 'Arrival Transfer' : 'Departure Transfer';
+  var title = direction === 'arrival' ? t('drawer.transfers.arrival') : t('drawer.transfers.departure');
   var h4 = card.querySelector('h4');
   if (h4) h4.innerHTML = escHtml(title) + (scheduled ? bcTransferScheduledPebbleHtml() : '');
   var saveBtn = card.querySelector('.bc-transfer-save[data-direction="' + direction + '"]');
@@ -23701,50 +23802,50 @@ function bcTransferOverrideEurosFromTransfer(transfer){
 }
 
 function bcRenderTransferCard(direction, label, transfer, airports, defaults){
-  var t = transfer || {};
+  var xfer = transfer || {};
   var prefix = 'bc-transfer-' + direction;
-  var airportCode = t.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
-  var scheduledLocal = t.scheduled_at_local || '';
+  var airportCode = xfer.airport_code || (defaults && defaults.default_airport_code) || 'SDR';
+  var scheduledLocal = xfer.scheduled_at_local || '';
   if (!scheduledLocal && defaults) {
     scheduledLocal = direction === 'arrival'
       ? (defaults.arrival_scheduled_at_local || '')
       : (defaults.departure_scheduled_at_local || '');
   }
-  var removable = bcTransferHasRemovableTransfer(t);
-  var hasOverride = bcTransferHasManualOverride(t);
-  var overrideEuros = hasOverride ? bcTransferOverrideEurosFromTransfer(t) : '';
-  var scheduled = bcTransferIsScheduled(t);
-  var removeLabel = direction === 'arrival' ? 'Remove Arrival Transfer' : 'Remove Departure Transfer';
-  var title = label + ' Transfer';
+  var removable = bcTransferHasRemovableTransfer(xfer);
+  var hasOverride = bcTransferHasManualOverride(xfer);
+  var overrideEuros = hasOverride ? bcTransferOverrideEurosFromTransfer(xfer) : '';
+  var scheduled = bcTransferIsScheduled(xfer);
+  var removeLabel = direction === 'arrival' ? t('drawer.transfers.removeArrival') : t('drawer.transfers.removeDeparture');
+  var title = direction === 'arrival' ? t('drawer.transfers.arrival') : t('drawer.transfers.departure');
   var html = '<div class="bc-transfer-card bc-drawer-overview-card" data-direction="' + direction + '" id="bc-transfer-card-' + direction + '">';
   html += '<h4>' + escHtml(title) + (scheduled ? bcTransferScheduledPebbleHtml() : '') + '</h4>';
   html += '<div class="bc-transfer-grid">';
   html += '<div class="bc-transfer-col bc-transfer-col-left">';
-  html += '<div><label class="ctx-field-label">Airport</label>';
+  html += '<div><label class="ctx-field-label">' + escHtml(t('drawer.transfers.airport')) + '</label>';
   html += '<select id="' + prefix + '-airport" class="bk-input bk-input-sm">' + bcTransferAirportOptions(airports, airportCode) + '</select></div>';
-  html += '<div><label class="ctx-field-label">Transfer date/time</label>';
+  html += '<div><label class="ctx-field-label">' + escHtml(t('drawer.transfers.dateTime')) + '</label>';
   html += '<input type="datetime-local" id="' + prefix + '-scheduled" class="bk-input bk-input-sm" value="' + escHtml(scheduledLocal) + '"></div>';
   html += '<div class="bc-transfer-override-block">';
   html += '<button type="button" class="btn btn-ghost bc-transfer-override-toggle" data-direction="' + direction + '" aria-expanded="' +
-    (hasOverride ? 'true' : 'false') + '">Exception Override</button>';
+    (hasOverride ? 'true' : 'false') + '">' + escHtml(t('drawer.transfers.exceptionOverride')) + '</button>';
   html += '<div id="' + prefix + '-override-wrap" class="bc-transfer-override-wrap" style="display:' +
     (hasOverride ? 'block' : 'none') + '">';
-  html += '<label class="ctx-field-label" for="' + prefix + '-override-amount">Transfer Charge</label>';
+  html += '<label class="ctx-field-label" for="' + prefix + '-override-amount">' + escHtml(t('drawer.transfers.charge')) + '</label>';
   html += '<input type="number" id="' + prefix + '-override-amount" class="bk-input bk-input-sm bc-transfer-override-amount" min="0" step="0.01" placeholder="25" value="' +
     escHtml(overrideEuros) + '">';
   html += '</div></div></div>';
   html += '<div class="bc-transfer-col bc-transfer-col-right">';
-  html += '<div><label class="ctx-field-label">Flight number (optional)</label>';
-  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(t.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
-  html += '<div><label class="ctx-field-label">Notes</label>';
-  html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(t.notes || '') + '</textarea></div>';
+  html += '<div><label class="ctx-field-label">' + escHtml(t('drawer.transfers.flightOptional')) + '</label>';
+  html += '<input type="text" id="' + prefix + '-flight" class="bk-input bk-input-sm" value="' + escHtml(xfer.flight_number || '') + '" placeholder="e.g. FR1234"></div>';
+  html += '<div><label class="ctx-field-label">' + escHtml(t('drawer.transfers.notes')) + '</label>';
+  html += '<textarea id="' + prefix + '-notes" class="bk-input bk-input-sm" rows="2">' + escHtml(xfer.notes || '') + '</textarea></div>';
   html += '</div></div>';
-  html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(t.pricing) + '</div>';
+  html += '<div id="' + prefix + '-pricing">' + bcTransferPricingHtml(xfer.pricing) + '</div>';
   html += '<div id="' + prefix + '-lookup-note" class="ctx-none" style="margin-top:6px;font-size:11px"></div>';
   html += '<div id="' + prefix + '-result" style="margin-top:6px;display:none;font-size:11px"></div>';
   html += '<div class="bc-transfer-card-footer">';
   html += '<div class="bc-transfer-actions">';
-  html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>Lookup flight</button>';
+  html += '<button type="button" class="btn btn-ghost bc-transfer-lookup" data-direction="' + direction + '" disabled>' + escHtml(t('drawer.transfers.lookupFlight')) + '</button>';
   html += '<button type="button" class="btn btn-primary bc-transfer-save" data-direction="' + direction + '"' +
     (scheduled ? ' disabled' : '') + '>' + escHtml(bcTransferSaveButtonLabel(direction)) + '</button>';
   html += '</div>';
@@ -23764,8 +23865,8 @@ function bcRenderTransferCards(data){
     if (t.direction === 'arrival') arrival = t;
     if (t.direction === 'departure') departure = t;
   });
-  return bcRenderTransferCard('arrival', 'Arrival', arrival, data.airports, data.defaults) +
-    bcRenderTransferCard('departure', 'Departure', departure, data.airports, data.defaults);
+  return bcRenderTransferCard('arrival', t('drawer.transfers.arrivalShort'), arrival, data.airports, data.defaults) +
+    bcRenderTransferCard('departure', t('drawer.transfers.departureShort'), departure, data.airports, data.defaults);
 }
 
 function bcTransferCollectPayload(direction){
@@ -23812,7 +23913,7 @@ function bcTransferValidateOverrideAmount(direction){
   var raw = amtEl && amtEl.value.trim();
   if (!raw) return null;
   var euros = parseFloat(raw);
-  if (!Number.isFinite(euros) || euros < 0) return 'Transfer Charge must be zero or greater.';
+  if (!Number.isFinite(euros) || euros < 0) return t('drawer.transfers.chargeMinZero');
   return null;
 }
 
@@ -23944,7 +24045,7 @@ function bcTransferShowResult(direction, html, isErr){
 }
 
 function bcTransferRemoveLabel(direction){
-  return direction === 'arrival' ? 'Remove Arrival Transfer' : 'Remove Departure Transfer';
+  return direction === 'arrival' ? t('drawer.transfers.removeArrival') : t('drawer.transfers.removeDeparture');
 }
 
 function bcTransferDirectionIsRemovable(direction, transfer){
@@ -24255,19 +24356,19 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows){
     : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
   var payStatus = bk.payment_status || pmt.latest_status || null;
   var html = '<div class="ctx-section ctx-payment-summary-brief bc-drawer-overview-card" id="bc-payment-summary-brief">';
-  html += '<h3 class="bc-drawer-card-title">Payment summary</h3><div class="kv-grid">';
-  if (invoiceTotal != null) html += kvBC('Invoice total', eur(invoiceTotal));
-  if (paidCents != null) html += kvBC('Paid', eur(paidCents));
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.paymentSummary')) + '</h3><div class="kv-grid">';
+  if (invoiceTotal != null) html += kvBC(t('drawer.kv.invoiceTotal'), eur(invoiceTotal));
+  if (paidCents != null) html += kvBC(t('drawer.kv.paid'), eur(paidCents));
   if (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents) {
-    html += kvBC('Balance due', eur(invoiceTotal - paidCents));
+    html += kvBC(t('drawer.kv.balanceDue'), eur(invoiceTotal - paidCents));
   } else if (invoiceTotal != null && paidCents != null && invoiceTotal === paidCents) {
-    html += kvBC('Balance due', eur(0));
+    html += kvBC(t('drawer.kv.balanceDue'), eur(0));
   } else if (bk.balance_due_cents != null) {
-    html += kvBC('Balance due', eur(bk.balance_due_cents));
+    html += kvBC(t('drawer.kv.balanceDue'), eur(bk.balance_due_cents));
   }
-  if (payStatus) html += kvBC('Payment status', String(payStatus).replace(/_/g, ' '));
+  if (payStatus) html += kvBC(t('drawer.kv.paymentStatus'), String(payStatus).replace(/_/g, ' '));
   html += '</div>';
-  html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">Full payment history is in the Payments tab.</p>';
+  html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' + escHtml(t('drawer.paymentSummary.hint')) + '</p>';
   html += '</div>';
   return html;
 }
@@ -24317,12 +24418,12 @@ function bcRenderServicesSummarySection(data, bk){
   html += '<div class="bc-drawer-overview-card bc-svc-summary-card" id="bc-svc-summary-card">';
   html += '<div class="bc-svc-summary-headline">';
   html += '<span class="bc-svc-summary-pebbles">' + bcRenderPackagePebblesHtml(bcGuestPackages(bk || {})) + '</span>';
-  html += '<span class="bc-svc-nights-label">' + escHtml(String(nights) + ' nights') + '</span>';
+  html += '<span class="bc-svc-nights-label">' + escHtml(t('drawer.services.nightsLabel', { count: String(nights) })) + '</span>';
   html += '</div>';
-  html += '<div class="bc-svc-paid-title">Paid / Requested services</div>';
+  html += '<div class="bc-svc-paid-title">' + escHtml(t('drawer.services.paidRequested')) + '</div>';
   var paidList = data.paid_requested_services || [];
   if (!paidList.length) {
-    html += '<div class="ctx-none">No services recorded yet.</div>';
+    html += '<div class="ctx-none">' + escHtml(t('drawer.services.none')) + '</div>';
   } else {
     html += '<div class="bc-svc-paid-list">';
     paidList.forEach(function(s){
@@ -24336,7 +24437,7 @@ function bcRenderServicesSummarySection(data, bk){
       }, 0);
     }
     html += '<div class="bc-svc-paid-sep"></div>';
-    html += '<div class="bc-svc-paid-total">Total services \u20ac' +
+    html += '<div class="bc-svc-paid-total">' + escHtml(t('drawer.services.totalServices')) + ' \u20ac' +
       (Number(totalCents) / 100).toFixed(2) + '</div>';
   }
   html += '</div>';
@@ -24345,7 +24446,7 @@ function bcRenderServicesSummarySection(data, bk){
 
 function bcRenderUnschedulePickerHtml(services){
   if (!services || !services.length) {
-    return '<div class="ctx-none" style="font-size:11px">No scheduled services to remove.</div>';
+    return '<div class="ctx-none" style="font-size:11px">' + escHtml(t('drawer.services.noScheduledToRemove')) + '</div>';
   }
   var html = '<div class="bc-svc-picker-list">';
   services.forEach(function(s){
@@ -24359,16 +24460,16 @@ function bcRenderUnschedulePickerHtml(services){
 
 function bcRenderServicesScheduleSections(data){
   if (!data || !data.success) {
-    return '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
+    return '<div class="state-msg error">' + escHtml((data && data.error) || t('drawer.services.loadFailed')) + '</div>';
   }
   var html = '';
   var unsched = data.unscheduled_services || [];
 
   html += '<div class="bc-drawer-overview-card bc-svc-schedule-section" id="bc-svc-schedule-section">';
-  html += '<div class="bc-svc-schedule-title">Service schedule</div>';
+  html += '<div class="bc-svc-schedule-title">' + escHtml(t('drawer.services.scheduleTitle')) + '</div>';
   var groups = data.services_by_date || [];
   if (!groups.length) {
-    html += '<div class="ctx-none">No stay dates for this booking.</div>';
+    html += '<div class="ctx-none">' + escHtml(t('drawer.services.noStayDates')) + '</div>';
   } else {
     groups.forEach(function(g){
       var dayServices = g.services || [];
@@ -24378,13 +24479,13 @@ function bcRenderServicesScheduleSections(data){
       html += '<div class="bc-svc-schedule-day-label">' + escHtml(g.label || g.date || '\u2014') + '</div>';
       html += '<div class="bc-svc-schedule-day-actions">';
       html += '<button type="button" class="bc-svc-schedule-add-btn" data-date="' + escHtml(g.date || '') +
-        '" title="Schedule service" aria-label="Schedule service for ' + escHtml(g.label || g.date || '') + '">+</button>';
+        '" title="' + escHtml(t('drawer.services.scheduleAddTitle')) + '" aria-label="' + escHtml(t('drawer.services.scheduleAddAria', { date: g.label || g.date || '' })) + '">+</button>';
       html += '<button type="button" class="bc-svc-schedule-remove-btn" data-date="' + escHtml(g.date || '') +
-        '" title="Unschedule service" aria-label="Unschedule service for ' + escHtml(g.label || g.date || '') + '"' +
+        '" title="' + escHtml(t('drawer.services.unscheduleTitle')) + '" aria-label="' + escHtml(t('drawer.services.unscheduleAria', { date: g.label || g.date || '' })) + '"' +
         (hasScheduled ? '' : ' disabled') + '>\u2212</button>';
       html += '</div></div>';
       if (!hasScheduled) {
-        html += '<div class="ctx-none" style="font-size:11px">No services scheduled</div>';
+        html += '<div class="ctx-none" style="font-size:11px">' + escHtml(t('drawer.services.noScheduled')) + '</div>';
       } else {
         dayServices.forEach(function(s){ html += bcRenderServiceChipHtml(s); });
       }
@@ -24400,9 +24501,9 @@ function bcRenderServicesScheduleSections(data){
   html += '</div>';
 
   html += '<div class="bc-drawer-overview-card bc-svc-schedule-section" id="bc-svc-unscheduled-section">';
-  html += '<div class="bc-svc-schedule-title">Unscheduled services</div>';
+  html += '<div class="bc-svc-schedule-title">' + escHtml(t('drawer.services.unscheduledTitle')) + '</div>';
   if (!unsched.length) {
-    html += '<div class="ctx-none">No unscheduled services.</div>';
+    html += '<div class="ctx-none">' + escHtml(t('drawer.services.noUnscheduled')) + '</div>';
   } else {
     html += '<div class="bc-svc-unscheduled-list">';
     unsched.forEach(function(s){
@@ -24432,7 +24533,7 @@ function bcApplyServicesScheduleData(bk, data){
       bcInitServicesSchedulePickers(bk, bodyEl);
     }
   } else {
-    var err = '<div class="state-msg error">' + escHtml((data && data.error) || 'Failed to load services') + '</div>';
+    var err = '<div class="state-msg error">' + escHtml((data && data.error) || t('drawer.services.loadFailed')) + '</div>';
     if (summaryEl) summaryEl.innerHTML = '';
     if (bodyEl) {
       bodyEl.classList.remove('ctx-loading');
@@ -24492,7 +24593,7 @@ function bcInitServicesSchedulePickers(bk, bodyEl){
       .then(function(res){
         if (!bodyEl) return;
         if (!res.ok || !res.data || !res.data.success) {
-          var errMsg = (res.data && res.data.error) || 'Failed to update service schedule';
+          var errMsg = (res.data && res.data.error) || t('drawer.services.updateFailed');
           bodyEl.insertAdjacentHTML('afterbegin',
             '<div class="state-msg error bc-svc-schedule-flash">' + escHtml(errMsg) + '</div>');
           setTimeout(function(){
@@ -24560,7 +24661,7 @@ function bcInitServicesScheduleShell(data){
   var bk = (data && data.booking) || {};
   if (bcBookingStatusIsCancelled(bk.status)) return;
   if (!bk.booking_id) {
-    bodyEl.innerHTML = '<div class="state-msg error">Booking id missing</div>';
+    bodyEl.innerHTML = '<div class="state-msg error">' + escHtml(t('drawer.services.bookingIdMissing')) + '</div>';
     return;
   }
   bcRefreshServicesSchedule(bk, bodyEl);
@@ -24569,12 +24670,12 @@ function bcInitServicesScheduleShell(data){
 function bcRenderServicesTabHtml(bk){
   if (bcBookingStatusIsCancelled(bk && bk.status)) {
     return '<div class="ctx-section ctx-services-tab" id="bc-services-tab">' +
-      '<div class="ctx-none">Not available for cancelled bookings.</div></div>';
+      '<div class="ctx-none">' + escHtml(t('drawer.services.cancelled')) + '</div></div>';
   }
   var html = '<div class="ctx-section ctx-services-tab" id="bc-services-tab">';
   html += '<div id="bc-services-summary-section"></div>';
   html += bcRenderAddServicePanelHtml(bk);
-  html += '<div id="bc-services-schedule-body" class="ctx-loading">Loading service schedule\u2026</div>';
+  html += '<div id="bc-services-schedule-body" class="ctx-loading">' + escHtml(t('drawer.services.loading')) + '</div>';
   html += '</div>';
   return html;
 }
@@ -24583,8 +24684,8 @@ function bcRenderServicesTabHtml(bk){
 function bcRenderPendingManualServicesOverviewHtml(items){
   if (!items || !items.length) return '';
   var html = '<div class="bc-drawer-overview-card ctx-section" id="bc-pending-manual-services">';
-  html += '<h3 class="bc-drawer-card-title">Pending services</h3>';
-  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px">Guest-requested yoga/meals from Luna — needs staff scheduling (no date/time yet).</div>';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.pendingServices')) + '</h3>';
+  html += '<div class="ctx-none" style="margin-bottom:8px;font-size:11px">' + escHtml(t('drawer.pendingServices.sub')) + '</div>';
   for (var i = 0; i < items.length; i++){
     var it = items[i];
     html += '<div class="ctx-field-row" style="margin-bottom:6px;font-size:12px;line-height:1.45">';
@@ -24609,10 +24710,10 @@ function renderBookingContextDrawer(data){
 
   html += '<div class="bc-drawer-file-tabs" id="bc-drawer-file-tabs">';
   html += '<div class="bc-drawer-tabs" id="bc-drawer-tabs" role="tablist">';
-  html += bcDrawerTabBtn('overview', 'Overview', activeTab === 'overview');
-  html += bcDrawerTabBtn('services', 'Services', activeTab === 'services');
-  html += bcDrawerTabBtn('transfers', 'Transfers', activeTab === 'transfers');
-  html += bcDrawerTabBtn('payments', 'Payments', activeTab === 'payments');
+  html += bcDrawerTabBtn('overview', t('drawer.tab.overview'), activeTab === 'overview');
+  html += bcDrawerTabBtn('services', t('drawer.tab.services'), activeTab === 'services');
+  html += bcDrawerTabBtn('transfers', t('drawer.tab.transfers'), activeTab === 'transfers');
+  html += bcDrawerTabBtn('payments', t('drawer.tab.payments'), activeTab === 'payments');
   html += '</div>';
   html += '<div class="bc-drawer-tab-content-panel" id="bc-drawer-tab-content-panel">';
 
@@ -24622,7 +24723,7 @@ function renderBookingContextDrawer(data){
   html += '<div class="bc-drawer-overview-panel">';
 
   html += '<div class="bc-drawer-overview-card" id="bc-drawer-card-booking">';
-  html += '<h3 class="bc-drawer-card-title">Booking details</h3>';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.bookingDetails')) + '</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
   html += '</div>';
@@ -24631,20 +24732,20 @@ function renderBookingContextDrawer(data){
   var moveAssigns = rmMove.assignments || [];
   var moveNoBeds = moveAssigns.length === 0;
   html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
-  html += '<h3 class="bc-drawer-card-title">Move bed</h3>';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.moveBed')) + '</h3>';
   if (moveNoBeds){
-    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">This booking has no bed assignments and requires manual review.</div>';
+    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">' + escHtml(t('drawer.moveBed.noAssignments')) + '</div>';
   } else {
     html += bcRenderMoveSourcePillsHtml(moveAssigns);
   }
   html += '<div style="margin-top:10px" id="bc-move-target-wrap">';
   html += '<div id="bc-move-target-field">';
-  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" style="width:100%;max-width:440px" disabled><option value="">\u2014 click to load beds \u2014</option></select>';
+  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" disabled><option value="">' + escHtml(t('drawer.moveBed.loadBeds')) + '</option></select>';
   html += '</div>';
   html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
   html += '<div id="bc-move-result"></div>';
   html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>Move Bed</button>';
+  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
   html += '</div></div>';
 
   html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || []);
@@ -24652,26 +24753,26 @@ function renderBookingContextDrawer(data){
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
   html += '<div class="bc-drawer-overview-card ctx-section" id="bc-drawer-card-conversation">';
-  html += '<h3 class="bc-drawer-card-title">Conversation / Handoff</h3>';
+  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.conversation')) + '</h3>';
   if (data.conversation){
     var conv = data.conversation;
-    if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">NEEDS HUMAN REVIEW</span></div>';
+    if (conv.needs_human) html += '<div class="ctx-status-row"><span class="pill pill-orange">' + escHtml(t('drawer.conversation.needsHuman')) + '</span></div>';
     html += '<div class="kv-grid">';
     html += bcDrawerConvModeRowHtml(conv);
-    if (conv.pending_action)        html += kvBC('Pending', conv.pending_action);
-    if (conv.last_message_preview)  html += kvBC('Last message', conv.last_message_preview);
+    if (conv.pending_action)        html += kvBC(t('drawer.kv.pending'), conv.pending_action);
+    if (conv.last_message_preview)  html += kvBC(t('drawer.kv.lastMessage'), conv.last_message_preview);
     html += '</div>';
   } else {
-    html += '<div class="ctx-none">No linked conversation yet.</div>';
+    html += '<div class="ctx-none">' + escHtml(t('drawer.conversation.none')) + '</div>';
   }
   if (data.handoff){
       var hf = data.handoff;
       html += '<div class="kv-grid" style="margin-top:' + (data.conversation ? '12' : '0') + 'px">';
-      html += kvBC('Handoff reason', hf.reason_code);
-      html += kvBC('Priority', hf.priority);
-      html += kvBC('Status', hf.status);
-      if (hf.assigned_staff) html += kvBC('Assigned to', hf.assigned_staff);
-      if (hf.opened_at)      html += kvBC('Opened', new Date(hf.opened_at).toLocaleString());
+      html += kvBC(t('drawer.kv.handoffReason'), hf.reason_code);
+      html += kvBC(t('drawer.kv.priority'), hf.priority);
+      html += kvBC(t('drawer.kv.status'), hf.status);
+      if (hf.assigned_staff) html += kvBC(t('drawer.kv.assignedTo'), hf.assigned_staff);
+      if (hf.opened_at)      html += kvBC(t('drawer.kv.opened'), new Date(hf.opened_at).toLocaleString());
       html += '</div>';
   }
   html += bcRenderLunaGuestNotesHtml(data);
@@ -25078,7 +25179,62 @@ function toOnTourOperatorTabOpen(){
   }
 })();
 
+function bcUpdateCalendarTitle(){
+  var titleEl = el('bc-calendar-title');
+  if (!titleEl) return;
+  var start = (el('bc-start') && el('bc-start').value) || '';
+  var year = (start && /^\d{4}/.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
+  titleEl.textContent = t('calendar.title') + ' - ' + year;
+}
+
+var bcLastBedCalendarData = null;
+
+function bcRefreshOpenDrawerI18n(){
+  if (!bcLastBookingContext) return;
+  var ctxEl = el('bc-ctx-body');
+  if (!ctxEl || !ctxEl.querySelector('#bc-drawer-file-tabs')) return;
+  var tabToRestore = bcActiveDrawerTab || 'overview';
+  ctxEl.innerHTML = renderBookingContextDrawer(bcLastBookingContext);
+  updateBcDetailHeader(bcLastBookingContext);
+  bcInitDrawerTabs();
+  bcRestoreActiveDrawerTab(tabToRestore);
+  bcInitFieldEditShell(bcLastBookingContext);
+  bcInitServicesScheduleShell(bcLastBookingContext);
+  bcInitTransferShell(bcLastBookingContext);
+  bcInitAddServiceShell(bcLastBookingContext);
+  bcInitMovePanel(bcLastBookingContext);
+  bcInitCashPaymentShell(bcLastBookingContext);
+  bcInitPaymentLinkShell(bcLastBookingContext);
+  bcInitCancelPaymentLinkShell(bcLastBookingContext);
+  bcInitBookingCancelShell(bcLastBookingContext);
+  bcInitNewConversationShell(bcLastBookingContext);
+  bcWireOpenConversationButtons(bcLastBookingContext);
+  bcBindLunaNotesSave();
+  bcBindLunaNotesDelete();
+}
+
+window.staffPortalOnLocaleChange = function(){
+  bcUpdateCalendarTitle();
+  if (bcLastBedCalendarData) renderBedCalendar(bcLastBedCalendarData);
+  bcRefreshOpenDrawerI18n();
+  if (typeof bcRefreshQuotePreviewDisplay === 'function') bcRefreshQuotePreviewDisplay();
+  if (typeof bcUpdateCreateButton === 'function') bcUpdateCreateButton();
+  if (typeof bcUpdateQuoteButton === 'function') bcUpdateQuoteButton();
+  if (typeof bcUpdateManualBookingPaidFields === 'function') bcUpdateManualBookingPaidFields();
+  var _bcEl = el('bc-sel-bed-count');
+  if (_bcEl && bcSelectedBeds && bcSelectedBeds.length) _bcEl.textContent = bcBedsSelectedLabel(bcSelectedBeds.length);
+  if (!bcLastQuote) {
+    var _qr = el('bc-quote-result');
+    if (_qr) {
+      var notRun = _qr.querySelector('.bk-preview-not-run');
+      if (notRun) _qr.innerHTML = bcQuoteNotRunHtml();
+    }
+  }
+  if (typeof lunaGlobalPauseLoad === 'function') lunaGlobalPauseLoad();
+};
+
 function loadBedCalendar(afterRender){
+  bcUpdateCalendarTitle();
   var start  = (el('bc-start').value||'').trim();
   var end    = (el('bc-end').value||'').trim();
   var client = getBcClient();
@@ -25087,7 +25243,7 @@ function loadBedCalendar(afterRender){
   if (bcShell) bcShell.style.display = 'none';
   el('bc-detail').style.display    = 'none';
   el('bc-state').className         = 'state-msg';
-  el('bc-state').textContent       = 'Loading bed calendar\u2026';
+  el('bc-state').textContent       = t('calendar.state.loading');
   el('bc-state').style.display     = 'block';
   el('bc-load').disabled           = true;
   /* Clear selection on new load (Stage 8.3c) */
@@ -25104,24 +25260,25 @@ function loadBedCalendar(afterRender){
       el('bc-load').disabled = false;
       if (!res.ok || !res.data.success){
         el('bc-state').className   = 'state-msg error';
-        el('bc-state').textContent = 'Error ' + res.status + ': ' + (res.data.error || 'Request failed');
+        el('bc-state').textContent = t('common.error') + ' ' + res.status + ': ' + (res.data.error || t('calendar.state.requestFailed'));
         return;
       }
       if (!res.data.rooms || res.data.rooms.length === 0){
-        el('bc-state').textContent = 'No rooms found for this client.';
+        el('bc-state').textContent = t('calendar.state.noRooms');
         return;
       }
       if (!res.data.days || res.data.days.length === 0){
-        el('bc-state').textContent = 'No days in range.';
+        el('bc-state').textContent = t('calendar.state.noDays');
         return;
       }
+      bcLastBedCalendarData = res.data;
       renderBedCalendar(res.data);
       if (typeof afterRender === 'function') afterRender(res.data);
     })
     .catch(function(e){
       el('bc-load').disabled     = false;
       el('bc-state').className   = 'state-msg error';
-      el('bc-state').textContent = 'Network error: ' + e.message;
+      el('bc-state').textContent = t('calendar.state.networkError', { message: e.message });
     });
 }
 
@@ -25161,6 +25318,7 @@ function bcSetRange(start, end, chipKey){
   var s = el('bc-start'); var e = el('bc-end');
   if (s) s.value = start;
   if (e) e.value = end;
+  bcUpdateCalendarTitle();
   /* Update active chip */
   document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
   if (chipKey){
@@ -25178,6 +25336,7 @@ function bcSetRange(start, end, chipKey){
   var s = el('bc-start'); var e = el('bc-end');
   if (s && !s.value) s.value = bcIso(today);
   if (e && !e.value) e.value = bcIso(plus30);
+  bcUpdateCalendarTitle();
 })();
 
 document.querySelectorAll('.bc-chip').forEach(function(chip){
@@ -25727,30 +25886,43 @@ body{
 }
 .msg.error{background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;}
 .msg.ok{background:#EFF5EE;border:1px solid #BACEA4;color:#3A6035;}
+.staff-lang-switch-login{display:flex;align-items:center;justify-content:center;gap:0;margin:0 0 18px;font-size:11px;font-weight:600;letter-spacing:.1em}
+.staff-lang-btn-login{background:none;border:none;color:var(--text-3);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
+.staff-lang-btn-login:hover{color:var(--text)}
+.staff-lang-btn-login.is-active{color:var(--text);text-decoration:underline;text-underline-offset:3px}
+.staff-lang-sep-login{color:var(--text-3);opacity:.45;user-select:none;font-size:10px}
 </style>
 </head>
 <body>
+${getStaffPortalI18nBootstrapScript()}
 <div class="card">
+  <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
+    <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="en">EN</button>
+    <span class="staff-lang-sep-login staff-lang-sep">|</span>
+    <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="es">ES</button>
+    <span class="staff-lang-sep-login staff-lang-sep">|</span>
+    <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
+  </div>
   <div class="logo">
     <div class="logo-mark">L</div>
-    <h1>Luna Front Desk</h1>
-    <div class="sub">Staff sign in</div>
+    <h1 data-i18n="login.title">Luna Front Desk</h1>
+    <div class="sub" data-i18n="login.sub">Staff sign in</div>
   </div>
 
   <form id="login-form" autocomplete="on">
     <div class="field">
-      <label for="client">Company</label>
+      <label for="client" data-i18n="login.company">Company</label>
       <input id="client" name="client" type="text" value="wolfhouse-somo" autocomplete="organization" spellcheck="false">
     </div>
     <div class="field">
-      <label for="email">Email</label>
+      <label for="email" data-i18n="login.email">Email</label>
       <input id="email" name="email" type="email" placeholder="staff@example.com" autocomplete="username" required>
     </div>
     <div class="field">
-      <label for="password">Password</label>
+      <label for="password" data-i18n="login.password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button class="btn-signin" id="btn-signin" type="button">Sign in</button>
+    <button class="btn-signin" id="btn-signin" type="button" data-i18n="login.signIn">Sign in</button>
     <div class="msg" id="msg"></div>
   </form>
 </div>
@@ -25776,7 +25948,7 @@ body{
     var password = document.getElementById('password').value;
 
     if (!client || !email || !password){
-      showMsg('All fields are required.', true);
+      showMsg(window.t('login.allFieldsRequired'), true);
       btn.disabled = false;
       return;
     }
@@ -25789,15 +25961,15 @@ body{
       var d = {};
       try { d = JSON.parse(xhr.responseText); } catch(_){}
       if (xhr.status === 200 && d.success){
-        showMsg('Signed in \u2014 redirecting\u2026', false);
+        showMsg(window.t('login.success'), false);
         window.location.href = '/staff/ui';
       } else {
-        showMsg(d.error || 'Login failed. Please check your credentials.', true);
+        showMsg(d.error || window.t('login.failed'), true);
         btn.disabled = false;
       }
     };
     xhr.onerror = function(){
-      showMsg('Network error. Please try again.', true);
+      showMsg(window.t('login.networkError'), true);
       btn.disabled = false;
     };
     xhr.send(JSON.stringify({ client: client, email: email, password: password }));
@@ -29155,6 +29327,54 @@ async function handleBookingLunaNoteAppend(bookingId, req, res, user) {
   }
 }
 
+async function handleBookingLunaNoteDelete(bookingId, req, res, user) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  const noteId = String(body.note_id || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!clientSlug) return send400(res, 'client_slug is required');
+  if (!noteId) return send400(res, 'note_id is required');
+  if (!UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
+
+  const actorId = user ? user.staff_user_id : 'dev-luna-notes-local';
+
+  try {
+    const out = await withPgClient(async (pg) => deleteBookingStaffNote(pg, {
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      note_id: noteId,
+    }));
+    if (!out.success) {
+      return sendJSON(res, 400, { success: false, error: out.error || 'delete_failed' });
+    }
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:booking_luna_note_delete',
+      category: 'booking_luna_notes',
+      client_slug: clientSlug,
+      booking_id: bookingId,
+      note_id: noteId,
+      staff_user_id: actorId,
+      success: true,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      deleted_note_id: out.deleted_note_id,
+      luna_guest_notes: out.luna_guest_notes,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
+  }
+}
+
 async function handleBookingContext(bookingCode, query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -29655,13 +29875,18 @@ async function router(req, res) {
   // ── Phase 10.6a — Booking add service record (staff_manual INSERT only) ───
   const lunaNotesMatch = BOOKING_LUNA_NOTES_RE.exec(pathname);
   if (lunaNotesMatch) {
-    if (method !== 'POST') {
-      res.writeHead(405, { Allow: 'POST' });
-      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bookings/:id/luna-notes' }));
+    if (method === 'POST') {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      return handleBookingLunaNoteAppend(lunaNotesMatch[1], req, res, auth.user);
     }
-    const auth = await requireAuth(req, res, 'operator');
-    if (!auth.ok) return;
-    return handleBookingLunaNoteAppend(lunaNotesMatch[1], req, res, auth.user);
+    if (method === 'DELETE') {
+      const auth = await requireAuth(req, res, 'operator');
+      if (!auth.ok) return;
+      return handleBookingLunaNoteDelete(lunaNotesMatch[1], req, res, auth.user);
+    }
+    res.writeHead(405, { Allow: 'POST, DELETE' });
+    return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST or DELETE for bookings/:id/luna-notes' }));
   }
 
   if (pathname === '/staff/bookings/add-service') {
