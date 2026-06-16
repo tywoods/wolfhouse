@@ -275,6 +275,7 @@ const {
   isNoPackageBookingCode,
   buildBotQuoteReplyDraft,
 } = require('./lib/bot-booking-package-normalize');
+const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
 const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
@@ -9751,7 +9752,14 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 
   // ── reply_draft ───────────────────────────────────────────────────────────
   let replyDraft;
+  const hasAddOns = addOns.length > 0;
+  const includedItems = (quote && quote.success)
+    ? buildBotQuoteIncludedItems(quote, { isNoPackage: pkgCtx.isNoPackage, hasAddOns })
+    : null;
   if (quote && quote.success) {
+    if (includedItems && quote.line_items) {
+      quote = { ...quote, included_items: includedItems };
+    }
     replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode);
   } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
@@ -9807,6 +9815,11 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     has_missing_fields:  missingFields.length > 0,
     next_action:         nextAction,
     reply_draft:         replyDraft,
+    included_items:      includedItems,
+    quote_total_cents:   quote && quote.success ? quote.total_cents : null,
+    deposit_required_cents: quote && quote.success ? quote.deposit_required_cents : null,
+    balance_due_cents:   quote && quote.success ? quote.balance_due_cents : null,
+    currency:            quote && quote.success ? quote.currency : null,
     quote,
     quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null),
     package_night_rule:  packageNightViolation || null,

@@ -24,6 +24,7 @@ const {
   resolveBotBookingPackageContext,
   buildBotQuoteReplyDraft,
 } = require('./bot-booking-package-normalize');
+const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
 const { getPauseState, formatPauseStateRow } = require('./staff-bot-pause-sql');
 const {
   getBedCalendarRoomsQuery,
@@ -297,6 +298,14 @@ function runBookingPreviewDryRun(fields) {
   } else if (nextAction === 'handoff_to_staff') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
   } else if (nextAction === 'show_quote' && quote) {
+    const hasAddOns = Array.isArray(fields.add_ons) && fields.add_ons.length > 0;
+    const includedItems = buildBotQuoteIncludedItems(quote, {
+      isNoPackage: pkgCtx.isNoPackage,
+      hasAddOns,
+    });
+    if (includedItems) {
+      quote = { ...quote, included_items: includedItems };
+    }
     replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, fields.package_code);
   } else {
     replyDraft = 'Let me check those dates and get back to you.';
@@ -314,6 +323,11 @@ function runBookingPreviewDryRun(fields) {
     has_missing_fields:  missingFields.length > 0,
     next_action:         nextAction,
     reply_draft:         replyDraft,
+    included_items:      quote && quote.included_items ? quote.included_items : null,
+    quote_total_cents:   quote && quote.success ? quote.total_cents : null,
+    deposit_required_cents: quote && quote.success ? quote.deposit_required_cents : null,
+    balance_due_cents:   quote && quote.success ? quote.balance_due_cents : null,
+    currency:            quote && quote.success ? quote.currency : null,
     quote,
     quote_error:         quoteError || null,
     availability_note: {
