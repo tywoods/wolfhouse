@@ -452,16 +452,106 @@ function resolveGuestAddonComboPricing({ serviceType, quantity, boardType, prici
   return result;
 }
 
+function isPackageIncludedWetsuit(row) {
+  const meta = parseServiceMetadata(row && row.metadata);
+  return meta.included_in_package === true;
+}
+
+function isRebalanceableWetsuit(row) {
+  if (!isActiveWetsuitRental(row)) return false;
+  if (isPaidServiceRecord(row)) return false;
+  if (isPackageIncludedWetsuit(row)) return false;
+  return true;
+}
+
+/**
+ * Pair active board rentals with wetsuits (1:1). Unpaired unpaid wetsuits bill at standard rate.
+ * Returns DB update intents — caller applies writes.
+ */
+function computeWetsuitBoardComboRebalance(existingRecords, opts = {}) {
+  const wetsuitUnit = Math.max(0, Number(opts.wetsuit_unit_cents) || 500);
+  const boards = (existingRecords || [])
+    .filter(isActiveBoardRental)
+    .map((row) => ({
+      ...row,
+      rental_days: rentalDaysFromRecord(row),
+    }));
+  const wetsuits = (existingRecords || [])
+    .filter(isRebalanceableWetsuit)
+    .map((row) => ({
+      ...row,
+      rental_days: rentalDaysFromRecord(row),
+    }));
+
+  const usedBoardIds = new Set();
+  const wetsuitShouldBeFree = new Map();
+
+  wetsuits.forEach((wetsuit) => {
+    const board = boards.find((boardRow) => {
+      if (usedBoardIds.has(boardRow.id)) return false;
+      return boardRow.rental_days >= wetsuit.rental_days;
+    });
+    if (board) {
+      usedBoardIds.add(board.id);
+      wetsuitShouldBeFree.set(wetsuit.id, true);
+    } else {
+      wetsuitShouldBeFree.set(wetsuit.id, false);
+    }
+  });
+
+  const updates = [];
+  wetsuits.forEach((wetsuit) => {
+    const shouldBeFree = wetsuitShouldBeFree.get(wetsuit.id) === true;
+    const currentDue = Number(wetsuit.amount_due_cents || 0);
+    const meta = parseServiceMetadata(wetsuit.metadata);
+    const isCurrentlyFree = currentDue <= 0
+      || meta.combo_waived === true
+      || meta.combo_reason === 'wetsuit_free_with_board'
+      || meta.combo_reason === 'board_frees_unpaid_wetsuit';
+
+    if (shouldBeFree && currentDue > 0) {
+      updates.push({
+        id: wetsuit.id,
+        action: 'zero',
+        amount_due_cents: 0,
+        combo_reason: 'wetsuit_free_with_board',
+      });
+      return;
+    }
+
+    if (!shouldBeFree && isCurrentlyFree) {
+      const amountDue = wetsuitUnit * wetsuit.rental_days;
+      updates.push({
+        id: wetsuit.id,
+        action: 'restore',
+        amount_due_cents: amountDue,
+        unit_cents: wetsuitUnit,
+        rental_days: wetsuit.rental_days,
+      });
+    }
+  });
+
+  return {
+    updates,
+    paired_board_count: usedBoardIds.size,
+    wetsuit_count: wetsuits.length,
+  };
+}
+
 module.exports = {
   DEFAULT_PRICING_PATH,
   loadWolfhousePricingConfig,
   previewGuestAddonPricing,
   resolveGuestAddonComboPricing,
+  computeWetsuitBoardComboRebalance,
   findCoveringBoardRental,
   findUnpaidWetsuitForCombo,
   boardVariantFromRecord,
   rentalDaysFromRecord,
   isPaidServiceRecord,
+  isActiveBoardRental,
+  isActiveWetsuitRental,
+  isRebalanceableWetsuit,
   parseServiceMetadata,
   normalizeLunaBookingAddOnsInput,
   applyPerPersonRentalDefaults,

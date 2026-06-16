@@ -270,6 +270,9 @@ const {
   resolveGuestAddonComboPricing,
   normalizeQuoteAddOnsForCombo,
 } = require('./lib/guest-addon-pricing');
+const {
+  rebalanceBookingWetsuitBoardCombo,
+} = require('./lib/guest-addon-combo-rebalance-db');
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
 const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-options');
 const {
@@ -428,8 +431,11 @@ const {
 } = require('./lib/luna-booking-payment-totals');
 const {
   getPauseState,
+  getGlobalPauseState,
   pauseConversation,
   resumeConversation,
+  pauseGlobalLuna,
+  resumeGlobalLuna,
   formatPauseStateRow,
 } = require('./lib/staff-bot-pause-sql');
 const {
@@ -7626,6 +7632,16 @@ async function handleBookingAddService(req, res, user) {
         ? ' Spread across stay dates as schedulable units.'
         : '');
 
+    let comboRebalance = null;
+    if (!result.idempotent && (uiServiceType === 'wetsuit' || uiServiceType === 'hard_board' || uiServiceType === 'soft_board')) {
+      try {
+        comboRebalance = await withPgClient((pg) =>
+          rebalanceBookingWetsuitBoardCombo(pg, clientSlug, bookingRow.booking_id));
+      } catch (comboErr) {
+        comboRebalance = { rebalanced: false, error: comboErr.message };
+      }
+    }
+
     return sendJSON(res, 200, {
       success: true,
       created: !result.idempotent,
@@ -7634,6 +7650,7 @@ async function handleBookingAddService(req, res, user) {
       service_records: result.rows || [result.row],
       units_created: result.idempotent ? (result.rows || [result.row]).length : (result.rows || []).length,
       schedule_mode: scheduleMode,
+      combo_rebalance: comboRebalance,
       pricing: {
         service_type: uiServiceType,
         db_service_type: pricing.db_service_type,
@@ -7791,6 +7808,16 @@ async function handleBookingRemoveService(req, res, user) {
       };
     });
 
+    let comboRebalance = null;
+    if (result.removed) {
+      try {
+        comboRebalance = await withPgClient((pg) =>
+          rebalanceBookingWetsuitBoardCombo(pg, clientSlug, bookingRow.booking_id));
+      } catch (comboErr) {
+        comboRebalance = { rebalanced: false, error: comboErr.message };
+      }
+    }
+
     if (result.not_owned) {
       appendAuditLog({ ...auditBase, success: false, error: 'record_not_on_booking', elapsed_ms: Date.now() - started });
       return sendJSON(res, 404, {
@@ -7817,6 +7844,7 @@ async function handleBookingRemoveService(req, res, user) {
       idempotent: result.idempotent,
       service_record_ids: recordIds,
       removed_records: result.removed_rows || [],
+      combo_rebalance: comboRebalance,
       audit: { actor: actorLabel, idempotency_key: idempotencyKey, reason: reason || null },
       message: result.idempotent
         ? 'Selected service records were already removed.'
@@ -8450,10 +8478,10 @@ async function loadBotAddonExistingServiceRecords(clientSlug, bookingId) {
 
 async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
   const svc = await pg.query(
-    `SELECT id, payment_id, amount_due_cents, payment_status
-       FROM booking_service_records
-      WHERE id = $1
-      FOR UPDATE`,
+        `SELECT id, payment_id, amount_due_cents, amount_paid_cents, payment_status
+           FROM booking_service_records
+          WHERE id = $1
+          FOR UPDATE`,
     [serviceRecordId],
   );
   const row = svc.rows[0];
@@ -9566,6 +9594,186 @@ async function handleBotResumePost(req, res, user) {
       elapsed_ms: Date.now() - started,
     });
     return sendJSON(res, 500, { success: false, error: 'resume write failed' });
+  }
+}
+
+async function handleBotGlobalPauseStateGet(query, res, user) {
+  const started = Date.now();
+  const clientSlug = String((query && query.client_slug) || (query && query.client) || DEFAULT_CLIENT).trim();
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+
+  try {
+    const result = await withPgClient((pg) => getGlobalPauseState(pg, clientSlug));
+    const paused = !!(result.row && result.row.paused === true);
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.global-pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: true,
+      global_paused: paused,
+      elapsed_ms: Date.now() - started,
+      ...(user ? { staff_user_id: user.staff_user_id } : {}),
+    });
+
+    if (paused) {
+      return sendJSON(res, 200, buildPausedStateResponse(result.row, {
+        global_pause: true,
+        scope: 'global',
+      }));
+    }
+    return sendJSON(res, 200, buildDefaultActivePauseResponse({
+      global_pause: false,
+      scope: 'global',
+      client_slug: clientSlug,
+    }));
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.global-pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'global pause lookup failed' });
+  }
+}
+
+async function handleBotGlobalPausePost(req, res, user) {
+  const started = Date.now();
+
+  if (!BOT_PAUSE_CONTROLS_ENABLED) {
+    return sendJSON(res, 403, botPauseControlsDisabledResponse());
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+
+  const pausedBy = resolveStaffActorId(user, body, 'global-pause-local-dev');
+
+  try {
+    const result = await withPgClient((pg) => pauseGlobalLuna(pg, {
+      client_slug: clientSlug,
+      pause_reason: body.pause_reason || 'Global pause from Luna Staff tab',
+      paused_by: pausedBy,
+    }));
+
+    if (result.table_missing) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        paused: false,
+        bot_paused: false,
+        live_send_blocked: false,
+      });
+    }
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.global-pause',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      staff_user_id: pausedBy,
+      success: true,
+      idempotent: !!result.idempotent,
+      elapsed_ms: Date.now() - started,
+    });
+
+    return sendJSON(res, 200, buildPausedStateResponse(result.row, {
+      global_pause: true,
+      scope: 'global',
+      idempotent: !!result.idempotent,
+    }));
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'global pause write failed' });
+  }
+}
+
+async function handleBotGlobalResumePost(req, res, user) {
+  const started = Date.now();
+
+  if (!BOT_PAUSE_CONTROLS_ENABLED) {
+    return sendJSON(res, 403, botPauseControlsDisabledResponse());
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+
+  const resumedBy = resolveStaffActorId(user, body, 'global-resume-local-dev');
+
+  try {
+    const result = await withPgClient((pg) => resumeGlobalLuna(pg, {
+      client_slug: clientSlug,
+      resumed_by: resumedBy,
+    }));
+
+    if (result.table_missing) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'bot_pause_states_table_missing',
+        paused: false,
+        bot_paused: false,
+        live_send_blocked: false,
+      });
+    }
+
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.global-resume',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      staff_user_id: resumedBy,
+      success: true,
+      idempotent: !!result.idempotent,
+      elapsed_ms: Date.now() - started,
+    });
+
+    if (!result.row) {
+      return sendJSON(res, 200, Object.assign(buildDefaultActivePauseResponse({
+        global_pause: false,
+        scope: 'global',
+        client_slug: clientSlug,
+        idempotent: true,
+      }), { pause_state: null }));
+    }
+
+    const pauseState = formatPauseStateRow(result.row);
+    return sendJSON(res, 200, {
+      success: true,
+      paused: false,
+      bot_paused: false,
+      live_send_blocked: false,
+      global_pause: false,
+      scope: 'global',
+      pause_state: pauseState,
+      idempotent: !!result.idempotent,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'global resume write failed' });
   }
 }
 
@@ -14535,6 +14743,15 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
 .bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
+.bc-room-hdr-inner{display:flex;align-items:center;justify-content:space-between;gap:10px;width:100%}
+.bc-room-hdr-label{flex:1;min-width:0}
+.bc-room-hide-btn{font-size:10px;font-weight:500;letter-spacing:.02em;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.28);color:#fff;border-radius:999px;padding:2px 9px;cursor:pointer;flex-shrink:0;transition:background .12s,opacity .12s}
+.bc-room-hide-btn:hover{background:rgba(255,255,255,.22)}
+tr.bc-room-bed-row.bc-room-collapsed{display:none}
+.luna-global-pause-card .luna-global-pause-row{display:flex;flex-direction:column;gap:8px}
+.luna-global-pause-toggle{display:flex;align-items:center;gap:10px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text)}
+.luna-global-pause-toggle input{width:16px;height:16px;accent-color:var(--olive)}
+.luna-global-pause-card.luna-global-paused{border-color:#E8C9A8;background:#FBF3EA}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
 .bc-block{min-height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:4px 6px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
@@ -15633,6 +15850,19 @@ textarea.bk-input{resize:vertical;min-height:60px}
     </div>
   </div>
 
+  <div class="card cc-section luna-global-pause-card" id="cc-luna-global-pause">
+    <div class="cc-section-hdr">Luna guest automation</div>
+    <div class="cc-section-sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
+    <div class="luna-global-pause-row">
+      <label class="luna-global-pause-toggle" for="luna-global-pause-switch">
+        <input type="checkbox" id="luna-global-pause-switch">
+        <span>Global Pause Luna</span>
+      </label>
+      <div class="al-hint" id="luna-global-pause-help">Luna is active for all guest conversations.</div>
+      <div id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></div>
+    </div>
+  </div>
+
   <div class="card cc-section">
     <div class="cc-section-hdr">Operations</div>
     <div class="cc-section-sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
@@ -15793,6 +16023,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
+  if (tab === 'ask-luna') lunaGlobalPauseLoad();
   if (tab === 'conversations') wireInboxLeftListWheel();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
@@ -15816,6 +16047,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
       loadHandoffsQueue();
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
+    if (target === 'ask-luna') lunaGlobalPauseLoad();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
 });
@@ -17656,6 +17888,103 @@ wireMessageEventsPanel();
 wireHandoffsQueuePanel();
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   Luna Staff — Global Pause Luna (client-wide guest automation)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+var lunaGlobalPauseWired = false;
+
+function lunaGlobalPauseSetStatus(msg, isError){
+  var statusEl = el('luna-global-pause-status');
+  if (!statusEl) return;
+  if (!msg){
+    statusEl.style.display = 'none';
+    statusEl.textContent = '';
+    statusEl.classList.remove('error');
+    return;
+  }
+  statusEl.style.display = 'block';
+  statusEl.textContent = msg;
+  statusEl.classList.toggle('error', !!isError);
+}
+
+function lunaGlobalPauseUpdateUi(paused, meta){
+  var sw = el('luna-global-pause-switch');
+  var help = el('luna-global-pause-help');
+  var card = el('cc-luna-global-pause');
+  if (sw) sw.checked = !!paused;
+  if (card) card.classList.toggle('luna-global-paused', !!paused);
+  if (help){
+    help.textContent = paused
+      ? 'Luna is paused globally — automated guest replies are blocked for all conversations.'
+      : 'Luna is active for all guest conversations.';
+  }
+  if (paused && meta && meta.paused_at){
+    lunaGlobalPauseSetStatus('Paused since ' + String(meta.paused_at).slice(0, 16).replace('T', ' '), false);
+  } else {
+    lunaGlobalPauseSetStatus('', false);
+  }
+}
+
+function lunaGlobalPauseLoad(){
+  var client = getClient();
+  fetch('/staff/bot/global-pause-state?client_slug=' + encodeURIComponent(client))
+    .then(function(r){
+      if (r.status === 401) throw new Error('Authentication required');
+      return r.ok ? r.json() : { success: false };
+    })
+    .then(function(data){
+      if (!data || !data.success){
+        lunaGlobalPauseUpdateUi(false);
+        if (data && data.error === 'bot_pause_controls_disabled'){
+          lunaGlobalPauseSetStatus('Pause controls are disabled on this environment.', true);
+        }
+        return;
+      }
+      var paused = data.paused === true || data.bot_paused === true;
+      lunaGlobalPauseUpdateUi(paused, data.pause_state || data);
+    })
+    .catch(function(err){
+      lunaGlobalPauseSetStatus('Could not load global pause state: ' + err.message, true);
+    });
+  lunaGlobalPauseWireOnce();
+}
+
+function lunaGlobalPauseWireOnce(){
+  if (lunaGlobalPauseWired) return;
+  var sw = el('luna-global-pause-switch');
+  if (!sw) return;
+  lunaGlobalPauseWired = true;
+  sw.addEventListener('change', function(){
+    var wantPaused = !!sw.checked;
+    var client = getClient();
+    var path = wantPaused ? '/staff/bot/global-pause' : '/staff/bot/global-resume';
+    sw.disabled = true;
+    lunaGlobalPauseSetStatus(wantPaused ? 'Pausing Luna globally\u2026' : 'Resuming Luna globally\u2026', false);
+    fetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: client }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        if (r.status === 403) throw new Error('Pause controls disabled on this server');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var data = out.data || {};
+        if (!data.success) throw new Error(data.error || ('HTTP ' + out.status));
+        lunaGlobalPauseUpdateUi(wantPaused, data.pause_state || data);
+      })
+      .catch(function(err){
+        sw.checked = !wantPaused;
+        lunaGlobalPauseUpdateUi(!wantPaused);
+        lunaGlobalPauseSetStatus(err.message || 'Global pause action failed', true);
+      })
+      .finally(function(){ sw.disabled = false; });
+  });
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    COMMAND CENTER TAB — Operations (Stage 8.6.2) + Owner Insights (25i)
    Operations: POST /staff/ask-luna
    Owner Insights: POST /staff/owner/sql/plan-and-execute
@@ -18094,6 +18423,57 @@ var bcLastPaymentId = null;
 var bcManualCreateInFlight = false;
 var bcLastOpenedBlock = null;
 var bcCalendarBlocks = [];
+var BC_HIDDEN_ROOMS_KEY = 'wh_bc_hidden_rooms';
+
+function bcLoadHiddenRooms(){
+  try {
+    var raw = localStorage.getItem(BC_HIDDEN_ROOMS_KEY);
+    if (!raw) return {};
+    var parsed = JSON.parse(raw);
+    return (parsed && typeof parsed === 'object') ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function bcSaveHiddenRooms(map){
+  try { localStorage.setItem(BC_HIDDEN_ROOMS_KEY, JSON.stringify(map || {})); } catch (_) {}
+}
+
+function bcIsRoomCollapsed(roomCode){
+  var map = bcLoadHiddenRooms();
+  return map[String(roomCode || '')] === true;
+}
+
+function bcSetRoomCollapsed(roomCode, collapsed){
+  var map = bcLoadHiddenRooms();
+  var key = String(roomCode || '');
+  if (!key) return;
+  if (collapsed) map[key] = true;
+  else delete map[key];
+  bcSaveHiddenRooms(map);
+}
+
+function bcWireRoomHideButtons(){
+  var wrap = el('bc-grid-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.bc-room-hide-btn').forEach(function(btn){
+    if (btn.dataset.wired === '1') return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function(ev){
+      ev.preventDefault();
+      ev.stopPropagation();
+      var roomCode = btn.getAttribute('data-room') || '';
+      if (!roomCode) return;
+      var nextCollapsed = !bcIsRoomCollapsed(roomCode);
+      bcSetRoomCollapsed(roomCode, nextCollapsed);
+      wrap.querySelectorAll('tr.bc-room-bed-row[data-room="' + roomCode + '"]').forEach(function(row){
+        row.classList.toggle('bc-room-collapsed', nextCollapsed);
+      });
+      btn.textContent = nextCollapsed ? 'Show' : 'Hide';
+    });
+  });
+}
 
 function getBcClient(){ return (el('bc-client').value || 'wolfhouse-somo').trim(); }
 
@@ -19318,19 +19698,26 @@ function renderBedCalendar(data){
 
   rooms.forEach(function(room){
     /* Room header spanning all columns */
+    var roomCode = String(room.room_code || '');
+    var roomCollapsed = bcIsRoomCollapsed(roomCode);
     var roomLabel = escHtml(room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
     var roomMeta = [];
     if (room.gender_strategy) roomMeta.push(escHtml(room.gender_strategy));
     if (room.room_type) roomMeta.push(escHtml(room.room_type));
     if (room.capacity)  roomMeta.push(room.capacity + ' beds');
-    html += '<tr><td colspan="' + totalCols + '" class="bc-room-hdr">' + roomLabel +
-      (roomMeta.length ? ' <span style="font-weight:400;opacity:.65;font-size:10px;margin-left:6px">' + roomMeta.join(' &middot; ') + '</span>' : '') +
-      '</td></tr>';
+    var roomMetaHtml = roomMeta.length
+      ? ' <span style="font-weight:400;opacity:.65;font-size:10px;margin-left:6px">' + roomMeta.join(' &middot; ') + '</span>'
+      : '';
+    html += '<tr class="bc-room-hdr-row" data-room="' + escHtml(roomCode) + '"><td colspan="' + totalCols + '" class="bc-room-hdr">' +
+      '<span class="bc-room-hdr-inner"><span class="bc-room-hdr-label">' + roomLabel + roomMetaHtml + '</span>' +
+      '<button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
+      (roomCollapsed ? 'Show' : 'Hide') + '</button></span></td></tr>';
 
     var beds = bcSortBedsForDisplay(room.beds || []);
     if (beds.length === 0){
-      html += '<tr><td class="bc-bed-cell" style="color:#9aabb8;font-style:italic">no beds</td>';
+      html += '<tr class="bc-room-bed-row' + (roomCollapsed ? ' bc-room-collapsed' : '') + '" data-room="' + escHtml(roomCode) + '">' +
+        '<td class="bc-bed-cell" style="color:#9aabb8;font-style:italic">no beds</td>';
       for (var e = 0; e < N; e++) html += '<td class="bc-day-cell"></td>';
       html += '</tr>';
     }
@@ -19341,7 +19728,7 @@ function renderBedCalendar(data){
         return a.blk.start_offset - b.blk.start_offset;
       });
 
-      html += '<tr>';
+      html += '<tr class="bc-room-bed-row' + (roomCollapsed ? ' bc-room-collapsed' : '') + '" data-room="' + escHtml(roomCode) + '">';
       /* Prefer bed_code as the primary label; show bed_label as subtitle only if different */
       var bedLabelHtml = escHtml(bed.bed_code);
       if (bed.bed_label && bed.bed_label !== bed.bed_code) {
@@ -19426,6 +19813,7 @@ function renderBedCalendar(data){
   wrap.querySelectorAll('.bc-day-cell[data-date]').forEach(function(td){
     td.addEventListener('click', function(){ bcHandleCellClick(this); });
   });
+  bcWireRoomHideButtons();
 
   /* Wire selection panel clear button (re-wired each render) */
   var _clearBtn = el('bc-sel-clear');
@@ -29790,6 +30178,36 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBotResumePost(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bot/global-pause-state') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET for bot/global-pause-state' }));
+    }
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleBotGlobalPauseStateGet(parsed.query, res, auth.user);
+  }
+
+  if (pathname === '/staff/bot/global-pause') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/global-pause' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBotGlobalPausePost(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bot/global-resume') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/global-resume' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBotGlobalResumePost(req, res, auth.user);
   }
 
   // ── Phase 9.6 — Guest automation dry-run pause gate (read-only) ─────────────

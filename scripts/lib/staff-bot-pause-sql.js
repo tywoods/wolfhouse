@@ -7,6 +7,9 @@
 
 'use strict';
 
+/** Reserved conversation_id for client-wide Luna guest automation pause. */
+const GLOBAL_LUNA_PAUSE_CONVERSATION_ID = '__luna_global_pause__';
+
 const SELECT_PAUSE_STATE_COLS = `
   id::text,
   client_slug,
@@ -67,10 +70,110 @@ function formatPauseStateRow(row) {
   };
 }
 
+async function getGlobalPauseState(pg, clientSlug) {
+  const slug = String(clientSlug || '').trim();
+  if (!slug) return { row: null, source: 'default_active' };
+
+  try {
+    const r = await pg.query(
+      `SELECT ${SELECT_PAUSE_STATE_COLS}
+         FROM bot_pause_states
+        WHERE client_slug = $1
+          AND conversation_id = $2
+          AND paused = TRUE
+        ORDER BY paused_at DESC
+        LIMIT 1`,
+      [slug, GLOBAL_LUNA_PAUSE_CONVERSATION_ID],
+    );
+    if (r.rows[0]) return { row: r.rows[0], source: 'bot_pause_states_global' };
+    return { row: null, source: 'default_active' };
+  } catch (err) {
+    if (isMissingBotPauseStatesTable(err)) {
+      return { row: null, source: 'default_active', table_missing: true };
+    }
+    throw err;
+  }
+}
+
+async function pauseGlobalLuna(pg, input) {
+  const clientSlug = String(input.client_slug || '').trim();
+  const pausedBy = String(input.paused_by || '').trim();
+  const pauseReason = input.pause_reason != null
+    ? String(input.pause_reason).trim().slice(0, 500) || null
+    : null;
+
+  const existing = await getGlobalPauseState(pg, clientSlug);
+  if (existing.table_missing) return { row: null, table_missing: true };
+  if (existing.row) return { row: existing.row, idempotent: true };
+
+  try {
+    const r = await pg.query(
+      `INSERT INTO bot_pause_states (
+         client_slug, guest_phone, conversation_id, booking_id, booking_code,
+         paused, pause_reason, paused_by, paused_at, metadata
+       ) VALUES (
+         $1, NULL, $2, NULL, NULL,
+         TRUE, $3, $4, NOW(), '{"scope":"global"}'::jsonb
+       )
+       RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+      [clientSlug, GLOBAL_LUNA_PAUSE_CONVERSATION_ID, pauseReason, pausedBy],
+    );
+    return { row: r.rows[0], idempotent: false };
+  } catch (err) {
+    if (err.code === '23505') {
+      const again = await getGlobalPauseState(pg, clientSlug);
+      if (again.row) return { row: again.row, idempotent: true };
+    }
+    if (isMissingBotPauseStatesTable(err)) {
+      return { row: null, table_missing: true };
+    }
+    throw err;
+  }
+}
+
+async function resumeGlobalLuna(pg, input) {
+  const clientSlug = String(input.client_slug || '').trim();
+  const resumedBy = String(input.resumed_by || '').trim();
+
+  const active = await getGlobalPauseState(pg, clientSlug);
+  if (active.table_missing) return { row: null, table_missing: true };
+  if (!active.row) return { row: null, idempotent: true };
+
+  try {
+    const r = await pg.query(
+      `UPDATE bot_pause_states
+          SET paused = FALSE,
+              resumed_by = $2,
+              resumed_at = NOW(),
+              updated_at = NOW()
+        WHERE id = $1::uuid
+          AND client_slug = $3
+          AND paused = TRUE
+        RETURNING ${SELECT_PAUSE_STATE_COLS}`,
+      [active.row.id, resumedBy, clientSlug],
+    );
+    return { row: r.rows[0] || null, idempotent: false };
+  } catch (err) {
+    if (isMissingBotPauseStatesTable(err)) {
+      return { row: null, table_missing: true };
+    }
+    throw err;
+  }
+}
+
 async function getPauseState(pg, input) {
   const { clientSlug, conversationId, guestPhone, bookingCode } = normalizeScope(input);
 
   try {
+    const globalPause = await getGlobalPauseState(pg, clientSlug);
+    if (globalPause.row) {
+      return {
+        row: globalPause.row,
+        source: 'bot_pause_states_global',
+        global_pause: true,
+      };
+    }
+
     if (conversationId) {
       const r = await pg.query(
         `SELECT ${SELECT_PAUSE_STATE_COLS}
@@ -213,9 +316,13 @@ async function resumeConversation(pg, input) {
 }
 
 module.exports = {
+  GLOBAL_LUNA_PAUSE_CONVERSATION_ID,
   getPauseState,
+  getGlobalPauseState,
   pauseConversation,
   resumeConversation,
+  pauseGlobalLuna,
+  resumeGlobalLuna,
   formatPauseStateRow,
   isMissingBotPauseStatesTable,
 };

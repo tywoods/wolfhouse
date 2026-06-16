@@ -7,6 +7,7 @@
 const {
   previewGuestAddonPricing,
   resolveGuestAddonComboPricing,
+  computeWetsuitBoardComboRebalance,
   findCoveringBoardRental,
   findUnpaidWetsuitForCombo,
 } = require('./lib/guest-addon-pricing');
@@ -117,6 +118,86 @@ section('F. Paid wetsuit untouched when adding board');
   });
   check('F2', !combo.free_wetsuit_record_id, 'no wetsuit adjustment');
   check('F3', combo.amount_due_cents === 4000, 'board full hard price');
+}
+
+section('G. Rebalance after board removed — one wetsuit restored');
+{
+  const existing = [
+    {
+      id: 'board-1',
+      service_type: 'surfboard',
+      quantity: 1,
+      amount_due_cents: 4000,
+      amount_paid_cents: 0,
+      payment_status: 'not_requested',
+      status: 'confirmed',
+      metadata: { rental_days: 2, board_variant: 'hard' },
+    },
+    {
+      id: 'wetsuit-1',
+      service_type: 'wetsuit',
+      quantity: 1,
+      amount_due_cents: 0,
+      amount_paid_cents: 0,
+      payment_status: 'not_requested',
+      status: 'confirmed',
+      metadata: { rental_days: 2, combo_waived: true },
+    },
+    {
+      id: 'wetsuit-2',
+      service_type: 'wetsuit',
+      quantity: 1,
+      amount_due_cents: 0,
+      amount_paid_cents: 0,
+      payment_status: 'not_requested',
+      status: 'confirmed',
+      metadata: { rental_days: 2, combo_waived: true },
+    },
+  ];
+  const rebalance = computeWetsuitBoardComboRebalance(existing, { wetsuit_unit_cents: 500 });
+  check('G1', rebalance.updates.length === 1, 'one wetsuit restored when only one board remains');
+  check('G2', rebalance.updates[0].action === 'restore', 'restore action for unpaired wetsuit');
+  check('G3', rebalance.updates[0].amount_due_cents === 1000, 'restored wetsuit bills 2 days at €5');
+}
+
+section('H. Rebalance with two boards — both wetsuits stay free');
+{
+  const existing = [
+    {
+      id: 'board-1',
+      service_type: 'surfboard',
+      quantity: 1,
+      amount_due_cents: 4000,
+      status: 'confirmed',
+      metadata: { rental_days: 2, board_variant: 'hard' },
+    },
+    {
+      id: 'board-2',
+      service_type: 'surfboard',
+      quantity: 1,
+      amount_due_cents: 4000,
+      status: 'confirmed',
+      metadata: { rental_days: 2, board_variant: 'hard' },
+    },
+    {
+      id: 'wetsuit-1',
+      service_type: 'wetsuit',
+      quantity: 1,
+      amount_due_cents: 0,
+      status: 'confirmed',
+      metadata: { rental_days: 2, combo_waived: true },
+    },
+    {
+      id: 'wetsuit-2',
+      service_type: 'wetsuit',
+      quantity: 1,
+      amount_due_cents: 0,
+      status: 'confirmed',
+      metadata: { rental_days: 2, combo_waived: true },
+    },
+  ];
+  const rebalance = computeWetsuitBoardComboRebalance(existing, { wetsuit_unit_cents: 500 });
+  check('H1', rebalance.updates.length === 0, 'no rebalance writes when boards cover all wetsuits');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);

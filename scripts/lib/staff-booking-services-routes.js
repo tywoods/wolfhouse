@@ -18,6 +18,7 @@ const {
   isServiceDateInStay,
   splitMultiQuantityServiceRecords,
 } = require('./staff-booking-services-schedule');
+const { rebalanceBookingWetsuitBoardCombo } = require('./guest-addon-combo-rebalance-db');
 
 const BOOKING_SERVICES_RE = /^\/staff\/bookings\/([0-9a-f-]{36})\/services$/i;
 const BOOKING_SERVICE_DATE_RE =
@@ -131,6 +132,7 @@ async function handleGetBookingServices(bookingId, query, res) {
       if (!booking) return { notFound: true };
 
       await splitMultiQuantityServiceRecords(pg, clientSlug, bookingId);
+      await rebalanceBookingWetsuitBoardCombo(pg, clientSlug, bookingId);
       const svc = await loadServiceRecords(pg, clientSlug, booking.booking_code);
       const schedule = buildBookingServicesSchedule({
         booking,
