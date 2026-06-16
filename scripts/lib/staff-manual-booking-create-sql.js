@@ -19,7 +19,7 @@
  *   $6   guest_name              TEXT
  *   $7   phone                   TEXT      — stored hashed in audit
  *   $8   email                   TEXT|NULL
- *   $9   language                TEXT|NULL — default 'en'; stored in booking metadata JSONB
+ *   $9   language                TEXT|NULL — default 'en'; stored on bookings.language + metadata JSONB
  *   $10  check_in                DATE
  *   $11  check_out               DATE      — exclusive (half-open: check_in < check_out)
  *   $12  guest_count             INT
@@ -358,7 +358,7 @@ inserted_booking AS (
     guest_name,
     phone,
     email,
-    -- language: no column on bookings table; stored in metadata JSONB below
+    language,
     status,
     payment_status,
     assignment_status,
@@ -378,6 +378,7 @@ inserted_booking AS (
     $6::text,
     $7::text,
     $8::text,
+    COALESCE(NULLIF(TRIM($9::text), ''), 'en'),
     $16::booking_status,
     $17::payment_status,
     'unassigned',
