@@ -154,11 +154,10 @@ WHATSAPP_SEND_FILTER = '        if _wolfhouse_is_whatsapp_internal_status_text(c
 LUNA_PLAIN_REPLY_SEND_TAG = "# Wolfhouse Luna: normal WhatsApp replies without quote blocks."
 LUNA_PLAIN_REPLY_CHUNK_TAG = "# Wolfhouse Luna: skip WhatsApp quote context unless interactive."
 LUNA_PLAIN_REPLY_SEND_BLOCK = '''
-        # Wolfhouse Luna: normal WhatsApp replies without quote blocks.
-        import os as _wolfhouse_wa_send_os
+        # Wolfhouse: plain WhatsApp replies unless caller sets wolfhouse_quote_reply.
         _wh_meta = metadata if isinstance(metadata, dict) else {}
         _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
-        if _wolfhouse_wa_send_os.getenv("HERMES_ROLE") == "luna" and not _wh_allow_quote:
+        if not _wh_allow_quote:
             reply_to = None
 '''
 WHATSAPP_SEND_FORMATTED_ANCHOR = (
@@ -193,32 +192,39 @@ WHATSAPP_CHUNK_CONTEXT_ANCHOR = (
     '            payload["context"] = {"message_id": reply_to}'
 )
 WHATSAPP_CHUNK_CONTEXT_PATCH = '''        if reply_to and idx == 0:
-            # Wolfhouse Luna: skip WhatsApp quote context unless interactive.
-            import os as _wolfhouse_wa_ctx_os
             _wh_meta = metadata if isinstance(metadata, dict) else {}
             _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
-            if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
+            if _wh_allow_quote:
                 # Quote the user's message on the first chunk only.
                 payload["context"] = {"message_id": reply_to}'''
 STREAM_CONSUMER_HELPER_TAG = "def _wolfhouse_stream_reply_anchor("
 STREAM_CONSUMER_HELPERS = '''
 
-def _wolfhouse_stream_reply_anchor(outbound_message_id, initial_reply_to_id):
-    """Luna guest WhatsApp: never quote the inbound guest message on streamed replies."""
-    import os as _wh_os
-    if _wh_os.getenv("HERMES_ROLE") == "luna":
+def _wolfhouse_whatsapp_platform_name(adapter):
+    if adapter is None:
+        return ""
+    plat = getattr(adapter, "platform", None)
+    return str(getattr(plat, "value", plat) or getattr(adapter, "name", "") or "").lower()
+
+
+def _wolfhouse_stream_reply_anchor(outbound_message_id, initial_reply_to_id, adapter=None):
+    """WhatsApp guest chat: never quote the inbound guest message."""
+    if outbound_message_id:
         return outbound_message_id
-    return outbound_message_id or initial_reply_to_id
+    if _wolfhouse_whatsapp_platform_name(adapter) in ("whatsapp", "whatsapp_cloud"):
+        return None
+    return initial_reply_to_id
 '''
 STREAM_REPLY_TO_ANCHOR_OLD = "reply_to = self._message_id or self._initial_reply_to_id"
-STREAM_REPLY_TO_ANCHOR_NEW = "reply_to = _wolfhouse_stream_reply_anchor(self._message_id, self._initial_reply_to_id)"
+STREAM_REPLY_TO_ANCHOR_NEW = "reply_to = _wolfhouse_stream_reply_anchor(self._message_id, self._initial_reply_to_id, self.adapter)"
 STREAM_FIRST_SEND_ANCHOR_OLD = "reply_to=self._initial_reply_to_id,"
-STREAM_FIRST_SEND_ANCHOR_NEW = "reply_to=_wolfhouse_stream_reply_anchor(None, self._initial_reply_to_id),"
+STREAM_FIRST_SEND_ANCHOR_NEW = "reply_to=_wolfhouse_stream_reply_anchor(self._message_id, self._initial_reply_to_id, self.adapter),"
+STREAM_SEND_CHUNK_ANCHOR_OLD = "            reply_to=reply_to_id,"
+STREAM_SEND_CHUNK_ANCHOR_NEW = "            reply_to=_wolfhouse_stream_reply_anchor(None, reply_to_id, self.adapter),"
 STREAM_INITIAL_REPLY_OLD = "initial_reply_to_id=event_message_id,"
 STREAM_INITIAL_REPLY_NEW = '''initial_reply_to_id=(
                 None
-                if __import__("os").getenv("HERMES_ROLE") == "luna"
-                and str(getattr(source.platform, "value", source.platform or "")).lower() in ("whatsapp", "whatsapp_cloud")
+                if str(getattr(source.platform, "value", source.platform or "")).lower() in ("whatsapp", "whatsapp_cloud")
                 else event_message_id
             ),'''
 WHATSAPP_SEND_HELPERS = r'''
@@ -435,8 +441,35 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
             s = s.replace(WHATSAPP_SEND_POST_FILTER_ANCHOR, WHATSAPP_SEND_POST_FILTER_PATCH, 1)
         elif WHATSAPP_SEND_FORMATTED_ANCHOR in s:
             s = s.replace(WHATSAPP_SEND_FORMATTED_ANCHOR, WHATSAPP_SEND_FORMATTED_PATCH, 1)
+    else:
+        old_send = "if _wolfhouse_wa_send_os.getenv(\"HERMES_ROLE\") == \"luna\" and not _wh_allow_quote:"
+        if old_send in s:
+            s = s.replace(
+                '''        # Wolfhouse Luna: normal WhatsApp replies without quote blocks.
+        import os as _wolfhouse_wa_send_os
+        _wh_meta = metadata if isinstance(metadata, dict) else {}
+        _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+        if _wolfhouse_wa_send_os.getenv("HERMES_ROLE") == "luna" and not _wh_allow_quote:
+            reply_to = None''',
+                LUNA_PLAIN_REPLY_SEND_BLOCK.strip(),
+            )
     if WHATSAPP_CHUNK_CONTEXT_PATCH not in s and WHATSAPP_CHUNK_CONTEXT_ANCHOR in s:
         s = s.replace(WHATSAPP_CHUNK_CONTEXT_ANCHOR, WHATSAPP_CHUNK_CONTEXT_PATCH, 1)
+    # Upgrade older Wolfhouse chunk patch that still quoted unless HERMES_ROLE=luna.
+    old_chunk = "if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv(\"HERMES_ROLE\") not in (\"luna\",):"
+    if old_chunk in s:
+        s = s.replace(
+            '''        if reply_to and idx == 0:
+            # Wolfhouse Luna: skip WhatsApp quote context unless interactive.
+            import os as _wolfhouse_wa_ctx_os
+            _wh_meta = metadata if isinstance(metadata, dict) else {}
+            _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+            if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
+                # Quote the user's message on the first chunk only.
+                payload["context"] = {"message_id": reply_to}''',
+            WHATSAPP_CHUNK_CONTEXT_PATCH,
+            1,
+        )
     whatsapp_path.write_text(s, encoding="utf-8")
     _compile_check(whatsapp_path)
     return {
@@ -449,15 +482,35 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
 
 def apply_stream_consumer_patch(stream_path: Path) -> dict:
     s = stream_path.read_text(encoding="utf-8")
-    if STREAM_CONSUMER_HELPER_TAG not in s:
-        anchor = 'logger = logging.getLogger("gateway.stream_consumer")\n'
-        if anchor not in s:
-            raise RuntimeError("gateway.stream_consumer logger anchor not found")
-        s = s.replace(anchor, anchor + STREAM_CONSUMER_HELPERS, 1)
-    if STREAM_REPLY_TO_ANCHOR_NEW not in s and STREAM_REPLY_TO_ANCHOR_OLD in s:
+    # Upgrade prior Wolfhouse helper to adapter-aware version.
+    if "_wolfhouse_whatsapp_platform_name" not in s:
+        old_helper = re.compile(
+            r"\ndef _wolfhouse_stream_reply_anchor\(outbound_message_id, initial_reply_to_id\):.*?"
+            r"\n    return outbound_message_id or initial_reply_to_id\n",
+            re.DOTALL,
+        )
+        if old_helper.search(s):
+            s = old_helper.sub(STREAM_CONSUMER_HELPERS, s, count=1)
+        elif STREAM_CONSUMER_HELPER_TAG not in s:
+            anchor = 'logger = logging.getLogger("gateway.stream_consumer")\n'
+            if anchor not in s:
+                raise RuntimeError("gateway.stream_consumer logger anchor not found")
+            s = s.replace(anchor, anchor + STREAM_CONSUMER_HELPERS, 1)
+    if "self._initial_reply_to_id, self.adapter)" not in s:
+        s = s.replace(
+            "reply_to = _wolfhouse_stream_reply_anchor(self._message_id, self._initial_reply_to_id)",
+            STREAM_REPLY_TO_ANCHOR_NEW,
+        )
+        s = s.replace(
+            "reply_to=_wolfhouse_stream_reply_anchor(None, self._initial_reply_to_id),",
+            STREAM_FIRST_SEND_ANCHOR_NEW,
+        )
+    if STREAM_REPLY_TO_ANCHOR_OLD in s:
         s = s.replace(STREAM_REPLY_TO_ANCHOR_OLD, STREAM_REPLY_TO_ANCHOR_NEW, 1)
-    if STREAM_FIRST_SEND_ANCHOR_NEW not in s and STREAM_FIRST_SEND_ANCHOR_OLD in s:
+    if STREAM_FIRST_SEND_ANCHOR_OLD in s:
         s = s.replace(STREAM_FIRST_SEND_ANCHOR_OLD, STREAM_FIRST_SEND_ANCHOR_NEW, 1)
+    if STREAM_SEND_CHUNK_ANCHOR_NEW not in s and STREAM_SEND_CHUNK_ANCHOR_OLD in s:
+        s = s.replace(STREAM_SEND_CHUNK_ANCHOR_OLD, STREAM_SEND_CHUNK_ANCHOR_NEW, 1)
     stream_path.write_text(s, encoding="utf-8")
     _compile_check(stream_path)
     return {
@@ -465,6 +518,7 @@ def apply_stream_consumer_patch(stream_path: Path) -> dict:
         "stream_reply_anchor_helper": STREAM_CONSUMER_HELPER_TAG in s,
         "stream_reply_to_patch": STREAM_REPLY_TO_ANCHOR_NEW in s,
         "stream_first_send_patch": STREAM_FIRST_SEND_ANCHOR_NEW in s,
+        "stream_send_chunk_patch": STREAM_SEND_CHUNK_ANCHOR_NEW in s,
     }
 
 
@@ -531,7 +585,15 @@ def apply_patches(run_path: Path) -> dict:
         s = s.replace(logger_anchor, logger_anchor + RUNTIME_PATCH_HOOK, 1)
 
     if STREAM_INITIAL_REPLY_NEW not in s:
-        s = s.replace(STREAM_INITIAL_REPLY_OLD, STREAM_INITIAL_REPLY_NEW)
+        if "HERMES_ROLE\") == \"luna\"" in s and "initial_reply_to_id=(" in s:
+            s = re.sub(
+                r"initial_reply_to_id=\(\s*\n\s*None\s*\n\s*if __import__\(\"os\"\)\.getenv\(\"HERMES_ROLE\"\) == \"luna\"\s*\n\s*and str\(getattr\(source\.platform, \"value\", source\.platform or \"\"\)\)\.lower\(\) in \(\"whatsapp\", \"whatsapp_cloud\"\)\s*\n\s*else event_message_id\s*\n\s*\),",
+                STREAM_INITIAL_REPLY_NEW.strip(),
+                s,
+                count=2,
+            )
+        else:
+            s = s.replace(STREAM_INITIAL_REPLY_OLD, STREAM_INITIAL_REPLY_NEW)
 
     run_path.write_text(s, encoding="utf-8")
     _compile_check(run_path)
@@ -593,7 +655,7 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     import os as _wolfhouse_wa_os
     _wh_meta = metadata if isinstance(metadata, dict) else {}
     _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
-    if _wolfhouse_wa_os.getenv("HERMES_ROLE") == "luna" and not _wh_allow_quote:
+    if not _wh_allow_quote:
         reply_to = None
     return await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
 
