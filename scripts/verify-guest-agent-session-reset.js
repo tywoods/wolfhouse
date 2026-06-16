@@ -25,6 +25,8 @@ check('A1', /delete_guest_agent_sessions/.test(freshStart), 'hard-delete helper 
 check('A2', /delete_session\(/.test(freshStart), 'calls SessionDB.delete_session');
 check('A3', /_entries\.pop\(session_key/.test(freshStart), 'drops routing entry (not rotate-only)');
 check('A4', /hard_delete/.test(freshStart), 'fresh-start API accepts hard_delete');
+check('A5', /clear_luna_agent_memories/.test(freshStart), 'hard-delete clears agent memories');
+check('A6', /memories_cleared/.test(freshStart), 'reset returns memories_cleared');
 
 check('B1', /session_stale_routing_skip/.test(patches), 'session stale routing patch wired');
 check('B2', /luna_soul_reload/.test(patches), 'Luna SOUL reload patch wired');

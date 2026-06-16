@@ -22,6 +22,7 @@ const {
 } = require('./wolfhouse-package-night-rules');
 const { isShortStayAccommodationQuote } = require('./wolfhouse-short-stay-pricing');
 const { normalizeAddOnsForQuote } = require('./luna-booking-addons-policy');
+const { quoteNeedsPaymentChoice } = require('./luna-quote-payment-choice');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -331,7 +332,8 @@ function runGuestQuoteProposalDryRun(routerResult, availabilityResult, context) 
     short_stay_accommodation_quote: shortStayAcc,
     short_stay_addons_pending: shortStayAcc,
     addons_pending_after_quote: addonsPendingAfterQuote,
-    payment_choice_needed: outcome.status === 'ready',
+    payment_choice_needed: outcome.status === 'ready' && quoteNeedsPaymentChoice(quote),
+    full_payment_only: outcome.status === 'ready' && !quoteNeedsPaymentChoice(quote),
     quote_handoff_required: outcome.handoff,
     quote_handoff_reasons: outcome.reasons,
     proposed_luna_reply: buildQuoteReply(

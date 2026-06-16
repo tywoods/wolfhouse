@@ -21,7 +21,7 @@ STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
-LUNA_SOUL_VERSION="31"
+LUNA_SOUL_VERSION="32"
 
 write_luna_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
@@ -49,6 +49,11 @@ toolsets:
 plugins:
   enabled:
     - wolfhouse-staff-api
+# Guest-facing front desk serves many numbers — never persist per-guest facts in
+# shared agent memory (USER.md) or inject them into every new session.
+memory:
+  memory_enabled: false
+  user_profile_enabled: false
 curator:
   enabled: false
 gateway:
@@ -178,6 +183,7 @@ else
   install_luna_plugins
   if [ "$(cat "$LUNA_SOUL_MARKER" 2>/dev/null)" != "$LUNA_SOUL_VERSION" ]; then
     rm -rf "$HERMES_HOME/sessions" 2>/dev/null || true
+    rm -rf "$HERMES_HOME/memories" 2>/dev/null || true
     printf '%s\n' "$LUNA_SOUL_VERSION" > "$LUNA_SOUL_MARKER"
   fi
   # Always ensure the sessions dir exists and is writable by the hermes user.

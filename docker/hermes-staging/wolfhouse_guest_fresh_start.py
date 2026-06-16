@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 FRESH_START_PATH = "/wolfhouse/guest-fresh-start"
 
 _WHATSAPP_SOURCES = ("whatsapp_cloud", "whatsapp")
+_MEMORY_FILES = ("USER.md", "USER.md.lock", "MEMORY.md", "MEMORY.md.lock")
 
 
 def _auth_ok(request) -> bool:
@@ -77,6 +79,29 @@ def _list_whatsapp_session_ids(db, digits: str) -> List[str]:
     return ids
 
 
+def _memories_dir() -> Path:
+    home = Path(os.getenv("HERMES_HOME", "/opt/data"))
+    return home / "memories"
+
+
+def clear_luna_agent_memories() -> Dict[str, Any]:
+    """Remove shared agent memory files so guest-specific facts do not persist."""
+    memories_dir = _memories_dir()
+    cleared: List[str] = []
+    if not memories_dir.is_dir():
+        return {"cleared": cleared, "memories_dir": str(memories_dir)}
+    for name in _MEMORY_FILES:
+        path = memories_dir / name
+        if not path.exists():
+            continue
+        try:
+            path.unlink()
+            cleared.append(name)
+        except Exception:
+            continue
+    return {"cleared": cleared, "memories_dir": str(memories_dir)}
+
+
 def _purge_runner_state(runner, session_key: str) -> None:
     runner._invalidate_session_run_generation(session_key, reason="fresh_start")  # noqa: SLF001
 
@@ -143,6 +168,8 @@ def delete_guest_agent_sessions(guest_phone: str) -> Dict[str, Any]:
 
     _purge_runner_state(runner, session_key)
 
+    memories_cleared = clear_luna_agent_memories()
+
     return {
         "ok": True,
         "reset": True,
@@ -151,6 +178,7 @@ def delete_guest_agent_sessions(guest_phone: str) -> Dict[str, Any]:
         "old_session_id": old_session_id,
         "deleted_session_ids": deleted_ids,
         "deleted_count": len(deleted_ids),
+        "memories_cleared": memories_cleared,
     }
 
 
@@ -184,6 +212,8 @@ def rotate_guest_session(guest_phone: str) -> Dict[str, Any]:
 
     new_entry = store.reset_session(session_key)  # noqa: SLF001
 
+    memories_cleared = clear_luna_agent_memories()
+
     return {
         "ok": True,
         "reset": True,
@@ -191,6 +221,7 @@ def rotate_guest_session(guest_phone: str) -> Dict[str, Any]:
         "session_key": session_key,
         "old_session_id": old_session_id,
         "new_session_id": new_entry.session_id if new_entry else None,
+        "memories_cleared": memories_cleared,
     }
 
 

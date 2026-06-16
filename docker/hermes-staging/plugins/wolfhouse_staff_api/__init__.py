@@ -240,6 +240,9 @@ def quote_booking(params, **kwargs):
             remaining_after_deposit = max(0, int(total) - int(deposit))
         except Exception:
             remaining_after_deposit = None
+    payment_choice_needed = (
+        remaining_after_deposit is not None and remaining_after_deposit > 0
+    )
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "quote_booking",
@@ -248,6 +251,8 @@ def quote_booking(params, **kwargs):
         "deposit_required_cents": deposit,
         "balance_due_cents": balance,
         "remaining_after_deposit_cents": remaining_after_deposit,
+        "payment_choice_needed": payment_choice_needed,
+        "full_payment_only": not payment_choice_needed and total is not None and deposit is not None,
         "guest_safe_balance_label": "remaining after deposit",
         "currency": data.get("currency") or quote.get("currency") or "EUR",
         "included_items": data.get("included_items") or quote.get("included_items") or [],

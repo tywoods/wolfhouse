@@ -22,6 +22,7 @@ const { decideConversationActionAsync, detectAccommodationOnlyAnswer } = require
 const { applyHandoffPolicyToResult } = require('./luna-guest-handoff-policy');
 const { runGuestAvailabilityDryRun, buildGuestAvailabilitySkippedResponse, shouldAttemptGuestAvailability } = require('./luna-guest-availability-dry-run');
 const { runGuestQuoteProposalDryRun } = require('./luna-guest-quote-proposal-dry-run');
+const { quoteNeedsPaymentChoice } = require('./luna-quote-payment-choice');
 const {
   runGuestPaymentChoiceDryRun,
   shouldAttemptGuestPaymentChoiceWire,
@@ -1299,7 +1300,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
       ...quote,
       short_stay_addons_pending: false,
       addons_pending_after_quote: false,
-      payment_choice_needed: quote.quote_status === 'ready',
+      payment_choice_needed: quoteNeedsPaymentChoice(quote),
     };
   } else {
     const addonsPending = quoteAwaitingAddonsDecision(quote)
@@ -1309,7 +1310,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
         ...quote,
         short_stay_addons_pending: false,
         addons_pending_after_quote: false,
-        payment_choice_needed: quote.quote_status === 'ready',
+        payment_choice_needed: quoteNeedsPaymentChoice(quote),
       };
     }
   }
