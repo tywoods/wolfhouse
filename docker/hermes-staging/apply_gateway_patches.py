@@ -163,6 +163,31 @@ def _wolfhouse_is_whatsapp_internal_status_text(text):
     return bool(_WOLFHOUSE_WHATSAPP_SUPPRESS_STATUS_RE.search(str(text or "").strip()))
 '''
 
+SESSION_STALE_TAG = "# Wolfhouse: stale routing when SQLite session was deleted or ended."
+SESSION_STALE_PATCH = '''
+            # Wolfhouse: stale routing when SQLite session was deleted or ended.
+            if not force_new and session_key in self._entries and self._db:
+                _wh_e = self._entries[session_key]
+                if _wh_e and getattr(_wh_e, "session_id", None):
+                    try:
+                        _wh_row = self._db.get_session(_wh_e.session_id)
+                    except Exception:
+                        _wh_row = None
+                    if _wh_row is None or _wh_row.get("ended_at"):
+                        del self._entries[session_key]
+                        self._save()
+                        force_new = True
+'''
+
+LUNA_SOUL_RELOAD_TAG = "# Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply."
+LUNA_SOUL_RELOAD_PATCH = '''
+        # Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply.
+        import os as _wolfhouse_soul_os
+        _wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))
+        if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
+            self._evict_cached_agent(session_key)
+'''
+
 
 # --- Anthropic OAuth login token-endpoint fix ---------------------------------
 # Hermes v0.16.0's CLI OAuth *login* path (run_hermes_oauth_login_pure in
@@ -282,6 +307,31 @@ def apply_base_platform_patch(base_path: Path) -> dict:
     }
 
 
+def apply_session_store_patch(session_path: Path) -> dict:
+    s = session_path.read_text(encoding="utf-8")
+    anchor = (
+        "        with self._lock:\n"
+        "            self._ensure_loaded_locked()\n\n"
+        "            if session_key in self._entries and not force_new:"
+    )
+    replacement = (
+        "        with self._lock:\n"
+        "            self._ensure_loaded_locked()\n"
+        + SESSION_STALE_PATCH
+        + "\n            if session_key in self._entries and not force_new:"
+    )
+    if SESSION_STALE_TAG not in s:
+        if anchor not in s:
+            raise RuntimeError("gateway.session get_or_create_session anchor not found")
+        s = s.replace(anchor, replacement, 1)
+        session_path.write_text(s, encoding="utf-8")
+    _compile_check(session_path)
+    return {
+        "path": str(session_path),
+        "session_stale_routing_skip": SESSION_STALE_TAG in s,
+    }
+
+
 def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
     s = whatsapp_path.read_text(encoding="utf-8")
     if "_wolfhouse_is_whatsapp_internal_status_text" not in s:
@@ -343,6 +393,22 @@ def apply_patches(run_path: Path) -> dict:
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
         s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
 
+    soul_anchor = (
+        "        agent = None\n"
+        "        _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
+        "        _cache = getattr(self, \"_agent_cache\", None)"
+    )
+    soul_replacement = (
+        LUNA_SOUL_RELOAD_PATCH
+        + "\n        agent = None\n"
+        "        _cache_lock = getattr(self, \"_agent_cache_lock\", None)\n"
+        "        _cache = getattr(self, \"_agent_cache\", None)"
+    )
+    if LUNA_SOUL_RELOAD_TAG not in s:
+        if soul_anchor not in s:
+            raise RuntimeError("gateway.run agent-cache anchor not found for Luna SOUL reload")
+        s = s.replace(soul_anchor, soul_replacement, 1)
+
     run_path.write_text(s, encoding="utf-8")
     _compile_check(run_path)
     return {
@@ -351,6 +417,7 @@ def apply_patches(run_path: Path) -> dict:
         "inbound_mirror": MIRROR_INBOUND_TAG in s,
         "outbound_mirror": MIRROR_OUTBOUND_TAG in s,
         "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in s and RUNNER_START_PATCH in s,
+        "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in s,
     }
 
 
@@ -413,6 +480,7 @@ def main() -> int:
         print("gateway.platforms.whatsapp_cloud not found", file=sys.stderr)
         return 1
     adapter_spec = importlib.util.find_spec("agent.anthropic_adapter")
+    session_spec = importlib.util.find_spec("gateway.session")
     run_path = Path(spec.origin)
     base_path = Path(base_spec.origin)
     whatsapp_path = Path(whatsapp_spec.origin)
@@ -420,6 +488,10 @@ def main() -> int:
         result = apply_patches(run_path)
         result["base_platform"] = apply_base_platform_patch(base_path)
         result["whatsapp_cloud"] = apply_whatsapp_cloud_patch(whatsapp_path)
+        if session_spec and session_spec.origin:
+            result["session_store"] = apply_session_store_patch(Path(session_spec.origin))
+        else:
+            result["session_store"] = {"session_stale_routing_skip": False, "note": "gateway.session not found"}
         # Fix Anthropic OAuth login token endpoint (platform.claude.com fallback)
         if adapter_spec and adapter_spec.origin:
             result["anthropic_oauth"] = apply_anthropic_oauth_patch(Path(adapter_spec.origin))

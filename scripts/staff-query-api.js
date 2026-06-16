@@ -220,6 +220,7 @@ const {
   serviceRecordBillableCents,
 } = require('./lib/staff-booking-services-schedule');
 const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
+const { loadWolfhouseRentalDayRates } = require('./lib/service-record-invoice-line');
 const {
   listBookingTransfersForCalendarRange,
   listBookingTransfersForBooking,
@@ -264,6 +265,16 @@ const {
   runLunaGuestBookingDryRun,
   DRY_RUN_SAFETY_FLAGS,
 } = require('./lib/luna-guest-booking-dry-run');
+const {
+  previewGuestAddonPricing,
+  resolveGuestAddonComboPricing,
+  normalizeQuoteAddOnsForCombo,
+} = require('./lib/guest-addon-pricing');
+const {
+  resolveBotBookingPackageContext,
+  isNoPackageBookingCode,
+  buildBotQuoteReplyDraft,
+} = require('./lib/bot-booking-package-normalize');
 const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
@@ -582,6 +593,7 @@ const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|con
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
 const CONV_RESET_LUNA_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-luna-context$`, 'i');
+const CONV_RESET_AGENT_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/reset-agent-session$`, 'i');
 // Phase 23c.1 — POST /staff/inbox/handoffs/:id/review
 const INBOX_HANDOFF_REVIEW_RE = new RegExp(`^/staff/inbox/handoffs/(${UUID_RE})/review$`, 'i');
 
@@ -3981,7 +3993,7 @@ function editPreviewKnownPackageCodes() {
 function editPreviewIsValidPackage(code, currentCode) {
   const c = String(code || '').trim().toLowerCase();
   if (!c) return false;
-  if (c === 'no_package' || c === 'package_none') return true;
+  if (c === 'no_package' || c === 'package_none' || c === 'accommodation_only') return true;
   const known = editPreviewKnownPackageCodes();
   if (known.includes(c)) return true;
   if (currentCode && c === String(currentCode).trim().toLowerCase()) return true;
@@ -8153,107 +8165,6 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const BOT_ADDON_SERVICE_TYPES = new Set(['yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard']);
-const BOT_ADDON_PRICING_PATH = path.join(__dirname, '..', 'config', 'clients', 'wolfhouse-somo.pricing.json');
-
-function loadWolfhousePricingConfigForBotAddon() {
-  return JSON.parse(fs.readFileSync(BOT_ADDON_PRICING_PATH, 'utf8'));
-}
-
-function previewGuestAddonPricing(serviceType, quantity, clientSlug) {
-  const warnings = [];
-  if (clientSlug !== 'wolfhouse-somo') {
-    return {
-      amount_due_cents: null,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      warnings: [`pricing config not loaded for client "${clientSlug}" — staff review required`],
-    };
-  }
-
-  if (serviceType === 'meal') {
-    return {
-      amount_due_cents: 0,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      warnings: ['Meals are recorded on-site only for MVP — no payment link.'],
-    };
-  }
-
-  let config;
-  try {
-    config = loadWolfhousePricingConfigForBotAddon();
-  } catch (err) {
-    return {
-      amount_due_cents: null,
-      pricing_addon_code: null,
-      unit_cents: null,
-      payment_required: false,
-      warnings: [`pricing config unavailable: ${err.message}`],
-    };
-  }
-
-  const addOns = config.add_ons || {};
-
-  if (serviceType === 'wetsuit') {
-    const cfg = addOns.wetsuit_rental;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'wetsuit_rental', unit_cents: null, payment_required: false, warnings: ['Wetsuit rental price not safely available — staff review required.'] };
-    }
-    const days = quantity;
-    const total = cfg.price_cents * days;
-    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
-      warnings.push('Wetsuit charge timing not confirmed (with booking or on site?) — staff may need to confirm.');
-    }
-    return { amount_due_cents: total, pricing_addon_code: 'wetsuit_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
-  }
-
-  if (serviceType === 'surfboard') {
-    const cfg = addOns.soft_top_rental;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'soft_top_rental', unit_cents: null, payment_required: false, warnings: ['Surfboard rental price not safely available — staff review required.'] };
-    }
-    const days = quantity;
-    warnings.push('Surfboard preview defaults to soft-top rental pricing — confirm board type with guest.');
-    if (cfg.charge_timing === 'REQUIRED_FROM_STAFF') {
-      warnings.push('Surfboard charge timing not confirmed — staff may need to confirm.');
-    }
-    return { amount_due_cents: cfg.price_cents * days, pricing_addon_code: 'soft_top_rental', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_day', warnings };
-  }
-
-  if (serviceType === 'surf_lesson') {
-    if (quantity === 1) {
-      const cfg = addOns.surf_lesson_single;
-      if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-        return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_single', unit_cents: null, payment_required: false, warnings: ['Surf lesson price not safely available — staff review required.'] };
-      }
-      return { amount_due_cents: cfg.price_cents, pricing_addon_code: 'surf_lesson_single', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_lesson', warnings };
-    }
-    const cfg = addOns.surf_lesson_multi;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents_each) {
-      return { amount_due_cents: null, pricing_addon_code: 'surf_lesson_multi', unit_cents: null, payment_required: false, warnings: ['Multi-lesson price not safely available — staff review required.'] };
-    }
-    return { amount_due_cents: cfg.price_cents_each * quantity, pricing_addon_code: 'surf_lesson_multi', unit_cents: cfg.price_cents_each, payment_required: true, pricing_unit: 'per_lesson', warnings };
-  }
-
-  if (serviceType === 'yoga') {
-    const cfg = addOns.yoga_class;
-    if (!cfg || cfg.pricing_status !== 'confirmed' || !cfg.price_cents) {
-      return { amount_due_cents: null, pricing_addon_code: 'yoga_class', unit_cents: null, payment_required: false, warnings: ['Yoga class price not safely available — staff review required.'] };
-    }
-    return { amount_due_cents: cfg.price_cents * quantity, pricing_addon_code: 'yoga_class', unit_cents: cfg.price_cents, payment_required: true, pricing_unit: 'per_class', warnings };
-  }
-
-  return {
-    amount_due_cents: null,
-    pricing_addon_code: null,
-    unit_cents: null,
-    payment_required: false,
-    warnings: [`unsupported service_type "${serviceType}" for pricing preview`],
-  };
-}
 
 async function lookupBotAddonBooking(bookingCode, clientSlug) {
   return withPgClient(async (pg) => {
@@ -8340,9 +8251,11 @@ async function resolveBotAddonRequestContext(body) {
       payload: buildBotAddonDryRunFlags({
         success: true,
         next_action: 'ask_quantity',
-        reply_draft: serviceType === 'wetsuit' || serviceType === 'surfboard'
-          ? 'How many days do you need that for?'
-          : 'How many would you like?',
+        reply_draft: serviceType === 'meal'
+          ? 'How many meals would you like?'
+          : (serviceType === 'wetsuit' || serviceType === 'surfboard'
+            ? 'How many days do you need that for?'
+            : 'How many would you like?'),
         booking_code: bookingCode,
         service_type: serviceType,
         service_date: serviceDate,
@@ -8352,6 +8265,27 @@ async function resolveBotAddonRequestContext(body) {
   }
 
   const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
+  let boardType = body.board_type != null ? String(body.board_type).trim().toLowerCase() : '';
+  if (serviceType === 'surfboard') {
+    if (boardType !== 'soft' && boardType !== 'hard') {
+      return {
+        kind: 'ask_board_type',
+        status: 200,
+        payload: buildBotAddonDryRunFlags({
+          success: true,
+          next_action: 'ask_board_type',
+          reply_draft: 'Soft top or hard board?',
+          booking_code: bookingCode,
+          service_type: serviceType,
+          service_date: serviceDate,
+          quantity,
+          source,
+        }),
+      };
+    }
+  } else {
+    boardType = null;
+  }
   const scheduleMode = serviceDate ? 'specific_date' : 'schedule_later';
   if (!serviceDate) serviceDate = null;
   const svcDate = serviceDate ? new Date(serviceDate + 'T00:00:00Z') : null;
@@ -8393,7 +8327,9 @@ async function resolveBotAddonRequestContext(body) {
     };
   }
 
-  const pricing = previewGuestAddonPricing(serviceType, quantity, clientSlug);
+  const pricing = previewGuestAddonPricing(serviceType, quantity, clientSlug, {
+    board_type: boardType || undefined,
+  });
   const warnings = [...(pricing.warnings || [])];
   const ci = booking.check_in ? new Date(booking.check_in) : null;
   const co = booking.check_out ? new Date(booking.check_out) : null;
@@ -8401,14 +8337,11 @@ async function resolveBotAddonRequestContext(body) {
     warnings.push('service_date is outside the booking stay window — staff may need to confirm.');
   }
 
-  const isMeal = serviceType === 'meal';
-  const isRecordOnly = isMeal || paymentChoice === 'record_only' || pricing.reason === 'meal_on_site_only';
+  const isRecordOnly = paymentChoice === 'record_only';
   const canPay = !isRecordOnly && pricing.payment_required && pricing.amount_due_cents != null && pricing.amount_due_cents > 0;
 
   let nextAction;
-  if (isMeal) {
-    nextAction = 'ready_for_record_only';
-  } else if (!canPay && pricing.amount_due_cents == null) {
+  if (!canPay && pricing.amount_due_cents == null) {
     nextAction = 'handoff_to_staff';
   } else if (canPay) {
     nextAction = 'ready_for_addon_create_dry_run';
@@ -8427,11 +8360,11 @@ async function resolveBotAddonRequestContext(body) {
     paymentChoice,
     source,
     quantity,
+    boardType,
     svcDate,
     booking,
     pricing,
     warnings,
-    isMeal,
     isRecordOnly,
     canPay,
     nextAction,
@@ -8452,6 +8385,11 @@ function buildBotAddonServiceMetadata(ctx, idempotencyKey) {
   if (ctx.serviceType === 'wetsuit' || ctx.serviceType === 'surfboard') {
     meta.rental_days = ctx.quantity;
   }
+  if (ctx.serviceType === 'surfboard' && ctx.boardType) {
+    meta.board_variant = ctx.boardType;
+    meta.staff_ui_service_type = ctx.boardType === 'hard' ? 'hard_board' : 'soft_board';
+  }
+  if (ctx.comboReason) meta.combo_reason = ctx.comboReason;
   return meta;
 }
 
@@ -8484,24 +8422,84 @@ async function findBotAddonIdempotentMatch(clientSlug, bookingId, idempotencyKey
   });
 }
 
+async function loadBotAddonExistingServiceRecords(clientSlug, bookingId) {
+  return withPgClient(async (pg) => {
+    const r = await pg.query(
+      `SELECT id, service_type, quantity, amount_due_cents, amount_paid_cents,
+              payment_status, payment_id, status, metadata
+         FROM booking_service_records
+        WHERE client_slug = $1
+          AND booking_id = $2::uuid
+          AND status <> 'cancelled'`,
+      [clientSlug, bookingId],
+    );
+    return r.rows;
+  });
+}
+
+async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
+  const svc = await pg.query(
+    `SELECT id, payment_id, amount_due_cents, payment_status
+       FROM booking_service_records
+      WHERE id = $1
+      FOR UPDATE`,
+    [serviceRecordId],
+  );
+  const row = svc.rows[0];
+  if (!row || Number(row.amount_due_cents || 0) <= 0) return null;
+  if (String(row.payment_status || '').toLowerCase() === 'paid') return null;
+
+  await pg.query(
+    `UPDATE booking_service_records
+        SET amount_due_cents = 0,
+            payment_status = 'not_requested',
+            payment_id = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb,
+            updated_at = NOW()
+      WHERE id = $1`,
+    [
+      serviceRecordId,
+      JSON.stringify({ combo_waived: true, combo_reason: 'board_frees_unpaid_wetsuit' }),
+    ],
+  );
+
+  if (row.payment_id) {
+    await pg.query(
+      `UPDATE payments
+          SET status = 'cancelled'::payment_record_status,
+              amount_due_cents = 0,
+              checkout_url = NULL,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+        WHERE id = $1
+          AND status <> 'paid'::payment_record_status`,
+      [
+        row.payment_id,
+        JSON.stringify({ cancelled_reason: 'combo_wetsuit_waived', source: 'luna_guest_addon_combo' }),
+      ],
+    );
+  }
+  return serviceRecordId;
+}
+
 function buildBotAddonCreateReplyDraft(ctx, { paymentUrl, dbAmountDueCents, servicePaymentStatus }) {
   const when = ctx.serviceDate || 'unscheduled';
-  if (ctx.isMeal) {
-    return ctx.serviceDate
-      ? `Got it — I've noted ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
-      : `Got it — I've added ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
-  }
+  const label = ctx.serviceType.replace('_', ' ');
   if (servicePaymentStatus === 'paid') {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is already paid (€${eur}).`;
+    return `Your ${label} add-on for ${when} is already paid (€${eur}).`;
   }
-  if (paymentUrl) {
+  if (paymentUrl && dbAmountDueCents > 0) {
     const eur = (dbAmountDueCents / 100).toFixed(2);
-    return `Your ${ctx.serviceType.replace('_', ' ')} add-on for ${when} is €${eur}. Here's your payment link: ${paymentUrl}`;
+    return `Your ${label} add-on for ${when} is €${eur}. Pay now here if you like: ${paymentUrl} — or we can settle it at checkout.`;
+  }
+  if (ctx.comboReason === 'wetsuit_free_with_board') {
+    return ctx.serviceDate
+      ? `Got it — wetsuit rental for ${ctx.quantity} day${ctx.quantity !== 1 ? 's' : ''} on ${ctx.serviceDate} is included free with your board rental.`
+      : `Got it — wetsuit rental for ${ctx.quantity} day${ctx.quantity !== 1 ? 's' : ''} is included free with your board rental. We can pick a date when you're ready.`;
   }
   return ctx.serviceDate
-    ? `I've noted your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
-    : `I've added your ${ctx.serviceType.replace('_', ' ')} request as unscheduled. We can choose the date later.`;
+    ? `I've noted your ${label} request for ${ctx.serviceDate}.`
+    : `I've added your ${label} request as unscheduled. We can choose the date later.`;
 }
 
 async function handleBotAddonRequestPreview(req, res, user, authMode) {
@@ -8522,16 +8520,12 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
   }
 
   let replyDraft;
-  if (ctx.nextAction === 'ready_for_record_only' && ctx.isMeal) {
-    replyDraft = ctx.serviceDate
-      ? `Got it — I'll note ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} for ${ctx.serviceDate}. Meals are handled on site.`
-      : `Got it — I'll add ${ctx.quantity} meal${ctx.quantity !== 1 ? 's' : ''} as unscheduled. Meals are handled on site, and we can choose the date later.`;
-  } else if (ctx.nextAction === 'handoff_to_staff') {
+  if (ctx.nextAction === 'handoff_to_staff') {
     replyDraft = "I'll have the team confirm that add-on and get back to you.";
   } else if (ctx.canPay) {
     const eur = (ctx.pricing.amount_due_cents / 100).toFixed(2);
     const when = ctx.serviceDate || 'unscheduled';
-    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} (${when}), the total would be €${eur}. I can send a payment link when you're ready.`;
+    replyDraft = `For ${ctx.serviceType.replace('_', ' ')} (${when}), the total would be €${eur}. I can send a payment link when you're ready — or you can pay at checkout.`;
   } else {
     replyDraft = ctx.serviceDate
       ? `I'll note your ${ctx.serviceType.replace('_', ' ')} request for ${ctx.serviceDate}.`
@@ -8547,8 +8541,8 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
     service_date: ctx.serviceDate,
     quantity: ctx.quantity,
     status: 'confirmed',
-    payment_status: ctx.isMeal ? 'not_requested' : (ctx.canPay ? 'pending' : 'not_requested'),
-    amount_due_cents: ctx.isMeal ? 0 : (ctx.pricing.amount_due_cents ?? 0),
+    payment_status: ctx.canPay ? 'pending' : 'not_requested',
+    amount_due_cents: ctx.pricing.amount_due_cents ?? 0,
     source: ctx.source,
     metadata: buildBotAddonServiceMetadata(ctx),
   };
@@ -8563,13 +8557,6 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
       would_create_payment: true,
       would_create_stripe_link: true,
       metadata_source: 'luna_guest_addon',
-    };
-  } else if (ctx.isMeal) {
-    paymentPreview = {
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      would_create_payment: false,
-      would_create_stripe_link: false,
     };
   } else {
     paymentPreview = {
@@ -8666,18 +8653,6 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   if (ctx.kind !== 'ready') {
     const status = ctx.kind === 'db_error' ? 500 : 422;
     return sendJSON(res, status, { success: false, write_performed: false, ...ctx.payload, auth_mode: resolvedAuthMode });
-  }
-
-  if (ctx.isMeal && ctx.paymentChoice !== 'record_only') {
-    return sendJSON(res, 422, {
-      success: false,
-      write_performed: false,
-      payment_required: false,
-      reason: 'meal_on_site_only',
-      error: 'Meals are on-site only — use payment_choice record_only.',
-      reply_draft: 'Meals are handled on site — I can note your request without a payment link.',
-      auth_mode: resolvedAuthMode,
-    });
   }
 
   if (ctx.nextAction === 'handoff_to_staff') {
@@ -8791,16 +8766,40 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
       if (checkoutUrl) {
         applyBotAddonPaymentLinkFields(idempotentResponse, ctx, checkoutUrl, stripeSessionId);
       }
-      if (ctx.isMeal) {
-        idempotentResponse.payment_required = false;
-        idempotentResponse.reason = 'meal_on_site_only';
-      }
 
       return sendJSON(res, 200, idempotentResponse);
     }
   }
 
-  if (ctx.canPay) {
+  let existingServiceRecords = [];
+  try {
+    existingServiceRecords = await loadBotAddonExistingServiceRecords(
+      ctx.clientSlug,
+      ctx.booking.booking_id,
+    );
+  } catch (err) {
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'Failed to load existing service records: ' + err.message,
+      write_performed: false,
+    });
+  }
+
+  const comboPricing = resolveGuestAddonComboPricing({
+    serviceType: ctx.serviceType,
+    quantity: ctx.quantity,
+    boardType: ctx.boardType,
+    pricing: ctx.pricing,
+    existingRecords: existingServiceRecords,
+  });
+  ctx.comboReason = comboPricing.combo_reason || null;
+
+  let amountDueCents = comboPricing.amount_due_cents ?? 0;
+  let canPay = !ctx.isRecordOnly && comboPricing.payment_required && amountDueCents > 0;
+  const paymentStatus = canPay ? 'pending' : 'not_requested';
+  const serviceMeta = buildBotAddonServiceMetadata(ctx, idempotencyKey);
+
+  if (canPay) {
     if (!STRIPE_LINKS_ENABLED) {
       return sendJSON(res, 403, {
         success: false,
@@ -8821,15 +8820,15 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
     }
   }
 
-  const amountDueCents = ctx.isMeal ? 0 : (ctx.pricing.amount_due_cents ?? 0);
-  const paymentStatus = ctx.canPay ? 'pending' : 'not_requested';
-  const serviceMeta = buildBotAddonServiceMetadata(ctx, idempotencyKey);
-
   let writeResult;
   try {
     writeResult = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
+        if (comboPricing.free_wetsuit_record_id) {
+          await zeroOutUnpaidAddonServiceRecord(pg, comboPricing.free_wetsuit_record_id);
+        }
+
         const ins = await pg.query(
           `INSERT INTO booking_service_records (
              client_slug, booking_id, booking_code, guest_name,
@@ -8858,7 +8857,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
         );
         const svcId = ins.rows[0].id;
 
-        if (ctx.canPay) {
+        if (canPay) {
           const pmMeta = {
             source: 'luna_guest_addon_request',
             service_record_ids: [svcId],
@@ -8919,7 +8918,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   let checkoutUrl = null;
   let stripeSessionId = null;
 
-  if (ctx.canPay && paymentId) {
+  if (canPay && paymentId) {
     let stripe;
     try {
       stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -9066,9 +9065,10 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   if (checkoutUrl) {
     applyBotAddonPaymentLinkFields(response, ctx, checkoutUrl, stripeSessionId);
   }
-  if (ctx.isMeal) {
-    response.payment_required = false;
-    response.reason = 'meal_on_site_only';
+  response.payment_required = canPay;
+  if (comboPricing.combo_applied) {
+    response.combo_applied = true;
+    response.combo_reason = comboPricing.combo_reason;
   }
 
   return sendJSON(res, 201, response);
@@ -9657,7 +9657,15 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     return send400(res, guestPackagesNormalized.error);
   }
   const guestPackages = Array.isArray(guestPackagesNormalized) ? guestPackagesNormalized : [];
-  const effectivePackageCode = botGuestPackagesMajorityCode(guestPackages, packageCode);
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode,
+    guestPackages,
+    checkIn,
+    checkOut,
+    guestCount: guestCount || 0,
+  });
+  const effectivePackageCode = pkgCtx.quotePackageCode;
+  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type     || 'shared').trim();
   const paymentChoiceRaw = String(body.payment_choice || '').trim();
   const paymentChoiceStaffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
@@ -9714,10 +9722,10 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           check_out:      checkOut,
           guest_count:    guestCount,
           package_code:   effectivePackageCode,
-          guest_packages: guestPackages,
+          guest_packages: guestPackagesForQuote,
           room_type:      roomType || 'shared',
           payment_choice: paymentChoice || 'deposit',
-          add_ons:        addOns,
+          add_ons:        normalizeQuoteAddOnsForCombo(addOns),
         });
       } catch (err) {
         quoteError = err.message;
@@ -9744,9 +9752,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   // ── reply_draft ───────────────────────────────────────────────────────────
   let replyDraft;
   if (quote && quote.success) {
-    const totalEur   = (quote.total_cents / 100).toFixed(2);
-    const depositEur = (quote.deposit_required_cents / 100).toFixed(2);
-    replyDraft = `For those dates, the estimated total is €${totalEur}. The deposit is €${depositEur}. Do you need the free Santander airport shuttle for your arrival?`;
+    replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode);
   } else if (nextAction === 'ask_missing_fields') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);
@@ -12984,18 +12990,25 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const email         = String(body.email      || '').trim().slice(0, 200) || null;
   const language      = String(body.language   || 'en').trim().slice(0, 10);
   const guestCount    = parseInt(body.guest_count, 10) || 0;
-  const packageCode   = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
+  const packageCodeRaw  = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
   const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
   const normalizedGuestPackages = rawGuestPackages.length
-    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCode || 'malibu')
+    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCodeRaw || 'malibu')
     : { guest_packages: [] };
   if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
   const guestPackages = normalizedGuestPackages.guest_packages || [];
-  const effectivePackageCode = guestPackages.length
-    ? guestPackagesMajorityStorageCode(guestPackages)
-    : packageCode;
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode: packageCodeRaw,
+    guestPackages,
+    checkIn,
+    checkOut,
+    guestCount,
+  });
+  const effectivePackageCode = pkgCtx.quotePackageCode;
+  const storagePackageCode = pkgCtx.storagePackageCode;
+  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
-  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
+  const addOns        = normalizeQuoteAddOnsForCombo(body.add_ons);
   const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
   const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
   const confirmFlag   = body.confirm === true;
@@ -13032,8 +13045,13 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     return send400(res, 'check_in and check_out must be YYYY-MM-DD');
   if (checkOut <= checkIn)  return send400(res, 'check_out must be after check_in');
   if (guestCount < 1)       return send400(res, 'guest_count must be at least 1');
-  if (!effectivePackageCode || effectivePackageCode === 'manual_override')
-    return send400(res, 'package_code or guest_packages is required (manual_override not supported)');
+  if (!effectivePackageCode || effectivePackageCode === 'manual_override') {
+    return send400(res, 'package_code or guest_packages is required (use package_none for accommodation-only / short stays)');
+  }
+  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
+  if (!packageNightCheck.ok) {
+    return send400(res, packageNightCheck.error);
+  }
   if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
   if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
   if (selectedBedCodes.length === 0)
@@ -13048,7 +13066,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     check_out:      checkOut,
     guest_count:    guestCount,
     package_code:   effectivePackageCode,
-    guest_packages: guestPackages,
+    guest_packages: guestPackagesForQuote,
     room_type:      roomType,
     payment_choice: paymentChoice,
     add_ons:        addOns,
@@ -13097,9 +13115,9 @@ async function handleBotBookingCreate(req, res, user, authMode) {
           checkIn,           // $10
           checkOut,          // $11
           guestCount,        // $12
-          selectedBedCodes,  // $13 text[]
-          packageCode,       // $14
-          null,              // $15 room_preference
+            selectedBedCodes,  // $13 text[]
+            storagePackageCode, // $14 — null for accommodation-only
+            null,              // $15 room_preference
           bookingStatus,     // $16
           paymentStatus,     // $17
           depositCents,      // $18
@@ -13136,12 +13154,30 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               quote_snapshot:    quote,
               payment_choice:    paymentChoice,
               add_ons_at_create: addOns,
-              guest_packages: guestPackages,
+              guest_packages: guestPackagesForQuote,
+              package_code: effectivePackageCode,
+              accommodation_only: pkgCtx.isNoPackage,
               bot_source:        source,
             }),
             result.booking_id,
-          ]
+          ],
         );
+
+        const serviceRecordRows = buildManualBookingServiceRecordRows({
+          addOns,
+          quote,
+          clientSlug,
+          bookingId: result.booking_id,
+          bookingCode: result.booking_code,
+          guestName,
+          checkIn,
+          guestCount,
+          source: 'luna_guest',
+        });
+        const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
+        result._service_records_created = svcInsert.created;
+        result._service_records_available = svcInsert.available;
+        result._service_records_warning = svcInsert.warning;
 
         // Update draft payment row with quote-driven amounts
         const pmUpdate = await pg.query(
@@ -13249,7 +13285,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
       payment_link_amount_cents: paymentLinkAmountCents,
       payment_kind:              paymentKind,
       formula_summary:           quote.formula_summary,
+      package_code:              effectivePackageCode,
+      accommodation_only:        pkgCtx.isNoPackage,
     },
+    service_records_created: Number(row._service_records_created || 0),
     next_action:         'create_stripe_link',
     creates_stripe_link: false,
     sends_whatsapp:      false,
@@ -14184,6 +14223,7 @@ async function handleManualBookingCreate(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildUiHtml(port) {
+  const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -17241,7 +17281,8 @@ function loadConvDetail(convId, targetEl){
     html += '<div class="thread-section">';
     html += '<div class="thread">';
     html += '<div class="detail-conv-toolbar">';
-    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings kept.">Full Wipe (testing)</button>';
+    html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
+    html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
@@ -17376,6 +17417,7 @@ function loadConvDetail(convId, targetEl){
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
     wireFreshStart(convId, targetEl);
+    wireAgentSessionReset(convId, targetEl);
 
     var calLinks = targetEl.querySelectorAll('.inbox-open-booking-cal');
     calLinks.forEach(function(calLink){
@@ -17453,6 +17495,33 @@ function wireNeedsHumanToggle(convId, targetEl){
   });
 }
 
+function wireAgentSessionReset(convId, targetEl){
+  var btn = targetEl.querySelector('#btn-agent-session-reset');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    if (!window.confirm('Reset Luna session: delete Hermes agent history for this guest (state.db sessions + messages). Portal thread, bookings, and Staff API logs are kept. Next WhatsApp message starts fresh with current SOUL. Continue?')) return;
+    btn.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/reset-agent-session', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ client_slug: getClient() }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        alert('Luna session reset — deleted ' + (d.hermes_session_reset && d.hermes_session_reset.deleted_count != null ? d.hermes_session_reset.deleted_count : 0) + ' Hermes session(s). Next guest message uses a brand-new session.');
+      })
+      .catch(function(err){
+        alert(err.message || 'Could not reset Luna session');
+      })
+      .finally(function(){ btn.disabled = false; });
+  });
+}
+
 function wireFreshStart(convId, targetEl){
   var btn = targetEl.querySelector('#btn-guest-context-reset');
   if (!btn) return;
@@ -17471,7 +17540,7 @@ function wireFreshStart(convId, targetEl){
       .then(function(out){
         var d = out.data || {};
         if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        alert('Full wipe result -- session_reset: ' + JSON.stringify(d.hermes_session_reset) + ' | bookings: ' + JSON.stringify(d.bookings_cleared) + ' | events: ' + JSON.stringify(d.phone_events_reset) + ' | messages_deleted: ' + d.messages_deleted);
+        alert('Full wipe result -- hermes_deleted: ' + (d.hermes_session_reset && d.hermes_session_reset.deleted_count != null ? d.hermes_session_reset.deleted_count : JSON.stringify(d.hermes_session_reset)) + ' | bookings: ' + JSON.stringify(d.bookings_cleared) + ' | events: ' + JSON.stringify(d.phone_events_reset) + ' | messages_deleted: ' + d.messages_deleted);
         loadConvDetail(convId, targetEl);
       })
       .catch(function(err){
@@ -20390,6 +20459,56 @@ function bcRunningInvoiceSvcUnitLabel(serviceType){
   return null;
 }
 
+var BC_RENTAL_DAY_RATES = ${rentalDayRatesJson};
+
+function bcParseServiceRecordMeta(meta){
+  if (!meta) return {};
+  if (typeof meta === 'string') {
+    try { return JSON.parse(meta); } catch (_) { return {}; }
+  }
+  return meta;
+}
+
+function bcResolveRentalInvoiceDisplayQty(sr, meta){
+  var qty = sr.quantity != null ? Number(sr.quantity) : null;
+  if (sr.service_type !== 'wetsuit' && sr.service_type !== 'surfboard') {
+    return qty != null && qty > 0 ? qty : null;
+  }
+  var spanDays = meta.rental_days != null ? Number(meta.rental_days) : null;
+  if (qty != null && spanDays != null && qty === spanDays && qty > 0) return spanDays;
+  if (qty != null && qty > 0) return qty;
+  if (spanDays != null && spanDays > 0) return spanDays;
+  return null;
+}
+
+function bcResolveBoardRentalRateCents(meta){
+  var code = meta.pricing_addon_code || meta.source_addon_code || meta.source_quote_line_code;
+  if (code === 'hard_board_rental' || code === 'wetsuit_hard_board_combo') return BC_RENTAL_DAY_RATES.hard_board_rental;
+  if (code === 'soft_top_rental' || code === 'wetsuit_soft_top_combo') return BC_RENTAL_DAY_RATES.soft_top_rental;
+  if (meta.board_variant === 'hard' || meta.staff_ui_service_type === 'hard_board') return BC_RENTAL_DAY_RATES.hard_board_rental;
+  if (meta.board_variant === 'soft' || meta.staff_ui_service_type === 'soft_board') return BC_RENTAL_DAY_RATES.soft_top_rental;
+  return null;
+}
+
+function bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, displayQty){
+  if (meta.unit_cents != null && Number(meta.unit_cents) >= 0) return Number(meta.unit_cents);
+  if (sr.service_type === 'wetsuit') {
+    if (meta.combo_part === 'wetsuit') return 0;
+    var wCode = meta.pricing_addon_code || meta.source_addon_code || meta.source_quote_line_code;
+    if (wCode === 'wetsuit_rental') return BC_RENTAL_DAY_RATES.wetsuit_rental;
+    if (Number(totalCents) === 0) return 0;
+    return BC_RENTAL_DAY_RATES.wetsuit_rental;
+  }
+  if (sr.service_type === 'surfboard') {
+    var boardRate = bcResolveBoardRentalRateCents(meta);
+    if (boardRate != null) return boardRate;
+  }
+  if (totalCents != null && displayQty != null && displayQty > 0 && Number(totalCents) >= 0 && Number(totalCents) % displayQty === 0) {
+    return Number(totalCents) / displayQty;
+  }
+  return null;
+}
+
 /* Phase 10.6b — payment ledger helpers (paid truth from payment rows only) */
 function bcPaymentLedgerParseMetadata(raw){
   if (raw && typeof raw === 'object') return raw;
@@ -20644,15 +20763,9 @@ function bcPaymentLedgerRowDisplayLabel(pr){
 }
 
 function bcRunningInvoiceSvcLineText(sr){
-  var meta = sr.metadata || {};
-  if (typeof meta === 'string') {
-    try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
-  }
+  var meta = bcParseServiceRecordMeta(sr.metadata);
   var label = bcRunningInvoiceSvcTypeLabel(sr.service_type, meta);
-  var qty = sr.quantity != null ? Number(sr.quantity) : null;
-  if ((sr.service_type === 'wetsuit' || sr.service_type === 'surfboard') && meta.rental_days != null){
-    qty = Number(meta.rental_days);
-  }
+  var qty = bcResolveRentalInvoiceDisplayQty(sr, meta);
   var totalCents = bcServiceRecordBillableCents(sr);
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return null;
@@ -20662,9 +20775,10 @@ function bcRunningInvoiceSvcLineText(sr){
     return label + ' \u2014 Not available';
   }
   var unitLabel = bcRunningInvoiceSvcUnitLabel(sr.service_type);
+  var unitCents = bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, qty);
   if (qty != null && qty > 0 && totalCents >= 0){
-    if (unitLabel && totalCents % qty === 0){
-      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(totalCents / qty) + ' = ' + eur(totalCents);
+    if (unitLabel && unitCents != null){
+      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
     }
     return label + ' \u2014 ' + qty + ' \u00d7 ' + eur(totalCents) + ' = ' + eur(totalCents);
   }
@@ -25947,6 +26061,79 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   }
 }
 
+async function handleConversationResetAgentSession(convId, req, res, user) {
+  const started = Date.now();
+  const hostHeader = String(req.headers.host || '');
+
+  if (!isStagingResetEnvironment(process.env, hostHeader)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staging_only',
+      detail: 'Agent session reset is allowed only on staging/test environments.',
+    });
+  }
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req));
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts:              new Date().toISOString(),
+    intent:          'action:api:conversation.reset_agent_session',
+    category:        'conversation_api',
+    client_slug:     clientSlug,
+    conversation_id: convId,
+    staff_user_id:   user ? user.staff_user_id : null,
+  };
+
+  try {
+    const phoneRow = await withPgClient((pg) => pg.query(
+      `SELECT c.phone
+         FROM conversations c
+         JOIN clients cl ON cl.id = c.client_id
+        WHERE c.id = $1::uuid AND cl.slug = $2
+        LIMIT 1`,
+      [convId, clientSlug],
+    ));
+    if (!phoneRow.rows.length) {
+      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: Date.now() - started });
+      return send404(res);
+    }
+
+    const guestPhone = phoneRow.rows[0].phone || null;
+    let hermesSessionReset = { attempted: false, ok: false, reason: 'no_guest_phone' };
+    if (guestPhone) {
+      hermesSessionReset = await resetHermesGuestSession(guestPhone, { hard_delete: true });
+    }
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      conversation_id: convId,
+      guest_phone: guestPhone,
+      hermes_session_reset: hermesSessionReset,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'reset failed' });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Staff Portal — Fresh Start (Luna context reset; preserves messages + bookings)
 //
@@ -26003,7 +26190,7 @@ async function handleConversationResetLunaContext(convId, req, res, user) {
     let phoneEventsReset = { attempted: false };
     let bookingsCleared = { attempted: false };
     if (result.guest_phone) {
-      hermesSessionReset = await resetHermesGuestSession(result.guest_phone);
+      hermesSessionReset = await resetHermesGuestSession(result.guest_phone, { hard_delete: true });
       // Also wipe the inbound webhook log (guest_message_events) + outbound
       // (guest_message_sends) for this number — otherwise that persisted history
       // re-seeds Luna's context and she still greets a "fresh" guest with the
@@ -28874,6 +29061,17 @@ async function router(req, res) {
     return handleConversationNeedsHuman(convNeedsHumanMatch[1], req, res, auth.user);
   }
 
+  const convResetAgentMatch = CONV_RESET_AGENT_RE.exec(pathname);
+  if (convResetAgentMatch) {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for conversations/:id/reset-agent-session' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleConversationResetAgentSession(convResetAgentMatch[1], req, res, auth.user);
+  }
+
   const convResetLunaMatch = CONV_RESET_LUNA_RE.exec(pathname);
   if (convResetLunaMatch) {
     if (method !== 'POST') {
@@ -29854,6 +30052,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/handoffs/:id/review <- 23c.1 mark reviewed`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/inbox/send-reply       <- 23d Inbox reply send`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/needs-human <- needs_human toggle`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-agent-session <- Hermes session wipe (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/reset-luna-context <- Fresh Start (operator+, staging)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/conversations/:id/clear-messages <- clear thread legacy (operator+)`);
   console.log(`    DELETE http://127.0.0.1:${PORT}/staff/conversations/:id?client=... <- hard delete (admin+)`);

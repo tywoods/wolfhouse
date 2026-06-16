@@ -594,14 +594,18 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     && collectPendingTransferEntries(body).length
     && ctx.handlePostBookingTransfer
   ) {
-    const { results, saved } = await savePendingTransfersForBooking(
-      body,
-      bridgeResult.booking_id,
-      bridgeResult.booking_code,
-      ctx,
-    );
-    bridgeResult.transfer_save_results = results;
-    bridgeResult.transfers_saved = saved;
+    const pkg = String(body.package_code || '').trim().toLowerCase();
+    const skipTransfers = !pkg || pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
+    if (!skipTransfers) {
+      const { results, saved } = await savePendingTransfersForBooking(
+        body,
+        bridgeResult.booking_id,
+        bridgeResult.booking_code,
+        ctx,
+      );
+      bridgeResult.transfer_save_results = results;
+      bridgeResult.transfers_saved = saved;
+    }
   }
 
   return sendJSON(res, captureRes._status, bridgeResult);

@@ -25,6 +25,15 @@ function quoteLineItemAmount(quote, code) {
   return Number(li.total_cents);
 }
 
+function quoteLineItemUnitCents(quote, code, days) {
+  const items = (quote && Array.isArray(quote.line_items)) ? quote.line_items : [];
+  const li = items.find((x) => x.code === code);
+  if (!li) return null;
+  if (li.unit_cents != null) return Number(li.unit_cents);
+  if (li.total_cents != null && days > 0) return Math.round(Number(li.total_cents) / days);
+  return null;
+}
+
 function boardVariantForAddonCode(code) {
   if (code === 'soft_top_rental' || code === 'wetsuit_soft_top_combo') return 'soft';
   if (code === 'hard_board_rental' || code === 'wetsuit_hard_board_combo') return 'hard';
@@ -43,6 +52,7 @@ function staffUiTypeForAddonCode(code) {
  */
 function buildManualBookingServiceRecordRows({
   addOns, quote, clientSlug, bookingId, bookingCode, guestName, checkIn, guestCount,
+  source = 'staff_manual',
 }) {
   void checkIn;
   void guestCount;
@@ -74,7 +84,7 @@ function buildManualBookingServiceRecordRows({
       amount_due_cents:   amt,
       amount_paid_cents:  0,
       payment_status:     servicePaymentStatus(amt),
-      source:             'staff_manual',
+      source:             source,
       notes:              null,
       metadata:           meta,
     });
@@ -96,8 +106,14 @@ function buildManualBookingServiceRecordRows({
       quantity: days,
       amountDueCents: 0,
       sourceAddonCode: addon.code,
-      metadataExtra: { ...comboMeta, combo_part: 'wetsuit' },
+      metadataExtra: {
+        ...comboMeta,
+        combo_part: 'wetsuit',
+        unit_cents: 0,
+        pricing_addon_code: addon.code,
+      },
     });
+    const boardUnit = quoteLineItemUnitCents(quote, addon.code, days);
     pushRow({
       serviceType: 'surfboard',
       quantity: days,
@@ -107,6 +123,8 @@ function buildManualBookingServiceRecordRows({
         ...comboMeta,
         combo_part: 'surfboard',
         staff_ui_service_type: boardVariant === 'soft' ? 'soft_board' : 'hard_board',
+        unit_cents: boardUnit,
+        pricing_addon_code: addon.code,
         ...(liAmt == null ? { quote_line_not_matched: true } : {}),
       },
     });
@@ -124,6 +142,7 @@ function buildManualBookingServiceRecordRows({
 
     const days = Math.max(1, parseInt(addon.days, 10) || 1);
     const liAmt = quoteLineItemAmount(quote, addon.code);
+    const unitCents = quoteLineItemUnitCents(quote, addon.code, days);
     const boardVariant = boardVariantForAddonCode(addon.code);
     const staffUi = staffUiTypeForAddonCode(addon.code);
     pushRow({
@@ -134,6 +153,8 @@ function buildManualBookingServiceRecordRows({
       metadataExtra: {
         rental_days: days,
         source_quote_line_code: addon.code,
+        pricing_addon_code: addon.code,
+        unit_cents: unitCents,
         ...(boardVariant ? { board_variant: boardVariant } : {}),
         ...(staffUi ? { staff_ui_service_type: staffUi } : {}),
         ...(liAmt == null ? { quote_line_not_matched: true } : {}),
@@ -207,4 +228,5 @@ module.exports = {
   buildManualBookingServiceRecordRows,
   MANUAL_BOOKING_ADDON_SERVICE_MAP,
   quoteLineItemAmount,
+  quoteLineItemUnitCents,
 };
