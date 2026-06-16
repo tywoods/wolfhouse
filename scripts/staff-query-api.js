@@ -14739,17 +14739,18 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .mig-note{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:5px 10px;display:inline-block;margin-bottom:8px}
 .view-toggle{font-size:11px;color:var(--primary);cursor:pointer;margin-left:10px;text-decoration:underline}
 /* ── Bed calendar (Stage 7.7h) ──────────────────────────────────────────── */
-.bc-grid{border-collapse:separate;border-spacing:0;font-size:12px;min-width:100%}
+.bc-grid{border-collapse:separate;border-spacing:0;font-size:calc(12px * var(--bc-zoom, 1));min-width:100%}
 .bc-grid th,.bc-grid td{border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);padding:0}
-.bc-grid thead th{background:var(--surface-soft);padding:7px 8px;font-size:10px;font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.03em}
-.bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:130px;background:var(--sand)}
+.bc-grid thead th{background:var(--surface-soft);padding:calc(7px * var(--bc-zoom, 1)) calc(8px * var(--bc-zoom, 1));font-size:calc(10px * var(--bc-zoom, 1));font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.03em}
+.bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:calc(130px * var(--bc-zoom, 1));background:var(--sand)}
+.bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1))}
 .bc-grid-shell{display:none;position:relative}
-.bc-grid-wrap-inner{overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface)}
+.bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface)}
 .bc-grid-resize-handle{height:10px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
 .bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#B8A99A;opacity:.85}
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
 .conv-list-handoff-pill{background:#F6E7E1;color:#9C5742;border:1px solid #E6C7BC}
-.bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:11px;padding:6px 10px;letter-spacing:.02em}
+.bc-room-hdr{background:var(--olive);color:#fff;font-weight:700;font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));letter-spacing:.02em}
 .bc-room-hdr-inner{display:inline;align-items:baseline}
 .bc-room-hide-btn{font-size:10px;font-weight:400;letter-spacing:.02em;background:none;border:none;color:rgba(255,255,255,.92);padding:0;margin-left:6px;cursor:pointer;text-decoration:underline;text-underline-offset:2px;text-decoration-color:rgba(255,255,255,.55)}
 .bc-room-hide-btn:hover{color:#fff;text-decoration-color:#fff}
@@ -14764,18 +14765,18 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(20px)}
 .luna-global-pause-switch input:focus-visible + .luna-global-pause-slider{outline:2px solid rgba(199,74,74,.45);outline-offset:2px}
 .luna-global-pause-card.luna-global-paused{border-color:#E0A8A8;background:#FFF5F5}
-.bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:11px;padding:6px 10px;min-width:120px;position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
-.bc-day-cell{height:30px;min-width:46px;vertical-align:middle;padding:2px 3px}
-.bc-block{min-height:28px;border-radius:7px;padding:3px 6px 3px 9px;font-size:11px;font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:4px 6px;min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
+.bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));min-width:calc(120px * var(--bc-zoom, 1));position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
+.bc-day-cell{height:calc(30px * var(--bc-zoom, 1));min-width:calc(46px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
+.bc-block{min-height:calc(28px * var(--bc-zoom, 1));border-radius:calc(7px * var(--bc-zoom, 1));padding:calc(3px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1)) calc(9px * var(--bc-zoom, 1));font-size:calc(11px * var(--bc-zoom, 1));font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:calc(4px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
 .bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;max-width:100%}
 .bc-block-pay-wrap{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;align-content:center;gap:3px;max-width:100%;min-width:0}
-.bc-block-pay-badge{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap}
+.bc-block-pay-badge{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(5px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap}
 .bc-block-pay-balance{background:#F5E0D0;color:#9B4E12;border:1px solid #E8C4A8}
 .bc-block-pay-deposit{background:#E8F5E9;color:#2E7D32;border:1px solid #C8E6C9}
 .bc-block-pay-paid{background:#DCEAD2;color:#3d6130;border:1px solid #B5D3AD}
 .bc-block-pay-refund{background:#F3DDE8;color:#7A3A52;border:1px solid #D4A8BC}
 .bc-block-pay-link{background:#E8EEF2;color:#4A6270;border:1px solid #C5D5DE}
-.transfer-pebble{font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;line-height:1.25;white-space:nowrap;background:#EDE7F6;color:#5E35B1;border:1px solid #D1C4E9;flex-shrink:0}
+.transfer-pebble{font-size:calc(9px * var(--bc-zoom, 1));font-weight:700;padding:calc(1px * var(--bc-zoom, 1)) calc(5px * var(--bc-zoom, 1));border-radius:calc(8px * var(--bc-zoom, 1));line-height:1.25;white-space:nowrap;background:#EDE7F6;color:#5E35B1;border:1px solid #D1C4E9;flex-shrink:0}
 .transfer-pebble-drawer{font-size:11px;padding:2px 8px;border-radius:999px}
 .bc-block:hover{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
 .bc-block.bc-block-active,.bc-block-checkout-marker.bc-block-active{filter:brightness(.95);box-shadow:0 2px 10px rgba(68,80,74,.15)}
@@ -14788,11 +14789,11 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
-.bc-day-cell-turnover{position:relative;height:30px;vertical-align:middle;padding:2px 3px}
+.bc-day-cell-turnover{position:relative;height:calc(30px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
-.bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(52px,34%)}
-.bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:28px;width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
-.bc-block-checkout-marker{position:absolute;left:3px;right:3px;top:2px;bottom:2px;z-index:1;border-radius:7px;opacity:.42;cursor:pointer;border-left:3px solid rgba(68,80,74,.45);background:linear-gradient(90deg,rgba(68,80,74,.12) 0%,rgba(68,80,74,.04) 38%,transparent 72%)}
+.bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
+.bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:calc(28px * var(--bc-zoom, 1));width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
+.bc-block-checkout-marker{position:absolute;left:calc(3px * var(--bc-zoom, 1));right:calc(3px * var(--bc-zoom, 1));top:calc(2px * var(--bc-zoom, 1));bottom:calc(2px * var(--bc-zoom, 1));z-index:1;border-radius:calc(7px * var(--bc-zoom, 1));opacity:.42;cursor:pointer;border-left:3px solid rgba(68,80,74,.45);background:linear-gradient(90deg,rgba(68,80,74,.12) 0%,rgba(68,80,74,.04) 38%,transparent 72%)}
 .bc-block-checkout-marker.bc-block-confirmed{background:linear-gradient(90deg,rgba(134,168,124,.28) 0%,rgba(134,168,124,.08) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-hold{background:linear-gradient(90deg,rgba(217,200,183,.35) 0%,rgba(217,200,183,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-payment_pending{background:linear-gradient(90deg,rgba(122,170,187,.28) 0%,rgba(122,170,187,.08) 40%,transparent 75%)}
@@ -14812,6 +14813,20 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-chip:hover{background:var(--sage);color:#fff;border-color:var(--sage)}
 .bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .bc-controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
+.bc-legend-row{display:flex;align-items:center;gap:10px;flex:0 0 auto;flex-wrap:wrap}
+.bc-zoom-bar{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
+.bc-zoom-btn{width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:18px;line-height:1;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.bc-zoom-btn:hover:not(:disabled){background:var(--surface-soft);border-color:var(--tan)}
+.bc-zoom-btn:disabled{opacity:.4;cursor:not-allowed}
+.bc-zoom-pct{min-width:42px;text-align:center;font-size:11px;font-weight:700;color:var(--text-2)}
+.bc-zoom-lock{display:inline-flex;align-items:center;gap:6px;margin-left:2px;font-size:10px;font-weight:600;color:var(--text-3);cursor:pointer;user-select:none}
+.bc-zoom-lock-switch{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0}
+.bc-zoom-lock-switch input{opacity:0;width:0;height:0;position:absolute}
+.bc-zoom-lock-slider{position:absolute;cursor:pointer;inset:0;background:#D8D0C4;border-radius:999px;transition:background .2s}
+.bc-zoom-lock-slider:before{content:'';position:absolute;height:14px;width:14px;left:3px;bottom:3px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,.15)}
+.bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider{background:var(--sage)}
+.bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider:before{transform:translateX(14px)}
+.bc-zoom-lock-switch input:focus-visible + .bc-zoom-lock-slider{outline:2px solid rgba(175,195,163,.45);outline-offset:2px}
 /* ── Bed calendar legend (Stage 8.3a / 26h.5 compact right) ─────────────── */
 .bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
@@ -14825,7 +14840,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
-@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend{align-self:flex-end}}
+@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
 input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
@@ -15483,10 +15498,24 @@ ${getStaffPortalI18nBootstrapScript()}
       <span class="bc-chip" data-chip="oct-nov" data-i18n="calendar.chip.octNov">Oct - Nov</span>
     </div>
 
+    <div class="bc-legend-row">
+    <div class="bc-zoom-bar" id="bc-zoom-bar" aria-label="Calendar zoom">
+      <button type="button" class="bc-zoom-btn" id="bc-zoom-out" data-i18n-title="calendar.zoom.out" title="Zoom out" aria-label="Zoom out">−</button>
+      <span class="bc-zoom-pct" id="bc-zoom-pct" aria-live="polite">100%</span>
+      <button type="button" class="bc-zoom-btn" id="bc-zoom-in" data-i18n-title="calendar.zoom.in" title="Zoom in" aria-label="Zoom in">+</button>
+      <label class="bc-zoom-lock" data-i18n-title="calendar.zoom.lock" title="Lock zoom">
+        <span class="bc-zoom-lock-label" data-i18n="calendar.zoom.lock">Lock zoom</span>
+        <span class="bc-zoom-lock-switch">
+          <input type="checkbox" id="bc-zoom-lock" aria-label="Lock zoom">
+          <span class="bc-zoom-lock-slider"></span>
+        </span>
+      </label>
+    </div>
     <div class="bc-legend" id="bc-legend">
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span><span data-i18n="calendar.legend.luna">Luna</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
+    </div>
     </div>
     </div>
 
@@ -16221,6 +16250,101 @@ function bcInitCalendarResize(){
   handle.addEventListener('mousedown', onDown);
   handle.addEventListener('touchstart', onDown, { passive: false });
   handle.addEventListener('pointerdown', onDown);
+}
+
+var BC_ZOOM_DEFAULT = 100;
+var BC_ZOOM_MIN = 60;
+var BC_ZOOM_MAX = 200;
+var BC_ZOOM_STEP = 10;
+var BC_ZOOM_LEVEL_KEY = 'staff_bc_zoom_level';
+var BC_ZOOM_LOCK_KEY = 'staff_bc_zoom_lock';
+var bcZoomState = { level: BC_ZOOM_DEFAULT, locked: false };
+var bcCalendarZoomWired = false;
+
+function bcClampZoomLevel(pct){
+  var n = Number(pct);
+  if (!Number.isFinite(n)) return BC_ZOOM_DEFAULT;
+  return Math.max(BC_ZOOM_MIN, Math.min(BC_ZOOM_MAX, Math.round(n)));
+}
+
+function bcLoadZoomLock(){
+  try { return localStorage.getItem(BC_ZOOM_LOCK_KEY) === '1'; } catch (_) { /* ignore */ }
+  return false;
+}
+
+function bcLoadSavedZoomLevel(){
+  try {
+    var raw = localStorage.getItem(BC_ZOOM_LEVEL_KEY);
+    if (raw != null && raw !== '') return bcClampZoomLevel(parseInt(raw, 10));
+  } catch (_) { /* ignore */ }
+  return BC_ZOOM_DEFAULT;
+}
+
+function bcSaveZoomLevel(pct){
+  try { localStorage.setItem(BC_ZOOM_LEVEL_KEY, String(bcClampZoomLevel(pct))); } catch (_) { /* ignore */ }
+}
+
+function bcSaveZoomLock(locked){
+  try { localStorage.setItem(BC_ZOOM_LOCK_KEY, locked ? '1' : '0'); } catch (_) { /* ignore */ }
+}
+
+function bcResolveCalendarZoom(){
+  if (bcZoomState.locked) return bcLoadSavedZoomLevel();
+  return bcZoomState.level;
+}
+
+function bcSyncZoomUi(){
+  var pctEl = el('bc-zoom-pct');
+  var outBtn = el('bc-zoom-out');
+  var inBtn = el('bc-zoom-in');
+  var lockEl = el('bc-zoom-lock');
+  var level = bcZoomState.level;
+  if (pctEl) pctEl.textContent = level + '%';
+  if (outBtn) outBtn.disabled = level <= BC_ZOOM_MIN;
+  if (inBtn) inBtn.disabled = level >= BC_ZOOM_MAX;
+  if (lockEl) lockEl.checked = bcZoomState.locked;
+}
+
+function bcApplyCalendarZoom(level){
+  level = bcClampZoomLevel(level);
+  bcZoomState.level = level;
+  var wrap = el('bc-grid-wrap');
+  if (wrap) wrap.style.setProperty('--bc-zoom', String(level / 100));
+  if (bcZoomState.locked) bcSaveZoomLevel(level);
+  bcSyncZoomUi();
+}
+
+function bcPrepareCalendarZoomForRangeChange(){
+  if (bcZoomState.locked) return;
+  bcZoomState.level = BC_ZOOM_DEFAULT;
+}
+
+function bcInitCalendarZoom(){
+  if (!bcCalendarZoomWired) {
+    bcCalendarZoomWired = true;
+    bcZoomState.locked = bcLoadZoomLock();
+    var outBtn = el('bc-zoom-out');
+    var inBtn = el('bc-zoom-in');
+    var lockEl = el('bc-zoom-lock');
+    if (outBtn) outBtn.addEventListener('click', function(){
+      bcApplyCalendarZoom(bcZoomState.level - BC_ZOOM_STEP);
+    });
+    if (inBtn) inBtn.addEventListener('click', function(){
+      bcApplyCalendarZoom(bcZoomState.level + BC_ZOOM_STEP);
+    });
+    if (lockEl) lockEl.addEventListener('change', function(){
+      bcZoomState.locked = !!lockEl.checked;
+      bcSaveZoomLock(bcZoomState.locked);
+      if (bcZoomState.locked) {
+        bcSaveZoomLevel(bcZoomState.level);
+      } else {
+        try { localStorage.removeItem(BC_ZOOM_LEVEL_KEY); } catch (_) { /* ignore */ }
+        bcApplyCalendarZoom(BC_ZOOM_DEFAULT);
+      }
+    });
+  }
+  bcZoomState.locked = bcLoadZoomLock();
+  bcApplyCalendarZoom(bcResolveCalendarZoom());
 }
 
 function bcNaturalCodeSort(a, b){
@@ -19729,7 +19853,7 @@ function renderBedCalendar(data){
   html += '<thead><tr>';
   html += '<th class="bc-bed-head">' + escHtml(t('calendar.grid.roomBed')) + '</th>';
   days.forEach(function(day){
-    html += '<th style="min-width:44px">' + escHtml(day.label) + '</th>';
+    html += '<th class="bc-day-head">' + escHtml(day.label) + '</th>';
   });
   html += '</tr></thead>';
 
@@ -19836,6 +19960,7 @@ function renderBedCalendar(data){
   var wrap = el('bc-grid-wrap');
   var shell = el('bc-grid-shell');
   wrap.innerHTML = html;
+  bcApplyCalendarZoom(bcResolveCalendarZoom());
   bcGridContentHeight = bcMeasureGridContentHeight();
   bcApplyGridHeight(bcLoadSavedGridHeight());
   requestAnimationFrame(function(){
@@ -25268,6 +25393,7 @@ window.staffPortalOnLocaleChange = function(){
 };
 
 function loadBedCalendar(afterRender){
+  bcPrepareCalendarZoomForRangeChange();
   bcUpdateCalendarTitle();
   var start  = (el('bc-start').value||'').trim();
   var end    = (el('bc-end').value||'').trim();
@@ -25329,6 +25455,7 @@ function bcAddDaysISO(iso, delta){
 var bcInitialLoadDone = false;
 function bcOnBedCalendarTabOpen(){
   bcInitCalendarResize();
+  bcInitCalendarZoom();
   bcInitDetailCopyDelegation();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
@@ -25365,6 +25492,7 @@ function bcSetRange(start, end, chipKey){
 /* Initialise date inputs dynamically (next 30 days default) */
 (function initBcDates(){
   bcInitCalendarResize();
+  bcInitCalendarZoom();
   var today = new Date();
   var plus30 = new Date(today.getTime() + 30 * 86400000);
   var s = el('bc-start'); var e = el('bc-end');
