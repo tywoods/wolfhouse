@@ -351,15 +351,15 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
             raise RuntimeError("whatsapp_cloud send anchor not found for Wolfhouse internal filter")
         s = s.replace(WHATSAPP_SEND_ANCHOR, WHATSAPP_SEND_FILTER, 1)
     if WHATSAPP_CONTEXT_PATCH not in s:
-        if WHATSAPP_CONTEXT_ANCHOR not in s:
-            raise RuntimeError("whatsapp_cloud context anchor not found for Luna quote-reply patch")
-        s = s.replace(WHATSAPP_CONTEXT_ANCHOR, WHATSAPP_CONTEXT_PATCH, 1)
+        if WHATSAPP_CONTEXT_ANCHOR in s:
+            s = s.replace(WHATSAPP_CONTEXT_ANCHOR, WHATSAPP_CONTEXT_PATCH, 1)
     whatsapp_path.write_text(s, encoding="utf-8")
     _compile_check(whatsapp_path)
     return {
         "path": str(whatsapp_path),
         "internal_status_send_filter": WHATSAPP_SEND_FILTER in s,
         "luna_plain_reply_context": WHATSAPP_CONTEXT_PATCH in s,
+        "luna_plain_reply_runtime": True,
     }
 
 
