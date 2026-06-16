@@ -3,6 +3,11 @@
 const fs = require('fs');
 const path = require('path');
 
+const {
+  formatRentalPeopleDaysLine,
+  resolveRentalPeopleFromMeta,
+} = require('./rental-breakdown-text');
+
 const DEFAULT_PRICING_PATH = path.join(
   __dirname,
   '../../config/clients/wolfhouse-somo.pricing.json',
@@ -152,9 +157,33 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
     metadata: meta,
   });
   const totalCents = billable;
+  const rentalPeople = resolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type);
+  const rentalDays = meta.rental_days != null ? Number(meta.rental_days) : displayQty;
 
   if (totalCents == null || (totalCents === 0 && sr.amount_due_cents == null)) {
     return `${label} \u2014 Not available`;
+  }
+
+  if (
+    (sr.service_type === 'wetsuit' || sr.service_type === 'surfboard')
+    && rentalDays != null && rentalDays > 0
+    && rentalPeople != null && rentalPeople > 0
+  ) {
+    if (totalCents === 0 && meta.combo_part === 'wetsuit') {
+      return formatRentalPeopleDaysLine({
+        label,
+        days: rentalDays,
+        people: rentalPeople,
+        totalCents: 0,
+        freeNote: 'free with board 🤙',
+      });
+    }
+    return formatRentalPeopleDaysLine({
+      label,
+      days: rentalDays,
+      people: rentalPeople,
+      totalCents,
+    });
   }
 
   const unitLabel = opts.unitLabel ? opts.unitLabel(sr.service_type) : null;

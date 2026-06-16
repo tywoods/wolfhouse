@@ -151,6 +151,13 @@ BASE_REPLY_ANCHOR_NEW = '    if platform == "feishu" and thread_id and getattr(e
 
 WHATSAPP_SEND_ANCHOR = '        if not content or not content.strip():\n            return SendResult(success=True, message_id=None)\n'
 WHATSAPP_SEND_FILTER = '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n        if not content or not content.strip():\n            return SendResult(success=True, message_id=None)\n'
+WHATSAPP_CONTEXT_ANCHOR = '        if reply_to:\n            payload["context"] = {"message_id": reply_to}'
+WHATSAPP_CONTEXT_PATCH = '''        if reply_to:
+            import os as _wolfhouse_wa_ctx_os
+            _wh_meta = metadata if isinstance(metadata, dict) else {}
+            _wh_quote_reply = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+            if _wh_quote_reply or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
+                payload["context"] = {"message_id": reply_to}'''
 WHATSAPP_SEND_HELPERS = r'''
 
 import re as _wolfhouse_re
@@ -343,11 +350,16 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
         if WHATSAPP_SEND_ANCHOR not in s:
             raise RuntimeError("whatsapp_cloud send anchor not found for Wolfhouse internal filter")
         s = s.replace(WHATSAPP_SEND_ANCHOR, WHATSAPP_SEND_FILTER, 1)
+    if WHATSAPP_CONTEXT_PATCH not in s:
+        if WHATSAPP_CONTEXT_ANCHOR in s:
+            s = s.replace(WHATSAPP_CONTEXT_ANCHOR, WHATSAPP_CONTEXT_PATCH, 1)
     whatsapp_path.write_text(s, encoding="utf-8")
     _compile_check(whatsapp_path)
     return {
         "path": str(whatsapp_path),
         "internal_status_send_filter": WHATSAPP_SEND_FILTER in s,
+        "luna_plain_reply_context": WHATSAPP_CONTEXT_PATCH in s,
+        "luna_plain_reply_runtime": True,
     }
 
 
@@ -464,6 +476,11 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
         except Exception:
             return None
+    import os as _wolfhouse_wa_os
+    _wh_meta = metadata if isinstance(metadata, dict) else {}
+    _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+    if _wolfhouse_wa_os.getenv("HERMES_ROLE") == "luna" and not _wh_allow_quote:
+        reply_to = None
     return await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
 
 def main() -> int:

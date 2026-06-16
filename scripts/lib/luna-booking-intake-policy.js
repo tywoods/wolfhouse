@@ -319,7 +319,7 @@ function girlsRoomAvailable(availability) {
   const av = availability || {};
   if (av.girls_room_available === false) return false;
   if (av.girls_room_available === true) return true;
-  return true;
+  return false;
 }
 
 /**
@@ -347,6 +347,14 @@ function inferRoomPreferenceNeed(state, context) {
   }
 
   if (guestCount >= 3) {
+    if ((gender === 'female' || gender === 'unknown') && girlsAvail) {
+      return {
+        needed: true,
+        question_type: 'girls_or_mixed',
+        rule_applied: 'group_female_girls_or_mixed',
+        block_booking: false,
+      };
+    }
     return {
       needed: false,
       question_type: null,
@@ -364,11 +372,19 @@ function inferRoomPreferenceNeed(state, context) {
         block_booking: false,
       };
     }
+    if (!girlsAvail) {
+      return {
+        needed: false,
+        question_type: null,
+        rule_applied: 'solo_no_girls_room_auto_assign',
+        block_booking: false,
+      };
+    }
     if (gender === 'female') {
       return {
         needed: true,
-        question_type: girlsAvail ? 'girls_or_mixed' : 'mixed_only_female',
-        rule_applied: girlsAvail ? 'solo_female_girls_mixed' : 'solo_female_mixed_only',
+        question_type: 'girls_or_mixed',
+        rule_applied: 'solo_female_girls_mixed',
         block_booking: false,
       };
     }
@@ -381,6 +397,14 @@ function inferRoomPreferenceNeed(state, context) {
   }
 
   if (guestCount === 2) {
+    if (gender === 'male') {
+      return {
+        needed: false,
+        question_type: null,
+        rule_applied: 'couple_male_default_mixed',
+        block_booking: false,
+      };
+    }
     if (privateAvail) {
       const rule = gender === 'female' ? 'couple_female_private_option' : 'couple_private_option';
       return {
@@ -391,11 +415,19 @@ function inferRoomPreferenceNeed(state, context) {
         private_extra_eur_per_night: 10,
       };
     }
-    if (gender === 'female') {
+    if (!girlsAvail) {
+      return {
+        needed: false,
+        question_type: null,
+        rule_applied: 'couple_no_girls_room_auto_assign',
+        block_booking: false,
+      };
+    }
+    if (gender === 'female' || gender === 'unknown') {
       return {
         needed: true,
-        question_type: girlsAvail ? 'girls_or_mixed' : 'mixed_only_female',
-        rule_applied: girlsAvail ? 'couple_female_girls_mixed' : 'couple_female_mixed_only',
+        question_type: 'girls_or_mixed',
+        rule_applied: gender === 'female' ? 'couple_female_girls_mixed' : 'couple_unknown_girls_mixed',
         block_booking: false,
       };
     }

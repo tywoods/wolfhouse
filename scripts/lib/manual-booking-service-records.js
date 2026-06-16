@@ -94,10 +94,12 @@ function buildManualBookingServiceRecordRows({
   for (const addon of addOnList) {
     if (addon.code !== 'wetsuit_soft_top_combo' && addon.code !== 'wetsuit_hard_board_combo') continue;
     const days = Math.max(1, parseInt(addon.days, 10) || 1);
+    const people = Math.max(1, parseInt(addon.quantity, 10) || parseInt(addon.people, 10) || Math.max(1, Number(guestCount) || 1));
     const liAmt = quoteLineItemAmount(quote, addon.code);
     const boardVariant = boardVariantForAddonCode(addon.code);
     const comboMeta = {
       rental_days: days,
+      rental_people: people,
       source_quote_line_code: addon.code,
       board_variant: boardVariant,
     };
@@ -113,7 +115,7 @@ function buildManualBookingServiceRecordRows({
         pricing_addon_code: addon.code,
       },
     });
-    const boardUnit = quoteLineItemUnitCents(quote, addon.code, days);
+    const boardUnit = quoteLineItemUnitCents(quote, addon.code, days * people);
     pushRow({
       serviceType: 'surfboard',
       quantity: days,
@@ -141,8 +143,9 @@ function buildManualBookingServiceRecordRows({
     if (!serviceType) continue;
 
     const days = Math.max(1, parseInt(addon.days, 10) || 1);
+    const people = Math.max(1, parseInt(addon.quantity, 10) || parseInt(addon.people, 10) || Math.max(1, Number(guestCount) || 1));
     const liAmt = quoteLineItemAmount(quote, addon.code);
-    const unitCents = quoteLineItemUnitCents(quote, addon.code, days);
+    const unitCents = quoteLineItemUnitCents(quote, addon.code, days * people);
     const boardVariant = boardVariantForAddonCode(addon.code);
     const staffUi = staffUiTypeForAddonCode(addon.code);
     pushRow({
@@ -152,6 +155,7 @@ function buildManualBookingServiceRecordRows({
       sourceAddonCode: addon.code,
       metadataExtra: {
         rental_days: days,
+        rental_people: people,
         source_quote_line_code: addon.code,
         pricing_addon_code: addon.code,
         unit_cents: unitCents,

@@ -87,26 +87,26 @@ section('C2. Combo — board+wetsuit equals board-only total (July 1–4, 2 gues
   };
   const boardOnly = calculateWolfhouseQuote({
     ...base,
-    add_ons: [{ code: 'soft_top_rental', days: 3 }],
+    add_ons: normalizeQuoteAddOnsForCombo([{ code: 'soft_top_rental', days: 3 }], base.guest_count),
   });
   const bundled = calculateWolfhouseQuote({
     ...base,
     add_ons: normalizeQuoteAddOnsForCombo([
       { code: 'soft_top_rental', days: 3 },
       { code: 'wetsuit_rental', days: 3 },
-    ]),
+    ], base.guest_count),
   });
   const unmerged = calculateWolfhouseQuote({
     ...base,
     add_ons: [
-      { code: 'soft_top_rental', days: 3 },
-      { code: 'wetsuit_rental', days: 3 },
+      { code: 'soft_top_rental', days: 3, quantity: 2 },
+      { code: 'wetsuit_rental', days: 3, quantity: 2 },
     ],
   });
   check('C2a', boardOnly.success && bundled.success, 'quotes succeed');
   check('C2b', bundled.total_cents === boardOnly.total_cents, `bundle total €${bundled.total_cents / 100} == board-only €${boardOnly.total_cents / 100}`);
-  check('C2c', unmerged.total_cents === 33000, 'unmerged overcharges (€330)');
-  check('C2d', bundled.total_cents === 31500, 'merged short-stay total €315');
+  check('C2c', unmerged.total_cents === 39000, 'unmerged overcharges (€390 for 2 guests)');
+  check('C2d', bundled.total_cents === 36000, 'merged short-stay total €360 (2 guests, per-person gear)');
 }
 
 section('C3. Dry-run — combo + no shuttle for package_none');
@@ -124,9 +124,9 @@ section('C3. Dry-run — combo + no shuttle for package_none');
       { code: 'wetsuit_rental', days: 3 },
     ],
   });
-  check('C3a', preview.quote && preview.quote.total_cents === 31500, 'dry-run quote €315 with combo');
+  check('C3a', preview.quote && preview.quote.total_cents === 36000, 'dry-run quote €360 with combo (2 guests)');
   check('C3b', preview.reply_draft && !/shuttle/i.test(preview.reply_draft), 'dry-run reply has no shuttle');
-  check('C3c', /315\.00/.test(preview.reply_draft || ''), 'reply shows €315 total');
+  check('C3c', /360\.00/.test(preview.reply_draft || ''), 'reply shows €360 total');
 }
 
 section('D. Bot create handler accepts package_none');
