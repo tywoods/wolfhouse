@@ -30,9 +30,10 @@ function check(id, cond, msg) { if (cond) pass(id, msg); else fail(id, msg); }
 console.log('\nverify-luna-ux-quote-memory-deposit.js\n');
 
 // A — WhatsApp plain replies (no quote context for Luna)
-check('A1', /WHATSAPP_CONTEXT_PATCH/.test(patches), 'whatsapp_cloud context patch defined');
-check('A2', /HERMES_ROLE.*luna/.test(patches) && /wolfhouse_quote_reply/.test(patches), 'Luna skips context unless wolfhouse_quote_reply');
-check('A3', /reply_to = None/.test(patches), 'runtime send wrapper clears reply_to for Luna');
+check('A1', /WHATSAPP_CHUNK_CONTEXT_ANCHOR|WHATSAPP_CHUNK_CONTEXT_PATCH/.test(patches), 'whatsapp_cloud chunk context patch defined');
+check('A2', /LUNA_PLAIN_REPLY_SEND_TAG|normal WhatsApp replies without quote blocks/.test(patches), 'send() clears reply_to for Luna');
+check('A3', /install_runtime_whatsapp_patches/.test(patches), 'runtime patch installs in gateway process');
+check('A4', /RUNTIME_PATCH_HOOK_TAG|install runtime WhatsApp patches when gateway loads/.test(patches), 'gateway.run loads runtime patch hook');
 
 // B — guest memory disabled + wipe + SOUL language
 check('B1', /memory_enabled:\s*false/.test(bootstrap), 'Luna config disables memory_enabled');

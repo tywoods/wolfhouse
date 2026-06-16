@@ -22,9 +22,9 @@ console.log('\nverify-hermes-gateway-mirror-patch.js\n');
 
 check('M1', /mirror_whatsapp_thread/.test(patches), 'mirror hook present');
 check('M2', /whatsapp_auto_reply_anchor_disabled/.test(patches), 'base platform reply anchor patch');
-check('M3', /luna_plain_reply_context/.test(patches), 'whatsapp_cloud Luna plain-reply context patch');
+check('M3', /luna_plain_reply_chunk_context|LUNA_PLAIN_REPLY_CHUNK_TAG/.test(patches), 'whatsapp_cloud Luna chunk context patch');
 check('M4', /wolfhouse_quote_reply/.test(patches), 'interactive quote-reply escape hatch');
-check('M5', /luna_soul_reload/.test(patches), 'Luna SOUL reload patch wired');
+check('M5', /runtime_whatsapp_patch_hook|install_runtime_whatsapp_patches/.test(patches), 'gateway runtime WhatsApp patch hook');
 check('M6', /session_stale_routing_skip/.test(patches), 'session stale routing patch wired');
 
 console.log(`\n${passes} passed, ${failures} failed\n`);

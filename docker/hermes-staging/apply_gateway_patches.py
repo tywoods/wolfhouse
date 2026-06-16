@@ -151,12 +151,54 @@ BASE_REPLY_ANCHOR_NEW = '    if platform == "feishu" and thread_id and getattr(e
 
 WHATSAPP_SEND_ANCHOR = '        if not content or not content.strip():\n            return SendResult(success=True, message_id=None)\n'
 WHATSAPP_SEND_FILTER = '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n        if not content or not content.strip():\n            return SendResult(success=True, message_id=None)\n'
-WHATSAPP_CONTEXT_ANCHOR = '        if reply_to:\n            payload["context"] = {"message_id": reply_to}'
-WHATSAPP_CONTEXT_PATCH = '''        if reply_to:
+LUNA_PLAIN_REPLY_SEND_TAG = "# Wolfhouse Luna: normal WhatsApp replies without quote blocks."
+LUNA_PLAIN_REPLY_CHUNK_TAG = "# Wolfhouse Luna: skip WhatsApp quote context unless interactive."
+LUNA_PLAIN_REPLY_SEND_BLOCK = '''
+        # Wolfhouse Luna: normal WhatsApp replies without quote blocks.
+        import os as _wolfhouse_wa_send_os
+        _wh_meta = metadata if isinstance(metadata, dict) else {}
+        _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+        if _wolfhouse_wa_send_os.getenv("HERMES_ROLE") == "luna" and not _wh_allow_quote:
+            reply_to = None
+'''
+WHATSAPP_SEND_FORMATTED_ANCHOR = (
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n\n'
+    '        formatted = self.format_message(content)'
+)
+WHATSAPP_SEND_FORMATTED_PATCH = (
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n'
+    + LUNA_PLAIN_REPLY_SEND_BLOCK
+    + '\n        formatted = self.format_message(content)'
+)
+WHATSAPP_SEND_POST_FILTER_ANCHOR = (
+    '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n'
+    '            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n'
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n\n'
+    '        formatted = self.format_message(content)'
+)
+WHATSAPP_SEND_POST_FILTER_PATCH = (
+    '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n'
+    '            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n'
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n'
+    + LUNA_PLAIN_REPLY_SEND_BLOCK
+    + '\n        formatted = self.format_message(content)'
+)
+WHATSAPP_CHUNK_CONTEXT_ANCHOR = (
+    '        if reply_to and idx == 0:\n'
+    '            # Quote the user\'s message on the first chunk only.\n'
+    '            payload["context"] = {"message_id": reply_to}'
+)
+WHATSAPP_CHUNK_CONTEXT_PATCH = '''        if reply_to and idx == 0:
+            # Wolfhouse Luna: skip WhatsApp quote context unless interactive.
             import os as _wolfhouse_wa_ctx_os
             _wh_meta = metadata if isinstance(metadata, dict) else {}
-            _wh_quote_reply = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
-            if _wh_quote_reply or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
+            _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+            if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
+                # Quote the user's message on the first chunk only.
                 payload["context"] = {"message_id": reply_to}'''
 WHATSAPP_SEND_HELPERS = r'''
 
@@ -193,6 +235,23 @@ LUNA_SOUL_RELOAD_PATCH = '''
         _wolfhouse_plat = getattr(source.platform, "value", str(source.platform or ""))
         if _wolfhouse_soul_os.getenv("HERMES_ROLE") == "luna" and _wolfhouse_plat in ("whatsapp", "whatsapp_cloud"):
             self._evict_cached_agent(session_key)
+'''
+
+RUNTIME_PATCH_HOOK_TAG = "# Wolfhouse: install runtime WhatsApp patches when gateway loads."
+RUNTIME_PATCH_HOOK = '''
+# Wolfhouse: install runtime WhatsApp patches when gateway loads.
+try:
+    import importlib.util as _wh_patch_iu
+    _wh_patch_spec = _wh_patch_iu.spec_from_file_location(
+        "wolfhouse_apply_gateway_patches",
+        "/etc/hermes-staging/apply_gateway_patches.py",
+    )
+    if _wh_patch_spec and _wh_patch_spec.loader:
+        _wh_patch_mod = _wh_patch_iu.module_from_spec(_wh_patch_spec)
+        _wh_patch_spec.loader.exec_module(_wh_patch_mod)
+        _wh_patch_mod.install_runtime_whatsapp_patches()
+except Exception:
+    pass
 '''
 
 
@@ -350,16 +409,20 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
         if WHATSAPP_SEND_ANCHOR not in s:
             raise RuntimeError("whatsapp_cloud send anchor not found for Wolfhouse internal filter")
         s = s.replace(WHATSAPP_SEND_ANCHOR, WHATSAPP_SEND_FILTER, 1)
-    if WHATSAPP_CONTEXT_PATCH not in s:
-        if WHATSAPP_CONTEXT_ANCHOR in s:
-            s = s.replace(WHATSAPP_CONTEXT_ANCHOR, WHATSAPP_CONTEXT_PATCH, 1)
+    if LUNA_PLAIN_REPLY_SEND_TAG not in s:
+        if WHATSAPP_SEND_POST_FILTER_ANCHOR in s:
+            s = s.replace(WHATSAPP_SEND_POST_FILTER_ANCHOR, WHATSAPP_SEND_POST_FILTER_PATCH, 1)
+        elif WHATSAPP_SEND_FORMATTED_ANCHOR in s:
+            s = s.replace(WHATSAPP_SEND_FORMATTED_ANCHOR, WHATSAPP_SEND_FORMATTED_PATCH, 1)
+    if WHATSAPP_CHUNK_CONTEXT_PATCH not in s and WHATSAPP_CHUNK_CONTEXT_ANCHOR in s:
+        s = s.replace(WHATSAPP_CHUNK_CONTEXT_ANCHOR, WHATSAPP_CHUNK_CONTEXT_PATCH, 1)
     whatsapp_path.write_text(s, encoding="utf-8")
     _compile_check(whatsapp_path)
     return {
         "path": str(whatsapp_path),
         "internal_status_send_filter": WHATSAPP_SEND_FILTER in s,
-        "luna_plain_reply_context": WHATSAPP_CONTEXT_PATCH in s,
-        "luna_plain_reply_runtime": True,
+        "luna_plain_reply_send": LUNA_PLAIN_REPLY_SEND_TAG in s,
+        "luna_plain_reply_chunk_context": LUNA_PLAIN_REPLY_CHUNK_TAG in s,
     }
 
 
@@ -421,6 +484,10 @@ def apply_patches(run_path: Path) -> dict:
             raise RuntimeError("gateway.run agent-cache anchor not found for Luna SOUL reload")
         s = s.replace(soul_anchor, soul_replacement, 1)
 
+    logger_anchor = "logger = logging.getLogger(__name__)\n"
+    if RUNTIME_PATCH_HOOK_TAG not in s and logger_anchor in s:
+        s = s.replace(logger_anchor, logger_anchor + RUNTIME_PATCH_HOOK, 1)
+
     run_path.write_text(s, encoding="utf-8")
     _compile_check(run_path)
     return {
@@ -430,6 +497,7 @@ def apply_patches(run_path: Path) -> dict:
         "outbound_mirror": MIRROR_OUTBOUND_TAG in s,
         "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in s and RUNNER_START_PATCH in s,
         "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in s,
+        "runtime_whatsapp_patch_hook": RUNTIME_PATCH_HOOK_TAG in s,
     }
 
 
@@ -483,6 +551,32 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
         reply_to = None
     return await _orig_whatsapp_cloud_send(self, chat_id, content, reply_to=reply_to, metadata=metadata)
 
+
+def install_runtime_whatsapp_patches() -> dict:
+    """Apply in-process WhatsApp patches (gateway process, not bootstrap-only)."""
+    applied = {"status_filter": False, "plain_reply_send": False}
+    try:
+        import gateway.run as _gw_run_mod
+        if not getattr(_gw_run_mod, "_wh_status_filter_applied", False):
+            _gw_run_mod._orig_prepare_gateway_status_message = _gw_run_mod._prepare_gateway_status_message
+            _gw_run_mod._WHATSAPP_SUPPRESS_STATUS_RE = _WHATSAPP_SUPPRESS_STATUS_RE
+            _gw_run_mod._prepare_gateway_status_message = _patched_prepare_gateway_status_message
+            _gw_run_mod._wh_status_filter_applied = True
+            applied["status_filter"] = True
+    except Exception:
+        pass
+    try:
+        import gateway.platforms.whatsapp_cloud as _wh_cloud_mod
+        if not getattr(_wh_cloud_mod.WhatsAppCloudAdapter, "_wolfhouse_internal_status_send_filter", False):
+            global _orig_whatsapp_cloud_send
+            _orig_whatsapp_cloud_send = _wh_cloud_mod.WhatsAppCloudAdapter.send
+            _wh_cloud_mod.WhatsAppCloudAdapter.send = _patched_whatsapp_cloud_send
+            _wh_cloud_mod.WhatsAppCloudAdapter._wolfhouse_internal_status_send_filter = True
+            applied["plain_reply_send"] = True
+    except Exception:
+        pass
+    return applied
+
 def main() -> int:
     spec = importlib.util.find_spec("gateway.run")
     if not spec or not spec.origin:
@@ -514,19 +608,7 @@ def main() -> int:
             result["anthropic_oauth"] = apply_anthropic_oauth_patch(Path(adapter_spec.origin))
         else:
             result["anthropic_oauth"] = {"anthropic_oauth_login_fallback": False, "note": "agent.anthropic_adapter not found"}
-        # Suppress skill/internal status notifications on WhatsApp
-        import gateway.run as _gw_run_mod
-        if not getattr(_gw_run_mod, "_wh_status_filter_applied", False):
-            _gw_run_mod._orig_prepare_gateway_status_message = _gw_run_mod._prepare_gateway_status_message
-            _gw_run_mod._WHATSAPP_SUPPRESS_STATUS_RE = _WHATSAPP_SUPPRESS_STATUS_RE
-            _gw_run_mod._prepare_gateway_status_message = _patched_prepare_gateway_status_message
-            _gw_run_mod._wh_status_filter_applied = True
-        import gateway.platforms.whatsapp_cloud as _wh_cloud_mod
-        if not getattr(_wh_cloud_mod.WhatsAppCloudAdapter, "_wolfhouse_internal_status_send_filter", False):
-            global _orig_whatsapp_cloud_send
-            _orig_whatsapp_cloud_send = _wh_cloud_mod.WhatsAppCloudAdapter.send
-            _wh_cloud_mod.WhatsAppCloudAdapter.send = _patched_whatsapp_cloud_send
-            _wh_cloud_mod.WhatsAppCloudAdapter._wolfhouse_internal_status_send_filter = True
+        result["runtime_whatsapp"] = install_runtime_whatsapp_patches()
         print(result)
         return 0
     except Exception as exc:
