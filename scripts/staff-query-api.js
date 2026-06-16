@@ -20934,6 +20934,49 @@ function bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap){
   return null;
 }
 
+/* Shared invoice totals for Payments tab + Overview payment summary (Phase 10.x) */
+function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines){
+  bk = bk || {};
+  svcRows = svcRows || [];
+  pmt = pmt || {};
+  transferRows = transferRows || [];
+  guestAccLines = guestAccLines || [];
+  var md = bk.metadata || {};
+  var quoteSnap = md.quote_snapshot || null;
+  var accCents = null;
+  if (guestAccLines.length) {
+    var guestSum = 0;
+    var guestAny = false;
+    guestAccLines.forEach(function(line){
+      if (line.accommodation_cents != null) {
+        guestSum += Number(line.accommodation_cents);
+        guestAny = true;
+      }
+    });
+    if (guestAny) accCents = guestSum;
+  }
+  if (accCents == null) accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
+  var transferSum = bcSumActiveTransferChargesCents(transferRows);
+  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum
+    : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
+  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
+    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
+  var balanceDue = null;
+  if (invoiceTotal != null && paidCents != null) {
+    balanceDue = invoiceTotal > paidCents ? invoiceTotal - paidCents : 0;
+  } else if (bk.balance_due_cents != null) {
+    balanceDue = Number(bk.balance_due_cents);
+  }
+  return {
+    invoiceTotal: invoiceTotal,
+    paidCents: paidCents,
+    balanceDue: balanceDue,
+    payStatus: bk.payment_status || pmt.latest_status || null,
+  };
+}
+
 function staffAddonUiTypeLabel(uiType){
   var m = {
     wetsuit: 'Wetsuit',
@@ -21375,10 +21418,10 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var transferLines = bcTransferInvoiceLineItems(transferRows);
-  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
+  var fin = bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines);
+  var invoiceTotal = fin.invoiceTotal;
+  var paidCents = fin.paidCents;
   var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
-  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
-    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
 
   html += '<div class="ctx-section ctx-payments-tab-layout">';
   html += '<div class="ctx-payments-col-main">';
@@ -21723,7 +21766,8 @@ function bcUpdateOverviewPaymentSummary(data){
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   var transferRows = data.transfers || [];
-  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows);
+  var guestAccLines = data.guest_accommodation_lines || [];
+  brief.outerHTML = bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAccLines);
 }
 
 function bcRefreshPaymentsTab(bk){
@@ -21734,6 +21778,7 @@ function bcRefreshPaymentsTab(bk){
     .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, data: d }; }); })
     .then(function(res){
       if (!res.ok || !res.data || !res.data.success) return;
+      bcLastBookingContext = res.data;
       var panel = el('bc-drawer-tab-payments');
       if (panel) panel.innerHTML = bcRenderRunningInvoiceHtml(
         res.data.booking,
@@ -23350,6 +23395,7 @@ function bcRefreshServicesTabAfterMutation(bk){
     bcRefreshBookingFinancialSummary({
       booking_code: bk.booking_code,
       activeTab: 'services',
+      refreshPayments: true,
     });
   }
 }
@@ -24152,6 +24198,7 @@ function bcRemoveTransfer(direction){
           bcRefreshBookingFinancialSummary({
             booking_code: finCode,
             activeTab: 'transfers',
+            refreshPayments: true,
           });
         }
       }
@@ -24200,6 +24247,7 @@ function bcSaveTransfer(direction){
           bcRefreshBookingFinancialSummary({
             booking_code: finCode,
             activeTab: 'transfers',
+            refreshPayments: true,
           });
         }
       }
@@ -24336,37 +24384,23 @@ function bcRenderRoomingBriefHtml(data){
   return html;
 }
 
-function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows){
+function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAccLines){
   bk = bk || {};
   svcRows = svcRows || [];
   pmt = pmt || {};
   transferRows = transferRows || [];
+  guestAccLines = guestAccLines || [];
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return '\u2014';
     return '\u20ac' + (Number(cents) / 100).toFixed(2);
   };
-  var md = bk.metadata || {};
-  var quoteSnap = md.quote_snapshot || null;
-  var accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
-  var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
-  var transferSum = bcSumActiveTransferChargesCents(transferRows);
-  var invoiceTotal = accCents != null ? accCents + svcSum + transferSum : (bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null);
-  var ledgerRows = (pmt.rows && pmt.rows.length) ? pmt.rows : [];
-  var paidCents = ledgerRows.length ? bcPaymentLedgerPaidTotalCents(ledgerRows)
-    : (pmt.amount_paid_cents != null ? Number(pmt.amount_paid_cents) : null);
-  var payStatus = bk.payment_status || pmt.latest_status || null;
+  var fin = bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccLines);
   var html = '<div class="ctx-section ctx-payment-summary-brief bc-drawer-overview-card" id="bc-payment-summary-brief">';
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.paymentSummary')) + '</h3><div class="kv-grid">';
-  if (invoiceTotal != null) html += kvBC(t('drawer.kv.invoiceTotal'), eur(invoiceTotal));
-  if (paidCents != null) html += kvBC(t('drawer.kv.paid'), eur(paidCents));
-  if (invoiceTotal != null && paidCents != null && invoiceTotal > paidCents) {
-    html += kvBC(t('drawer.kv.balanceDue'), eur(invoiceTotal - paidCents));
-  } else if (invoiceTotal != null && paidCents != null && invoiceTotal === paidCents) {
-    html += kvBC(t('drawer.kv.balanceDue'), eur(0));
-  } else if (bk.balance_due_cents != null) {
-    html += kvBC(t('drawer.kv.balanceDue'), eur(bk.balance_due_cents));
-  }
-  if (payStatus) html += kvBC(t('drawer.kv.paymentStatus'), String(payStatus).replace(/_/g, ' '));
+  if (fin.invoiceTotal != null) html += kvBC(t('drawer.kv.invoiceTotal'), eur(fin.invoiceTotal));
+  if (fin.paidCents != null) html += kvBC(t('drawer.kv.paid'), eur(fin.paidCents));
+  if (fin.balanceDue != null) html += kvBC(t('drawer.kv.balanceDue'), eur(fin.balanceDue));
+  if (fin.payStatus) html += kvBC(t('drawer.kv.paymentStatus'), String(fin.payStatus).replace(/_/g, ' '));
   html += '</div>';
   html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' + escHtml(t('drawer.paymentSummary.hint')) + '</p>';
   html += '</div>';
@@ -24748,7 +24782,7 @@ function renderBookingContextDrawer(data){
   html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
   html += '</div></div>';
 
-  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || []);
+  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
 
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
