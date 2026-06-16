@@ -200,6 +200,27 @@ WHATSAPP_CHUNK_CONTEXT_PATCH = '''        if reply_to and idx == 0:
             if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv("HERMES_ROLE") not in ("luna",):
                 # Quote the user's message on the first chunk only.
                 payload["context"] = {"message_id": reply_to}'''
+STREAM_CONSUMER_HELPER_TAG = "def _wolfhouse_stream_reply_anchor("
+STREAM_CONSUMER_HELPERS = '''
+
+def _wolfhouse_stream_reply_anchor(outbound_message_id, initial_reply_to_id):
+    """Luna guest WhatsApp: never quote the inbound guest message on streamed replies."""
+    import os as _wh_os
+    if _wh_os.getenv("HERMES_ROLE") == "luna":
+        return outbound_message_id
+    return outbound_message_id or initial_reply_to_id
+'''
+STREAM_REPLY_TO_ANCHOR_OLD = "reply_to = self._message_id or self._initial_reply_to_id"
+STREAM_REPLY_TO_ANCHOR_NEW = "reply_to = _wolfhouse_stream_reply_anchor(self._message_id, self._initial_reply_to_id)"
+STREAM_FIRST_SEND_ANCHOR_OLD = "reply_to=self._initial_reply_to_id,"
+STREAM_FIRST_SEND_ANCHOR_NEW = "reply_to=_wolfhouse_stream_reply_anchor(None, self._initial_reply_to_id),"
+STREAM_INITIAL_REPLY_OLD = "initial_reply_to_id=event_message_id,"
+STREAM_INITIAL_REPLY_NEW = '''initial_reply_to_id=(
+                None
+                if __import__("os").getenv("HERMES_ROLE") == "luna"
+                and str(getattr(source.platform, "value", source.platform or "")).lower() in ("whatsapp", "whatsapp_cloud")
+                else event_message_id
+            ),'''
 WHATSAPP_SEND_HELPERS = r'''
 
 import re as _wolfhouse_re
@@ -426,6 +447,27 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
     }
 
 
+def apply_stream_consumer_patch(stream_path: Path) -> dict:
+    s = stream_path.read_text(encoding="utf-8")
+    if STREAM_CONSUMER_HELPER_TAG not in s:
+        anchor = 'logger = logging.getLogger("gateway.stream_consumer")\n'
+        if anchor not in s:
+            raise RuntimeError("gateway.stream_consumer logger anchor not found")
+        s = s.replace(anchor, anchor + STREAM_CONSUMER_HELPERS, 1)
+    if STREAM_REPLY_TO_ANCHOR_NEW not in s and STREAM_REPLY_TO_ANCHOR_OLD in s:
+        s = s.replace(STREAM_REPLY_TO_ANCHOR_OLD, STREAM_REPLY_TO_ANCHOR_NEW, 1)
+    if STREAM_FIRST_SEND_ANCHOR_NEW not in s and STREAM_FIRST_SEND_ANCHOR_OLD in s:
+        s = s.replace(STREAM_FIRST_SEND_ANCHOR_OLD, STREAM_FIRST_SEND_ANCHOR_NEW, 1)
+    stream_path.write_text(s, encoding="utf-8")
+    _compile_check(stream_path)
+    return {
+        "path": str(stream_path),
+        "stream_reply_anchor_helper": STREAM_CONSUMER_HELPER_TAG in s,
+        "stream_reply_to_patch": STREAM_REPLY_TO_ANCHOR_NEW in s,
+        "stream_first_send_patch": STREAM_FIRST_SEND_ANCHOR_NEW in s,
+    }
+
+
 def apply_patches(run_path: Path) -> dict:
     s = cleanup_stale_patches(run_path.read_text(encoding="utf-8"))
 
@@ -488,6 +530,9 @@ def apply_patches(run_path: Path) -> dict:
     if RUNTIME_PATCH_HOOK_TAG not in s and logger_anchor in s:
         s = s.replace(logger_anchor, logger_anchor + RUNTIME_PATCH_HOOK, 1)
 
+    if STREAM_INITIAL_REPLY_NEW not in s:
+        s = s.replace(STREAM_INITIAL_REPLY_OLD, STREAM_INITIAL_REPLY_NEW)
+
     run_path.write_text(s, encoding="utf-8")
     _compile_check(run_path)
     return {
@@ -498,6 +543,7 @@ def apply_patches(run_path: Path) -> dict:
         "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in s and RUNNER_START_PATCH in s,
         "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in s,
         "runtime_whatsapp_patch_hook": RUNTIME_PATCH_HOOK_TAG in s,
+        "stream_initial_reply_luna": STREAM_INITIAL_REPLY_NEW.split("\n", 1)[0] in s,
     }
 
 
@@ -599,6 +645,11 @@ def main() -> int:
         result = apply_patches(run_path)
         result["base_platform"] = apply_base_platform_patch(base_path)
         result["whatsapp_cloud"] = apply_whatsapp_cloud_patch(whatsapp_path)
+        stream_spec = importlib.util.find_spec("gateway.stream_consumer")
+        if stream_spec and stream_spec.origin:
+            result["stream_consumer"] = apply_stream_consumer_patch(Path(stream_spec.origin))
+        else:
+            result["stream_consumer"] = {"stream_reply_to_patch": False, "note": "gateway.stream_consumer not found"}
         if session_spec and session_spec.origin:
             result["session_store"] = apply_session_store_patch(Path(session_spec.origin))
         else:

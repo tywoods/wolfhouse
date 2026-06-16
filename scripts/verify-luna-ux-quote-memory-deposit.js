@@ -34,6 +34,8 @@ check('A1', /WHATSAPP_CHUNK_CONTEXT_ANCHOR|WHATSAPP_CHUNK_CONTEXT_PATCH/.test(pa
 check('A2', /LUNA_PLAIN_REPLY_SEND_TAG|normal WhatsApp replies without quote blocks/.test(patches), 'send() clears reply_to for Luna');
 check('A3', /install_runtime_whatsapp_patches/.test(patches), 'runtime patch installs in gateway process');
 check('A4', /RUNTIME_PATCH_HOOK_TAG|install runtime WhatsApp patches when gateway loads/.test(patches), 'gateway.run loads runtime patch hook');
+check('A5', /_wolfhouse_stream_reply_anchor/.test(patches), 'stream consumer strips guest quote anchor for Luna');
+check('A6', /initial_reply_to_id=\(\s*\n\s*None\s*\n\s*if __import__\("os"\)\.getenv\("HERMES_ROLE"\) == "luna"/.test(patches), 'gateway.run skips stream initial_reply_to_id for Luna WhatsApp');
 
 // B — guest memory disabled + wipe + SOUL language
 check('B1', /memory_enabled:\s*false/.test(bootstrap), 'Luna config disables memory_enabled');
