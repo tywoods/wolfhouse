@@ -96,6 +96,66 @@ Compose: `docker/hermes-staging/docker-compose.vm.yml`
 
 Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook.
 
+## Captain: after every `hermes-luna` deploy
+
+**Container healthy ≠ Wolfhouse patches applied.** On every container start, `bootstrap.sh` runs
+`apply_gateway_patches.py`, which edits Hermes gateway files under `/opt/hermes/gateway/` (plain
+WhatsApp replies, inbox mirror, session reset, etc.). If that script errors, Docker still reports
+`Started` — but Luna runs **unpatched** upstream Hermes (e.g. quote-reply on every message).
+
+**Rule:** do not trust WhatsApp behavior until verify passes.
+
+### Deploy + verify (one shot)
+
+```bash
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml pull && \
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d --force-recreate hermes-luna && \
+sudo docker exec hermes-luna python3 /etc/hermes-staging/verify_plain_reply_patches.py
+```
+
+Last line must print **`ALL OK`**. Anything else → patches missing; see recovery below.
+
+### Verify only (after restart/recreate)
+
+```bash
+sudo docker exec hermes-luna python3 /etc/hermes-staging/verify_plain_reply_patches.py
+```
+
+Checks (inside the running container):
+
+| Check | What it means |
+|-------|----------------|
+| `wa_send_clears_reply_to` | Luna sends plain bubbles, not quote-replies |
+| `wa_chunk_gated` | Quote blocks only when explicitly requested |
+| `stream_adapter_aware` | Streaming path also skips quote-reply |
+| `run_whatsapp_initial_reply_none` | Gateway run doesn't anchor replies to guest message id |
+| `run_runtime_hook` | Runtime monkey-patch hook present |
+| `base_reply_anchor_none` | Base platform doesn't auto-reply-anchor WhatsApp |
+
+Owner: `docker/hermes-staging/apply_gateway_patches.py`, `docker/hermes-staging/verify_plain_reply_patches.py`.
+
+### If verify fails — recovery
+
+```bash
+sudo docker exec hermes-luna python3 /etc/hermes-staging/apply_gateway_patches.py
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml restart hermes-luna
+sudo docker exec hermes-luna python3 /etc/hermes-staging/verify_plain_reply_patches.py
+```
+
+If `apply_gateway_patches.py` prints an error (e.g. `anchor not found`), **stop and ping dev** —
+Hermes upstream likely moved code; `apply_gateway_patches.py` needs a small anchor update (usually
+indent or path drift). Hot-fixing WhatsApp behavior without fixing anchors will not survive the
+next recreate.
+
+Do **not** rely on `docker logs hermes-luna | grep …` for patch status — bootstrap output is easy
+to miss. Use `verify_plain_reply_patches.py`.
+
+### After verify passes — smoke test
+
+1. Staff portal → **Reset Luna session** (or Full Wipe) for your test number.
+2. WhatsApp → send **Hello!**
+3. Expect a **plain** Luna bubble (no orange “You / …” quote bar above her text).
+
 ## One-time OAuth (shared auth.json)
 
 On Lunabox after first boot:
