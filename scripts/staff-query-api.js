@@ -220,6 +220,7 @@ const {
   serviceRecordBillableCents,
 } = require('./lib/staff-booking-services-schedule');
 const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
+const { loadWolfhouseRentalDayRates } = require('./lib/service-record-invoice-line');
 const {
   listBookingTransfersForCalendarRange,
   listBookingTransfersForBooking,
@@ -14222,6 +14223,7 @@ async function handleManualBookingCreate(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildUiHtml(port) {
+  const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -20457,6 +20459,56 @@ function bcRunningInvoiceSvcUnitLabel(serviceType){
   return null;
 }
 
+var BC_RENTAL_DAY_RATES = ${rentalDayRatesJson};
+
+function bcParseServiceRecordMeta(meta){
+  if (!meta) return {};
+  if (typeof meta === 'string') {
+    try { return JSON.parse(meta); } catch (_) { return {}; }
+  }
+  return meta;
+}
+
+function bcResolveRentalInvoiceDisplayQty(sr, meta){
+  var qty = sr.quantity != null ? Number(sr.quantity) : null;
+  if (sr.service_type !== 'wetsuit' && sr.service_type !== 'surfboard') {
+    return qty != null && qty > 0 ? qty : null;
+  }
+  var spanDays = meta.rental_days != null ? Number(meta.rental_days) : null;
+  if (qty != null && spanDays != null && qty === spanDays && qty > 0) return spanDays;
+  if (qty != null && qty > 0) return qty;
+  if (spanDays != null && spanDays > 0) return spanDays;
+  return null;
+}
+
+function bcResolveBoardRentalRateCents(meta){
+  var code = meta.pricing_addon_code || meta.source_addon_code || meta.source_quote_line_code;
+  if (code === 'hard_board_rental' || code === 'wetsuit_hard_board_combo') return BC_RENTAL_DAY_RATES.hard_board_rental;
+  if (code === 'soft_top_rental' || code === 'wetsuit_soft_top_combo') return BC_RENTAL_DAY_RATES.soft_top_rental;
+  if (meta.board_variant === 'hard' || meta.staff_ui_service_type === 'hard_board') return BC_RENTAL_DAY_RATES.hard_board_rental;
+  if (meta.board_variant === 'soft' || meta.staff_ui_service_type === 'soft_board') return BC_RENTAL_DAY_RATES.soft_top_rental;
+  return null;
+}
+
+function bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, displayQty){
+  if (meta.unit_cents != null && Number(meta.unit_cents) >= 0) return Number(meta.unit_cents);
+  if (sr.service_type === 'wetsuit') {
+    if (meta.combo_part === 'wetsuit') return 0;
+    var wCode = meta.pricing_addon_code || meta.source_addon_code || meta.source_quote_line_code;
+    if (wCode === 'wetsuit_rental') return BC_RENTAL_DAY_RATES.wetsuit_rental;
+    if (Number(totalCents) === 0) return 0;
+    return BC_RENTAL_DAY_RATES.wetsuit_rental;
+  }
+  if (sr.service_type === 'surfboard') {
+    var boardRate = bcResolveBoardRentalRateCents(meta);
+    if (boardRate != null) return boardRate;
+  }
+  if (totalCents != null && displayQty != null && displayQty > 0 && Number(totalCents) >= 0 && Number(totalCents) % displayQty === 0) {
+    return Number(totalCents) / displayQty;
+  }
+  return null;
+}
+
 /* Phase 10.6b — payment ledger helpers (paid truth from payment rows only) */
 function bcPaymentLedgerParseMetadata(raw){
   if (raw && typeof raw === 'object') return raw;
@@ -20711,15 +20763,9 @@ function bcPaymentLedgerRowDisplayLabel(pr){
 }
 
 function bcRunningInvoiceSvcLineText(sr){
-  var meta = sr.metadata || {};
-  if (typeof meta === 'string') {
-    try { meta = JSON.parse(meta); } catch (_) { meta = {}; }
-  }
+  var meta = bcParseServiceRecordMeta(sr.metadata);
   var label = bcRunningInvoiceSvcTypeLabel(sr.service_type, meta);
-  var qty = sr.quantity != null ? Number(sr.quantity) : null;
-  if ((sr.service_type === 'wetsuit' || sr.service_type === 'surfboard') && meta.rental_days != null){
-    qty = Number(meta.rental_days);
-  }
+  var qty = bcResolveRentalInvoiceDisplayQty(sr, meta);
   var totalCents = bcServiceRecordBillableCents(sr);
   var eur = function(cents){
     if (cents == null || isNaN(Number(cents))) return null;
@@ -20729,9 +20775,10 @@ function bcRunningInvoiceSvcLineText(sr){
     return label + ' \u2014 Not available';
   }
   var unitLabel = bcRunningInvoiceSvcUnitLabel(sr.service_type);
+  var unitCents = bcResolveRentalInvoiceUnitCents(sr, meta, totalCents, qty);
   if (qty != null && qty > 0 && totalCents >= 0){
-    if (unitLabel && totalCents % qty === 0){
-      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(totalCents / qty) + ' = ' + eur(totalCents);
+    if (unitLabel && unitCents != null){
+      return label + ' \u2014 ' + qty + ' ' + unitLabel + ' \u00d7 ' + eur(unitCents) + ' = ' + eur(totalCents);
     }
     return label + ' \u2014 ' + qty + ' \u00d7 ' + eur(totalCents) + ' = ' + eur(totalCents);
   }

@@ -194,6 +194,8 @@ function buildPaidRequestedSummaryLines(allServices) {
  * @param {string} bookingId
  * @returns {Promise<number>} number of rows split
  */
+const { normalizeSplitRentalMetadata } = require('./service-record-invoice-line');
+
 async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
   const r = await pg.query(
     `SELECT id::text AS id, client_slug, booking_id::text AS booking_id, booking_code, guest_name,
@@ -216,7 +218,10 @@ async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
     const unitCents = Math.floor(total / qty);
     const firstUnitCents = total - unitCents * (qty - 1);
     let meta = parseMetadata(row.metadata);
-    meta = { ...meta, split_from: row.id, split_at: new Date().toISOString() };
+    meta = normalizeSplitRentalMetadata(
+      { ...meta, split_from: row.id, split_at: new Date().toISOString() },
+      row.service_type,
+    );
 
     await pg.query(
       `UPDATE booking_service_records
@@ -226,7 +231,10 @@ async function splitMultiQuantityServiceRecords(pg, clientSlug, bookingId) {
     );
 
     for (let i = 1; i < qty; i++) {
-      const unitMeta = { ...meta, split_unit: i + 1 };
+      const unitMeta = normalizeSplitRentalMetadata(
+        { ...meta, split_unit: i + 1 },
+        row.service_type,
+      );
       await pg.query(
         `INSERT INTO booking_service_records (
            client_slug, booking_id, booking_code, guest_name,
