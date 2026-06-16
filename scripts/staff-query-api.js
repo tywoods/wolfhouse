@@ -1162,19 +1162,6 @@ function safeLandingBookingCode(v) {
   return /^[A-Za-z0-9_-]{1,80}$/.test(s) ? s : '';
 }
 
-function safeLandingClientSlug(v) {
-  const s = String(v || '').trim();
-  return /^[a-z0-9][a-z0-9_-]{0,62}$/.test(s) ? s : '';
-}
-
-function stripeCheckoutLandingReturnLinkHtml(query) {
-  const clientSlug = safeLandingClientSlug(query && query.client_slug);
-  const href = clientSlug
-    ? '/staff/ui?client=' + encodeURIComponent(clientSlug)
-    : '/staff/login';
-  return '<p style="margin-top:18px"><a href="' + escLandingHtml(href) + '">Return to Luna Front Desk</a></p>';
-}
-
 function buildStripeCheckoutSuccessLandingHtml(query) {
   query = query || {};
   const bookingCode = safeLandingBookingCode(query.booking_code);
@@ -1194,17 +1181,14 @@ function buildStripeCheckoutSuccessLandingHtml(query) {
       box-shadow:0 2px 12px rgba(42,48,44,.08)}
     h1{font-size:22px;margin:0 0 12px}
     p{margin:0 0 10px;line-height:1.5;font-size:15px}
-    a{color:#3d6b52}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Payment received</h1>
-    <p>Thanks &mdash; your payment was received.</p>
-    <p>Wolfhouse has your booking/payment update.</p>
-    <p>You can close this page.</p>
+    <p>Thanks &mdash; your payment went through.</p>
+    <p>We&rsquo;ve updated your booking. You can safely close this page and return to WhatsApp.</p>
     ${bookingLine}
-    ${stripeCheckoutLandingReturnLinkHtml(query)}
   </div>
 </body>
 </html>`;
@@ -1224,14 +1208,13 @@ function buildStripeCheckoutCancelLandingHtml(query) {
       box-shadow:0 2px 12px rgba(42,48,44,.08)}
     h1{font-size:22px;margin:0 0 12px}
     p{margin:0 0 10px;line-height:1.5;font-size:15px}
-    a{color:#3d6b52}
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Payment not completed</h1>
-    <p>No payment was completed. You can close this page or contact Wolfhouse.</p>
-    ${stripeCheckoutLandingReturnLinkHtml(query)}
+    <p>No payment was completed. You can close this page.</p>
+    <p>If you&rsquo;d like to pay, message us on WhatsApp and we&rsquo;ll send a fresh link.</p>
   </div>
 </body>
 </html>`;
