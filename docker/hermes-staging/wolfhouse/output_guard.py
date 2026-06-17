@@ -61,6 +61,46 @@ SAFE_FALLBACK: Dict[str, str] = {
     "es": "Déjame confirmarlo con mi equipo y te respondo enseguida! 😊",
 }
 
+# --- provider / API error scrub (graceful degradation) ------------------------
+# When every model provider fails (outage, quota, expired token), the gateway can
+# surface a raw API error as the "reply" — a guest must NEVER see that. Detect the
+# raw-error shape and replace it with a warm "tiny hiccup" message. These patterns
+# are specific to API/provider error payloads; a real Luna reply never contains them.
+PROVIDER_ERROR_PATTERNS: Tuple[re.Pattern, ...] = tuple(
+    re.compile(p, re.IGNORECASE)
+    for p in (
+        r"error\s+code:\s*\d{3}",             # "Error code: 400"
+        r"invalid_request_error",
+        r"rate_limit_error|rate.limited|usage limit has been reached|quota\s+exhausted",
+        r"'?type'?\s*:\s*'?error'?",          # {'type': 'error'
+        r"request_id'?\s*:\s*'?req_",         # 'request_id': 'req_...'
+        r"\b(bad_?request|authentication|permission|not_found|overloaded)_error\b",
+        r"claude\.ai/settings/usage|chatgpt\.com/backend-api",
+        r"\bhttp\s*[45]\d{2}\b",              # "HTTP 400" / "HTTP 503"
+        r"\b(BadRequestError|RateLimitError|APIError|AuthenticationError)\b",
+    )
+)
+
+# Warm, language-localized "I'll be right back" for a provider outage. Distinct
+# from SAFE_FALLBACK: here Luna literally can't think, so it's "give me a moment",
+# not "I'll check with my team".
+OUTAGE_FALLBACK: Dict[str, str] = {
+    "en": "Oops, I'm having a tiny tech hiccup on my end 🌊 give me a moment and I'll be right back with you! 😊",
+    "it": "Ops, sto avendo un piccolo problema tecnico 🌊 dammi un attimo e torno subito da te! 😊",
+    "de": "Ups, bei mir hakt's gerade kurz technisch 🌊 gib mir einen Moment, ich bin gleich wieder da! 😊",
+    "es": "¡Vaya! Tengo un pequeño problema técnico 🌊 dame un momento y enseguida vuelvo contigo 😊",
+}
+
+
+def is_provider_error(text: str) -> bool:
+    s = str(text or "")
+    return any(p.search(s) for p in PROVIDER_ERROR_PATTERNS)
+
+
+def outage_fallback_for(text: str, guest_lang: Optional[str] = None) -> str:
+    lang = (guest_lang or guess_language(text))[:2]
+    return OUTAGE_FALLBACK.get(lang, OUTAGE_FALLBACK["en"])
+
 # Cheap language signal from the text itself (mirrors simulate_core._detect_language)
 # so the real send path — which has only the content string — can still localize.
 # English is detected POSITIVELY (common function words) so a non-English guest
@@ -184,11 +224,18 @@ def guard_reply(
 ) -> Tuple[str, List[Dict[str, Any]]]:
     """Return (safe_text, findings).
 
-    LEAK is enforced (reply replaced with a localized fallback). PRICE and
-    LANGUAGE are returned as advisory findings.
+    PROVIDER_ERROR and LEAK are enforced (reply replaced with a localized
+    fallback). PRICE and LANGUAGE are returned as advisory findings.
     """
     findings: List[Dict[str, Any]] = []
     text = str(reply_text or "")
+
+    # Provider/API error has top priority: a raw error must never reach a guest,
+    # and an error payload can also trip leak patterns ("API", "endpoint"), so
+    # short-circuit to the warm outage message.
+    if is_provider_error(text):
+        findings.append({"kind": "provider_error", "severity": "block", "detail": text[:160]})
+        return outage_fallback_for(reply_text, guest_lang), findings
 
     leaks = find_leaks(text)
     if leaks:

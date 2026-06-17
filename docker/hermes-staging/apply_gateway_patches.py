@@ -700,15 +700,23 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
     # localized fallback. Defensive: if the guard module can't import in the gateway
     # process, fall through to the original behavior (never break the send path).
     try:
-        from wolfhouse.output_guard import find_leaks, safe_fallback_for
-        _leaks = find_leaks(content)
-        if _leaks:
+        from wolfhouse.output_guard import find_leaks, safe_fallback_for, is_provider_error, outage_fallback_for
+        if is_provider_error(content):
             try:
                 import sys as _sys
-                print(f"[wolfhouse] output-guard: leak suppressed -> safe fallback {_leaks}", file=_sys.stderr)
+                print(f"[wolfhouse] output-guard: provider-error suppressed -> outage fallback: {str(content)[:120]}", file=_sys.stderr)
             except Exception:
                 pass
-            content = safe_fallback_for(content)
+            content = outage_fallback_for(content)
+        else:
+            _leaks = find_leaks(content)
+            if _leaks:
+                try:
+                    import sys as _sys
+                    print(f"[wolfhouse] output-guard: leak suppressed -> safe fallback {_leaks}", file=_sys.stderr)
+                except Exception:
+                    pass
+                content = safe_fallback_for(content)
     except Exception:
         pass
     import os as _wolfhouse_wa_os

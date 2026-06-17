@@ -80,6 +80,30 @@ safe2, findings2 = og.guard_reply("Tutto pronto, a presto! 😊", guest_lang="it
 check("clean -> text unchanged", safe2 == "Tutto pronto, a presto! 😊")
 check("clean -> no findings", findings2 == [])
 
+# --- provider-error / graceful degradation ------------------------------------
+print("provider-error scrub (must catch raw API errors):")
+RAW_ERRORS = [
+    "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error', 'message': 'Third-party apps now draw from your extra usage'}, 'request_id': 'req_011Cc9gAkerae'}",
+    "HTTP 429: Codex provider quota exhausted",
+    "BadRequestError [HTTP 400] Provider: anthropic",
+    "The usage limit has been reached",
+]
+for t in RAW_ERRORS:
+    check(f"catches: {t[:42]}…", og.is_provider_error(t), "MISSED provider error")
+print("provider-error must NOT false-positive on normal replies:")
+for t in CLEAN:
+    check(f"clean: {t[:42]}…", not og.is_provider_error(t), f"FALSE provider-error")
+check("normal price reply not flagged", not og.is_provider_error("That'll be €908 total, deposit €200 😊"))
+
+print("guard_reply -> outage fallback on provider error:")
+_raw = "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error'}, 'request_id': 'req_x'}"
+safe_e, find_e = og.guard_reply(_raw, guest_lang="it")
+check("provider error -> italian outage fallback", safe_e == og.OUTAGE_FALLBACK["it"])
+check("provider error -> block finding (kind=provider_error)", any(f["kind"] == "provider_error" and f["severity"] == "block" for f in find_e))
+check("outage fallback is itself leak/error-clean (no loop)",
+      not og.find_leaks(og.OUTAGE_FALLBACK["it"]) and not og.is_provider_error(og.OUTAGE_FALLBACK["it"]))
+check("turn adapter scrubs raw error too", og.guard_turn_response(_raw, None, [{"role": "user", "content": "ciao, 2 notti"}]) == og.OUTAGE_FALLBACK["it"])
+
 # --- real-path adapter (guard_turn_response) ----------------------------------
 print("guard_turn_response (gateway.run adapter):")
 
