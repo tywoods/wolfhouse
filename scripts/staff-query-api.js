@@ -274,12 +274,13 @@ const {
   resolveGuestAddonComboPricing,
   normalizeQuoteAddOnsForCombo,
   validateAndNormalizeQuoteAddOns,
+  normalizeBotServiceType,
 } = require('./lib/guest-addon-pricing');
 const {
   rebalanceBookingWetsuitBoardCombo,
 } = require('./lib/guest-addon-combo-rebalance-db');
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
-const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-options');
+const { computeWolfhouseRoomOptionFlags, resolveQuoteRoomTypeFromPreference } = require('./lib/wolfhouse-room-options');
 const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./lib/luna-bed-allocator');
 const {
   resolveBotBookingPackageContext,
@@ -7897,7 +7898,10 @@ async function handleQuotePreview(req, res, user) {
   const checkOut      = String(body.check_out   || '').trim();
   const guestCount    = body.guest_count;
   const packageCode   = body.package_code   != null ? String(body.package_code).trim()  : undefined;
-  const roomType      = String(body.room_type      || 'shared').trim();
+  const roomType      = resolveQuoteRoomTypeFromPreference(
+    body.room_type,
+    body.room_preference,
+  );
   const paymentChoiceRaw = String(body.payment_choice || 'stripe_deposit').trim();
   const staffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
   const paymentChoice = staffNorm
@@ -8300,13 +8304,13 @@ async function resolveBotAddonRequestContext(body) {
   const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
   const bookingCode   = String(body.booking_code || '').trim();
   const guestPhone    = body.guest_phone != null ? String(body.guest_phone).trim() : null;
-  const serviceType   = String(body.service_type || '').trim().toLowerCase();
+  const svcNorm = normalizeBotServiceType(body.service_type, body.board_type);
   let serviceDate     = body.service_date != null ? String(body.service_date).trim() : '';
   const paymentChoice = String(body.payment_choice || 'pay_now').trim().toLowerCase();
   const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
   const rawQuantity   = body.quantity;
 
-  if (!serviceType || !BOT_ADDON_SERVICE_TYPES.has(serviceType)) {
+  if (!svcNorm.ok) {
     return {
       kind: 'handoff_to_staff',
       status: 422,
@@ -8314,10 +8318,12 @@ async function resolveBotAddonRequestContext(body) {
         success: false,
         next_action: 'handoff_to_staff',
         reply_draft: "I'll have the team help with that add-on request.",
-        error: `service_type must be one of: ${[...BOT_ADDON_SERVICE_TYPES].join(', ')}`,
+        error: svcNorm.error,
+        unknown_service_type: svcNorm.input || null,
       }),
     };
   }
+  const serviceType = svcNorm.service_type;
 
   if (!bookingCode) {
     return {
@@ -8369,7 +8375,7 @@ async function resolveBotAddonRequestContext(body) {
   }
 
   const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
-  let boardType = body.board_type != null ? String(body.board_type).trim().toLowerCase() : '';
+  let boardType = svcNorm.board_type || '';
   if (serviceType === 'surfboard') {
     if (boardType !== 'soft' && boardType !== 'hard') {
       return {
@@ -9950,7 +9956,10 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   });
   const effectivePackageCode = pkgCtx.quotePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
-  const roomType      = String(body.room_type     || 'shared').trim();
+  const roomType      = resolveQuoteRoomTypeFromPreference(
+    body.room_type,
+    body.room_preference,
+  );
   const paymentChoiceRaw = String(body.payment_choice || '').trim();
   const paymentChoiceStaffNorm = normalizeManualBookingStaffPaymentChoice(paymentChoiceRaw);
   const paymentChoice = paymentChoiceStaffNorm
@@ -13319,7 +13328,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const effectivePackageCode = pkgCtx.quotePackageCode;
   const storagePackageCode = pkgCtx.storagePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
-  const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
+  const roomType      = resolveQuoteRoomTypeFromPreference(
+    body.room_type,
+    body.room_preference,
+  );
   const addOnPrep = validateAndNormalizeQuoteAddOns(body.add_ons, guestCount);
   if (!addOnPrep.ok) {
     return send400(res, addOnPrep.error);

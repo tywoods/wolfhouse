@@ -7,6 +7,15 @@ const ACCOMMODATION_LINE_CODES = new Set([
   'guest_accommodation_only',
 ]);
 
+const PACKAGE_BASE_LINE_CODES = new Set([
+  'package',
+  'package_proration',
+  'guest_package',
+  'guest_package_proration',
+  'manual_accommodation',
+  ...ACCOMMODATION_LINE_CODES,
+]);
+
 const GUEST_ADDON_LABELS = {
   soft_top_rental: 'Soft board',
   hard_board_rental: 'Hard board',
@@ -109,6 +118,33 @@ function expandComboLineItem(li) {
   return null;
 }
 
+function mapPackageOrSupplementLineItem(li) {
+  if (li.code === 'room_supplement') {
+    return {
+      label: 'Private room supplement',
+      code: 'room_supplement',
+      nights: li.nights,
+      guest_count: li.guest_count,
+      unit_cents: li.unit_cents,
+      total_cents: Number(li.total_cents) || 0,
+      display_line: li.label || 'Private room supplement',
+    };
+  }
+  if (!PACKAGE_BASE_LINE_CODES.has(li.code)) return null;
+  const label = li.label || (li.package_code ? String(li.package_code) : 'Package');
+  return {
+    label,
+    code: li.code,
+    package_code: li.package_code || null,
+    guest_number: li.guest_number,
+    nights: li.nights,
+    guest_count: li.guest_count,
+    unit_cents: li.unit_cents != null ? Number(li.unit_cents) : null,
+    total_cents: Number(li.total_cents) || 0,
+    free: false,
+  };
+}
+
 function mapAddonLineItem(li) {
   const expanded = expandComboLineItem(li);
   if (expanded) return expanded;
@@ -143,45 +179,31 @@ function mapAddonLineItem(li) {
 }
 
 /**
- * Guest-facing quote line items for short-stay (package_none) bookings with add-ons.
+ * Guest-facing quote line items for bot quote_booking (short-stay and package paths).
  */
 function buildBotQuoteIncludedItems(quote, opts = {}) {
   if (!quote || !quote.success) return null;
-  if (!opts.isNoPackage || !opts.hasAddOns) return null;
 
   const lineItems = Array.isArray(quote.line_items) ? quote.line_items : [];
   if (!lineItems.length) return null;
 
-  let accommodationTotal = 0;
-  let accommodationNights = null;
-  let accommodationGuests = null;
-  const addonLines = [];
-
-  for (const li of lineItems) {
-    if (ACCOMMODATION_LINE_CODES.has(li.code)) {
-      accommodationTotal += Number(li.total_cents) || 0;
-      if (li.nights != null) accommodationNights = li.nights;
-      if (li.guest_count != null) accommodationGuests = li.guest_count;
-      continue;
-    }
-    addonLines.push(...mapAddonLineItem(li));
-  }
-
-  if (!addonLines.length) return null;
+  const hasAddOns = opts.hasAddOns || lineItems.some((li) => {
+    return !PACKAGE_BASE_LINE_CODES.has(li.code) && li.code !== 'room_supplement';
+  });
+  if (opts.isNoPackage && !hasAddOns) return null;
 
   const out = [];
-  if (accommodationTotal > 0) {
-    out.push({
-      label: 'Accommodation',
-      code: 'accommodation',
-      total_cents: accommodationTotal,
-      free: false,
-      ...(accommodationNights != null ? { nights: accommodationNights } : {}),
-      ...(accommodationGuests != null ? { guest_count: accommodationGuests } : {}),
-    });
+
+  for (const li of lineItems) {
+    if (PACKAGE_BASE_LINE_CODES.has(li.code) || li.code === 'room_supplement') {
+      const mapped = mapPackageOrSupplementLineItem(li);
+      if (mapped) out.push(mapped);
+      continue;
+    }
+    out.push(...mapAddonLineItem(li));
   }
-  out.push(...addonLines);
-  return out;
+
+  return out.length ? out : null;
 }
 
 module.exports = {

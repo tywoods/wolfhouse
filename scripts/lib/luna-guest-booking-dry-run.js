@@ -21,6 +21,8 @@ const path = require('path');
 const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
 const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
 const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
+const { normalizeBotServiceType } = require('./guest-addon-pricing');
+const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 const { computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
 const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./luna-bed-allocator');
 const { normalizeGroupGender } = require('./luna-booking-intake-policy');
@@ -149,7 +151,7 @@ function normalizeInput(input) {
     guest_count:    guestCount,
     package_code:   src.package_code != null ? String(src.package_code).trim().toLowerCase() : null,
     guest_packages: Array.isArray(src.guest_packages) ? src.guest_packages : [],
-    room_type:      String(src.room_type || src.room_preference || 'shared').trim(),
+    room_type:      resolveQuoteRoomTypeFromPreference(src.room_type, src.room_preference),
     payment_choice: normalizeDryRunPaymentChoice(src.payment_choice),
     phone:          resolvedPhone,
     email:          String(src.email || '').trim(),
@@ -595,11 +597,11 @@ async function runAddonPreviewDryRun(addonInput, fields, pg) {
   const body = Object.assign({ client_slug: fields.client_slug }, addonInput || {});
   const clientSlug  = String(body.client_slug || DEFAULT_CLIENT).trim();
   const bookingCode = String(body.booking_code || fields.booking_code || '').trim();
-  const serviceType = String(body.service_type || '').trim().toLowerCase();
+  const svcNorm = normalizeBotServiceType(body.service_type, body.board_type);
   const serviceDate = body.service_date != null ? String(body.service_date).trim() : '';
   const quantity    = Math.max(1, parseInt(body.quantity || '1', 10) || 1);
 
-  if (!serviceType || !BOT_ADDON_SERVICE_TYPES.has(serviceType)) {
+  if (!svcNorm.ok) {
     return {
       skipped: false,
       preview_only: true,
@@ -610,9 +612,10 @@ async function runAddonPreviewDryRun(addonInput, fields, pg) {
       sends_whatsapp: false,
       anchor_route: DRY_RUN_ANCHOR_ROUTES.addon_preview,
       next_action: 'handoff_to_staff',
-      error: `service_type must be one of: ${[...BOT_ADDON_SERVICE_TYPES].join(', ')}`,
+      error: svcNorm.error,
     };
   }
+  const serviceType = svcNorm.service_type;
 
   if (!bookingCode) {
     return {

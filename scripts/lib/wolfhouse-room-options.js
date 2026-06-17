@@ -33,18 +33,29 @@ function computeWolfhouseRoomOptionFlags(availableBeds, guestCount) {
   const count = Math.max(1, Number(guestCount) || 1);
   const girlsRoomAvailable = roomHasCapacity(availableBeds, GIRLS_ROOM_CODES, 1)
     && (count === 1 || roomHasCapacity(availableBeds, GIRLS_ROOM_CODES, count));
+  // Private couples room (R6) only — do not offer private supplement when R6 is taken.
   const privateRoomAvailable = count === 2
-    && (roomHasCapacity(availableBeds, PRIVATE_COUPLE_ROOM_CODES, 2)
-      || roomHasCapacity(availableBeds, COUPLE_OR_MIXED_ROOM_CODES, 2));
+    && roomHasCapacity(availableBeds, PRIVATE_COUPLE_ROOM_CODES, 2);
   return {
     girls_room_available: girlsRoomAvailable,
     private_room_available: privateRoomAvailable,
   };
 }
 
+const PRIVATE_ROOM_PREFERENCE_RE = /\b(?:private|couple_private|private_room|matrimonial)\b/i;
+
+function resolveQuoteRoomTypeFromPreference(roomType, roomPreference) {
+  const rt = String(roomType || 'shared').trim().toLowerCase();
+  if (rt && rt !== 'shared') return rt;
+  const pref = String(roomPreference || '').trim().toLowerCase();
+  if (PRIVATE_ROOM_PREFERENCE_RE.test(pref)) return 'double';
+  return 'shared';
+}
+
 module.exports = {
   GIRLS_ROOM_CODES,
   PRIVATE_COUPLE_ROOM_CODES,
   computeWolfhouseRoomOptionFlags,
+  resolveQuoteRoomTypeFromPreference,
   roomHasCapacity,
 };

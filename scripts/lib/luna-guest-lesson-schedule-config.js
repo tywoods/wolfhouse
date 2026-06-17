@@ -36,7 +36,7 @@ function loadLessonScheduleConfig(clientSlug) {
   return {
     client_slug: trimStr(clientSlug) || 'wolfhouse-somo',
     frequency: scheduling && scheduling.frequency ? scheduling.frequency : 'almost_daily_except_low_season',
-    low_season_caveat: 'Lessons run most days in season; low season can be quieter — staff confirm day by day.',
+    low_season_caveat: null,
     bot_assigns_slot: scheduling && scheduling.bot_assigns_slot === false,
     daily_slots: (scheduling && Array.isArray(scheduling.daily_slots))
       ? scheduling.daily_slots
@@ -60,7 +60,7 @@ function bookingDraftIncludesSurfLessons(draft) {
   if (draft.surf_lesson_requested === true) return true;
 
   const pkg = trimStr(draft.package_code || draft.package_interest).toLowerCase();
-  if (['malibu', 'uluwatu', 'waimea'].includes(pkg)) return true;
+  if (pkg === 'waimea') return true;
 
   const interests = draft.service_interest;
   if (Array.isArray(interests)) {
@@ -80,11 +80,26 @@ function bookingDraftIncludesSurfLessons(draft) {
   return false;
 }
 
+function lowSeasonCaveatForLanguage(lang) {
+  const L = trimStr(lang).slice(0, 2).toLowerCase() || 'en';
+  if (L === 'it') {
+    return 'In alta stagione le lezioni sono quasi tutti i giorni; in bassa stagione può essere più tranquillo — il team conferma giorno per giorno.';
+  }
+  if (L === 'de') {
+    return 'In der Hochsaison gibt es fast täglich Unterricht; in der Nebensaison kann es ruhiger sein — das Team bestätigt von Tag zu Tag.';
+  }
+  if (L === 'es') {
+    return 'En temporada alta hay clases casi todos los días; en temporada baja puede ser más tranquilo — el equipo confirma día a día.';
+  }
+  return 'Lessons run most days in season; low season can be quieter — staff confirm day by day.';
+}
+
 function buildLessonScheduleGuestSection(clientSlug, language, draft) {
   if (!bookingDraftIncludesSurfLessons(draft)) return '';
 
   const cfg = loadLessonScheduleConfig(clientSlug);
   const lang = trimStr(language).slice(0, 2).toLowerCase() || 'en';
+  const caveat = lowSeasonCaveatForLanguage(lang);
   const slots = cfg.daily_slots || [];
   const g1 = slots[0] || { transport_time: '08:30', lesson_window: '09:00-11:00' };
   const g2 = slots[1] || { transport_time: '10:30', lesson_window: '11:00-13:00' };
@@ -97,7 +112,31 @@ function buildLessonScheduleGuestSection(clientSlug, language, draft) {
       `• secondo gruppo parte verso le ${g2.transport_time}, lezione ${g2.lesson_window}`,
       '',
       'Confermeremo il tuo gruppo esatto più vicino al giorno.',
-      cfg.low_season_caveat,
+      caveat,
+    ].join('\n');
+  }
+
+  if (lang === 'de') {
+    return [
+      'Surfunterricht-Rhythmus 🌊',
+      'An den meisten Morgen haben wir zwei Gruppen:',
+      `• erste Gruppe fährt gegen ${g1.transport_time} von Wolfhouse los, Unterricht ${g1.lesson_window}`,
+      `• zweite Gruppe fährt gegen ${g2.transport_time} los, Unterricht ${g2.lesson_window}`,
+      '',
+      'Wir bestätigen deine genaue Gruppe kurz vor dem Tag.',
+      caveat,
+    ].join('\n');
+  }
+
+  if (lang === 'es') {
+    return [
+      'Ritmo de clases de surf 🌊',
+      'La mayoría de las mañanas tenemos dos grupos:',
+      `• el primer grupo sale de Wolfhouse hacia las ${g1.transport_time}, clase ${g1.lesson_window}`,
+      `• el segundo grupo sale hacia las ${g2.transport_time}, clase ${g2.lesson_window}`,
+      '',
+      'Confirmaremos tu grupo exacto más cerca del día.',
+      caveat,
     ].join('\n');
   }
 
@@ -108,7 +147,7 @@ function buildLessonScheduleGuestSection(clientSlug, language, draft) {
     `• second group leaves around ${g2.transport_time}, lesson ${g2.lesson_window}`,
     '',
     'We\'ll confirm your exact group closer to the day.',
-    cfg.low_season_caveat,
+    caveat,
   ].join('\n');
 }
 

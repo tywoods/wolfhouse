@@ -11,6 +11,7 @@ const {
   findCoveringBoardRental,
   findUnpaidWetsuitForCombo,
   validateAndNormalizeQuoteAddOns,
+  normalizeBotServiceType,
 } = require('./lib/guest-addon-pricing');
 const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
@@ -256,6 +257,60 @@ section('K. SOUL — exact codes + no fabricated quote lines');
   check('K1', /hard_board_rental/.test(soul) && /not `hard_top_rental`/.test(soul), 'SOUL warns hard_top typo');
   check('K2', /soft_top_rental/.test(soul) && /included_items/.test(soul), 'SOUL cites exact codes + included_items');
   check('K3', /Never invent a line|never fabricate/i.test(soul), 'SOUL forbids fabricated quote lines');
+}
+
+section('L. Post-booking service_type aliases');
+{
+  const yoga = normalizeBotServiceType('yoga_class');
+  check('L1', yoga.ok && yoga.service_type === 'yoga', 'yoga_class → yoga');
+  const meals = normalizeBotServiceType('meals');
+  check('L2', meals.ok && meals.service_type === 'meal', 'meals → meal');
+  const lesson = normalizeBotServiceType('surf_lesson_single');
+  check('L3', lesson.ok && lesson.service_type === 'surf_lesson', 'surf_lesson_single → surf_lesson');
+  const soft = normalizeBotServiceType('soft_top_rental');
+  check('L4', soft.ok && soft.service_type === 'surfboard' && soft.board_type === 'soft', 'soft_top_rental → surfboard soft');
+  const bad = normalizeBotServiceType('definitely_fake_addon');
+  check('L5', !bad.ok, 'unknown service_type rejected');
+}
+
+section('M. Package quote included_items breakdown');
+{
+  const prep = validateAndNormalizeQuoteAddOns([
+    { code: 'soft_top_rental', days: 7 },
+    { code: 'wetsuit_rental', days: 7 },
+  ], 2);
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-08-15',
+    check_out: '2026-08-22',
+    guest_count: 2,
+    package_code: 'malibu',
+    room_type: 'double',
+    payment_choice: 'deposit',
+    add_ons: prep.add_ons,
+  });
+  check('M0', quote.success, 'package quote succeeds');
+  const items = buildBotQuoteIncludedItems(quote, { isNoPackage: false, hasAddOns: true });
+  check('M1', items && items.length >= 3, `package+breakdown lines: ${items && items.length}`);
+  check('M2', items && items.some((i) => i.code === 'package'), 'package base line');
+  check('M3', items && items.some((i) => i.code === 'room_supplement'), 'private supplement line');
+  check('M4', items && items.some((i) => i.code === 'soft_top_rental' || i.code === 'wetsuit_soft_top_combo'), 'board add-on line');
+}
+
+section('N. Lesson schedule + SOUL guest-safe copy');
+{
+  const {
+    buildLessonScheduleGuestSection,
+    bookingDraftIncludesSurfLessons,
+  } = require('./lib/luna-guest-lesson-schedule-config');
+  check('N1', !bookingDraftIncludesSurfLessons({ package_code: 'malibu' }), 'malibu no lesson section');
+  check('N2', bookingDraftIncludesSurfLessons({ package_code: 'waimea' }), 'waimea has lesson section');
+  const itSection = buildLessonScheduleGuestSection('wolfhouse-somo', 'it', { package_code: 'waimea' });
+  check('N3', itSection && !/Lessons run most days in season/i.test(itSection), 'IT section has no English caveat');
+  check('N4', /bassa stagione/i.test(itSection), 'IT low-season caveat localized');
+  const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
+  check('N5', /Never expose backend mechanics/i.test(soul), 'SOUL forbids system/tool leaks');
+  check('N6', /`yoga`/.test(soul) && /`surfboard`/.test(soul), 'SOUL documents post-booking service types');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);

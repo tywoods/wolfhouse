@@ -10,7 +10,7 @@ const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items')
 const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
 const { formatRentalPeopleDaysLine, pluralUnit } = require('./lib/rental-breakdown-text');
 const { formatServiceRecordInvoiceLineText, loadWolfhouseRentalDayRates } = require('./lib/service-record-invoice-line');
-const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-options');
+const { computeWolfhouseRoomOptionFlags, resolveQuoteRoomTypeFromPreference } = require('./lib/wolfhouse-room-options');
 const {
   inferRoomPreferenceNeed,
   inferLikelyGuestGender,
@@ -290,6 +290,12 @@ section('G. Room option flags from beds');
   check('G1', flags1.girls_room_available === true, 'R5 free → girls avail solo');
   const flags2 = computeWolfhouseRoomOptionFlags(beds, 2);
   check('G2', flags2.private_room_available === true, 'R6 free → private for 2');
+  const flags3 = computeWolfhouseRoomOptionFlags(
+    [{ bed_code: 'R3-A', room_code: 'R3' }, { bed_code: 'R3-B', room_code: 'R3' }],
+    2,
+  );
+  check('G3', flags3.private_room_available === false, 'R6 unavailable → no private offer');
+  check('G4', resolveQuoteRoomTypeFromPreference('shared', 'couple_private') === 'double', 'couple_private → double quote room_type');
 }
 
 console.log(`\n── verify-per-person-gear-room-pref ${failures ? 'FAILED' : 'PASSED'} (${passes}/${passes + failures}) ──\n`);

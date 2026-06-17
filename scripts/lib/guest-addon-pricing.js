@@ -92,6 +92,31 @@ const LUNA_ADDON_CODE_ALIASES = Object.freeze({
   meals: 'meals',
 });
 
+/** Post-booking bot add-on service_type vocabulary (Staff API canonical). */
+const CANONICAL_BOT_SERVICE_TYPES = new Set(['yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard']);
+
+const BOT_SERVICE_TYPE_ALIASES = Object.freeze({
+  yoga: 'yoga',
+  yoga_class: 'yoga',
+  meal: 'meal',
+  meals: 'meal',
+  surf_lesson: 'surf_lesson',
+  surf_lesson_single: 'surf_lesson',
+  surf_lesson_multi: 'surf_lesson',
+  wetsuit: 'wetsuit',
+  wetsuit_rental: 'wetsuit',
+  surfboard: 'surfboard',
+  soft_board: 'surfboard',
+  soft_board_rental: 'surfboard',
+  soft_top: 'surfboard',
+  soft_top_rental: 'surfboard',
+  hard_board: 'surfboard',
+  hard_board_rental: 'surfboard',
+  hard_top: 'surfboard',
+  hard_top_rental: 'surfboard',
+  hardboard_rental: 'surfboard',
+});
+
 const KNOWN_QUOTE_ADDON_CODES = new Set([
   'wetsuit_rental',
   'soft_top_rental',
@@ -186,6 +211,39 @@ function normalizeLunaBookingAddOnsInput(addOns) {
  * Resolve a raw Luna/Hermes add-on code to the canonical quote code (aliases + board_type).
  * @returns {{ input: string, code: string|null }}
  */
+/**
+ * Normalize Luna post-booking service_type to Staff API canonical codes.
+ * @returns {{ ok: true, input: string, service_type: string, board_type: string|null } | { ok: false, input: string, error: string }}
+ */
+function normalizeBotServiceType(rawServiceType, boardTypeHint) {
+  const input = String(rawServiceType || '').trim().toLowerCase();
+  if (!input) {
+    return { ok: false, input: '', error: 'service_type is required' };
+  }
+  const canonical = BOT_SERVICE_TYPE_ALIASES[input];
+  if (!canonical || !CANONICAL_BOT_SERVICE_TYPES.has(canonical)) {
+    return {
+      ok: false,
+      input,
+      error: `service_type must be one of: ${[...CANONICAL_BOT_SERVICE_TYPES].join(', ')}`,
+    };
+  }
+  let boardType = boardTypeHint != null ? String(boardTypeHint).trim().toLowerCase() : '';
+  if (canonical === 'surfboard') {
+    if (input.includes('hard') || boardType === 'hard') boardType = 'hard';
+    else if (input.includes('soft') || boardType === 'soft') boardType = 'soft';
+    else if (!boardType) boardType = 'soft';
+  } else {
+    boardType = '';
+  }
+  return {
+    ok: true,
+    input,
+    service_type: canonical,
+    board_type: boardType || null,
+  };
+}
+
 function resolveRawQuoteAddOnCode(raw) {
   if (!raw || typeof raw !== 'object') return { input: '', code: null };
   const input = String(raw.code || raw.addon_code || raw.service_type || '').trim();
@@ -616,5 +674,7 @@ module.exports = {
   normalizeQuoteAddOnsForCombo,
   validateAndNormalizeQuoteAddOns,
   resolveRawQuoteAddOnCode,
+  normalizeBotServiceType,
+  CANONICAL_BOT_SERVICE_TYPES,
   KNOWN_QUOTE_ADDON_CODES,
 };

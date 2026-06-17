@@ -27,6 +27,7 @@ const {
   tidyConfirmationWhitespace,
   buildConfirmationPreviewFromPlaybook,
 } = require(path.join(ROOT, 'scripts', 'lib', 'luna-client-messaging-playbook.js'));
+const { resolveRoomNumbers } = require(path.join(ROOT, 'scripts', 'lib', 'luna-booking-confirmation-preview.js'));
 
 const MAX_REPLY_CHARS = 900; // spec §9.1
 
@@ -125,6 +126,12 @@ check('C5 German close (not the English Somo line)',
 const enPreview = buildConfirmationPreviewFromPlaybook('wolfhouse-somo', 'en', defields);
 check('C6 English still renders English (no regression)',
   /officially part of the Wolfhouse family/.test((enPreview && enPreview.message) || ''));
+
+console.log('\n── D. Confirmation room_number prefers assigned beds ──');
+{
+  const rooms = resolveRoomNumbers({ room_number: 'R2' }, 'R3', ['R3']);
+  check('D1', rooms.join(',') === 'R3', `assigned R3 wins over draft R2: ${rooms.join(',')}`);
+}
 
 console.log(`\n── Summary: ${passed} passed, ${failed} failed ──`);
 process.exit(failed > 0 ? 1 : 0);
