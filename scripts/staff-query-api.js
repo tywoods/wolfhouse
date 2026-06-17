@@ -8096,15 +8096,13 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
       sellable:  r.bed_sellable !== false,
     }));
 
-  // ── Room-type filter ────────────────────────────────────────────────────────
-  // "shared" → prefer beds in shared/non-private rooms.
-  // "private" / "double" → prefer private/double rooms.
-  // If room_type metadata is absent or ambiguous, return all and add warning.
+  // ── Room-type filter (legacy picker only; rules allocator uses gender metadata) ─
+  const rulesRooming = isRulesBasedRoomingEnabled();
   const hasRoomTypeMeta = allBeds.some(b => b.room_type !== null);
   let filteredBeds = allBeds;
-  if (hasRoomTypeMeta && roomType && roomType !== 'any') {
+  if (!rulesRooming && hasRoomTypeMeta && roomType && roomType !== 'any') {
     const privateTypes = ['private', 'double', 'matrimonial'];
-    const sharedTypes  = ['shared', 'dorm'];
+    const sharedTypes  = ['shared', 'dorm', 'mixed'];
     if (roomType === 'shared') {
       const sharedBeds = allBeds.filter(b => b.room_type && sharedTypes.includes(String(b.room_type).toLowerCase()));
       filteredBeds = sharedBeds.length > 0 ? sharedBeds : allBeds;
@@ -8116,16 +8114,18 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     } else {
       warnings.push('room_type_filter_not_strict');
     }
-  } else if (!hasRoomTypeMeta && roomType && roomType !== 'any') {
+  } else if (!rulesRooming && !hasRoomTypeMeta && roomType && roomType !== 'any') {
     warnings.push('room_type_filter_not_strict');
   }
+
+  const bedsForPool = rulesRooming ? allBeds : filteredBeds;
 
   // ── Find occupied bed codes for the date range ─────────────────────────────
   // getBedCalendarBlocksQuery already excludes cancelled/expired booking statuses.
   const occupiedBedCodes = new Set(blockRows.map(r => r.bed_code).filter(Boolean));
 
   // ── Available beds ─────────────────────────────────────────────────────────
-  const availableBeds = filteredBeds.filter(b => !occupiedBedCodes.has(b.bed_code));
+  const availableBeds = bedsForPool.filter(b => !occupiedBedCodes.has(b.bed_code));
 
   const availableCount = availableBeds.length;
   const hasEnoughBeds  = availableCount >= guestCount;
@@ -8139,7 +8139,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   let groupGenderResolved = null;
 
   if (hasEnoughBeds) {
-    const allowedBedCodes = new Set(filteredBeds.map((b) => b.bed_code));
+    const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
     const pick = runAvailabilityBedSelection({
       bedRows,
       occupiedBedCodes,
