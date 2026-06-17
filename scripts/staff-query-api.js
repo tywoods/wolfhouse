@@ -233,6 +233,7 @@ const {
   getLunaGuestNotesFromMetadata,
 } = require('./lib/luna-guest-booking-notes');
 const { getStaffPortalI18nBootstrapScript } = require('./lib/staff-portal-i18n');
+const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
   transferInvoiceLineItems,
@@ -19852,6 +19853,29 @@ function bcHighlightActiveBlock(){
   });
 }
 
+var BC_ROOM_GENDER_I18N = {
+  male_only: 'room.gender.male',
+  female_only: 'room.gender.female',
+  mixed: 'room.gender.flexible',
+  matrimonial_or_mixed: 'room.gender.flexible',
+  matrimonial_private_couple: 'room.gender.private',
+  operator_surfweek: 'room.gender.flexible'
+};
+
+function bcIsPortalOperatorRoom(room) {
+  if (room && room.room_category === 'operator_surfweek') return true;
+  return !!(room && room.often_used_by_operator);
+}
+
+function bcFormatRoomMetaLabel(room) {
+  var cat = (room && room.room_category) || 'mixed';
+  var parts = [t(BC_ROOM_GENDER_I18N[cat] || 'room.gender.flexible')];
+  if (bcIsPortalOperatorRoom(room)) parts.push(t('room.operator'));
+  var cap = Number(room && room.capacity) || 0;
+  if (cap > 0) parts.push(t('room.beds', { count: cap }));
+  return parts.join(' \u00b7 ');
+}
+
 function renderBedCalendar(data){
   bcData = data;
   var days   = data.days   || [];
@@ -19898,20 +19922,12 @@ function renderBedCalendar(data){
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
     var roomLabel = escHtml(room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
-    var metaParts = [];
-    if (room.gender_strategy) metaParts.push(escHtml(room.gender_strategy));
-    if (room.room_type) metaParts.push(escHtml(room.room_type));
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
-    var metaHtml = metaParts.length
-      ? ' <span style="' + metaStyle + '">' + metaParts.join(' &middot; ') + '</span>'
-      : '';
-    var bedsHtml = room.capacity
-      ? ' <span style="' + metaStyle + '">' + room.capacity + ' ' + escHtml(t('calendar.grid.beds')) + '</span>'
-      : '';
+    var metaHtml = ' <span style="' + metaStyle + '">' + escHtml(bcFormatRoomMetaLabel(room)) + '</span>';
     var hideBtn = ' <button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
       escHtml(roomCollapsed ? t('calendar.grid.show') : t('calendar.grid.hide')) + '</button>';
     html += '<tr class="bc-room-hdr-row" data-room="' + escHtml(roomCode) + '"><td colspan="' + totalCols + '" class="bc-room-hdr">' +
-      '<span class="bc-room-hdr-inner">' + roomLabel + metaHtml + bedsHtml + hideBtn + '</span></td></tr>';
+      '<span class="bc-room-hdr-inner">' + roomLabel + metaHtml + hideBtn + '</span></td></tr>';
 
     var beds = bcSortBedsForDisplay(room.beds || []);
     if (beds.length === 0){
@@ -27675,6 +27691,15 @@ function buildRoomHierarchy(roomRows) {
           : (row.fill_priority != null ? Number(row.fill_priority) : 999),
         fill_priority: row.fill_priority != null ? Number(row.fill_priority) : null,
         gender_strategy: row.gender_strategy || null,
+        can_be_matrimonial: row.can_be_matrimonial === true,
+        often_used_by_operator: row.often_used_by_operator === true,
+        room_category: resolveRoomCategory({
+          room_type: row.room_type,
+          gender_strategy: row.gender_strategy,
+          capacity: row.capacity,
+          can_be_matrimonial: row.can_be_matrimonial,
+          often_used_by_operator: row.often_used_by_operator,
+        }),
         beds: [],
       };
       rooms.push(roomMap[row.room_code]);
