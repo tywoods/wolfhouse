@@ -189,7 +189,7 @@ const FIXTURES = [
     name: 'fix3-private-room-supplement-requote',
     lang: 'it',
     turns: [
-      { text: 'Ciao, siamo una coppia, 7 notti dal 1 all 8 novembre 2027, pacchetto Malibu.', expect: {} },
+      { text: 'Ciao, siamo una coppia, 7 notti dal 6 al 13 luglio 2026, pacchetto Malibu.', expect: {} },
       { text: 'Vorremmo una stanza privata per noi due.', expect: {} },
       { text: 'Mi chiamo Luca.', expect: {} },
       { text: 'Sì, va bene il supplemento, procediamo.', expect: {} },
@@ -221,11 +221,13 @@ const FIXTURES = [
           reply_not_contains: ['all girls', 'all guys', 'all boys', 'mixed group', 'all girls or', 'girls or guys'],
         } },
       { text: 'Malibu for all of us, looks good.', expect: {} },
-      { text: 'We will pay the deposit. Name for the booking is Sam.', expect: {} },
-      { text: 'Yes please continue.', expect: {} },
+      { text: 'No airport shuttle needed, thanks.', expect: {} },
+      { text: 'We will pay the deposit. The name for the booking is Sam.', expect: {} },
+      { text: 'Yes, go ahead and set it up.', expect: {} },
+      { text: 'Sure, whatever you need.', expect: {} },
     ],
-    // by SOME later turn (after quote + name + payment) composition IS the right question
-    expect_overall: { reply_contains: [/girls|guys|boys|mixed|composition|same group|all of you/i] },
+    // by SOME later turn (after quote + transfer + payment + name) composition IS the right question
+    expect_overall: { reply_contains: [/girls|guys|boys|mixed|composition|same group|all of you|all women|all men/i] },
   },
 ];
 
