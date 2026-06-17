@@ -95,6 +95,7 @@ write_luna_env() {
     printf 'WHATSAPP_CLOUD_HOME_CHANNEL_NAME=Wolfhouse Luna Ops\n'
     printf 'WHATSAPP_CLOUD_WEBHOOK_PORT=8090\n'
     printf 'WHATSAPP_CLOUD_WEBHOOK_PATH=/whatsapp/webhook\n'
+    printf 'PYTHONPATH=/etc/hermes-staging\n'
     printf 'API_SERVER_ENABLED=true\n'
     printf 'API_SERVER_HOST=0.0.0.0\n'
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
@@ -136,6 +137,12 @@ apply_patches() {
   if [ -f /etc/hermes-staging/apply_whatsapp_fresh_start_route.py ]; then
     python /etc/hermes-staging/apply_whatsapp_fresh_start_route.py || {
       echo "apply_whatsapp_fresh_start_route failed — Fresh Start route may be missing" >&2
+      exit 1
+    }
+  fi
+  if [ -f /etc/hermes-staging/apply_whatsapp_simulate_route.py ]; then
+    python /etc/hermes-staging/apply_whatsapp_simulate_route.py || {
+      echo "apply_whatsapp_simulate_route failed — simulate-guest-turn route may be missing" >&2
       exit 1
     }
   fi
