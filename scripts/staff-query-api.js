@@ -15227,7 +15227,9 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-day-cell.bc-sel{background:rgba(108,165,140,.22);outline:1px solid rgba(108,165,140,.6);outline-offset:-1px;position:relative;z-index:1}
 .bc-day-cell.bc-sel-anchor{outline:2px solid #6CA58C;outline-offset:-1px}
 .bc-sel-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3;height:32px;box-sizing:border-box}
+.bc-sel-header-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
+.bc-sel-header-row .bc-sel-title{margin-bottom:0}
+.btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3;height:28px;box-sizing:border-box}
 .btn-bc-block-pebble:hover:not(:disabled){background:#DDDAD4;border-color:#C8C4BC;box-shadow:0 1px 4px rgba(68,80,74,.08)}
 .btn-bc-block-pebble:disabled{opacity:.38;cursor:not-allowed}
 .bc-sel-notice{font-size:11px;color:var(--text-3);font-style:italic;margin:10px 0 12px}
@@ -15664,7 +15666,13 @@ ${getStaffPortalI18nBootstrapScript()}
 
   <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
-    <div class="bc-sel-title"><span aria-hidden="true">&#128203;</span> <span data-i18n="calendar.create.title">Create New Booking</span></div>
+    <div class="bc-sel-header-row">
+      <div class="bc-sel-title"><span aria-hidden="true">&#128203;</span> <span data-i18n="calendar.create.title">Create New Booking</span></div>
+      <button type="button" class="btn-bc-block-pebble" disabled id="bc-sel-block"
+        data-i18n-title="calendar.block.title" title="Block selected beds for these dates">
+        <span data-i18n="calendar.block.button">Block</span>
+      </button>
+    </div>
 
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
 
@@ -15846,10 +15854,6 @@ ${getStaffPortalI18nBootstrapScript()}
       <button class="btn btn-bc-create-soft" disabled id="bc-sel-create"
         data-i18n-title="calendar.create.createTitleHint" title="Calculate Quote first, then fill required fields to create.">
         <span data-i18n="calendar.create.createBooking">Create New Booking</span>
-      </button>
-      <button type="button" class="btn-bc-block-pebble" disabled id="bc-sel-block"
-        data-i18n-title="calendar.block.title" title="Block selected beds for these dates">
-        <span data-i18n="calendar.block.button">Block</span>
       </button>
     </div>
     <!-- Stage 8.4.8: Create result panel -->
