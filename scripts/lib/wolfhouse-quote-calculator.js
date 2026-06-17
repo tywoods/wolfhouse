@@ -434,7 +434,8 @@ function calculateWolfhouseQuote(input, config) {
 
     const cfgA = config.add_ons[addon.code];
     if (!cfgA) {
-      warnings.push(`unknown add-on code "${addon.code}" — skipped`);
+      blockers.push(`unknown add-on code "${addon.code}" — quote cannot proceed`);
+      staff_review_required = true;
       continue;
     }
 
@@ -577,7 +578,7 @@ function calculateWolfhouseQuote(input, config) {
           : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`)));
 
   return {
-    success: true,
+    success: blockers.length === 0,
     client_slug,
     currency: config.currency,
     nights,

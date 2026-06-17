@@ -80,13 +80,29 @@ const LUNA_ADDON_CODE_ALIASES = Object.freeze({
   wetsuit: 'wetsuit_rental',
   surfboard: 'soft_top_rental',
   soft_board: 'soft_top_rental',
+  soft_board_rental: 'soft_top_rental',
   soft_top: 'soft_top_rental',
   hard_board: 'hard_board_rental',
+  hard_top: 'hard_board_rental',
+  hard_top_rental: 'hard_board_rental',
+  hardboard_rental: 'hard_board_rental',
   surf_lesson: 'surf_lesson_single',
   yoga: 'yoga_class',
   meal: 'meals',
   meals: 'meals',
 });
+
+const KNOWN_QUOTE_ADDON_CODES = new Set([
+  'wetsuit_rental',
+  'soft_top_rental',
+  'hard_board_rental',
+  'wetsuit_soft_top_combo',
+  'wetsuit_hard_board_combo',
+  'surf_lesson_single',
+  'surf_lesson_multi',
+  'yoga_class',
+  'meals',
+]);
 
 function rentalDaysFromAddOn(addon) {
   if (!addon) return 1;
@@ -161,11 +177,52 @@ function normalizeLunaBookingAddOnsInput(addOns) {
     }
     if (code === 'meals' || code === 'meal') {
       out.push({ code: 'meals', quantity: Math.max(1, parseInt(raw.quantity, 10) || 1) });
-      continue;
     }
-    out.push({ ...raw, code });
   }
   return out;
+}
+
+/**
+ * Resolve a raw Luna/Hermes add-on code to the canonical quote code (aliases + board_type).
+ * @returns {{ input: string, code: string|null }}
+ */
+function resolveRawQuoteAddOnCode(raw) {
+  if (!raw || typeof raw !== 'object') return { input: '', code: null };
+  const input = String(raw.code || raw.addon_code || raw.service_type || '').trim();
+  if (!input) return { input: '', code: null };
+  let code = input.toLowerCase();
+  code = LUNA_ADDON_CODE_ALIASES[code] || code;
+  if (raw.board_type != null || raw.boardType != null) {
+    const bt = String(raw.board_type || raw.boardType).trim().toLowerCase();
+    if (bt === 'hard') code = 'hard_board_rental';
+    else if (bt === 'soft') code = 'soft_top_rental';
+  }
+  return { input, code };
+}
+
+/**
+ * Reject unknown add-on codes before quote — never silently drop a requested line.
+ * @returns {{ ok: true, add_ons: object[] } | { ok: false, unknown_codes: string[], blockers: string[], error: string }}
+ */
+function validateAndNormalizeQuoteAddOns(addOns, guestCount) {
+  const unknown_codes = [];
+  for (const raw of (addOns || [])) {
+    const { input, code } = resolveRawQuoteAddOnCode(raw);
+    if (!input) continue;
+    if (!code || !KNOWN_QUOTE_ADDON_CODES.has(code)) {
+      unknown_codes.push(input);
+    }
+  }
+  if (unknown_codes.length) {
+    const unique = [...new Set(unknown_codes)];
+    return {
+      ok: false,
+      unknown_codes: unique,
+      blockers: unique.map((c) => `unknown_add_on_code:${c}`),
+      error: `Unknown add-on code(s): ${unique.join(', ')}. Use wetsuit_rental, soft_top_rental, hard_board_rental, surf_lesson_single, yoga_class, or meals.`,
+    };
+  }
+  return { ok: true, add_ons: normalizeQuoteAddOnsForCombo(addOns, guestCount) };
 }
 
 /**
@@ -557,4 +614,7 @@ module.exports = {
   applyPerPersonRentalDefaults,
   rentalPeopleFromAddOn,
   normalizeQuoteAddOnsForCombo,
+  validateAndNormalizeQuoteAddOns,
+  resolveRawQuoteAddOnCode,
+  KNOWN_QUOTE_ADDON_CODES,
 };

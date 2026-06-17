@@ -273,6 +273,7 @@ const {
   previewGuestAddonPricing,
   resolveGuestAddonComboPricing,
   normalizeQuoteAddOnsForCombo,
+  validateAndNormalizeQuoteAddOns,
 } = require('./lib/guest-addon-pricing');
 const {
   rebalanceBookingWetsuitBoardCombo,
@@ -9944,6 +9945,9 @@ async function handleBotBookingPreview(req, res, user, authMode) {
   // Attempt if core quote fields are present: dates, guest count, package.
   // room_type defaults to 'shared' and payment_choice to 'deposit' if absent.
   const canQuote = !!(checkIn && checkOut && guestCount && guestCount > 0 && effectivePackageCode);
+  const addOnPrep = addOns.length > 0
+    ? validateAndNormalizeQuoteAddOns(addOns, guestCount || 0)
+    : { ok: true, add_ons: [] };
   let quote = null;
   let quoteError = null;
   let packageNightViolation = null;
@@ -9960,6 +9964,15 @@ async function handleBotBookingPreview(req, res, user, authMode) {
         nights: packageNightCheck.nights,
         currency: 'EUR',
       };
+    } else if (!addOnPrep.ok) {
+      quote = {
+        success: false,
+        staff_review_required: true,
+        blockers: addOnPrep.blockers,
+        unknown_add_on_codes: addOnPrep.unknown_codes,
+        calculation_warnings: [],
+        currency: 'EUR',
+      };
     } else {
       try {
         quote = calculateWolfhouseQuote({
@@ -9971,7 +9984,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
           guest_packages: guestPackagesForQuote,
           room_type:      roomType || 'shared',
           payment_choice: paymentChoice || 'deposit',
-          add_ons:        normalizeQuoteAddOnsForCombo(addOns, guestCount),
+          add_ons:        addOnPrep.add_ons,
         });
       } catch (err) {
         quoteError = err.message;
@@ -9985,6 +9998,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     nextAction = 'package_not_available_for_dates';
   } else if (quoteError) {
     nextAction = 'staff_review_required';
+  } else if (!addOnPrep.ok) {
+    nextAction = 'invalid_add_ons';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'staff_review_required' : 'ask_missing_fields';
   } else if (quote && quote.success) {
@@ -10008,13 +10023,15 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     replyDraft = 'Our Malibu, Uluwatu, and Waimea surf packs are for 7-night stays. For these dates, I can help with accommodation and add-ons like surf lessons or board/wetsuit rental instead.';
   } else if (nextAction === 'staff_review_required') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
+  } else if (nextAction === 'invalid_add_ons') {
+    replyDraft = "I'm going to have the team double-check the add-ons on your quote and get back to you shortly.";
   } else {
     replyDraft = 'Let me check those dates and get back to you.';
   }
 
   // ── Audit log ─────────────────────────────────────────────────────────────
   const elapsed = Date.now() - started;
-  const normalizedAddOns = normalizeQuoteAddOnsForCombo(addOns, guestCount || 0);
+  const normalizedAddOns = addOnPrep.ok ? addOnPrep.add_ons : [];
   const includedItems = (quote && quote.success)
     ? buildBotQuoteIncludedItems(quote, {
       isNoPackage: pkgCtx.isNoPackage,
@@ -10063,7 +10080,10 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     reply_draft:         replyDraft,
     quote,
     included_items:      includedItems,
-    quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null),
+    quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null)
+      || (!addOnPrep.ok ? addOnPrep.error : null),
+    unknown_add_on_codes: !addOnPrep.ok ? addOnPrep.unknown_codes : [],
+    add_on_errors:       !addOnPrep.ok ? addOnPrep.blockers : [],
     package_night_rule:  packageNightViolation || null,
     availability: {
       status:  'not_checked',
@@ -13263,7 +13283,11 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const storagePackageCode = pkgCtx.storagePackageCode;
   const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
   const roomType      = String(body.room_type  || 'shared').trim().slice(0, 20);
-  const addOns        = normalizeQuoteAddOnsForCombo(body.add_ons, guestCount);
+  const addOnPrep = validateAndNormalizeQuoteAddOns(body.add_ons, guestCount);
+  if (!addOnPrep.ok) {
+    return send400(res, addOnPrep.error);
+  }
+  const addOns        = addOnPrep.add_ons;
   const roomPreference = String(body.room_preference || '').trim().slice(0, 200) || null;
   const genderPreference = body.gender_preference ? String(body.gender_preference).trim().slice(0, 50) : null;
   const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();

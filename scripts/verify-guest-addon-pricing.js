@@ -10,7 +10,12 @@ const {
   computeWetsuitBoardComboRebalance,
   findCoveringBoardRental,
   findUnpaidWetsuitForCombo,
+  validateAndNormalizeQuoteAddOns,
 } = require('./lib/guest-addon-pricing');
+const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
+const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
+const fs = require('fs');
+const path = require('path');
 
 let passes = 0;
 let failures = 0;
@@ -198,6 +203,59 @@ section('H. Rebalance with two boards — both wetsuits stay free');
   ];
   const rebalance = computeWetsuitBoardComboRebalance(existing, { wetsuit_unit_cents: 500 });
   check('H1', rebalance.updates.length === 0, 'no rebalance writes when boards cover all wetsuits');
+}
+
+section('I. hard_top_rental alias + hard board wetsuit combo quote');
+{
+  const prep = validateAndNormalizeQuoteAddOns([
+    { code: 'hard_top_rental', days: 3 },
+    { code: 'wetsuit_rental', days: 3 },
+  ], 2);
+  check('I1', prep.ok === true, 'hard_top_rental alias accepted');
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-09-01',
+    check_out: '2026-09-04',
+    guest_count: 2,
+    package_code: 'package_none',
+    payment_choice: 'deposit',
+    add_ons: prep.add_ons,
+  });
+  check('I2', quote.success, 'quote succeeds');
+  const combo = quote.line_items.find((li) => li.code === 'wetsuit_hard_board_combo');
+  check('I3', combo && combo.total_cents === 12000, 'hard board 3d×2p = €120 in combo');
+  check('I4', !quote.line_items.some((li) => li.code === 'wetsuit_rental' && li.total_cents > 0), 'wetsuit not billed separately');
+  const items = buildBotQuoteIncludedItems(quote, { isNoPackage: true, hasAddOns: true });
+  const hardLine = items && items.find((i) => i.label === 'Hard board');
+  const wetsuitLine = items && items.find((i) => i.label === 'Wetsuit');
+  check('I5', hardLine && hardLine.display_line.includes('€120.00'), `hard board line: ${hardLine && hardLine.display_line}`);
+  check('I6', wetsuitLine && wetsuitLine.free === true, 'wetsuit shown free in included_items');
+}
+
+section('J. Unknown add-on code rejected');
+{
+  const bad = validateAndNormalizeQuoteAddOns([{ code: 'definitely_fake_rental', days: 1 }], 1);
+  check('J1', bad.ok === false, 'unknown code fails validation');
+  check('J2', (bad.unknown_codes || []).includes('definitely_fake_rental'), 'reports unknown code');
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-09-01',
+    check_out: '2026-09-04',
+    guest_count: 1,
+    package_code: 'package_none',
+    payment_choice: 'deposit',
+    add_ons: [{ code: 'definitely_fake_rental', days: 1 }],
+  });
+  check('J3', quote.success === false, 'quote calculator blocks unknown code');
+  check('J4', (quote.blockers || []).some((b) => /unknown add-on/i.test(b)), 'blocker mentions unknown add-on');
+}
+
+section('K. SOUL — exact codes + no fabricated quote lines');
+{
+  const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
+  check('K1', /hard_board_rental/.test(soul) && /not `hard_top_rental`/.test(soul), 'SOUL warns hard_top typo');
+  check('K2', /soft_top_rental/.test(soul) && /included_items/.test(soul), 'SOUL cites exact codes + included_items');
+  check('K3', /Never invent a line|never fabricate/i.test(soul), 'SOUL forbids fabricated quote lines');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);
