@@ -96,9 +96,33 @@ function assertRepoSync() {
   execSync('node scripts/assert-repo-sync.js', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function assertGoldenSuite() {
+  // Pre-deploy regression gate: replay the golden guest conversations against the
+  // locally-running hermes-luna container before we build/ship. --gate runs the
+  // read-only fixtures only (never the --allow-writes ones, so a deploy can't
+  // create real Stripe-TEST bookings). Skips (does not block) when no local
+  // hermes-luna is running, or when SKIP_GOLDEN_GATE=1 for an emergency deploy.
+  if (process.env.SKIP_GOLDEN_GATE === '1') {
+    console.error('[vm] WARN: golden gate SKIPPED via SKIP_GOLDEN_GATE=1.');
+    return;
+  }
+  const docker = process.env.SIM_DOCKER || 'sudo docker';
+  let running = '';
+  try { running = execSync(`${docker} ps --format '{{.Names}}'`, { cwd: ROOT, encoding: 'utf8' }); } catch (_) { /* docker absent */ }
+  if (!/(^|\n)hermes-luna(\n|$)/.test(running)) {
+    console.error('[vm] WARN: golden gate SKIPPED — no local hermes-luna container running. Run the suite manually before shipping.');
+    return;
+  }
+  console.error('[vm] golden-conversation gate (prebuild)...');
+  execSync('node scripts/luna-golden-conversations.js --gate', {
+    cwd: ROOT, stdio: 'inherit', env: { ...process.env, SIM_DOCKER: docker },
+  });
+}
+
 function buildImage() {
   assertRepoSync();
   assertSoulClean();
+  assertGoldenSuite();
   const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
   console.error(`[vm] building staging image on ACR (git ${sha})...`);
   az(
