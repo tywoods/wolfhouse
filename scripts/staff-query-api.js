@@ -15227,8 +15227,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-day-cell.bc-sel{background:rgba(108,165,140,.22);outline:1px solid rgba(108,165,140,.6);outline-offset:-1px;position:relative;z-index:1}
 .bc-day-cell.bc-sel-anchor{outline:2px solid #6CA58C;outline-offset:-1px}
 .bc-sel-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
-.bc-sel-header-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:10px}
-.bc-sel-header-row .bc-sel-title{margin-bottom:0}
+.bc-sel-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px;width:100%}
+.bc-sel-header-row .bc-sel-title{margin-bottom:0;flex:1 1 auto;min-width:0}
 .btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3;height:28px;box-sizing:border-box}
 .btn-bc-block-pebble:hover:not(:disabled){background:#DDDAD4;border-color:#C8C4BC;box-shadow:0 1px 4px rgba(68,80,74,.08)}
 .btn-bc-block-pebble:disabled{opacity:.38;cursor:not-allowed}
