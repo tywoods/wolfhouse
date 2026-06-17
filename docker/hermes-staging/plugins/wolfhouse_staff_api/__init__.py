@@ -198,12 +198,6 @@ def check_availability(params, **kwargs):
         "guest_count": params.get("guest_count"),
         "room_type": params.get("room_type") or params.get("stay_preference") or "shared",
     }
-    if params.get("gender_preference"):
-        payload["gender_preference"] = params.get("gender_preference")
-    if params.get("group_gender"):
-        payload["group_gender"] = params.get("group_gender")
-    if params.get("room_preference"):
-        payload["room_preference"] = params.get("room_preference")
     data = _post_bot("/availability-check", payload)
     status = _availability_status(data)
     return _json_result({
@@ -924,6 +918,13 @@ def _schema(name, description, properties, required=None):
 
 
 def register(ctx):
+    common_availability = {
+        "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
+        "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
+        "check_out": {"type": "string", "description": "Check-out date in YYYY-MM-DD."},
+        "guest_count": {"type": "integer", "description": "Number of guests."},
+        "room_type": {"type": "string", "description": "shared, private, double, or any."},
+    }
     common_booking = {
         "client_slug": {"type": "string", "description": "Client slug, normally wolfhouse-somo."},
         "check_in": {"type": "string", "description": "Check-in date in YYYY-MM-DD."},
@@ -931,13 +932,13 @@ def register(ctx):
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
-        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests: female (all girls), male (all guys), or mixed. Always ask groups — never infer from booker name."},
+        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests: female (all girls), male (all guys), or mixed. Ask at the room-preference step before create — never on availability."},
         "gender_preference": {"type": "string", "description": "Same as group_gender for groups; for solo bookings only, infer silently from name (female/male/mixed). Never ask a solo guest 'are you a girl'."},
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
     }
     tools = [
-        ("check_availability", "Check real Wolfhouse bed availability through Staff API. Use before making any availability claim.", check_availability, common_booking, ["check_in", "check_out", "guest_count"]),
+        ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender — ask composition later at the room-preference step before create.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items.", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}, "add_ons": {"type": "array", "items": {"type": "object"}}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "add_ons": {"type": "array", "description": "Bundled add-ons for short-stay bookings, e.g. [{code:wetsuit_rental,days:3},{code:soft_top_rental,days:3}]. Same shape as quote_booking.", "items": {"type": "object"}}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),

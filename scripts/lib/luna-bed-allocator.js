@@ -783,6 +783,7 @@ function runAvailabilityBedSelection(params) {
     genderPreference,
     roomPreference,
     groupGender,
+    capacityOnly = false,
     useRules = isRulesBasedRoomingEnabled(),
   } = params;
 
@@ -798,7 +799,7 @@ function runAvailabilityBedSelection(params) {
     groupGender,
   });
 
-  const pick = useRules
+  const pick = (useRules && !capacityOnly)
     ? chooseBeds({
       rooms,
       guestCount,

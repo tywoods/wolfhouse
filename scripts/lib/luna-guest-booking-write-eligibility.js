@@ -9,6 +9,8 @@
 
 'use strict';
 
+const { normalizeGroupGender } = require('./luna-booking-intake-policy');
+
 const WRITE_ROUTE = 'POST /staff/bot/bookings/create';
 
 const VALID_PAYMENT_CHOICES = new Set(['deposit', 'full']);
@@ -181,7 +183,17 @@ function evaluateLunaBookingWriteEligibility(dryRunPlan, input, env) {
     ? availability.selected_bed_codes.filter(Boolean)
     : [];
   if (bedCodes.length === 0) {
-    blockedReasons.push('availability_selected_beds_missing');
+    if (availability.capacity_check_only === true && availability.has_enough_beds === true) {
+      const gc = guestCount != null ? Number(guestCount) : null;
+      const gg = normalizeGroupGender(src.group_gender || src.gender_preference);
+      if (gc >= 2 && !gg) {
+        blockedReasons.push('group_composition_missing');
+      } else {
+        blockedReasons.push('gender_aware_bed_assignment_missing');
+      }
+    } else {
+      blockedReasons.push('availability_selected_beds_missing');
+    }
   } else if (guestCount != null && bedCodes.length < guestCount) {
     blockedReasons.push('availability_selected_beds_insufficient');
   }

@@ -36,11 +36,12 @@ const INTAKE_FIELD_ORDER = Object.freeze([
 ]);
 
 const POST_QUOTE_FIELD_ORDER = Object.freeze([
-  'group_composition',
-  'room_preference',
   'add_ons',
   'transfer_info',
   'payment_choice',
+  'guest_name',
+  'group_composition',
+  'room_preference',
 ]);
 
 const GENERIC_WHATSAPP_NAMES = new Set([
@@ -146,6 +147,27 @@ function parseGroupCompositionAnswer(text) {
   return null;
 }
 
+function isRoomPreferenceStage(state, context) {
+  const ctx = context || {};
+  const fields = (state && state.extracted_fields) || {};
+  const quote = ctx.quote || {};
+  if (!quote || quote.quote_status !== 'ready') return false;
+
+  if (!addonsResolved(state) && quoteAwaitingAddonsDecision(quote)) return false;
+
+  const stayType = normalizeStayType(fields, state && state.package_night_rule);
+  if (isPackageBooking(stayType, fields)) {
+    const ts = resolveTransferInfoStatus(state, ctx);
+    if (ts === 'optional_pending') return false;
+  }
+
+  if (quote.payment_choice_needed === true) {
+    if (!(ctx.payment_choice && ctx.payment_choice.payment_choice_ready)) return false;
+  }
+
+  return hasCollectedGuestName(fields, ctx.channel_guest_name);
+}
+
 function inferGroupCompositionNeed(state, context) {
   const fields = (state && state.extracted_fields) || {};
   const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
@@ -154,6 +176,14 @@ function inferGroupCompositionNeed(state, context) {
   }
   if (groupGenderFromFields(fields)) {
     return { needed: false, question_type: null, rule_applied: 'group_composition_already_set' };
+  }
+  if (!isRoomPreferenceStage(state, context)) {
+    return {
+      needed: false,
+      question_type: null,
+      rule_applied: 'deferred_until_room_stage',
+      block_booking: false,
+    };
   }
   return {
     needed: true,
@@ -403,6 +433,15 @@ function inferRoomPreferenceNeed(state, context) {
     };
   }
 
+  if (!isRoomPreferenceStage(state, ctx)) {
+    return {
+      needed: false,
+      question_type: null,
+      rule_applied: 'deferred_until_room_stage',
+      block_booking: false,
+    };
+  }
+
   if (guestCount >= 2 && !groupGender) {
     return {
       needed: false,
@@ -581,15 +620,6 @@ function determineRequiredBookingFields(state, context) {
     if (!addonsResolved(state) && quoteAwaitingAddonsDecision(ctx.quote)) {
       missing.push('add_ons');
     }
-    const compNeed = inferGroupCompositionNeed(state, ctx);
-    if (compNeed.needed && !groupCompositionResolved(state)) {
-      missing.push('group_composition');
-    }
-    const roomNeed = inferRoomPreferenceNeed(state, ctx);
-    if (roomNeed.needed && !roomPreferenceResolved(state) && addonsResolved(state)
-      && groupCompositionResolved(state)) {
-      missing.push('room_preference');
-    }
     if (isPackageBooking(stayType, fields)) {
       const ts = resolveTransferInfoStatus(state, ctx);
       if (ts === 'optional_pending') missing.push('transfer_info');
@@ -598,6 +628,16 @@ function determineRequiredBookingFields(state, context) {
       && !(ctx.payment_choice && ctx.payment_choice.payment_choice_ready)) {
       if (!hasCollectedGuestName(fields, ctx.channel_guest_name)) missing.push('guest_name');
       missing.push('payment_choice');
+    }
+    if (isRoomPreferenceStage(state, ctx)) {
+      const compNeed = inferGroupCompositionNeed(state, ctx);
+      if (compNeed.needed && !groupCompositionResolved(state)) {
+        missing.push('group_composition');
+      }
+      const roomNeed = inferRoomPreferenceNeed(state, ctx);
+      if (roomNeed.needed && !roomPreferenceResolved(state) && groupCompositionResolved(state)) {
+        missing.push('room_preference');
+      }
     }
   }
 
@@ -656,20 +696,20 @@ function determineNextBookingQuestion(state, context) {
   if (quote.quote_status === 'ready' && missing.includes('add_ons')) {
     return mapFieldToQuestion('add_ons', state, ctx);
   }
+  if (quote.quote_status === 'ready' && missing.includes('transfer_info')) {
+    return mapFieldToQuestion('transfer_info', state, ctx);
+  }
+  if (quote.quote_status === 'ready' && missing.includes('guest_name')) {
+    return mapFieldToQuestion('guest_name', state, ctx);
+  }
+  if (quote.quote_status === 'ready' && missing.includes('payment_choice')) {
+    return mapFieldToQuestion('payment_choice', state, ctx);
+  }
   if (quote.quote_status === 'ready' && missing.includes('group_composition')) {
     return mapFieldToQuestion('group_composition', state, ctx);
   }
   if (quote.quote_status === 'ready' && missing.includes('room_preference')) {
     return mapFieldToQuestion('room_preference', state, ctx);
-  }
-  if (quote.quote_status === 'ready' && missing.includes('guest_name')) {
-    return mapFieldToQuestion('guest_name', state, ctx);
-  }
-  if (quote.quote_status === 'ready' && missing.includes('transfer_info')) {
-    return mapFieldToQuestion('transfer_info', state, ctx);
-  }
-  if (quote.quote_status === 'ready' && missing.includes('payment_choice')) {
-    return mapFieldToQuestion('payment_choice', state, ctx);
   }
 
   for (const field of INTAKE_FIELD_ORDER) {
@@ -893,6 +933,7 @@ module.exports = {
   determineNextBookingQuestion,
   inferRoomPreferenceNeed,
   inferGroupCompositionNeed,
+  isRoomPreferenceStage,
   parseGroupCompositionAnswer,
   normalizeGroupGender,
   groupGenderFromFields,

@@ -266,6 +266,7 @@ const {
 } = require('./lib/wolfhouse-package-night-rules');
 const {
   runLunaGuestBookingDryRun,
+  runAvailabilityCheckDryRun,
   DRY_RUN_SAFETY_FLAGS,
 } = require('./lib/luna-guest-booking-dry-run');
 const {
@@ -8137,7 +8138,6 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   let selectedRoomCode = null;
   let allocationReason = null;
   let allocationSplit = false;
-  let roomingHandoff = false;
   let groupGenderResolved = null;
 
   if (hasEnoughBeds) {
@@ -8152,30 +8152,20 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
       genderPreference: genderPref,
       roomPreference: roomPref,
       groupGender: groupGender || genderPref,
+      capacityOnly: true,
     });
     allocationReason = pick.reason || null;
     allocationSplit = !!pick.split;
     groupGenderResolved = pick.group_gender || null;
-    if (pick.handoff) {
-      roomingHandoff = true;
-      warnings.push(pick.reason || 'rooming_handoff');
-      if (pick.reason === 'group_split_needs_staff') {
-        blockers.push('group_split_needs_staff');
-      } else {
-        blockers.push(pick.reason || 'rooming_handoff');
-      }
-    } else {
-      selectedBedCodes = pick.selected_bed_codes || [];
-      selectedRoomCode = pick.selected_room_code || null;
-      if (pick.split) warnings.push('group_split_across_rooms_required');
-      console.log('[bot/availability-check] rooming pick', {
-        room: selectedRoomCode,
-        beds: selectedBedCodes,
-        reason: allocationReason,
-        group_gender: pick.group_gender,
-        rules: isRulesBasedRoomingEnabled(),
-      });
-    }
+    selectedBedCodes = pick.selected_bed_codes || [];
+    selectedRoomCode = pick.selected_room_code || null;
+    if (pick.split) warnings.push('group_split_across_rooms_required');
+    console.log('[bot/availability-check] capacity pick', {
+      room: selectedRoomCode,
+      beds: selectedBedCodes,
+      reason: allocationReason,
+      rules: isRulesBasedRoomingEnabled(),
+    });
   }
 
   if (!hasEnoughBeds) {
@@ -8186,9 +8176,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
 
   const nextAction = !hasEnoughBeds
     ? 'ask_staff_or_alternate_dates'
-    : roomingHandoff
-      ? 'handoff_to_staff'
-      : 'ready_for_bot_create';
+    : 'ready_for_bot_create';
 
   const elapsed = Date.now() - started;
 
@@ -8212,6 +8200,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     allocation_reason:   allocationReason,
     allocation_split:    allocationSplit,
     rules_based_rooming: isRulesBasedRoomingEnabled(),
+    capacity_check_only: true,
     girls_room_available:    roomOptionFlags.girls_room_available,
     private_room_available:  roomOptionFlags.private_room_available,
     room_options: {
@@ -13322,9 +13311,34 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   }
   if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
   if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
-  if (selectedBedCodes.length === 0)
-    return send400(res, 'selected_bed_codes is required for this slice (auto-assign is next slice)');
-  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
+
+  let assignedBedCodes = selectedBedCodes.slice();
+  if (assignedBedCodes.length === 0) {
+    try {
+      const bedAssign = await withPgClient((pg) => runAvailabilityCheckDryRun({
+        client_slug: clientSlug,
+        check_in: checkIn,
+        check_out: checkOut,
+        guest_count: guestCount,
+        guest_name: guestName,
+        group_gender: body.group_gender || null,
+        gender_preference: genderPreference,
+        room_preference: roomPreference,
+        room_type: roomType,
+      }, pg));
+      if (bedAssign && Array.isArray(bedAssign.selected_bed_codes) && bedAssign.selected_bed_codes.length) {
+        assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
+      } else if (bedAssign && bedAssign.blockers && bedAssign.blockers.length) {
+        return send400(res, 'Bed assignment failed: ' + bedAssign.blockers[0]);
+      }
+    } catch (err) {
+      return sendJSON(res, 500, { success: false, error: 'bed_assignment_error', detail: err.message });
+    }
+  }
+
+  if (assignedBedCodes.length === 0)
+    return send400(res, 'selected_bed_codes is required (pass beds or group_gender for auto-assign)');
+  if (assignedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
     return send400(res, 'invalid character in selected_bed_codes');
 
   // ── 5b. Server-side quote (amounts never trusted from client) ─────────────
@@ -13350,7 +13364,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const idempotencyKey = body.idempotency_key
     ? String(body.idempotency_key).slice(0, 120)
     : 'bot-' + crypto.createHash('md5').update([
-        clientSlug, checkIn, checkOut, selectedBedCodes.slice().sort().join('_'),
+        clientSlug, checkIn, checkOut, assignedBedCodes.slice().sort().join('_'),
         guestName.toLowerCase(), phone,
       ].join('|')).digest('hex');
 
@@ -13358,7 +13372,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     ts: new Date().toISOString(), intent: 'api:bot_booking_create',
     category: 'bot_booking_create',
     client_slug: clientSlug, check_in: checkIn, check_out: checkOut,
-    selected_bed_codes: selectedBedCodes, guest_count: guestCount,
+    selected_bed_codes: assignedBedCodes, guest_count: guestCount,
     staff_user_id: actorId, staff_role: actorRole,
     idempotency_key: idempotencyKey, source,
     stripe_called: false, whatsapp_called: false, n8n_called: false,
@@ -13383,7 +13397,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
           checkIn,           // $10
           checkOut,          // $11
           guestCount,        // $12
-            selectedBedCodes,  // $13 text[]
+            assignedBedCodes,  // $13 text[]
             storagePackageCode, // $14 — null for accommodation-only
             roomPreference,    // $15 room_preference
           bookingStatus,     // $16
@@ -13401,7 +13415,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
         if (result.is_duplicate === true) { await pg.query('ROLLBACK'); result._duplicate = true; return result; }
         if (result.is_blocked   === true) { await pg.query('ROLLBACK'); result._blocked   = true; return result; }
         const bedsInserted = Number(result.beds_inserted || 0);
-        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== selectedBedCodes.length) {
+        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== assignedBedCodes.length) {
           await pg.query('ROLLBACK');
           result._safety_violation = true;
           return result;
@@ -13547,7 +13561,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     client_slug:         clientSlug,
     check_in:            checkIn,
     check_out:           checkOut,
-    selected_bed_codes:  selectedBedCodes,
+    selected_bed_codes:  assignedBedCodes,
     quote: {
       total_cents:               quote.total_cents,
       deposit_required_cents:    quote.deposit_required_cents,

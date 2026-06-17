@@ -23,6 +23,7 @@ const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
 const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
 const { computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
 const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./luna-bed-allocator');
+const { normalizeGroupGender } = require('./luna-booking-intake-policy');
 const {
   resolveBotBookingPackageContext,
   buildBotQuoteReplyDraft,
@@ -153,6 +154,9 @@ function normalizeInput(input) {
     phone:          resolvedPhone,
     email:          String(src.email || '').trim(),
     add_ons:        Array.isArray(src.add_ons) ? src.add_ons : [],
+    group_gender:   src.group_gender != null ? String(src.group_gender).trim() || null : null,
+    gender_preference: src.gender_preference != null ? String(src.gender_preference).trim() || null : null,
+    room_preference: src.room_preference != null ? String(src.room_preference).trim() || null : null,
     message_text:   src.message_text != null ? String(src.message_text) : null,
     conversation_id: src.conversation_id != null ? String(src.conversation_id).trim() || null : null,
     guest_phone:    resolvedPhone || null,
@@ -420,7 +424,7 @@ async function runAvailabilityCheckDryRun(fields, pg) {
 
   if (hasEnoughBeds) {
     const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
-    const pick = runAvailabilityBedSelection({
+    const capacityPick = runAvailabilityBedSelection({
       bedRows,
       occupiedBedCodes,
       allowedBedCodes,
@@ -430,21 +434,47 @@ async function runAvailabilityCheckDryRun(fields, pg) {
       genderPreference: fields.gender_preference || fields.group_gender || null,
       roomPreference: fields.room_preference || fields.gender_preference || null,
       groupGender: fields.group_gender || fields.gender_preference || null,
+      capacityOnly: true,
     });
-    allocationReason = pick.reason || null;
-    groupGenderResolved = pick.group_gender || null;
-    if (pick.handoff) {
-      roomingHandoff = true;
-      warnings.push(pick.reason || 'rooming_handoff');
-      if (pick.reason === 'group_split_needs_staff') {
-        blockers.push('group_split_needs_staff');
+    allocationReason = capacityPick.reason || null;
+    groupGenderResolved = capacityPick.group_gender || null;
+    selectedBedCodes = capacityPick.selected_bed_codes || [];
+    selectedRoomCode = capacityPick.selected_room_code || null;
+    if (capacityPick.split) warnings.push('group_split_across_rooms_required');
+
+    const resolvedGroupGender = normalizeGroupGender(fields.group_gender)
+      || normalizeGroupGender(fields.gender_preference);
+    const readyForGenderAssign = guestCount < 2 || !!resolvedGroupGender;
+    if (readyForGenderAssign) {
+      const genderPick = runAvailabilityBedSelection({
+        bedRows,
+        occupiedBedCodes,
+        allowedBedCodes,
+        blockRows,
+        guestCount,
+        guestName: fields.guest_name || null,
+        genderPreference: fields.gender_preference || fields.group_gender || null,
+        roomPreference: fields.room_preference || fields.gender_preference || null,
+        groupGender: fields.group_gender || fields.gender_preference || null,
+        capacityOnly: false,
+      });
+      groupGenderResolved = genderPick.group_gender || groupGenderResolved;
+      if (genderPick.handoff) {
+        roomingHandoff = true;
+        warnings.push(genderPick.reason || 'rooming_handoff');
+        if (genderPick.reason === 'group_split_needs_staff') {
+          blockers.push('group_split_needs_staff');
+        } else {
+          blockers.push(genderPick.reason || 'rooming_handoff');
+        }
+        selectedBedCodes = [];
+        selectedRoomCode = null;
       } else {
-        blockers.push(pick.reason || 'rooming_handoff');
+        selectedBedCodes = genderPick.selected_bed_codes || [];
+        selectedRoomCode = genderPick.selected_room_code || null;
+        allocationReason = genderPick.reason || allocationReason;
+        if (genderPick.split) warnings.push('group_split_across_rooms_required');
       }
-    } else {
-      selectedBedCodes = pick.selected_bed_codes || [];
-      selectedRoomCode = pick.selected_room_code || null;
-      if (pick.split) warnings.push('group_split_across_rooms_required');
     }
   }
 
@@ -472,6 +502,7 @@ async function runAvailabilityCheckDryRun(fields, pg) {
     group_gender:        groupGenderResolved,
     allocation_reason:   allocationReason,
     rules_based_rooming: isRulesBasedRoomingEnabled(),
+    capacity_check_only: true,
     has_enough_beds:     hasEnoughBeds,
     available_count:     availableCount,
     warnings,
