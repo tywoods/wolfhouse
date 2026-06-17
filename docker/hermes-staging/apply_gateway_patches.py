@@ -50,6 +50,18 @@ OUTBOUND_MIRROR = '''
 '''
 
 SANITIZE = "response = _sanitize_gateway_final_response(source.platform, response)"
+# Output-guard (step 3): scrub guest-facing leaks + emit price/language telemetry
+# at the turn handler, where tool results + history are in scope. All real logic is
+# in the tested wolfhouse.output_guard.guard_turn_response — this injected block is
+# a single defensive call so it can't break gateway.run startup.
+OUTPUT_GUARD = '''
+            try:
+                from wolfhouse.output_guard import guard_turn_response as _wh_guard_turn
+                response = _wh_guard_turn(response, agent_result, history)
+            except Exception:
+                pass
+'''
+OUTPUT_GUARD_TAG = "guard_turn_response as _wh_guard_turn"
 WHATSAPP_TEXT_NORMALIZE = '''
             try:
                 import importlib.util as _wwm_iu
@@ -575,6 +587,7 @@ def apply_patches(run_path: Path) -> dict:
             "response = _normalize_empty_agent_response(\n"
             " agent_result, response, history_len=len(history),\n"
             " )\n"
+            + OUTPUT_GUARD
             + INBOUND_MIRROR
             + WHATSAPP_TEXT_NORMALIZE
             + "\n            "
@@ -584,6 +597,18 @@ def apply_patches(run_path: Path) -> dict:
         if not TURN_ANCHOR_RE.search(s):
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
         s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
+
+    # Idempotent fallback: if the mirror block was already applied on a prior pass
+    # (so the anchor above no longer matches) but the output-guard isn't present,
+    # insert it right after the normalize call.
+    if OUTPUT_GUARD_TAG not in s:
+        _norm_marker = (
+            "response = _normalize_empty_agent_response(\n"
+            " agent_result, response, history_len=len(history),\n"
+            " )\n"
+        )
+        if _norm_marker in s:
+            s = s.replace(_norm_marker, _norm_marker + OUTPUT_GUARD, 1)
 
     soul_note = None
     if LUNA_SOUL_RELOAD_TAG not in s:

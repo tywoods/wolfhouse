@@ -80,6 +80,43 @@ safe2, findings2 = og.guard_reply("Tutto pronto, a presto! 😊", guest_lang="it
 check("clean -> text unchanged", safe2 == "Tutto pronto, a presto! 😊")
 check("clean -> no findings", findings2 == [])
 
+# --- real-path adapter (guard_turn_response) ----------------------------------
+print("guard_turn_response (gateway.run adapter):")
+
+
+class _Obj:  # mimic an attribute-style agent_result / message
+    def __init__(self, **kw):
+        self.__dict__.update(kw)
+
+
+# tool calls parsed from dict-shaped agent_result
+ar_dict = {"tool_calls": [{"name": "quote_booking", "args": {}, "result_summary": "total 908 eur"}]}
+check("dict agent_result -> tool calls parsed",
+      og._tool_calls_from_agent_result(ar_dict)[0]["name"] == "quote_booking")
+# tool calls parsed from object-shaped agent_result with object tool calls
+ar_obj = _Obj(tool_calls=[_Obj(name="quote_booking", arguments={}, result="total 908 eur")])
+check("object agent_result -> tool calls parsed",
+      og._tool_calls_from_agent_result(ar_obj)[0]["result_summary"] == "total 908 eur")
+check("None agent_result -> [] (no crash)", og._tool_calls_from_agent_result(None) == [])
+
+# guest language from history (last user message wins)
+hist = [{"role": "assistant", "content": "Hello!"},
+        {"role": "user", "content": "Ciao, vorrei prenotare una stanza per 2 notti"}]
+check("guest lang from history = it", og._guest_lang_from_history(hist) == "it")
+check("empty history -> None", og._guest_lang_from_history([]) is None)
+
+# end-to-end: leak in response is scrubbed even with full turn context
+out = og.guard_turn_response("Il sistema non mi ha restituito le voci.", ar_dict, hist)
+check("turn adapter scrubs leak -> it fallback", out == og.SAFE_FALLBACK["it"])
+# clean reply with a sourced price is returned unchanged (price warn never scrubs)
+clean_out = og.guard_turn_response("Perfetto! Il totale è €908.", ar_dict, hist)
+check("turn adapter leaves clean reply (sourced price) unchanged", clean_out == "Perfetto! Il totale è €908.")
+# fabricated price: still returned unchanged (advisory, not block)
+fab_out = og.guard_turn_response("Il totale è €1234.", ar_dict, hist)
+check("turn adapter does NOT scrub fabricated price (advisory only)", fab_out == "Il totale è €1234.")
+# never raises on garbage input
+check("turn adapter survives garbage", og.guard_turn_response(None, object(), object()) is None)
+
 print()
 if FAILS:
     print(f"✗ output-guard: {len(FAILS)} FAILED: {FAILS}")

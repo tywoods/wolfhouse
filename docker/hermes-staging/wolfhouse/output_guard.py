@@ -205,3 +205,67 @@ def guard_reply(
                          "detail": {"reply": mism, "guest": guest_lang}})
 
     return text, findings
+
+
+# --- real-path adapter (gateway.run turn handler) -----------------------------
+# agent_result's exact shape lives in the gateway package (not this repo), so
+# parse it DEFENSIVELY across the plausible shapes. Price/language are advisory
+# (warn) — wrong parsing only yields noisy logs, never a mangled guest reply —
+# so this is safe to ship even with shape uncertainty.
+
+def _tool_calls_from_agent_result(agent_result: Any) -> List[Dict[str, Any]]:
+    raw = None
+    if agent_result is not None:
+        raw = getattr(agent_result, "tool_calls", None)
+        if raw is None and isinstance(agent_result, dict):
+            raw = agent_result.get("tool_calls") or agent_result.get("tool_results")
+    out: List[Dict[str, Any]] = []
+    for tc in (raw or []):
+        get = tc.get if isinstance(tc, dict) else (lambda k, d=None, _o=tc: getattr(_o, k, d))
+        out.append({
+            "name": get("name") or get("tool_name") or "",
+            "args": get("arguments") or get("args") or {},
+            "result_summary": str(get("result_summary") or get("result") or get("output") or ""),
+        })
+    return out
+
+
+def _guest_lang_from_history(history: Any) -> Optional[str]:
+    try:
+        for msg in reversed(list(history or [])):
+            role = (msg.get("role") if isinstance(msg, dict) else getattr(msg, "role", "")) or ""
+            if str(role).lower() in ("user", "guest", "human"):
+                content = msg.get("content") if isinstance(msg, dict) else getattr(msg, "content", "")
+                sig = detect_languages(str(content or ""))
+                for lang in ("it", "es", "de", "en"):
+                    if lang in sig:
+                        return lang
+                return None
+    except Exception:
+        return None
+    return None
+
+
+def guard_turn_response(response: Any, agent_result: Any = None, history: Any = None) -> str:
+    """gateway.run adapter: guard the final reply with turn context available.
+
+    Returns the (possibly leak-scrubbed) reply string. Advisory findings are
+    printed to stderr for staff/telemetry. Never raises — callers wrap in
+    try/except too, but this is the inner safety net.
+    """
+    try:
+        text = str(response or "")
+        if not text:
+            return response
+        guest_lang = _guest_lang_from_history(history)
+        tool_calls = _tool_calls_from_agent_result(agent_result)
+        safe, findings = guard_reply(text, guest_lang=guest_lang, tool_calls=tool_calls)
+        if findings:
+            try:
+                import sys
+                print(f"[wolfhouse] output-guard turn findings: {findings}", file=sys.stderr)
+            except Exception:
+                pass
+        return safe
+    except Exception:
+        return response
