@@ -96,6 +96,13 @@ function assertRepoSync() {
   execSync('node scripts/assert-repo-sync.js', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function assertI18nGuestCopy() {
+  // Ratcheted i18n gate: fails only on NEW untranslated guest-copy keys (a regression),
+  // never on the pre-existing translation debt captured in the baseline. Fast + static.
+  console.error('[vm] i18n guest-copy lint (prebuild)...');
+  execSync('node scripts/check-i18n-guest-copy.js', { cwd: ROOT, stdio: 'inherit' });
+}
+
 function assertGoldenSuite() {
   // Pre-deploy regression gate: replay the golden guest conversations against the
   // locally-running hermes-luna container before we build/ship. --gate runs the
@@ -122,6 +129,7 @@ function assertGoldenSuite() {
 function buildImage() {
   assertRepoSync();
   assertSoulClean();
+  assertI18nGuestCopy();
   assertGoldenSuite();
   const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
   console.error(`[vm] building staging image on ACR (git ${sha})...`);
