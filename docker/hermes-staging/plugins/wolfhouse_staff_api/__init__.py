@@ -15,6 +15,17 @@ import urllib.parse
 import urllib.request
 import hashlib
 
+# Fail-open input validation (step 3). Defensive import so a missing/broken module
+# can never disable the tools — it just disables pre-validation.
+try:
+    from .input_guard import guard_tool_input  # type: ignore
+except Exception:  # pragma: no cover
+    try:
+        from wolfhouse_staff_api.input_guard import guard_tool_input  # type: ignore
+    except Exception:
+        def guard_tool_input(_tool_name, _params):
+            return True, None
+
 DEFAULT_BASE_URL = "https://staff-staging.lunafrontdesk.com"
 TOOLSET = "wolfhouse_staff_api"
 
@@ -191,6 +202,15 @@ def _availability_status(data):
 
 def check_availability(params, **kwargs):
     del kwargs
+    _ok, _err = guard_tool_input("check_availability", params)
+    if not _ok:
+        return _json_result({
+            "success": False,
+            "tool": "check_availability",
+            "input_error": _err.get("code"),
+            "staff_review_needed": False,
+            "guest_safe_next_action": _err.get("message"),
+        })
     payload = {
         "client_slug": params.get("client_slug") or "wolfhouse-somo",
         "check_in": params.get("check_in"),
@@ -222,6 +242,16 @@ def check_availability(params, **kwargs):
 
 def quote_booking(params, **kwargs):
     del kwargs
+    _ok, _err = guard_tool_input("quote_booking", params)
+    if not _ok:
+        return _json_result({
+            "success": False,
+            "tool": "quote_booking",
+            "input_error": _err.get("code"),
+            "quote_status": "needs_guest_clarification",
+            "staff_review_needed": False,
+            "guest_safe_next_action": _err.get("message"),
+        })
     payload = dict(params or {})
     payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")

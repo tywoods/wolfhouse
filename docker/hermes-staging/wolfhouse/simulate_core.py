@@ -23,6 +23,7 @@ from wolfhouse.simulate_write_guards import (
     tool_name_from_path,
 )
 from wolfhouse.staging_guard import assert_staging_environment, assert_stripe_test_only
+from wolfhouse.output_guard import guard_reply
 
 SIMULATE_PATH = "/wolfhouse/simulate-guest-turn"
 _CAPTURE: Optional["SimulateCapture"] = None
@@ -353,11 +354,21 @@ async def run_simulated_turn(
 
     session_id = _resolve_session_id(digits)
 
+    # Output-guard (step 3): inspect the final guest-facing reply. LEAK is enforced
+    # (reply replaced with a localized safe fallback); price/language are advisory
+    # findings the golden suite asserts on. raw_reply_text preserves the original.
+    raw_reply = cap.reply_text or ""
+    safe_reply, guard_findings = guard_reply(
+        raw_reply, guest_lang=cap.language_detected, tool_calls=cap.tool_calls,
+    )
+
     return {
         "ok": True,
         "thread": thread,
         "guest_phone": f"+{digits}",
-        "reply_text": cap.reply_text or "",
+        "reply_text": safe_reply,
+        "raw_reply_text": raw_reply,
+        "guard_findings": guard_findings,
         "tool_calls": cap.tool_calls,
         "session_id": session_id,
         "language_detected": cap.language_detected,
