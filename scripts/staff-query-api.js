@@ -15508,10 +15508,10 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="toolbar">
       <h2 id="bc-calendar-title" data-i18n="calendar.title">Booking Calendar</h2>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
+        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="text" class="bc-date-input" data-i18n-placeholder="calendar.datePlaceholder" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off">
       </label>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="date" class="bc-date-input" placeholder="YYYY-MM-DD">
+        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="text" class="bc-date-input" data-i18n-placeholder="calendar.datePlaceholder" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off">
       </label>
       <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
       <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
@@ -15577,11 +15577,11 @@ ${getStaffPortalI18nBootstrapScript()}
       <div class="bk-compact-grid">
         <div class="bk-compact-row">
           <label class="bk-label" for="bc-sel-cin" data-i18n="calendar.create.checkIn">Check-in</label>
-          <input type="date" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
+          <input type="text" id="bc-sel-cin" class="bk-input bk-input-sm" readonly>
         </div>
         <div class="bk-compact-row">
           <label class="bk-label" for="bc-sel-cout" data-i18n="calendar.create.checkOut">Check-out</label>
-          <input type="date" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
+          <input type="text" id="bc-sel-cout" class="bk-input bk-input-sm" readonly>
         </div>
         <div class="bk-compact-row">
           <label class="bk-label" for="bc-sel-nights" data-i18n="calendar.create.nights">Nights</label>
@@ -16106,9 +16106,62 @@ function fmtTs(ts){
 }
 
 /* Format date-only (no time) from ISO string or date value */
+function bcFormatIsoDateDisplay(iso) {
+  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return iso || '';
+  var p = String(iso).split('-');
+  return p[2] + '/' + p[1] + '/' + p[0];
+}
+
+function bcParseDisplayDateToIso(display) {
+  var s = String(display || '').trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (!m) return null;
+  var dd = m[1].padStart(2, '0');
+  var mm = m[2].padStart(2, '0');
+  var yyyy = m[3];
+  var iso = yyyy + '-' + mm + '-' + dd;
+  var d = new Date(iso + 'T12:00:00Z');
+  if (isNaN(d.getTime()) || d.getUTCFullYear() !== Number(yyyy) ||
+      d.getUTCMonth() + 1 !== Number(mm) || d.getUTCDate() !== Number(dd)) return null;
+  return iso;
+}
+
+function bcSetDateField(inp, iso) {
+  if (!inp) return;
+  inp.dataset.iso = iso || '';
+  inp.value = iso ? bcFormatIsoDateDisplay(iso) : '';
+}
+
+function bcReadDateField(inp) {
+  if (!inp) return '';
+  var parsed = bcParseDisplayDateToIso(inp.value);
+  if (parsed) {
+    if (inp.dataset) inp.dataset.iso = parsed;
+    return parsed;
+  }
+  return (inp.dataset && inp.dataset.iso) || '';
+}
+
+function bcReadCalendarRangeIso() {
+  return {
+    start: bcReadDateField(el('bc-start')),
+    end: bcReadDateField(el('bc-end')),
+  };
+}
+
+function bcNormalizeDateInput(inp) {
+  var iso = bcParseDisplayDateToIso(inp && inp.value);
+  if (iso) bcSetDateField(inp, iso);
+}
+
 function fmtDateOnly(d){
   if (!d) return '—';
-  try { return String(d).slice(0, 10); } catch(_){ return String(d || '—'); }
+  try {
+    var s = String(d).slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return bcFormatIsoDateDisplay(s);
+    return s;
+  } catch(_){ return String(d || '—'); }
 }
 
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
@@ -17063,10 +17116,8 @@ function openBookingInCalendar(booking){
   }
 
   function loadAndOpen(start, end){
-    var sEl = el('bc-start');
-    var eEl = el('bc-end');
-    if (sEl) sEl.value = start;
-    if (eEl) eEl.value = end;
+    bcSetDateField(el('bc-start'), start);
+    bcSetDateField(el('bc-end'), end);
     loadBedCalendar(function(data){
       if (!tryOpenBlock(data.blocks) && code){
         showBlockDetail({
@@ -17091,7 +17142,7 @@ function openBookingInCalendar(booking){
 
   var sEl = el('bc-start');
   var eEl = el('bc-end');
-  if (sEl && sEl.value && eEl && eEl.value){
+  if (bcReadDateField(sEl) && bcReadDateField(eEl)){
     loadBedCalendar(function(data){
       if (!tryOpenBlock(data.blocks) && code){
         showBlockDetail({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
@@ -18788,8 +18839,8 @@ function bcApplySelectionHighlight(){
   });
 
   /* Update form skeleton pre-filled fields (Stage 8.3d) */
-  var cinInp    = el('bc-sel-cin');    if (cinInp)    cinInp.value    = selStart;
-  var coutInp   = el('bc-sel-cout');   if (coutInp)   coutInp.value   = checkOut;
+  var cinInp    = el('bc-sel-cin');    if (cinInp)    bcSetDateField(cinInp, selStart);
+  var coutInp   = el('bc-sel-cout');   if (coutInp)   bcSetDateField(coutInp, checkOut);
   var nightsInp = el('bc-sel-nights'); if (nightsInp) nightsInp.value = String(formNights);
 
   /* Update selected beds list (Stage 8.4.5) */
@@ -18864,8 +18915,8 @@ function bcRenderAvailabilityBlockersHtml(avail){
 
 /* Read-only availability check — used internally before create (no separate UI button). */
 function bcFetchManualBookingAvailability(){
-  var checkIn = el('bc-sel-cin') ? el('bc-sel-cin').value : '';
-  var checkOut = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
+  var checkIn = bcReadDateField(el('bc-sel-cin'));
+  var checkOut = bcReadDateField(el('bc-sel-cout'));
   var bedCodes = bcSelectedBedCodes();
   if (!checkIn || !checkOut || bedCodes.length === 0) {
     return Promise.resolve({ ok: false, error: 'missing_fields' });
@@ -18990,8 +19041,8 @@ function bcUpdateQuoteButton(){
   var btn = el('bc-sel-quote');
   if (!btn) return;
   var hasSelection = bcSelectedBeds.length > 0;
-  var cin  = el('bc-sel-cin')       ? el('bc-sel-cin').value       : '';
-  var cout = el('bc-sel-cout')      ? el('bc-sel-cout').value      : '';
+  var cin  = bcReadDateField(el('bc-sel-cin'));
+  var cout = bcReadDateField(el('bc-sel-cout'));
   var gc   = parseInt(el('bk-guest-count') ? el('bk-guest-count').value : '0', 10) || 0;
   var pkg  = el('bk-package')        ? el('bk-package').value        : '';
   var pc   = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
@@ -19011,8 +19062,8 @@ function bcUpdateCreateButton(){
     return;
   }
   var hasSelection = bcSelectedBeds.length > 0;
-  var cin          = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
-  var cout         = el('bc-sel-cout')       ? el('bc-sel-cout').value       : '';
+  var cin          = bcReadDateField(el('bc-sel-cin'));
+  var cout         = bcReadDateField(el('bc-sel-cout'));
   var gc           = parseInt(el('bk-guest-count')   ? el('bk-guest-count').value   : '0', 10) || 0;
   var pkg          = el('bk-package')        ? el('bk-package').value        : '';
   var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
@@ -19117,8 +19168,8 @@ function runManualBookingCreate(){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.noQuote')) + '</div>' + escHtml(t('calendar.create.calculateQuoteFirst')) + '</div>';
     return;
   }
-  var checkIn      = el('bc-sel-cin')        ? el('bc-sel-cin').value        : '';
-  var checkOut     = el('bc-sel-cout')       ? el('bc-sel-cout').value       : '';
+  var checkIn      = bcReadDateField(el('bc-sel-cin'));
+  var checkOut     = bcReadDateField(el('bc-sel-cout'));
   var client       = getBcClient();
   var gcEl         = el('bk-guest-count');
   var guestCount   = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
@@ -19471,8 +19522,8 @@ function bcRefreshQuotePreviewDisplay(){
 function runQuotePreview(){
   var qr = el('bc-quote-result');
   if (!qr) return;
-  var checkIn  = el('bc-sel-cin')  ? el('bc-sel-cin').value  : '';
-  var checkOut = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
+  var checkIn  = bcReadDateField(el('bc-sel-cin'));
+  var checkOut = bcReadDateField(el('bc-sel-cout'));
   if (!checkIn || !checkOut || bcSelectedBeds.length === 0){
     qr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.create.quote.missingInput')) + '</div>' + escHtml(t('calendar.create.quote.selectBedsDates')) + '</div>';
     return;
@@ -19865,6 +19916,17 @@ var BC_ROOM_GENDER_I18N = {
 function bcIsPortalOperatorRoom(room) {
   if (room && room.room_category === 'operator_surfweek') return true;
   return !!(room && room.often_used_by_operator);
+}
+
+function bcFormatServiceScheduleDayLabel(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr || '\u2014';
+  var d = new Date(dateStr + 'T12:00:00Z');
+  if (isNaN(d.getTime())) return dateStr;
+  var keys = [
+    'calendar.day.sun', 'calendar.day.mon', 'calendar.day.tue', 'calendar.day.wed',
+    'calendar.day.thu', 'calendar.day.fri', 'calendar.day.sat',
+  ];
+  return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + bcFormatIsoDateDisplay(dateStr);
 }
 
 function bcFormatCalendarDayLabel(day) {
@@ -20939,9 +21001,8 @@ function bcRenderMoveResult(html, isError){
 }
 
 function bcReloadAfterMoveSuccess(bookingCode){
-  var startEl = el('bc-start');
-  var endEl = el('bc-end');
-  var hasCalRange = !!(startEl && endEl && startEl.value && endEl.value && bcData);
+  var range = bcReadCalendarRangeIso();
+  var hasCalRange = !!(range.start && range.end && bcData);
   if (hasCalRange){
     loadBedCalendar(function(){
       var blk = null;
@@ -24615,7 +24676,7 @@ function bcFormatServiceSummaryLine(svc){
 
 function bcRenderSchedulePickerHtml(unsched, targetDate){
   if (!unsched || !unsched.length) {
-    return '<div class="ctx-none" style="font-size:11px">No unscheduled services to schedule.</div>';
+    return '<div class="ctx-none" style="font-size:11px">' + escHtml(t('drawer.services.noUnscheduled')) + '</div>';
   }
   var html = '<div class="bc-svc-picker-list">';
   unsched.forEach(function(s){
@@ -24694,7 +24755,7 @@ function bcRenderServicesScheduleSections(data){
       var hasScheduled = dayServices.length > 0;
       html += '<div class="bc-svc-schedule-day" data-date="' + escHtml(g.date || '') + '">';
       html += '<div class="bc-svc-schedule-day-header">';
-      html += '<div class="bc-svc-schedule-day-label">' + escHtml(g.label || g.date || '\u2014') + '</div>';
+      html += '<div class="bc-svc-schedule-day-label">' + escHtml(bcFormatServiceScheduleDayLabel(g.date)) + '</div>';
       html += '<div class="bc-svc-schedule-day-actions">';
       html += '<button type="button" class="bc-svc-schedule-add-btn" data-date="' + escHtml(g.date || '') +
         '" title="' + escHtml(t('drawer.services.scheduleAddTitle')) + '" aria-label="' + escHtml(t('drawer.services.scheduleAddAria', { date: g.label || g.date || '' })) + '">+</button>';
@@ -25402,7 +25463,7 @@ function toOnTourOperatorTabOpen(){
 function bcUpdateCalendarTitle(){
   var titleEl = el('bc-calendar-title');
   if (!titleEl) return;
-  var start = (el('bc-start') && el('bc-start').value) || '';
+  var start = bcReadDateField(el('bc-start'));
   var year = (start && /^\d{4}/.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
   titleEl.textContent = t('calendar.title') + ' - ' + year;
 }
@@ -25463,10 +25524,20 @@ window.staffPortalOnLocaleChange = function(){
 
 function loadBedCalendar(afterRender){
   bcPrepareCalendarZoomForRangeChange();
+  bcNormalizeDateInput(el('bc-start'));
+  bcNormalizeDateInput(el('bc-end'));
   bcUpdateCalendarTitle();
-  var start  = (el('bc-start').value||'').trim();
-  var end    = (el('bc-end').value||'').trim();
+  var range = bcReadCalendarRangeIso();
+  var start = range.start;
+  var end = range.end;
   var client = getBcClient();
+
+  if (!start || !end) {
+    el('bc-state').className = 'state-msg error';
+    el('bc-state').textContent = t('calendar.state.invalidDateRange');
+    el('bc-state').style.display = 'block';
+    return;
+  }
 
   var bcShell = el('bc-grid-shell');
   if (bcShell) bcShell.style.display = 'none';
@@ -25528,7 +25599,7 @@ function bcOnBedCalendarTabOpen(){
   bcInitDetailCopyDelegation();
   var sEl = el('bc-start');
   var eEl = el('bc-end');
-  if ((sEl && !sEl.value) || (eEl && !eEl.value)){
+  if (!bcReadDateField(sEl) || !bcReadDateField(eEl)){
     var today = new Date();
     var end30 = new Date(today.getTime() + 30 * 86400000);
     bcInitialLoadDone = true;
@@ -25545,9 +25616,8 @@ function bcOnBedCalendarTabOpen(){
 }
 
 function bcSetRange(start, end, chipKey){
-  var s = el('bc-start'); var e = el('bc-end');
-  if (s) s.value = start;
-  if (e) e.value = end;
+  bcSetDateField(el('bc-start'), start);
+  bcSetDateField(el('bc-end'), end);
   bcUpdateCalendarTitle();
   /* Update active chip */
   document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
@@ -25564,10 +25634,17 @@ function bcSetRange(start, end, chipKey){
   bcInitCalendarZoom();
   var today = new Date();
   var plus30 = new Date(today.getTime() + 30 * 86400000);
-  var s = el('bc-start'); var e = el('bc-end');
-  if (s && !s.value) s.value = bcIso(today);
-  if (e && !e.value) e.value = bcIso(plus30);
+  bcSetDateField(el('bc-start'), bcIso(today));
+  bcSetDateField(el('bc-end'), bcIso(plus30));
   bcUpdateCalendarTitle();
+  ['bc-start', 'bc-end'].forEach(function(id){
+    var inp = el(id);
+    if (!inp) return;
+    inp.addEventListener('blur', function(){
+      bcNormalizeDateInput(inp);
+      bcUpdateCalendarTitle();
+    });
+  });
 })();
 
 document.querySelectorAll('.bc-chip').forEach(function(chip){
