@@ -70,7 +70,6 @@ function wolfhouseAll(opts) {
 function pick(opts) {
   return chooseBeds({
     allowProtected: true,
-    allowOperator: false,
     rooms: opts.rooms || wolfhouseAll(),
     ...opts,
   });
@@ -187,7 +186,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('U5', r.reason === 'cram_gender_eligible_rooms', 'unknown 8 cram reason');
 }
 
-// ── Mixed group too big for R1+R3 → flip empty spare female room (R8) ───────
+// ── Mixed group too big for R1+R3 → operator rooms before flip ─────────────
 {
   const r = pick({
     guestCount: 10,
@@ -199,9 +198,29 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
       R5: { availableMask: [false, false, false, false, false, true] },
     }),
   });
-  check('FL1', !r.handoff, 'mixed 10 fits after flip');
-  check('FL2', roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'uses flipped spare R8');
-  check('FL3', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'keeps R5 female reserved');
+  check('FL1', !r.handoff, 'mixed 10 fits via operator before flip');
+  check('FL2', roomCodesFromBeds(r.selected_bed_codes).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'uses operator tier');
+  check('FL3', !roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'no flip while operator free');
+}
+
+// ── Flip only after dedicated + operator exhausted ────────────────────────
+{
+  const r = pick({
+    guestCount: 10,
+    groupGender: 'mixed',
+    rooms: wolfhouseAll({
+      R1: { availableMask: [false, false, false, false, false] },
+      R3: { availableMask: [false, false, false, false] },
+      R7: { availableMask: [false, false, false, false] },
+      R9: { availableMask: [false, false, false, false, false, false] },
+      R10: { availableMask: [false, false, false, false, false, false] },
+      R8: {},
+      R5: { availableMask: [false, false, false, false, false, true] },
+    }),
+  });
+  check('FL1b', !r.handoff, 'mixed 10 fits after operator full → flip');
+  check('FL2b', roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'uses flipped spare R8');
+  check('FL3b', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'keeps R5 female reserved');
 }
 
 // ── Never flip occupied gendered room ─────────────────────────────────────
@@ -254,8 +273,39 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('P1', r.room_code !== 'R6', 'non-couple skips R6');
 }
 {
-  const r = pick({ guestCount: 2, groupGender: 'unknown' });
-  check('O1', !roomCodesFromBeds(r.selected_bed_codes).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'operator rooms excluded');
+  const r = pick({
+    guestCount: 8,
+    groupGender: 'unknown',
+    rooms: wolfhouseAll({
+      R1: { availableMask: [false, false, false, false, false] },
+      R3: { availableMask: [false, false, false, false] },
+    }),
+  });
+  check('O1', roomCodesFromBeds(r.selected_bed_codes).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'operator fallback when dedicated mixed full');
+}
+{
+  const r = pick({
+    guestCount: 4,
+    groupGender: 'female',
+    rooms: wolfhouseAll({
+      R5: { availableMask: [false, false, false, false, false, false] },
+      R8: { availableMask: [false, false, false, false, false] },
+    }),
+  });
+  check('O2', r.room_code === 'R7' || r.room_code === 'R9' || r.room_code === 'R10', `female group uses operator when female rooms full (${r.room_code})`);
+}
+{
+  const r = pick({
+    guestCount: 2,
+    groupGender: 'unknown',
+    operatorBlockedRoomCodes: ['R7'],
+    rooms: wolfhouseAll({
+      R1: { availableMask: [false, false, false, false, false] },
+      R3: { availableMask: [false, false, false, false] },
+    }),
+  });
+  check('O3', !roomCodesFromBeds(r.selected_bed_codes).includes('R7'), 'operator-blocked R7 skipped');
+  check('O4', roomCodesFromBeds(r.selected_bed_codes).some((c) => c === 'R9' || c === 'R10'), 'uses unblocked operator room');
 }
 
 // ── Size fill: ≤2 consolidate vs ≥3 own room ────────────────────────────────

@@ -424,6 +424,7 @@ async function runAvailabilityCheckDryRun(fields, pg) {
       bedRows,
       occupiedBedCodes,
       allowedBedCodes,
+      blockRows,
       guestCount,
       guestName: fields.guest_name || null,
       genderPreference: fields.gender_preference || fields.group_gender || null,

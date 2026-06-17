@@ -8146,6 +8146,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
       bedRows,
       occupiedBedCodes,
       allowedBedCodes,
+      blockRows,
       guestCount,
       guestName,
       genderPreference: genderPref,

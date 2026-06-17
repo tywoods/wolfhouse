@@ -317,13 +317,21 @@ function buildCramSelection(plan, guestCount) {
   };
 }
 
-function assertSelectionGenderSafe(selection, eligibleRooms, groupGender, roomPreference) {
+function assertSelectionGenderSafe(selection, eligibleRooms, groupGender, roomPreference, opts = {}) {
   const byCode = new Map(eligibleRooms.map((r) => [r.room_code, r]));
   const allowed = allowedCategoriesForGroup(groupGender, roomPreference);
+  if (opts.allowOperator) allowed.add('operator_surfweek');
   for (const bedCode of selection.selected_bed_codes || []) {
     const roomCode = String(bedCode).replace(/-B\d+$/, '');
     const room = byCode.get(roomCode);
-    if (!room || !allowed.has(room.category)) {
+    if (!room) return false;
+    if (room.flipped_from === 'female_only' || room.flipped_from === 'male_only') {
+      if (!allowed.has('mixed') && !allowed.has('matrimonial_or_mixed') && !opts.allowFlip) {
+        return false;
+      }
+      continue;
+    }
+    if (!allowed.has(room.category)) {
       return false;
     }
   }
@@ -334,7 +342,7 @@ function assertSelectionGenderSafe(selection, eligibleRooms, groupGender, roomPr
  * @param {object} opts
  * @returns {object}
  */
-function tryPlaceInEligibleRooms(rooms, guestCount, groupGender, roomPreference, allocOpts) {
+function tryPlaceInEligibleRooms(rooms, guestCount, groupGender, roomPreference, allocOpts, safetyOpts = {}) {
   const eligible = rooms
     .filter((r) => roomEligibleForGroup(r.category, groupGender, allocOpts) && countAvailable(r) > 0);
 
@@ -350,7 +358,7 @@ function tryPlaceInEligibleRooms(rooms, guestCount, groupGender, roomPreference,
       split: false,
       reason: pickReason(winner, guestCount, false, false),
     };
-    if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
+    if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference, safetyOpts)) {
       return { handoff: true, reason: 'gender_eligibility_violation' };
     }
     return result;
@@ -360,10 +368,53 @@ function tryPlaceInEligibleRooms(rooms, guestCount, groupGender, roomPreference,
   if (!cramPlan) return null;
 
   const result = buildCramSelection(cramPlan, guestCount);
-  if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
+  if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference, safetyOpts)) {
     return { handoff: true, reason: 'gender_eligibility_violation' };
   }
   return result;
+}
+
+function applyOperatorBlockFlags(rooms, operatorBlockedRoomCodes) {
+  const blocked = operatorBlockedRoomCodes instanceof Set
+    ? operatorBlockedRoomCodes
+    : new Set(operatorBlockedRoomCodes || []);
+  if (!blocked.size) return rooms;
+  return rooms.map((r) => ({
+    ...r,
+    operator_blocked: blocked.has(r.room_code),
+    beds: (r.beds || []).map((b) => ({
+      ...b,
+      available: blocked.has(r.room_code) ? false : b.available,
+    })),
+  }));
+}
+
+function dedicatedRoomsForGroup(rooms, groupGender, roomPreference) {
+  const allowed = allowedCategoriesForGroup(groupGender, roomPreference);
+  return rooms
+    .map(enrichRoom)
+    .filter((r) => r.category !== 'operator_surfweek' && allowed.has(r.category));
+}
+
+function operatorRoomsUnblocked(rooms) {
+  return rooms
+    .map(enrichRoom)
+    .filter((r) => r.category === 'operator_surfweek' && !r.operator_blocked);
+}
+
+function flippedMixedRooms(rooms) {
+  return expandRoomsWithFlippedMixed(rooms)
+    .filter((r) => r.category === 'mixed' || r.flipped_from);
+}
+
+function operatorBlockedRoomsFromBlocks(blockRows) {
+  const rooms = new Set();
+  for (const row of blockRows || []) {
+    if (String(row.assignment_type || '').toLowerCase() === 'operator_block' && row.room_code) {
+      rooms.add(row.room_code);
+    }
+  }
+  return rooms;
 }
 
 function chooseBeds(opts) {
@@ -374,7 +425,7 @@ function chooseBeds(opts) {
   const allowOperator = opts.allowOperator === true;
   const allocOpts = { guestCount, roomPreference, allowProtected, allowOperator, groupGender };
 
-  const rooms = (opts.rooms || []).map((r) => ({
+  let rooms = (opts.rooms || []).map((r) => ({
     room_code: r.room_code,
     room_type: r.room_type,
     gender_strategy: r.gender_strategy,
@@ -382,11 +433,13 @@ function chooseBeds(opts) {
     fill_priority: r.fill_priority,
     can_be_matrimonial: r.can_be_matrimonial,
     often_used_by_operator: r.often_used_by_operator,
+    operator_blocked: !!r.operator_blocked,
     beds: (r.beds || []).map((b) => ({
       bed_code: b.bed_code,
       available: b.available === true,
     })),
   }));
+  rooms = applyOperatorBlockFlags(rooms, opts.operatorBlockedRoomCodes);
 
   if (rooms.some((r) => (r.beds || []).some((b) => b.available !== true && b.available !== false))) {
     return { handoff: true, reason: 'invalid_bed_availability_state' };
@@ -406,17 +459,51 @@ function chooseBeds(opts) {
     allocOpts.groupGender = 'male';
   }
 
-  const enrichedRooms = rooms.map(enrichRoom);
   const useFlipFallback = groupGender === 'unknown' || groupGender === 'mixed';
 
-  let result = tryPlaceInEligibleRooms(enrichedRooms, guestCount, groupGender, roomPreference, allocOpts);
+  // Tier 1 — dedicated gender-eligible rooms (R1–R6, R8, etc.; never operator)
+  let result = tryPlaceInEligibleRooms(
+    dedicatedRoomsForGroup(rooms, groupGender, roomPreference),
+    guestCount,
+    groupGender,
+    roomPreference,
+    allocOpts,
+  );
   if (result && !result.handoff) return result;
 
+  // Tier 2 — unblocked operator rooms (R7/R9/R10), flexible/mixed, lowest fill priority
+  const operatorTierOpts = { ...allocOpts, allowOperator: true };
+  result = tryPlaceInEligibleRooms(
+    operatorRoomsUnblocked(rooms),
+    guestCount,
+    groupGender,
+    roomPreference,
+    operatorTierOpts,
+    { allowOperator: true },
+  );
+  if (result && !result.handoff) {
+    if (result.reason === 'cram_gender_eligible_rooms') {
+      result.reason = 'operator_room_cram';
+    } else if (!result.split) {
+      result.reason = 'operator_room_fallback';
+    }
+    return result;
+  }
+
+  // Tier 3 — flip empty spare gendered room to mixed (mixed/unknown groups only)
   if (useFlipFallback) {
-    const expanded = expandRoomsWithFlippedMixed(rooms);
-    result = tryPlaceInEligibleRooms(expanded, guestCount, groupGender, roomPreference, allocOpts);
+    result = tryPlaceInEligibleRooms(
+      flippedMixedRooms(rooms),
+      guestCount,
+      groupGender,
+      roomPreference,
+      allocOpts,
+      { allowFlip: true },
+    );
     if (result && !result.handoff) {
-      if (result.reason && result.reason !== 'cram_gender_eligible_rooms') {
+      if (result.reason === 'cram_gender_eligible_rooms') {
+        result.reason = 'cram_flipped_mixed_rooms';
+      } else if (result.reason !== 'cram_flipped_mixed_rooms') {
         result.reason = result.split ? 'cram_flipped_mixed_rooms' : 'flipped_gendered_room_to_mixed';
       }
       return result;
@@ -560,6 +647,8 @@ function runAvailabilityBedSelection(params) {
     bedRows,
     occupiedBedCodes,
     allowedBedCodes,
+    blockRows,
+    operatorBlockedRoomCodes,
     guestCount,
     guestName,
     guestNames,
@@ -569,6 +658,8 @@ function runAvailabilityBedSelection(params) {
     useRules = isRulesBasedRoomingEnabled(),
   } = params;
 
+  const blockedRooms = operatorBlockedRoomCodes
+    || operatorBlockedRoomsFromBlocks(blockRows);
   const rooms = buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCodes);
   const ctx = deriveAllocatorContext({
     guestCount,
@@ -586,7 +677,7 @@ function runAvailabilityBedSelection(params) {
       groupGender: ctx.groupGender,
       roomPreference: ctx.roomPreference,
       allowProtected: true,
-      allowOperator: false,
+      operatorBlockedRoomCodes: blockedRooms,
     })
     : chooseBedsCapacityOnly({ rooms, guestCount });
 
@@ -617,6 +708,8 @@ module.exports = {
   buildAllocatorRoomsFromBedRows,
   findFlippableGenderedRooms,
   expandRoomsWithFlippedMixed,
+  operatorBlockedRoomsFromBlocks,
+  applyOperatorBlockFlags,
   isRulesBasedRoomingEnabled,
   runAvailabilityBedSelection,
 };
