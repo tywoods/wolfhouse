@@ -7910,6 +7910,27 @@ async function handleQuotePreview(req, res, user) {
       ? Math.round(Number(body.manual_price_per_night_euros) * 100)
       : null);
 
+  const guestCountInt = parseInt(guestCount, 10) || 0;
+  const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
+  let guestPackages = [];
+  if (rawGuestPackages.length > 0) {
+    const normalizedGuestPackages = normalizeGuestPackagesInput(
+      rawGuestPackages,
+      guestCountInt || rawGuestPackages.length,
+      packageCode || 'malibu',
+    );
+    if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
+    guestPackages = normalizedGuestPackages.guest_packages || [];
+  }
+  const addOnPrep = validateAndNormalizeQuoteAddOns(addOns, guestCountInt || 1);
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode,
+    guestPackages,
+    checkIn,
+    checkOut,
+    guestCount: guestCountInt,
+  });
+
   if (!checkIn || !checkOut) {
     return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
   }
@@ -7945,17 +7966,33 @@ async function handleQuotePreview(req, res, user) {
 
   let quote;
   try {
-    quote = calculateWolfhouseQuote({
-      client_slug:    clientSlug,
-      check_in:       checkIn,
-      check_out:      checkOut,
-      guest_count:    guestCount,
-      package_code:   packageCode,
-      room_type:      roomType,
-      payment_choice: paymentChoice,
-      add_ons:        addOns,
-      manual_price_per_night_cents: manualPricePerNightCents,
-    });
+    if (!addOnPrep.ok) {
+      quote = {
+        success: false,
+        staff_review_required: true,
+        blockers: addOnPrep.blockers,
+        unknown_add_on_codes: addOnPrep.unknown_codes,
+        line_items: [],
+        subtotal_cents: 0,
+        discount_cents: 0,
+        total_cents: 0,
+        deposit_required_cents: 0,
+        currency: 'EUR',
+      };
+    } else {
+      quote = calculateWolfhouseQuote({
+        client_slug:    clientSlug,
+        check_in:       checkIn,
+        check_out:      checkOut,
+        guest_count:    guestCountInt || guestCount,
+        package_code:   pkgCtx.quotePackageCode,
+        guest_packages: pkgCtx.guestPackagesForQuote.length ? pkgCtx.guestPackagesForQuote : undefined,
+        room_type:      roomType,
+        payment_choice: paymentChoice,
+        add_ons:        addOnPrep.add_ons,
+        manual_price_per_night_cents: manualPricePerNightCents,
+      });
+    }
   } catch (err) {
     appendAuditLog({
       ts:            new Date().toISOString(),

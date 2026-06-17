@@ -8,7 +8,7 @@ const fs = require('fs');
 const path = require('path');
 const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
 const { resolveBotBookingPackageContext } = require('./lib/bot-booking-package-normalize');
-const { normalizeQuoteAddOnsForCombo } = require('./lib/guest-addon-pricing');
+const { normalizeQuoteAddOnsForCombo, validateAndNormalizeQuoteAddOns } = require('./lib/guest-addon-pricing');
 
 const staffApiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
 
@@ -149,6 +149,37 @@ section('E. 7+ nights without package still blocked');
   });
   check('E1', ctx.isShortStay === false, '7 nights not short stay');
   check('E2', ctx.quotePackageCode === null, 'no package on 7-night without choice');
+}
+
+section('F. Manual booking quote-preview — guestPackages defined (regression)');
+{
+  const start = staffApiSrc.indexOf('async function handleQuotePreview');
+  const end = staffApiSrc.indexOf('async function handleBotAvailabilityCheck', start);
+  const handler = start >= 0 && end > start ? staffApiSrc.slice(start, end) : '';
+  check('F1', /let guestPackages\s*=/.test(handler), 'guestPackages declared in handleQuotePreview');
+  const declPos = handler.search(/let guestPackages\s*=/);
+  const usePos = handler.indexOf('guest_packages:      guestPackages');
+  check('F2', declPos >= 0 && usePos > declPos, 'guestPackages declared before response field');
+  const guestCountInt = 1;
+  const addOnPrep = validateAndNormalizeQuoteAddOns([], guestCountInt);
+  const pkgCtx = resolveBotBookingPackageContext({
+    packageCode: 'malibu',
+    guestPackages: [],
+    checkIn: '2026-07-01',
+    checkOut: '2026-07-08',
+    guestCount: guestCountInt,
+  });
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-01',
+    check_out: '2026-07-08',
+    guest_count: guestCountInt,
+    package_code: pkgCtx.quotePackageCode,
+    room_type: 'shared',
+    payment_choice: 'deposit',
+    add_ons: addOnPrep.add_ons,
+  });
+  check('F3', addOnPrep.ok && quote.success, 'malibu 7-night quote-preview path succeeds');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);
