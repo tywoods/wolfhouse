@@ -165,6 +165,17 @@ const FIXTURES = [
   {
     // Bug B — post-booking add-on. Adding yoga to an existing booking must
     // succeed via alias (yoga_class→yoga), NOT 422 → staff handoff.
+    //
+    // KNOWN-RED = REAL CATCH (Fix1b GAP, 2026-06-17). The alias fix landed
+    // (agent now sends canonical service_type=yoga), but the add-on STILL
+    // staff-handoffs via a DIFFERENT 422: the agent calls add_service_to_booking
+    // with confirm:true and NO quantity; resolveBotAddonRequestContext returns
+    // the soft kind='ask_quantity', and the CREATE handler (staff-query-api.js
+    // ~L8763) flattens ANY non-'ready' kind into HTTP 422 → plugin reads 422 as
+    // staff_review_needed → flag_needs_human → handoff. Proven via
+    // addon-request-preview: no-qty→ask_quantity, quantity:1→ready (€15, clean).
+    // Fix (Cursor): default qty=1 for yoga/single-lesson AND/OR don't map the
+    // ask_* states to 422 — relay them to the guest. Flip to green once fixed.
     name: 'fix1b-post-booking-yoga-alias',
     lang: 'it',
     allow_writes: true,                                        // creates a Stripe-TEST booking
@@ -174,6 +185,9 @@ const FIXTURES = [
       { text: 'Siamo due ragazzi.', expect: {} },              // composition
       { text: 'Sì, crea pure la prenotazione.', expect: {} },
       { text: 'Perfetto. Posso anche aggiungere una lezione di yoga?', expect: {} },
+      // Luna asks one question per reply (date for the class) before firing the
+      // tool — give a concrete in-stay date so add_service_to_booking lands.
+      { text: 'Sì, facciamola il 16 agosto.', expect: {} },
     ],
     expect_overall: {
       tool_called: ['create_booking_from_plan', 'add_service_to_booking'],
