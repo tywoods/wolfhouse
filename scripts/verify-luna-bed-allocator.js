@@ -88,7 +88,10 @@ check('CAT3', resolveRoomCategory(wolfhouseRoom('R7')) === 'operator_surfweek', 
 // ── Context ─────────────────────────────────────────────────────────────────
 check('CTX1', deriveAllocatorContext({ guestCount: 1, guestName: 'Sarah' }).groupGender === 'female', 'Sarah → female');
 check('CTX2', deriveAllocatorContext({ guestCount: 8, guestName: 'Sarah' }).groupGender === 'unknown', '8 guests one name → unknown');
-check('CTX3', allowedCategoriesForGroup('female', null).has('female_only') && !allowedCategoriesForGroup('female', null).has('mixed'), 'female default female_only only');
+check('CTX3', deriveAllocatorContext({ guestCount: 1, guestName: 'Marco' }).groupGender === 'male', 'Marco → male');
+check('CTX4', deriveAllocatorContext({ guestCount: 3, genderPreference: 'male' }).groupGender === 'male', 'gender_preference male → male');
+check('CTX5', deriveAllocatorContext({ guestCount: 2, roomPreference: 'guys room' }).groupGender === 'male', 'guys room → male');
+check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !allowedCategoriesForGroup('female', null).has('mixed'), 'female default female_only only');
 
 // ── Female solo → female room, never R3/R4 ──────────────────────────────────
 {
@@ -135,12 +138,13 @@ check('CTX3', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('F6', !r.handoff && r.split, 'female 8 splits across female rooms');
   check('F7', !roomCodesFromBeds(r.selected_bed_codes).includes('R4'), 'female 8 never R4');
   check('F8', roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R5' || c === 'R8'), 'female 8 only R5/R8');
+  check('F8b', r.reason === 'cram_gender_eligible_rooms', 'female 8 cram reason');
 }
 
 // ── Female explicit mixed preference may use R1 ─────────────────────────────
 {
   const r = pick({ guestCount: 1, groupGender: 'female', roomPreference: 'mixed' });
-  check('F9', r.room_code === 'R1', 'female + mixed pref may use R1');
+  check('F9', r.room_code === 'R1' || r.room_code === 'R3', 'female + mixed pref may use mixed pool');
 }
 
 // ── Male solo/group ─────────────────────────────────────────────────────────
@@ -153,16 +157,34 @@ check('CTX3', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('M2', r.room_code === 'R2' || r.room_code === 'R1', 'male group 3 in male or mixed');
   check('M3', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'male never R5');
 }
+{
+  const r = pick({
+    guestCount: 4,
+    groupGender: 'male',
+    rooms: wolfhouseAll({
+      R2: { availableMask: [false, false, false, false, false] },
+      R1: { availableMask: [false, false, false, false, false] },
+    }),
+  });
+  check('M4', r.room_code === 'R4', 'male 4 uses R4 when R2/R1 full');
+}
+{
+  const ctx = deriveAllocatorContext({ guestCount: 1, guestName: 'Marco' });
+  const r = pick({ guestCount: 1, groupGender: ctx.groupGender, roomPreference: ctx.roomPreference });
+  check('M5', r.room_code === 'R2' || r.room_code === 'R1', `Marco solo male room (${r.room_code})`);
+}
 
-// ── Unknown/mixed group → mixed only ────────────────────────────────────────
+// ── Unknown/mixed group → mixed pool (R1 + R3) ─────────────────────────────
 {
   const r = pick({ guestCount: 2, groupGender: 'unknown' });
-  check('U1', r.room_code === 'R1', 'unknown pair → R1 mixed');
+  check('U1', r.room_code === 'R3' || r.room_code === 'R1', `unknown pair → mixed pool (${r.room_code})`);
 }
 {
   const r = pick({ guestCount: 8, groupGender: 'unknown' });
   check('U2', !roomCodesFromBeds(r.selected_bed_codes).includes('R4'), 'unknown 8 never male R4');
-  check('U3', r.handoff || (r.split && roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R1')), 'unknown 8 mixed split or handoff');
+  check('U3', !r.handoff && r.split, 'unknown 8 crams across mixed pool');
+  check('U4', roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R1' || c === 'R3'), 'unknown 8 only R1/R3');
+  check('U5', r.reason === 'cram_gender_eligible_rooms', 'unknown 8 cram reason');
 }
 
 // ── Couple + private ──────────────────────────────────────────────────────────
@@ -177,6 +199,14 @@ check('CTX3', allowedCategoriesForGroup('female', null).has('female_only') && !a
     rooms: wolfhouseAll({ R6: { availableMask: [false, false] } }),
   });
   check('C2', r.room_code === 'R3' && r.reason === 'couple_matrimonial_or_mixed_empty_room', 'couple fallback R3 joined');
+}
+{
+  const r = pick({
+    guestCount: 2,
+    roomPreference: 'private',
+    rooms: wolfhouseAll({ R6: { availableMask: [false, false] }, R3: { availableMask: [false, false, false, false] } }),
+  });
+  check('C3', !r.handoff && r.selected_bed_codes.length === 2, 'couple crams mixed when R6/R3 unavailable');
 }
 
 // ── Protected / operator ────────────────────────────────────────────────────

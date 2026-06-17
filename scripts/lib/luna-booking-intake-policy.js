@@ -43,11 +43,13 @@ const GENERIC_WHATSAPP_NAMES = new Set([
 ]);
 
 const LIKELY_MALE_NAMES = new Set([
-  'marco', 'john', 'james', 'michael', 'david', 'ty', 'tyler', 'tom', 'thomas',
-  'mark', 'matt', 'matthew', 'chris', 'christopher', 'alex', 'alexander', 'ben',
+  'marco', 'marcus', 'martin', 'john', 'james', 'michael', 'david', 'ty', 'tyler', 'tom', 'thomas',
+  'mark', 'matt', 'matthew', 'chris', 'christopher', 'alex', 'alexander', 'ben', 'benjamin',
   'daniel', 'peter', 'paul', 'luke', 'jack', 'sam', 'samuel', 'max', 'noah',
-  'liam', 'josh', 'joshua', 'ryan', 'adam', 'kevin', 'brian', 'eric', 'steve',
-  'carlos', 'miguel', 'luca', 'andrea', 'giuseppe', 'hans', 'jan', 'pierre',
+  'liam', 'josh', 'joshua', 'ryan', 'adam', 'kevin', 'brian', 'eric', 'steve', 'steven',
+  'carlos', 'miguel', 'luca', 'giuseppe', 'hans', 'jan', 'pierre', 'antonio', 'francesco',
+  'giovanni', 'stefano', 'stefan', 'nicola', 'roberto', 'robert', 'william', 'oliver', 'henry',
+  'george', 'patrick', 'simon', 'felix', 'louis', 'luca', 'diego', 'pablo', 'jose', 'juan',
 ]);
 
 const LIKELY_FEMALE_NAMES = new Set([
