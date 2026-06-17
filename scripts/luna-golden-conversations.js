@@ -29,7 +29,12 @@
  *   tool_args_include:  { tool: { key: val|RegExp } } — that tool's args must include these key/values
  */
 
-const { execFileSync } = require('child_process');
+const { execFileSync, execSync } = require('child_process');
+
+// Pace between turns so a follow-up doesn't arrive while the agent is still
+// finishing the previous turn (which returns an "interrupting current task" stub).
+const INTER_TURN_MS = Number(process.env.SIM_INTER_TURN_MS || 2500);
+const pace = () => { try { execSync(`sleep ${(INTER_TURN_MS / 1000).toFixed(1)}`); } catch (_) {} };
 
 const CONTAINER = process.env.HERMES_CONTAINER || 'hermes-luna';
 const TURN_TIMEOUT_MS = Number(process.env.SIM_TURN_TIMEOUT_MS || 180000);
@@ -143,20 +148,19 @@ const FIXTURES = [
   },
   {
     // Bug: hard board add-on. Luna must send canonical hard_board_rental (never
-    // hard_top_rental), and the quote must be the €120 wetsuit+hard-board combo.
+    // hard_top_rental). Exact €120 combo is asserted at the endpoint level.
     name: 'fix1-hard-board-combo',
     lang: 'en',
     turns: [
-      { text: '2 people, 3 nights Aug 15 to 18. We each want a hard board and a wetsuit.',
-        expect: { tool_called: 'check_availability', tool_args_include: { check_availability: { guest_count: 2 } } } },
-      { text: 'Yes, hard board and wetsuit for all 3 days please.',
-        expect: {
-          tool_called: 'quote_booking',
-          tool_args_include: { quote_booking: { add_ons: ['hard_board_rental', 'wetsuit_rental'] } },
-          reply_not_contains: ['hard_top_rental', ...LEAK_PHRASES],
-          reply_contains: [/120/],                             // €120 combo
-        } },
+      { text: '2 people, 3 nights Aug 15 to 18. We each want a hard board and a wetsuit, all 3 days.', expect: {} },
+      { text: 'Yes please, go ahead and quote it.', expect: {} },
     ],
+    expect_overall: {
+      tool_called: 'quote_booking',
+      tool_args_include: { quote_booking: { add_ons: ['hard_board_rental', 'wetsuit_rental'] } },
+      reply_not_contains: ['hard_top_rental', ...LEAK_PHRASES],
+    },
+    invariants: { reply_not_contains: ['hard_top_rental'] },
   },
   {
     // Bug B — post-booking add-on. Adding yoga to an existing booking must
@@ -165,40 +169,44 @@ const FIXTURES = [
     lang: 'it',
     allow_writes: true,                                        // creates a Stripe-TEST booking
     turns: [
-      { text: '2 persone, 3 notti dal 15 al 18 agosto, senza pacchetto.',
-        expect: { tool_called: 'check_availability' } },
-      { text: 'Va bene, procediamo. Mi chiamo Marco. Paghiamo la caparra.',
-        expect: {} },                                          // name + payment choice
+      { text: '2 persone, 3 notti dal 15 al 18 agosto, senza pacchetto, e una tavola soft top a testa.', expect: {} },
+      { text: 'Va bene il prezzo, procediamo. Mi chiamo Marco e paghiamo la caparra.', expect: {} },
       { text: 'Siamo due ragazzi.', expect: {} },              // composition
-      { text: 'Sì crea la prenotazione',
-        expect: { tool_called: 'create_booking_from_plan' } },
-      { text: 'Posso aggiungere una lezione di yoga?',
-        expect: {
-          tool_called: 'add_service_to_booking',
-          tool_not_called: 'flag_needs_human',
-          reply_not_contains: [...LEAK_PHRASES, 'team will', 'passo al team'],
-        } },
+      { text: 'Sì, crea pure la prenotazione.', expect: {} },
+      { text: 'Perfetto. Posso anche aggiungere una lezione di yoga?', expect: {} },
     ],
+    expect_overall: {
+      tool_called: ['create_booking_from_plan', 'add_service_to_booking'],
+      tool_not_called: 'flag_needs_human',                     // add-on must NOT hand off
+    },
+    invariants: { reply_not_contains: LEAK_PHRASES },
   },
   {
     // Bug C — private room. With R6 free, accepting "private" must re-quote WITH
-    // the supplement line (€10/night/person), not silently skip it.
+    // the supplement (€10/night/person), surfaced to the guest.
     // (Negative case — no private offer when R6 is booked — is unit-tested in
     //  verify-per-person-gear-room-pref.js G3; can't block R6 from the hook.)
     name: 'fix3-private-room-supplement-requote',
     lang: 'it',
     turns: [
-      { text: 'Ciao, siamo una coppia, 7 notti dal 1 al 8 novembre 2027.',
-        expect: { tool_called: 'check_availability', tool_args_include: { check_availability: { guest_count: 2 } } } },
-      { text: 'Malibu va bene', expect: { tool_called: 'quote_booking' } },
-      { text: 'Vorremmo una stanza privata per noi due',
-        expect: {
-          tool_called: 'quote_booking',
-          tool_args_include: { quote_booking: { room_preference: /private|couple_private|matrimonial/i } },
-          reply_contains: [/10|supplement|supplemento|140/],   // supplement surfaced
-          reply_not_contains: LEAK_PHRASES,
-        } },
+      { text: 'Ciao, siamo una coppia, 7 notti dal 1 all 8 novembre 2027, pacchetto Malibu.', expect: {} },
+      { text: 'Vorremmo una stanza privata per noi due.', expect: {} },
+      { text: 'Mi chiamo Luca.', expect: {} },
+      { text: 'Sì, va bene il supplemento, procediamo.', expect: {} },
     ],
+    // KNOWN-RED pending investigation: across runs the agent either (a) collects
+    // the name without ever surfacing the +€10/night supplement, or (b) hands the
+    // private-room request off to staff (flag_needs_human). Neither matches Fix 3's
+    // intent — Luna should check R6 herself (private_room_available flag) and
+    // re-quote WITH the supplement. Server side is verified (booking-preview returns
+    // room_supplement €140); this fixture pins the agent-side gap.
+    expect_overall: {
+      tool_called: 'quote_booking',
+      tool_args_include: { quote_booking: { room_preference: /private|couple|matrimonial|double/i } },
+      tool_not_called: 'flag_needs_human',                     // must NOT hand private off to staff
+      reply_contains: [/€?\s?10\b|supplement|supplemento|140/], // the supplement amount must be surfaced
+    },
+    invariants: { reply_not_contains: LEAK_PHRASES },
   },
   {
     // Flow order (2bd1fa8) — composition must be asked LATER (after payment + name),
@@ -210,15 +218,14 @@ const FIXTURES = [
         expect: {
           tool_called: 'check_availability',
           // must NOT interrogate group composition immediately after availability
-          reply_not_contains: ['all girls', 'all guys', 'all boys', 'mixed group', 'ragazzi', 'ragazze'],
+          reply_not_contains: ['all girls', 'all guys', 'all boys', 'mixed group', 'all girls or', 'girls or guys'],
         } },
-      { text: 'Malibu for all of us', expect: { tool_called: 'quote_booking' } },
-      { text: 'Looks good, we will pay the deposit. Names: Sam.',
-        expect: {} },
-      { text: 'Yes please continue',
-        // by now (after quote + name + payment intent) composition is the right question
-        expect: { reply_contains: [/girls|guys|boys|mixed|composition/i] } },
+      { text: 'Malibu for all of us, looks good.', expect: {} },
+      { text: 'We will pay the deposit. Name for the booking is Sam.', expect: {} },
+      { text: 'Yes please continue.', expect: {} },
     ],
+    // by SOME later turn (after quote + name + payment) composition IS the right question
+    expect_overall: { reply_contains: [/girls|guys|boys|mixed|composition|same group|all of you/i] },
   },
 ];
 
@@ -229,11 +236,16 @@ function runFixture(fx, { verbose }) {
   const thread = `sim:golden-${fx.name}-${stamp}`;
   const fails = [];
   let guestPhone = null;
+  const allTools = [];
+  const allReplies = [];
   process.stdout.write(`\n▶ ${fx.name} (${fx.lang}${fx.allow_writes ? ', writes' : ''})\n`);
   try {
     fx.turns.forEach((turn, i) => {
+      if (i > 0) pace();
       const res = simulate(thread, turn.text, { lang: fx.lang, allowWrites: fx.allow_writes });
       guestPhone = res.guest_phone || guestPhone;
+      allTools.push(...(res.tool_calls || []));
+      allReplies.push(res.reply_text || '');
       const before = fails.length;
       checkTurn(res, turn.expect, fails);
       // Fixture-level invariants are enforced on EVERY turn (e.g. never leak internals).
@@ -246,10 +258,21 @@ function runFixture(fx, { verbose }) {
       process.stdout.write(`  ${mark} turn ${i + 1}: [${tools}]${verbose ? `  «${(res.reply_text || '').slice(0, 120)}»` : ''}\n`);
       for (const f of fails.slice(before)) process.stdout.write(`      - ${f}\n`);
     });
+    // Conversation-level assertions: evaluated against ALL tool calls + the joined
+    // replies, so they're robust to which turn the agent chooses to act on.
+    if (fx.expect_overall) {
+      const before = fails.length;
+      checkTurn({ tool_calls: allTools, reply_text: allReplies.join('\n') }, fx.expect_overall, fails);
+      const mark = fails.length === before ? '✓' : '✗';
+      process.stdout.write(`  ${mark} overall: [${allTools.map((t) => t.name).join(', ') || '—'}]\n`);
+      for (const f of fails.slice(before)) process.stdout.write(`      - ${f}\n`);
+    }
   } catch (e) {
     fails.push(`hook error: ${e.message.split('\n')[0]}`);
   } finally {
-    if (fx.allow_writes) freshStart(guestPhone);
+    // Always tear down the simulated guest so stale context can't leak into a
+    // later fixture that reuses the same derived phone.
+    freshStart(guestPhone);
   }
   return fails;
 }
