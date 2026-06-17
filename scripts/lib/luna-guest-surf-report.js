@@ -464,12 +464,13 @@ async function fetchGuestSurfReportData(opts) {
     return { metrics: mockNorm.metrics || mockNorm, day, source: 'mock' };
   }
 
-  let hasConfig;
+  let hasConfig = false;
   let fetchStaff;
   try {
-    ({ hasStormglassConfig } = require('./staff-stormglass-config'));
-    ({ fetchSurfForecastForStaff } = require('./staff-stormglass-forecast'));
-    hasConfig = hasStormglassConfig();
+    const stormConfig = require('./staff-stormglass-config');
+    const stormForecast = require('./staff-stormglass-forecast');
+    fetchStaff = stormForecast.fetchSurfForecastForStaff;
+    hasConfig = stormConfig.hasStormglassConfig();
   } catch (_) {
     return { unavailable: true, day, source: 'none' };
   }
@@ -479,7 +480,7 @@ async function fetchGuestSurfReportData(opts) {
   }
 
   try {
-    const payload = await fetchSurfForecastForStaff({
+    const payload = await fetchStaff({
       clientSlug,
       day,
       timeoutMs: opts.timeoutMs || 8000,
@@ -496,8 +497,25 @@ async function fetchGuestSurfReportData(opts) {
       source: payload.source || 'stormglass',
       unavailable: false,
     };
-  } catch (_) {
-    return { unavailable: true, day, source: 'stormglass_error' };
+  } catch (err) {
+    const error = trimStr(err && err.message) || 'stormglass_request_failed';
+    const errorCode = trimStr(err && err.code) || 'UPSTREAM_ERROR';
+    const status = err && err.status;
+    console.error('[surf-report] stormglass fetch failed', {
+      clientSlug,
+      day,
+      error,
+      errorCode,
+      status: status || null,
+    });
+    return {
+      unavailable: true,
+      day,
+      source: 'stormglass_error',
+      error,
+      error_code: errorCode,
+      upstream_status: status || null,
+    };
   }
 }
 

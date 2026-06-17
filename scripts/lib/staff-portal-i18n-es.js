@@ -38,7 +38,7 @@ module.exports = {
   "calendar.legend.tour": "Tour",
   "calendar.zoom.in": "Acercar",
   "calendar.zoom.out": "Alejar",
-  "calendar.zoom.lock": "Fijar zoom",
+  "calendar.zoom.lock": "Fijar",
   "calendar.grid.roomBed": "Habitación / Cama",
   "calendar.grid.beds": "camas",
   "calendar.grid.hide": "Ocultar",

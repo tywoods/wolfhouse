@@ -7,6 +7,8 @@
 
 'use strict';
 
+const https = require('https');
+
 const {
   hasStormglassConfig,
   getStormglassSurfSpot,
@@ -27,15 +29,19 @@ const DAY_MS = 86400000;
 const SURF_WINDOW_START_HOUR = 6;
 const SURF_WINDOW_END_HOUR = 20;
 
-/** @type {((url: string, init: object) => Promise<{ ok: boolean, status: number, json: () => Promise<object>, text?: () => Promise<string> }>) | null} */
-let _fetchImpl = typeof fetch === 'function' ? fetch.bind(globalThis) : null;
+/** @type {((url: string, apiKey: string, timeoutMs: number) => Promise<{ status: number, body: string }>) | null} */
+let _requestImpl = null;
 
 /**
- * Replace fetch for tests/verifier (pass null to restore default).
- * @param {typeof _fetchImpl} fn
+ * Replace upstream HTTP for tests/verifier (pass null to restore default).
+ * @param {typeof _requestImpl} fn
  */
 function setStormglassFetchForTests(fn) {
-  _fetchImpl = fn || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+  _requestImpl = fn || null;
+}
+
+function setStormglassRequestForTests(fn) {
+  setStormglassFetchForTests(fn);
 }
 
 /**
@@ -216,26 +222,67 @@ function buildStaffSafeForecastSummary(metrics) {
   return { summary, caution };
 }
 
-/**
- * @param {string} url
- * @param {object} init
- * @param {number} timeoutMs
- */
-async function stormglassFetch(url, init, timeoutMs) {
-  if (!_fetchImpl) {
-    throw new Error('fetch unavailable in this runtime');
-  }
-  const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  let timer = null;
-  if (controller) {
-    timer = setTimeout(() => controller.abort(), timeoutMs);
-    init = { ...init, signal: controller.signal };
-  }
+function stormglassErrorBodySnippet(body) {
+  const raw = String(body || '').trim();
+  if (!raw) return '';
   try {
-    return await _fetchImpl(url, init);
-  } finally {
-    if (timer) clearTimeout(timer);
+    const j = JSON.parse(raw);
+    const msg = j && (j.errors || j.message || j.error);
+    if (typeof msg === 'string') return msg.slice(0, 200);
+    if (Array.isArray(msg) && msg.length) return String(msg[0]).slice(0, 200);
+  } catch (_) {
+    /* plain text */
   }
+  return raw.slice(0, 200);
+}
+
+/**
+ * Node https GET — reliable in Container Apps (global fetch can fail silently there).
+ * @param {string} url
+ * @param {string} apiKey
+ * @param {number} timeoutMs
+ * @returns {Promise<{ status: number, body: string }>}
+ */
+function stormglassHttpsGet(url, apiKey, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    let u;
+    try {
+      u = new URL(url);
+    } catch (err) {
+      reject(Object.assign(err, { code: 'UPSTREAM_ERROR' }));
+      return;
+    }
+    const req = https.request({
+      hostname: u.hostname,
+      port: 443,
+      path: `${u.pathname}${u.search}`,
+      method: 'GET',
+      headers: { Authorization: String(apiKey || '').trim() },
+      family: 4,
+    }, (res) => {
+      const chunks = [];
+      res.on('data', (c) => chunks.push(c));
+      res.on('end', () => {
+        resolve({ status: res.statusCode || 0, body: Buffer.concat(chunks).toString('utf8') });
+      });
+    });
+    req.setTimeout(timeoutMs, () => {
+      req.destroy();
+      reject(Object.assign(new Error('Stormglass request timed out'), {
+        code: 'UPSTREAM_ERROR',
+        name: 'AbortError',
+      }));
+    });
+    req.on('error', (err) => {
+      reject(Object.assign(err, { code: 'UPSTREAM_ERROR' }));
+    });
+    req.end();
+  });
+}
+
+async function stormglassGet(url, apiKey, timeoutMs) {
+  if (_requestImpl) return _requestImpl(url, apiKey, timeoutMs);
+  return stormglassHttpsGet(url, apiKey, timeoutMs);
 }
 
 /**
@@ -275,34 +322,48 @@ async function fetchSurfForecastForStaff(opts) {
   const url = `${STORMGLASS_POINT_URL}?${qs.toString()}`;
   const timeoutMs = opts.timeoutMs || DEFAULT_TIMEOUT_MS;
 
-  let response;
+  let httpRes;
   try {
-    response = await stormglassFetch(url, {
-      method: 'GET',
-      headers: { Authorization: apiKey },
-    }, timeoutMs);
+    httpRes = await stormglassGet(url, apiKey, timeoutMs);
   } catch (err) {
     const msg = err && err.name === 'AbortError'
       ? 'Stormglass request timed out'
       : (err.message || 'Stormglass request failed');
+    console.error('[stormglass] request failed', { day, clientSlug, message: msg });
     const wrapped = new Error(msg);
     wrapped.code = 'UPSTREAM_ERROR';
     throw wrapped;
   }
 
-  if (!response.ok) {
-    const wrapped = new Error(`Stormglass returned HTTP ${response.status}`);
+  const status = httpRes.status;
+  if (status < 200 || status >= 300) {
+    const snippet = stormglassErrorBodySnippet(httpRes.body);
+    const msg = snippet
+      ? `Stormglass returned HTTP ${status}: ${snippet}`
+      : `Stormglass returned HTTP ${status}`;
+    console.error('[stormglass] upstream error', { day, clientSlug, status, detail: snippet || null });
+    const wrapped = new Error(msg);
     wrapped.code = 'UPSTREAM_ERROR';
-    wrapped.status = response.status;
+    wrapped.status = status;
     throw wrapped;
   }
 
   let payload;
   try {
-    payload = await response.json();
+    payload = JSON.parse(httpRes.body || '{}');
   } catch (_) {
+    console.error('[stormglass] invalid JSON', { day, clientSlug, status });
     const wrapped = new Error('Stormglass returned invalid JSON');
     wrapped.code = 'UPSTREAM_ERROR';
+    wrapped.status = status;
+    throw wrapped;
+  }
+
+  if (!Array.isArray(payload.hours) || payload.hours.length === 0) {
+    console.error('[stormglass] empty hours', { day, clientSlug, status, window: { start, end } });
+    const wrapped = new Error('Stormglass returned no hourly data for requested window');
+    wrapped.code = 'UPSTREAM_ERROR';
+    wrapped.status = status;
     throw wrapped;
   }
 
@@ -491,6 +552,9 @@ module.exports = {
   SURF_WINDOW_START_HOUR,
   SURF_WINDOW_END_HOUR,
   setStormglassFetchForTests,
+  setStormglassRequestForTests,
+  stormglassHttpsGet,
+  stormglassErrorBodySnippet,
   madridLocalToUtcZ,
   getMadridCalendarYmd,
   getMadridDayWindow,

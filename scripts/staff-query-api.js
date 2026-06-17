@@ -14849,13 +14849,13 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-chip:hover{background:var(--sage);color:#fff;border-color:var(--sage)}
 .bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .bc-controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.bc-legend-row{display:flex;align-items:flex-end;gap:10px;flex:0 0 auto;flex-wrap:wrap}
-.bc-zoom-bar{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);min-height:40px;box-sizing:border-box}
-.bc-zoom-btn{width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:18px;line-height:1;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
+.bc-legend-row{display:flex;align-items:center;gap:10px;flex:0 0 auto;flex-wrap:wrap}
+.bc-zoom-bar{display:inline-flex;align-items:center;gap:3px;padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);height:32px;min-height:32px;box-sizing:border-box}
+.bc-zoom-btn{width:24px;height:24px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:16px;line-height:1;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
 .bc-zoom-btn:hover:not(:disabled){background:var(--surface-soft);border-color:var(--tan)}
 .bc-zoom-btn:disabled{opacity:.4;cursor:not-allowed}
-.bc-zoom-pct{min-width:42px;text-align:center;font-size:11px;font-weight:700;color:var(--text-2)}
-.bc-zoom-lock{display:inline-flex;align-items:center;gap:6px;margin-left:2px;font-size:10px;font-weight:600;color:var(--text-3);cursor:pointer;user-select:none}
+.bc-zoom-pct{min-width:38px;text-align:center;font-size:11px;font-weight:700;color:var(--text-2);line-height:1;padding:0 2px}
+.bc-zoom-lock{display:inline-flex;flex-direction:row;align-items:center;gap:5px;margin-left:4px;font-size:11px;font-weight:600;color:var(--text-3);cursor:pointer;user-select:none;white-space:nowrap}
 .bc-zoom-lock-switch{position:relative;display:inline-block;width:34px;height:20px;flex-shrink:0}
 .bc-zoom-lock-switch input{opacity:0;width:0;height:0;position:absolute}
 .bc-zoom-lock-slider{position:absolute;cursor:pointer;inset:0;background:#D8D0C4;border-radius:999px;transition:background .2s}
@@ -14864,7 +14864,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider:before{transform:translateX(14px)}
 .bc-zoom-lock-switch input:focus-visible + .bc-zoom-lock-slider{outline:2px solid rgba(175,195,163,.45);outline-offset:2px}
 /* ── Bed calendar legend (Stage 8.3a / 26h.5 compact right) ─────────────── */
-.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;min-height:40px;box-sizing:border-box}
+.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:4px 8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;height:32px;min-height:32px;box-sizing:border-box}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
 .bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}
@@ -14878,8 +14878,8 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 @media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
-input[type="date"].bc-date-input{font-size:12px;padding:5px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:130px}
-input[type="date"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
+input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
+input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
 /* ── Today / Needs Attention panel (Stage 8.2) ───────────────────────────── */
 .today-section-hdr{font-size:13px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin:0 0 14px;padding-bottom:8px;border-bottom:1px solid var(--border-soft)}
 .today-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:16px;margin-bottom:28px}
@@ -15511,10 +15511,10 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="toolbar">
       <h2 id="bc-calendar-title" data-i18n="calendar.title">Booking Calendar</h2>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="text" class="bc-date-input" data-i18n-placeholder="calendar.datePlaceholder" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off">
+        <span data-i18n="calendar.from">From</span>&nbsp;<input id="bc-start" type="date" class="bc-date-input" autocomplete="off">
       </label>
       <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:#5a6a85;margin-bottom:0">
-        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="text" class="bc-date-input" data-i18n-placeholder="calendar.datePlaceholder" placeholder="DD/MM/YYYY" inputmode="numeric" autocomplete="off">
+        <span data-i18n="calendar.to">To</span>&nbsp;<input id="bc-end" type="date" class="bc-date-input" autocomplete="off">
       </label>
       <label style="display:none"><input id="bc-client" value="wolfhouse-somo"></label>
       <button class="btn btn-primary" id="bc-load">&#128197; <span data-i18n="calendar.load">Load</span></button>
@@ -15539,8 +15539,8 @@ ${getStaffPortalI18nBootstrapScript()}
       <button type="button" class="bc-zoom-btn" id="bc-zoom-out" data-i18n-title="calendar.zoom.out" title="Zoom out" aria-label="Zoom out">−</button>
       <span class="bc-zoom-pct" id="bc-zoom-pct" aria-live="polite">100%</span>
       <button type="button" class="bc-zoom-btn" id="bc-zoom-in" data-i18n-title="calendar.zoom.in" title="Zoom in" aria-label="Zoom in">+</button>
-      <label class="bc-zoom-lock" data-i18n-title="calendar.zoom.lock" title="Lock zoom">
-        <span class="bc-zoom-lock-label" data-i18n="calendar.zoom.lock">Lock zoom</span>
+      <label class="bc-zoom-lock" data-i18n-title="calendar.zoom.lock" title="Lock">
+        <span class="bc-zoom-lock-label" data-i18n="calendar.zoom.lock">Lock</span>
         <span class="bc-zoom-lock-switch">
           <input type="checkbox" id="bc-zoom-lock" aria-label="Lock zoom">
           <span class="bc-zoom-lock-slider"></span>
@@ -16138,11 +16138,23 @@ function bcParseDisplayDateToIso(display) {
 function bcSetDateField(inp, iso) {
   if (!inp) return;
   inp.dataset.iso = iso || '';
+  if (inp.type === 'date') {
+    inp.value = iso || '';
+    return;
+  }
   inp.value = iso ? bcFormatIsoDateDisplay(iso) : '';
 }
 
 function bcReadDateField(inp) {
   if (!inp) return '';
+  if (inp.type === 'date') {
+    var iso = String(inp.value || '').trim();
+    if (BC_ISO_DATE_RE.test(iso)) {
+      if (inp.dataset) inp.dataset.iso = iso;
+      return iso;
+    }
+    return (inp.dataset && inp.dataset.iso) || '';
+  }
   var parsed = bcParseDisplayDateToIso(inp.value);
   if (parsed) {
     if (inp.dataset) inp.dataset.iso = parsed;
@@ -27497,6 +27509,10 @@ async function handleBotSurfReport(req, res, user, authMode) {
       day:            result.day,
       unavailable:    !!result.unavailable,
       configured:     hasStormglassConfig(),
+      forecast_source: data.source || null,
+      forecast_error: data.unavailable ? (data.error || 'forecast_unavailable') : null,
+      forecast_error_code: data.unavailable ? (data.error_code || null) : null,
+      upstream_status: data.unavailable ? (data.upstream_status || null) : null,
       no_payment_write: true,
       no_whatsapp:    true,
       no_n8n:         true,
