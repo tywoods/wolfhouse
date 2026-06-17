@@ -275,13 +275,21 @@ function runFixture(fx, { verbose }) {
       guestPhone = res.guest_phone || guestPhone;
       allTools.push(...(res.tool_calls || []));
       allReplies.push(res.reply_text || '');
+      // The output-guard scrubs leaks from reply_text, so assert leak invariants
+      // against the RAW (pre-guard) reply — otherwise the guard would mask a real
+      // Luna regression. Falls back to reply_text on pre-guard containers.
+      const rawReply = res.raw_reply_text != null ? res.raw_reply_text : (res.reply_text || '');
       const before = fails.length;
       checkTurn(res, turn.expect, fails);
       // Fixture-level invariants are enforced on EVERY turn (e.g. never leak internals).
       if (fx.invariants) {
         for (const n of (fx.invariants.reply_not_contains || []))
-          if (matches(res.reply_text || '', n)) fails.push(`INVARIANT: reply must never contain ${n} — turn ${i + 1}: "${(res.reply_text || '').slice(0, 160)}…"`);
+          if (matches(rawReply, n)) fails.push(`INVARIANT: reply must never contain ${n} — turn ${i + 1}: "${rawReply.slice(0, 160)}…"`);
       }
+      // Guard-emitted block findings (e.g. a leak it had to scrub) are hard fails:
+      // the guest was protected, but Luna's underlying behavior still regressed.
+      for (const g of (res.guard_findings || []))
+        if (g && g.severity === 'block') fails.push(`GUARD ${g.kind} (blocked) — turn ${i + 1}: ${JSON.stringify(g.detail)}`);
       const tools = (res.tool_calls || []).map((t) => t.name).join(', ') || '—';
       const mark = fails.length === before ? '✓' : '✗';
       process.stdout.write(`  ${mark} turn ${i + 1}: [${tools}]${verbose ? `  «${(res.reply_text || '').slice(0, 120)}»` : ''}\n`);

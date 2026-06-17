@@ -670,6 +670,22 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
         except Exception:
             return None
+    # Guest output-guard (step 3): a backend/tool leak ("il sistema…", "the quote
+    # tool…") must never reach a guest. Replace the whole reply with a warm,
+    # localized fallback. Defensive: if the guard module can't import in the gateway
+    # process, fall through to the original behavior (never break the send path).
+    try:
+        from wolfhouse.output_guard import find_leaks, safe_fallback_for
+        _leaks = find_leaks(content)
+        if _leaks:
+            try:
+                import sys as _sys
+                print(f"[wolfhouse] output-guard: leak suppressed -> safe fallback {_leaks}", file=_sys.stderr)
+            except Exception:
+                pass
+            content = safe_fallback_for(content)
+    except Exception:
+        pass
     import os as _wolfhouse_wa_os
     _wh_meta = metadata if isinstance(metadata, dict) else {}
     _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
