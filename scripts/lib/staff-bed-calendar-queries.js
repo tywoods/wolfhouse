@@ -47,6 +47,7 @@ SELECT
   COALESCE(r.sort_order, r.fill_priority, 999) AS room_sort_order,
   r.gender_strategy,
   r.can_be_matrimonial,
+  r.often_used_by_operator,
   bd.id::text               AS bed_id,
   bd.bed_code,
   bd.bed_label,

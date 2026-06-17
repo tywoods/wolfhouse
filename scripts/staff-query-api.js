@@ -277,6 +277,7 @@ const {
 } = require('./lib/guest-addon-combo-rebalance-db');
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
 const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-options');
+const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./lib/luna-bed-allocator');
 const {
   resolveBotBookingPackageContext,
   isNoPackageBookingCode,
@@ -8045,6 +8046,8 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   const guestCount    = parseInt(body.guest_count || '1', 10);
   const roomType      = String(body.room_type    || 'shared').trim().toLowerCase();
   const genderPref    = body.gender_preference ? String(body.gender_preference).trim() : null;
+  const guestName     = String(body.guest_name || '').trim() || null;
+  const roomPref      = String(body.room_preference || genderPref || '').trim() || null;
 
   // ── Input validation ────────────────────────────────────────────────────────
   if (!clientSlug) return send400(res, 'client_slug is required');
@@ -8127,27 +8130,47 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   const availableCount = availableBeds.length;
   const hasEnoughBeds  = availableCount >= guestCount;
 
-  // ── Room-fit selection ─────────────────────────────────────────────────────
-  // Prefer keeping a group together in one room when enough beds are free there.
-  // Fall back to global first-fit only when no single room can hold the group.
+  // ── Room-fit selection (rules-based allocator or legacy capacity picker) ───
   let selectedBedCodes = [];
   let selectedRoomCode = null;
+  let allocationReason = null;
+  let allocationSplit = false;
+  let roomingHandoff = false;
+  let groupGenderResolved = null;
+
   if (hasEnoughBeds) {
-    const byRoom = new Map();
-    for (const bed of availableBeds) {
-      const room = bed.room_code || '__unknown_room__';
-      if (!byRoom.has(room)) byRoom.set(room, []);
-      byRoom.get(room).push(bed);
-    }
-    const roomFit = [...byRoom.entries()]
-      .filter(([, beds]) => beds.length >= guestCount)
-      .sort((a, b) => a[1].length - b[1].length || String(a[0]).localeCompare(String(b[0])))[0];
-    if (roomFit) {
-      selectedRoomCode = roomFit[0] === '__unknown_room__' ? null : roomFit[0];
-      selectedBedCodes = roomFit[1].slice(0, guestCount).map(b => b.bed_code);
+    const allowedBedCodes = new Set(filteredBeds.map((b) => b.bed_code));
+    const pick = runAvailabilityBedSelection({
+      bedRows,
+      occupiedBedCodes,
+      allowedBedCodes,
+      guestCount,
+      guestName,
+      genderPreference: genderPref,
+      roomPreference: roomPref,
+    });
+    allocationReason = pick.reason || null;
+    allocationSplit = !!pick.split;
+    groupGenderResolved = pick.group_gender || null;
+    if (pick.handoff) {
+      roomingHandoff = true;
+      warnings.push(pick.reason || 'rooming_handoff');
+      if (pick.reason === 'group_split_needs_staff') {
+        blockers.push('group_split_needs_staff');
+      } else {
+        blockers.push(pick.reason || 'rooming_handoff');
+      }
     } else {
-      warnings.push('group_split_across_rooms_required');
-      selectedBedCodes = availableBeds.slice(0, guestCount).map(b => b.bed_code);
+      selectedBedCodes = pick.selected_bed_codes || [];
+      selectedRoomCode = pick.selected_room_code || null;
+      if (pick.split) warnings.push('group_split_across_rooms_required');
+      console.log('[bot/availability-check] rooming pick', {
+        room: selectedRoomCode,
+        beds: selectedBedCodes,
+        reason: allocationReason,
+        group_gender: pick.group_gender,
+        rules: isRulesBasedRoomingEnabled(),
+      });
     }
   }
 
@@ -8157,7 +8180,11 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
 
   const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
 
-  const nextAction = hasEnoughBeds ? 'ready_for_bot_create' : 'ask_staff_or_alternate_dates';
+  const nextAction = !hasEnoughBeds
+    ? 'ask_staff_or_alternate_dates'
+    : roomingHandoff
+      ? 'handoff_to_staff'
+      : 'ready_for_bot_create';
 
   const elapsed = Date.now() - started;
 
@@ -8176,6 +8203,11 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     guest_count:         guestCount,
     room_type:           roomType,
     gender_preference:   genderPref || null,
+    room_preference:     roomPref || null,
+    group_gender:        groupGenderResolved,
+    allocation_reason:   allocationReason,
+    allocation_split:    allocationSplit,
+    rules_based_rooming: isRulesBasedRoomingEnabled(),
     girls_room_available:    roomOptionFlags.girls_room_available,
     private_room_available:  roomOptionFlags.private_room_available,
     room_options: {
@@ -14813,8 +14845,8 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-chip:hover{background:var(--sage);color:#fff;border-color:var(--sage)}
 .bc-chip.bc-chip-active{background:var(--primary);color:#fff;border-color:var(--primary)}
 .bc-controls-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:14px}
-.bc-legend-row{display:flex;align-items:center;gap:10px;flex:0 0 auto;flex-wrap:wrap}
-.bc-zoom-bar{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
+.bc-legend-row{display:flex;align-items:flex-end;gap:10px;flex:0 0 auto;flex-wrap:wrap}
+.bc-zoom-bar{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);min-height:40px;box-sizing:border-box}
 .bc-zoom-btn{width:28px;height:28px;padding:0;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);font-size:18px;line-height:1;cursor:pointer;font-weight:600;display:inline-flex;align-items:center;justify-content:center}
 .bc-zoom-btn:hover:not(:disabled){background:var(--surface-soft);border-color:var(--tan)}
 .bc-zoom-btn:disabled{opacity:.4;cursor:not-allowed}
@@ -14828,7 +14860,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider:before{transform:translateX(14px)}
 .bc-zoom-lock-switch input:focus-visible + .bc-zoom-lock-slider{outline:2px solid rgba(175,195,163,.45);outline-offset:2px}
 /* ── Bed calendar legend (Stage 8.3a / 26h.5 compact right) ─────────────── */
-.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%}
+.bc-legend{display:inline-flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:11px;color:var(--text-2);padding:6px 10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);margin-bottom:0;flex:0 0 auto;width:auto;max-width:100%;min-height:40px;box-sizing:border-box}
 .bc-legend-item{display:flex;align-items:center;gap:5px;white-space:nowrap}
 .bc-legend-swatch{display:inline-block;width:12px;height:12px;border-radius:3px;border-left:2px solid transparent;flex-shrink:0}
 .bc-legend-sw-confirmed{background:#CEDFBF;border-left-color:#87A87C}

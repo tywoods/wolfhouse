@@ -22,6 +22,7 @@ const { calculateWolfhouseQuote } = require('./wolfhouse-quote-calculator');
 const { normalizeQuoteAddOnsForCombo } = require('./guest-addon-pricing');
 const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
 const { computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
+const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./luna-bed-allocator');
 const {
   resolveBotBookingPackageContext,
   buildBotQuoteReplyDraft,
@@ -410,22 +411,35 @@ async function runAvailabilityCheckDryRun(fields, pg) {
   const hasEnoughBeds    = availableCount >= guestCount;
   let selectedBedCodes = [];
   let selectedRoomCode = null;
+  let allocationReason = null;
+  let roomingHandoff = false;
+  let groupGenderResolved = null;
+
   if (hasEnoughBeds) {
-    const byRoom = new Map();
-    for (const bed of availableBeds) {
-      const room = bed.room_code || '__unknown_room__';
-      if (!byRoom.has(room)) byRoom.set(room, []);
-      byRoom.get(room).push(bed);
-    }
-    const roomFit = [...byRoom.entries()]
-      .filter(([, beds]) => beds.length >= guestCount)
-      .sort((a, b) => a[1].length - b[1].length || String(a[0]).localeCompare(String(b[0])))[0];
-    if (roomFit) {
-      selectedRoomCode = roomFit[0] === '__unknown_room__' ? null : roomFit[0];
-      selectedBedCodes = roomFit[1].slice(0, guestCount).map((b) => b.bed_code);
+    const allowedBedCodes = new Set(filteredBeds.map((b) => b.bed_code));
+    const pick = runAvailabilityBedSelection({
+      bedRows,
+      occupiedBedCodes,
+      allowedBedCodes,
+      guestCount,
+      guestName: fields.guest_name || null,
+      genderPreference: fields.gender_preference || null,
+      roomPreference: fields.room_preference || fields.gender_preference || null,
+    });
+    allocationReason = pick.reason || null;
+    groupGenderResolved = pick.group_gender || null;
+    if (pick.handoff) {
+      roomingHandoff = true;
+      warnings.push(pick.reason || 'rooming_handoff');
+      if (pick.reason === 'group_split_needs_staff') {
+        blockers.push('group_split_needs_staff');
+      } else {
+        blockers.push(pick.reason || 'rooming_handoff');
+      }
     } else {
-      warnings.push('group_split_across_rooms_required');
-      selectedBedCodes = availableBeds.slice(0, guestCount).map((b) => b.bed_code);
+      selectedBedCodes = pick.selected_bed_codes || [];
+      selectedRoomCode = pick.selected_room_code || null;
+      if (pick.split) warnings.push('group_split_across_rooms_required');
     }
   }
 
@@ -450,11 +464,18 @@ async function runAvailabilityCheckDryRun(fields, pg) {
     },
     selected_bed_codes:  selectedBedCodes,
     selected_room_code:  selectedRoomCode,
+    group_gender:        groupGenderResolved,
+    allocation_reason:   allocationReason,
+    rules_based_rooming: isRulesBasedRoomingEnabled(),
     has_enough_beds:     hasEnoughBeds,
     available_count:     availableCount,
     warnings,
     blockers,
-    next_action:         hasEnoughBeds ? 'show_availability_options' : 'handoff_to_staff',
+    next_action:         !hasEnoughBeds
+      ? 'handoff_to_staff'
+      : roomingHandoff
+        ? 'handoff_to_staff'
+        : 'show_availability_options',
   };
 }
 
