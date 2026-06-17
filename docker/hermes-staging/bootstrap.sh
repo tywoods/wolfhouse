@@ -66,10 +66,16 @@ EOF
 write_orchestrator_config() {
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: anthropic/claude-opus-4.8
-  provider: anthropic
+  default: gpt-5.5
+  provider: openai-codex
 agent:
   reasoning_effort: low
+compression:
+  codex_gpt55_autoraise: false
+# Primary: ChatGPT (Codex OAuth). Fallback: Anthropic Claude OAuth.
+fallback_providers:
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
 # Operator profile — no guest booking tools; Luna owns WhatsApp booking.
 curator:
   enabled: false

@@ -1,11 +1,10 @@
 #!/bin/sh
-# VM overlay: shared auth.json symlink only.
+# VM overlay: shared auth.json symlink + orchestrator (Skipper) model override.
 #
-# Luna's model config (Codex gpt-5.5 primary, Anthropic Claude fallback) is now
-# baked into the image by 99-wh-staging-bootstrap (bootstrap.sh) — this overlay
-# no longer writes config.yaml. It only points the per-container auth.json at the
-# shared OAuth credential pool so both containers (luna + orchestrator) reuse the
-# same ChatGPT/Anthropic logins.
+# Luna's model config (Codex gpt-5.5 primary, Anthropic Claude fallback) is baked
+# into the image by 99-wh-staging-bootstrap (bootstrap.sh). Orchestrator (Discord
+# "Skipper") is overridden here until the image ships the same primary — so
+# restarts don't snap back to Claude Opus.
 set -eu
 
 if [ -d /run/s6/container_environment ]; then
@@ -17,6 +16,30 @@ if [ -d /run/s6/container_environment ]; then
 fi
 
 HERMES_HOME="${HERMES_HOME:-/opt/data}"
+HERMES_ROLE="${HERMES_ROLE:-luna}"
+
+if [ "$HERMES_ROLE" = "orchestrator" ]; then
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: gpt-5.5
+  provider: openai-codex
+agent:
+  reasoning_effort: low
+compression:
+  codex_gpt55_autoraise: false
+fallback_providers:
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/wolfhouse/WH
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+fi
 
 if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
   # Preserve a refreshed OAuth token (real local file from an atomic rename) back

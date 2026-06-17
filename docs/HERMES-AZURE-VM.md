@@ -3,7 +3,7 @@
 Hermes staging runs on **Lunabox** — an Azure Linux VM — so `/var/lib/hermes-shared/auth.json` (Anthropic + ChatGPT OAuth) survives restarts. Staff API, Postgres, and the staff portal stay on existing Container Apps.
 
 ```
-You (Discord)     → hermes-orchestrator → Anthropic OAuth (shared auth.json)
+You (Discord)     → hermes-orchestrator (Skipper) → ChatGPT 5.5 OAuth (shared auth.json); Anthropic fallback
 Guests (WhatsApp) → hermes-luna         → ChatGPT 5.5 OAuth → Anthropic OAuth fallback
                          ↓
               Staff API (wh-staging-staff-api on ACA) → Postgres
