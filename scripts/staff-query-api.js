@@ -14912,6 +14912,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
+.bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
 .bc-day-cell-turnover{position:relative;height:calc(30px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
@@ -14924,6 +14925,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-checkout-marker.bc-block-manual{background:linear-gradient(90deg,rgba(181,211,173,.32) 0%,rgba(181,211,173,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-tour_operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
 .bc-block-checkout-marker.bc-block-operator{background:linear-gradient(90deg,rgba(179,155,203,.32) 0%,rgba(179,155,203,.10) 40%,transparent 75%)}
+.bc-block-checkout-marker.bc-block-blocked{background:linear-gradient(90deg,rgba(176,174,168,.30) 0%,rgba(176,174,168,.09) 40%,transparent 75%)}
 .bc-day-cell:not(:has(.bc-block)){background:rgba(240,236,228,.28)}
 .bc-summary-strip{display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--text-2);padding:10px 0 12px;border-bottom:1px solid var(--border-soft);margin-bottom:14px}
 .bc-summary-strip b{color:var(--text)}
@@ -14962,6 +14964,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-tour_operator{background:#E8DDF5;border-left-color:#B39BCB}
 .bc-legend-sw-cancelled{background:#E4E0D9;border-left-color:#BDB9B0;opacity:.7}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
+.bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
 @media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
@@ -15224,6 +15227,11 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .bc-day-cell.bc-sel{background:rgba(108,165,140,.22);outline:1px solid rgba(108,165,140,.6);outline-offset:-1px;position:relative;z-index:1}
 .bc-day-cell.bc-sel-anchor{outline:2px solid #6CA58C;outline-offset:-1px}
 .bc-sel-title{font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text-2);margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.bc-sel-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:10px}
+.bc-sel-header-row .bc-sel-title{margin-bottom:0;flex:1 1 auto}
+.btn-bc-block-pebble{flex-shrink:0;font-size:11px;font-weight:700;padding:5px 14px;border-radius:999px;background:#E8E6E2;color:#6B6862;border:1px solid #D4D0C8;cursor:pointer;transition:background .15s,border-color .15s,box-shadow .15s,opacity .15s;letter-spacing:.02em;font-family:inherit;line-height:1.3}
+.btn-bc-block-pebble:hover:not(:disabled){background:#DDDAD4;border-color:#C8C4BC;box-shadow:0 1px 4px rgba(68,80,74,.08)}
+.btn-bc-block-pebble:disabled{opacity:.38;cursor:not-allowed}
 .bc-sel-notice{font-size:11px;color:var(--text-3);font-style:italic;margin:10px 0 12px}
 .bc-sel-warn{font-size:11px;color:#A2743D;background:#F8F0E2;border:1px solid #ECDCC4;border-radius:var(--radius-sm);padding:7px 10px;margin:8px 0}
 .bc-sel-actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -15638,6 +15646,7 @@ ${getStaffPortalI18nBootstrapScript()}
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-payment"></span><span data-i18n="calendar.legend.luna">Luna</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-manual"></span><span data-i18n="calendar.legend.staff">Staff</span></span>
       <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-tour_operator"></span><span data-i18n="calendar.legend.tour">Tour</span></span>
+      <span class="bc-legend-item"><span class="bc-legend-swatch bc-legend-sw-blocked"></span><span data-i18n="calendar.legend.blocked">Blocked</span></span>
     </div>
     </div>
     </div>
@@ -15657,7 +15666,13 @@ ${getStaffPortalI18nBootstrapScript()}
 
   <!-- Manual booking preview skeleton (Stage 8.3d / 8.4.5, read-only) -->
   <div class="card" id="bc-sel-panel" style="display:none;margin-top:16px">
-    <div class="bc-sel-title"><span aria-hidden="true">&#128203;</span> <span data-i18n="calendar.create.title">Create New Booking</span></div>
+    <div class="bc-sel-header-row">
+      <div class="bc-sel-title"><span aria-hidden="true">&#128203;</span> <span data-i18n="calendar.create.title">Create New Booking</span></div>
+      <button type="button" class="btn-bc-block-pebble" disabled id="bc-sel-block"
+        data-i18n-title="calendar.block.title" title="Block selected beds for these dates">
+        <span data-i18n="calendar.block.button">Block</span>
+      </button>
+    </div>
 
     <div id="bc-sel-warn" class="bc-sel-warn" style="display:none"></div>
 
@@ -18775,6 +18790,7 @@ function bcApplyDefaultPackageForStay(nights){
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
 var bcManualCreateInFlight = false;
+var bcCalendarBlockInFlight = false;
 var bcLastOpenedBlock = null;
 var bcCalendarBlocks = [];
 var BC_HIDDEN_ROOMS_KEY = 'wh_bc_hidden_rooms';
@@ -18910,6 +18926,7 @@ function bcClearSelection(){
   if (_qrClear) _qrClear.innerHTML = bcQuoteNotRunHtml();
   var _qBtnClear = el('bc-sel-quote');
   if (_qBtnClear){ _qBtnClear.disabled = true; _qBtnClear.title = t('calendar.create.quoteTitleHint'); }
+  bcUpdateBlockButton();
 }
 
 function bcApplySelectionHighlight(){
@@ -18977,6 +18994,7 @@ function bcApplySelectionHighlight(){
   bcApplyDefaultPackageForStay(formNights);
   bcUpdateQuoteButton();
   bcUpdateCreateButton();
+  bcUpdateBlockButton();
 }
 
 /* Phase 10.6d.1 — bed codes from multi-bed selection (not bcSel, which has no bed_code). */
@@ -19141,6 +19159,103 @@ function buildAddOns(){
   var mealsQty = aoQtyInput('bk-ao-meals');
   if (mealsQty > 0) result.push({ code: 'meals', quantity: mealsQty });
   return result;
+}
+
+/* ── Block button state (staff calendar bed block) ───────────────────────── */
+function bcUpdateBlockButton(){
+  var btn = el('bc-sel-block');
+  if (!btn) return;
+  if (!BC_STAFF_ACTIONS){
+    btn.disabled = true;
+    btn.title = t('calendar.block.actionsDisabled');
+    return;
+  }
+  var hasSelection = bcSelectedBeds.length > 0;
+  var cin = bcReadDateField(el('bc-sel-cin'));
+  var cout = bcReadDateField(el('bc-sel-cout'));
+  var ready = hasSelection && cin && cout;
+  btn.disabled = !ready || bcCalendarBlockInFlight;
+  btn.title = ready ? t('calendar.block.title') : t('calendar.block.disabled');
+}
+
+function runCalendarBedBlock(){
+  var cr = el('bc-create-result');
+  if (!cr) return;
+  if (bcCalendarBlockInFlight) return;
+  if (!BC_STAFF_ACTIONS){
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.block.failed')) + '</div>' + escHtml(t('calendar.block.actionsDisabled')) + '</div>';
+    return;
+  }
+  var checkIn = bcReadDateField(el('bc-sel-cin'));
+  var checkOut = bcReadDateField(el('bc-sel-cout'));
+  if (!checkIn || !checkOut || bcSelectedBeds.length === 0) {
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and dates on the calendar.</div>';
+    return;
+  }
+  if (!window.confirm(t('calendar.block.confirm'))) return;
+  var notesEl = el('bk-notes');
+  var notes = notesEl ? (notesEl.value || '').trim() : '';
+  var payload = {
+    client_slug: getBcClient(),
+    check_in: checkIn,
+    check_out: checkOut,
+    selected_bed_codes: bcSelectedBeds.map(function(b){ return b.bed_code; }),
+    notes: notes || null,
+    confirm: true,
+  };
+  var blockBtn = el('bc-sel-block');
+  bcCalendarBlockInFlight = true;
+  if (blockBtn){
+    if (!blockBtn.dataset.origLabel) blockBtn.dataset.origLabel = blockBtn.textContent;
+    blockBtn.disabled = true;
+    blockBtn.textContent = t('calendar.block.creating');
+  }
+  cr.innerHTML = '<div class="bk-preview-loading">' + escHtml(t('calendar.block.creating')) + '</div>';
+  fetch('/staff/calendar/beds/block', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify(payload),
+  })
+  .then(function(r){
+    if (r.status === 401 || r.status === 403) {
+      return { ok: false, auth: true };
+    }
+    return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; });
+  })
+  .then(function(res){
+    bcCalendarBlockInFlight = false;
+    if (blockBtn){
+      blockBtn.textContent = blockBtn.dataset.origLabel || t('calendar.block.button');
+    }
+    bcUpdateBlockButton();
+    if (!res) return;
+    if (res.auth){
+      cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Auth error</div>Please refresh or log in again.</div>';
+      return;
+    }
+    var d = res.data || {};
+    if (!res.ok || !d.success){
+      var detail = d.error || d.detail || ('HTTP ' + (res.status || '?'));
+      if (d.block_reason === 'overlap_conflict') {
+        detail = 'These dates/beds conflict with an existing booking.';
+      }
+      cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.block.failed')) + '</div>' + escHtml(detail) + '</div>';
+      return;
+    }
+    cr.innerHTML = '<div class="bk-preview-valid"><div class="bk-preview-badge">' + escHtml(t('calendar.block.success')) + '</div>' +
+      escHtml(d.booking_code || '') + '</div>';
+    bcClearSelection();
+    if (typeof loadBedCalendar === 'function') loadBedCalendar();
+  })
+  .catch(function(err){
+    bcCalendarBlockInFlight = false;
+    if (blockBtn){
+      blockBtn.textContent = blockBtn.dataset.origLabel || t('calendar.block.button');
+    }
+    bcUpdateBlockButton();
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">' + escHtml(t('calendar.block.failed')) + '</div>' + escHtml(String(err && err.message || err || 'network error')) + '</div>';
+  });
 }
 
 /* ── Quote button state helper (Stage 8.4.5) ─────────────────────────────── */
@@ -19907,6 +20022,8 @@ function bcCalendarPaymentTooltipHint(blk){
 }
 
 function bcCalendarPaymentBadgesHtml(blk){
+  if (blk && String(blk.status || '').toLowerCase() === 'blocked') return '';
+  if (blk && String(blk.color_type || '').toLowerCase() === 'blocked') return '';
   var st = bcCalendarBlockPaymentState(blk);
   if (!st || !st.kind) return '';
   var html = '<span class="bc-block-pay-wrap">';
@@ -19983,7 +20100,7 @@ function bcCalendarBlockInnerHtml(blk, labelHtml){
 
 function bcColorClass(ct){
   var c = (ct||'hold').toLowerCase();
-  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','tour_operator','manual'];
+  var valid = ['confirmed','hold','payment_pending','needs_review','cancelled','conflict','operator','tour_operator','manual','blocked'];
   return 'bc-block-' + (valid.indexOf(c) >= 0 ? c : 'hold');
 }
 
@@ -20220,6 +20337,8 @@ function renderBedCalendar(data){
   /* Wire Create New Booking button (Stage 8.4.8 — gated by flags + quote) */
   var _createBtn = el('bc-sel-create');
   if (_createBtn) _createBtn.onclick = runManualBookingCreate;
+  var _blockBtn = el('bc-sel-block');
+  if (_blockBtn) _blockBtn.onclick = runCalendarBedBlock;
   /* Wire form field listeners for quote + create button enable/disable */
   ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
     var fEl = el(fId);
@@ -20252,6 +20371,7 @@ function renderBedCalendar(data){
   bcUpdateManualPriceOverrideVisibility();
   bcUpdateManualBookingPaidFields();
   bcUpdateCreateButton();
+  bcUpdateBlockButton();
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
   bcHighlightActiveBlock();
 }
@@ -20603,6 +20723,7 @@ function bcHeaderNights(start, end){
 function bcDrawerStatusPillCls(s){
   var v = (s||'').toLowerCase().replace(/ /g,'_');
   if (v === 'confirmed' || v === 'paid' || v === 'deposit_paid') return 'pill-green';
+  if (v === 'blocked') return 'pill-grey';
   if (v === 'cancelled') return 'pill-grey';
   if (v === 'needs_review' || v === 'needs_human') return 'pill-orange';
   return 'pill-blue';
@@ -20652,7 +20773,7 @@ function bcDetailHeaderMetaHtml(blk, bk, ledger){
   } else if (!calPay && bk.status){
     html += '<span class="pill ' + bcDrawerStatusPillCls(bk.status) + '">' + escHtml(String(bk.status).replace(/_/g,' ')) + '</span>';
   } else if (!calPay && blk.color_type){
-    var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',operator:'pill-blue',manual:'pill-blue'};
+    var pillMap = {confirmed:'pill-green',hold:'pill-blue',payment_pending:'pill-orange',needs_review:'pill-orange',cancelled:'pill-grey',blocked:'pill-grey',operator:'pill-blue',manual:'pill-blue',tour_operator:'pill-blue'};
     html += '<span class="pill ' + (pillMap[(blk.color_type||'').toLowerCase()] || 'pill-blue') + '">' + escHtml(String(blk.color_type).replace(/_/g,' ')) + '</span>';
   }
   if (bk.needs_rooming_review) html += '<span class="pill pill-orange">Rooming review</span>';
@@ -27800,6 +27921,256 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Staff calendar bed block — POST /staff/calendar/beds/block
+//
+// Creates a booking with status=blocked over selected beds/dates so both staff
+// manual booking and Luna availability treat those beds as occupied.
+// Gated by STAFF_ACTIONS_ENABLED. Reuses buildManualBookingCreateSql overlap guards.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function generateCalendarBlockBookingCode(checkIn) {
+  const d = String(checkIn || '').replace(/-/g, '');
+  const rand = crypto.randomBytes(3).toString('hex');
+  return `BLK-${d}-${rand}`.toUpperCase();
+}
+
+async function handleCalendarBedBlockCreate(req, res, user) {
+  const started = Date.now();
+
+  if (!STAFF_ACTIONS_ENABLED) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:calendar_bed_block_create',
+      category: 'calendar_bed_block',
+      success: false,
+      error: 'staff_actions_disabled',
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+    });
+  }
+
+  let body = {};
+  try {
+    const raw = await readBody(req);
+    body = JSON.parse(raw || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
+  const checkIn = String(body.check_in || '').trim();
+  const checkOut = String(body.check_out || '').trim();
+  const notes = String(body.notes || '').trim().slice(0, 2000) || null;
+  const confirmFlag = body.confirm === true;
+  const actorId = user ? user.staff_user_id : 'staff-local';
+  const actorRole = user ? user.role : 'operator';
+
+  let rawBedCodes = body.selected_bed_codes;
+  if (typeof rawBedCodes === 'string') {
+    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
+  } else if (!Array.isArray(rawBedCodes)) {
+    rawBedCodes = [];
+  }
+  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20);
+
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
+  if (!DATE_RE.test(checkIn) || !DATE_RE.test(checkOut)) return send400(res, 'check_in and check_out must be YYYY-MM-DD');
+  if (checkOut <= checkIn) return send400(res, 'check_out must be after check_in');
+  if (selectedBedCodes.length === 0) return send400(res, 'selected_bed_codes is required');
+  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c))) return send400(res, 'invalid character in selected_bed_codes');
+  if (!confirmFlag) return send400(res, 'confirm: true is required in request body');
+  if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actorRole)) {
+    return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not block beds.` });
+  }
+
+  const guestCount = Math.max(1, selectedBedCodes.length);
+  const bookingCode = body.booking_code
+    ? String(body.booking_code).trim().slice(0, 60)
+    : generateCalendarBlockBookingCode(checkIn);
+  const idempotencyKey = body.idempotency_key
+    ? String(body.idempotency_key).slice(0, 120)
+    : 'bedblk-' + crypto.createHash('md5').update([
+      clientSlug, checkIn, checkOut, selectedBedCodes.slice().sort().join('_'),
+    ].join('|')).digest('hex');
+
+  const staffNotes = [
+    notes,
+    `Staff calendar bed block (${actorId})`,
+  ].filter(Boolean).join('\n');
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:calendar_bed_block_create',
+    category: 'calendar_bed_block',
+    client_slug: clientSlug,
+    check_in: checkIn,
+    check_out: checkOut,
+    selected_bed_codes: selectedBedCodes,
+    staff_user_id: actorId,
+    staff_role: actorRole,
+    idempotency_key: idempotencyKey,
+    stripe_called: false,
+    whatsapp_called: false,
+    n8n_called: false,
+  };
+
+  let row;
+  try {
+    row = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const r = await pg.query(buildManualBookingCreateSql(), [
+          clientSlug,              // $1
+          actorId,                 // $2
+          actorRole,               // $3
+          idempotencyKey,          // $4
+          bookingCode,             // $5
+          'Blocked',               // $6 guest_name
+          'staff-block',           // $7 phone
+          null,                    // $8 email
+          'en',                    // $9 language
+          checkIn,                 // $10
+          checkOut,                // $11
+          guestCount,              // $12
+          selectedBedCodes,        // $13
+          null,                    // $14 package
+          null,                    // $15 room_preference
+          'blocked',               // $16 booking_status
+          'not_requested',         // $17 payment_status
+          0,                       // $18 deposit
+          0,                       // $19 total
+          'staff_block',           // $20 source
+          'staff_calendar_bed_block', // $21 reason
+          staffNotes,              // $22 notes
+          true,                    // $23 confirm
+          true,                    // $24 warnings_acknowledged
+        ]);
+        const result = r.rows[0] || null;
+        if (!result) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        if (result.is_duplicate === true) {
+          await pg.query('ROLLBACK');
+          result._duplicate = true;
+          return result;
+        }
+        if (result.is_blocked === true) {
+          await pg.query('ROLLBACK');
+          result._blocked = true;
+          return result;
+        }
+        const bedsInserted = Number(result.beds_inserted || 0);
+        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== selectedBedCodes.length) {
+          await pg.query('ROLLBACK');
+          result._safety_violation = true;
+          return result;
+        }
+        await pg.query(
+          `UPDATE bookings
+             SET assignment_status = 'assigned',
+                 metadata = metadata || $1::jsonb
+           WHERE id = $2::uuid`,
+          [
+            JSON.stringify({
+              staff_calendar_block: true,
+              block_type: 'bed_selection',
+              source: 'staff_calendar_block',
+            }),
+            result.booking_id,
+          ],
+        );
+        await pg.query(
+          `UPDATE booking_beds
+             SET assignment_type = 'staff_block',
+                 assignment_notes = 'Staff calendar bed block'
+           WHERE booking_id = $1::uuid`,
+          [result.booking_id],
+        );
+        await pg.query('COMMIT');
+        return result;
+      } catch (err) {
+        await pg.query('ROLLBACK');
+        throw err;
+      }
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'database_error', detail: err.message });
+  }
+
+  const elapsed = Date.now() - started;
+  if (!row) {
+    appendAuditLog({ ...auditBase, success: false, error: 'empty_result', elapsed_ms: elapsed });
+    return sendJSON(res, 500, { success: false, error: 'empty_result' });
+  }
+  if (row._duplicate) {
+    appendAuditLog({
+      ...auditBase, success: true, idempotent_duplicate: true,
+      booking_id: row.duplicate_booking_id, elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      duplicate: true,
+      idempotent: true,
+      booking_id: row.duplicate_booking_id,
+      booking_code: row.duplicate_booking_code,
+      message: 'Block already exists for this request (idempotent).',
+    });
+  }
+  if (row._blocked) {
+    appendAuditLog({
+      ...auditBase, success: false, blocked: true,
+      block_reason: row.block_reason, elapsed_ms: elapsed,
+    });
+    const isConflict = row.block_reason === 'overlap_conflict';
+    return sendJSON(res, isConflict ? 409 : 422, {
+      success: false,
+      blocked: true,
+      block_reason: row.block_reason,
+      error: isConflict
+        ? 'These dates/beds conflict with an existing booking. Nothing was blocked.'
+        : 'Bed block failed: ' + row.block_reason,
+      no_write_performed: true,
+    });
+  }
+  if (row._safety_violation) {
+    appendAuditLog({
+      ...auditBase, success: false,
+      error: 'SAFETY_VIOLATION_bed_count_mismatch',
+      beds_inserted: row.beds_inserted, elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 409, {
+      success: false,
+      error: 'Beds could not be safely blocked (availability changed). Transaction rolled back.',
+      beds_inserted: Number(row.beds_inserted || 0),
+      no_write_performed: true,
+    });
+  }
+
+  appendAuditLog({
+    ...auditBase, success: true,
+    booking_id: row.booking_id, booking_code: row.booking_code,
+    beds_inserted: row.beds_inserted, elapsed_ms: elapsed,
+  });
+  return sendJSON(res, 201, {
+    success: true,
+    booking_id: row.booking_id,
+    booking_code: row.booking_code,
+    booking_status: 'blocked',
+    beds_inserted: Number(row.beds_inserted || 0),
+    client_slug: clientSlug,
+    check_in: checkIn,
+    check_out: checkOut,
+    selected_bed_codes: selectedBedCodes,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Stage 7.7g — Bed calendar handler (read-only)
 //
 // GET /staff/bed-calendar?client=<slug>&start=YYYY-MM-DD&end=YYYY-MM-DD
@@ -27866,6 +28237,7 @@ function bedCalendarIsTourOperatorSource(row) {
 
 /** Main block color = booking source only (badges carry payment/status). */
 function bedCalendarColorType(row) {
+  if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'blocked';
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
   if (bedCalendarIsTourOperatorSource(row)) return 'tour_operator';
   return 'confirmed';
@@ -30440,6 +30812,16 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleManualBookingCreate(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/calendar/beds/block') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for calendar/beds/block' }));
+    }
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCalendarBedBlockCreate(req, res, auth.user);
   }
 
   // ── Stage 8.4.11 — Stripe webhook payment truth ───────────────────────────
