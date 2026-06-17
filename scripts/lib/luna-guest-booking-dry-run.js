@@ -426,8 +426,9 @@ async function runAvailabilityCheckDryRun(fields, pg) {
       allowedBedCodes,
       guestCount,
       guestName: fields.guest_name || null,
-      genderPreference: fields.gender_preference || null,
+      genderPreference: fields.gender_preference || fields.group_gender || null,
       roomPreference: fields.room_preference || fields.gender_preference || null,
+      groupGender: fields.group_gender || fields.gender_preference || null,
     });
     allocationReason = pick.reason || null;
     groupGenderResolved = pick.group_gender || null;

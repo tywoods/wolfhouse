@@ -8047,6 +8047,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
   const guestCount    = parseInt(body.guest_count || '1', 10);
   const roomType      = String(body.room_type    || 'shared').trim().toLowerCase();
   const genderPref    = body.gender_preference ? String(body.gender_preference).trim() : null;
+  const groupGender   = body.group_gender ? String(body.group_gender).trim() : null;
   const guestName     = String(body.guest_name || '').trim() || null;
   const roomPref      = String(body.room_preference || genderPref || '').trim() || null;
 
@@ -8149,6 +8150,7 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
       guestName,
       genderPreference: genderPref,
       roomPreference: roomPref,
+      groupGender: groupGender || genderPref,
     });
     allocationReason = pick.reason || null;
     allocationSplit = !!pick.split;

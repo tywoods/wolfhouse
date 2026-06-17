@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { inferLikelyGuestGender } = require('./luna-booking-intake-policy');
+const { inferLikelyGuestGender, normalizeGroupGender } = require('./luna-booking-intake-policy');
 
 const CANONICAL_ROOM_TYPES = new Set([
   'male_only',
@@ -119,6 +119,54 @@ function allowedCategoriesForGroup(groupGender, roomPreference) {
 
 function categoryAllowedForGroup(category, allowed) {
   return allowed.has(category);
+}
+
+function isDedicatedMixedCategory(category) {
+  return category === 'mixed' || category === 'matrimonial_or_mixed';
+}
+
+/**
+ * Empty gendered spare rooms that may be flipped to mixed for this stay.
+ * Keeps at least one female-only and one male-only room reserved as gendered.
+ */
+function findFlippableGenderedRooms(rooms) {
+  const enriched = rooms.map(enrichRoom);
+  const femaleRooms = enriched.filter((r) => r.category === 'female_only');
+  const maleRooms = enriched.filter((r) => r.category === 'male_only');
+  const flipped = [];
+
+  const emptyFemale = femaleRooms.filter((r) => countOccupied(r) === 0);
+  if (femaleRooms.length >= 2 && emptyFemale.length >= 1) {
+    const spare = sortRoomsByRank(emptyFemale, 1).pop() || emptyFemale[0];
+    if (spare) flipped.push({ ...spare, category: 'mixed', flipped_from: 'female_only' });
+  }
+
+  const emptyMale = maleRooms.filter((r) => countOccupied(r) === 0);
+  if (maleRooms.length >= 2 && emptyMale.length >= 1) {
+    const spare = sortRoomsByRank(emptyMale, 1).pop() || emptyMale[0];
+    if (spare) flipped.push({ ...spare, category: 'mixed', flipped_from: 'male_only' });
+  }
+
+  return flipped;
+}
+
+function expandRoomsWithFlippedMixed(rooms) {
+  const base = rooms.map((r) => ({
+    ...r,
+    beds: (r.beds || []).map((b) => ({ ...b })),
+  }));
+  const byCode = new Map(base.map((r) => [r.room_code, r]));
+  for (const flip of findFlippableGenderedRooms(base)) {
+    const room = byCode.get(flip.room_code);
+    if (room) room._flippedToMixed = true;
+  }
+  return base.map((r) => {
+    const enriched = enrichRoom(r);
+    if (r._flippedToMixed) {
+      return { ...enriched, category: 'mixed', flipped_from: enriched.category };
+    }
+    return enriched;
+  });
 }
 
 function roomEligibleForGroup(category, groupGender, opts) {
@@ -286,6 +334,38 @@ function assertSelectionGenderSafe(selection, eligibleRooms, groupGender, roomPr
  * @param {object} opts
  * @returns {object}
  */
+function tryPlaceInEligibleRooms(rooms, guestCount, groupGender, roomPreference, allocOpts) {
+  const eligible = rooms
+    .filter((r) => roomEligibleForGroup(r.category, groupGender, allocOpts) && countAvailable(r) > 0);
+
+  const totalAvail = eligible.reduce((s, r) => s + countAvailable(r), 0);
+  if (totalAvail < guestCount) return null;
+
+  const fitting = eligible.filter((r) => countAvailable(r) >= guestCount);
+  if (fitting.length) {
+    const winner = sortRoomsByRank(fitting, guestCount)[0];
+    const result = {
+      selected_bed_codes: pickBeds(winner, guestCount),
+      room_code: winner.room_code,
+      split: false,
+      reason: pickReason(winner, guestCount, false, false),
+    };
+    if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
+      return { handoff: true, reason: 'gender_eligibility_violation' };
+    }
+    return result;
+  }
+
+  const cramPlan = cramAcrossEligibleRooms(eligible, guestCount);
+  if (!cramPlan) return null;
+
+  const result = buildCramSelection(cramPlan, guestCount);
+  if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
+    return { handoff: true, reason: 'gender_eligibility_violation' };
+  }
+  return result;
+}
+
 function chooseBeds(opts) {
   const guestCount = Math.max(1, Number(opts.guestCount) || 1);
   let groupGender = opts.groupGender || 'unknown';
@@ -326,46 +406,27 @@ function chooseBeds(opts) {
     allocOpts.groupGender = 'male';
   }
 
-  const eligible = rooms
-    .map(enrichRoom)
-    .filter((r) => roomEligibleForGroup(r.category, groupGender, allocOpts) && countAvailable(r) > 0);
+  const enrichedRooms = rooms.map(enrichRoom);
+  const useFlipFallback = groupGender === 'unknown' || groupGender === 'mixed';
 
-  const totalAvail = eligible.reduce((s, r) => s + countAvailable(r), 0);
-  if (totalAvail < guestCount) {
-    if (groupGender === 'unknown' || groupGender === 'mixed') {
-      return { handoff: true, reason: 'no_eligible_mixed_room' };
+  let result = tryPlaceInEligibleRooms(enrichedRooms, guestCount, groupGender, roomPreference, allocOpts);
+  if (result && !result.handoff) return result;
+
+  if (useFlipFallback) {
+    const expanded = expandRoomsWithFlippedMixed(rooms);
+    result = tryPlaceInEligibleRooms(expanded, guestCount, groupGender, roomPreference, allocOpts);
+    if (result && !result.handoff) {
+      if (result.reason && result.reason !== 'cram_gender_eligible_rooms') {
+        result.reason = result.split ? 'cram_flipped_mixed_rooms' : 'flipped_gendered_room_to_mixed';
+      }
+      return result;
     }
-    return { handoff: true, reason: 'no_eligible_room' };
   }
 
-  const fitting = eligible.filter((r) => countAvailable(r) >= guestCount);
-  if (fitting.length) {
-    const winner = sortRoomsByRank(fitting, guestCount)[0];
-    const result = {
-      selected_bed_codes: pickBeds(winner, guestCount),
-      room_code: winner.room_code,
-      split: false,
-      reason: pickReason(winner, guestCount, false, false),
-    };
-    if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
-      return { handoff: true, reason: 'gender_eligibility_violation' };
-    }
-    return result;
+  if (groupGender === 'unknown' || groupGender === 'mixed') {
+    return { handoff: true, reason: 'no_eligible_mixed_room' };
   }
-
-  const cramPlan = cramAcrossEligibleRooms(eligible, guestCount);
-  if (!cramPlan) {
-    if (groupGender === 'unknown' || groupGender === 'mixed') {
-      return { handoff: true, reason: 'no_eligible_mixed_room' };
-    }
-    return { handoff: true, reason: 'no_eligible_room' };
-  }
-
-  const result = buildCramSelection(cramPlan, guestCount);
-  if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference)) {
-    return { handoff: true, reason: 'gender_eligibility_violation' };
-  }
-  return result;
+  return { handoff: true, reason: 'no_eligible_room' };
 }
 
 /** Legacy capacity-only picker (feature-flag rollback). */
@@ -414,8 +475,13 @@ function deriveAllocatorContext({
   guestNames,
   genderPreference,
   roomPreference,
+  groupGender: explicitGroupGender,
 }) {
   const rp = normalizePref(roomPreference || genderPreference);
+  const explicit = normalizeGroupGender(explicitGroupGender)
+    || normalizeGroupGender(genderPreference);
+  const count = Math.max(1, Number(guestCount) || 1);
+
   if (rp === 'female_only') {
     return { groupGender: 'female', roomPreference: 'female_only' };
   }
@@ -423,9 +489,15 @@ function deriveAllocatorContext({
     return { groupGender: 'male', roomPreference: 'male_only' };
   }
   if (rp === 'private') {
-    return { groupGender: 'unknown', roomPreference: 'private' };
+    return { groupGender: explicit || 'unknown', roomPreference: 'private' };
+  }
+  if (explicit) {
+    return { groupGender: explicit, roomPreference: rp || (explicit === 'mixed' ? 'mixed' : null) };
   }
   if (rp === 'mixed') {
+    if (count >= 2) {
+      return { groupGender: 'unknown', roomPreference: 'mixed' };
+    }
     const names = Array.isArray(guestNames) && guestNames.length
       ? guestNames.map(trimStr).filter(Boolean)
       : (trimStr(guestName) ? [trimStr(guestName)] : []);
@@ -434,15 +506,13 @@ function deriveAllocatorContext({
     return { groupGender, roomPreference: 'mixed' };
   }
 
-  const names = Array.isArray(guestNames) && guestNames.length
-    ? guestNames.map(trimStr).filter(Boolean)
-    : (trimStr(guestName) ? [trimStr(guestName)] : []);
-  const count = Math.max(1, Number(guestCount) || 1);
-
-  if (count >= 2 && names.length <= 1) {
+  if (count >= 2) {
     return { groupGender: 'unknown', roomPreference: rp };
   }
 
+  const names = Array.isArray(guestNames) && guestNames.length
+    ? guestNames.map(trimStr).filter(Boolean)
+    : (trimStr(guestName) ? [trimStr(guestName)] : []);
   const genders = names.map(inferLikelyGuestGender);
   const known = genders.filter((g) => g !== 'unknown');
   if (!known.length) {
@@ -495,6 +565,7 @@ function runAvailabilityBedSelection(params) {
     guestNames,
     genderPreference,
     roomPreference,
+    groupGender,
     useRules = isRulesBasedRoomingEnabled(),
   } = params;
 
@@ -505,6 +576,7 @@ function runAvailabilityBedSelection(params) {
     guestNames,
     genderPreference,
     roomPreference,
+    groupGender,
   });
 
   const pick = useRules
@@ -543,6 +615,8 @@ module.exports = {
   allowedCategoriesForGroup,
   deriveAllocatorContext,
   buildAllocatorRoomsFromBedRows,
+  findFlippableGenderedRooms,
+  expandRoomsWithFlippedMixed,
   isRulesBasedRoomingEnabled,
   runAvailabilityBedSelection,
 };

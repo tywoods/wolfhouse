@@ -43,6 +43,10 @@ const CAMI_ELIGIBLE_STATES = Object.freeze([
 
   'ask_package',
 
+  'ask_group_composition',
+
+  'ask_pair_female_room_options',
+
   'ask_room_preference_girls_mixed',
 
   'ask_room_preference_private_shared',

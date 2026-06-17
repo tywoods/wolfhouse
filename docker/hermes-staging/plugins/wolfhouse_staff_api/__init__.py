@@ -200,6 +200,8 @@ def check_availability(params, **kwargs):
     }
     if params.get("gender_preference"):
         payload["gender_preference"] = params.get("gender_preference")
+    if params.get("group_gender"):
+        payload["group_gender"] = params.get("group_gender")
     if params.get("room_preference"):
         payload["room_preference"] = params.get("room_preference")
     data = _post_bot("/availability-check", payload)
@@ -410,6 +412,7 @@ def create_booking_from_plan(params, **kwargs):
                 "room_type": payload.get("room_type") or payload.get("room_preference") or "shared",
                 **({"room_preference": payload.get("room_preference")} if payload.get("room_preference") else {}),
                 **({"gender_preference": payload.get("gender_preference")} if payload.get("gender_preference") else {}),
+                **({"group_gender": payload.get("group_gender")} if payload.get("group_gender") else {}),
             })
             bed_codes = avail_data.get("selected_bed_codes") or []
             if bed_codes:
@@ -928,7 +931,8 @@ def register(ctx):
         "guest_count": {"type": "integer", "description": "Number of guests."},
         "room_type": {"type": "string", "description": "shared, private, double, or any."},
         "room_preference": {"type": "string", "description": "Guest room choice: shared, mixed, female_only, private, couple_private, etc. Pass through from the guest's answer."},
-        "gender_preference": {"type": "string", "description": "Inferred or guest-stated gender grouping for room assignment (e.g. female_only, mixed, solo_female). Never ask 'are you a girl' — infer silently from the booking name when needed."},
+        "group_gender": {"type": "string", "description": "Authoritative group composition for 2+ guests: female (all girls), male (all guys), or mixed. Always ask groups — never infer from booker name."},
+        "gender_preference": {"type": "string", "description": "Same as group_gender for groups; for solo bookings only, infer silently from name (female/male/mixed). Never ask a solo guest 'are you a girl'."},
         "package_code": {"type": "string", "description": "malibu, uluwatu, waimea for 7+ nights; package_none for short stays / accommodation-only."},
         "guest_packages": {"type": "array", "description": "Optional per-guest packages, e.g. [{guest_number:1, package_code:'malibu'}]. If one package applies to all guests, include one entry per guest with the same package.", "items": {"type": "object"}},
     }

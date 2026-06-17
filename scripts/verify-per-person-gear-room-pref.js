@@ -14,6 +14,9 @@ const { computeWolfhouseRoomOptionFlags } = require('./lib/wolfhouse-room-option
 const {
   inferRoomPreferenceNeed,
   inferLikelyGuestGender,
+  inferGroupCompositionNeed,
+  parseGroupCompositionAnswer,
+  groupCompositionResolved,
 } = require('./lib/luna-booking-intake-policy');
 const { inferGroupGearPeopleCount } = require('./lib/luna-booking-addons-policy');
 
@@ -136,6 +139,11 @@ section('F. Room-preference branching');
   const baseState = { extracted_fields: { guest_count: 1, guest_name: 'Sarah' } };
   check('F1', inferLikelyGuestGender('Sarah') === 'female', 'Sarah → female');
   check('F2', inferLikelyGuestGender('Marco') === 'male', 'Marco → male');
+  check('F2b', inferLikelyGuestGender('Andrea') === 'unknown', 'Andrea unisex → unknown');
+  check('F2c', inferLikelyGuestGender('Giulia') === 'female', 'Giulia IT → female');
+  check('F2d', inferLikelyGuestGender('Hans') === 'male', 'Hans DE → male');
+  check('F2e', inferLikelyGuestGender('Camille') === 'female', 'Camille FR → female');
+  check('F2f', inferLikelyGuestGender('Diego') === 'male', 'Diego ES → male');
   const soloFemale = inferRoomPreferenceNeed(baseState, { availability: { girls_room_available: true } });
   check('F3', soloFemale.needed && soloFemale.question_type === 'girls_or_mixed', 'solo female asks');
   const soloMale = inferRoomPreferenceNeed(
@@ -145,26 +153,45 @@ section('F. Room-preference branching');
   check('F4', !soloMale.needed, 'solo male — no question');
   const noGirls = inferRoomPreferenceNeed(baseState, { availability: { girls_room_available: false } });
   check('F5', !noGirls.needed && noGirls.rule_applied === 'solo_no_girls_room_auto_assign', 'girls unavailable — skip');
-  const coupleFemale = inferRoomPreferenceNeed(
-    { extracted_fields: { guest_count: 2, guest_name: 'Emma' } },
+  const groupComp = inferGroupCompositionNeed(
+    { extracted_fields: { guest_count: 4, guest_name: 'Sophie' } },
+    {},
+  );
+  check('F6', groupComp.needed && groupComp.question_type === 'group_composition', 'group 4 always asks composition');
+  check('F7', parseGroupCompositionAnswer('all girls') === 'female', 'parse all girls');
+  check('F8', parseGroupCompositionAnswer('all guys') === 'male', 'parse all guys');
+  check('F9', parseGroupCompositionAnswer('a mix') === 'mixed', 'parse mix');
+  const pairFemale = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 2, group_gender: 'female' } },
     { availability: { girls_room_available: true, private_room_available: true } },
   );
-  check('F6', coupleFemale.needed && coupleFemale.question_type === 'private_or_shared', '2 female + private → ask');
+  check('F10', pairFemale.needed && pairFemale.question_type === 'pair_female_room_options', 'pair all-girls room options');
+  const pairWomenFriends = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 2, group_gender: 'female' } },
+    { availability: { girls_room_available: true, private_room_available: false } },
+  );
+  check('F11', pairWomenFriends.question_type === 'girls_or_mixed', 'pair women friends → girls offer');
   const groupFemale = inferRoomPreferenceNeed(
-    { extracted_fields: { guest_count: 4, guest_name: 'Sophie' } },
+    { extracted_fields: { guest_count: 4, group_gender: 'female' } },
     { availability: { girls_room_available: true } },
   );
-  check('F7', groupFemale.needed && groupFemale.question_type === 'girls_or_mixed', '3+ female + girls avail');
-  const groupNoGirls = inferRoomPreferenceNeed(
-    { extracted_fields: { guest_count: 4, guest_name: 'Sophie' } },
-    { availability: { girls_room_available: false } },
+  check('F12', groupFemale.needed && groupFemale.question_type === 'girls_or_mixed', '3+ all-girls → girls or mixed');
+  const groupMale = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 4, group_gender: 'male' } },
+    { availability: { girls_room_available: true } },
   );
-  check('F8', !groupNoGirls.needed, '3+ girls unavailable — skip');
+  check('F13', !groupMale.needed, 'all-guys group — no room question');
+  check('F14', groupCompositionResolved({ extracted_fields: { guest_count: 2, group_gender: 'mixed' } }), 'composition resolved when set');
   const ambiguous = inferRoomPreferenceNeed(
     { extracted_fields: { guest_count: 1, guest_name: 'Robin' } },
     { availability: { girls_room_available: true } },
   );
-  check('F9', ambiguous.needed && ambiguous.question_type === 'neutral_shared', 'ambiguous solo → neutral ask');
+  check('F15', ambiguous.needed && ambiguous.question_type === 'neutral_shared', 'ambiguous solo → neutral ask');
+  const namedGroupNoInfer = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 3, guest_name: 'Marco' } },
+    { availability: { girls_room_available: true } },
+  );
+  check('F16', !namedGroupNoInfer.needed && namedGroupNoInfer.rule_applied === 'awaiting_group_composition', 'group never infers from booker name');
 }
 
 section('G. Room option flags from beds');

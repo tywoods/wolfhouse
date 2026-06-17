@@ -30,8 +30,10 @@ const {
 } = require('./luna-booking-reactive-services-policy');
 const {
   buildBookingIntakePolicySnapshot,
-  mapPolicyQuestionToComposerState,
   inferRoomPreferenceNeed,
+  inferGroupCompositionNeed,
+  groupCompositionResolved,
+  mapPolicyQuestionToComposerState,
 } = require('./luna-booking-intake-policy');
 const { extractQuoteFactsFromPayload } = require('./luna-quote-facts');
 const { quoteChainIsStale } = require('./luna-booking-state-transitions');
@@ -95,6 +97,8 @@ const COMPOSER_STATES = Object.freeze([
   'ask_guests',
   'ask_guest_name',
   'ask_package',
+  'ask_group_composition',
+  'ask_pair_female_room_options',
   'ask_room_preference_girls_mixed',
   'ask_room_preference_private_shared',
   'ask_room_preference_neutral',
@@ -861,13 +865,17 @@ function resolveComposerState(input) {
     if (policy.add_ons_status === 'declined') {
       return 'addons_none_confirmed';
     }
+    const intakeState = { extracted_fields: fields, package_night_rule: result.package_night_rule };
+    const compNeed = inferGroupCompositionNeed(intakeState, { availability });
+    if (compNeed.needed && !groupCompositionResolved(intakeState)) {
+      return 'ask_group_composition';
+    }
     if (policy.room_preference_needed && !trimStr(fields.room_preference)) {
-      const roomNeed = inferRoomPreferenceNeed(
-        { extracted_fields: fields, package_night_rule: result.package_night_rule },
-        { availability },
-      );
+      const roomNeed = inferRoomPreferenceNeed(intakeState, { availability });
       let roomQuestion = null;
-      if (roomNeed.question_type === 'private_or_shared') roomQuestion = 'ask_room_preference_private_shared';
+      if (roomNeed.question_type === 'pair_female_room_options') {
+        roomQuestion = 'ask_pair_female_room_options';
+      } else if (roomNeed.question_type === 'private_or_shared') roomQuestion = 'ask_room_preference_private_shared';
       else if (roomNeed.question_type === 'girls_or_mixed' || roomNeed.question_type === 'mixed_only_female') {
         roomQuestion = 'ask_room_preference_girls_mixed';
       } else if (roomNeed.question_type === 'neutral_shared') roomQuestion = 'ask_room_preference_neutral';
@@ -1033,6 +1041,8 @@ function buildReplyForState(state, ctx) {
     room_girls_mixed_unavailable: 'We do not have a girls-only room free for those dates — a mixed shared room would be the option. Is that okay?',
     room_private_shared: 'We may have a private room available for €10 per night extra. Would you prefer that, or are you okay with shared beds?',
     room_neutral: 'Do you have any room preference, or is a mixed shared room okay?',
+    group_composition: 'Lovely! Is your group all girls, all guys, or a mix? 😊',
+    pair_female_room_options: 'Any room preference? We may have a private couples room (+€10/night), an all-girls room, or mixed shared beds ✨',
     transfer_casual: buildTransferIntakeQuestion(lang, fields),
     transfer_times_combined: buildTransferTimesQuestion(lang, fields),
     ask_package_choice: () => {
@@ -1192,6 +1202,10 @@ function buildReplyForState(state, ctx) {
       return L.room_private_shared;
     case 'ask_room_preference_neutral':
       return L.room_neutral;
+    case 'ask_group_composition':
+      return L.group_composition;
+    case 'ask_pair_female_room_options':
+      return L.pair_female_room_options;
     case 'ask_transfer_info_casual':
       return L.transfer_casual;
     case 'ask_transfer_times_combined':
@@ -1455,6 +1469,8 @@ function nextGuestQuestionForState(state) {
     ask_guests: 'guest_count',
     ask_guest_name: 'guest_name',
     ask_package: 'package_interest',
+    ask_group_composition: 'group_composition',
+    ask_pair_female_room_options: 'room_preference',
     ask_room_preference_girls_mixed: 'room_preference',
     ask_room_preference_private_shared: 'room_preference',
     ask_room_preference_neutral: 'room_preference',
@@ -1532,6 +1548,7 @@ function composeLunaGuestReply(input) {
   if (groundingErrors.length && !['greeting', 'ask_dates', 'confirm_dates', 'ask_guests', 'ask_guest_name', 'ask_package',
     'explain_packages', 'explain_service_addon', 'explain_transfer', 'explain_house_knowledge', 'explain_surf_report', 'ask_package_choice',
     'clarify_missing_info', 'contextual_pending_answer', 'safe_handoff', 'quote_refreshing',
+    'ask_group_composition', 'ask_pair_female_room_options',
     'ask_room_preference_girls_mixed', 'ask_room_preference_private_shared', 'ask_room_preference_neutral',
     'ask_transfer_info_casual', 'payment_choice_ack', 'hold_write_failed'].includes(state)) {
     return {

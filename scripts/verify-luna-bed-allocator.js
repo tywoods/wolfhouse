@@ -174,7 +174,7 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('M5', r.room_code === 'R2' || r.room_code === 'R1', `Marco solo male room (${r.room_code})`);
 }
 
-// ── Unknown/mixed group → mixed pool (R1 + R3) ─────────────────────────────
+// ── Unknown/mixed group → mixed pool (R1 + R3), flip spare when needed ─────
 {
   const r = pick({ guestCount: 2, groupGender: 'unknown' });
   check('U1', r.room_code === 'R3' || r.room_code === 'R1', `unknown pair → mixed pool (${r.room_code})`);
@@ -185,6 +185,45 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('U3', !r.handoff && r.split, 'unknown 8 crams across mixed pool');
   check('U4', roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R1' || c === 'R3'), 'unknown 8 only R1/R3');
   check('U5', r.reason === 'cram_gender_eligible_rooms', 'unknown 8 cram reason');
+}
+
+// ── Mixed group too big for R1+R3 → flip empty spare female room (R8) ───────
+{
+  const r = pick({
+    guestCount: 10,
+    groupGender: 'mixed',
+    rooms: wolfhouseAll({
+      R1: { availableMask: [false, false, false, false, false] },
+      R3: { availableMask: [false, false, false, false] },
+      R8: {},
+      R5: { availableMask: [false, false, false, false, false, true] },
+    }),
+  });
+  check('FL1', !r.handoff, 'mixed 10 fits after flip');
+  check('FL2', roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'uses flipped spare R8');
+  check('FL3', !roomCodesFromBeds(r.selected_bed_codes).includes('R5'), 'keeps R5 female reserved');
+}
+
+// ── Never flip occupied gendered room ─────────────────────────────────────
+{
+  const r = pick({
+    guestCount: 8,
+    groupGender: 'unknown',
+    rooms: wolfhouseAll({
+      R1: { availableMask: [false, false, false, false, false] },
+      R3: { availableMask: [false, false, false, false] },
+      R8: { availableMask: [false, true, true, true, true] },
+    }),
+  });
+  check('FL4', !roomCodesFromBeds(r.selected_bed_codes).includes('R8'), 'no flip partial R8');
+}
+
+// ── Explicit group gender from composition ──────────────────────────────────
+{
+  const ctx = deriveAllocatorContext({ guestCount: 4, guestName: 'Marco', groupGender: 'female' });
+  check('GC1', ctx.groupGender === 'female', 'explicit group_gender female');
+  const r = pick({ guestCount: 4, groupGender: 'female' });
+  check('GC2', roomCodesFromBeds(r.selected_bed_codes).every((c) => c === 'R5' || c === 'R8'), 'all-girls group → female rooms');
 }
 
 // ── Couple + private ──────────────────────────────────────────────────────────

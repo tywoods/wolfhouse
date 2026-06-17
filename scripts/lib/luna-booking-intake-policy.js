@@ -22,6 +22,11 @@ const {
   resolveAddOnsStatus,
 } = require('./luna-booking-addons-policy');
 const { extractReactiveServicesFromMessage } = require('./luna-booking-reactive-services-policy');
+const {
+  UNISEX_NAMES,
+  LIKELY_MALE_NAMES,
+  LIKELY_FEMALE_NAMES,
+} = require('./luna-guest-gender-names');
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
@@ -31,6 +36,7 @@ const INTAKE_FIELD_ORDER = Object.freeze([
 ]);
 
 const POST_QUOTE_FIELD_ORDER = Object.freeze([
+  'group_composition',
   'room_preference',
   'add_ons',
   'transfer_info',
@@ -40,23 +46,6 @@ const POST_QUOTE_FIELD_ORDER = Object.freeze([
 const GENERIC_WHATSAPP_NAMES = new Set([
   'guest', 'user', 'whatsapp user', 'unknown', 'contact', 'friend',
   'there', 'me', 'n/a', 'na', 'none',
-]);
-
-const LIKELY_MALE_NAMES = new Set([
-  'marco', 'marcus', 'martin', 'john', 'james', 'michael', 'david', 'ty', 'tyler', 'tom', 'thomas',
-  'mark', 'matt', 'matthew', 'chris', 'christopher', 'alex', 'alexander', 'ben', 'benjamin',
-  'daniel', 'peter', 'paul', 'luke', 'jack', 'sam', 'samuel', 'max', 'noah',
-  'liam', 'josh', 'joshua', 'ryan', 'adam', 'kevin', 'brian', 'eric', 'steve', 'steven',
-  'carlos', 'miguel', 'luca', 'giuseppe', 'hans', 'jan', 'pierre', 'antonio', 'francesco',
-  'giovanni', 'stefano', 'stefan', 'nicola', 'roberto', 'robert', 'william', 'oliver', 'henry',
-  'george', 'patrick', 'simon', 'felix', 'louis', 'luca', 'diego', 'pablo', 'jose', 'juan',
-]);
-
-const LIKELY_FEMALE_NAMES = new Set([
-  'sarah', 'emma', 'maria', 'anna', 'lisa', 'sophie', 'sophia', 'laura', 'julia',
-  'emily', 'olivia', 'mia', 'chloe', 'grace', 'lucy', 'kate', 'katie', 'hannah',
-  'jessica', 'jennifer', 'nicole', 'rachel', 'sara', 'claire', 'elena', 'sofia',
-  'giulia', 'francesca', 'marie', 'camille', 'lea', 'charlotte', 'amelie',
 ]);
 
 const NO_ADDONS_RE = /\b(?:no\s+thanks?|just\s+the\s+stay|accommodation\s+only|i\s+have\s+my\s+own(?:\s+stuff)?|no\s+add(?:\s+|-)?nothing|nothing\s+else|nothing\s+extra|no\s+extras?|no\s+wetsuit|no\s+board|no\s+lesson)\b/i;
@@ -102,9 +91,76 @@ function firstNameOf(fullName) {
 function inferLikelyGuestGender(guestName) {
   const first = firstNameOf(guestName);
   if (!first) return 'unknown';
+  if (UNISEX_NAMES.has(first)) return 'unknown';
   if (LIKELY_FEMALE_NAMES.has(first)) return 'female';
   if (LIKELY_MALE_NAMES.has(first)) return 'male';
   return 'unknown';
+}
+
+function normalizeGroupGender(value) {
+  const v = trimStr(value).toLowerCase().replace(/[\s-]+/g, '_');
+  if (!v) return null;
+  if (v === 'female' || v === 'female_only' || v === 'girls' || v === 'girls_room' || v === 'all_girls') {
+    return 'female';
+  }
+  if (v === 'male' || v === 'male_only' || v === 'guys' || v === 'guys_room' || v === 'all_guys' || v === 'all_men') {
+    return 'male';
+  }
+  if (v === 'mixed' || v === 'mix') return 'mixed';
+  return null;
+}
+
+function groupGenderFromFields(fields) {
+  const f = fields || {};
+  return normalizeGroupGender(f.group_gender)
+    || normalizeGroupGender(f.gender_preference)
+    || null;
+}
+
+function groupCompositionResolved(state) {
+  const fields = (state && state.extracted_fields) || {};
+  const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
+  if (guestCount == null || guestCount < 2) return true;
+  return !!groupGenderFromFields(fields);
+}
+
+/**
+ * Parse group composition from guest reply (groups of 2+ only).
+ * @returns {'female'|'male'|'mixed'|null}
+ */
+function parseGroupCompositionAnswer(text) {
+  const t = String(text || '').toLowerCase().trim();
+  if (!t) return null;
+  if (/\b(?:all\s+)?girls?\b|\ball\s+females?\b|\b(?:solo|only)\s+(?:girls?|women|females?)\b|\bchicas?\b|\bchicas\b|\bmujeres\b|\balle\s+ragazze\b|\btoutes?\s+filles?\b|\bmädchen\b|\bmadchen\b|\bfilles?\b/i.test(t)
+    && !/\b(?:mix|mixed|guys?|boys?|men|hombres|ragazzi)\b/i.test(t)) {
+    return 'female';
+  }
+  if (/\b(?:all\s+)?guys?\b|\ball\s+boys?\b|\ball\s+men\b|\b(?:solo|only)\s+(?:guys?|boys?|men)\b|\btutti\s+ragazzi\b|\btodos\s+(?:chicos?|hombres)\b|\btous\s+les\s+hommes\b|\balle\s+jungs\b|\bhombres\b|\bchicos?\b/i.test(t)
+    && !/\b(?:mix|mixed|girls?|women|females?|chicas)\b/i.test(t)) {
+    return 'male';
+  }
+  if (/\b(?:mix(?:ed)?|a\s+mix|mezcla|misto|gemischt|mixte)\b/i.test(t)
+    || /\b(?:girls?\s+and\s+guys?|boys?\s+and\s+girls?|men\s+and\s+women)\b/i.test(t)) {
+    return 'mixed';
+  }
+  return null;
+}
+
+function inferGroupCompositionNeed(state, context) {
+  const fields = (state && state.extracted_fields) || {};
+  const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
+  if (guestCount == null || guestCount < 2) {
+    return { needed: false, question_type: null, rule_applied: 'solo_no_composition' };
+  }
+  if (groupGenderFromFields(fields)) {
+    return { needed: false, question_type: null, rule_applied: 'group_composition_already_set' };
+  }
+  return {
+    needed: true,
+    question_type: 'group_composition',
+    rule_applied: 'group_always_ask_composition',
+    block_booking: false,
+  };
 }
 
 function normalizeStayType(fields, packageNightRule) {
@@ -333,11 +389,10 @@ function inferRoomPreferenceNeed(state, context) {
   const ctx = context || {};
   const fields = (state && state.extracted_fields) || {};
   const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
-  const guestName = effectiveGuestName(fields, ctx.channel_guest_name);
-  const gender = inferLikelyGuestGender(guestName);
   const availability = ctx.availability || state.availability || {};
   const privateAvail = privateRoomAvailable(availability);
   const girlsAvail = girlsRoomAvailable(availability);
+  const groupGender = groupGenderFromFields(fields);
 
   if (guestCount == null || guestCount < 1) {
     return {
@@ -348,24 +403,17 @@ function inferRoomPreferenceNeed(state, context) {
     };
   }
 
-  if (guestCount >= 3) {
-    if ((gender === 'female' || gender === 'unknown') && girlsAvail) {
-      return {
-        needed: true,
-        question_type: 'girls_or_mixed',
-        rule_applied: 'group_female_girls_or_mixed',
-        block_booking: false,
-      };
-    }
+  if (guestCount >= 2 && !groupGender) {
     return {
       needed: false,
       question_type: null,
-      rule_applied: 'group_default_assignment',
+      rule_applied: 'awaiting_group_composition',
       block_booking: false,
     };
   }
 
   if (guestCount === 1) {
+    const gender = inferLikelyGuestGender(effectiveGuestName(fields, ctx.channel_guest_name));
     if (gender === 'male') {
       return {
         needed: false,
@@ -399,44 +447,80 @@ function inferRoomPreferenceNeed(state, context) {
   }
 
   if (guestCount === 2) {
-    if (gender === 'male') {
+    if (groupGender === 'mixed') {
       return {
         needed: false,
         question_type: null,
-        rule_applied: 'couple_male_default_mixed',
+        rule_applied: 'pair_mixed_default_shared',
         block_booking: false,
       };
     }
-    if (privateAvail) {
-      const rule = gender === 'female' ? 'couple_female_private_option' : 'couple_private_option';
-      return {
-        needed: true,
-        question_type: 'private_or_shared',
-        rule_applied: rule,
-        block_booking: false,
-        private_extra_eur_per_night: 10,
-      };
-    }
-    if (!girlsAvail) {
+    if (groupGender === 'male') {
+      if (privateAvail) {
+        return {
+          needed: true,
+          question_type: 'private_or_shared',
+          rule_applied: 'pair_male_private_option',
+          block_booking: false,
+          private_extra_eur_per_night: 10,
+        };
+      }
       return {
         needed: false,
         question_type: null,
-        rule_applied: 'couple_no_girls_room_auto_assign',
+        rule_applied: 'pair_male_default_shared',
         block_booking: false,
       };
     }
-    if (gender === 'female' || gender === 'unknown') {
+    if (groupGender === 'female') {
+      if (privateAvail && girlsAvail) {
+        return {
+          needed: true,
+          question_type: 'pair_female_room_options',
+          rule_applied: 'pair_female_private_girls_mixed',
+          block_booking: false,
+          private_extra_eur_per_night: 10,
+        };
+      }
+      if (girlsAvail) {
+        return {
+          needed: true,
+          question_type: 'girls_or_mixed',
+          rule_applied: 'pair_female_girls_mixed',
+          block_booking: false,
+        };
+      }
+      if (privateAvail) {
+        return {
+          needed: true,
+          question_type: 'private_or_shared',
+          rule_applied: 'pair_female_private_only',
+          block_booking: false,
+          private_extra_eur_per_night: 10,
+        };
+      }
+      return {
+        needed: false,
+        question_type: null,
+        rule_applied: 'pair_female_auto_assign',
+        block_booking: false,
+      };
+    }
+  }
+
+  if (guestCount >= 3) {
+    if (groupGender === 'female' && girlsAvail) {
       return {
         needed: true,
         question_type: 'girls_or_mixed',
-        rule_applied: gender === 'female' ? 'couple_female_girls_mixed' : 'couple_unknown_girls_mixed',
+        rule_applied: 'group_female_girls_or_mixed',
         block_booking: false,
       };
     }
     return {
       needed: false,
       question_type: null,
-      rule_applied: 'couple_male_default_mixed',
+      rule_applied: 'group_default_assignment',
       block_booking: false,
     };
   }
@@ -497,8 +581,13 @@ function determineRequiredBookingFields(state, context) {
     if (!addonsResolved(state) && quoteAwaitingAddonsDecision(ctx.quote)) {
       missing.push('add_ons');
     }
+    const compNeed = inferGroupCompositionNeed(state, ctx);
+    if (compNeed.needed && !groupCompositionResolved(state)) {
+      missing.push('group_composition');
+    }
     const roomNeed = inferRoomPreferenceNeed(state, ctx);
-    if (roomNeed.needed && !roomPreferenceResolved(state) && addonsResolved(state)) {
+    if (roomNeed.needed && !roomPreferenceResolved(state) && addonsResolved(state)
+      && groupCompositionResolved(state)) {
       missing.push('room_preference');
     }
     if (isPackageBooking(stayType, fields)) {
@@ -529,7 +618,12 @@ function mapFieldToQuestion(field, state, context) {
       return { question: 'ask_guests', stage: 'collecting_guest_count', field: 'guest_count' };
     case 'stay_type':
       return { question: 'ask_stay_type', stage: 'collecting_stay_type', field: 'stay_type' };
+    case 'group_composition':
+      return { question: 'ask_group_composition', stage: 'group_composition', field: 'group_composition' };
     case 'room_preference':
+      if (roomNeed.question_type === 'pair_female_room_options') {
+        return { question: 'ask_pair_female_room_options', stage: 'room_preference', field: 'room_preference' };
+      }
       if (roomNeed.question_type === 'private_or_shared') {
         return { question: 'ask_room_preference_private_shared', stage: 'room_preference', field: 'room_preference' };
       }
@@ -561,6 +655,9 @@ function determineNextBookingQuestion(state, context) {
 
   if (quote.quote_status === 'ready' && missing.includes('add_ons')) {
     return mapFieldToQuestion('add_ons', state, ctx);
+  }
+  if (quote.quote_status === 'ready' && missing.includes('group_composition')) {
+    return mapFieldToQuestion('group_composition', state, ctx);
   }
   if (quote.quote_status === 'ready' && missing.includes('room_preference')) {
     return mapFieldToQuestion('room_preference', state, ctx);
@@ -662,6 +759,12 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
     if (!patch.package_interest) patch.package_interest = 'no_package';
   }
 
+  const composition = parseGroupCompositionAnswer(text);
+  if (composition) {
+    patch.group_gender = composition;
+    patch.gender_preference = composition;
+  }
+
   const transfer = extractTransferInfo(text);
   if (transfer) patch.transfer_info = mergeTransferInfo(prior.transfer_info, transfer);
 
@@ -682,6 +785,7 @@ function normalizeOutOfOrderBookingInfo(message, priorState, context) {
   if (patch.check_in && patch.check_out) inferred.push('dates');
   if (patch.guest_count != null) inferred.push('guest_count');
   if (patch.package_interest) inferred.push('stay_type');
+  if (composition) inferred.push('group_composition');
   if (transfer) inferred.push('transfer_info');
 
   return {
@@ -709,6 +813,8 @@ function buildSkippedQuestions(state, context) {
   if (ch && !isGenericWhatsAppName(ch) && trimStr(fields.guest_name) === ch) {
     skipped.push('guest_name');
   }
+  const compNeed = inferGroupCompositionNeed(state, context);
+  if (!compNeed.needed) skipped.push('group_composition');
   const roomNeed = inferRoomPreferenceNeed(state, context);
   if (!roomNeed.needed) skipped.push('room_preference');
   const ts = resolveTransferInfoStatus(state, context);
@@ -727,8 +833,9 @@ function buildInferredFields(state, context) {
   if (stay) out.stay_type = stay;
   const nights = computeStayNights(fields.check_in, fields.check_out);
   if (nights != null && nights < 7) out.short_stay_accommodation_default = true;
+  const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
   const gender = inferLikelyGuestGender(effectiveGuestName(fields, ch));
-  if (gender !== 'unknown') out.likely_guest_gender = gender;
+  if (guestCount === 1 && gender !== 'unknown') out.likely_guest_gender = gender;
   return out;
 }
 
@@ -738,6 +845,7 @@ function buildInferredFields(state, context) {
 function buildBookingIntakePolicySnapshot(state, context) {
   const ctx = context || {};
   const roomNeed = inferRoomPreferenceNeed(state, ctx);
+  const compNeed = inferGroupCompositionNeed(state, ctx);
   const next = determineNextBookingQuestion(state, ctx);
   return {
     booking_flow_stage: resolveBookingFlowStage(state, ctx),
@@ -746,6 +854,9 @@ function buildBookingIntakePolicySnapshot(state, context) {
     required_fields: determineRequiredBookingFields(state, ctx),
     skipped_questions: buildSkippedQuestions(state, ctx),
     inferred_fields: buildInferredFields(state, ctx),
+    group_composition_needed: compNeed.needed,
+    group_composition_question_type: compNeed.question_type,
+    group_composition_rule_applied: compNeed.rule_applied,
     room_preference_needed: roomNeed.needed,
     room_preference_question_type: roomNeed.question_type,
     room_preference_rule_applied: roomNeed.rule_applied,
@@ -768,6 +879,8 @@ function mapPolicyQuestionToComposerState(question) {
     ask_room_preference_girls_mixed: 'ask_room_preference_girls_mixed',
     ask_room_preference_private_shared: 'ask_room_preference_private_shared',
     ask_room_preference_neutral: 'ask_room_preference_neutral',
+    ask_group_composition: 'ask_group_composition',
+    ask_pair_female_room_options: 'ask_pair_female_room_options',
     ask_transfer_info_casual: 'ask_transfer_info_casual',
   };
   return map[question] || null;
@@ -779,6 +892,11 @@ module.exports = {
   determineRequiredBookingFields,
   determineNextBookingQuestion,
   inferRoomPreferenceNeed,
+  inferGroupCompositionNeed,
+  parseGroupCompositionAnswer,
+  normalizeGroupGender,
+  groupGenderFromFields,
+  groupCompositionResolved,
   normalizeOutOfOrderBookingInfo,
   buildBookingIntakePolicySnapshot,
   mapPolicyQuestionToComposerState,
