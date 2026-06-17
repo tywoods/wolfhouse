@@ -16106,16 +16106,21 @@ function fmtTs(ts){
 }
 
 /* Format date-only (no time) from ISO string or date value */
+/* RegExp constructor — regex literals with \\d break inside the embedded /staff/ui script bundle */
+var BC_ISO_DATE_RE = new RegExp('^\\\\d{4}-\\\\d{2}-\\\\d{2}$');
+var BC_DISPLAY_DATE_RE = new RegExp('^(\\\\d{1,2})\\\\/(\\\\d{1,2})\\\\/(\\\\d{4})$');
+var BC_YEAR_PREFIX_RE = new RegExp('^\\\\d{4}');
+
 function bcFormatIsoDateDisplay(iso) {
-  if (!iso || !/^\d{4}-\d{2}-\d{2}$/.test(String(iso))) return iso || '';
+  if (!iso || !BC_ISO_DATE_RE.test(String(iso))) return iso || '';
   var p = String(iso).split('-');
   return p[2] + '/' + p[1] + '/' + p[0];
 }
 
 function bcParseDisplayDateToIso(display) {
   var s = String(display || '').trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
-  var m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (BC_ISO_DATE_RE.test(s)) return s;
+  var m = s.match(BC_DISPLAY_DATE_RE);
   if (!m) return null;
   var dd = m[1].padStart(2, '0');
   var mm = m[2].padStart(2, '0');
@@ -16159,7 +16164,7 @@ function fmtDateOnly(d){
   if (!d) return '—';
   try {
     var s = String(d).slice(0, 10);
-    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return bcFormatIsoDateDisplay(s);
+    if (BC_ISO_DATE_RE.test(s)) return bcFormatIsoDateDisplay(s);
     return s;
   } catch(_){ return String(d || '—'); }
 }
@@ -19919,7 +19924,7 @@ function bcIsPortalOperatorRoom(room) {
 }
 
 function bcFormatServiceScheduleDayLabel(dateStr) {
-  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr || '\u2014';
+  if (!dateStr || !BC_ISO_DATE_RE.test(dateStr)) return dateStr || '\u2014';
   var d = new Date(dateStr + 'T12:00:00Z');
   if (isNaN(d.getTime())) return dateStr;
   var keys = [
@@ -25464,7 +25469,7 @@ function bcUpdateCalendarTitle(){
   var titleEl = el('bc-calendar-title');
   if (!titleEl) return;
   var start = bcReadDateField(el('bc-start'));
-  var year = (start && /^\d{4}/.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
+  var year = (start && BC_YEAR_PREFIX_RE.test(start)) ? start.slice(0, 4) : String(new Date().getFullYear());
   titleEl.textContent = t('calendar.title') + ' - ' + year;
 }
 
