@@ -75,6 +75,8 @@ function matchesGuestSurfReportTopic(q) {
   }
   if (/\b(?:surf\s*report|surfbericht|prevision(?:e| del)? surf|prevision del surf)\b/.test(q)) return true;
   if (/\bhow are the waves\b/.test(q)) return true;
+  if (/\bhow(?:'s|s| is)\s+the\s+surf\b/.test(q)) return true;
+  if (/\bhow(?:'s|s| is)\s+it\s+(?:out\s+there|in\s+the\s+water)\b/.test(q)) return true;
   if (/\b(?:what'?s|whats) the surf like\b/.test(q)) return true;
   if (/\b(?:is|are) somo good\b/.test(q)) return true;
   if (/\bare there waves\b/.test(q)) return true;
@@ -184,6 +186,140 @@ function buildMidFlowTail(fields, quote, pc, lang, messageText) {
   }
 }
 
+function capitalizePhrase(text) {
+  const s = trimStr(text);
+  if (!s) return s;
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function guestFriendlyWaveSizePhrase(waveM, lang) {
+  const w = Number(waveM);
+  if (!Number.isFinite(w)) return null;
+  const L = trimStr(lang).slice(0, 2) || 'en';
+  const map = {
+    en: [
+      [0.3, 'barely a ripple — super small'],
+      [0.6, 'small and mellow'],
+      [1.0, 'around knee-high'],
+      [1.4, 'around waist-high'],
+      [1.8, 'around chest-high'],
+      [2.5, 'around head-high'],
+      [Infinity, 'pretty solid size for Somo'],
+    ],
+    it: [
+      [0.3, 'quasi piattino'],
+      [0.6, 'piccole e mellow'],
+      [1.0, 'circa al ginocchio'],
+      [1.4, 'circa alla vita'],
+      [1.8, 'circa al petto'],
+      [2.5, 'circa alla testa'],
+      [Infinity, 'belle dimensioni per Somo'],
+    ],
+    es: [
+      [0.3, 'casi planito'],
+      [0.6, 'pequeñas y suaves'],
+      [1.0, 'aprox. a la rodilla'],
+      [1.4, 'aprox. a la cintura'],
+      [1.8, 'aprox. al pecho'],
+      [2.5, 'aprox. a la cabeza'],
+      [Infinity, 'buen tamaño para Somo'],
+    ],
+    de: [
+      [0.3, 'kaum eine Welle'],
+      [0.6, 'klein und mellow'],
+      [1.0, 'ungefähr knietief'],
+      [1.4, 'ungefähr hüfttief'],
+      [1.8, 'ungefähr brusttief'],
+      [2.5, 'ungefähr kopfhoch'],
+      [Infinity, 'ordentlich Größe für Somo'],
+    ],
+  };
+  const bands = map[L] || map.en;
+  for (const [max, phrase] of bands) {
+    if (w <= max) return phrase;
+  }
+  return bands[bands.length - 1][1];
+}
+
+function guestWindPhrase(windMps, lang, config) {
+  const wind = Number(windMps);
+  if (!Number.isFinite(wind)) return '';
+  const cfg = config || loadSurfReportConfig(DEFAULT_CLIENT) || {};
+  const stormy = (cfg.wind_guidance && cfg.wind_guidance.stormy_threshold_mps) || STORMY_WIND_MPS;
+  const minor = (cfg.wind_guidance && cfg.wind_guidance.ignore_below_mps) || MINOR_WIND_MPS;
+  const L = trimStr(lang).slice(0, 2) || 'en';
+  if (wind >= stormy) {
+    return {
+      en: ' with a pretty windy feel',
+      it: ' con vento abbastanza presente',
+      es: ' con bastante viento',
+      de: ' mit ziemlich viel Wind',
+    }[L] || ' with a pretty windy feel';
+  }
+  if (wind >= minor) {
+    return {
+      en: ' and a light breeze in the mix',
+      it: ' e una brezza leggera',
+      es: ' y una brisa suave',
+      de: ' und eine leichte Brise',
+    }[L] || ' and a light breeze in the mix';
+  }
+  return '';
+}
+
+function surfDayLabel(day, lang) {
+  const L = trimStr(lang).slice(0, 2) || 'en';
+  if (day === 'tomorrow') {
+    return { en: 'tomorrow', it: 'domani', es: 'mañana', de: 'morgen' }[L] || 'tomorrow';
+  }
+  return { en: 'today', it: 'oggi', es: 'hoy', de: 'heute' }[L] || 'today';
+}
+
+function buildLiveGuestSurfParagraph(metrics, day, lang, bucket, config) {
+  const L = trimStr(lang).slice(0, 2) || 'en';
+  const dayLabel = surfDayLabel(day, lang);
+  const size = guestFriendlyWaveSizePhrase(metrics.wave_height_m, L);
+  if (!size) return null;
+  const windBit = guestWindPhrase(metrics.wind_speed_mps, L, config);
+  const tide = inferTidePhase(metrics);
+  const tideLower = tide === 'low' || tide === 'falling';
+  const tideHigher = tide === 'rising' || tide === 'high';
+
+  const templates = {
+    en: {
+      tiny_flat: `I just peeked at Somo for ${dayLabel} 🌊 it's pretty flat — ${size}${windBit} — more beach-walk and coffee vibes than a surf day ☀️ If things shift, the team will know the sweet spot.`,
+      small_friendly: `I just peeked at Somo for ${dayLabel} 🌊 ${capitalizePhrase(size)} waves${windBit} — small and friendly, could be a sweet mellow session${tideLower ? ', especially around the lower tide windows' : ''} 🤙`,
+      fun: `I just peeked at Somo for ${dayLabel} 🌊 ${capitalizePhrase(size)} waves${windBit} — looks like a fun Somo day!${tideHigher ? ' With the tide pushing higher it should have some lovely windows.' : ''} The surf school will still pick the best lesson time, but overall it's looking good 🌊`,
+      solid: `I just peeked at Somo for ${dayLabel} 🌊 there's a bit more energy in the water — ${size}${windBit}. With waves on the bigger side for Somo, ${tideHigher ? 'rising/high tide is usually the nicer window' : 'the team will find the best window'} 🤙 The surf school will choose the best timing for lessons.`,
+      stormy_messy: `I just peeked at Somo for ${dayLabel} 🌊 it's looking a bit stormy and messy${windBit} — I'd keep it flexible and let the surf school pick the nicest window when it cleans up 🌊`,
+    },
+    it: {
+      tiny_flat: `Ho dato un'occhiata a Somo per ${dayLabel} 🌊 è piuttosto piattino — ${capitalizePhrase(size)}${windBit} — più giornata da passeggiata e caffè che da surf ☀️ Se cambia qualcosa, il team saprà la finestra migliore.`,
+      small_friendly: `Ho dato un'occhiata a Somo per ${dayLabel} 🌊 onde ${size}${windBit} — piccole e amichevoli, bella sessione mellow${tideLower ? ', soprattutto con maree più basse' : ''} 🤙`,
+      fun: `Ho dato un'occhiata a Somo per ${dayLabel} 🌊 onde ${size}${windBit} — sembra una bella giornata a Somo!${tideHigher ? ' Con la marea che sale dovrebbero esserci finestre lovely.' : ''} La scuola surf sceglierà comunque l'orario migliore per le lezioni 🌊`,
+      solid: `Ho dato un'occhiata a Somo per ${dayLabel} 🌊 c'è un po' più energia in acqua — ${size}${windBit}. Con onde verso il limite alto per Somo, ${tideHigher ? 'marea crescente/alta di solito è la finestra più bella' : 'il team troverà la finestra migliore'} 🤙 La scuola surf sceglierà il timing migliore per le lezioni.`,
+      stormy_messy: `Ho dato un'occhiata a Somo per ${dayLabel} 🌊 sembra un po' stormy/mosso${windBit} — meglio restare flessibili e lasciare che la scuola surf scelga la finestra migliore 🌊`,
+    },
+    es: {
+      tiny_flat: `Acabo de mirar Somo para ${dayLabel} 🌊 está bastante plano — ${size}${windBit} — más día de paseo y café que de surf ☀️ Si cambia algo, el equipo sabrá la mejor ventana.`,
+      small_friendly: `Acabo de mirar Somo para ${dayLabel} 🌊 olas ${size}${windBit} — pequeñas y amigables, sesión suave${tideLower ? ', sobre todo con mareas más bajas' : ''} 🤙`,
+      fun: `Acabo de mirar Somo para ${dayLabel} 🌊 olas ${size}${windBit} — ¡parece un día divertido en Somo!${tideHigher ? ' Con la marea subiendo debería haber ventanas bonitas.' : ''} La escuela de surf elegirá la mejor hora, pero en general pinta bien 🌊`,
+      solid: `Acabo de mirar Somo para ${dayLabel} 🌊 hay un poco más de energía en el agua — ${size}${windBit}. Con olas hacia el rango alto para Somo, ${tideHigher ? 'marea creciente/alta suele ser la ventana más bonita' : 'el equipo encontrará la mejor ventana'} 🤙 La escuela de surf elegirá el mejor timing para clases.`,
+      stormy_messy: `Acabo de mirar Somo para ${dayLabel} 🌊 se ve un poco stormy/movedizo${windBit} — mejor mantenerlo flexible y dejar que la escuela elija la mejor ventana 🌊`,
+    },
+    de: {
+      tiny_flat: `Ich hab Somo für ${dayLabel} gecheckt 🌊 ziemlich flach — ${capitalizePhrase(size)}${windBit} — eher Strandspaziergang und Kaffee als Surf ☀️ Wenn sich was ändert, kennt das Team das beste Fenster.`,
+      small_friendly: `Ich hab Somo für ${dayLabel} gecheckt 🌊 ${capitalizePhrase(size)} Wellen${windBit} — klein und freundlich, mellow Session${tideLower ? ', besonders bei Niedrigwasser' : ''} 🤙`,
+      fun: `Ich hab Somo für ${dayLabel} gecheckt 🌊 ${capitalizePhrase(size)} Wellen${windBit} — sieht nach einem schönen Somo-Tag aus!${tideHigher ? ' Mit steigender Tide sollten schöne Fenster dabei sein.' : ''} Die Surfschule wählt trotzdem die beste Unterrichtszeit 🌊`,
+      solid: `Ich hab Somo für ${dayLabel} gecheckt 🌊 etwas mehr Energie im Wasser — ${size}${windBit}. Bei Wellen am oberen Ende für Somo ist ${tideHigher ? 'steigende/hohe Tide meist das schönere Fenster' : 'das Team findet das beste Fenster'} 🤙 Die Surfschule wählt das beste Timing für Kurse.`,
+      stormy_messy: `Ich hab Somo für ${dayLabel} gecheckt 🌊 etwas stürmisch/unruhig${windBit} — am besten flexibel bleiben und die Surfschule das beste Fenster wählen lassen 🌊`,
+    },
+  };
+
+  const pack = templates[L] || templates.en;
+  return pack[bucket] || pack.fun;
+}
+
 function localizedSurfParagraphs(lang) {
   const L = trimStr(lang).slice(0, 2) || 'en';
   const map = {
@@ -259,7 +395,13 @@ function formatGuestSurfReportReply(input) {
 
   const metrics = inp.metrics || {};
   const bucket = classifySurfConditions(metrics, config);
-  let reply = paragraphs[bucket] || paragraphs.fun;
+  let reply;
+  if (metrics.wave_height_m != null && Number.isFinite(Number(metrics.wave_height_m))) {
+    reply = buildLiveGuestSurfParagraph(metrics, day, lang, bucket, config);
+  }
+  if (!reply) {
+    reply = (localizedSurfParagraphs(lang)[bucket]) || localizedSurfParagraphs(lang).fun;
+  }
 
   if (day === 'tomorrow') {
     reply = reply.replace(/today/gi, 'tomorrow').replace(/oggi/gi, 'domani').replace(/hoy/gi, 'mañana').replace(/heute/gi, 'morgen');
