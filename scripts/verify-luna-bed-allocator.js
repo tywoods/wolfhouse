@@ -321,7 +321,27 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('S1', r.room_code === 'R5', 'solo female consolidates into partial R5');
 }
 
-// ── Determinism ─────────────────────────────────────────────────────────────
+// ── Multi-tier overflow cram (dedicated + operator before flip) ─────────────
+{
+  const codes = (n) => roomCodesFromBeds(pick({ guestCount: n, groupGender: 'mixed' }).selected_bed_codes);
+  const r20 = pick({ guestCount: 20, groupGender: 'mixed' });
+  check('OV1', !r20.handoff, 'n=20 fits without handoff');
+  check('OV2', !codes(20).some((c) => c === 'R4' || c === 'R5' || c === 'R8'), 'n=20 no gendered flip while operator free');
+  check('OV3', codes(20).some((c) => ['R1', 'R3'].includes(c)), 'n=20 uses dedicated mixed');
+  check('OV4', codes(20).some((c) => ['R7', 'R9', 'R10'].includes(c)), 'n=20 uses operator tier');
+
+  const r25 = pick({ guestCount: 25, groupGender: 'mixed' });
+  check('OV5', !r25.handoff && r25.selected_bed_codes.length === 25, 'n=25 placed across mixed+operator');
+  check('OV6', !roomCodesFromBeds(r25.selected_bed_codes).some((c) => c === 'R4' || c === 'R5' || c === 'R8'), 'n=25 no flip');
+
+  const r30 = pick({ guestCount: 30, groupGender: 'mixed' });
+  check('OV7', !r30.handoff, 'n=30 fits after flip spare gendered');
+  check('OV8', roomCodesFromBeds(r30.selected_bed_codes).some((c) => c === 'R4' || c === 'R8'), 'n=30 uses flipped spare');
+  check('OV9', r30.reason === 'cram_flipped_mixed_rooms', 'n=30 flip cram reason');
+
+  const r40 = pick({ guestCount: 40, groupGender: 'mixed' });
+  check('OV10', r40.handoff && r40.reason === 'no_eligible_mixed_room', 'n=40 handoff when genuinely out of beds');
+}
 {
   const opts = { guestCount: 2, groupGender: 'female' };
   check('D1', JSON.stringify(pick(opts)) === JSON.stringify(pick(opts)), 'deterministic');

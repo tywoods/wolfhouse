@@ -137,13 +137,19 @@ function findFlippableGenderedRooms(rooms) {
 
   const emptyFemale = femaleRooms.filter((r) => countOccupied(r) === 0);
   if (femaleRooms.length >= 2 && emptyFemale.length >= 1) {
-    const spare = sortRoomsByRank(emptyFemale, 1).pop() || emptyFemale[0];
+    const spare = [...emptyFemale].sort(
+      (a, b) => (Number(a.fill_priority) || 0) - (Number(b.fill_priority) || 0)
+        || String(a.room_code).localeCompare(String(b.room_code)),
+    ).pop();
     if (spare) flipped.push({ ...spare, category: 'mixed', flipped_from: 'female_only' });
   }
 
   const emptyMale = maleRooms.filter((r) => countOccupied(r) === 0);
   if (maleRooms.length >= 2 && emptyMale.length >= 1) {
-    const spare = sortRoomsByRank(emptyMale, 1).pop() || emptyMale[0];
+    const spare = [...emptyMale].sort(
+      (a, b) => (Number(a.fill_priority) || 0) - (Number(b.fill_priority) || 0)
+        || String(a.room_code).localeCompare(String(b.room_code)),
+    ).pop();
     if (spare) flipped.push({ ...spare, category: 'mixed', flipped_from: 'male_only' });
   }
 
@@ -299,6 +305,123 @@ function cramAcrossEligibleRooms(eligible, guestCount) {
   return rem <= 0 ? plan : null;
 }
 
+/** Cram with strict tier order: lower tier rooms fill before higher tiers. */
+function cramAcrossTierOrdered(rooms, guestCount) {
+  const sorted = [...rooms]
+    .filter((r) => countAvailable(r) > 0)
+    .sort((a, b) => {
+      const ta = a._allocTier != null ? a._allocTier : 999;
+      const tb = b._allocTier != null ? b._allocTier : 999;
+      if (ta !== tb) return ta - tb;
+      return compareRank(rankRoom(a, guestCount), rankRoom(b, guestCount));
+    });
+  const plan = [];
+  let rem = guestCount;
+  for (const room of sorted) {
+    if (rem <= 0) break;
+    const take = Math.min(rem, countAvailable(room));
+    if (take <= 0) continue;
+    plan.push({ room, take });
+    rem -= take;
+  }
+  return rem <= 0 ? plan : null;
+}
+
+function singleRoomReasonForTier(tier, room, guestCount) {
+  if (tier === 2) return 'operator_room_fallback';
+  if (tier === 3) return 'flipped_gendered_room_to_mixed';
+  return pickReason(room, guestCount, false, false);
+}
+
+function cramReasonForTier(maxTier, plan) {
+  const usedFlip = plan.some((p) => p.room.flipped_from);
+  const usedOperator = plan.some((p) => enrichRoom(p.room).category === 'operator_surfweek');
+  if (maxTier >= 3 && usedFlip) return 'cram_flipped_mixed_rooms';
+  if (maxTier >= 2 && usedOperator) return 'cram_mixed_operator_rooms';
+  return 'cram_gender_eligible_rooms';
+}
+
+function mergeSafetyOpts(...optsList) {
+  const merged = {};
+  for (const o of optsList) {
+    if (!o) continue;
+    if (o.allowOperator) merged.allowOperator = true;
+    if (o.allowFlip) merged.allowFlip = true;
+  }
+  return merged;
+}
+
+/**
+ * Place guests using tier pools in order. Single-room wins stay within the earliest
+ * tier that fits; overflow crams cumulatively across tiers (1, then 1+2, then 1+2+3).
+ */
+function tryPlaceWithTieredPools({
+  pools,
+  guestCount,
+  groupGender,
+  roomPreference,
+}) {
+  const activePools = (pools || []).filter((p) => p.rooms && p.rooms.length);
+  if (!activePools.length) return null;
+
+  // Single-room fit — dedicated tier only (keeps small groups off operator/flip)
+  const firstPool = activePools[0];
+  if (firstPool) {
+    const eligible = firstPool.rooms.filter(
+      (r) => roomEligibleForGroup(r.category, groupGender, firstPool.allocOpts) && countAvailable(r) > 0,
+    );
+    const fitting = eligible.filter((r) => countAvailable(r) >= guestCount);
+    if (fitting.length) {
+      const winner = sortRoomsByRank(fitting, guestCount)[0];
+      const result = {
+        selected_bed_codes: pickBeds(winner, guestCount),
+        room_code: winner.room_code,
+        split: false,
+        reason: pickReason(winner, guestCount, false, false),
+      };
+      if (!assertSelectionGenderSafe(result, eligible, groupGender, roomPreference, firstPool.safetyOpts)) {
+        return { handoff: true, reason: 'gender_eligibility_violation' };
+      }
+      return result;
+    }
+  }
+
+  // Cumulative tier cram (overflow combines tiers; no single-room in operator/flip)
+  const cumulative = [];
+  const cumulativeEligible = [];
+  const cumulativeSafety = [];
+  for (const pool of activePools) {
+    const eligible = pool.rooms.filter(
+      (r) => roomEligibleForGroup(r.category, groupGender, pool.allocOpts) && countAvailable(r) > 0,
+    );
+    for (const r of eligible) {
+      cumulative.push({ ...r, _allocTier: pool.tier });
+      cumulativeEligible.push(r);
+      cumulativeSafety.push(pool.safetyOpts);
+    }
+    const totalAvail = cumulative.reduce((s, r) => s + countAvailable(r), 0);
+    if (totalAvail < guestCount) continue;
+
+    const cramPlan = cramAcrossTierOrdered(cumulative, guestCount);
+    if (!cramPlan) continue;
+
+    const result = buildCramSelection(cramPlan, guestCount);
+    result.reason = cramReasonForTier(pool.tier, cramPlan);
+    if (!assertSelectionGenderSafe(
+      result,
+      cumulativeEligible,
+      groupGender,
+      roomPreference,
+      mergeSafetyOpts(...cumulativeSafety),
+    )) {
+      return { handoff: true, reason: 'gender_eligibility_violation' };
+    }
+    return result;
+  }
+
+  return null;
+}
+
 function buildCramSelection(plan, guestCount) {
   const selected = [];
   let primaryRoom = null;
@@ -404,7 +527,42 @@ function operatorRoomsUnblocked(rooms) {
 
 function flippedMixedRooms(rooms) {
   return expandRoomsWithFlippedMixed(rooms)
-    .filter((r) => r.category === 'mixed' || r.flipped_from);
+    .filter((r) => r.flipped_from && countAvailable(r) > 0);
+}
+
+function buildTieredPoolsForGroup(rooms, groupGender, roomPreference, allocOpts, operatorTierOpts, useFlipFallback) {
+  const dedicated = dedicatedRoomsForGroup(rooms, groupGender, roomPreference);
+  const operator = operatorRoomsUnblocked(rooms);
+  const flipped = useFlipFallback ? flippedMixedRooms(rooms) : [];
+
+  const pools = [
+    {
+      tier: 1,
+      rooms: dedicated,
+      allocOpts,
+      safetyOpts: {},
+    },
+  ];
+
+  if (operator.length) {
+    pools.push({
+      tier: 2,
+      rooms: operator,
+      allocOpts: operatorTierOpts,
+      safetyOpts: { allowOperator: true },
+    });
+  }
+
+  if (flipped.length) {
+    pools.push({
+      tier: 3,
+      rooms: flipped,
+      allocOpts,
+      safetyOpts: { allowFlip: true },
+    });
+  }
+
+  return pools;
 }
 
 function operatorBlockedRoomsFromBlocks(blockRows) {
@@ -460,55 +618,25 @@ function chooseBeds(opts) {
   }
 
   const useFlipFallback = groupGender === 'unknown' || groupGender === 'mixed';
+  const operatorTierOpts = { ...allocOpts, allowOperator: true };
 
-  // Tier 1 — dedicated gender-eligible rooms (R1–R6, R8, etc.; never operator)
-  let result = tryPlaceInEligibleRooms(
-    dedicatedRoomsForGroup(rooms, groupGender, roomPreference),
-    guestCount,
+  const tierPools = buildTieredPoolsForGroup(
+    rooms,
     groupGender,
     roomPreference,
     allocOpts,
+    operatorTierOpts,
+    useFlipFallback,
   );
-  if (result && !result.handoff) return result;
 
-  // Tier 2 — unblocked operator rooms (R7/R9/R10), flexible/mixed, lowest fill priority
-  const operatorTierOpts = { ...allocOpts, allowOperator: true };
-  result = tryPlaceInEligibleRooms(
-    operatorRoomsUnblocked(rooms),
+  const result = tryPlaceWithTieredPools({
+    pools: tierPools,
     guestCount,
     groupGender,
     roomPreference,
-    operatorTierOpts,
-    { allowOperator: true },
-  );
-  if (result && !result.handoff) {
-    if (result.reason === 'cram_gender_eligible_rooms') {
-      result.reason = 'operator_room_cram';
-    } else if (!result.split) {
-      result.reason = 'operator_room_fallback';
-    }
-    return result;
-  }
-
-  // Tier 3 — flip empty spare gendered room to mixed (mixed/unknown groups only)
-  if (useFlipFallback) {
-    result = tryPlaceInEligibleRooms(
-      flippedMixedRooms(rooms),
-      guestCount,
-      groupGender,
-      roomPreference,
-      allocOpts,
-      { allowFlip: true },
-    );
-    if (result && !result.handoff) {
-      if (result.reason === 'cram_gender_eligible_rooms') {
-        result.reason = 'cram_flipped_mixed_rooms';
-      } else if (result.reason !== 'cram_flipped_mixed_rooms') {
-        result.reason = result.split ? 'cram_flipped_mixed_rooms' : 'flipped_gendered_room_to_mixed';
-      }
-      return result;
-    }
-  }
+  });
+  if (result && !result.handoff) return result;
+  if (result && result.handoff) return result;
 
   if (groupGender === 'unknown' || groupGender === 'mixed') {
     return { handoff: true, reason: 'no_eligible_mixed_room' };
