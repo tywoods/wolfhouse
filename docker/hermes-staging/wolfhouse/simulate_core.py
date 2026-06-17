@@ -44,15 +44,28 @@ class SimulateCapture:
 
 
 def thread_to_digits(thread: str) -> str:
-    raw = str(thread or "").strip()
-    if raw.lower().startswith("sim:"):
-        raw = raw[4:]
-    digits = "".join(ch for ch in raw if ch.isdigit())
-    if len(digits) >= 10:
-        return digits
-    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    suffix = str(int(digest[:7], 16) % 10_000_000).zfill(7)
-    return "490000" + suffix[-7:]
+    """Map --thread to a stable simulate guest phone (never wall-clock).
+
+    Each distinct thread string gets a fixed E.164-style digit string across runs.
+    Only explicit phone threads (10+ digits, optional leading +) pass through verbatim.
+    """
+    key = str(thread or "").strip()
+    if not key:
+        raise ValueError("thread is required")
+
+    if key.startswith("+"):
+        digits = "".join(ch for ch in key if ch.isdigit())
+        if len(digits) >= 10:
+            return digits
+
+    bare = key.replace(" ", "")
+    if bare.isdigit() and len(bare) >= 10:
+        return bare
+
+    # Hash the full thread id (keep sim: prefix) — reproducible, isolated per scenario.
+    digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+    suffix = int(digest[:15], 16) % 10_000_000_000
+    return "49" + str(suffix).zfill(10)
 
 
 def _detect_language(text: str, hint: Optional[str]) -> str:
