@@ -15772,155 +15772,155 @@ ${getStaffPortalI18nBootstrapScript()}
 
   <div class="card" style="margin-bottom:0">
     <div class="toolbar">
-      <h2>Tour Operator</h2>
+      <h2 data-i18n="tourOperator.title">Tour Operator</h2>
     </div>
-    <p style="font-size:13px;color:var(--text-2);margin:6px 0 0">Create operator room blocks and release dates back to guest availability. Changes apply to the staging test database only.</p>
+    <p style="font-size:13px;color:var(--text-2);margin:6px 0 0" data-i18n="tourOperator.intro">Create operator room blocks and release dates back to guest availability. Changes apply to the staging test database only.</p>
   </div>
 
   <!-- ── Tour Operator Block ───────────────────────────────────────────────── -->
   <div class="card" id="to-op-panel" style="margin-top:16px">
     <div class="bc-op-header">
-      <span class="bc-op-title">Tour Operator Block</span>
+      <span class="bc-op-title" data-i18n="tourOperator.block.title">Tour Operator Block</span>
     </div>
 
     <!-- Section: Operator contact -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Operator</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.operator">Operator</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-name">Operator name</label>
-        <input type="text" id="to-op-name" class="bk-input bk-input-sm" placeholder="Tour operator or company name">
+        <label class="bk-label" for="to-op-name" data-i18n="tourOperator.field.operatorName">Operator name</label>
+        <input type="text" id="to-op-name" class="bk-input bk-input-sm" data-i18n-placeholder="tourOperator.placeholder.operatorName" placeholder="Tour operator or company name">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-manager">Manager / contact</label>
-        <input type="text" id="to-op-manager" class="bk-input bk-input-sm" placeholder="Contact person">
+        <label class="bk-label" for="to-op-manager" data-i18n="tourOperator.field.manager">Manager / contact</label>
+        <input type="text" id="to-op-manager" class="bk-input bk-input-sm" data-i18n-placeholder="tourOperator.placeholder.manager" placeholder="Contact person">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-phone">Phone</label>
+        <label class="bk-label" for="to-op-phone" data-i18n="tourOperator.field.phone">Phone</label>
         <input type="text" id="to-op-phone" class="bk-input bk-input-sm" placeholder="+34...">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-email">Email</label>
+        <label class="bk-label" for="to-op-email" data-i18n="tourOperator.field.email">Email</label>
         <input type="email" id="to-op-email" class="bk-input bk-input-sm" placeholder="operator@...">
       </div>
     </div>
 
     <!-- Section: Block Dates &amp; Rooms (Stage 8.7.17 — simplified) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Block Dates &amp; Rooms</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.blockDates">Block Dates &amp; Rooms</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-cin">Start date</label>
+        <label class="bk-label" for="to-op-cin" data-i18n="tourOperator.field.startDate">Start date</label>
         <input type="date" id="to-op-cin" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-cout">End date</label>
+        <label class="bk-label" for="to-op-cout" data-i18n="tourOperator.field.endDate">End date</label>
         <input type="date" id="to-op-cout" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-room">Room</label>
+        <label class="bk-label" for="to-op-room" data-i18n="tourOperator.field.room">Room</label>
         <select id="to-op-room" class="bk-input bk-input-sm">
-          <option value="">— select room —</option>
+          <option value="" data-i18n="tourOperator.select.room">— select room —</option>
         </select>
       </div>
-      <div class="to-form-hint">Rooms load from the rooms table when you open this tab or after Booking Calendar load.</div>
+      <div class="to-form-hint" data-i18n="tourOperator.hint.roomsLoad">Rooms load from the rooms table when you open this tab or after Booking Calendar load.</div>
     </div>
 
     <!-- Section: Notes -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.notes">Notes</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-notes">Operator notes</label>
-        <textarea id="to-op-notes" class="bk-input" rows="2" placeholder="Notes from operator..."></textarea>
+        <label class="bk-label" for="to-op-notes" data-i18n="tourOperator.field.operatorNotes">Operator notes</label>
+        <textarea id="to-op-notes" class="bk-input" rows="2" data-i18n-placeholder="tourOperator.placeholder.operatorNotes" placeholder="Notes from operator..."></textarea>
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-op-staff-note">Internal staff note</label>
-        <textarea id="to-op-staff-note" class="bk-input" rows="2" placeholder="Internal staff note..."></textarea>
+        <label class="bk-label" for="to-op-staff-note" data-i18n="tourOperator.field.staffNote">Internal staff note</label>
+        <textarea id="to-op-staff-note" class="bk-input" rows="2" data-i18n-placeholder="tourOperator.placeholder.staffNote" placeholder="Internal staff note..."></textarea>
       </div>
     </div>
 
     <div id="to-op-result" style="display:none;margin-top:12px"></div>
 
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn bc-sel-create-btn" id="to-op-preview-btn">Preview Operator Block</button>
-      <button class="btn btn-primary bc-sel-create-btn" id="to-op-create-btn">Create Operator Block</button>
+      <button class="btn bc-sel-create-btn" id="to-op-preview-btn" data-i18n="tourOperator.block.preview">Preview Operator Block</button>
+      <button class="btn btn-primary bc-sel-create-btn" id="to-op-create-btn" data-i18n="tourOperator.block.create">Create Operator Block</button>
     </div>
   </div>
 
   <!-- ── Operator Room Release ───────────────────────────────────────────── -->
   <div class="card" id="to-rr-panel" style="margin-top:16px">
     <div class="bc-op-header">
-      <span class="bc-op-title">Operator Room Release</span>
+      <span class="bc-op-title" data-i18n="tourOperator.release.title">Operator Room Release</span>
     </div>
-    <div class="bc-rr-purpose">
+    <div class="bc-rr-purpose" data-i18n="tourOperator.release.intro">
       Release dates from an existing operator block back to normal availability. The original block may split into remaining segments.
     </div>
 
     <!-- Section: Operator Block (Stage 8.7.17 — simplified) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Operator Block</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.operatorBlock">Operator Block</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-block-select">Operator block</label>
+        <label class="bk-label" for="to-rr-block-select" data-i18n="tourOperator.field.operatorBlock">Operator block</label>
         <select id="to-rr-block-select" class="bk-input bk-input-sm">
-          <option value="">— select operator block —</option>
+          <option value="" data-i18n="tourOperator.select.operatorBlock">— select operator block —</option>
         </select>
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-orig-cin">Block start date</label>
+        <label class="bk-label" for="to-rr-orig-cin" data-i18n="tourOperator.field.blockStart">Block start date</label>
         <input type="date" id="to-rr-orig-cin" class="bk-input bk-input-sm bc-date-input bc-op-locked" readonly aria-readonly="true">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-orig-cout">Block end date</label>
+        <label class="bk-label" for="to-rr-orig-cout" data-i18n="tourOperator.field.blockEnd">Block end date</label>
         <input type="date" id="to-rr-orig-cout" class="bk-input bk-input-sm bc-date-input bc-op-locked" readonly aria-readonly="true">
       </div>
-      <div class="to-form-hint">Block dates fill when you select an operator block from the list.</div>
+      <div class="to-form-hint" data-i18n="tourOperator.hint.blockDatesFill">Block dates fill when you select an operator block from the list.</div>
     </div>
 
     <!-- Section: Release Dates -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Release Dates</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.releaseDates">Release Dates</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-start">Release start</label>
+        <label class="bk-label" for="to-rr-start" data-i18n="tourOperator.field.releaseStart">Release start</label>
         <input type="date" id="to-rr-start" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-end">Release end</label>
+        <label class="bk-label" for="to-rr-end" data-i18n="tourOperator.field.releaseEnd">Release end</label>
         <input type="date" id="to-rr-end" class="bk-input bk-input-sm bc-date-input">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-nights">Release nights</label>
-        <input type="text" id="to-rr-nights" class="bk-input bk-input-sm bc-op-locked" readonly placeholder="Calculated from release dates">
+        <label class="bk-label" for="to-rr-nights" data-i18n="tourOperator.field.releaseNights">Release nights</label>
+        <input type="text" id="to-rr-nights" class="bk-input bk-input-sm bc-op-locked" readonly data-i18n-placeholder="tourOperator.placeholder.releaseNights" placeholder="Calculated from release dates">
       </div>
     </div>
 
     <!-- Section: Release Scope (Stage 8.7.17) -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Release Scope</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.releaseScope">Release Scope</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-room">Room to release</label>
+        <label class="bk-label" for="to-rr-room" data-i18n="tourOperator.field.roomToRelease">Room to release</label>
         <select id="to-rr-room" class="bk-input bk-input-sm">
-          <option value="">— select room —</option>
+          <option value="" data-i18n="tourOperator.select.room">— select room —</option>
         </select>
       </div>
-      <div class="to-form-hint">Room list loads from the rooms table; defaults to the selected block room when available.</div>
+      <div class="to-form-hint" data-i18n="tourOperator.hint.releaseRoomList">Room list loads from the rooms table; defaults to the selected block room when available.</div>
     </div>
 
     <!-- Section: Notes -->
     <div class="bk-form-section">
-      <div class="bk-form-section-title">Notes</div>
+      <div class="bk-form-section-title" data-i18n="tourOperator.section.notes">Notes</div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-reason">Reason for release</label>
-        <input type="text" id="to-rr-reason" class="bk-input bk-input-sm" placeholder="e.g. operator cancelled these nights">
+        <label class="bk-label" for="to-rr-reason" data-i18n="tourOperator.field.releaseReason">Reason for release</label>
+        <input type="text" id="to-rr-reason" class="bk-input bk-input-sm" data-i18n-placeholder="tourOperator.placeholder.releaseReason" placeholder="e.g. operator cancelled these nights">
       </div>
       <div class="bk-form-row">
-        <label class="bk-label" for="to-rr-staff-note">Internal staff note</label>
-        <textarea id="to-rr-staff-note" class="bk-input" rows="2" placeholder="Internal note..."></textarea>
+        <label class="bk-label" for="to-rr-staff-note" data-i18n="tourOperator.field.staffNote">Internal staff note</label>
+        <textarea id="to-rr-staff-note" class="bk-input" rows="2" data-i18n-placeholder="tourOperator.placeholder.internalNote" placeholder="Internal note..."></textarea>
       </div>
     </div>
 
     <div id="to-rr-result" style="display:none;margin-top:12px"></div>
 
     <div class="bc-sel-actions" style="margin-top:16px">
-      <button class="btn bc-sel-create-btn" id="to-rr-preview-btn">Preview Release</button>
-      <button class="btn btn-primary bc-sel-create-btn" id="to-rr-release-btn">Release Dates</button>
+      <button class="btn bc-sel-create-btn" id="to-rr-preview-btn" data-i18n="tourOperator.release.preview">Preview Release</button>
+      <button class="btn btn-primary bc-sel-create-btn" id="to-rr-release-btn" data-i18n="tourOperator.release.release">Release Dates</button>
     </div>
   </div>
 
@@ -16876,18 +16876,18 @@ function convSourcePill(conv){
   conv = conv || {};
   var paused = conv.luna_paused === true || conv.luna_paused === 't';
   if (paused){
-    return '<span class="pill pill-staff-source conv-list-status-pill">Staff</span>';
+    return '<span class="pill pill-staff-source conv-list-status-pill">' + escHtml(t('inbox.detail.pill.staff')) + '</span>';
   }
-  return '<span class="pill pill-luna conv-list-status-pill">Luna</span>';
+  return '<span class="pill pill-luna conv-list-status-pill">' + escHtml(t('inbox.detail.pill.luna')) + '</span>';
 }
 
 function convListPill(conv){
   conv = conv || {};
   var html = convSourcePill(conv);
   if (conversationHasOpenHandoff(conv)){
-    html += '<span class="pill pill-orange conv-list-status-pill conv-list-handoff-pill">Human handoff</span>';
+    html += '<span class="pill pill-orange conv-list-status-pill conv-list-handoff-pill">' + escHtml(t('inbox.list.pill.handoff')) + '</span>';
   } else if (conv.needs_human){
-    html += '<span class="pill pill-orange conv-list-status-pill conv-list-needs-human-pill">Needs Human</span>';
+    html += '<span class="pill pill-orange conv-list-status-pill conv-list-needs-human-pill">' + escHtml(t('inbox.list.pill.needsHuman')) + '</span>';
   }
   return html;
 }
@@ -16895,9 +16895,9 @@ function convListPill(conv){
 function convHeaderStatusPillsHtml(conv, lunaPaused){
   var html = inboxLunaStaffPill(lunaPaused);
   if (conversationHasOpenHandoff(conv)){
-    html += '<span class="pill pill-orange" id="conv-handoff-pill">Human handoff</span>';
+    html += '<span class="pill pill-orange" id="conv-handoff-pill">' + escHtml(t('inbox.list.pill.handoff')) + '</span>';
   } else if (conv && conv.needs_human){
-    html += '<span class="pill pill-orange" id="conv-needs-human-pill">Needs Human</span>';
+    html += '<span class="pill pill-orange" id="conv-needs-human-pill">' + escHtml(t('inbox.list.pill.needsHuman')) + '</span>';
   }
   return html;
 }
@@ -16905,9 +16905,9 @@ function convHeaderStatusPillsHtml(conv, lunaPaused){
 /* Inbox header — Luna active vs Staff (pause Luna) source pebble */
 function inboxLunaStaffPill(paused){
   if (paused){
-    return '<span class="pill pill-staff-source" id="conv-luna-staff-pill">Staff</span>';
+    return '<span class="pill pill-staff-source" id="conv-luna-staff-pill">' + escHtml(t('inbox.detail.pill.staff')) + '</span>';
   }
-  return '<span class="pill pill-luna" id="conv-luna-staff-pill">Luna</span>';
+  return '<span class="pill pill-luna" id="conv-luna-staff-pill">' + escHtml(t('inbox.detail.pill.luna')) + '</span>';
 }
 
 /* Mode badge (legacy — prefer inboxLunaStaffPill in Inbox detail header) */
@@ -17714,8 +17714,8 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div>';
     html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
     html +=     '<div class="detail-meta">' + escHtml(c.phone);
-    if (conversationHasOpenHandoff(c) && c.handoff_reason) html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
-    else if (c.needs_human) html += ' &bull; Needs staff reply';
+    if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
+    else if (c.needs_human) html += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=     '</div>';
     html +=   '</div>';
     html +=   '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
@@ -17738,7 +17738,7 @@ function loadConvDetail(convId, targetEl){
     html += '</div>';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
-      html += '<div class="thread-empty">No message history yet &mdash; messages appear here once the guest contacts via WhatsApp.</div>';
+      html += '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
     } else {
       msgs.forEach(function(m){
         var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
@@ -17759,14 +17759,14 @@ function loadConvDetail(convId, targetEl){
 
     html += '<div class="draft-panel">';
     html +=   '<div class="draft-label">';
-    html +=     '<span style="font-size:11px;color:var(--text-3)">Reply:</span>';
+    html +=     '<span style="font-size:11px;color:var(--text-3)">' + escHtml(t('inbox.detail.reply.label')) + '</span>';
     html +=   '</div>';
-    html += '<textarea id="draft-textarea" placeholder="Edit reply before sending">' +
+    html += '<textarea id="draft-textarea" placeholder="' + escHtml(t('inbox.detail.reply.editPlaceholder')) + '">' +
             escHtml(draftText) + '</textarea>';
     html += '<div class="draft-actions">';
-    html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">Send reply</button>';
-    html +=   '<button type="button" class="btn-copy" id="btn-copy-draft">Copy</button>';
-    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">Copied</span>';
+    html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
+    html +=   '<button type="button" class="btn-copy" id="btn-copy-draft">' + escHtml(t('inbox.detail.reply.copy')) + '</button>';
+    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">' + escHtml(t('inbox.detail.reply.copied')) + '</span>';
     html += '</div>';
     html += '<div id="draft-send-status" class="draft-send-status"></div>';
     html += '</div>'; /* /draft-panel */
@@ -17779,23 +17779,23 @@ function loadConvDetail(convId, targetEl){
     /* ── 1. Bot / staff state card ── */
     var ss = state || {};
     html += '<div class="sidebar-card">';
-    html +=   '<h3>Bot state</h3>';
+    html +=   '<h3>' + escHtml(t('inbox.detail.botState.title')) + '</h3>';
     html +=   '<div class="luna-auto-status' + (lunaGuestPaused ? ' luna-auto-status-paused' : '') + '">';
-    html +=     '<div class="luna-auto-status-label">' + (lunaGuestPaused ? 'Luna paused' : 'Luna active') + '</div>';
-    html +=     '<div class="luna-auto-status-help">' + (lunaGuestPaused
-      ? 'Automated guest replies should stay blocked while paused.'
-      : 'Automation status: active.') + '</div>';
+    html +=     '<div class="luna-auto-status-label">' + escHtml(lunaGuestPaused ? t('inbox.detail.botState.paused') : t('inbox.detail.botState.active')) + '</div>';
+    html +=     '<div class="luna-auto-status-help">' + escHtml(lunaGuestPaused
+      ? t('inbox.detail.botState.helpPaused')
+      : t('inbox.detail.botState.helpActive')) + '</div>';
     html +=   '</div>';
     html +=   '<div class="bot-state-switches">';
     html +=     '<div class="inbox-switch-row">';
-    html +=       '<span class="inbox-switch-label">Needs Human</span>';
+    html +=       '<span class="inbox-switch-label">' + escHtml(t('inbox.detail.switch.needsHuman')) + '</span>';
     html +=       '<label class="inbox-switch inbox-switch-orange">';
     html +=         '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
     html +=         '<span class="inbox-switch-slider"></span>';
     html +=       '</label>';
     html +=     '</div>';
     html +=     '<div class="inbox-switch-row">';
-    html +=       '<span class="inbox-switch-label">Pause Luna</span>';
+    html +=       '<span class="inbox-switch-label">' + escHtml(t('inbox.detail.switch.pauseLuna')) + '</span>';
     html +=       '<label class="inbox-switch inbox-switch-red">';
     html +=         '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>';
     html +=         '<span class="inbox-switch-slider"></span>';
@@ -17805,12 +17805,12 @@ function loadConvDetail(convId, targetEl){
     html +=   '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
     if (ss.handoff_id){
       html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
-      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">OPEN HANDOFF</div>';
+      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">' + escHtml(t('inbox.detail.handoff.open')) + '</div>';
       html +=   '<div class="kv2">';
-      html +=     kv('Reason',   ss.handoff_reason) +
-                  kv('Priority', ss.handoff_priority) +
-                  kv('Assigned', ss.assigned_staff || '\u2014') +
-                  kv('Opened',   fmtTs(ss.handoff_opened_at));
+      html +=     kv(t('inbox.detail.handoff.reason'),   ss.handoff_reason) +
+                  kv(t('inbox.detail.handoff.priority'), ss.handoff_priority) +
+                  kv(t('inbox.detail.handoff.assigned'), ss.assigned_staff || '\u2014') +
+                  kv(t('inbox.detail.handoff.opened'),   fmtTs(ss.handoff_opened_at));
       html +=   '</div>';
       html += '</div>';
     }
@@ -17818,9 +17818,9 @@ function loadConvDetail(convId, targetEl){
 
     /* ── 2. Guest bookings (stacked) ── */
     html += '<div class="sidebar-card">';
-    html +=   '<h3>Bookings</h3>';
+    html +=   '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
     if (!bookingRows.length){
-      html += '<div class="inbox-no-bookings">No bookings for this guest yet.</div>';
+      html += '<div class="inbox-no-bookings">' + escHtml(t('inbox.detail.bookings.none')) + '</div>';
     } else {
       html += '<div class="inbox-booking-stack">';
       bookingRows.forEach(function(bctx){
@@ -17833,7 +17833,7 @@ function loadConvDetail(convId, targetEl){
     /* Notes / summary */
     if (c.human_notes || c.conversation_summary){
       html += '<div class="sidebar-card">';
-      html +=   '<h3>Notes</h3>';
+      html +=   '<h3>' + escHtml(t('inbox.detail.notes.title')) + '</h3>';
       if (c.human_notes)          html += '<div style="font-size:12px;color:#2c3e50;white-space:pre-wrap;margin-bottom:6px">' + escHtml(c.human_notes) + '</div>';
       if (c.conversation_summary) html += '<div style="font-size:11px;color:#7f8c8d;white-space:pre-wrap">' + escHtml(c.conversation_summary) + '</div>';
       html += '</div>';
@@ -19867,6 +19867,17 @@ function bcIsPortalOperatorRoom(room) {
   return !!(room && room.often_used_by_operator);
 }
 
+function bcFormatCalendarDayLabel(day) {
+  if (!day || !day.date) return (day && day.label) || '';
+  var d = new Date(day.date + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return day.label || day.date;
+  var keys = [
+    'calendar.day.sun', 'calendar.day.mon', 'calendar.day.tue', 'calendar.day.wed',
+    'calendar.day.thu', 'calendar.day.fri', 'calendar.day.sat',
+  ];
+  return t(keys[d.getUTCDay()] || 'calendar.day.mon') + ' ' + String(d.getUTCDate()).padStart(2, '0');
+}
+
 function bcFormatRoomMetaLabel(room) {
   var cat = (room && room.room_category) || 'mixed';
   var parts = [t(BC_ROOM_GENDER_I18N[cat] || 'room.gender.flexible')];
@@ -19909,7 +19920,7 @@ function renderBedCalendar(data){
   html += '<thead><tr>';
   html += '<th class="bc-bed-head">' + escHtml(t('calendar.grid.roomBed')) + '</th>';
   days.forEach(function(day){
-    html += '<th class="bc-day-head">' + escHtml(day.label) + '</th>';
+    html += '<th class="bc-day-head">' + escHtml(bcFormatCalendarDayLabel(day)) + '</th>';
   });
   html += '</tr></thead>';
 
@@ -25046,7 +25057,7 @@ function toRenderRoomSelects(rooms){
     var sel = el(selId);
     if (!sel || sel.tagName !== 'SELECT') return;
     var prev = sel.value;
-    var html = '<option value="">— select room —</option>';
+    var html = '<option value="">' + escHtml(t('tourOperator.select.room')) + '</option>';
     if (sorted.length){
       sorted.forEach(function(r){
         var label = escHtml(r.room_code);
@@ -25054,7 +25065,7 @@ function toRenderRoomSelects(rooms){
         html += '<option value="' + escHtml(r.room_code) + '">' + label + '</option>';
       });
     } else {
-      html += '<option value="" disabled>No active rooms found</option>';
+      html += '<option value="" disabled>' + escHtml(t('tourOperator.select.noRooms')) + '</option>';
     }
     sel.innerHTML = html;
     if (prev) sel.value = prev;
@@ -25089,7 +25100,7 @@ function toRenderBlockSelect(blocks){
   var sel = el('to-rr-block-select');
   if (!sel) return;
   var prev = sel.value;
-  var html = '<option value="">— select operator block —</option>';
+  var html = '<option value="">' + escHtml(t('tourOperator.select.operatorBlock')) + '</option>';
   (blocks || []).forEach(function(b){
     var label = escHtml(b.operator_name || b.guest_name || 'Operator');
     if (b.booking_code) label += ' · ' + escHtml(b.booking_code);
@@ -25098,7 +25109,7 @@ function toRenderBlockSelect(blocks){
     html += '<option value="' + escHtml(b.booking_id) + '" data-cin="' + escHtml(b.check_in || '') + '" data-cout="' + escHtml(b.check_out || '') + '" data-room="' + escHtml(b.room_code || '') + '">' + label + '</option>';
   });
   if (!blocks || !blocks.length){
-    html += '<option value="" disabled>No operator blocks found</option>';
+    html += '<option value="" disabled>' + escHtml(t('tourOperator.select.noBlocks')) + '</option>';
   }
   sel.innerHTML = html;
   if (prev) sel.value = prev;
@@ -25374,6 +25385,8 @@ function toInitForms(){
 }
 
 function toOnTourOperatorTabOpen(){
+  var toWrap = el('wrap-to');
+  if (toWrap && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(toWrap);
   toLoadRooms();
   toLoadBlocks();
 }
@@ -25438,6 +25451,14 @@ window.staffPortalOnLocaleChange = function(){
     }
   }
   if (typeof lunaGlobalPauseLoad === 'function') lunaGlobalPauseLoad();
+  if (selectedConvId) loadConvDetail(selectedConvId);
+  if (inboxConversationsCache && inboxConversationsCache.length && typeof applyInboxFilter === 'function') {
+    applyInboxFilter({ preserveDetail: true, selectedId: selectedConvId });
+  }
+  var toWrap = el('wrap-to');
+  if (toWrap && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(toWrap);
+  if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
+  if (toBlocksCache && toBlocksCache.length && typeof toRenderBlockSelect === 'function') toRenderBlockSelect(toBlocksCache);
 };
 
 function loadBedCalendar(afterRender){
