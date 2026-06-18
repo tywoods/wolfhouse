@@ -135,7 +135,8 @@
             "familia Wolfhouse",
             "qué alegría que estéis aquí",
             "buenas noticias"
-          ]
+          ],
+          "italian_borrowed_phrases_optional": []
         },
         "de": {
           "label": "German",
@@ -148,7 +149,8 @@
             "Wolfhouse-Familie",
             "schön dass ihr da seid",
             "gute Nachrichten"
-          ]
+          ],
+          "italian_borrowed_phrases_optional": []
         }
       },
       "tone_rules": [
@@ -510,7 +512,30 @@
           "accommodation_quote_addons_tail": "Vi serve muta, tavola o lezioni, o solo pernottamento?",
           "answer_arrival_payment_question": "Certo — il saldo restante si può pagare in contanti, bonifico o online all'arrivo. Per prenotare ora, preferisci il deposito di {{deposit}} o l'importo intero di {{total}}?",
           "answer_arrival_payment_question_no_amounts": "Certo — il saldo all'arrivo si può pagare in contanti, bonifico o online 😊 Per prenotare ora serve deposito o pagamento completo.",
-          "reset_start_over": "Nessun problema, ricominciamo da zero 😊 Quali date cercate?"
+          "reset_start_over": "Nessun problema, ricominciamo da zero 😊 Quali date cercate?",
+          "greeting_generic": "{{intro_short}}\nVolete prenotare un soggiorno, chiedere info sui pacchetti o solo qualche informazione?",
+          "greeting_booking_intent": "Perfetto — sistemiamo subito tutto 🌊 Quali date di check-in e check-out vi vanno bene?",
+          "greeting_info_only": "{{intro_short}}\nVi aiuto volentieri con pacchetti, surf o qualsiasi cosa su Somo — cosa vorreste sapere?",
+          "greeting_returning": "Ciao di nuovo! 🌊 Sono sempre qui per voi — riprendiamo la prenotazione o ricominciamo da capo?",
+          "ask_guests": "Perfetto — {{range}}. Quanti ospiti sarete?",
+          "ask_guest_name": "Perfetto — {{range}}. A che nome metto la prenotazione?",
+          "package_quote_available": "Yesss, ottime notizie — abbiamo posto {{date_avail}}. {{package_label}} viene {{total}}.",
+          "package_quote_payment_tail": "Per riservarlo, potete pagare il deposito di {{deposit}} o l'intero {{total}}. Possiamo sempre aggiungere lezioni o noleggi più avanti, se volete.",
+          "addons_none": "Perfetto — solo il soggiorno allora 😊\n\nPer bloccare il posto, preferite pagare ora il deposito di {{deposit}} o l'intero {{total}}?",
+          "ask_payment_choice_with_extras": "Fatto — ho annotato gli extra 😊\n\nPer bloccare il posto, preferite pagare ora il deposito di {{deposit}} o l'intero {{total}}?",
+          "ask_payment_choice_accommodation_only": "Perfetto — solo il soggiorno allora 😊\n\nPer bloccare il posto, preferite pagare ora il deposito di {{deposit}} o l'intero {{total}}?",
+          "pay_later_explainer": "Nessuno stress — per bloccare il posto serve un deposito o il pagamento intero una volta pronto il preventivo. Il resto lo pagate all'arrivo 👍",
+          "pay_why_now": "Serve solo a tenervi il posto mentre sistemiamo tutto — il saldo all'arrivo. Deposito di {{deposit}} o intero {{total}}, come preferite 👍",
+          "already_paid_check": "Grazie per avermelo detto — non posso confermare il pagamento solo dalla chat. Il nostro team controlla e vi ricontatta 👍",
+          "payment_link_failed": "Nessuno stress — sto avendo un piccolo intoppo con il link di pagamento. Il nostro team vi invierà qui a breve il link sicuro per il deposito di {{deposit}} 👍",
+          "payment_link_pending": "Il vostro posto è bloccato — il nostro team vi invierà qui a breve il link di pagamento sicuro per il deposito di {{deposit}} 👍",
+          "deposit_ack": "Perfetto — deposito allora 👍 Preparo il vostro link di pagamento sicuro.",
+          "full_ack": "Perfetto — pagamento intero allora 👍 Preparo il vostro link di pagamento sicuro.",
+          "stripe_link": "Perfetto — il vostro soggiorno è bloccato 🙌 Potete pagare il deposito di {{deposit}} qui: {{checkout_url}}\n\nUna volta pagato, la prenotazione sarà confermata.",
+          "payment_link_sent": "Perfetto — il vostro soggiorno è bloccato per il deposito di {{deposit}} 🙌 Controllate il link di pagamento sicuro che ho appena inviato.",
+          "payment_received": "Ricevuto — il vostro deposito di {{paid}} è arrivato 🙌 Fate parte della famiglia Wolfhouse — ora vi invio la conferma completa.",
+          "confirmation_sent": "Siete confermati — benvenuti nella famiglia Wolfhouse 😊 Vi ho inviato i dettagli con indirizzo, codice del cancello e info sulla stanza.",
+          "handoff": "Grazie per la pazienza — coinvolgo il nostro team Wolfhouse così vi aiutano col prossimo passo 💛"
         },
         "es": {
           "intro_short": "Holaaa! Soy Luna de Wolfhouse 🌊 Qué alegría que estéis aquí!",
@@ -520,7 +545,34 @@
           "ask_dates": "Genial! ¿Qué fechas tenéis en mente para check-in y check-out?",
           "answer_arrival_payment_question": "Claro — el saldo restante se puede pagar en efectivo, transferencia o online a la llegada. Para reservar ahora, ¿prefieres el depósito de {{deposit}} o el importe completo de {{total}}?",
           "answer_arrival_payment_question_no_amounts": "Claro — el saldo a la llegada se puede pagar en efectivo, transferencia o online 😊 Para reservar ahora necesitamos depósito o pago completo.",
-          "reset_start_over": "Sin problema, empezamos de nuevo 😊 ¿Qué fechas buscáis?"
+          "reset_start_over": "Sin problema, empezamos de nuevo 😊 ¿Qué fechas buscáis?",
+          "greeting_generic": "{{intro_short}}\n¿Queréis reservar una estancia, preguntar por packs o solo info?",
+          "greeting_booking_intent": "¡Genial — os lo dejo listo enseguida! 🌊 ¿Qué fechas de check-in y check-out os van bien?",
+          "greeting_info_only": "{{intro_short}}\nEncantada de ayudaros con packs, surf o cualquier cosa sobre Somo — ¿qué queréis saber?",
+          "greeting_returning": "¡Hola de nuevo! 🌊 Sigo aquí para vosotros — ¿seguimos con vuestra reserva o empezamos de cero?",
+          "ask_dates_mid": "¿Qué fechas buscáis?",
+          "confirm_dates": "Perfecto — {{range}}. ¿Cuántos huéspedes seréis?",
+          "ask_guests": "Perfecto — {{range}}. ¿Cuántos huéspedes seréis?",
+          "ask_guest_name": "Perfecto — {{range}}. ¿A qué nombre pongo la reserva?",
+          "accommodation_quote_available": "¡Yesss, buenas noticias — tenemos sitio para esas fechas! ☀️ La estancia sale {{total}}.",
+          "accommodation_quote_addons_tail": "¿Necesitáis neopreno, tabla o clases también, o solo la estancia?",
+          "package_quote_available": "¡Yesss, buenas noticias — tenemos sitio {{date_avail}}! {{package_label}} sale {{total}}.",
+          "package_quote_payment_tail": "Para reservarlo, podéis pagar el depósito de {{deposit}} o el total de {{total}}. Siempre podemos añadir clases o alquileres más adelante si queréis.",
+          "addons_none": "Perfecto — solo la estancia entonces 😊\n\nPara guardar el sitio, ¿preferís pagar ahora el depósito de {{deposit}} o el total de {{total}}?",
+          "ask_payment_choice_with_extras": "Hecho — he anotado los extras 😊\n\nPara guardar el sitio, ¿preferís pagar ahora el depósito de {{deposit}} o el total de {{total}}?",
+          "ask_payment_choice_accommodation_only": "Perfecto — solo la estancia entonces 😊\n\nPara guardar el sitio, ¿preferís pagar ahora el depósito de {{deposit}} o el total de {{total}}?",
+          "pay_later_explainer": "Sin estrés — para guardar el sitio necesitamos un depósito o el pago completo cuando esté listo el presupuesto. El resto lo pagáis a la llegada 👍",
+          "pay_why_now": "Es solo para guardaros el sitio mientras lo organizamos todo — el saldo a la llegada. Depósito de {{deposit}} o total {{total}}, lo que os sea más fácil 👍",
+          "already_paid_check": "Gracias por avisarme — no puedo confirmar el pago solo desde el chat. Nuestro equipo lo revisa y os contacta 👍",
+          "payment_link_failed": "Sin estrés — estoy teniendo un pequeño fallo con el link de pago. Nuestro equipo os enviará aquí en breve el link seguro del depósito de {{deposit}} 👍",
+          "payment_link_pending": "Vuestro sitio está guardado — nuestro equipo os enviará aquí en breve el link de pago seguro para el depósito de {{deposit}} 👍",
+          "deposit_ack": "Perfecto — depósito entonces 👍 Os preparo el link de pago seguro.",
+          "full_ack": "Perfecto — pago completo entonces 👍 Os preparo el link de pago seguro.",
+          "stripe_link": "Perfecto — vuestra estancia está guardada 🙌 Podéis pagar el depósito de {{deposit}} aquí: {{checkout_url}}\n\nUna vez pagado, vuestra reserva quedará confirmada.",
+          "payment_link_sent": "Perfecto — vuestra estancia está guardada para el depósito de {{deposit}} 🙌 Mirad el link de pago seguro que acabo de enviar.",
+          "payment_received": "¡Recibido — vuestro depósito de {{paid}} está dentro! 🙌 Ya sois parte de la familia Wolfhouse — ahora os envío la confirmación completa.",
+          "confirmation_sent": "¡Estáis confirmados — bienvenidos a la familia Wolfhouse! 😊 Os he enviado los detalles con dirección, código de la puerta e info de la habitación.",
+          "handoff": "Gracias por vuestra paciencia — aviso a nuestro equipo Wolfhouse para que os ayuden con el siguiente paso 💛"
         },
         "de": {
           "intro_short": "Heyyy! Ich bin Luna von Wolfhouse 🌊 Schön, dass ihr da seid!",
@@ -537,7 +589,27 @@
           "payment_received": "Super — eure {{paid}} Anzahlung ist da 🙌 Ihr gehört zur Wolfhouse-Family — gleich kommt die volle Bestätigung.",
           "answer_arrival_payment_question": "Klar — der Restbetrag kann bar, per Überweisung oder online bei Ankunft gezahlt werden. Für die Reservierung jetzt: {{deposit}} Anzahlung oder volle {{total}}?",
           "answer_arrival_payment_question_no_amounts": "Klar — der Restbetrag kann bar, per Überweisung oder online bei Ankunft gezahlt werden 😊 Für die Reservierung jetzt brauchen wir Anzahlung oder volle Zahlung.",
-          "reset_start_over": "Kein Problem, wir fangen frisch an 😊 Welche Daten sucht ihr?"
+          "reset_start_over": "Kein Problem, wir fangen frisch an 😊 Welche Daten sucht ihr?",
+          "greeting_generic": "{{intro_short}}\nMöchtet ihr einen Aufenthalt buchen, was zu Paketen fragen oder nur Infos?",
+          "greeting_booking_intent": "Perfekt — wir kriegen das hin 🌊 Welche Check-in- und Check-out-Daten passen euch?",
+          "greeting_info_only": "{{intro_short}}\nIch helfe euch gern mit Paketen, Surf oder allem rund um Somo — was möchtet ihr wissen?",
+          "greeting_returning": "Hey, schön dass ihr wieder da seid! 🌊 Ich bin für euch da — machen wir mit eurer Buchung weiter oder fangen wir neu an?",
+          "ask_dates_mid": "Welche Daten sucht ihr?",
+          "confirm_dates": "Perfekt — {{range}}. Wie viele Gäste werdet ihr sein?",
+          "ask_guests": "Perfekt — {{range}}. Wie viele Gäste werdet ihr sein?",
+          "ask_guest_name": "Perfekt — {{range}}. Auf welchen Namen soll ich die Buchung machen?",
+          "accommodation_quote_available": "Yesss, gute Nachrichten — wir haben Platz für diese Daten ☀️ Der Aufenthalt kommt auf {{total}}.",
+          "accommodation_quote_addons_tail": "Braucht ihr auch Neoprenanzug, Board oder Kurse, oder nur den Aufenthalt?",
+          "addons_none": "Perfekt — dann nur der Aufenthalt 😊\n\nUm den Platz zu sichern: möchtet ihr jetzt die {{deposit}} Anzahlung oder die vollen {{total}} zahlen?",
+          "ask_payment_choice_with_extras": "Alles klar — die Extras hab ich notiert 😊\n\nUm den Platz zu sichern: möchtet ihr jetzt die {{deposit}} Anzahlung oder die vollen {{total}} zahlen?",
+          "ask_payment_choice_accommodation_only": "Perfekt — dann nur der Aufenthalt 😊\n\nUm den Platz zu sichern: möchtet ihr jetzt die {{deposit}} Anzahlung oder die vollen {{total}} zahlen?",
+          "pay_later_explainer": "Kein Stress — um den Platz zu sichern brauchen wir eine Anzahlung oder die volle Zahlung, sobald euer Angebot fertig ist. Den Rest zahlt ihr bei Ankunft 👍",
+          "pay_why_now": "Das hält nur euren Platz, während wir alles organisieren — der Restbetrag bei Ankunft. {{deposit}} Anzahlung oder volle {{total}}, wie's euch leichter fällt 👍",
+          "already_paid_check": "Danke fürs Bescheidgeben — ich kann die Zahlung nicht allein per Chat bestätigen. Unser Team prüft das und meldet sich bei euch 👍",
+          "payment_link_failed": "Kein Stress — ich hab gerade einen kleinen Haken mit dem Zahlungslink. Unser Team schickt euch gleich den sicheren Link für die {{deposit}} Anzahlung hierher 👍",
+          "payment_link_pending": "Euer Platz ist gesichert — unser Team schickt euch gleich den sicheren Zahlungslink für die {{deposit}} Anzahlung hierher 👍",
+          "confirmation_sent": "Ihr seid bestätigt — willkommen in der Wolfhouse-Familie 😊 Ich hab euch die Details mit Adresse, Tor-Code und Zimmer-Infos geschickt.",
+          "handoff": "Danke für eure Geduld — ich hole unser Wolfhouse-Team dazu, damit sie euch beim nächsten Schritt helfen 💛"
         }
       }
     }
