@@ -11,6 +11,8 @@ const STAFF_PORTAL_STRINGS = {
   en: {
     'app.brand': 'Luna Front Desk',
     'app.signOut': 'Sign out',
+    'app.theme.switchToDark': 'Switch to dark mode',
+    'app.theme.switchToLight': 'Switch to light mode',
     'nav.tab.calendar': 'Booking Calendar',
     'nav.tab.whatsapp': 'WhatsApp',
     'nav.tab.lunaStaff': 'Luna Staff',
@@ -307,11 +309,14 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.field.nights': 'Nights',
     'drawer.field.guests': 'Guests',
     'drawer.field.guestCount': 'Guest count',
+    'drawer.field.guestReleaseCount': 'Guests: {from} → {to}',
+    'drawer.field.guestReleaseWillRelease': 'Will release: {beds}',
+    'drawer.field.guestReleaseRemaining': 'Remaining: {beds}',
     'drawer.field.package': 'Package',
     'drawer.field.roomPref': 'Room pref',
     'drawer.field.privateRoom': 'Private Room',
+    'drawer.field.privateRoomEnabled': 'Private Room Enabled',
     'drawer.field.editPrivateRoom': 'Edit private room',
-    'drawer.field.privateRoomHint': 'Adds €10/night flat room supplement (re-quotes booking total).',
     'drawer.field.privateRoomSaving': 'Updating private room…',
     'drawer.field.privateRoomSaved': 'Private room updated',
     'drawer.field.privateRoomNoChange': 'No change',
@@ -460,6 +465,8 @@ const STAFF_PORTAL_STRINGS = {
   it: {
     'app.brand': 'Luna Front Desk',
     'app.signOut': 'Esci',
+    'app.theme.switchToDark': 'Passa alla modalità scura',
+    'app.theme.switchToLight': 'Passa alla modalità chiara',
     'nav.tab.calendar': 'Calendario prenotazioni',
     'nav.tab.whatsapp': 'WhatsApp',
     'nav.tab.lunaStaff': 'Luna Staff',
@@ -756,11 +763,13 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.field.nights': 'Notti',
     'drawer.field.guests': 'Ospiti',
     'drawer.field.guestCount': 'Numero ospiti',
+    'drawer.field.guestReleaseCount': 'Ospiti: {from} → {to}',
+    'drawer.field.guestReleaseWillRelease': 'Verrà rilasciato: {beds}',
+    'drawer.field.guestReleaseRemaining': 'Rimane: {beds}',
     'drawer.field.package': 'Pacchetto',
     'drawer.field.roomPref': 'Pref. camera',
     'drawer.field.privateRoom': 'Camera privata',
     'drawer.field.editPrivateRoom': 'Modifica camera privata',
-    'drawer.field.privateRoomHint': 'Aggiunge supplemento €10/notte per camera (ricalcola il totale).',
     'drawer.field.privateRoomSaving': 'Aggiornamento camera privata…',
     'drawer.field.privateRoomSaved': 'Camera privata aggiornata',
     'drawer.field.privateRoomNoChange': 'Nessuna modifica',
@@ -907,6 +916,10 @@ const STAFF_PORTAL_STRINGS = {
   },
 };
 
+function getStaffPortalThemeEarlyScript() {
+  return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>`;
+}
+
 function getStaffPortalI18nBootstrapScript() {
   const json = JSON.stringify(STAFF_PORTAL_STRINGS);
   return `<script>
@@ -914,12 +927,20 @@ function getStaffPortalI18nBootstrapScript() {
   'use strict';
   var STAFF_I18N = ${json};
   var STAFF_LOCALE_KEY = 'wh_staff_portal_locale';
+  var STAFF_THEME_KEY = 'wh_staff_portal_theme';
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
       if (s === 'it' || s === 'en' || s === 'es') return s;
     } catch(_){}
     return 'en';
+  };
+  window.getStaffTheme = function(){
+    try {
+      var t = localStorage.getItem(STAFF_THEME_KEY);
+      if (t === 'dark' || t === 'light') return t;
+    } catch(_){}
+    return 'light';
   };
   window.t = function(key, vars){
     var loc = window.getStaffLocale();
@@ -932,6 +953,34 @@ function getStaffPortalI18nBootstrapScript() {
       });
     }
     return text;
+  };
+  window.applyStaffTheme = function(){
+    var theme = window.getStaffTheme();
+    var html = document.documentElement;
+    if (html) html.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
+    var btn = document.getElementById('staff-theme-toggle');
+    if (!btn) return;
+    var isDark = theme === 'dark';
+    btn.setAttribute('aria-pressed', isDark ? 'true' : 'false');
+    btn.setAttribute('aria-label', window.t(isDark ? 'app.theme.switchToLight' : 'app.theme.switchToDark'));
+    btn.setAttribute('title', btn.getAttribute('aria-label'));
+    btn.classList.toggle('is-dark', isDark);
+  };
+  window.setStaffTheme = function(theme){
+    if (theme !== 'light' && theme !== 'dark') return;
+    try { localStorage.setItem(STAFF_THEME_KEY, theme); } catch(_){}
+    window.applyStaffTheme();
+  };
+  window.toggleStaffTheme = function(){
+    window.setStaffTheme(window.getStaffTheme() === 'dark' ? 'light' : 'dark');
+  };
+  window.bindStaffThemeToggle = function(){
+    var btn = document.getElementById('staff-theme-toggle');
+    if (!btn || btn._staffThemeBound) return;
+    btn._staffThemeBound = true;
+    btn.addEventListener('click', function(){
+      window.toggleStaffTheme();
+    });
   };
   window.applyStaffPortalI18n = function(root){
     var scope = root || document;
@@ -966,6 +1015,7 @@ function getStaffPortalI18nBootstrapScript() {
       var lang = btn.getAttribute('data-lang');
       btn.classList.toggle('is-active', lang === window.getStaffLocale());
     });
+    window.applyStaffTheme();
   };
   window.setStaffLocale = function(loc){
     if (loc !== 'en' && loc !== 'it' && loc !== 'es') return;
@@ -988,6 +1038,7 @@ function getStaffPortalI18nBootstrapScript() {
   document.addEventListener('DOMContentLoaded', function(){
     window.applyStaffPortalI18n(document);
     window.bindStaffLangSwitch();
+    window.bindStaffThemeToggle();
   });
 })();
 </script>`;
@@ -995,5 +1046,6 @@ function getStaffPortalI18nBootstrapScript() {
 
 module.exports = {
   STAFF_PORTAL_STRINGS,
+  getStaffPortalThemeEarlyScript,
   getStaffPortalI18nBootstrapScript,
 };

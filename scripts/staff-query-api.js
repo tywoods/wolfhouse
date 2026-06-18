@@ -232,7 +232,7 @@ const {
   deleteBookingStaffNote,
   getLunaGuestNotesFromMetadata,
 } = require('./lib/luna-guest-booking-notes');
-const { getStaffPortalI18nBootstrapScript } = require('./lib/staff-portal-i18n');
+const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
@@ -2490,6 +2490,7 @@ SELECT
   bb.bed_id::text                         AS bed_id,
   bb.bed_code,
   bb.room_code,
+  bb.assignment_type,
   bb.assignment_start_date::text          AS check_in,
   bb.assignment_end_date::text            AS check_out
 FROM booking_beds bb
@@ -4095,6 +4096,61 @@ RETURNING
   b.email
 `;
 
+const EDIT_WRITE_PRIVATE_ROOM_BLOCK_DELETE_SQL = `
+DELETE FROM booking_beds bb
+USING clients c, bookings b
+WHERE bb.client_id = c.id
+  AND bb.booking_id = b.id
+  AND c.slug = $1
+  AND b.id::text = $2
+  AND bb.assignment_type = 'private_room_block'
+RETURNING bb.bed_code
+`;
+
+const EDIT_WRITE_PRIVATE_ROOM_COMPANION_BLOCK_CANCEL_SQL = `
+UPDATE bookings b
+SET status = 'cancelled'::booking_status,
+    updated_at = NOW()
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.metadata->>'private_room_parent_booking_id' = $2
+  AND b.status = 'blocked'::booking_status
+RETURNING b.booking_code
+`;
+
+const EDIT_WRITE_BOOKING_GUEST_BEDS_SQL = `
+SELECT
+  bb.id::text AS booking_bed_id,
+  bb.bed_id::text AS bed_id,
+  bb.bed_code,
+  bb.room_code,
+  bb.assignment_start_date::text AS check_in,
+  bb.assignment_end_date::text AS check_out,
+  bb.assignment_type
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = bb.client_id
+WHERE c.slug = $1
+  AND b.id::text = $2
+  AND COALESCE(bb.assignment_type, '') NOT IN ('private_room_block', 'operator_block')
+ORDER BY bb.assignment_start_date ASC, bb.bed_code ASC
+`;
+
+const EDIT_WRITE_BED_OVERLAP_CONFLICTS_SQL = `
+SELECT b.booking_code, bb.bed_code
+FROM booking_beds bb
+INNER JOIN bookings b ON b.id = bb.booking_id
+INNER JOIN clients c ON c.id = bb.client_id
+WHERE c.slug = $1
+  AND bb.bed_id = $2::uuid
+  AND bb.booking_id <> $3::uuid
+  AND bb.assignment_start_date < $5::date
+  AND bb.assignment_end_date > $4::date
+  AND b.status NOT IN ('cancelled', 'expired')
+LIMIT 1
+`;
+
 const EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL = `
 UPDATE bookings b
 SET total_amount_cents = $3,
@@ -4532,6 +4588,264 @@ function editWriteResolvePrivateRoomTotals(bookingRow, svcRows, enabled, clientS
   };
 }
 
+function manualBookingPrivateRoomEnabled(roomType) {
+  const rt = String(roomType || '').toLowerCase();
+  return rt === 'private' || rt === 'double';
+}
+
+function editWritePrivateRoomBedBlockUserMessage(bedSync) {
+  if (!bedSync || !bedSync.error) return null;
+  if (bedSync.error === 'private_room_room_not_empty'
+    || bedSync.error === 'private_room_bed_block_conflict') {
+    const room = bedSync.room_code || 'this room';
+    const ci = bedSync.check_in || '';
+    const co = bedSync.check_out || '';
+    let msg = `Room ${room} is not empty`;
+    if (ci && co) msg += ` for ${ci} to ${co}`;
+    msg += '.';
+    const parts = (bedSync.conflicts || []).map((c) => `${c.bed_code} (${c.booking_code})`);
+    if (parts.length) msg += ` Other beds are already assigned: ${parts.join(', ')}.`;
+    msg += ' Private room cannot be enabled.';
+    return msg;
+  }
+  if (bedSync.error === 'private_room_no_bed_assignment') {
+    return 'Assign this booking to a bed before enabling private room.';
+  }
+  if (bedSync.error === 'private_room_no_room_code') {
+    return 'Could not determine which room to block for private room.';
+  }
+  if (bedSync.error === 'private_room_invalid_booking_dates') {
+    return 'Booking dates are missing or invalid, so companion beds cannot be blocked.';
+  }
+  return null;
+}
+
+/** Cancel staff-style blocked bookings created for private-room companion beds. */
+async function staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, parentBookingId) {
+  const legacyDel = await pg.query(EDIT_WRITE_PRIVATE_ROOM_BLOCK_DELETE_SQL, [clientSlug, parentBookingId]);
+  const legacyBedCodes = (legacyDel.rows || []).map((r) => r.bed_code);
+  const cancelRes = await pg.query(EDIT_WRITE_PRIVATE_ROOM_COMPANION_BLOCK_CANCEL_SQL, [
+    clientSlug,
+    String(parentBookingId),
+  ]);
+  const cancelledCodes = (cancelRes.rows || []).map((r) => r.booking_code);
+  return { legacy_bed_codes: legacyBedCodes, cancelled_block_bookings: cancelledCodes };
+}
+
+/**
+ * One blocked booking over companion beds — same shape as staff calendar Block button
+ * (status=blocked, assignment_type=staff_block), not guest assignment rows.
+ */
+async function staffPortalCreatePrivateRoomCompanionBlock(pg, {
+  clientSlug,
+  checkIn,
+  checkOut,
+  bedCodes,
+  parentBookingId,
+  parentBookingCode,
+}) {
+  const codes = (bedCodes || []).map(String).filter(Boolean);
+  if (!codes.length) return { ok: true, skipped: true, blocked_beds: [] };
+
+  const idempotencyKey = `prvblk-${crypto.createHash('md5').update([
+    clientSlug, String(parentBookingId), checkIn, checkOut, codes.slice().sort().join('_'),
+  ].join('|')).digest('hex')}`;
+  const bookingCode = `PRV-${String(checkIn || '').replace(/-/g, '')}-${crypto.randomBytes(3).toString('hex')}`.toUpperCase();
+  const notes = `Private room companion block for ${parentBookingCode || parentBookingId}`;
+
+  const r = await pg.query(buildManualBookingCreateSql(), [
+    clientSlug,
+    'private-room-sync',
+    'operator',
+    idempotencyKey,
+    bookingCode,
+    'Blocked',
+    'staff-block',
+    null,
+    'en',
+    checkIn,
+    checkOut,
+    Math.max(1, codes.length),
+    codes,
+    null,
+    null,
+    'blocked',
+    'not_requested',
+    0,
+    0,
+    'staff_block',
+    'private_room_companion_block',
+    notes,
+    true,
+    true,
+  ]);
+  const result = r.rows[0] || null;
+  if (!result) return { error: 'private_room_bed_block_conflict' };
+  if (result.is_duplicate === true) {
+    return {
+      ok: true,
+      duplicate: true,
+      block_booking_id: result.duplicate_booking_id,
+      block_booking_code: result.duplicate_booking_code,
+      blocked_beds: codes,
+    };
+  }
+  if (result.is_blocked === true) {
+    if (result.block_reason === 'overlap_conflict') {
+      return { error: 'private_room_room_not_empty', blocked_beds: codes, check_in: checkIn, check_out: checkOut };
+    }
+    return { error: 'private_room_bed_block_conflict', block_reason: result.block_reason || null };
+  }
+  const bedsInserted = Number(result.beds_inserted || 0);
+  if (!result.booking_id || bedsInserted < 1 || bedsInserted !== codes.length) {
+    return { error: 'private_room_bed_block_conflict' };
+  }
+
+  await pg.query(
+    `UPDATE bookings
+       SET assignment_status = 'assigned',
+           metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+     WHERE id = $2::uuid`,
+    [
+      JSON.stringify({
+        staff_calendar_block: true,
+        block_type: 'private_room_companion',
+        source: 'private_room_companion_block',
+        private_room_parent_booking_id: String(parentBookingId),
+        private_room_parent_booking_code: parentBookingCode || null,
+      }),
+      result.booking_id,
+    ],
+  );
+  await pg.query(
+    `UPDATE booking_beds
+       SET assignment_type = 'staff_block',
+           assignment_notes = $2
+     WHERE booking_id = $1::uuid`,
+    [result.booking_id, notes],
+  );
+
+  return {
+    ok: true,
+    block_booking_id: result.booking_id,
+    block_booking_code: result.booking_code,
+    blocked_beds: codes,
+  };
+}
+
+async function editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, bookingRow, enabled) {
+  const bookingId = bookingRow.booking_id;
+  const bookingCode = bookingRow.booking_code || null;
+  const checkIn = bookingRow.check_in;
+  const checkOut = bookingRow.check_out;
+  const cleanup = await staffPortalCancelPrivateRoomCompanionBlocks(pg, clientSlug, bookingId);
+  const removedBlocks = [
+    ...(cleanup.legacy_bed_codes || []),
+    ...(cleanup.cancelled_block_bookings || []),
+  ];
+
+  if (!enabled) {
+    return {
+      removed_blocks: removedBlocks,
+      blocked_beds: [],
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  if (!checkIn || !checkOut || String(checkOut) <= String(checkIn)) {
+    return { error: 'private_room_invalid_booking_dates', check_in: checkIn, check_out: checkOut };
+  }
+
+  const guestBedsRes = await pg.query(EDIT_WRITE_BOOKING_GUEST_BEDS_SQL, [clientSlug, bookingId]);
+  const guestBeds = guestBedsRes.rows || [];
+  if (!guestBeds.length) {
+    return {
+      error: 'private_room_no_bed_assignment',
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  const roomCode = guestBeds[0].room_code || bookingRow.primary_room_code;
+  if (!roomCode) {
+    return {
+      error: 'private_room_no_room_code',
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  const roomBedsRes = await pg.query(TO_ROOM_BEDS_FOR_BLOCK_SQL, [clientSlug, roomCode]);
+  const assignedCodes = new Set(guestBeds.map((b) => b.bed_code));
+  const companionBeds = (roomBedsRes.rows || []).filter((b) => !assignedCodes.has(b.bed_code));
+
+  if (!companionBeds.length) {
+    return {
+      removed_blocks: removedBlocks,
+      blocked_beds: [],
+      room_code: roomCode,
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  const conflicts = [];
+  for (const bed of companionBeds) {
+    const conflictRes = await pg.query(EDIT_WRITE_BED_OVERLAP_CONFLICTS_SQL, [
+      clientSlug,
+      bed.bed_id,
+      bookingId,
+      checkIn,
+      checkOut,
+    ]);
+    if (conflictRes.rows.length) {
+      conflicts.push({
+        bed_code: bed.bed_code,
+        booking_code: conflictRes.rows[0].booking_code,
+      });
+    }
+  }
+
+  if (conflicts.length) {
+    return {
+      error: 'private_room_room_not_empty',
+      conflicts,
+      room_code: roomCode,
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  const companionBedCodes = companionBeds.map((b) => b.bed_code);
+  const created = await staffPortalCreatePrivateRoomCompanionBlock(pg, {
+    clientSlug,
+    checkIn,
+    checkOut,
+    bedCodes: companionBedCodes,
+    parentBookingId: bookingId,
+    parentBookingCode: bookingCode,
+  });
+  if (created.error) {
+    return {
+      ...created,
+      room_code: roomCode,
+      check_in: checkIn,
+      check_out: checkOut,
+    };
+  }
+
+  return {
+    removed_blocks: removedBlocks,
+    blocked_beds: created.blocked_beds || companionBedCodes,
+    block_booking_id: created.block_booking_id || null,
+    block_booking_code: created.block_booking_code || null,
+    room_code: roomCode,
+    check_in: checkIn,
+    check_out: checkOut,
+  };
+}
+
 function staffPackageDisplayLabel(code) {
   const c = String(code || '').trim().toLowerCase();
   if (!c || c === 'no_package' || c === 'package_none') return 'No package';
@@ -4881,8 +5195,15 @@ function editPreviewBuildInvoicePreview(bookingRow, svcRows, proposedFields, pri
   return invoice;
 }
 
+function editWriteGuestAssignmentBeds(sourceBeds) {
+  return (sourceBeds || []).filter((r) => {
+    const t = String(r.assignment_type || '').toLowerCase();
+    return t !== 'private_room_block' && t !== 'operator_block';
+  });
+}
+
 function editPreviewGuestBedRelease(sourceBeds, currentGuests, newGuestCount) {
-  const ordered = (sourceBeds || []).slice();
+  const ordered = editWriteGuestAssignmentBeds(sourceBeds);
   const cur = Math.max(1, Number(currentGuests) || 1);
   const next = Number(newGuestCount);
   if (next > cur) {
@@ -6142,7 +6463,7 @@ async function handleBookingEditWritePrivateRoom(
   };
 
   try {
-    const updatedRow = await withPgClient(async (pg) => {
+    const writeResult = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
         const upd = await pg.query(EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL, [
@@ -6157,15 +6478,48 @@ async function handleBookingEditWritePrivateRoom(
         ]);
         if (!upd.rows[0]) {
           await pg.query('ROLLBACK');
-          return null;
+          return { row: null };
+        }
+        const bedSync = await editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, bookingRow, enabled);
+        if (bedSync.error) {
+          await pg.query('ROLLBACK');
+          return { bedSyncError: bedSync };
         }
         await pg.query('COMMIT');
-        return upd.rows[0];
+        return { row: upd.rows[0], bedSync };
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
       }
     });
+
+    if (writeResult.bedSyncError) {
+      const bedSync = writeResult.bedSyncError;
+      const elapsed = Date.now() - started;
+      const blockMessage = editWritePrivateRoomBedBlockUserMessage(bedSync)
+        || 'Private room could not be saved because companion beds could not be blocked.';
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: bedSync.error,
+        elapsed_ms: elapsed,
+      });
+      return sendJSON(res, 409, {
+        success: false,
+        error: bedSync.error,
+        edit_type: 'private_room',
+        updated: false,
+        would_mutate: false,
+        before,
+        proposed: { private_room_enabled: enabled },
+        bed_block: bedSync,
+        message: blockMessage,
+        elapsed_ms: elapsed,
+      });
+    }
+
+    const updatedRow = writeResult.row;
+    const bedSync = writeResult.bedSync || null;
 
     if (!updatedRow) {
       appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
@@ -6179,8 +6533,20 @@ async function handleBookingEditWritePrivateRoom(
       success: true,
       updated: true,
       private_room_enabled: enabled,
+      blocked_beds: bedSync && bedSync.blocked_beds ? bedSync.blocked_beds : [],
       elapsed_ms: elapsed,
     });
+    let message = enabled
+      ? 'Private room supplement added and booking total recalculated.'
+      : 'Private room supplement removed and booking total recalculated.';
+    if (enabled && bedSync && bedSync.blocked_beds && bedSync.blocked_beds.length) {
+      const stay = bedSync.check_in && bedSync.check_out
+        ? ` (${bedSync.check_in} to ${bedSync.check_out})`
+        : '';
+      message += ` Companion beds blocked${stay}: ${bedSync.blocked_beds.join(', ')}.`;
+    } else if (!enabled && bedSync && bedSync.removed_blocks && bedSync.removed_blocks.length) {
+      message += ` Companion bed blocks removed: ${bedSync.removed_blocks.join(', ')}.`;
+    }
     return sendJSON(res, 200, {
       success: true,
       updated: true,
@@ -6189,12 +6555,11 @@ async function handleBookingEditWritePrivateRoom(
       before,
       after,
       invoice_impact,
+      bed_block: bedSync,
       audit: auditResponse,
       needs_refund: resolved.needsRefund,
       refund_review_needed: resolved.needsRefund,
-      message: enabled
-        ? 'Private room supplement added and booking total recalculated.'
-        : 'Private room supplement removed and booking total recalculated.',
+      message,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -14760,6 +15125,30 @@ async function handleManualBookingCreate(req, res, user) {
         result._service_records_available = svcInsert.available;
         result._service_records_warning   = svcInsert.warning;
 
+        if (manualBookingPrivateRoomEnabled(roomType)) {
+          await pg.query(
+            `UPDATE bookings
+               SET room_preference = 'couple_private',
+                   requested_room_type = 'double'
+             WHERE id = $1`,
+            [result.booking_id]
+          );
+          const bedSync = await editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, {
+            booking_id: String(result.booking_id),
+            check_in: checkIn,
+            check_out: checkOut,
+            primary_room_code: null,
+          }, true);
+          if (bedSync.error) {
+            await pg.query('ROLLBACK');
+            result._blocked = true;
+            result._private_room_block = bedSync;
+            result.block_reason = bedSync.error;
+            return result;
+          }
+          result._bed_block = bedSync;
+        }
+
         await pg.query('COMMIT');
         return result;
       } catch (e) {
@@ -14798,14 +15187,21 @@ async function handleManualBookingCreate(req, res, user) {
   if (row._blocked) {
     appendAuditLog({ ...auditBase, success: false, blocked: true,
       block_reason: row.block_reason, elapsed_ms: elapsed });
-    const isConflict = row.block_reason === 'overlap_conflict';
+    const isConflict = row.block_reason === 'overlap_conflict'
+      || row.block_reason === 'private_room_room_not_empty';
+    const privateRoomMsg = row._private_room_block
+      ? editWritePrivateRoomBedBlockUserMessage(row._private_room_block)
+      : null;
     return sendJSON(res, isConflict ? 409 : 422, {
       success:      false,
       blocked:      true,
       block_reason: row.block_reason,
-      error:        isConflict
-        ? 'These dates/beds conflict with an existing booking. Nothing was created.'
-        : 'Manual booking blocked: ' + row.block_reason,
+      bed_block:    row._private_room_block || null,
+      error:        privateRoomMsg
+        || (isConflict && row.block_reason === 'overlap_conflict'
+          ? 'These dates/beds conflict with an existing booking. Nothing was created.'
+          : 'Manual booking blocked: ' + row.block_reason),
+      message:      privateRoomMsg || undefined,
       no_write_performed: true,
       no_stripe: true, no_whatsapp: true, no_n8n: true,
     });
@@ -14919,6 +15315,7 @@ function buildUiHtml(port) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Luna Front Desk</title>
+${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
 :root{
@@ -14946,6 +15343,97 @@ function buildUiHtml(port) {
   --primary-hover:#6C8268;
   --focus:#95B4C7;        /* focus ring (ocean) */
 }
+[data-theme="dark"]{
+  --cream:#181818;
+  --surface:#252526;
+  --surface-soft:#2d2d2d;
+  --sand:#3c3c3c;
+  --tan:#5a4a3a;
+  --sage:#569cd6;
+  --olive:#569cd6;
+  --dusty-blue:#569cd6;
+  --ocean:#4fc1ff;
+  --teal:#264f78;
+  --text:#cccccc;
+  --text-1:#cccccc;
+  --text-2:#9d9d9d;
+  --text-3:#6e6e6e;
+  --border:#3c3c3c;
+  --border-soft:#333333;
+  --primary:#0e639c;
+  --primary-hover:#1177bb;
+  --focus:#007fd4;
+  --shadow:0 1px 2px rgba(0,0,0,.28),0 6px 18px rgba(0,0,0,.36);
+  --shadow-soft:0 1px 2px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.28);
+  color-scheme:dark;
+}
+[data-theme="dark"] #banner{background:linear-gradient(120deg,#252526 0%,#1e1e1e 55%,#2a2a2a 100%);box-shadow:0 2px 16px rgba(0,0,0,.4)}
+[data-theme="dark"] ::selection{background:#264f78;color:#cccccc}
+[data-theme="dark"] .card{background:var(--surface);border-color:var(--border-soft)}
+[data-theme="dark"] #tab-bed-calendar .card{background:linear-gradient(165deg,#252526 0%,#1e1e1e 48%,#252526 100%);background-image:repeating-linear-gradient(92deg,transparent,transparent 3px,rgba(139,115,85,.035) 3px,rgba(139,115,85,.035) 5px),linear-gradient(165deg,#252526 0%,#1e1e1e 48%,#252526 100%)}
+[data-theme="dark"] #tabs{background:#252526;border-bottom-color:#3c3c3c}
+[data-theme="dark"] .tab-btn{color:#9d9d9d}
+[data-theme="dark"] .tab-btn:hover{color:#cccccc}
+[data-theme="dark"] .tab-btn.active{color:#cccccc;border-bottom-color:#007acc}
+[data-theme="dark"] .tab-btn.dev-tab{border-left-color:#3c3c3c}
+[data-theme="dark"] .tab-btn.dev-tab.active{color:#9d9d9d;border-bottom-color:#6e6e6e}
+[data-theme="dark"] .inbox-switch-slider,[data-theme="dark"] .luna-global-pause-slider,[data-theme="dark"] .bc-zoom-lock-slider{background:#454545}
+[data-theme="dark"] .inbox-switch-slider:before,[data-theme="dark"] .luna-global-pause-slider:before,[data-theme="dark"] .bc-zoom-lock-slider:before{background:#cccccc;box-shadow:0 1px 2px rgba(0,0,0,.35)}
+[data-theme="dark"] .bc-zoom-lock-switch input:checked + .bc-zoom-lock-slider{background:#0e639c}
+[data-theme="dark"] .inbox-switch-orange input:checked + .inbox-switch-slider{background:#c47a2a;border-color:#a86520}
+[data-theme="dark"] .inbox-switch-red input:checked + .inbox-switch-slider{background:#a94444;border-color:#8a3333}
+[data-theme="dark"] .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#a94444}
+[data-theme="dark"] .luna-global-pause-card.luna-global-paused{border-color:#6a4040;background:#2a2020}
+[data-theme="dark"] .al-hero{background:linear-gradient(135deg,#252526 0%,#2d2d2d 100%);border-color:#3c3c3c}
+[data-theme="dark"] .al-hero-title{color:#cccccc}
+[data-theme="dark"] .al-hero-sub{color:#9d9d9d}
+[data-theme="dark"] #al-input:focus{outline-color:#007acc}
+[data-theme="dark"] .al-example-chip:hover{border-color:#569cd6;color:#cccccc}
+[data-theme="dark"] .al-raw-toggle:hover{border-color:#569cd6}
+[data-theme="dark"] .al-rows-table th{background:#2d2d2d;color:#9d9d9d;border-bottom-color:#3c3c3c}
+[data-theme="dark"] .al-rows-table td{border-bottom-color:#333333;color:#cccccc}
+[data-theme="dark"] .bc-op-title{color:#cccccc}
+[data-theme="dark"] .bc-op-badge{background:#2d2d2d;color:#9d9d9d;border-color:#3c3c3c}
+[data-theme="dark"] .bc-op-locked{background:#2d2d2d!important;color:#6e6e6e}
+[data-theme="dark"] .bc-op-divider{border-top-color:#3c3c3c}
+[data-theme="dark"] .bc-rr-purpose{background:#2d2d2d;color:#9d9d9d;border-left-color:#569cd6}
+[data-theme="dark"] .inbox-booking-stack-item{background:var(--surface-soft);border-color:var(--border-soft)}
+[data-theme="dark"] .inbox-booking-stack-item h4{color:#cccccc}
+[data-theme="dark"] .inbox-booking-stack-item.inbox-booking-luna{background:#1a2836;border-color:#3a5a78}
+[data-theme="dark"] .inbox-booking-stack-item.inbox-booking-staff{background:#1e2428;border-color:#3a4548}
+[data-theme="dark"] .inbox-booking-linked-tag{background:#264f78;color:#c8dce8;border-color:#3a6a9a}
+[data-theme="dark"] .conv-card.selected{background:#264f78;border-left-color:#007acc}
+[data-theme="dark"] .conv-card:hover{background:#2d2d2d}
+[data-theme="dark"] .thread{background:#1e1e1e;border-color:#3c3c3c}
+[data-theme="dark"] .msg.inbound .msg-bubble{background:#2d2d2d;color:#cccccc;border:1px solid #454545;border-bottom-left-radius:5px}
+[data-theme="dark"] .msg.outbound .msg-bubble{background:#264f78;color:#d4e8ff;border:1px solid #3a6a9a;border-bottom-right-radius:5px}
+[data-theme="dark"] .ctx-pay-box,[data-theme="dark"] .ctx-planned,[data-theme="dark"] .ctx-pay-record{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .ctx-payment-history-card{background:#252526!important}
+[data-theme="dark"] .ctx-pay-record-paid{background:#1e2a22;border-color:#3a5a48;color:#c8dcc8}
+[data-theme="dark"] .ctx-pay-record-checkout{border-color:#3a6a9a;background:#1a2836}
+[data-theme="dark"] .ctx-pay-record-cancelled{background:#2a2a2a;border-color:#454545;color:#9d9d9d}
+[data-theme="dark"] .ctx-pay-record-stale{background:#2a2820;border-color:#5a5038;color:#cccccc}
+[data-theme="dark"] .ctx-pay-record-badge-paid{background:#264f78;color:#d4e8ff}
+[data-theme="dark"] .ctx-pay-record-badge-checkout{background:#1a2836;color:#9ec8e8;border:1px solid #3a6a9a}
+[data-theme="dark"] .ctx-pay-record-badge-default{background:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .ctx-pay-record-badge-outdated{background:#3a3020;color:#e8c89a}
+[data-theme="dark"] .ctx-pay-record-meta,[data-theme="dark"] .ctx-pay-record-wait{color:#9d9d9d}
+[data-theme="dark"] .ctx-pay-row{border-bottom-color:#333333}
+[data-theme="dark"] .ctx-pay-label{color:#9d9d9d}
+[data-theme="dark"] .btn-bc-copy-link-icon,[data-theme="dark"] .btn-bc-cancel-link-icon{background:#2d2d2d;border-color:#3c3c3c;color:#9d9d9d}
+[data-theme="dark"] .pill-luna{background:#1a2836;color:#9ec8e8;border-color:#3a6a9a}
+[data-theme="dark"] .pill-staff-source{background:#1e2428;color:#b8c8bc;border-color:#3a4548}
+[data-theme="dark"] .pill-green{background:#1e2a22;color:#a8c8a8;border-color:#3a5a48}
+[data-theme="dark"] .pill-blue{background:#1a2836;color:#9ec8e8;border-color:#3a6a9a}
+[data-theme="dark"] .pill-orange{background:#3a3020;color:#e8c89a;border-color:#5a5038}
+[data-theme="dark"] .pill-red{background:#3a2020;color:#f0c0bc;border-color:#6a4040}
+[data-theme="dark"] .pill-grey{background:#2d2d2d;color:#9d9d9d;border-color:#454545}
+[data-theme="dark"] .pill-purple{background:#2a2436;color:#d8c8e8;border-color:#5a4a78}
+[data-theme="dark"] .sidebar-card{background:#2d2d2d;border-color:#3c3c3c}
+[data-theme="dark"] .inbox-left{background:var(--surface);border-color:var(--border-soft)}
+[data-theme="dark"] .inbox-left-toolbar{background:#2d2d2d;border-bottom-color:#3c3c3c}
+[data-theme="dark"] .inbox-right{background:var(--surface)}
+[data-theme="dark"] .inbox-two-col{border-color:var(--border-soft)}
 /* ── Reset + base ───────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;background:var(--cream);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
@@ -14965,6 +15453,15 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-lang-btn:hover{color:#fff}
 .staff-lang-btn.is-active{color:#fff;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,255,255,.55)}
 .staff-lang-sep{color:rgba(255,255,255,.32);user-select:none;font-size:10px}
+.staff-theme-toggle{margin:0 10px 0 8px;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:50%;background:rgba(255,255,255,.10);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:#fff}
+.staff-theme-toggle:hover{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.38);box-shadow:0 0 14px rgba(255,255,255,.12)}
+.staff-theme-toggle:active{transform:scale(.96)}
+.staff-theme-toggle:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
+.staff-theme-icon{width:15px;height:15px;display:block;flex-shrink:0}
+.staff-theme-icon-moon{filter:drop-shadow(0 0 3px rgba(255,255,255,.35))}
+.staff-theme-icon-sun{display:none;filter:drop-shadow(0 0 4px rgba(255,220,140,.45))}
+.staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
+.staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;padding:0 28px;box-shadow:var(--shadow-soft)}
 .tab-btn{padding:14px 22px;font-size:13px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s}
@@ -15409,8 +15906,23 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-field-read-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .ctx-field-read-row .ctx-field-header{flex-shrink:0;width:28px;display:flex;align-items:center;justify-content:flex-end;margin:0}
 .ctx-field-read-row .ctx-field-header--dual{flex-direction:column;align-items:flex-end;gap:4px;width:36px}
-.ctx-field-private-room-read-v input[type=checkbox]{margin:0;pointer-events:none}
-.ctx-field-private-room-edit-label{display:inline-flex;align-items:center;margin:4px 0 8px}
+.kv--private-room-stacked{display:flex;flex-direction:column;align-items:flex-start;gap:2px}
+.kv--private-room-stacked .k{margin-bottom:0}
+.kv--private-room-stacked .v{display:block;margin-left:0;line-height:1.35}
+.ctx-field-private-room-read-v{min-height:0}
+.bc-private-room-switch-wrap{display:flex;align-items:center;margin:2px 0 0}
+.bc-private-room-switch-wrap.is-readonly{pointer-events:none}
+.bc-private-room-switch{position:relative;display:inline-block;width:36px;height:20px;flex-shrink:0}
+.bc-private-room-switch input{opacity:0;width:0;height:0;position:absolute;margin:0}
+.bc-private-room-switch-slider{position:absolute;cursor:pointer;inset:0;background:#DDD8CE;border-radius:999px;border:1px solid #C8C2B8;transition:background .15s,border-color .15s}
+.bc-private-room-switch-slider:before{content:"";position:absolute;height:14px;width:14px;left:2px;bottom:2px;background:#fff;border-radius:50%;transition:transform .15s;box-shadow:0 1px 2px rgba(0,0,0,.12)}
+.bc-private-room-switch input:checked + .bc-private-room-switch-slider{background:#83897F;border-color:#757970}
+.bc-private-room-switch input:checked + .bc-private-room-switch-slider:before{transform:translateX(16px)}
+.bc-private-room-switch input:disabled + .bc-private-room-switch-slider{cursor:default}
+.bc-private-room-switch input:focus-visible + .bc-private-room-switch-slider{outline:2px solid var(--focus);outline-offset:2px}
+.ctx-field-guests-edit .ctx-field-label{margin:0 0 4px}
+.ctx-field-private-room-edit{display:flex;flex-direction:column;align-items:flex-start;gap:6px;margin-top:14px;padding-top:12px;border-top:1px solid var(--border-soft)}
+.ctx-field-private-room-edit .bc-private-room-switch-wrap{margin:0}
 .ctx-field-read-row--sub .ctx-field-header--spacer{visibility:hidden;pointer-events:none}
 .ctx-field-read-row--sub{padding-top:2px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
@@ -15513,7 +16025,7 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-field-save-hint{font-size:10.5px;color:var(--text-3);font-style:italic}
 .ctx-field-dates-nights{font-size:11px;color:var(--text-2);margin-top:6px}
 .ctx-field-dates-error{font-size:11px;color:#9C5742;margin-top:6px;display:none}
-.ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px dashed var(--border-soft);border-radius:6px;display:none}
+.ctx-field-guests-preview{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.5;padding:8px 10px;background:var(--surface);border:1px solid var(--border-soft);border-radius:6px;display:none}
 .ctx-field-guests-preview.has-preview{display:block}
 .ctx-field-preview-result{font-size:11px;color:var(--text-2);margin-top:8px;line-height:1.55;padding:8px 10px;background:#fff;border:1px solid var(--border-soft);border-radius:6px;display:none;margin-bottom:0}
 .ctx-field-preview-result.is-visible{display:block}
@@ -15725,6 +16237,65 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .oi-details-body dl{margin:0;display:grid;grid-template-columns:auto 1fr;gap:4px 12px}
 .oi-details-body dt{font-weight:600;color:var(--text-3)}
 .oi-details-body dd{margin:0}
+/* ── Dark mode — booking calendar polish ─────────────────────────────────── */
+[data-theme="dark"] .bc-grid-wrap-inner{background:linear-gradient(180deg,#1e1e1e 0%,#252526 100%);border-color:var(--border-soft)}
+[data-theme="dark"] .bc-grid-resize-handle{background:linear-gradient(180deg,#333 0%,#3c3c3c 100%);border-color:var(--border-soft)}
+[data-theme="dark"] .bc-grid-resize-handle::after{background:#6e6e6e}
+[data-theme="dark"] .bc-grid thead th{background:#2d2d2d;color:var(--text-2)}
+[data-theme="dark"] .bc-grid thead th.bc-bed-head{background:linear-gradient(180deg,#3c3c3c 0%,#2d2d2d 100%);border-right-color:#5a4a3a}
+[data-theme="dark"] .bc-room-hdr{background:linear-gradient(90deg,#2d2d2d 0%,#264f78 100%)}
+[data-theme="dark"] .bc-bed-cell{background:#2d2d2d;border-right-color:#5a4a3a}
+[data-theme="dark"] .bc-day-cell:not(:has(.bc-block)){background:rgba(24,24,24,.55)}
+[data-theme="dark"] .bc-day-cell[data-date]:hover{background:rgba(38,79,120,.18)}
+[data-theme="dark"] .bc-day-cell.bc-sel{background:rgba(38,79,120,.32);outline-color:rgba(0,122,204,.55)}
+[data-theme="dark"] .bc-day-cell.bc-sel-anchor{outline-color:#007acc}
+[data-theme="dark"] .bc-chip{background:#2d2d2d;border-color:var(--border-soft);color:var(--text-2)}
+[data-theme="dark"] .bc-chip:hover{background:#0e639c;color:#fff;border-color:#0e639c}
+[data-theme="dark"] .bc-chip.bc-chip-active{background:#0e639c;border-color:#0e639c;color:#fff}
+[data-theme="dark"] .bc-legend,[data-theme="dark"] .bc-zoom-bar{background:#2d2d2d;border-color:var(--border-soft)}
+[data-theme="dark"] .bc-zoom-btn{background:var(--surface);border-color:var(--border);color:var(--text)}
+[data-theme="dark"] .bc-block-confirmed{background:#2a3a32;color:#b8d8c8;border-left-color:#569cd6}
+[data-theme="dark"] .bc-block-hold{background:#3a3428;color:#e8dcc8;border-left-color:#8a7355}
+[data-theme="dark"] .bc-block-payment_pending{background:#1a2836;color:#b8d4e8;border-left-color:#569cd6}
+[data-theme="dark"] .bc-block-needs_review{background:#3a3420;color:#f0d4a8;border-left-color:#c49a4a}
+[data-theme="dark"] .bc-block-cancelled{background:#2a2a2a;color:#9a9a9a;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-block-conflict{background:#3a2828;color:#f0c0bc;border-left-color:#b86a58}
+[data-theme="dark"] .bc-block-operator,[data-theme="dark"] .bc-block-tour_operator{background:#2a2436;color:#d8c8e8;border-left-color:#7a68a0}
+[data-theme="dark"] .bc-block-manual{background:#1e2a28;color:#b8c8bc;border-left-color:#569cd6}
+[data-theme="dark"] .bc-block-blocked{background:#2c2c2c;color:#b0b0b0;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-confirmed{background:#2a3a32;border-left-color:#569cd6}
+[data-theme="dark"] .bc-legend-sw-hold{background:#3a3428;border-left-color:#8a7355}
+[data-theme="dark"] .bc-legend-sw-payment{background:#1a2836;border-left-color:#569cd6}
+[data-theme="dark"] .bc-legend-sw-review{background:#3a3420;border-left-color:#c49a4a}
+[data-theme="dark"] .bc-legend-sw-operator,[data-theme="dark"] .bc-legend-sw-tour_operator{background:#2a2436;border-left-color:#7a68a0}
+[data-theme="dark"] .bc-legend-sw-cancelled{background:#2a2a2a;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-manual{background:#1e2a28;border-left-color:#569cd6}
+[data-theme="dark"] .bc-legend-sw-blocked{background:#2c2c2c;border-left-color:#6e6e6e}
+[data-theme="dark"] .bc-legend-sw-balance{background:#3a3420;border-left-color:#c49a4a}
+[data-theme="dark"] .bc-detail-note,[data-theme="dark"] .bc-sel-warn{background:#3a3420;border-color:#5a5038;color:#e8c89a}
+[data-theme="dark"] #bc-warnings{background:#3a2828;border-color:#6a4040;color:#f0c0bc}
+[data-theme="dark"] .btn-bc-block-pebble{background:#2d2d2d;color:var(--text-2);border-color:var(--border)}
+[data-theme="dark"] .btn-bc-quote-soft{background:#3a3420;color:#e8c89a;border-color:#5a5038}
+[data-theme="dark"] .btn-bc-create-soft{background:#1e2a28;color:#b8c8bc;border-color:#3a5a48}
+[data-theme="dark"] .bc-block-pay-balance{background:#3a3420;color:#f0c89a;border-color:#6e5238}
+[data-theme="dark"] .bc-block-pay-deposit{background:#1e2a28;color:#a8c8a8;border-color:#3a5a48}
+[data-theme="dark"] .bc-block-pay-paid{background:#1e2a28;color:#b8c8bc;border-color:#569cd6}
+[data-theme="dark"] .bc-block-pay-refund{background:#3a2838;color:#e8c0d0;border-color:#7a5068}
+[data-theme="dark"] .bc-block-pay-link{background:#1a2836;color:#b8d4e8;border-color:#569cd6}
+[data-theme="dark"] .transfer-pebble{background:#2a2436;color:#d8c8e8;border-color:#7a68a0}
+[data-theme="dark"] #tab-bed-calendar .toolbar label{color:var(--text-2)!important}
+[data-theme="dark"] .bk-form-section{border-color:var(--border-soft)}
+[data-theme="dark"] .bk-input,[data-theme="dark"] input.bc-date-input,[data-theme="dark"] select,[data-theme="dark"] textarea.bk-input{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .inbox-filter-btn.active{color:#cccccc;background:#264f78;border-color:#007acc}
+[data-theme="dark"] .inbox-filter-btn:hover{color:#cccccc;border-color:#569cd6}
+[data-theme="dark"] .draft-panel{border-top-color:#3c3c3c}
+[data-theme="dark"] #draft-textarea{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .draft-send-status.ok{background:#1e2a22;border-color:#3a5a48;color:#b8c8bc}
+[data-theme="dark"] .draft-send-status.blocked{background:#3a2820;border-color:#5a5038;color:#e8c89a}
+[data-theme="dark"] .draft-send-status.error{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
+[data-theme="dark"] .dev-panel-note,[data-theme="dark"] .mig-note{background:#3a3420;border-color:#5a5038;color:#e8c89a}
+[data-theme="dark"] .lgs-out{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .lgs-safety{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
 </style>
 </head>
 <body>
@@ -15740,6 +16311,10 @@ ${getStaffPortalI18nBootstrapScript()}
     <span class="staff-lang-sep">|</span>
     <button type="button" class="staff-lang-btn" data-lang="it">IT</button>
   </div>
+  <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
+    <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
+    <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
+  </button>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
 </div>
 
@@ -19680,6 +20255,8 @@ function bcManualCreateErrorMessage(d, status){
     return { headline: 'Missing or invalid field', detail: err || 'Check required fields and try again.' };
   if (reason === 'overlap_conflict' || reason === 'bed_not_found' || /conflict|unavailable|overlap|bed_not_found|could not be safely/.test(combined))
     return { headline: 'Dates or beds unavailable', detail: err || 'These dates/beds are not available for booking.' };
+  if (reason === 'private_room_room_not_empty' || /room is not empty|private_room_room_not_empty/.test(combined))
+    return { headline: 'Room not empty', detail: d.message || err || 'Other beds in this room are already assigned for these dates.' };
   if (reason === 'invalid_payment_amounts' || /invalid_payment_amounts|invalid payment/.test(combined))
     return { headline: 'Invalid payment amount', detail: err || 'Deposit or payment amount is invalid for this stay length.' };
   if (d.service_records_warning || /service_record|add.?on/.test(combined))
@@ -19861,8 +20438,9 @@ function renderCreateResult(res, ctx){
   var fmtEur = function(c){ return c == null ? '\u2014' : '\u20ac'+(Number(c)/100).toFixed(2); };
   if (!res.ok || !d.success){
     var mapped = bcManualCreateErrorMessage(d, res.status);
+    var detail = d.message || mapped.detail;
     var html = '<div class="bk-preview-blocked"><div class="bk-preview-badge">\u26a0 ' + escHtml(mapped.headline) + '</div>' +
-      '<div class="bk-preview-meta">' + escHtml(mapped.detail) + '</div>';
+      '<div class="bk-preview-meta">' + escHtml(detail) + '</div>';
     if (d.block_reason && d.block_reason !== mapped.detail)
       html += '<div class="bk-preview-meta" style="font-size:10px;opacity:.75">Debug: ' + escHtml(d.block_reason) + '</div>';
     if (d.error && mapped.detail !== d.error)
@@ -20771,6 +21349,10 @@ function pickCalendarGuestDisplayName(src){
 }
 
 function bcCalendarBlockDisplayLabel(blk){
+  if (!blk) return '\u2014';
+  var at = String(blk.assignment_type || '').toLowerCase();
+  if (at === 'private_room_block' || at === 'staff_block') return t('calendar.legend.blocked');
+  if (String(blk.status || '').toLowerCase() === 'blocked') return t('calendar.legend.blocked');
   return pickCalendarGuestDisplayName(blk);
 }
 
@@ -23198,7 +23780,9 @@ function bcFieldEditUpdateGuestsSaveState(){
   if (!btn) return;
   var guestEl = el('bc-field-guests-select');
   var next = guestEl ? parseInt(guestEl.value, 10) : bcFieldEditState.guestCount;
-  btn.disabled = !bcFieldEditGuestsCountLowerThanCurrent(next);
+  var guestLower = bcFieldEditGuestsCountLowerThanCurrent(next);
+  var prChanged = bcFieldEditPrivateRoomEditEnabled() !== bcFieldEditPrivateRoomReadEnabled();
+  btn.disabled = !guestLower && !prChanged;
 }
 
 function bcFieldEditBuildGuestsWritePayload(){
@@ -23225,8 +23809,14 @@ function bcFieldEditRenderGuestsSaveResult(data, isError){
   box.style.display = '';
   if (isError || !data || !data.success){
     box.className = 'ctx-field-preview-result is-visible is-blocked';
-    var errMsg = (data && data.error) || (data && data.message) || 'Guests save failed.';
-    box.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' + escHtml(errMsg) +
+    var badge = 'Save failed';
+    if (data && (data.error === 'private_room_room_not_empty' || data.error === 'private_room_bed_block_conflict')) {
+      badge = 'Room not empty';
+    } else if (data && data.error === 'private_room_no_bed_assignment') {
+      badge = 'No bed assigned';
+    }
+    var errMsg = (data && data.message) || (data && data.error) || 'Guests save failed.';
+    box.innerHTML = '<div class="ctx-field-preview-badge">' + escHtml(badge) + '</div>' + escHtml(errMsg) +
       (data && data.detail ? '<div style="margin-top:4px">' + escHtml(data.detail) + '</div>' : '');
     return;
   }
@@ -23256,26 +23846,87 @@ function bcFieldEditRenderGuestsSaveResult(data, isError){
 }
 
 function bcFieldEditRunGuestsSave(){
+  var prChanged = bcFieldEditPrivateRoomEditEnabled() !== bcFieldEditPrivateRoomReadEnabled();
   var built = bcFieldEditBuildGuestsWritePayload();
-  if (built.error){
-    bcFieldEditRenderGuestsSaveResult({ success: false, error: built.error }, true);
+  var guestSaveNeeded = bcFieldEditGuestsCountLowerThanCurrent(
+    el('bc-field-guests-select') ? parseInt(el('bc-field-guests-select').value, 10) : bcFieldEditState.guestCount
+  );
+
+  if (!prChanged && !guestSaveNeeded) {
+    if (built.error) {
+      bcFieldEditRenderGuestsSaveResult({ success: false, error: built.error }, true);
+    } else {
+      bcFieldEditRenderGuestsSaveResult({ success: false, error: 'No changes to save.' }, true);
+    }
     return;
   }
+
   var btn = el('bc-field-save-guests');
   if (btn) btn.disabled = true;
-  bcFieldEditRenderGuestsSaveResult({ success: true, message: 'Saving guest reduction\u2026' }, false);
-  fetch('/staff/bookings/edit', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(built),
-  })
-    .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
-    .then(function(res){
-      var data = res.data || {};
-      if (!res.ok || !data.success){
+  bcFieldEditRenderGuestsSaveResult({ success: true, message: 'Saving\u2026' }, false);
+
+  function runPrivateRoomSave(){
+    if (!prChanged) return Promise.resolve({ skipped: true });
+    return fetch('/staff/bookings/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_slug: bcFieldEditState.clientSlug || getBcClient(),
+        booking_id: bcFieldEditState.bookingId,
+        booking_code: bcFieldEditState.bookingCode,
+        edit_type: 'private_room',
+        private_room_enabled: bcFieldEditPrivateRoomEditEnabled(),
+        idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
+        reason: 'Staff portal private room toggle',
+      }),
+    }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); });
+  }
+
+  function runGuestSave(){
+    if (!guestSaveNeeded) return Promise.resolve({ skipped: true });
+    return fetch('/staff/bookings/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(built),
+    }).then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); });
+  }
+
+  runPrivateRoomSave()
+    .then(function(prRes){
+      if (!prRes.skipped && (!prRes.ok || !prRes.data || !prRes.data.success)) {
+        var prData = prRes.data || {};
         bcFieldEditRenderGuestsSaveResult({
           success: false,
-          error: data.error || ('Save failed (HTTP ' + res.status + ')'),
+          message: prData.message || prData.error || 'Private room update failed.',
+          error: prData.error,
+          detail: prData.detail,
+        }, true);
+        bcFieldEditUpdateGuestsSaveState();
+        return null;
+      }
+      return runGuestSave().then(function(guestRes){ return { prRes: prRes, guestRes: guestRes }; });
+    })
+    .then(function(result){
+      if (!result) return;
+      var prRes = result.prRes;
+      var guestRes = result.guestRes;
+      if (guestRes.skipped) {
+        var prData = (prRes && prRes.data) || {};
+        bcFieldEditRenderGuestsSaveResult({
+          success: true,
+          message: prData.message || 'Private room updated.',
+        }, false);
+        var codeOnly = bcFieldEditState.bookingCode;
+        bcFieldEditCloseAll();
+        if (codeOnly) loadBlockDetail(codeOnly);
+        if (typeof loadBedCalendar === 'function') loadBedCalendar();
+        return;
+      }
+      var data = guestRes.data || {};
+      if (!guestRes.ok || !data.success){
+        bcFieldEditRenderGuestsSaveResult({
+          success: false,
+          error: data.error || ('Save failed (HTTP ' + guestRes.status + ')'),
           detail: data.detail,
           message: data.message,
         }, true);
@@ -23440,7 +24091,10 @@ function bcFieldEditBedLabel(a){
 }
 
 function bcFieldEditOrderedAssignments(assignments){
-  return (assignments || []).slice();
+  return (assignments || []).filter(function(a){
+    var t = String(a.assignment_type || '').toLowerCase();
+    return t !== 'private_room_block' && t !== 'operator_block';
+  });
 }
 
 function bcFieldEditGuestReleasePreview(currentCount, newCount, assignments){
@@ -23470,13 +24124,25 @@ function bcFieldEditGroupEl(group){
   return document.getElementById('bc-field-group-' + String(group).replace(/_/g, '-'));
 }
 
+function bcPrivateRoomSwitchHtml(enabled, opts){
+  opts = opts || {};
+  var id = opts.id || 'bc-field-private-room-switch';
+  var readonly = opts.readonly ? ' disabled' : '';
+  var wrapCls = 'bc-private-room-switch-wrap' + (opts.readonly ? ' is-readonly' : '');
+  return '<label class="' + wrapCls + '" for="' + escHtml(id) + '">' +
+    '<span class="bc-private-room-switch">' +
+    '<input type="checkbox" id="' + escHtml(id) + '" class="bc-private-room-switch-input"' +
+    (enabled ? ' checked' : '') + readonly +
+    ' aria-label="' + escHtml(t('drawer.field.privateRoom')) + '">' +
+    '<span class="bc-private-room-switch-slider" aria-hidden="true"></span>' +
+    '</span></label>';
+}
+
 function bcPrivateRoomReadKv(enabled){
-  return '<div class="kv" id="bc-field-private-room-read-kv">' +
+  return '<div class="kv kv--private-room-stacked" id="bc-field-private-room-read-kv">' +
     '<span class="k">' + escHtml(t('drawer.field.privateRoom')) + '</span>' +
     '<span class="v ctx-field-private-room-read-v">' +
-    '<input type="checkbox" id="bc-field-private-room-read" disabled' +
-    (enabled ? ' checked' : '') +
-    ' aria-label="' + escHtml(t('drawer.field.privateRoom')) + '">' +
+    bcPrivateRoomSwitchHtml(enabled, { id: 'bc-field-private-room-read-switch', readonly: true }) +
     '</span></div>';
 }
 
@@ -23597,11 +24263,10 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
     '<div class="ctx-field-read-row">' +
     '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
-    '<div class="ctx-field-header ctx-field-header--dual">' +
+    '<div class="ctx-field-header">' +
     bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
-    bcRenderFieldEditPencilBtn('private_room', t('drawer.field.editPrivateRoom')) +
     '</div></div></div>';
-  html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
+  html += '<div class="ctx-field-edit ctx-field-guests-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
   html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
   for (var g = guestCount; g >= 1; g--){
@@ -23609,20 +24274,11 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   }
   html += '</select>';
   html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
+  html += '<div class="ctx-field-private-room-edit">';
+  html += '<label class="ctx-field-label" for="bc-field-private-room-switch">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
+  html += bcPrivateRoomSwitchHtml(privateRoomOn, { id: 'bc-field-private-room-switch' });
+  html += '</div>';
   html += bcRenderFieldEditActionsHtml('guests');
-  html += '</div></div>';
-
-  html += '<div class="ctx-field-edit-group" id="bc-field-group-private-room" data-bc-field-group="private_room">';
-  html += '<div class="ctx-field-edit" id="bc-field-private-room-edit" style="display:none">';
-  html += '<label class="ctx-field-label">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
-  html += '<label class="ctx-field-private-room-edit-label" for="bc-field-private-room">';
-  html += '<input type="checkbox" id="bc-field-private-room" disabled>';
-  html += '</label>';
-  html += '<div class="ctx-field-preview-result" id="bc-field-private-room-status" aria-live="polite" style="display:none"></div>';
-  html += '<div class="ctx-field-edit-actions">' +
-    '<button type="button" class="btn btn-ghost" data-bc-field-cancel="private_room" id="bc-field-cancel-private_room">' +
-    escHtml(t('drawer.field.cancel')) + '</button>' +
-    '</div>';
   html += '</div></div>';
   }
 
@@ -23823,10 +24479,6 @@ function bcFieldEditCloseAll(){
     if (read) read.style.display = '';
     if (edit) edit.style.display = 'none';
   });
-  var guestsOnly = el('bc-field-guests-kv-only');
-  if (guestsOnly) guestsOnly.style.display = '';
-  var prCb = el('bc-field-private-room');
-  if (prCb) prCb.disabled = true;
   var guestPrev = el('bc-field-guests-release-preview');
   if (guestPrev){
     guestPrev.classList.remove('has-preview');
@@ -23846,20 +24498,10 @@ function bcFieldEditActivate(group){
   root.classList.add('is-editing');
   var read = root.querySelector('.ctx-field-read');
   var edit = root.querySelector('.ctx-field-edit');
-  if (group === 'guests') {
-    var guestsOnly = el('bc-field-guests-kv-only');
-    if (guestsOnly) guestsOnly.style.display = 'none';
-  } else if (read) {
-    read.style.display = 'none';
-  }
+  if (read) read.style.display = 'none';
   if (edit) edit.style.display = '';
-  if (group === 'private_room') {
-    var cb = el('bc-field-private-room');
-    var readCb = el('bc-field-private-room-read');
-    if (cb && readCb) cb.checked = !!readCb.checked;
-    if (cb) cb.disabled = false;
-  }
   if (group === 'guests') {
+    bcFieldEditInitPrivateRoomToggle();
     bcFieldEditUpdateGuestPreview();
     bcFieldEditUpdateGuestsSaveState();
   }
@@ -23892,17 +24534,17 @@ function bcFieldEditUpdateGuestPreview(){
   var cur = bcFieldEditState.guestCount;
   var next = parseInt(sel.value, 10) || cur;
   var p = bcFieldEditGuestReleasePreview(cur, next, bcFieldEditState.assignments);
-  prev.classList.add('has-preview');
   if (!p.changed){
-    prev.textContent = next >= cur
-      ? 'No bed release preview (count unchanged or increase not allowed).'
-      : 'Select a lower guest count to preview bed release.';
+    prev.classList.remove('has-preview');
+    prev.textContent = '';
+    prev.innerHTML = '';
     bcFieldEditUpdateGuestsSaveState();
     return;
   }
-  prev.innerHTML = 'Guests: ' + p.from + ' \u2192 ' + p.to +
-    '<br>Will release: ' + escHtml(p.release.join(', ')) +
-    '<br>Remaining: ' + escHtml(p.remaining.join(', '));
+  prev.classList.add('has-preview');
+  prev.innerHTML = escHtml(t('drawer.field.guestReleaseCount', { from: p.from, to: p.to })) +
+    '<br>' + escHtml(t('drawer.field.guestReleaseWillRelease', { beds: p.release.join(', ') })) +
+    '<br>' + escHtml(t('drawer.field.guestReleaseRemaining', { beds: p.remaining.join(', ') }));
   bcFieldEditUpdateGuestsSaveState();
 }
 
@@ -24681,82 +25323,30 @@ function bcInitFieldEditShell(data){
       sel.oninput = pkgHandler;
     });
   }
-  bcInitPrivateRoomToggle();
+  bcFieldEditInitPrivateRoomToggle();
 }
 
-function bcInitPrivateRoomToggle(){
-  var cb = el('bc-field-private-room');
+function bcFieldEditPrivateRoomReadEnabled(){
+  var cb = el('bc-field-private-room-read-switch');
+  return cb ? !!cb.checked : false;
+}
+
+function bcFieldEditPrivateRoomEditEnabled(){
+  var cb = el('bc-field-private-room-switch');
+  return cb ? !!cb.checked : bcFieldEditPrivateRoomReadEnabled();
+}
+
+function bcFieldEditSetPrivateRoomToggle(on){
+  var cb = el('bc-field-private-room-switch');
+  if (cb) cb.checked = !!on;
+}
+
+function bcFieldEditInitPrivateRoomToggle(){
+  var cb = el('bc-field-private-room-switch');
   if (!cb) return;
-  var statusEl = el('bc-field-private-room-status');
-  var inFlight = false;
+  cb.checked = bcFieldEditPrivateRoomReadEnabled();
   cb.onchange = function(){
-    if (cb.disabled || inFlight) {
-      if (inFlight) cb.checked = !cb.checked;
-      return;
-    }
-    var enabled = !!cb.checked;
-    var code = bcFieldEditState.bookingCode;
-    if (!code) {
-      cb.checked = !enabled;
-      return;
-    }
-    inFlight = true;
-    cb.disabled = true;
-    if (statusEl) {
-      statusEl.style.display = '';
-      statusEl.className = 'ctx-field-preview-result is-visible';
-      statusEl.innerHTML = escHtml(t('drawer.field.privateRoomSaving'));
-    }
-    fetch('/staff/bookings/edit', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_slug: bcFieldEditState.clientSlug || getBcClient(),
-        booking_id: bcFieldEditState.bookingId,
-        booking_code: bcFieldEditState.bookingCode,
-        edit_type: 'private_room',
-        private_room_enabled: enabled,
-        idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
-        reason: 'Staff portal private room toggle',
-      }),
-    })
-      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
-      .then(function(res){
-        inFlight = false;
-        cb.disabled = false;
-        var data = res.data || {};
-        if (!res.ok || !data.success) {
-          cb.checked = !enabled;
-          if (statusEl) {
-            statusEl.className = 'ctx-field-preview-result is-visible is-blocked';
-            statusEl.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' +
-              escHtml(data.error || data.message || 'Private room update failed.');
-          }
-          return;
-        }
-        if (statusEl) {
-          statusEl.className = 'ctx-field-preview-result is-visible';
-          statusEl.innerHTML = '<div class="ctx-field-preview-badge">' +
-            escHtml(data.idempotent ? t('drawer.field.privateRoomNoChange') : t('drawer.field.privateRoomSaved')) +
-            '</div>' + escHtml(data.message || '');
-          if (data.invoice_impact && data.invoice_impact.total_amount_cents != null) {
-            statusEl.innerHTML += '<div style="margin-top:6px">' +
-              escHtml(t('drawer.field.privateRoomNewTotal', {
-                total: bcFieldEditFormatEuro(data.invoice_impact.total_amount_cents),
-              })) + '</div>';
-          }
-        }
-        if (code) loadBlockDetail(code);
-      })
-      .catch(function(e){
-        inFlight = false;
-        cb.disabled = false;
-        cb.checked = !enabled;
-        if (statusEl) {
-          statusEl.className = 'ctx-field-preview-result is-visible is-blocked';
-          statusEl.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' + escHtml(e.message || 'Network error');
-        }
-      });
+    bcFieldEditUpdateGuestsSaveState();
   };
 }
 
@@ -28774,6 +29364,9 @@ function bedCalendarIsTourOperatorSource(row) {
 
 /** Main block color = booking source only (badges carry payment/status). */
 function bedCalendarColorType(row) {
+  row = row || {};
+  const assignType = String(row.assignment_type || '').toLowerCase();
+  if (assignType === 'private_room_block' || assignType === 'staff_block') return 'blocked';
   if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'blocked';
   if (bedCalendarIsLunaBotSource(row)) return 'payment_pending';
   if (bedCalendarIsTourOperatorSource(row)) return 'tour_operator';
@@ -28963,6 +29556,10 @@ function pickCalendarGuestDisplayName(src) {
 }
 
 function calendarBlockDisplayLabel(row) {
+  row = row || {};
+  const assignType = String(row.assignment_type || '').toLowerCase();
+  if (assignType === 'private_room_block' || assignType === 'staff_block') return 'Blocked';
+  if (String(row.booking_status || '').toLowerCase() === 'blocked') return 'Blocked';
   return pickCalendarGuestDisplayName(row);
 }
 
@@ -28985,6 +29582,7 @@ function buildCalendarBlocks(blockRows, startDate, endDate) {
       status:            row.booking_status,
       payment_status:    row.payment_status,
       assignment_status: row.assignment_status,
+      assignment_type:   row.assignment_type || null,
       booking_source:    row.booking_source || null,
       block_type:        row.block_type || null,
       is_operator_block: !!row.is_operator_block,
