@@ -119,7 +119,8 @@ const SCENARIOS = [
     // total == restated turn-2 total) is a future detector, not unsourced_price.
     name: 'restated-total-consistency-en', lang: 'en', tags: ['price'],
     turns: [
-      "Hi! 2 people, 5 nights, Aug 10 to 15, dorm beds. Quote please.",
+      "Hi! 2 people, 5 nights, Aug 10 to 15, dorm beds.",
+      'No add-ons, just the beds — can you quote the total?',   // answer the add-on step so a quote actually fires
       'Sorry, what was the total again?',
     ],
     expect_tools: ['quote_booking'],
