@@ -2,6 +2,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const vm = require('vm');
 const { calculateWolfhouseQuote } = require('./lib/wolfhouse-quote-calculator');
 const { STAFF_PORTAL_STRINGS } = require('./lib/staff-portal-i18n');
 
@@ -77,6 +78,39 @@ function t(key, vars) {
   check('S4', src.includes('handleBookingEditWritePrivateRoom'), 'private room write handler');
   check('S5', src.includes('EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL'), 'private room update SQL');
   check('S6', src.includes('bcQuoteRoomSupplementLine'), 'supplement line helper');
+  check('S7', /bcBookingPrivateRoomEnabled[\s\S]{0,400}new RegExp\('\\\\\\\\b/.test(src), 'private room pref uses RegExp in UI');
+}
+
+// Portal UI bundle syntax (embedded script in buildUiHtml)
+{
+  const { getStaffPortalI18nBootstrapScript } = require('./lib/staff-portal-i18n');
+  function loadWolfhouseRentalDayRates() {
+    return { wetsuit_rental: 500, soft_top_rental: 1500, hard_board_rental: 2000 };
+  }
+  const STAFF_ACTIONS_ENABLED = true;
+  const MANUAL_BOOKING_ENABLED = true;
+  const STRIPE_LINKS_ENABLED = true;
+  process.env.WHATSAPP_DRY_RUN = 'true';
+  const apiPath = path.join(__dirname, 'staff-query-api.js');
+  const src = fs.readFileSync(apiPath, 'utf8');
+  const buildUiHtml = eval(`(${src.slice(
+    src.indexOf('function buildUiHtml(port)'),
+    src.indexOf('function handleUI(res, port)'),
+  )})`);
+  const html = buildUiHtml(3036);
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  const main = scripts.find((s) => s.includes('bcOnBedCalendarTabOpen'));
+  check('UI1', !!main, 'main portal script present');
+  if (main) {
+    try {
+      new vm.Script(`(function(){\n${main}\n})();`, { filename: 'portal-ui.js' });
+      check('UI2', true, 'portal script syntax valid');
+    } catch (e) {
+      check('UI2', false, `portal script syntax: ${e.message}`);
+    }
+  }
+  check('UI3', html.includes('window.doLogout = function doLogout'), 'doLogout in HTML');
+  check('UI4', !html.includes('return /\x08'), 'no backspace-corrupted regex');
 }
 
 console.log(`\nverify-staff-portal-private-room-ui: ${passed} passed, ${failed} failed`);

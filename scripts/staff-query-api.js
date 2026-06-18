@@ -21730,7 +21730,7 @@ function bcBookingPrivateRoomEnabled(bk){
   var quoteSnap = md.quote_snapshot || null;
   if (bcQuoteRoomSupplementCents(quoteSnap) != null) return true;
   var pref = String(bk.room_preference || bk.requested_room_type || '').toLowerCase();
-  return /\b(?:couple_private|private_room|private)\b/.test(pref)
+  return new RegExp('\\\\b(?:couple_private|private_room|private)\\\\b').test(pref)
     || pref === 'double'
     || pref === 'matrimonial';
 }
