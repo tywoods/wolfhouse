@@ -155,7 +155,7 @@ section('F. Room-preference branching');
     { extracted_fields: { guest_count: 1, guest_name: 'Giovanna' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
   );
-  check('F3', !soloGiovannaDefer.needed && soloGiovannaDefer.rule_applied === 'solo_defer_to_luna_room_preference', 'solo Giovanna defers to Luna room_preference');
+  check('F3', soloGiovannaDefer.needed && soloGiovannaDefer.rule_applied === 'solo_ask_room_preference', 'solo without room_preference asks neutral/shared');
   const soloGiovannaSet = inferRoomPreferenceNeed(
     { extracted_fields: { guest_count: 1, guest_name: 'Giovanna', room_preference: 'female_only' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
@@ -165,7 +165,7 @@ section('F. Room-preference branching');
     { extracted_fields: { guest_count: 1, guest_name: 'Marco' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
   );
-  check('F4', !soloMale.needed && soloMale.rule_applied === 'solo_defer_to_luna_room_preference', 'solo Marco defers to Luna — no list guess');
+  check('F4', soloMale.needed && soloMale.rule_applied === 'solo_ask_room_preference', 'solo Marco asks — no name-list guess');
   const noGirls = inferRoomPreferenceNeed(baseState, { ...roomStageCtx, availability: { girls_room_available: false } });
   check('F5', !noGirls.needed && noGirls.rule_applied === 'solo_no_girls_room_auto_assign', 'girls unavailable — skip');
   const groupComp = inferGroupCompositionNeed(
@@ -210,7 +210,7 @@ section('F. Room-preference branching');
     { extracted_fields: { guest_count: 1, guest_name: 'Sam' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
   );
-  check('F15', ambiguous.needed && ambiguous.question_type === 'neutral_shared' && ambiguous.rule_applied === 'solo_unisex_neutral', 'unisex Sam → neutral ask');
+  check('F15', ambiguous.needed && ambiguous.question_type === 'neutral_shared' && ambiguous.rule_applied === 'solo_ask_room_preference', 'solo Sam → neutral ask without name list');
   const namedGroupNoInfer = inferRoomPreferenceNeed(
     { extracted_fields: { guest_count: 3, guest_name: 'Marco' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },

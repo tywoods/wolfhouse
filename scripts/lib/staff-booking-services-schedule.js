@@ -401,6 +401,24 @@ function formatDateLabel(dateStr, timezone = 'Europe/Madrid') {
   }
 }
 
+function aggregateScheduleServicesForDisplay(services) {
+  const groups = new Map();
+  (services || []).forEach((svc) => {
+    const key = `${svc.service_type || ''}|${svc.service_name || ''}`;
+    if (!groups.has(key)) {
+      groups.set(key, {
+        ...svc,
+        quantity: 0,
+        total_price_cents: 0,
+      });
+    }
+    const g = groups.get(key);
+    g.quantity += staffServiceChipQuantity(svc);
+    g.total_price_cents += Number(svc.total_price_cents) || 0;
+  });
+  return Array.from(groups.values());
+}
+
 /**
  * @param {{ booking: object, serviceRecords: object[], timezone?: string }} opts
  * @returns {object}
@@ -439,7 +457,7 @@ function buildBookingServicesSchedule(opts = {}) {
   const services_by_date = scheduleDates.map((date) => ({
     date,
     label: formatDateLabel(date, timezone),
-    services: byDate[date] || [],
+    services: aggregateScheduleServicesForDisplay(byDate[date] || []),
   }));
 
   let scheduledCount = 0;
@@ -477,6 +495,7 @@ module.exports = {
   buildBookingServicesSchedule,
   buildPaidRequestedSummaryLines,
   computeServicesTotalCents,
+  aggregateScheduleServicesForDisplay,
   distributeSpanScheduleDates,
   formatServiceRecordForSchedule,
   formatPaidServiceSummaryLine,

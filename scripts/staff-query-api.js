@@ -6996,6 +6996,193 @@ async function handleBookingCancel(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Bot test-booking cancel (golden teardown) — POST /staff/bot/bookings/cancel
+//
+// Bot-token auth only. Cancels synthetic agent-luna bookings with no captured payment.
+// Frees bed allocation. Never cancels real paid guest bookings.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const BOT_CANCEL_BOOKING_LOOKUP_SQL = `
+SELECT b.id::text AS booking_id,
+       b.booking_code,
+       b.status::text AS status,
+       b.payment_status::text AS payment_status,
+       COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents,
+       b.metadata->>'bot_source' AS bot_source,
+       b.metadata->>'source' AS metadata_source
+  FROM bookings b
+  JOIN clients c ON c.id = b.client_id
+ WHERE c.slug = $1
+   AND b.booking_code = $2
+`;
+
+const BOT_CANCEL_CAPTURED_PAYMENTS_SQL = `
+SELECT COUNT(*)::int AS c
+  FROM payments p
+  JOIN bookings b ON b.id = p.booking_id
+  JOIN clients c ON c.id = b.client_id
+ WHERE c.slug = $1
+   AND b.booking_code = $2
+   AND LOWER(p.status::text) IN ('paid', 'succeeded', 'partially_paid')
+   AND COALESCE(p.amount_paid_cents, 0) > 0
+`;
+
+function bookingMetadataIsBotTestLane(row) {
+  if (!row) return false;
+  const botSrc = String(row.bot_source || row.metadata_source || '').trim().toLowerCase();
+  if (!botSrc) return false;
+  if (botSrc.startsWith('agent_luna')) return true;
+  if (botSrc.startsWith('luna_')) return true;
+  return false;
+}
+
+async function handleBotBookingCancel(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const bookingCode = String(body.booking_code || '').trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!bookingCode) return send400(res, 'booking_code is required');
+
+  const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:bot_booking_cancel',
+    category: 'bot_booking_cancel_write',
+    client_slug: clientSlug,
+    booking_code: bookingCode,
+    staff_user_id: user ? user.staff_user_id : 'luna-bot-internal',
+    auth_mode: resolvedAuthMode,
+  };
+
+  let bookingRow;
+  let capturedPayments = 0;
+  try {
+    bookingRow = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(BOT_CANCEL_BOOKING_LOOKUP_SQL, [clientSlug, bookingCode]);
+      const row = bookingRes.rows[0] || null;
+      if (!row) return null;
+      const payRes = await pg.query(BOT_CANCEL_CAPTURED_PAYMENTS_SQL, [clientSlug, bookingCode]);
+      capturedPayments = payRes.rows[0] ? Number(payRes.rows[0].c) : 0;
+      return row;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cancel lookup failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', cancelled: false });
+  }
+
+  if (!bookingMetadataIsBotTestLane(bookingRow)) {
+    appendAuditLog({ ...auditBase, success: false, error: 'not_bot_test_booking', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 403, {
+      success: false,
+      cancelled: false,
+      error: 'Refusing cancel — booking is not an agent-luna test lane row.',
+      booking_code: bookingCode,
+    });
+  }
+
+  const paidCents = Number(bookingRow.amount_paid_cents || 0);
+  if (paidCents > 0 || capturedPayments > 0) {
+    appendAuditLog({ ...auditBase, success: false, error: 'paid_booking_guard', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 403, {
+      success: false,
+      cancelled: false,
+      error: 'Refusing cancel — booking has captured payment.',
+      booking_code: bookingCode,
+    });
+  }
+
+  if (bookingStatusIsCancelled(bookingRow.status)) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, cancelled: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      cancelled: false,
+      idempotent: true,
+      booking_code: bookingRow.booking_code,
+      freed_beds: [],
+      beds_released_count: 0,
+      auth_mode: resolvedAuthMode,
+      message: 'Booking is already cancelled.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
+
+        const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
+
+        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+        ]);
+        if (!upd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        await pg.query('COMMIT');
+        return { updatedRow: upd.rows[0], bedsReleased };
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!result) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'cancel update failed', cancelled: false });
+    }
+
+    const after = bookingCancelSnapshot(result.updatedRow);
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      cancelled: true,
+      beds_released_count: result.bedsReleased,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      cancelled: true,
+      idempotent: false,
+      booking_code: after.booking_code,
+      booking: after,
+      freed_beds: [],
+      beds_released_count: result.bedsReleased,
+      auth_mode: resolvedAuthMode,
+      message: 'Test booking cancelled and beds released.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'cancel failed', detail: err.message, cancelled: false });
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Phase 10.6h — Create internal conversation linked to booking (no message send)
 //
@@ -9036,23 +9223,27 @@ async function resolveBotAddonRequestContext(body) {
   }
 
   if (rawQuantity == null || rawQuantity === '' || Number(rawQuantity) <= 0 || !Number.isFinite(Number(rawQuantity))) {
-    return {
-      kind: 'ask_quantity',
-      status: 200,
-      payload: buildBotAddonDryRunFlags({
-        success: true,
-        next_action: 'ask_quantity',
-        reply_draft: serviceType === 'meal'
-          ? 'How many meals would you like?'
-          : (serviceType === 'wetsuit' || serviceType === 'surfboard'
-            ? 'How many days do you need that for?'
-            : 'How many would you like?'),
-        booking_code: bookingCode,
-        service_type: serviceType,
-        service_date: serviceDate,
-        source,
-      }),
-    };
+    const defaultQtyTypes = serviceType === 'yoga' || (serviceType === 'surf_lesson' && serviceDate);
+    if (!defaultQtyTypes) {
+      return {
+        kind: 'ask_quantity',
+        status: 200,
+        payload: buildBotAddonDryRunFlags({
+          success: true,
+          next_action: 'ask_quantity',
+          reply_draft: serviceType === 'meal'
+            ? 'How many meals would you like?'
+            : (serviceType === 'wetsuit' || serviceType === 'surfboard'
+              ? 'How many days do you need that for?'
+              : 'How many would you like?'),
+          booking_code: bookingCode,
+          service_type: serviceType,
+          service_date: serviceDate,
+          source,
+        }),
+      };
+    }
+    rawQuantity = 1;
   }
 
   const quantity = Math.max(1, parseInt(rawQuantity, 10) || 1);
@@ -9411,6 +9602,39 @@ async function handleBotAddonRequestPreview(req, res, user, authMode) {
   });
 }
 
+function botAddonSoftRelayKind(kind) {
+  return kind === 'ask_quantity'
+    || kind === 'ask_service_date'
+    || kind === 'ask_board_type'
+    || kind === 'booking_not_found';
+}
+
+function sendBotAddonCreateContextResponse(res, ctx, resolvedAuthMode) {
+  if (ctx.kind === 'db_error') {
+    return sendJSON(res, 500, {
+      success: false,
+      write_performed: false,
+      ...ctx.payload,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+  if (botAddonSoftRelayKind(ctx.kind)) {
+    return sendJSON(res, ctx.status || 200, {
+      write_performed: false,
+      guest_safe_next_action: ctx.payload && ctx.payload.reply_draft,
+      ...ctx.payload,
+      auth_mode: resolvedAuthMode,
+    });
+  }
+  const status = ctx.kind === 'handoff_to_staff' ? (ctx.status || 422) : (ctx.status || 422);
+  return sendJSON(res, status, {
+    success: false,
+    write_performed: false,
+    ...ctx.payload,
+    auth_mode: resolvedAuthMode,
+  });
+}
+
 async function handleBotAddonRequestCreate(req, res, user, authMode) {
   const started = Date.now();
   const whatsappDryRun = process.env.WHATSAPP_DRY_RUN !== 'false';
@@ -9442,8 +9666,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
   const ctx = await resolveBotAddonRequestContext(body);
 
   if (ctx.kind !== 'ready') {
-    const status = ctx.kind === 'db_error' ? 500 : 422;
-    return sendJSON(res, status, { success: false, write_performed: false, ...ctx.payload, auth_mode: resolvedAuthMode });
+    return sendBotAddonCreateContextResponse(res, ctx, resolvedAuthMode);
   }
 
   if (ctx.nextAction === 'handoff_to_staff') {
@@ -15411,7 +15634,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .conv-card.selected{background:var(--staff-green-bg);border-left-color:var(--sage)}
 [data-theme="dark"] .conv-card:hover{background:#2d2d2d}
 [data-theme="dark"] .thread{background:#1e1e1e;border-color:#3c3c3c}
-[data-theme="dark"] .msg.inbound .msg-bubble{background:#2d2d2d;color:#cccccc;border:1px solid #454545;border-bottom-left-radius:5px}
+[data-theme="dark"] .msg.inbound .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-left-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-luna .msg-bubble{background:var(--luna-blue);color:var(--luna-blue-text);border:1px solid var(--luna-blue-border);border-bottom-right-radius:5px}
 [data-theme="dark"] .msg.outbound.msg-staff .msg-bubble{background:var(--staff-green-bg);color:var(--staff-green-text);border:1px solid var(--staff-green-border);border-bottom-right-radius:5px}
 [data-theme="dark"] .ctx-pay-box,[data-theme="dark"] .ctx-planned,[data-theme="dark"] .ctx-pay-record{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
@@ -15427,6 +15650,18 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .ctx-pay-record-meta,[data-theme="dark"] .ctx-pay-record-wait{color:#9d9d9d}
 [data-theme="dark"] .ctx-pay-row{border-bottom-color:#333333}
 [data-theme="dark"] .ctx-pay-label{color:#9d9d9d}
+[data-theme="dark"] .ctx-pay-amount.owing,[data-theme="dark"] .ctx-inv-total-amount.owing{color:#ffb896;font-weight:700}
+[data-theme="dark"] .ctx-pay-amount.paid,[data-theme="dark"] .ctx-inv-total-amount.paid{color:#9ee0a8;font-weight:700}
+[data-theme="dark"] .ctx-inv-status-msg.paid-in-full{color:#9ee0a8;font-weight:700}
+[data-theme="dark"] .ctx-inv-status-msg.needs-refund{color:#ffb896;font-weight:700}
+[data-theme="dark"] .kv.kv-balance-due .v{color:#ffb896;font-weight:700}
+[data-theme="dark"] .luna-auto-status{background:#2d2d2d;border-color:#3c3c3c}
+[data-theme="dark"] .luna-auto-status:not(.luna-auto-status-paused){background:#222a24;border-color:#3a4a3a}
+[data-theme="dark"] .luna-auto-status:not(.luna-auto-status-paused) .luna-auto-status-label{color:#9ee0a8}
+[data-theme="dark"] .luna-auto-status-paused{background:#2a2420;border-color:#5a4840}
+[data-theme="dark"] .luna-auto-status-paused .luna-auto-status-label{color:#e8c8a8}
+[data-theme="dark"] .luna-auto-status-paused .luna-auto-status-help{color:#b8a898}
+[data-theme="dark"] .luna-pause-action-status.error{color:#ffb896}
 [data-theme="dark"] .btn-bc-copy-link-icon,[data-theme="dark"] .btn-bc-cancel-link-icon{background:#2d2d2d;border-color:#3c3c3c;color:#9d9d9d}
 [data-theme="dark"] .pill-luna{background:#1a2836;color:#9ec8e8;border-color:#3a6a9a}
 [data-theme="dark"] .pill-staff-source{background:#1e2428;color:#b8c8bc;border-color:#3a4548}
@@ -15583,6 +15818,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .kv{display:flex;flex-direction:column;gap:3px}
 .kv .k{font-size:10.5px;color:var(--text-3);font-weight:600;text-transform:uppercase;letter-spacing:.05em}
 .kv .v{font-size:13px;color:var(--text);font-weight:500}
+.kv.kv-balance-due .v{font-weight:700;color:#9C5742}
 /* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
 .detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:stretch;margin-top:0;overflow:visible}
@@ -15599,7 +15835,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .msg.inbound{align-self:flex-start}
 .msg.outbound{align-self:flex-end}
 .msg-bubble{padding:10px 14px;border-radius:16px;font-size:13px;line-height:1.55;white-space:pre-wrap;word-break:break-word;box-shadow:var(--shadow-soft)}
-.msg.inbound .msg-bubble{background:#DCE7EE;color:#3D5360;border-bottom-left-radius:5px}
+.msg.inbound .msg-bubble{background:#DCEAD2;color:#4C6048;border-bottom-left-radius:5px}
 .msg.outbound.msg-luna .msg-bubble{background:#DCE7EE;color:#3D5360;border-bottom-right-radius:5px}
 .msg.outbound.msg-staff .msg-bubble{background:#DCEAD2;color:#4C6048;border-bottom-right-radius:5px}
 .msg-bubble .msg-link{color:inherit;text-decoration:underline;font-weight:600}
@@ -15888,8 +16124,8 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-pay-row:last-child{border-bottom:none}
 .ctx-pay-label{color:var(--text-2);font-size:11px;text-align:left}
 .ctx-pay-amount{font-weight:600;color:var(--text);text-align:left;justify-self:start;max-width:100%}
-.ctx-pay-amount.owing{color:#9C5742}
-.ctx-pay-amount.paid{color:#5C7350}
+.ctx-pay-amount.owing{color:#9C5742;font-weight:700}
+.ctx-pay-amount.paid{color:#5C7350;font-weight:700}
 /* Phase 10.4d — running invoice line items in booking drawer */
 .ctx-running-invoice .ctx-inv-group{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft)}
 .ctx-running-invoice .ctx-inv-group:first-child{margin-top:0;padding-top:0;border-top:none}
@@ -15899,9 +16135,9 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-inv-total-row:last-child{border-bottom:none}
 .ctx-inv-total-label{color:var(--text-2);font-size:11px}
 .ctx-inv-total-amount{font-weight:600;color:var(--text)}
-.ctx-inv-total-amount.owing{color:#9C5742}
-.ctx-inv-total-amount.paid{color:#5C7350}
-.ctx-inv-status-msg{font-weight:600;padding:6px 0;border-bottom:none}
+.ctx-inv-total-amount.owing{color:#9C5742;font-weight:700}
+.ctx-inv-total-amount.paid{color:#5C7350;font-weight:700}
+.ctx-inv-status-msg{font-weight:700;padding:6px 0;border-bottom:none}
 .ctx-inv-status-msg.paid-in-full{color:#5C7350}
 .ctx-inv-status-msg.needs-refund{color:#9C5742}
 .ctx-inv-truth-note{margin-top:10px;padding-top:8px;border-top:1px solid var(--border-soft);font-size:10.5px;color:var(--text-3);line-height:1.45;font-style:italic}
@@ -16296,10 +16532,10 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .btn-bc-quote-soft{background:#4a3828;color:#ffc896;border-color:#7a5840}
 [data-theme="dark"] .btn-bc-quote-soft:hover:not(:disabled){background:#5a4530;border-color:#9a6848}
 [data-theme="dark"] .btn-bc-create-soft{background:#1e2a28;color:#b8c8bc;border-color:#3a5a48}
-[data-theme="dark"] .bc-block-pay-balance{background:#3a3420;color:#f0c89a;border-color:#6e5238}
-[data-theme="dark"] .bc-block-pay-deposit{background:#1e2a28;color:#a8c8a8;border-color:#3a5a48}
+[data-theme="dark"] .bc-block-pay-balance{background:#4a3020;color:#ffc896;border-color:#8a6040;font-weight:700}
+[data-theme="dark"] .bc-block-pay-deposit{background:#1e2a28;color:#9ee0a8;border-color:#3a5a48;font-weight:700}
 [data-theme="dark"] .bc-block-pay-paid{background:#1e2a28;color:#b8c8bc;border-color:#569cd6}
-[data-theme="dark"] .bc-block-pay-refund{background:#3a2838;color:#e8c0d0;border-color:#7a5068}
+[data-theme="dark"] .bc-block-pay-refund{background:#3a2838;color:#f0b0c0;border-color:#7a5068;font-weight:700}
 [data-theme="dark"] .bc-block-pay-link{background:#1a2836;color:#b8d4e8;border-color:#569cd6}
 [data-theme="dark"] .transfer-pebble{background:#2a2436;color:#d8c8e8;border-color:#7a68a0}
 [data-theme="dark"] #tab-bed-calendar .toolbar label{color:var(--text-2)!important}
@@ -21510,8 +21746,9 @@ function bcUpdateDrawerConvBotModePebble(convId, paused){
   vEl.innerHTML = inboxLunaStaffPill(!!paused);
 }
 
-function kvBC(k, v){
-  return '<div class="kv"><span class="k">' + escHtml(k) + '</span>' +
+function kvBC(k, v, extraCls){
+  var cls = 'kv' + (extraCls ? ' ' + extraCls : '');
+  return '<div class="' + cls + '"><span class="k">' + escHtml(k) + '</span>' +
          '<span class="v">' + escHtml(String(v == null ? '\u2014' : v)) + '</span></div>';
 }
 
@@ -26041,7 +26278,7 @@ function bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, transferRows, guestAc
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.paymentSummary')) + '</h3><div class="kv-grid">';
   if (fin.invoiceTotal != null) html += kvBC(t('drawer.kv.invoiceTotal'), eur(fin.invoiceTotal));
   if (fin.paidCents != null) html += kvBC(t('drawer.kv.paid'), eur(fin.paidCents));
-  if (fin.balanceDue != null) html += kvBC(t('drawer.kv.balanceDue'), eur(fin.balanceDue));
+  if (fin.balanceDue != null) html += kvBC(t('drawer.kv.balanceDue'), eur(fin.balanceDue), 'kv-balance-due');
   if (fin.payStatus) html += kvBC(t('drawer.kv.paymentStatus'), String(fin.payStatus).replace(/_/g, ' '));
   html += '</div>';
   html += '<p class="ctx-none" style="margin-top:6px;font-size:11px">' + escHtml(t('drawer.paymentSummary.hint')) + '</p>';
@@ -32461,6 +32698,16 @@ async function router(req, res) {
     return handleBotBookingCreate(req, res, auth.user, auth.auth_mode);
   }
 
+  if (pathname === '/staff/bot/bookings/cancel') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookings/cancel' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotBookingCancel(req, res, auth.user, auth.auth_mode);
+  }
+
   // ── Stage 8.5.5 — Luna bot Stripe link from draft payment ─────────────────
   // POST /staff/bot/payments/:payment_id/create-stripe-link
   // Gated by BOT_BOOKING_ENABLED + STRIPE_LINKS_ENABLED.
@@ -32816,6 +33063,7 @@ server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/guest-simulator-create-stripe-test-link <- 27w Luna guest simulator Stripe TEST link`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/booking-create-from-plan <- 13c Luna gated write bridge (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DEFAULT-DENY — set BOT_BOOKING_ENABLED=true'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot booking create (${BOT_BOOKING_ENABLED ? 'ENABLED' : 'DISABLED — set BOT_BOOKING_ENABLED=true'})`);
+  console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: cancel agent-luna test booking (bot token, unpaid only)`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot balance link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED'})`);
   console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Luna bot Stripe link (${BOT_BOOKING_ENABLED && STRIPE_LINKS_ENABLED ? 'ENABLED' : 'DISABLED — needs BOT_BOOKING_ENABLED+STRIPE_LINKS_ENABLED'})`);
   if (STAFF_ACTIONS_ENABLED) {

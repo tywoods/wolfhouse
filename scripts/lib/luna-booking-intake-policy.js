@@ -22,7 +22,6 @@ const {
   resolveAddOnsStatus,
 } = require('./luna-booking-addons-policy');
 const { extractReactiveServicesFromMessage } = require('./luna-booking-reactive-services-policy');
-const { UNISEX_NAMES } = require('./luna-guest-gender-names');
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
@@ -90,10 +89,8 @@ function inferLikelyGuestGender() {
   return 'unknown';
 }
 
-function isUnisexGuestName(guestName) {
-  const first = firstNameOf(guestName);
-  if (!first) return true;
-  return UNISEX_NAMES.has(first);
+function isUnisexGuestName() {
+  return true;
 }
 
 function normalizeGroupGender(value) {
@@ -466,18 +463,10 @@ function inferRoomPreferenceNeed(state, context) {
         block_booking: false,
       };
     }
-    if (isUnisexGuestName(effectiveGuestName(fields, ctx.channel_guest_name))) {
-      return {
-        needed: true,
-        question_type: 'neutral_shared',
-        rule_applied: 'solo_unisex_neutral',
-        block_booking: false,
-      };
-    }
     return {
-      needed: false,
-      question_type: null,
-      rule_applied: 'solo_defer_to_luna_room_preference',
+      needed: true,
+      question_type: 'neutral_shared',
+      rule_applied: 'solo_ask_room_preference',
       block_booking: false,
     };
   }

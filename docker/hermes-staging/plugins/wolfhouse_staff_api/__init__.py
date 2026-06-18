@@ -784,6 +784,11 @@ def flag_needs_human(params, **kwargs):
     })
 
 
+def _bot_addon_soft_ask(next_action):
+    na = str(next_action or "")
+    return na.startswith("ask_") or na in ("booking_not_found", "call_preview_first")
+
+
 def add_service_to_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -813,6 +818,9 @@ def add_service_to_booking(params, **kwargs):
         )
 
     balance_link_next = bool(data.get("success")) and write_ok and needs_link
+    next_action = data.get("next_action") or data.get("service_status")
+    soft_ask = _bot_addon_soft_ask(next_action)
+    guest_question = _safe_text(data.get("reply_draft") or data.get("guest_safe_next_action"))
     addon_guidance = (
         "Post-booking add-on recorded. Call create_balance_payment_link with this booking_code, "
         "then send that secure_payment_url to the guest. One balance link covers all unpaid "
@@ -820,9 +828,9 @@ def add_service_to_booking(params, **kwargs):
     ) if balance_link_next else None
 
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": bool(data.get("success")) or soft_ask,
         "tool": "add_service_to_booking",
-        "service_status": data.get("service_status") or data.get("next_action"),
+        "service_status": data.get("service_status") or next_action,
         "booking_id": data.get("booking_id"),
         "booking_code": data.get("booking_code"),
         "service_type": data.get("service_type"),
@@ -842,15 +850,15 @@ def add_service_to_booking(params, **kwargs):
         "next_action": (
             "create_balance_payment_link"
             if balance_link_next
-            else (data.get("service_status") or data.get("next_action"))
+            else next_action
         ),
         "reply_draft": data.get("reply_draft"),
         "staff_review_needed": (
             bool(data.get("staff_review_needed"))
             or data.get("next_action") == "handoff_to_staff"
             or (needs_link and write_ok and not secure_url)
-        ),
-        "guest_safe_next_action": data.get("guest_safe_next_action"),
+        ) and not soft_ask,
+        "guest_safe_next_action": guest_question if soft_ask else data.get("guest_safe_next_action"),
     })
 
 
