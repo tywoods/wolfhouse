@@ -268,6 +268,7 @@
     "setup:git-hooks": "node scripts/setup-git-hooks.js",
     "verify:luna-soul-clean": "node scripts/verify-luna-soul-clean.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
+    "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",
     "verify:luna-nightly": "node scripts/run-luna-nightly-suite.js --quick",
     "luna:coach": "node scripts/luna-coach-evaluate-transcript.js",
