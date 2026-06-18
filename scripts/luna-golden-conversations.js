@@ -123,6 +123,7 @@ function checkTurn(res, expect, fails) {
 // Texts are the literal guest messages; assertions pin the behavior we fixed.
 
 const LEAK_PHRASES = ['il sistema', 'sistema non', 'preventivo che mi arriva',
+  'verifica manuale', 'richiede verifica',
   'the system', 'quote tool', 'the tool', 'backend', 'tool call', 'plugin'];
 
 const FIXTURES = [
@@ -226,12 +227,12 @@ const FIXTURES = [
     // private-room request off to staff (flag_needs_human). Neither matches Fix 3's
     // intent — Luna should check R6 herself (private_room_available flag) and
     // re-quote WITH the supplement. Server side is verified (booking-preview returns
-    // room_supplement €140); this fixture pins the agent-side gap.
+    // room_supplement €70); this fixture pins the agent-side gap.
     expect_overall: {
       tool_called: 'quote_booking',
       tool_args_include: { quote_booking: { room_preference: /private|couple|matrimonial|double/i } },
       tool_not_called: 'flag_needs_human',                     // must NOT hand private off to staff
-      reply_contains: [/€?\s?10\b|supplement|supplemento|140/], // the supplement amount must be surfaced
+      reply_contains: [/€?\s?10\b|supplement|supplemento|70/], // flat €10/night × 7n = €70
     },
     invariants: { reply_not_contains: LEAK_PHRASES },
   },

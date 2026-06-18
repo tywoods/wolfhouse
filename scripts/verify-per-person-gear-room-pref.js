@@ -22,7 +22,7 @@ const {
   POST_QUOTE_FIELD_ORDER,
 } = require('./lib/luna-booking-intake-policy');
 const { inferGroupGearPeopleCount } = require('./lib/luna-booking-addons-policy');
-const { runAvailabilityBedSelection } = require('./lib/luna-bed-allocator');
+const { runAvailabilityBedSelection, needsGenderAwareBedAssignment } = require('./lib/luna-bed-allocator');
 
 const rates = loadWolfhouseRentalDayRates();
 
@@ -296,6 +296,41 @@ section('G. Room option flags from beds');
   );
   check('G3', flags3.private_room_available === false, 'R6 unavailable → no private offer');
   check('G4', resolveQuoteRoomTypeFromPreference('shared', 'couple_private') === 'double', 'couple_private → double quote room_type');
+}
+
+section('J. Gender-aware assignment — couple R6 + all-female room');
+{
+  const bedRows = [
+    { bed_code: 'R5-B1', room_code: 'R5', room_type: 'female_only', gender_strategy: 'Female preferred', capacity: 6, fill_priority: 4, bed_active: true, bed_sellable: true },
+    { bed_code: 'R5-B2', room_code: 'R5', room_type: 'female_only', gender_strategy: 'Female preferred', capacity: 6, fill_priority: 4, bed_active: true, bed_sellable: true },
+    { bed_code: 'R6-B1', room_code: 'R6', room_type: 'matrimonial_private_couple', gender_strategy: 'Private', capacity: 2, fill_priority: 1, bed_active: true, bed_sellable: true },
+    { bed_code: 'R6-B2', room_code: 'R6', room_type: 'matrimonial_private_couple', gender_strategy: 'Private', capacity: 2, fill_priority: 1, bed_active: true, bed_sellable: true },
+    { bed_code: 'R1-B1', room_code: 'R1', room_type: 'mixed', gender_strategy: 'Flexible', capacity: 5, fill_priority: 2, bed_active: true, bed_sellable: true },
+    { bed_code: 'R1-B2', room_code: 'R1', room_type: 'mixed', gender_strategy: 'Flexible', capacity: 5, fill_priority: 2, bed_active: true, bed_sellable: true },
+  ];
+  const occupied = new Set();
+  const allowed = new Set(bedRows.map((r) => r.bed_code));
+  check('J1', needsGenderAwareBedAssignment({ guestCount: 2, roomPreference: 'couple_private' }), 'couple_private triggers gender-aware assign');
+  const couplePick = runAvailabilityBedSelection({
+    bedRows,
+    occupiedBedCodes: occupied,
+    allowedBedCodes: allowed,
+    guestCount: 2,
+    roomPreference: 'couple_private',
+    groupGender: 'mixed',
+    capacityOnly: false,
+  });
+  check('J2', !couplePick.handoff && couplePick.selected_room_code === 'R6', `couple_private → R6 (got ${couplePick.selected_room_code})`);
+  check('J3', couplePick.selected_bed_codes.length === 2, 'R6 gets both beds');
+  const femalePick = runAvailabilityBedSelection({
+    bedRows,
+    occupiedBedCodes: occupied,
+    allowedBedCodes: allowed,
+    guestCount: 2,
+    groupGender: 'female',
+    capacityOnly: false,
+  });
+  check('J4', !femalePick.handoff && femalePick.selected_bed_codes.every((b) => b.startsWith('R5-')), 'all-female group → female room');
 }
 
 console.log(`\n── verify-per-person-gear-room-pref ${failures ? 'FAILED' : 'PASSED'} (${passes}/${passes + failures}) ──\n`);

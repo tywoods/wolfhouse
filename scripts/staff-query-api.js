@@ -281,12 +281,16 @@ const {
 } = require('./lib/guest-addon-combo-rebalance-db');
 const { buildBotQuoteIncludedItems } = require('./lib/bot-quote-included-items');
 const { computeWolfhouseRoomOptionFlags, resolveQuoteRoomTypeFromPreference } = require('./lib/wolfhouse-room-options');
-const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./lib/luna-bed-allocator');
+const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled, needsGenderAwareBedAssignment } = require('./lib/luna-bed-allocator');
 const {
   resolveBotBookingPackageContext,
   isNoPackageBookingCode,
   buildBotQuoteReplyDraft,
 } = require('./lib/bot-booking-package-normalize');
+const {
+  buildBotClosedSeasonReply,
+  isClosedSeasonQuote,
+} = require('./lib/bot-guest-safe-copy');
 const {
   runLunaGuestBookingWriteBridge,
 } = require('./lib/luna-guest-booking-write-bridge');
@@ -10046,6 +10050,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     nextAction = 'staff_review_required';
   } else if (!addOnPrep.ok) {
     nextAction = 'invalid_add_ons';
+  } else if (quote && !quote.success && isClosedSeasonQuote(quote)) {
+    nextAction = 'closed_season';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'staff_review_required' : 'ask_missing_fields';
   } else if (quote && quote.success) {
@@ -10058,6 +10064,7 @@ async function handleBotBookingPreview(req, res, user, authMode) {
 
   // ── reply_draft ───────────────────────────────────────────────────────────
   let replyDraft;
+  let guestSafeNextAction = null;
   if (quote && quote.success) {
     replyDraft = buildBotQuoteReplyDraft(quote, pkgCtx, packageCode);
   } else if (nextAction === 'ask_missing_fields') {
@@ -10067,6 +10074,10 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
   } else if (nextAction === 'package_not_available_for_dates') {
     replyDraft = 'Our Malibu, Uluwatu, and Waimea surf packs are for 7-night stays. For these dates, I can help with accommodation and add-ons like surf lessons or board/wetsuit rental instead.';
+  } else if (nextAction === 'closed_season') {
+    const closedCopy = buildBotClosedSeasonReply({ language });
+    replyDraft = closedCopy.reply_draft;
+    guestSafeNextAction = closedCopy.guest_safe_next_action;
   } else if (nextAction === 'staff_review_required') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
   } else if (nextAction === 'invalid_add_ons') {
@@ -10124,6 +10135,8 @@ async function handleBotBookingPreview(req, res, user, authMode) {
     has_missing_fields:  missingFields.length > 0,
     next_action:         nextAction,
     reply_draft:         replyDraft,
+    guest_safe_next_action: guestSafeNextAction,
+    staff_review_needed: nextAction === 'staff_review_required' || nextAction === 'invalid_add_ons',
     quote,
     included_items:      includedItems,
     quote_error:         quoteError || (packageNightViolation ? packageNightViolation.error : null)
@@ -13386,7 +13399,13 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
 
   let assignedBedCodes = selectedBedCodes.slice();
-  if (assignedBedCodes.length === 0) {
+  const genderAwareAssign = needsGenderAwareBedAssignment({
+    guestCount,
+    groupGender: body.group_gender,
+    genderPreference,
+    roomPreference,
+  });
+  if (assignedBedCodes.length === 0 || genderAwareAssign) {
     try {
       const bedAssign = await withPgClient((pg) => runAvailabilityCheckDryRun({
         client_slug: clientSlug,
@@ -13403,6 +13422,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
         assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
       } else if (bedAssign && bedAssign.blockers && bedAssign.blockers.length) {
         return send400(res, 'Bed assignment failed: ' + bedAssign.blockers[0]);
+      } else if (assignedBedCodes.length === 0) {
+        return send400(res, 'selected_bed_codes is required (pass beds or group_gender for auto-assign)');
       }
     } catch (err) {
       return sendJSON(res, 500, { success: false, error: 'bed_assignment_error', detail: err.message });

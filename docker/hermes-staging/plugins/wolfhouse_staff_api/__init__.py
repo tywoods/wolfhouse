@@ -272,10 +272,12 @@ def quote_booking(params, **kwargs):
     unknown_codes = data.get("unknown_add_on_codes") or []
     if not isinstance(unknown_codes, list):
         unknown_codes = []
+    next_action = data.get("next_action")
+    closed_season = next_action == "closed_season"
     return _json_result({
-        "success": bool(data.get("success")) and not unknown_codes,
+        "success": bool(data.get("success")) and not unknown_codes and not closed_season,
         "tool": "quote_booking",
-        "quote_status": data.get("quote_status") or data.get("next_action") or ("ready" if total else "unclear"),
+        "quote_status": data.get("quote_status") or next_action or ("ready" if total else "unclear"),
         "total_cents": total,
         "deposit_required_cents": deposit,
         "balance_due_cents": balance,
@@ -289,8 +291,11 @@ def quote_booking(params, **kwargs):
         "unknown_add_on_codes": unknown_codes,
         "add_on_errors": data.get("add_on_errors") or [],
         "reply_draft": data.get("reply_draft"),
-        "staff_review_needed": bool(data.get("staff_review_needed")) or data.get("next_action") in ("staff_review_required", "invalid_add_ons") or bool(unknown_codes),
-        "guest_safe_next_action": data.get("guest_safe_next_action"),
+        "staff_review_needed": (
+            (bool(data.get("staff_review_needed")) or next_action in ("staff_review_required", "invalid_add_ons") or bool(unknown_codes))
+            and not closed_season
+        ),
+        "guest_safe_next_action": data.get("guest_safe_next_action") or (data.get("reply_draft") if closed_season else None),
     })
 
 
@@ -979,7 +984,7 @@ def register(ctx):
     }
     tools = [
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender — ask composition later at the room-preference step before create.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
-        ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night/person).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
+        ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
         ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
         ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),

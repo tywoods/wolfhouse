@@ -24,12 +24,16 @@ const { buildBotQuoteIncludedItems } = require('./bot-quote-included-items');
 const { normalizeBotServiceType } = require('./guest-addon-pricing');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 const { computeWolfhouseRoomOptionFlags } = require('./wolfhouse-room-options');
-const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled } = require('./luna-bed-allocator');
+const { runAvailabilityBedSelection, isRulesBasedRoomingEnabled, needsGenderAwareBedAssignment } = require('./luna-bed-allocator');
 const { normalizeGroupGender } = require('./luna-booking-intake-policy');
 const {
   resolveBotBookingPackageContext,
   buildBotQuoteReplyDraft,
 } = require('./bot-booking-package-normalize');
+const {
+  buildBotClosedSeasonReply,
+  isClosedSeasonQuote,
+} = require('./bot-guest-safe-copy');
 const { getPauseState, formatPauseStateRow } = require('./staff-bot-pause-sql');
 const {
   getBedCalendarRoomsQuery,
@@ -287,6 +291,8 @@ function runBookingPreviewDryRun(fields) {
   let nextAction;
   if (quoteError) {
     nextAction = 'handoff_to_staff';
+  } else if (quote && !quote.success && isClosedSeasonQuote(quote)) {
+    nextAction = 'closed_season';
   } else if (quote && !quote.success) {
     nextAction = quote.staff_review_required ? 'handoff_to_staff' : 'ask_missing_details';
   } else if (quote && quote.success) {
@@ -298,11 +304,16 @@ function runBookingPreviewDryRun(fields) {
   }
 
   let replyDraft;
+  let guestSafeNextAction = null;
   if (nextAction === 'ask_missing_details') {
     const readable = missingFields.map((f) => BOT_FIELD_LABELS[f] || f);
     const shown    = readable.slice(0, 3);
     const extra    = readable.length > 3 ? ` and ${readable.length - 3} more` : '';
     replyDraft = `Great, I can help you book. Could you also share: ${shown.join(', ')}${extra}?`;
+  } else if (nextAction === 'closed_season') {
+    const closedCopy = buildBotClosedSeasonReply({ language: fields.language });
+    replyDraft = closedCopy.reply_draft;
+    guestSafeNextAction = closedCopy.guest_safe_next_action;
   } else if (nextAction === 'handoff_to_staff') {
     replyDraft = "I'm going to have the team check this and get back to you shortly.";
   } else if (nextAction === 'show_quote' && quote) {
@@ -330,6 +341,7 @@ function runBookingPreviewDryRun(fields) {
     has_missing_fields:  missingFields.length > 0,
     next_action:         nextAction,
     reply_draft:         replyDraft,
+    guest_safe_next_action: guestSafeNextAction,
     quote,
     included_items:      includedItems,
     quote_error:         quoteError || null,
@@ -446,7 +458,12 @@ async function runAvailabilityCheckDryRun(fields, pg) {
 
     const resolvedGroupGender = normalizeGroupGender(fields.group_gender)
       || normalizeGroupGender(fields.gender_preference);
-    const readyForGenderAssign = guestCount < 2 || !!resolvedGroupGender;
+    const readyForGenderAssign = needsGenderAwareBedAssignment({
+      guestCount,
+      groupGender: fields.group_gender,
+      genderPreference: fields.gender_preference,
+      roomPreference: fields.room_preference,
+    });
     if (readyForGenderAssign) {
       const genderPick = runAvailabilityBedSelection({
         bedRows,

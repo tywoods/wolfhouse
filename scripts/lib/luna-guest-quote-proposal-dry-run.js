@@ -14,6 +14,7 @@ const {
   runBookingPreviewDryRun,
   DRY_RUN_ANCHOR_ROUTES,
 } = require('./luna-guest-booking-dry-run');
+const { buildBotClosedSeasonReply } = require('./bot-guest-safe-copy');
 const {
   isWeeklySurfPackage,
   computeStayNights,
@@ -169,6 +170,9 @@ function buildQuoteSummary(status, preview, fields) {
     }
     return 'Quote needs staff review.';
   }
+  if (status === 'closed_season') {
+    return 'Quote blocked — Wolf-House closed season (Nov/Dec/Jan/Feb); guest-safe decline sent.';
+  }
   const q = preview && preview.quote;
   if (!q) return 'Quote ready.';
   const totalEur = (q.total_cents / 100).toFixed(2);
@@ -193,6 +197,9 @@ function buildQuoteReply(lang, status, preview, routerResult) {
     return null;
   }
   const intro = `${L.intro} 🌊`;
+  if (status === 'closed_season') {
+    return buildBotClosedSeasonReply({ language: lang }).reply_draft;
+  }
   if (status === 'error') return `${intro} — ${L.error}`;
   if (status === 'needs_staff_review') return `${intro} — ${L.needs_review}`;
   return `${intro} — ${L.not_ready}`;
@@ -208,6 +215,13 @@ function resolveQuoteOutcome(preview, fields) {
   }
   const quote = preview.quote;
   if (!quote || !quote.success) {
+    if (quote && quote.closed_season) {
+      return {
+        status: 'closed_season',
+        handoff: false,
+        reasons: ['closed_season'],
+      };
+    }
     return {
       status: 'needs_staff_review',
       handoff: true,

@@ -8,6 +8,7 @@
  *   node scripts/deploy-staging-hermes-vm.js create-vm
  *   node scripts/deploy-staging-hermes-vm.js write-env-files   # local: hermes-vm-env/*.env for scp
  *   node scripts/deploy-staging-hermes-vm.js bootstrap-remote  # ssh: provision + env + compose up
+ *   node scripts/deploy-staging-hermes-vm.js prune-images     # ssh: docker image prune -af on Lunabox
  *   node scripts/deploy-staging-hermes-vm.js verify
  *   node scripts/deploy-staging-hermes-vm.js check-repo-sync [--strict]
  *   node scripts/deploy-staging-hermes-vm.js sync-repo   # legacy: laptop → VM bundle
@@ -347,6 +348,19 @@ function syncRepo() {
   console.log(JSON.stringify({ ok: true, branch, head, backup: `${HERMES_VM.REPO_PATH}.bak.${stamp}` }, null, 2));
 }
 
+function pruneRemoteImages() {
+  if (!vmExists()) {
+    console.error('[vm] skip image prune — VM missing');
+    return;
+  }
+  console.error('[vm] pruning unused Docker images on Lunabox (docker image prune -af)...');
+  const before = sshOut('df -h / | tail -1') || '';
+  if (before) console.error(`[vm] disk before prune: ${before}`);
+  ssh('sudo docker image prune -af');
+  const after = sshOut('df -h / | tail -1') || '';
+  if (after) console.error(`[vm] disk after prune: ${after}`);
+}
+
 function bootstrapRemote() {
   if (!vmExists()) {
     console.error('FAIL — VM missing. Run: node scripts/deploy-staging-hermes-vm.js create-vm');
@@ -383,6 +397,7 @@ function bootstrapRemote() {
   ssh(
     `test -f ${HERMES_VM.COMPOSE_FILE} && sudo docker compose -f ${HERMES_VM.COMPOSE_FILE} pull && sudo docker compose -f ${HERMES_VM.COMPOSE_FILE} up -d || echo "WARN: repo missing at ${HERMES_VM.REPO_PATH} — clone WH then compose up"`,
   );
+  pruneRemoteImages();
   console.log(JSON.stringify({ ok: true, public_ip: ip }, null, 2));
 }
 
@@ -413,6 +428,7 @@ const handlers = {
   'create-vm': createVm,
   'write-env-files': writeEnvFiles,
   'bootstrap-remote': bootstrapRemote,
+  'prune-images': pruneRemoteImages,
   verify,
   'check-repo-sync': checkRepoSync,
   'sync-repo': syncRepo,

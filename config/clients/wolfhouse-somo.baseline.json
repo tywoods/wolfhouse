@@ -228,13 +228,13 @@
       "double": { "modifier_eur_per_night_per_person": 10, "_note": "+€10 per night per person on top of base" }
     },
     "seasons_2026": {
-      "_note": "month -> season. 3x.2e: Mar+Nov shoulder; Jul+Sep high; Aug peak; Dec/Jan/Feb CLOSED (no bookings).",
-      "march": "shoulder", "april": "shoulder", "may": "shoulder", "june": "shoulder", "october": "shoulder", "november": "shoulder",
+      "_note": "month -> season. 3x.2e: Mar shoulder; Jul+Sep high; Aug peak; Nov+Dec/Jan/Feb CLOSED (no bookings).",
+      "march": "shoulder", "april": "shoulder", "may": "shoulder", "june": "shoulder", "october": "shoulder",
       "july": "high", "september": "high",
       "august": "peak",
-      "december": "closed", "january": "closed", "february": "closed"
+      "november": "closed", "december": "closed", "january": "closed", "february": "closed"
     },
-    "closed_months": ["december", "january", "february"],
+    "closed_months": ["november", "december", "january", "february"],
     "closed_months_behavior": "do_not_quote_or_book_inform_closed_and_handoff_if_insistent",
     "prices_2026_per_person_7nt_shared": {
       "shoulder": { "malibu": 249, "uluwatu": 349, "waimea": 499 },

@@ -24,7 +24,7 @@
   "config_version": "2026-06-02.1",
   "currency": "EUR",
 
-  "_seasons_note": "Season is determined by the check-in month number. August (month 8) has priority 10 and overrides the summer rule. Months 3 (March) and 11 (November) exist in the baseline as shoulder but have no seeded package_price_rules row — see missing_required_values.",
+  "_seasons_note": "Season is determined by the check-in month number. August (month 8) has priority 10 and overrides the summer rule. Month 3 (March) has no seeded package_price_rules row — see missing_required_values.",
 
   "seasons": [
     {
@@ -45,9 +45,9 @@
     },
     {
       "code": "closed",
-      "month_numbers": [1, 2, 12],
+      "month_numbers": [1, 2, 11, 12],
       "bookable": false,
-      "_note": "December, January, February closed. Do not quote or book."
+      "_note": "November, December, January, February closed. Do not quote or book."
     }
   ],
 
@@ -101,16 +101,18 @@
       "per_person_per_night_cents": 0
     },
     "double": {
-      "per_person_per_night_cents": 1000,
+      "per_room_per_night_cents": 1000,
+      "per_person_per_night_cents": 0,
       "_eur": 10,
       "pricing_status": "confirmed_2026",
-      "_note": "+EUR10 per person per night on top of the shared base (Stage 3x.2f, confirmed by owner)"
+      "_note": "+EUR10 per night flat room charge on top of the shared base (couples private R6)"
     },
     "private": {
-      "per_person_per_night_cents": 1000,
+      "per_room_per_night_cents": 1000,
+      "per_person_per_night_cents": 0,
       "_eur": 10,
       "pricing_status": "confirmed_2026",
-      "_note": "Same supplement as double. Confirm if private-room pricing differs from double."
+      "_note": "Same flat per-room supplement as double."
     }
   },
 
@@ -359,10 +361,10 @@
       "blocker_for": ["quote_calculator_multi_week"]
     },
     {
-      "key": "edge_season_months_march_november",
+      "key": "edge_season_month_march",
       "status": "REQUIRED_FROM_STAFF",
-      "description": "Months 3 (March) and 11 (November) appear as 'shoulder' in wolfhouse-somo.baseline.json but have NO seeded row in package_price_rules. Are they bookable? If so, do they use the spring_autumn prices?",
-      "blocker_for": ["quote_calculator_march_november"]
+      "description": "Month 3 (March) appears as 'shoulder' in wolfhouse-somo.baseline.json but has NO seeded row in package_price_rules. Is it bookable? If so, does it use the spring_autumn prices?",
+      "blocker_for": ["quote_calculator_march"]
     }
   ]
 }

@@ -3,6 +3,15 @@
 # it via config (compression.codex_gpt55_autoraise: false) instead of downgrading.
 FROM docker.io/nousresearch/hermes-agent:latest
 ENV PYTHONPATH=/etc/hermes-staging
+
+# Slim inherited Hermes image: drop uv/pip caches and dev-only Node deps (~500MB+).
+RUN rm -rf /root/.cache/uv /root/.cache/pip \
+    /home/hermes/.cache/uv /home/hermes/.cache/pip 2>/dev/null || true \
+ && cd /opt/hermes \
+ && npm prune --omit=dev \
+ && cd /opt/hermes/ui-tui \
+ && npm prune --omit=dev
+
 COPY SOUL.md /etc/hermes-staging/SOUL.md
 COPY orchestrator-SOUL.md /etc/hermes-staging/orchestrator-SOUL.md
 COPY plugins /etc/hermes-staging/plugins

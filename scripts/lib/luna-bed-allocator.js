@@ -34,7 +34,8 @@ function normalizePref(s) {
     || p === 'mens' || p === 'mens_room' || p === 'men' || p === 'men_s_room' || p === 'mensroom') {
     return 'male_only';
   }
-  if (p === 'private' || p === 'couple' || p === 'matrimonial' || p === 'double') return 'private';
+  if (p === 'private' || p === 'couple' || p === 'couple_private' || p === 'private_room'
+    || p === 'matrimonial' || p === 'double') return 'private';
   if (p === 'mixed' || p === 'shared') return 'mixed';
   return p;
 }
@@ -76,6 +77,22 @@ function resolveRoomCategory(room) {
 function isCoupleRequest(guestCount, roomPreference) {
   const rp = normalizePref(roomPreference);
   return guestCount === 2 && (rp === 'private' || rp === 'couple');
+}
+
+function needsGenderAwareBedAssignment({
+  guestCount,
+  groupGender,
+  genderPreference,
+  roomPreference,
+}) {
+  const rp = normalizePref(roomPreference || genderPreference);
+  const explicit = normalizeGroupGender(groupGender) || normalizeGroupGender(genderPreference);
+  const count = Math.max(1, Number(guestCount) || 1);
+  return count < 2
+    || !!explicit
+    || rp === 'private'
+    || rp === 'female_only'
+    || rp === 'male_only';
 }
 
 function countAvailable(room) {
@@ -840,5 +857,6 @@ module.exports = {
   operatorBlockedRoomsFromBlocks,
   applyOperatorBlockFlags,
   isRulesBasedRoomingEnabled,
+  needsGenderAwareBedAssignment,
   runAvailabilityBedSelection,
 };

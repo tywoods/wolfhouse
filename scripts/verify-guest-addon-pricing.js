@@ -295,6 +295,27 @@ section('M. Package quote included_items breakdown');
   check('M2', items && items.some((i) => i.code === 'package'), 'package base line');
   check('M3', items && items.some((i) => i.code === 'room_supplement'), 'private supplement line');
   check('M4', items && items.some((i) => i.code === 'soft_top_rental' || i.code === 'wetsuit_soft_top_combo'), 'board add-on line');
+  const suppLine = (quote.line_items || []).find((i) => i.code === 'room_supplement');
+  check('M5', suppLine && suppLine.total_cents === 7000, `double supplement flat €70/7n (got ${suppLine && suppLine.total_cents})`);
+  check('M6', quote.subtotal_cents >= 7000 && quote.total_cents === quote.subtotal_cents, 'total includes room supplement');
+}
+
+section('P. Private room supplement — per-room not per-person');
+{
+  const quote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2026-07-06',
+    check_out: '2026-07-13',
+    guest_count: 2,
+    package_code: 'malibu',
+    room_type: 'double',
+    payment_choice: 'deposit',
+  });
+  check('P1', quote.success, 'couple private quote succeeds');
+  const supp = (quote.line_items || []).find((i) => i.code === 'room_supplement');
+  check('P2', supp && supp.total_cents === 7000, `7n×€10 flat = €70 (got ${supp && supp.total_cents})`);
+  check('P3', supp && supp.total_cents !== 14000, 'not per-person €140');
+  check('P4', quote.total_cents === quote.subtotal_cents && quote.total_cents > 0, 'deposit/total include supplement');
 }
 
 section('N. Lesson schedule + SOUL guest-safe copy');
@@ -311,6 +332,42 @@ section('N. Lesson schedule + SOUL guest-safe copy');
   const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
   check('N5', /Never expose backend mechanics/i.test(soul), 'SOUL forbids system/tool leaks');
   check('N6', /`yoga`/.test(soul) && /`surfboard`/.test(soul), 'SOUL documents post-booking service types');
+}
+
+section('O. Closed season — guest-safe decline (no staff handoff)');
+{
+  const { buildBotClosedSeasonReply, CLOSED_SEASON_COPY } = require('./lib/bot-guest-safe-copy');
+  const janQuote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2027-01-15',
+    check_out: '2027-01-22',
+    guest_count: 2,
+    package_code: 'malibu',
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  });
+  check('O1', janQuote.closed_season === true, 'January quote flagged closed_season');
+  check('O2', janQuote.staff_review_required === false, 'closed season does not require staff review');
+  check('O3', janQuote.success === false, 'closed season quote blocked');
+  const novQuote = calculateWolfhouseQuote({
+    client_slug: 'wolfhouse-somo',
+    check_in: '2027-11-01',
+    check_out: '2027-11-08',
+    guest_count: 2,
+    package_code: 'malibu',
+    room_type: 'shared',
+    payment_choice: 'deposit',
+  });
+  check('O3b', novQuote.closed_season === true, 'November quote flagged closed_season');
+  for (const lang of ['en', 'it', 'es', 'de']) {
+    const copy = buildBotClosedSeasonReply({ language: lang });
+    check(`O4-${lang}`, copy.reply_draft === CLOSED_SEASON_COPY[lang], `${lang} closed-season copy`);
+    check(`O5-${lang}`, !/sistema|system|staff review|verifica manuale/i.test(copy.reply_draft), `${lang} copy has no internal leak`);
+  }
+  const soul = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'SOUL.md'), 'utf8');
+  const plugin = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'plugins', 'wolfhouse_staff_api', '__init__.py'), 'utf8');
+  check('O6', /closed_season/.test(soul), 'SOUL documents closed_season handling');
+  check('O7', /closed_season/.test(plugin), 'plugin suppresses staff_review on closed_season');
 }
 
 console.log(`\n${passes} passed, ${failures} failed\n`);

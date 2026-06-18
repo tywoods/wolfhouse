@@ -77,8 +77,9 @@ function loadConfig() {
 
 // ─── Shared blocked-result builder ───────────────────────────────────────────
 
-function buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config) {
+function buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config, opts = {}) {
   const { client_slug, package_code, room_type = 'shared' } = input || {};
+  const closedSeason = !!opts.closed_season;
   return {
     success: false,
     client_slug: client_slug || null,
@@ -101,7 +102,10 @@ function buildBlockedResult(config, input, nights, guests, season_code, blockers
     blockers: blockers || [],
     warnings: warnings || [],
     formula_summary: 'Formula B (per-night ceil5): weekly_price ÷ 7, rounded up to nearest €5/night, × nights × guests',
-    staff_review_required: !!(staff_review_required || (blockers && blockers.length > 0)),
+    closed_season: closedSeason,
+    staff_review_required: closedSeason
+      ? false
+      : !!(staff_review_required || (blockers && blockers.length > 0)),
     source: 'wolfhouse-quote-calculator',
     missing_config: !!missing_config,
   };
@@ -198,6 +202,7 @@ function calculateWolfhouseQuote(input, config) {
 
   // ── 4. Season lookup ──────────────────────────────────────────────────────
   let season_code = null;
+  let closed_season = false;
 
   if (checkInDate && nights > 0) {
     const month  = checkInDate.getUTCMonth() + 1; // 1–12
@@ -209,6 +214,7 @@ function calculateWolfhouseQuote(input, config) {
       staff_review_required = true;
       blockers.push(`month ${month} has no configured season — edge month, staff review required`);
     } else if (season.bookable === false) {
+      closed_season = true;
       blockers.push(`month ${month} is in the "${season.code}" season which is closed (not bookable)`);
     } else {
       season_code = season.code;
@@ -217,7 +223,10 @@ function calculateWolfhouseQuote(input, config) {
 
   // Return early if any fundamental blocker exists before we can price
   if (blockers.length > 0) {
-    return buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config);
+    return buildBlockedResult(
+      config, input, nights, guests, season_code, blockers, warnings,
+      staff_review_required, missing_config, { closed_season },
+    );
   }
 
   // ── 5. Package lookup ─────────────────────────────────────────────────────
@@ -402,8 +411,19 @@ function calculateWolfhouseQuote(input, config) {
   if (!roomSupp) {
     warnings.push(`unknown room_type "${room_type}" — no supplement applied`);
   } else {
+    const supp_prn = roomSupp.per_room_per_night_cents || 0;
     const supp_ppn = roomSupp.per_person_per_night_cents || 0;
-    if (supp_ppn > 0) {
+    if (supp_prn > 0) {
+      supplement_cents = supp_prn * nights;
+      line_items.push({
+        code: 'room_supplement',
+        label: `${room_type} room supplement (${supp_prn / 100}€/night × ${nights}n, flat room charge)`,
+        nights,
+        guest_count: guests,
+        unit_cents: supp_prn,
+        total_cents: supplement_cents,
+      });
+    } else if (supp_ppn > 0) {
       supplement_cents = supp_ppn * nights * guests;
       line_items.push({
         code: 'room_supplement',
