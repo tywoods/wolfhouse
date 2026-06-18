@@ -221,29 +221,12 @@ const FIXTURES = [
   {
     // Bug B — post-booking add-on. Adding yoga to an existing booking must
     // succeed via alias (yoga_class→yoga), NOT 422 → staff handoff.
-    //
-    // KNOWN-RED = REAL CATCH (Fix1b, 2026-06-17). HISTORY: the yoga-alias + ask_quantity
-    // 422 handoff is now FIXED on image c9ffd75 (2026-06-18) — add_service_to_booking(yoga,
-    // no qty) relays ask_quantity and the service is added clean at €15/1 lesson (verified
-    // turn 6: "la lezione di yoga è stata aggiunta, €15 per 1 lezione"). BUT the fixture is
-    // STILL RED for a NEW downstream reason: after the add-on lands, Luna calls
-    // create_balance_payment_link (twice) and then flag_needs_human — the balance/saldo
-    // payment link for the POST-BOOKING add-on can't be generated ("il link saldo va fatto a
-    // mano"), so she hands off. The handoff moved from add-on creation to add-on settlement.
-    // Fix (Cursor): make the bot balance-payment-link path work for a service added after
-    // create (so no flag_needs_human). Flip to green / remove this marker once that lands.
+    // Post-booking yoga add-on: ask_quantity relay + balance link (c9ffd75 + 5f653e4).
+    // Service adds clean at €15/1 lesson; create_balance_payment_link must succeed
+    // without flag_needs_human.
     name: 'fix1b-post-booking-yoga-alias',
     lang: 'it',
     allow_writes: true,                                        // creates a Stripe-TEST booking
-    // KNOWN-RED, tracked: this fixture catches a REAL un-fixed Luna bug, so it is
-    // marked expect_fail — the suite stays green on the genuine passes while keeping
-    // this loud. It flips to a ⚠ XPASS (remove-this-marker) the moment Cursor lands
-    // the fix. Excluded from the deploy --gate because --allow-writes creates real
-    // Stripe-TEST bookings with no clean teardown.
-    expect_fail: 'Fix1b — yoga add-on 422 handoff FIXED on c9ffd75 (service adds clean at '
-      + '€15/1 lesson); now RED downstream: balance/saldo payment-link for the post-booking '
-      + 'add-on fails → create_balance_payment_link x2 → flag_needs_human. Fix (Cursor): make '
-      + 'the bot balance-payment-link path work for a service added after create.',
     turns: [
       { text: '2 persone, 3 notti dal 15 al 18 agosto, senza pacchetto, e una tavola soft top a testa.', expect: {} },
       { text: 'Va bene il prezzo, procediamo. Mi chiamo Marco e paghiamo la caparra.', expect: {} },

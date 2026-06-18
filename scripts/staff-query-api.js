@@ -472,6 +472,7 @@ const DEFAULT_CLIENT     = 'wolfhouse-somo';
 const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
+const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
@@ -7009,11 +7010,13 @@ SELECT b.id::text AS booking_id,
        b.payment_status::text AS payment_status,
        COALESCE(b.amount_paid_cents, 0)::int AS amount_paid_cents,
        b.metadata->>'bot_source' AS bot_source,
-       b.metadata->>'source' AS metadata_source
+       b.metadata->>'source' AS metadata_source,
+       b.metadata->>'staff_source' AS staff_source
   FROM bookings b
   JOIN clients c ON c.id = b.client_id
  WHERE c.slug = $1
-   AND b.booking_code = $2
+   AND UPPER(b.booking_code) = UPPER($2)
+ LIMIT 1
 `;
 
 const BOT_CANCEL_CAPTURED_PAYMENTS_SQL = `
@@ -7022,14 +7025,14 @@ SELECT COUNT(*)::int AS c
   JOIN bookings b ON b.id = p.booking_id
   JOIN clients c ON c.id = b.client_id
  WHERE c.slug = $1
-   AND b.booking_code = $2
+   AND UPPER(b.booking_code) = UPPER($2)
    AND LOWER(p.status::text) IN ('paid', 'succeeded', 'partially_paid')
    AND COALESCE(p.amount_paid_cents, 0) > 0
 `;
 
 function bookingMetadataIsBotTestLane(row) {
   if (!row) return false;
-  const botSrc = String(row.bot_source || row.metadata_source || '').trim().toLowerCase();
+  const botSrc = String(row.bot_source || row.staff_source || row.metadata_source || '').trim().toLowerCase();
   if (!botSrc) return false;
   if (botSrc.startsWith('agent_luna')) return true;
   if (botSrc.startsWith('luna_')) return true;
@@ -15683,10 +15686,10 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
 #banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(68,80,74,.10)}
-#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:1;display:flex;align-items:center;gap:10px}
+#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:1;display:flex;align-items:center;gap:10px;min-height:0;line-height:1;text-decoration:none;color:inherit}
+#banner .brand-logo{height:32px;width:auto;max-width:128px;object-fit:contain;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:auto}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
-#banner .brand::before{content:"";width:26px;height:26px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#FFFDFA 0%,#E9DDCF 55%,#DCC8B7 100%);box-shadow:0 1px 4px rgba(68,80,74,.25);flex-shrink:0}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
 #banner .badge-sm{background:rgba(68,80,74,.18);color:#FBF7F0;font-size:10px;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.04em}
@@ -16589,7 +16592,9 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
-  <a href="/staff/ui" class="brand" style="text-decoration:none;color:inherit;" data-i18n="app.brand">Luna Front Desk</a>
+  <a href="/staff/ui" class="brand" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
+    <img src="/staff/assets/luna-front-desk-logo.png" alt="" class="brand-logo" width="128" height="32">
+  </a>
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
     <button type="button" class="staff-lang-btn is-active" data-lang="en">EN</button>
     <span class="staff-lang-sep">|</span>
@@ -27942,6 +27947,20 @@ ${getStaffPortalI18nBootstrapScript()}
 </html>`;
 }
 
+function handleStaffPortalLogo(res) {
+  fs.readFile(STAFF_PORTAL_LOGO_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
 function handleLoginPage(res) {
   const html = buildLoginHtml();
   res.writeHead(200, {
@@ -32904,6 +32923,15 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleBookingContext(bookingCtxMatch[1], parsed.query, res, auth.user);
+  }
+
+  // ── GET /staff/assets/luna-front-desk-logo.png — portal banner logo (public) ─
+  if (pathname === '/staff/assets/luna-front-desk-logo.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalLogo(res);
   }
 
   // ── GET /staff/login  (Stage 7.3e — Luna Front Desk login page) ─────────────

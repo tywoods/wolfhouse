@@ -993,19 +993,8 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
     });
   }
 
-  const paySt = String(bookingRow.payment_status || '').toLowerCase();
-  const eligiblePay = ['deposit_paid', 'balance_due', 'confirmed', 'hold'].includes(paySt)
-    || Number(bookingRow.amount_paid_cents || 0) > 0;
-  if (!eligiblePay) {
-    return sendJSON(res, 409, {
-      success: false,
-      error: 'booking_not_eligible',
-      reason: 'deposit_not_paid',
-      booking_id: bookingRow.booking_id,
-      booking_code: bookingRow.booking_code,
-      staff_review_needed: true,
-    });
-  }
+  // Ledger balance_due already reflects unpaid accommodation + post-booking add-ons.
+  // Do not require deposit_paid here — staff generate-payment-link does not either.
 
   const idempotencyKey = `luna-bot-balance:${bookingRow.booking_id}:${amountDueCents}`;
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
