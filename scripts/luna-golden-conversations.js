@@ -69,6 +69,57 @@ function freshStart(guestPhone) {
   } catch (_) { /* teardown best-effort */ }
 }
 
+// ---- rolling dates + private-room pre-flight --------------------------------
+// Private-room fixtures used to hardcode July 6-13. The --allow-writes create
+// fixture books R6 on those dates every green run and never cleans it up, so
+// once R6 fills the fixture can never reach the private-room offer again — it
+// wedges itself into a permanent (and misleading) red. Two defenses:
+//   (1) rolling dates — each fixture targets the 6th->13th of a future month
+//       that shifts ~hourly, so consecutive runs rarely reuse the same week;
+//   (2) a pre-flight availability check — if R6 is already occupied for the
+//       chosen week, SKIP the fixture with a clear message instead of emitting
+//       a false FAIL. (True non-accumulation also needs a staff-auth cancel in
+//       teardown — bot token can't cancel — speced separately to the API lane.)
+
+const EN_MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December'];
+const IT_MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
+  'luglio', 'agosto', 'settembre', 'ottobre', 'novembre', 'dicembre'];
+
+// A 7-night window on the 6th->13th of a rolling future month. 6->13 is always
+// 7 nights inside a single month (every month has >=28 days), so the natural-
+// language phrasing stays single-month in both languages. `offsetMonths` lets
+// two fixtures target distinct weeks so one's create can't block the other.
+function rollingPrivateWeek(offsetMonths = 0) {
+  const now = new Date();
+  // 5..12 months out, advancing each hour → distinct weeks across back-to-back runs.
+  const base = 5 + (Math.floor(Date.now() / 3600000) % 8);
+  const d = new Date(now.getFullYear(), now.getMonth() + base + offsetMonths, 6);
+  const y = d.getFullYear(), m = d.getMonth();
+  const iso = (day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return {
+    ciISO: iso(6), coISO: iso(13),
+    en: `${EN_MONTHS[m]} 6 to 13, ${y}`,
+    it: `dal 6 al 13 ${IT_MONTHS[m]} ${y}`,
+  };
+}
+
+// Returns true (free) / false (occupied) / null (couldn't determine). Mirrors the
+// freshStart docker-exec pattern; hits the same bot endpoint Luna's check uses.
+function privateRoomAvailable(ciISO, coISO) {
+  try {
+    const out = execFileSync(DOCKER[0], dockerArgs(['exec', CONTAINER, 'sh', '-lc',
+      `BASE=$(grep '^WOLFHOUSE_STAFF_API_BASE_URL=' /opt/data/.env | cut -d= -f2); ` +
+      `TOK=$(grep '^LUNA_BOT_INTERNAL_TOKEN=' /opt/data/.env | cut -d= -f2); ` +
+      `curl -s -X POST "$BASE/staff/bot/availability-check" -H "X-Luna-Bot-Token: $TOK" ` +
+      `-H 'Content-Type: application/json' ` +
+      `-d '{"client_slug":"wolfhouse-somo","check_in":"${ciISO}","check_out":"${coISO}","guest_count":2}'`]),
+      { encoding: 'utf8', timeout: 30000 });
+    const j = JSON.parse(out);
+    return j && typeof j.private_room_available === 'boolean' ? j.private_room_available : null;
+  } catch (_) { return null; }
+}
+
 // ---- assertion engine -------------------------------------------------------
 
 function hay(s) { return String(s || '').toLowerCase(); }
@@ -216,18 +267,19 @@ const FIXTURES = [
     //  verify-per-person-gear-room-pref.js G3; can't block R6 from the hook.)
     name: 'fix3-private-room-supplement-requote',
     lang: 'it',
+    needs_private_room: 2,                                      // rolling week, offset 2 months from the create golden
     turns: [
-      { text: 'Ciao, siamo una coppia, 7 notti dal 6 al 13 luglio 2026, pacchetto Malibu.', expect: {} },
+      { text: 'Ciao, siamo una coppia, 7 notti {{WEEK_IT}}, pacchetto Malibu.', expect: {} },
       { text: 'Vorremmo una stanza privata per noi due.', expect: {} },
       { text: 'Mi chiamo Luca.', expect: {} },
       { text: 'Sì, va bene il supplemento, procediamo.', expect: {} },
     ],
-    // KNOWN-RED pending investigation: across runs the agent either (a) collects
-    // the name without ever surfacing the +€10/night supplement, or (b) hands the
-    // private-room request off to staff (flag_needs_human). Neither matches Fix 3's
-    // intent — Luna should check R6 herself (private_room_available flag) and
-    // re-quote WITH the supplement. Server side is verified (booking-preview returns
-    // room_supplement €70); this fixture pins the agent-side gap.
+    // WAS KNOWN-RED (agent-side gap): the agent used to either collect the name without
+    // surfacing the +€10/night supplement, or hand the private-room request off to staff
+    // (flag_needs_human). NOW GREEN as of 2026-06-18 on image 94fddb14 — the deployed
+    // couple_private re-quote SOUL logic closed the gap: Luna checks R6 herself
+    // (private_room_available), re-quotes WITH the supplement, no handoff. (We could only
+    // observe this once needs_private_room rolling-dates unblocked the formerly-wedged week.)
     expect_overall: {
       tool_called: 'quote_booking',
       tool_args_include: { quote_booking: { room_preference: /private|couple|matrimonial|double/i } },
@@ -286,12 +338,17 @@ const FIXTURES = [
     // fix3-private-room-supplement-requote (read-only requote): asserts the supplement
     // survives onto the created booking. --allow-writes → excluded from --gate.
     // TEARDOWN CAVEAT: guest-fresh-start clears the session, NOT the booking ROW
-    // (known gap) — this leaves a synthetic booking each run; wipe via staff cancel.
+    // (known gap) — each green run leaves a synthetic R6 booking. MITIGATED here by
+    // needs_private_room: rolling dates put each run on a fresh week, and the pre-flight
+    // SKIPS (not FAILs) if that week's R6 is already taken — so the fixture can no longer
+    // wedge itself into a false red. Full non-accumulation still needs a staff-auth cancel
+    // in teardown (bot token can't cancel) — speced to the Staff API lane.
     name: 'mixed-couple-private-supplement-on-bill',
     lang: 'en',
     allow_writes: true,
+    needs_private_room: 0,                                      // rolling week (base offset)
     turns: [
-      { text: "Hi! We're a couple — my girlfriend and me — 7 nights, July 6 to 13 2026, Malibu package.", expect: {} },
+      { text: "Hi! We're a couple — my girlfriend and me — 7 nights, {{WEEK_EN}}, Malibu package.", expect: {} },
       { text: 'Yes, a private room for the two of us sounds perfect.', expect: {} },
       { text: "I'm Robin, and we'll pay the deposit.", expect: {} },
       { text: 'Yes, go ahead and create the booking.', expect: {} },
@@ -352,8 +409,27 @@ function runFixture(fx, { verbose }) {
   const allTools = [];
   const allReplies = [];
   process.stdout.write(`\n▶ ${fx.name} (${fx.lang}${fx.allow_writes ? ', writes' : ''})\n`);
+
+  // Private-room fixtures: roll to a future week, then skip cleanly (not FAIL)
+  // if R6 is already occupied for it — a wedged precondition is not a regression.
+  let turns = fx.turns;
+  if (fx.needs_private_room != null) {
+    const week = rollingPrivateWeek(fx.needs_private_room);
+    turns = fx.turns.map((t) => ({ ...t,
+      text: t.text.replace('{{WEEK_EN}}', week.en).replace('{{WEEK_IT}}', week.it) }));
+    const avail = privateRoomAvailable(week.ciISO, week.coISO);
+    if (avail !== true) {
+      const why = avail === false
+        ? `private room (R6) already booked for ${week.ciISO}..${week.coISO}`
+        : `could not confirm private-room availability for ${week.ciISO}..${week.coISO}`;
+      process.stdout.write(`  ⊝ SKIP — ${why}\n`);
+      return { fails: [], skipped: true };
+    }
+    process.stdout.write(`  · private room free for ${week.ciISO}..${week.coISO} ✓\n`);
+  }
+
   try {
-    fx.turns.forEach((turn, i) => {
+    turns.forEach((turn, i) => {
       if (i > 0) pace();
       const res = simulate(thread, turn.text, { lang: fx.lang, allowWrites: fx.allow_writes });
       guestPhone = res.guest_phone || guestPhone;
@@ -395,7 +471,7 @@ function runFixture(fx, { verbose }) {
     // later fixture that reuses the same derived phone.
     freshStart(guestPhone);
   }
-  return fails;
+  return { fails, skipped: false };
 }
 
 function main() {
@@ -427,9 +503,10 @@ function main() {
   if (gate) fixtures = fixtures.filter((f) => !f.allow_writes);
   if (!fixtures.length) { console.error(`no fixture named "${only}"`); process.exit(2); }
 
-  let passed = 0, failed = 0, xfail = 0, xpass = 0;
+  let passed = 0, failed = 0, xfail = 0, xpass = 0, skipped = 0;
   for (const fx of fixtures) {
-    const fails = runFixture(fx, { verbose });
+    const { fails, skipped: sk } = runFixture(fx, { verbose });
+    if (sk) { skipped++; continue; }
     if (fx.expect_fail) {
       if (fails.length) { xfail++; process.stdout.write(`  ⊘ XFAIL (known bug, tracked): ${fx.expect_fail}\n`); }
       else { xpass++; process.stdout.write(`  ⚠ XPASS — ${fx.name} now PASSES! Remove its expect_fail marker (the bug is fixed).\n`); }
@@ -438,6 +515,7 @@ function main() {
   const parts = [`${passed} passed`];
   if (xfail) parts.push(`${xfail} xfail`);
   if (xpass) parts.push(`${xpass} XPASS⚠`);
+  if (skipped) parts.push(`${skipped} skipped`);
   if (failed) parts.push(`${failed} FAILED`);
   console.log(`\n${failed ? '✗' : '✓'} golden conversations: ${parts.join(', ')} (${fixtures.length} run${gate ? ', gate mode' : ''})`);
   process.exit(failed ? 1 : 0);                        // xfail/xpass never break the gate
