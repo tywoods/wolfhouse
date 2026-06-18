@@ -7,7 +7,7 @@
 
 'use strict';
 
-const { inferLikelyGuestGender, normalizeGroupGender } = require('./luna-booking-intake-policy');
+const { normalizeGroupGender } = require('./luna-booking-intake-policy');
 
 const CANONICAL_ROOM_TYPES = new Set([
   'male_only',
@@ -730,31 +730,18 @@ function deriveAllocatorContext({
     if (count >= 2) {
       return { groupGender: 'unknown', roomPreference: 'mixed' };
     }
-    const names = Array.isArray(guestNames) && guestNames.length
-      ? guestNames.map(trimStr).filter(Boolean)
-      : (trimStr(guestName) ? [trimStr(guestName)] : []);
-    const genders = names.map(inferLikelyGuestGender).filter((g) => g !== 'unknown');
-    const groupGender = genders.length === 1 ? genders[0] : (genders.length > 1 ? 'mixed' : 'unknown');
-    return { groupGender, roomPreference: 'mixed' };
+    return { groupGender: explicit || 'unknown', roomPreference: 'mixed' };
   }
 
   if (count >= 2) {
-    return { groupGender: 'unknown', roomPreference: rp };
+    return { groupGender: explicit || 'unknown', roomPreference: rp };
   }
 
-  const names = Array.isArray(guestNames) && guestNames.length
-    ? guestNames.map(trimStr).filter(Boolean)
-    : (trimStr(guestName) ? [trimStr(guestName)] : []);
-  const genders = names.map(inferLikelyGuestGender);
-  const known = genders.filter((g) => g !== 'unknown');
-  if (!known.length) {
-    return { groupGender: 'unknown', roomPreference: rp };
+  // Solo — honor Luna's room_preference / gender_preference only; never guess from guest name
+  if (explicit) {
+    return { groupGender: explicit, roomPreference: rp };
   }
-  const unique = [...new Set(known)];
-  if (unique.length > 1) {
-    return { groupGender: 'mixed', roomPreference: rp };
-  }
-  return { groupGender: unique[0], roomPreference: rp };
+  return { groupGender: 'unknown', roomPreference: rp };
 }
 
 function buildAllocatorRoomsFromBedRows(bedRows, occupiedBedCodes, allowedBedCodes) {

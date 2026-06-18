@@ -3674,7 +3674,7 @@ async function handleBookingDateChangePreview(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 const EDIT_PREVIEW_VALID_TYPES = Object.freeze(['contact', 'dates', 'package', 'guests']);
-const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests']);
+const EDIT_WRITE_SUPPORTED_TYPES = Object.freeze(['contact', 'package', 'dates', 'guests', 'private_room']);
 const EDIT_PREVIEW_ACCOMM_LINE_CODES = Object.freeze({
   package: true, package_proration: true, room_supplement: true,
   accommodation_only: true, manual_accommodation: true,
@@ -3701,6 +3701,9 @@ SELECT
   b.total_amount_cents,
   b.amount_paid_cents,
   b.balance_due_cents,
+  b.deposit_required_cents,
+  b.requested_room_type,
+  b.room_preference,
   b.primary_room_code,
   b.metadata
 FROM bookings b
@@ -3990,6 +3993,9 @@ SELECT
   b.total_amount_cents,
   b.amount_paid_cents,
   b.balance_due_cents,
+  b.deposit_required_cents,
+  b.requested_room_type,
+  b.room_preference,
   b.primary_room_code,
   b.metadata
 FROM bookings b
@@ -4087,6 +4093,34 @@ RETURNING
   b.guest_name,
   b.phone,
   b.email
+`;
+
+const EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL = `
+UPDATE bookings b
+SET total_amount_cents = $3,
+    balance_due_cents = $4,
+    deposit_required_cents = COALESCE($5, b.deposit_required_cents),
+    room_preference = $6,
+    requested_room_type = $7,
+    metadata = COALESCE(b.metadata, '{}'::jsonb) || $8::jsonb
+FROM clients c
+WHERE b.client_id = c.id
+  AND c.slug = $1
+  AND b.id::text = $2
+RETURNING
+  b.id::text           AS booking_id,
+  b.booking_code,
+  b.package_code,
+  b.guest_count,
+  b.check_in::text     AS check_in,
+  b.check_out::text    AS check_out,
+  b.total_amount_cents,
+  b.amount_paid_cents,
+  b.balance_due_cents,
+  b.deposit_required_cents,
+  b.requested_room_type,
+  b.room_preference,
+  b.metadata
 `;
 
 const EDIT_WRITE_DATES_UPDATE_BOOKING_SQL = `
@@ -4373,7 +4407,7 @@ function editPreviewInvoiceSide(accCents, svcRows, paidCents, quoteLineItems) {
   return { line_items, total_amount_cents, paid_amount_cents, balance_due_cents, needs_refund };
 }
 
-function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageCode) {
+function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageCode, roomType) {
   try {
     return calculateWolfhouseQuote({
       client_slug:    clientSlug,
@@ -4381,13 +4415,121 @@ function editPreviewTryQuote(clientSlug, checkIn, checkOut, guestCount, packageC
       check_out:      checkOut,
       guest_count:    guestCount,
       package_code:   packageCode,
-      room_type:      'shared',
+      room_type:      roomType || 'shared',
       payment_choice: 'deposit',
       add_ons:        [],
     });
   } catch (err) {
     return { success: false, error: err.message };
   }
+}
+
+function bookingPrivateRoomEnabled(row) {
+  if (!row) return false;
+  let md = row.metadata;
+  if (typeof md === 'string') {
+    try { md = JSON.parse(md); } catch (_) { md = {}; }
+  }
+  const quoteSnap = (md && typeof md === 'object' && md.quote_snapshot) || null;
+  if (quoteSnap && Array.isArray(quoteSnap.line_items)) {
+    for (const li of quoteSnap.line_items) {
+      if (li.code === 'room_supplement' && Number(li.total_cents) > 0) return true;
+    }
+  }
+  const pref = String(row.room_preference || row.requested_room_type || '').toLowerCase();
+  return /\b(?:couple_private|private_room|private)\b/.test(pref)
+    || pref === 'double'
+    || pref === 'matrimonial';
+}
+
+function editPreviewQuoteRoomType(privateRoomEnabled) {
+  return privateRoomEnabled ? 'double' : 'shared';
+}
+
+function editWritePrivateRoomPreference(bookingRow, enabled) {
+  if (enabled) return 'couple_private';
+  const pref = String((bookingRow && bookingRow.room_preference) || '').toLowerCase();
+  if (/\b(?:couple_private|private_room|private)\b/.test(pref)
+    || pref === 'double'
+    || pref === 'matrimonial') {
+    return 'shared';
+  }
+  return (bookingRow && bookingRow.room_preference) || 'shared';
+}
+
+function editWriteRequestedRoomType(bookingRow, enabled) {
+  if (enabled) return 'double';
+  const rt = String((bookingRow && bookingRow.requested_room_type) || '').toLowerCase();
+  if (rt === 'double' || rt === 'matrimonial' || rt === 'private') return 'shared';
+  return (bookingRow && bookingRow.requested_room_type) || 'shared';
+}
+
+function editWritePrivateRoomSnapshot(row) {
+  return {
+    private_room_enabled: bookingPrivateRoomEnabled(row),
+    total_amount_cents: row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
+    balance_due_cents: row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
+    room_preference: row.room_preference || null,
+    requested_room_type: row.requested_room_type || null,
+  };
+}
+
+function editWritePrivateRoomBookingSummary(row) {
+  return {
+    booking_id: row.booking_id,
+    booking_code: row.booking_code,
+    total_amount_cents: row.total_amount_cents != null ? Number(row.total_amount_cents) : null,
+    balance_due_cents: row.balance_due_cents != null ? Number(row.balance_due_cents) : null,
+    room_preference: row.room_preference || null,
+    requested_room_type: row.requested_room_type || null,
+    private_room_enabled: bookingPrivateRoomEnabled(row),
+  };
+}
+
+function editWriteResolvePrivateRoomTotals(bookingRow, svcRows, enabled, clientSlug) {
+  const storedPkg = editPreviewPackageStorageCode(bookingRow.package_code);
+  const quotePkg = editPreviewQuotePackageCode(storedPkg || 'no_package');
+  const guestCount = Math.max(1, Number(bookingRow.guest_count) || 1);
+  const roomType = editPreviewQuoteRoomType(enabled);
+  const quote = editPreviewTryQuote(
+    clientSlug,
+    bookingRow.check_in,
+    bookingRow.check_out,
+    guestCount,
+    quotePkg,
+    roomType
+  );
+  if (!quote || !quote.success) {
+    const blockers = (quote && Array.isArray(quote.blockers)) ? quote.blockers.map(String) : [];
+    return {
+      error: (quote && quote.error) || blockers[0] || 'private_room_reprice_calculation_unavailable',
+      blockers,
+      quote: quote || null,
+    };
+  }
+  const accCents = editPreviewAccFromQuote(quote);
+  if (accCents == null) {
+    return { error: 'private_room_reprice_calculation_unavailable', quote };
+  }
+  const svcSum = editPreviewSvcSum(svcRows);
+  const totalCents = accCents + svcSum;
+  const paid = Number(bookingRow.amount_paid_cents) || 0;
+  let balanceDue = 0;
+  let needsRefund = false;
+  if (totalCents > paid) balanceDue = totalCents - paid;
+  else if (totalCents < paid) {
+    needsRefund = true;
+    balanceDue = 0;
+  }
+  return {
+    quote,
+    totalCents,
+    balanceDue,
+    needsRefund,
+    depositRequired: quote.deposit_required_cents != null ? Number(quote.deposit_required_cents) : null,
+    roomPreference: editWritePrivateRoomPreference(bookingRow, enabled),
+    requestedRoomType: editWriteRequestedRoomType(bookingRow, enabled),
+  };
 }
 
 function staffPackageDisplayLabel(code) {
@@ -4554,6 +4696,7 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
   const curAcc = editPreviewAccommodationCents(bookingRow, svcRows, quoteSnap);
   const curNights = movePreviewNights(bookingRow.check_in, bookingRow.check_out);
   const curGuests = Number(bookingRow.guest_count) || 1;
+  const roomType = editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow));
 
   if (!pricingAffects) {
     return {
@@ -4582,6 +4725,7 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
       checkOut,
       guestCount,
       'no_package',
+      roomType,
     );
     if (q && q.success) {
       const proposedAcc = editPreviewAccFromQuote(q);
@@ -4610,6 +4754,7 @@ function editWriteResolveProposedAccommodation(bookingRow, svcRows, proposedFiel
       checkOut,
       guestCount,
       packageCode,
+      roomType,
     );
     if (q && q.success) {
       const proposedAcc = editPreviewAccFromQuote(q);
@@ -5298,7 +5443,8 @@ async function handleBookingEditWritePackage(
     bookingRow.check_in,
     bookingRow.check_out,
     Number(bookingRow.guest_count) || 1,
-    storedPackage
+    storedPackage,
+    editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
   );
   const metadataPatch = (quote && quote.success)
     ? JSON.stringify({ quote_snapshot: quote })
@@ -5533,7 +5679,8 @@ async function handleBookingEditWriteDates(
       checkIn,
       checkOut,
       Number(bookingRow.guest_count) || 1,
-      pkgForQuote
+      pkgForQuote,
+      editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
     )
     : null;
   const metadataPatch = (quote && quote.success)
@@ -5792,7 +5939,8 @@ async function handleBookingEditWriteGuests(
       bookingRow.check_in,
       bookingRow.check_out,
       guestCount,
-      pkgForQuote
+      pkgForQuote,
+      editPreviewQuoteRoomType(bookingPrivateRoomEnabled(bookingRow)),
     )
     : null;
   const metadataPatch = (quote && quote.success)
@@ -5897,6 +6045,164 @@ async function handleBookingEditWriteGuests(
   }
 }
 
+async function handleBookingEditWritePrivateRoom(
+  res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+) {
+  if (body.private_room_enabled === undefined || body.private_room_enabled === null) {
+    return send400(res, 'private_room_enabled is required (boolean)');
+  }
+  const enabled = body.private_room_enabled === true
+    || String(body.private_room_enabled).toLowerCase() === 'true';
+
+  const auditResponse = {
+    actor: actorLabel,
+    reason: auditBase.reason,
+    idempotency_key: auditBase.idempotency_key,
+  };
+
+  let bookingRow, svcRows;
+  try {
+    const loaded = await withPgClient(async (pg) => {
+      const bookingRes = await pg.query(
+        bookingId ? EDIT_PREVIEW_BOOKING_BY_ID_SQL : EDIT_PREVIEW_BOOKING_BY_CODE_SQL,
+        [clientSlug, bookingId || bookingCode]
+      );
+      const booking = bookingRes.rows[0] || null;
+      if (!booking) return { bookingRow: null, svcRows: [] };
+      const svc = await loadBookingServiceRecords(pg, clientSlug, booking.booking_code);
+      return { bookingRow: booking, svcRows: svc.rows };
+    });
+    bookingRow = loaded.bookingRow;
+    svcRows = loaded.svcRows;
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'edit write query failed', detail: err.message });
+  }
+
+  if (!bookingRow) {
+    appendAuditLog({ ...auditBase, success: false, error: 'booking_not_found', elapsed_ms: Date.now() - started });
+    return sendJSON(res, 404, { success: false, error: 'booking not found', updated: false, would_mutate: false });
+  }
+
+  const before = editWritePrivateRoomSnapshot(bookingRow);
+  const currentEnabled = bookingPrivateRoomEnabled(bookingRow);
+
+  if (currentEnabled === enabled) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, updated: false, idempotent: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: false,
+      idempotent: true,
+      edit_type: 'private_room',
+      booking: editWritePrivateRoomBookingSummary(bookingRow),
+      before,
+      after: before,
+      invoice_impact: editWriteInvoiceImpactFromPreview(null, false),
+      audit: auditResponse,
+      message: 'Booking private room setting already matches the requested value.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const resolved = editWriteResolvePrivateRoomTotals(bookingRow, svcRows, enabled, clientSlug);
+  if (resolved.error) {
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: resolved.error,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 400, {
+      success: false,
+      error: resolved.error,
+      edit_type: 'private_room',
+      updated: false,
+      would_mutate: false,
+      before,
+      proposed: { private_room_enabled: enabled },
+      message: 'Private room change could not be calculated. No changes were made.',
+      elapsed_ms: elapsed,
+    });
+  }
+
+  const metadataPatch = JSON.stringify({ quote_snapshot: resolved.quote });
+  const curTotal = bookingRow.total_amount_cents != null ? Number(bookingRow.total_amount_cents) : null;
+  const invoice_impact = {
+    requires_reprice: false,
+    package_changed: false,
+    payment_mutation: false,
+    stripe_mutation: false,
+    total_amount_cents: resolved.totalCents,
+    balance_due_cents: resolved.balanceDue,
+    needs_refund: resolved.needsRefund,
+    refund_review_needed: resolved.needsRefund,
+    delta_amount_cents: curTotal != null ? resolved.totalCents - curTotal : null,
+  };
+
+  try {
+    const updatedRow = await withPgClient(async (pg) => {
+      await pg.query('BEGIN');
+      try {
+        const upd = await pg.query(EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL, [
+          clientSlug,
+          bookingRow.booking_id,
+          resolved.totalCents,
+          resolved.balanceDue,
+          resolved.depositRequired,
+          resolved.roomPreference,
+          resolved.requestedRoomType,
+          metadataPatch,
+        ]);
+        if (!upd.rows[0]) {
+          await pg.query('ROLLBACK');
+          return null;
+        }
+        await pg.query('COMMIT');
+        return upd.rows[0];
+      } catch (e) {
+        try { await pg.query('ROLLBACK'); } catch (_) {}
+        throw e;
+      }
+    });
+
+    if (!updatedRow) {
+      appendAuditLog({ ...auditBase, success: false, error: 'update_failed', elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'private room update failed', updated: false });
+    }
+
+    const after = editWritePrivateRoomSnapshot(updatedRow);
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      updated: true,
+      private_room_enabled: enabled,
+      elapsed_ms: elapsed,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      updated: true,
+      edit_type: 'private_room',
+      booking: editWritePrivateRoomBookingSummary(updatedRow),
+      before,
+      after,
+      invoice_impact,
+      audit: auditResponse,
+      needs_refund: resolved.needsRefund,
+      refund_review_needed: resolved.needsRefund,
+      message: enabled
+        ? 'Private room supplement added and booking total recalculated.'
+        : 'Private room supplement removed and booking total recalculated.',
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'private room update failed', detail: err.message, updated: false });
+  }
+}
+
 async function handleBookingEditWrite(req, res, user) {
   const started = Date.now();
 
@@ -5972,6 +6278,12 @@ async function handleBookingEditWrite(req, res, user) {
 
   if (editType === 'guests') {
     return handleBookingEditWriteGuests(
+      res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
+    );
+  }
+
+  if (editType === 'private_room') {
+    return handleBookingEditWritePrivateRoom(
       res, body, auditBase, started, actorLabel, clientSlug, bookingId, bookingCode
     );
   }
@@ -21396,6 +21708,63 @@ var BC_RUNNING_INVOICE_ACCOMM_CODES = {
   guest_package: true, guest_package_proration: true, guest_accommodation_only: true,
 };
 
+function bcQuoteRoomSupplementLine(quoteSnap){
+  if (!quoteSnap || !Array.isArray(quoteSnap.line_items)) return null;
+  for (var i = 0; i < quoteSnap.line_items.length; i++){
+    var li = quoteSnap.line_items[i];
+    if (li.code === 'room_supplement' && li.total_cents != null) return li;
+  }
+  return null;
+}
+
+function bcQuoteRoomSupplementCents(quoteSnap){
+  var li = bcQuoteRoomSupplementLine(quoteSnap);
+  if (!li || Number(li.total_cents) <= 0) return null;
+  return Number(li.total_cents);
+}
+
+function bcBookingPrivateRoomEnabled(bk){
+  bk = bk || {};
+  var md = bk.metadata || {};
+  if (typeof md === 'string') { try { md = JSON.parse(md); } catch (_) { md = {}; } }
+  var quoteSnap = md.quote_snapshot || null;
+  if (bcQuoteRoomSupplementCents(quoteSnap) != null) return true;
+  var pref = String(bk.room_preference || bk.requested_room_type || '').toLowerCase();
+  return /\b(?:couple_private|private_room|private)\b/.test(pref)
+    || pref === 'double'
+    || pref === 'matrimonial';
+}
+
+function bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines){
+  if (accCents == null) return null;
+  var supp = bcQuoteRoomSupplementCents(quoteSnap);
+  if (supp != null && (!guestAccLines || !guestAccLines.length)) {
+    return accCents - supp;
+  }
+  return accCents;
+}
+
+function bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines){
+  var accCents = null;
+  if (guestAccLines && guestAccLines.length) {
+    var guestSum = 0;
+    var guestAny = false;
+    guestAccLines.forEach(function(line){
+      if (line.accommodation_cents != null) {
+        guestSum += Number(line.accommodation_cents);
+        guestAny = true;
+      }
+    });
+    if (guestAny) accCents = guestSum;
+  }
+  if (accCents == null) accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  else {
+    var suppOnly = bcQuoteRoomSupplementCents(quoteSnap);
+    if (suppOnly != null) accCents += suppOnly;
+  }
+  return accCents;
+}
+
 function bcRunningInvoicePackageLabel(code){
   if (!code) return null;
   var c = String(code).trim();
@@ -21435,19 +21804,7 @@ function bcComputeBookingInvoiceTotals(bk, svcRows, pmt, transferRows, guestAccL
   guestAccLines = guestAccLines || [];
   var md = bk.metadata || {};
   var quoteSnap = md.quote_snapshot || null;
-  var accCents = null;
-  if (guestAccLines.length) {
-    var guestSum = 0;
-    var guestAny = false;
-    guestAccLines.forEach(function(line){
-      if (line.accommodation_cents != null) {
-        guestSum += Number(line.accommodation_cents);
-        guestAny = true;
-      }
-    });
-    if (guestAny) accCents = guestSum;
-  }
-  if (accCents == null) accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var accCents = bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines);
   var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var invoiceTotal = accCents != null ? accCents + svcSum + transferSum
@@ -21894,19 +22251,9 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   var quoteSnap = md.quote_snapshot || null;
   var nights = bcStayNightsFromCheckInOut(bk.check_in, bk.check_out);
   var pkgLabel = bcRunningInvoicePackageLabel(bk.package_code);
-  var accCents = null;
-  if (guestAccLines.length) {
-    var guestSum = 0;
-    var guestAny = false;
-    guestAccLines.forEach(function(line){
-      if (line.accommodation_cents != null) {
-        guestSum += Number(line.accommodation_cents);
-        guestAny = true;
-      }
-    });
-    if (guestAny) accCents = guestSum;
-  }
-  if (accCents == null) accCents = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+  var accCents = bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines);
+  var pkgDisplayCents = bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines);
+  var suppLi = bcQuoteRoomSupplementLine(quoteSnap);
   var svcSum = svcRows.reduce(function(s, r){ return s + bcServiceRecordBillableCents(r); }, 0);
   var transferSum = bcSumActiveTransferChargesCents(transferRows);
   var transferLines = bcTransferInvoiceLineItems(transferRows);
@@ -21943,21 +22290,44 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     });
   } else {
     var accLine = null;
-    if (accCents != null && pkgLabel && nights > 0 && accCents > 0 && accCents % nights === 0){
+    var displayCents = pkgDisplayCents != null ? pkgDisplayCents : accCents;
+    if (displayCents != null && pkgLabel && nights > 0 && displayCents > 0 && displayCents % nights === 0){
       accLine = pkgLabel + ' \u2014 ' + bcNightsLabel(nights) +
-        ' \u00d7 ' + eur(accCents / nights) + ' = ' + eur(accCents);
-    } else if (accCents != null){
+        ' \u00d7 ' + eur(displayCents / nights) + ' = ' + eur(displayCents);
+    } else if (displayCents != null){
       var accParts = [];
       if (pkgLabel) accParts.push(pkgLabel);
       if (nights > 0) accParts.push(bcNightsLabel(nights));
       accLine = (accParts.length ? accParts.join(' \u2014 ') + ' \u2014 ' : '') +
-        t('drawer.invoice.accommodationTotal', { amount: eur(accCents) });
+        t('drawer.invoice.accommodationTotal', { amount: eur(displayCents) });
     } else if (pkgLabel || nights > 0){
       accLine = (pkgLabel || t('drawer.invoice.accommodation')) +
         (nights > 0 ? ' \u2014 ' + bcNightsLabel(nights) : '') +
         ' \u2014 ' + t('drawer.invoice.notAvailable');
     }
     html += '<div class="ctx-inv-line">' + escHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
+  }
+  html += '</div>';
+
+  /* Private room supplement */
+  html += '<div class="ctx-inv-group" id="bc-inv-private-room">';
+  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.privateRoom')) + '</div>';
+  if (suppLi && Number(suppLi.total_cents) > 0) {
+    var perNight = suppLi.unit_cents != null ? Number(suppLi.unit_cents) : null;
+    var suppNights = suppLi.nights != null ? Number(suppLi.nights) : nights;
+    var suppLine;
+    if (perNight != null && suppNights > 0) {
+      suppLine = t('drawer.invoice.privateRoomSupplementLine', {
+        perNight: eur(perNight),
+        nights: String(suppNights),
+        total: eur(suppLi.total_cents),
+      });
+    } else {
+      suppLine = t('drawer.invoice.privateRoomSupplementTotal', { total: eur(suppLi.total_cents) });
+    }
+    html += '<div class="ctx-inv-line">' + escHtml(suppLine) + '</div>';
+  } else {
+    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noPrivateRoomSupplement')) + '</div>';
   }
   html += '</div>';
 
@@ -22476,6 +22846,10 @@ function bcNewDatesEditIdempotencyKey(){
 
 function bcNewGuestsEditIdempotencyKey(){
   return 'bc-guests-edit-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
+}
+
+function bcNewPrivateRoomEditIdempotencyKey(){
+  return 'bc-private-room-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10);
 }
 
 function bcFieldEditOptionalContactInput(raw){
@@ -23221,6 +23595,18 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
+
+  var privateRoomOn = bcBookingPrivateRoomEnabled(bk);
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-private-room" data-bc-field-group="private_room">';
+  html += '<label class="ctx-field-private-room-label" for="bc-field-private-room">';
+  html += '<input type="checkbox" id="bc-field-private-room" data-bc-private-room-toggle' +
+    (privateRoomOn ? ' checked' : '') + '>';
+  html += '<span>' + escHtml(t('drawer.field.privateRoom')) + '</span>';
+  html += '</label>';
+  html += '<div class="ctx-field-private-room-hint" style="font-size:11px;color:var(--muted,#666);margin-top:4px">' +
+    escHtml(t('drawer.field.privateRoomHint')) + '</div>';
+  html += '<div class="ctx-field-preview-result" id="bc-field-private-room-status" aria-live="polite" style="display:none"></div>';
+  html += '</div>';
   }
 
   return html;
@@ -24252,6 +24638,83 @@ function bcInitFieldEditShell(data){
       sel.oninput = pkgHandler;
     });
   }
+  bcInitPrivateRoomToggle();
+}
+
+function bcInitPrivateRoomToggle(){
+  var cb = el('bc-field-private-room');
+  if (!cb) return;
+  var statusEl = el('bc-field-private-room-status');
+  var inFlight = false;
+  cb.onchange = function(){
+    if (inFlight) {
+      cb.checked = !cb.checked;
+      return;
+    }
+    var enabled = !!cb.checked;
+    var code = bcFieldEditState.bookingCode;
+    if (!code) {
+      cb.checked = !enabled;
+      return;
+    }
+    inFlight = true;
+    cb.disabled = true;
+    if (statusEl) {
+      statusEl.style.display = '';
+      statusEl.className = 'ctx-field-preview-result is-visible';
+      statusEl.innerHTML = escHtml(t('drawer.field.privateRoomSaving'));
+    }
+    fetch('/staff/bookings/edit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_slug: bcFieldEditState.clientSlug || getBcClient(),
+        booking_id: bcFieldEditState.bookingId,
+        booking_code: bcFieldEditState.bookingCode,
+        edit_type: 'private_room',
+        private_room_enabled: enabled,
+        idempotency_key: bcNewPrivateRoomEditIdempotencyKey(),
+        reason: 'Staff portal private room toggle',
+      }),
+    })
+      .then(function(r){ return r.json().then(function(d){ return { ok: r.ok, status: r.status, data: d }; }); })
+      .then(function(res){
+        inFlight = false;
+        cb.disabled = false;
+        var data = res.data || {};
+        if (!res.ok || !data.success) {
+          cb.checked = !enabled;
+          if (statusEl) {
+            statusEl.className = 'ctx-field-preview-result is-visible is-blocked';
+            statusEl.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' +
+              escHtml(data.error || data.message || 'Private room update failed.');
+          }
+          return;
+        }
+        if (statusEl) {
+          statusEl.className = 'ctx-field-preview-result is-visible';
+          statusEl.innerHTML = '<div class="ctx-field-preview-badge">' +
+            escHtml(data.idempotent ? t('drawer.field.privateRoomNoChange') : t('drawer.field.privateRoomSaved')) +
+            '</div>' + escHtml(data.message || '');
+          if (data.invoice_impact && data.invoice_impact.total_amount_cents != null) {
+            statusEl.innerHTML += '<div style="margin-top:6px">' +
+              escHtml(t('drawer.field.privateRoomNewTotal', {
+                total: bcFieldEditFormatEuro(data.invoice_impact.total_amount_cents),
+              })) + '</div>';
+          }
+        }
+        if (code) loadBlockDetail(code);
+      })
+      .catch(function(e){
+        inFlight = false;
+        cb.disabled = false;
+        cb.checked = !enabled;
+        if (statusEl) {
+          statusEl.className = 'ctx-field-preview-result is-visible is-blocked';
+          statusEl.innerHTML = '<div class="ctx-field-preview-badge">Save failed</div>' + escHtml(e.message || 'Network error');
+        }
+      });
+  };
 }
 
 /* ── Phase 26c/26f/26f.1 — Flight / Transfer Details editor ───────────────── */
@@ -24904,21 +25367,33 @@ function bcServicesFormatEuro(cents){
   return '\u20ac' + (Number(cents) / 100).toFixed(2);
 }
 
-function bcRenderServiceChipHtml(svc){
-  var parts = [escHtml(svc.service_name || svc.service_type || 'Service')];
+function bcServiceChipQuantity(svc){
+  svc = svc || {};
+  var qty = Math.max(1, parseInt(svc.quantity, 10) || 1);
+  if (qty > 1) return qty;
+  if (svc.people_count != null && Number(svc.people_count) > 1) return Number(svc.people_count);
+  if (svc.guest_count != null && Number(svc.guest_count) > 1) return Number(svc.guest_count);
+  return 1;
+}
+
+function bcFormatServiceChipText(svc){
+  svc = svc || {};
+  var name = svc.service_name || svc.service_type || 'Service';
+  var qty = bcServiceChipQuantity(svc);
+  var label = qty > 1 ? (name + ' \u00d7' + qty) : name;
   var priceCents = svc.total_price_cents != null ? svc.total_price_cents
     : (svc.unit_price_cents != null ? svc.unit_price_cents : null);
-  if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
-  var colorCls = svc.color_class || 'bc-svc-color-neutral';
-  return '<span class="bc-svc-chip ' + escHtml(colorCls) + '">' + parts.join(' · ') + '</span>';
+  if (priceCents != null) return label + ' \u2014 ' + bcServicesFormatEuro(priceCents);
+  return label;
+}
+
+function bcRenderServiceChipHtml(svc){
+  var colorCls = (svc && svc.color_class) || 'bc-svc-color-neutral';
+  return '<span class="bc-svc-chip ' + escHtml(colorCls) + '">' + escHtml(bcFormatServiceChipText(svc)) + '</span>';
 }
 
 function bcFormatServiceSummaryLine(svc){
-  var parts = [svc.service_name || svc.service_type || 'Service'];
-  var priceCents = svc.total_price_cents != null ? svc.total_price_cents
-    : (svc.unit_price_cents != null ? svc.unit_price_cents : null);
-  if (priceCents != null) parts.push(bcServicesFormatEuro(priceCents));
-  return parts.join(' \u00b7 ');
+  return bcFormatServiceChipText(svc);
 }
 
 function bcRenderSchedulePickerHtml(unsched, targetDate){

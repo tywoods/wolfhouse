@@ -22,11 +22,7 @@ const {
   resolveAddOnsStatus,
 } = require('./luna-booking-addons-policy');
 const { extractReactiveServicesFromMessage } = require('./luna-booking-reactive-services-policy');
-const {
-  UNISEX_NAMES,
-  LIKELY_MALE_NAMES,
-  LIKELY_FEMALE_NAMES,
-} = require('./luna-guest-gender-names');
+const { UNISEX_NAMES } = require('./luna-guest-gender-names');
 
 const INTAKE_FIELD_ORDER = Object.freeze([
   'dates',
@@ -89,13 +85,15 @@ function firstNameOf(fullName) {
   return parts[0] ? parts[0].toLowerCase() : '';
 }
 
-function inferLikelyGuestGender(guestName) {
-  const first = firstNameOf(guestName);
-  if (!first) return 'unknown';
-  if (UNISEX_NAMES.has(first)) return 'unknown';
-  if (LIKELY_FEMALE_NAMES.has(first)) return 'female';
-  if (LIKELY_MALE_NAMES.has(first)) return 'male';
+/** @deprecated Server no longer infers gender from names — always unknown. */
+function inferLikelyGuestGender() {
   return 'unknown';
+}
+
+function isUnisexGuestName(guestName) {
+  const first = firstNameOf(guestName);
+  if (!first) return true;
+  return UNISEX_NAMES.has(first);
 }
 
 function normalizeGroupGender(value) {
@@ -452,12 +450,11 @@ function inferRoomPreferenceNeed(state, context) {
   }
 
   if (guestCount === 1) {
-    const gender = inferLikelyGuestGender(effectiveGuestName(fields, ctx.channel_guest_name));
-    if (gender === 'male') {
+    if (roomPreferenceResolved(state)) {
       return {
         needed: false,
         question_type: null,
-        rule_applied: 'solo_male_default_mixed',
+        rule_applied: 'solo_room_preference_set',
         block_booking: false,
       };
     }
@@ -469,18 +466,18 @@ function inferRoomPreferenceNeed(state, context) {
         block_booking: false,
       };
     }
-    if (gender === 'female') {
+    if (isUnisexGuestName(effectiveGuestName(fields, ctx.channel_guest_name))) {
       return {
         needed: true,
-        question_type: 'girls_or_mixed',
-        rule_applied: 'solo_female_girls_mixed',
+        question_type: 'neutral_shared',
+        rule_applied: 'solo_unisex_neutral',
         block_booking: false,
       };
     }
     return {
-      needed: true,
-      question_type: 'neutral_shared',
-      rule_applied: 'solo_unknown_neutral',
+      needed: false,
+      question_type: null,
+      rule_applied: 'solo_defer_to_luna_room_preference',
       block_booking: false,
     };
   }
@@ -873,9 +870,6 @@ function buildInferredFields(state, context) {
   if (stay) out.stay_type = stay;
   const nights = computeStayNights(fields.check_in, fields.check_out);
   if (nights != null && nights < 7) out.short_stay_accommodation_default = true;
-  const guestCount = fields.guest_count != null ? Number(fields.guest_count) : null;
-  const gender = inferLikelyGuestGender(effectiveGuestName(fields, ch));
-  if (guestCount === 1 && gender !== 'unknown') out.likely_guest_gender = gender;
   return out;
 }
 
@@ -948,6 +942,7 @@ module.exports = {
   mergeTransferInfo,
   isGenericWhatsAppName,
   inferLikelyGuestGender,
+  isUnisexGuestName,
   extractTransferInfo,
   extractGuestCountFromText,
   extractNameFromText,

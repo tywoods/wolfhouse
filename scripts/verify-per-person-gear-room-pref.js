@@ -13,6 +13,7 @@ const { formatServiceRecordInvoiceLineText, loadWolfhouseRentalDayRates } = requ
 const { computeWolfhouseRoomOptionFlags, resolveQuoteRoomTypeFromPreference } = require('./lib/wolfhouse-room-options');
 const {
   inferRoomPreferenceNeed,
+  isUnisexGuestName,
   inferLikelyGuestGender,
   inferGroupCompositionNeed,
   parseGroupCompositionAnswer,
@@ -145,20 +146,26 @@ section('F. Room-preference branching');
     payment_choice: { payment_choice_ready: true },
   };
   const baseState = { extracted_fields: { guest_count: 1, guest_name: 'Sarah' } };
-  check('F1', inferLikelyGuestGender('Sarah') === 'female', 'Sarah → female');
-  check('F2', inferLikelyGuestGender('Marco') === 'male', 'Marco → male');
-  check('F2b', inferLikelyGuestGender('Andrea') === 'unknown', 'Andrea unisex → unknown');
-  check('F2c', inferLikelyGuestGender('Giulia') === 'female', 'Giulia IT → female');
-  check('F2d', inferLikelyGuestGender('Hans') === 'male', 'Hans DE → male');
-  check('F2e', inferLikelyGuestGender('Camille') === 'female', 'Camille FR → female');
-  check('F2f', inferLikelyGuestGender('Diego') === 'male', 'Diego ES → male');
-  const soloFemale = inferRoomPreferenceNeed(baseState, { ...roomStageCtx, availability: { girls_room_available: true } });
-  check('F3', soloFemale.needed && soloFemale.question_type === 'girls_or_mixed', 'solo female asks');
+  check('F1', inferLikelyGuestGender('Sarah') === 'unknown', 'server does not infer Sarah → female');
+  check('F2', inferLikelyGuestGender('Marco') === 'unknown', 'server does not infer Marco → male');
+  check('F2b', isUnisexGuestName('Andrea'), 'Andrea unisex guardrail');
+  check('F2c', inferLikelyGuestGender('Giovanna') === 'unknown', 'Giovanna not server-gendered');
+  check('F2d', isUnisexGuestName('Sam'), 'Sam unisex guardrail');
+  const soloGiovannaDefer = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 1, guest_name: 'Giovanna' } },
+    { ...roomStageCtx, availability: { girls_room_available: true } },
+  );
+  check('F3', !soloGiovannaDefer.needed && soloGiovannaDefer.rule_applied === 'solo_defer_to_luna_room_preference', 'solo Giovanna defers to Luna room_preference');
+  const soloGiovannaSet = inferRoomPreferenceNeed(
+    { extracted_fields: { guest_count: 1, guest_name: 'Giovanna', room_preference: 'female_only' } },
+    { ...roomStageCtx, availability: { girls_room_available: true } },
+  );
+  check('F3b', !soloGiovannaSet.needed && soloGiovannaSet.rule_applied === 'solo_room_preference_set', 'solo Giovanna with room_preference set');
   const soloMale = inferRoomPreferenceNeed(
     { extracted_fields: { guest_count: 1, guest_name: 'Marco' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
   );
-  check('F4', !soloMale.needed, 'solo male — no question');
+  check('F4', !soloMale.needed && soloMale.rule_applied === 'solo_defer_to_luna_room_preference', 'solo Marco defers to Luna — no list guess');
   const noGirls = inferRoomPreferenceNeed(baseState, { ...roomStageCtx, availability: { girls_room_available: false } });
   check('F5', !noGirls.needed && noGirls.rule_applied === 'solo_no_girls_room_auto_assign', 'girls unavailable — skip');
   const groupComp = inferGroupCompositionNeed(
@@ -200,10 +207,10 @@ section('F. Room-preference branching');
   check('F13', !groupMale.needed, 'all-guys group — no room question');
   check('F14', groupCompositionResolved({ extracted_fields: { guest_count: 2, group_gender: 'mixed' } }), 'composition resolved when set');
   const ambiguous = inferRoomPreferenceNeed(
-    { extracted_fields: { guest_count: 1, guest_name: 'Robin' } },
+    { extracted_fields: { guest_count: 1, guest_name: 'Sam' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
   );
-  check('F15', ambiguous.needed && ambiguous.question_type === 'neutral_shared', 'ambiguous solo → neutral ask');
+  check('F15', ambiguous.needed && ambiguous.question_type === 'neutral_shared' && ambiguous.rule_applied === 'solo_unisex_neutral', 'unisex Sam → neutral ask');
   const namedGroupNoInfer = inferRoomPreferenceNeed(
     { extracted_fields: { guest_count: 3, guest_name: 'Marco' } },
     { ...roomStageCtx, availability: { girls_room_available: true } },
@@ -331,6 +338,25 @@ section('J. Gender-aware assignment — couple R6 + all-female room');
     capacityOnly: false,
   });
   check('J4', !femalePick.handoff && femalePick.selected_bed_codes.every((b) => b.startsWith('R5-')), 'all-female group → female room');
+  const soloGiovannaPick = runAvailabilityBedSelection({
+    bedRows,
+    occupiedBedCodes: occupied,
+    allowedBedCodes: allowed,
+    guestCount: 1,
+    guestName: 'Giovanna',
+    roomPreference: 'female_only',
+    capacityOnly: false,
+  });
+  check('J5', !soloGiovannaPick.handoff && soloGiovannaPick.selected_bed_codes.every((b) => b.startsWith('R5-')), 'solo Giovanna + female_only → female room');
+  const soloSamPick = runAvailabilityBedSelection({
+    bedRows,
+    occupiedBedCodes: occupied,
+    allowedBedCodes: allowed,
+    guestCount: 1,
+    guestName: 'Sam',
+    capacityOnly: false,
+  });
+  check('J6', !soloSamPick.handoff && soloSamPick.group_gender === 'unknown', 'solo Sam name alone does not auto-gender');
 }
 
 console.log(`\n── verify-per-person-gear-room-pref ${failures ? 'FAILED' : 'PASSED'} (${passes}/${passes + failures}) ──\n`);

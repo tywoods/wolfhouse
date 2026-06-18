@@ -7,6 +7,7 @@
 'use strict';
 
 const { normalizeBookingDateOnly } = require('./booking-transfers');
+const { resolveRentalPeopleFromMeta } = require('./rental-breakdown-text');
 
 const SERVICE_TYPE_LABELS = {
   yoga: 'Yoga',
@@ -127,14 +128,25 @@ function isServiceDateInStay(serviceDate, checkIn, checkOut, timezone = 'Europe/
   return stayDates.includes(d);
 }
 
+function staffServiceChipQuantity(svc) {
+  const qty = Math.max(1, Number(svc && svc.quantity) || 1);
+  if (qty > 1) return qty;
+  const people = svc && svc.people_count != null ? Number(svc.people_count) : null;
+  if (people != null && people > 1) return people;
+  const gc = svc && svc.guest_count != null ? Number(svc.guest_count) : null;
+  if (gc != null && gc > 1) return gc;
+  return 1;
+}
+
 function formatPaidServiceSummaryLine(svc) {
-  const parts = [svc.service_name || svc.service_type || 'Service'];
-  const qty = Math.max(1, Number(svc.quantity) || 1);
-  if (qty > 1) parts.push(`×${qty}`);
+  const name = svc.service_name || svc.service_type || 'Service';
+  const qty = staffServiceChipQuantity(svc);
+  let label = name;
+  if (qty > 1) label = `${name} ×${qty}`;
   if (svc.total_price_cents != null) {
-    parts.push(`€${(Number(svc.total_price_cents) / 100).toFixed(2)}`);
+    return `${label} — €${(Number(svc.total_price_cents) / 100).toFixed(2)}`;
   }
-  return parts.join(' · ');
+  return label;
 }
 
 /**
@@ -354,12 +366,14 @@ function formatServiceRecordForSchedule(row, opts = {}) {
     ? normalizeBookingDateOnly(row.service_date, { timezone })
     : null;
   const serviceName = serviceTypeLabel(row);
+  const peopleCount = resolveRentalPeopleFromMeta(meta, qty, row.service_type);
   return {
     service_record_id: row.service_record_id || row.id || null,
     service_type: row.service_type || null,
     service_name: serviceName,
     service_date: serviceDate,
     quantity: qty,
+    people_count: peopleCount,
     unit_price_cents: unit,
     total_price_cents: total,
     currency: 'EUR',
@@ -466,6 +480,7 @@ module.exports = {
   distributeSpanScheduleDates,
   formatServiceRecordForSchedule,
   formatPaidServiceSummaryLine,
+  staffServiceChipQuantity,
   formatDateLabel,
   serviceTypeLabel,
   serviceColorClass,
