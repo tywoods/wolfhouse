@@ -73,12 +73,13 @@ function t(key, vars) {
   const apiPath = path.join(__dirname, 'staff-query-api.js');
   const src = fs.readFileSync(apiPath, 'utf8');
   check('S1', src.includes("edit_type: 'private_room'"), 'edit_type private_room in portal JS');
-  check('S2', src.includes('bc-field-private-room'), 'private room checkbox id');
-  check('S3', src.includes('bc-inv-private-room'), 'payments supplement section id');
+  check('S2', src.includes('bc-field-private-room-read'), 'private room read checkbox id');
+  check('S3', src.includes('bcRenderPrivateRoomSupplementLineHtml') && !src.includes('id="bc-inv-private-room"'), 'supplement under accommodation');
   check('S4', src.includes('handleBookingEditWritePrivateRoom'), 'private room write handler');
   check('S5', src.includes('EDIT_WRITE_PRIVATE_ROOM_UPDATE_SQL'), 'private room update SQL');
   check('S6', src.includes('bcQuoteRoomSupplementLine'), 'supplement line helper');
   check('S7', /bcBookingPrivateRoomEnabled[\s\S]{0,400}new RegExp\('\\\\\\\\b/.test(src), 'private room pref uses RegExp in UI');
+  check('S8', src.includes('bc-field-private-room-read-kv') && src.includes('editPrivateRoom'), 'private room in guests row with edit pencil');
 }
 
 // Portal UI bundle syntax (embedded script in buildUiHtml)

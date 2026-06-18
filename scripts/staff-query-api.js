@@ -15408,6 +15408,9 @@ input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{ou
 .ctx-field-read-row .kv:nth-child(3){grid-column:3}
 .ctx-field-read-row .kv .v{overflow-wrap:anywhere;word-break:break-word;line-height:1.35}
 .ctx-field-read-row .ctx-field-header{flex-shrink:0;width:28px;display:flex;align-items:center;justify-content:flex-end;margin:0}
+.ctx-field-read-row .ctx-field-header--dual{flex-direction:column;align-items:flex-end;gap:4px;width:36px}
+.ctx-field-private-room-read-v input[type=checkbox]{margin:0;pointer-events:none}
+.ctx-field-private-room-edit-label{display:inline-flex;align-items:center;margin:4px 0 8px}
 .ctx-field-read-row--sub .ctx-field-header--spacer{visibility:hidden;pointer-events:none}
 .ctx-field-read-row--sub{padding-top:2px}
 .btn-bc-field-edit{font-size:14px;width:28px;height:28px;padding:0;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:#fff;color:var(--text-2);cursor:pointer;line-height:1;display:inline-flex;align-items:center;justify-content:center}
@@ -22307,28 +22310,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     }
     html += '<div class="ctx-inv-line">' + escHtml(accLine || t('drawer.invoice.notAvailable')) + '</div>';
   }
-  html += '</div>';
-
-  /* Private room supplement */
-  html += '<div class="ctx-inv-group" id="bc-inv-private-room">';
-  html += '<div class="ctx-inv-group-title">' + escHtml(t('drawer.invoice.privateRoom')) + '</div>';
-  if (suppLi && Number(suppLi.total_cents) > 0) {
-    var perNight = suppLi.unit_cents != null ? Number(suppLi.unit_cents) : null;
-    var suppNights = suppLi.nights != null ? Number(suppLi.nights) : nights;
-    var suppLine;
-    if (perNight != null && suppNights > 0) {
-      suppLine = t('drawer.invoice.privateRoomSupplementLine', {
-        perNight: eur(perNight),
-        nights: String(suppNights),
-        total: eur(suppLi.total_cents),
-      });
-    } else {
-      suppLine = t('drawer.invoice.privateRoomSupplementTotal', { total: eur(suppLi.total_cents) });
-    }
-    html += '<div class="ctx-inv-line">' + escHtml(suppLine) + '</div>';
-  } else {
-    html += '<div class="ctx-inv-line ctx-none">' + escHtml(t('drawer.invoice.noPrivateRoomSupplement')) + '</div>';
-  }
+  html += bcRenderPrivateRoomSupplementLineHtml(suppLi, nights, eur);
   html += '</div>';
 
   /* Services — booking_service_records only */
@@ -23484,6 +23466,37 @@ function bcRenderFieldEditPencilBtn(group, ariaLabel){
   return '<button type="button" class="btn-bc-field-edit" data-bc-field-group="' + escHtml(group) + '" aria-label="' + escHtml(ariaLabel) + '" title="' + escHtml(ariaLabel) + '">\u270E</button>';
 }
 
+function bcFieldEditGroupEl(group){
+  return document.getElementById('bc-field-group-' + String(group).replace(/_/g, '-'));
+}
+
+function bcPrivateRoomReadKv(enabled){
+  return '<div class="kv" id="bc-field-private-room-read-kv">' +
+    '<span class="k">' + escHtml(t('drawer.field.privateRoom')) + '</span>' +
+    '<span class="v ctx-field-private-room-read-v">' +
+    '<input type="checkbox" id="bc-field-private-room-read" disabled' +
+    (enabled ? ' checked' : '') +
+    ' aria-label="' + escHtml(t('drawer.field.privateRoom')) + '">' +
+    '</span></div>';
+}
+
+function bcRenderPrivateRoomSupplementLineHtml(suppLi, nights, eur){
+  if (!suppLi || Number(suppLi.total_cents) <= 0) return '';
+  var perNight = suppLi.unit_cents != null ? Number(suppLi.unit_cents) : null;
+  var suppNights = suppLi.nights != null ? Number(suppLi.nights) : nights;
+  var suppLine;
+  if (perNight != null && suppNights > 0) {
+    suppLine = t('drawer.invoice.privateRoomSupplementLine', {
+      perNight: eur(perNight),
+      nights: String(suppNights),
+      total: eur(suppLi.total_cents),
+    });
+  } else {
+    suppLine = t('drawer.invoice.privateRoomSupplementTotal', { total: eur(suppLi.total_cents) });
+  }
+  return '<div class="ctx-inv-line ctx-inv-private-room-line">' + escHtml(suppLine) + '</div>';
+}
+
 function bcRenderFieldEditReadRow(group, pencilLabel, kvInnerHtml, colTemplate){
   var gridCls = 'kv-grid ctx-field-kv-grid ctx-field-kv-grid--3';
   if (colTemplate !== 3) gridCls = 'kv-grid ctx-field-kv-grid';
@@ -23573,7 +23586,21 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '</div></div>';
 
   html += '<div class="ctx-field-edit-group" id="bc-field-group-guests" data-bc-field-group="guests">';
-  html += bcRenderFieldEditReadRow('guests', t('drawer.field.editGuests'), kvBC(t('drawer.field.guests'), guestCount), 3);
+  var privateRoomOn = bcBookingPrivateRoomEnabled(bk);
+  var guestsReadInner =
+    '<div class="kv" id="bc-field-guests-kv-only">' +
+      '<span class="k">' + escHtml(t('drawer.field.guests')) + '</span>' +
+      '<span class="v">' + escHtml(String(guestCount)) + '</span>' +
+    '</div>' +
+    bcPrivateRoomReadKv(privateRoomOn) +
+    '<div class="kv kv--pad" aria-hidden="true"><span class="k"></span><span class="v"></span></div>';
+  html += '<div class="ctx-field-read" id="bc-field-guests-read">' +
+    '<div class="ctx-field-read-row">' +
+    '<div class="kv-grid ctx-field-kv-grid ctx-field-kv-grid--3">' + guestsReadInner + '</div>' +
+    '<div class="ctx-field-header ctx-field-header--dual">' +
+    bcRenderFieldEditPencilBtn('guests', t('drawer.field.editGuests')) +
+    bcRenderFieldEditPencilBtn('private_room', t('drawer.field.editPrivateRoom')) +
+    '</div></div></div>';
   html += '<div class="ctx-field-edit" id="bc-field-guests-edit" style="display:none">';
   html += '<label class="ctx-field-label" for="bc-field-guests-select">' + escHtml(t('drawer.field.guestCount')) + '</label>';
   html += '<select id="bc-field-guests-select" class="bk-input bk-input-sm">';
@@ -23583,6 +23610,19 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += '</select>';
   html += '<div class="ctx-field-guests-preview" id="bc-field-guests-release-preview"></div>';
   html += bcRenderFieldEditActionsHtml('guests');
+  html += '</div></div>';
+
+  html += '<div class="ctx-field-edit-group" id="bc-field-group-private-room" data-bc-field-group="private_room">';
+  html += '<div class="ctx-field-edit" id="bc-field-private-room-edit" style="display:none">';
+  html += '<label class="ctx-field-label">' + escHtml(t('drawer.field.privateRoom')) + '</label>';
+  html += '<label class="ctx-field-private-room-edit-label" for="bc-field-private-room">';
+  html += '<input type="checkbox" id="bc-field-private-room" disabled>';
+  html += '</label>';
+  html += '<div class="ctx-field-preview-result" id="bc-field-private-room-status" aria-live="polite" style="display:none"></div>';
+  html += '<div class="ctx-field-edit-actions">' +
+    '<button type="button" class="btn btn-ghost" data-bc-field-cancel="private_room" id="bc-field-cancel-private_room">' +
+    escHtml(t('drawer.field.cancel')) + '</button>' +
+    '</div>';
   html += '</div></div>';
   }
 
@@ -23595,18 +23635,6 @@ function bcRenderFieldEditSectionsHtml(data, mode){
   html += bcRenderFieldEditPackageGuestSelectsHtml(bk);
   html += bcRenderFieldEditActionsHtml('package');
   html += '</div></div>';
-
-  var privateRoomOn = bcBookingPrivateRoomEnabled(bk);
-  html += '<div class="ctx-field-edit-group" id="bc-field-group-private-room" data-bc-field-group="private_room">';
-  html += '<label class="ctx-field-private-room-label" for="bc-field-private-room">';
-  html += '<input type="checkbox" id="bc-field-private-room" data-bc-private-room-toggle' +
-    (privateRoomOn ? ' checked' : '') + '>';
-  html += '<span>' + escHtml(t('drawer.field.privateRoom')) + '</span>';
-  html += '</label>';
-  html += '<div class="ctx-field-private-room-hint" style="font-size:11px;color:var(--muted,#666);margin-top:4px">' +
-    escHtml(t('drawer.field.privateRoomHint')) + '</div>';
-  html += '<div class="ctx-field-preview-result" id="bc-field-private-room-status" aria-live="polite" style="display:none"></div>';
-  html += '</div>';
   }
 
   return html;
@@ -23795,6 +23823,10 @@ function bcFieldEditCloseAll(){
     if (read) read.style.display = '';
     if (edit) edit.style.display = 'none';
   });
+  var guestsOnly = el('bc-field-guests-kv-only');
+  if (guestsOnly) guestsOnly.style.display = '';
+  var prCb = el('bc-field-private-room');
+  if (prCb) prCb.disabled = true;
   var guestPrev = el('bc-field-guests-release-preview');
   if (guestPrev){
     guestPrev.classList.remove('has-preview');
@@ -23809,13 +23841,24 @@ function bcFieldEditActivate(group){
   if (bcFieldEditState.activeGroup === group) return;
   bcFieldEditCloseAll();
   bcFieldEditState.activeGroup = group;
-  var root = document.getElementById('bc-field-group-' + group);
+  var root = bcFieldEditGroupEl(group);
   if (!root) return;
   root.classList.add('is-editing');
   var read = root.querySelector('.ctx-field-read');
   var edit = root.querySelector('.ctx-field-edit');
-  if (read) read.style.display = 'none';
+  if (group === 'guests') {
+    var guestsOnly = el('bc-field-guests-kv-only');
+    if (guestsOnly) guestsOnly.style.display = 'none';
+  } else if (read) {
+    read.style.display = 'none';
+  }
   if (edit) edit.style.display = '';
+  if (group === 'private_room') {
+    var cb = el('bc-field-private-room');
+    var readCb = el('bc-field-private-room-read');
+    if (cb && readCb) cb.checked = !!readCb.checked;
+    if (cb) cb.disabled = false;
+  }
   if (group === 'guests') {
     bcFieldEditUpdateGuestPreview();
     bcFieldEditUpdateGuestsSaveState();
@@ -24647,8 +24690,8 @@ function bcInitPrivateRoomToggle(){
   var statusEl = el('bc-field-private-room-status');
   var inFlight = false;
   cb.onchange = function(){
-    if (inFlight) {
-      cb.checked = !cb.checked;
+    if (cb.disabled || inFlight) {
+      if (inFlight) cb.checked = !cb.checked;
       return;
     }
     var enabled = !!cb.checked;

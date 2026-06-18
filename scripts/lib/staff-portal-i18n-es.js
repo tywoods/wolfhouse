@@ -294,6 +294,7 @@ module.exports = {
   "drawer.field.package": "Paquete",
   "drawer.field.roomPref": "Pref. habitación",
   "drawer.field.privateRoom": "Habitación privada",
+  "drawer.field.editPrivateRoom": "Editar habitación privada",
   "drawer.field.privateRoomHint": "Añade suplemento de €10/noche por habitación (recalcula el total).",
   "drawer.field.privateRoomSaving": "Actualizando habitación privada…",
   "drawer.field.privateRoomSaved": "Habitación privada actualizada",
