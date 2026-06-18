@@ -200,9 +200,17 @@ const SCENARIOS = [
   // --- mixed couple private supplement, READ-ONLY (no create) ----------------
   {
     name: 'mixed-couple-private-supplement-quote-en', lang: 'en', tags: ['room', 'price'],
+    // Package flow is multi-step (availability -> shuttle/name -> room -> quote), so
+    // give Luna enough turns to REACH the private-room quote; turn 2 clears the
+    // likely shuttle + name asks so the quote reliably lands by turn 3. Read-only
+    // (no create) — the end-to-end create+supplement is the golden's job.
+    // DATES deliberately differ from the golden mixed-couple-on-bill fixture
+    // (July 6-13): its --allow-writes create leaves a private-room booking on those
+    // dates, which would otherwise mark the private room unavailable here.
     turns: [
-      "Hi! We're a couple, my girlfriend and me, 7 nights July 6 to 13 2026, Malibu package.",
-      'Yes, a private room for the two of us sounds perfect — can you quote it?',
+      "Hi! We're a couple, my girlfriend and me — 7 nights July 20 to 27 2026, Malibu package. A private room for the two of us, please.",
+      "No airport shuttle needed, thanks — I'm Robin.",
+      'Can you quote the total with the private room?',
     ],
     no_handoff: true,
     reply_expect: [/€?\s?70\b|supplement|supplemento/],
