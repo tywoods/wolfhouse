@@ -16296,6 +16296,37 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .dev-panel-note,[data-theme="dark"] .mig-note{background:#3a3420;border-color:#5a5038;color:#e8c89a}
 [data-theme="dark"] .lgs-out{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
 [data-theme="dark"] .lgs-safety{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
+/* ── Dark mode — booking drawer (overview + tabs) ───────────────────────── */
+[data-theme="dark"] .bc-drawer-tab{background:#2d2d2d;color:#858585;border-color:#3c3c3c}
+[data-theme="dark"] .bc-drawer-tab:hover{background:#333333;color:#cccccc}
+[data-theme="dark"] .bc-drawer-tab.is-active{background:#252526;color:#cccccc;border-color:#3c3c3c}
+[data-theme="dark"] .bc-drawer-tab-content-panel{background:#252526;border-color:#3c3c3c}
+[data-theme="dark"] .bc-drawer-overview-card{background:#2d2d2d;border-color:#3c3c3c;box-shadow:none}
+[data-theme="dark"] .btn-primary:disabled{background:#333333;color:#6e6e6e;border:1px solid #454545;box-shadow:none}
+[data-theme="dark"] .btn-primary:not(:disabled){color:#ffffff}
+[data-theme="dark"] .btn-success-light{background:transparent;color:#cccccc;border:1px solid #569cd6}
+[data-theme="dark"] .btn-success-light:hover{background:rgba(38,79,120,.25);border-color:#7eb8e8;color:#e8f4ff}
+[data-theme="dark"] .bc-move-source-pill{background:transparent;color:#9ec8e8;border:1px solid #569cd6}
+[data-theme="dark"] .bc-move-source-pill:hover{background:rgba(38,79,120,.2);border-color:#7eb8e8;color:#d4e8ff}
+[data-theme="dark"] .bc-move-source-pill.is-selected{background:#264f78;color:#ffffff;border:2px solid #007acc}
+[data-theme="dark"] .bc-private-room-switch-slider{background:transparent;border:1px solid #6e6e6e}
+[data-theme="dark"] .bc-private-room-switch input:checked + .bc-private-room-switch-slider{background:transparent;border-color:#cccccc}
+[data-theme="dark"] .bc-private-room-switch-slider:before{background:#858585;box-shadow:none}
+[data-theme="dark"] .bc-private-room-switch input:checked + .bc-private-room-switch-slider:before{background:#cccccc}
+[data-theme="dark"] .bc-svc-chip{font-weight:700}
+[data-theme="dark"] .bc-svc-color-board{background:rgba(59,130,246,.18);border-color:rgba(96,165,250,.42);color:#dbeafe;font-weight:700}
+[data-theme="dark"] .bc-svc-color-softboard{background:rgba(20,184,166,.16);border-color:rgba(45,212,191,.4);color:#ccfbf1;font-weight:700}
+[data-theme="dark"] .bc-svc-color-wetsuit{background:rgba(100,116,139,.22);border-color:rgba(148,163,184,.48);color:#ffffff;font-weight:700}
+[data-theme="dark"] .bc-svc-color-lesson{background:rgba(245,158,11,.18);border-color:rgba(251,191,36,.45);color:#fef3c7;font-weight:700}
+[data-theme="dark"] .bc-svc-color-yoga{background:rgba(168,85,247,.18);border-color:rgba(192,132,252,.45);color:#f3e8ff;font-weight:700}
+[data-theme="dark"] .bc-svc-color-meal{background:rgba(34,197,94,.16);border-color:rgba(74,222,128,.4);color:#dcfce7;font-weight:700}
+[data-theme="dark"] .bc-svc-color-neutral{background:#2d2d2d;border-color:#454545;color:#cccccc;font-weight:700}
+[data-theme="dark"] .ctx-field-preview-result{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .ctx-field-guests-preview{background:#2d2d2d;border-color:#3c3c3c;color:#cccccc}
+[data-theme="dark"] .ctx-field-edit{background:#2d2d2d;border-color:#3c3c3c}
+[data-theme="dark"] .bc-svc-schedule-day{background:#2d2d2d;border-color:#3c3c3c}
+[data-theme="dark"] .bc-add-ons-sched-link{color:#9ec8e8}
+[data-theme="dark"] .bc-add-ons-sched-link.is-active{color:#cccccc}
 </style>
 </head>
 <body>
