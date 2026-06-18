@@ -1,0 +1,44 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-05-surf-accommodation-package-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Guest wants lessons + accommodation — partner confirmation required, no hotel availability promise",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.3", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §3"],
+  "config_refs": ["catalog.accommodation.offerings.surf_accommodation_package"],
+  "contact_name": "Tom",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "We want surf lessons and a hotel package for next week, 2 people.",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "package_interest": "surf_accommodation_package",
+          "inventory_model": "partner_confirmed",
+          "collects": ["dates", "people_count", "service_interest"],
+          "explains_partner_hotel_confirmation_required": true,
+          "must_not_promise_hotel_availability": true,
+          "must_not_promise_hotel_price": true,
+          "asks_one_next_question": true,
+          "next_question_about": ["dates", "number_of_people", "lesson_vs_rental_preference"],
+          "must_not": [
+            "payment_link",
+            "room_confirmed",
+            "hotel_available",
+            "invented_hotel_name_or_price"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "room is confirmed", "hotel is available"],
+        "expected_no_payment_link": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "no_accommodation_confirmed_without_partner": true,
+    "tenant_isolation": "sunset_only"
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "_schema": "sunset-golden-manifest-v1",
+  "tenant_id": "sunset",
+  "status": "draft",
+  "active": false,
+  "runner": "not_wired",
+  "note": "Not picked up by scripts/verify-luna-golden.js (hardcoded fixtures/luna-golden). Wire when Sunset tenant dry-run runner exists.",
+  "config_ref": "config/clients/sunset.baseline.json",
+  "fixtures": [
+    "sunset-golden-01-rental-board-price-whatsapp.json",
+    "sunset-golden-02-rental-board-wetsuit-5day-whatsapp.json",
+    "sunset-golden-03-adult-group-lesson-two-whatsapp.json",
+    "sunset-golden-04-kids-lesson-age-check-whatsapp.json",
+    "sunset-golden-05-surf-accommodation-package-whatsapp.json",
+    "sunset-golden-06-email-rental-inquiry.json",
+    "sunset-golden-07-payment-link-guardrail-whatsapp.json"
+  ]
+}

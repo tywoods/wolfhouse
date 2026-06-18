@@ -1,0 +1,50 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-03-adult-group-lesson-two-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Two adults want group lesson tomorrow — capacity-limited, ask time or offer seed slots, no confirm without Staff API",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.2", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §2"],
+  "config_refs": [
+    "catalog.lessons.offerings.group_lesson_adult",
+    "catalog.lessons.scheduling.common_slot_times",
+    "service_addons.lesson_scheduling"
+  ],
+  "contact_name": "Chris",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "Can we book a surf lesson tomorrow for 2 adults?",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "lesson_type": "group_lesson_adult",
+          "inventory_model": "capacity_limited",
+          "participant_count": 2,
+          "asks_preferred_time_or_offers_seed_slots": true,
+          "seed_slot_times": ["11:00-13:00", "16:00-18:00"],
+          "requires_staff_api_for_availability": true,
+          "must_not_confirm_without_tool_result": true,
+          "asks_one_next_question": true,
+          "next_question_about": ["preferred_time", "slot_choice"],
+          "must_not": [
+            "payment_link",
+            "seat_confirmed",
+            "invented_availability",
+            "accommodation_style_manual_hotel_confirm"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "confirmed", "booked", "reserved"],
+        "expected_no_payment_link": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "no_lesson_seat_confirmed_without_capacity_check": true,
+    "tenant_isolation": "sunset_only"
+  }
+}

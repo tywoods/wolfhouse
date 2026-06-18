@@ -1,0 +1,46 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-01-rental-board-price-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Guest asks board rental price for tomorrow — quote from config, one next question, no payment link",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.1", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §1"],
+  "config_refs": ["catalog.rentals.offerings.board_rental"],
+  "contact_name": "Alex",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "Hi, how much is it to rent a surfboard tomorrow?",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "may_identify_as": ["Sunset", "Sunset Surf School"],
+          "quote_from_config_only": true,
+          "config_price_refs": ["catalog.rentals.offerings.board_rental.prices_eur"],
+          "may_quote_seed_windows": ["1_day", "half_day", "1_hour"],
+          "seed_price_eur_1_day": 15,
+          "explains_durations_or_prices_briefly": true,
+          "asks_one_next_question": true,
+          "next_question_about": ["duration", "pickup_time", "start_date"],
+          "inventory_model": "unlimited",
+          "must_not": [
+            "payment_link",
+            "invented_availability",
+            "booking_confirmed",
+            "wolfhouse_facts"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "pay.", "Wolfhouse", "Somo", "Malibu"],
+        "expected_no_payment_link": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "no_confirmation": true,
+    "tenant_isolation": "sunset_only"
+  }
+}
