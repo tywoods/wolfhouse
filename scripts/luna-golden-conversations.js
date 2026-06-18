@@ -252,24 +252,18 @@ const FIXTURES = [
     // 042425fa / 861de06, 2026-06-18): (1) ask_quantity relay — yoga adds clean at
     // €15/1 lesson, no 422 handoff (c9ffd75); (2) balance/saldo payment-link now
     // generates for a post-create add-on (861de06) — turn 5 returns a real pay link.
-    // THIRD layer ROOT CAUSE FOUND (image 763f32ad, 2026-06-18): the SOUL scheduling
-    // nudge works — Luna now asks the day and calls add_service_to_booking WITH a
-    // service_date. But add_service_to_booking is CASE-SENSITIVE on booking_code:
-    // passing the guest-facing UPPER code (e.g. MB-WOLFHO-...-F2787B, as shown in the
-    // confirmation) returns service_status "booking_not_found" + write_performed:false;
-    // the lowercase form succeeds. So Luna hits a "booking not found", reports an
-    // "intoppo", and falls back to flag_needs_human. Confirmed in the real Borja
-    // session: msg 2241 (UPPER) → booking_not_found, msg 2243 (lower) → success.
-    // This is the SAME case bug Cursor fixed on the cancel endpoint (UPPER(booking_code)
-    // =UPPER($)) — needs the same fix on /staff/bot/addon-requests/create. Server fix,
-    // Cursor lane. Kept expect_fail (flaky never breaks the gate) until that lands.
+    // RESOLVED + LOCKED green 2026-06-18. Three layers, all fixed and verified:
+    //   1. yoga-alias + ask_quantity 422 → handoff  — fixed (c9ffd75): adds clean at €15/1.
+    //   2. balance/saldo link for a post-create add-on — fixed (861de06): real link returned.
+    //   3. dated scheduling — SOUL nudge (763f32ad) makes Luna ask the day + pass service_date,
+    //      AND the case-sensitivity bug on add_service_to_booking's booking_code lookup
+    //      (UPPER code → booking_not_found) fixed server-side (c537eff / staff rev 0000325,
+    //      UPPER(booking_code)=UPPER($), same as cancel). Verified: 2 consecutive clean runs —
+    //      Luna asks "which day?", schedules the yoga for that date + balance link, NO handoff.
+    // expect_fail marker removed — this is now a permanent gated regression test.
     name: 'fix1b-post-booking-yoga-alias',
     lang: 'it',
     allow_writes: true,                                        // creates a Stripe-TEST booking (self-cancelled in teardown)
-    expect_fail: 'Fix1b layer 3 — SOUL scheduling nudge works (Luna asks the day + passes '
-      + 'service_date), but add_service_to_booking is CASE-SENSITIVE on booking_code: UPPER '
-      + 'code → service_status booking_not_found → "intoppo" → flag_needs_human. Fix (Cursor): '
-      + 'UPPER(booking_code)=UPPER($) on /staff/bot/addon-requests/create, same as cancel.',
     turns: [
       { text: '2 persone, 3 notti dal 15 al 18 agosto, senza pacchetto, e una tavola soft top a testa.', expect: {} },
       { text: 'Va bene il prezzo, procediamo. Mi chiamo Marco e paghiamo la caparra.', expect: {} },
@@ -282,6 +276,8 @@ const FIXTURES = [
     ],
     expect_overall: {
       tool_called: ['create_booking_from_plan', 'add_service_to_booking'],
+      // the yoga must be SCHEDULED on a day, not just billed — service_date is the lock.
+      tool_args_include: { add_service_to_booking: { service_date: /\d{4}-\d{2}-\d{2}/ } },
       tool_not_called: 'flag_needs_human',                     // add-on must NOT hand off
     },
     invariants: { reply_not_contains: LEAK_PHRASES },
