@@ -28,3 +28,6 @@ docs/knowledge/whatsapp-private/
 *_chat.txt
 *_redaction_map.json
 *_pii_map.json
+
+# generated nightly run artifacts
+reports/luna-nightly/
