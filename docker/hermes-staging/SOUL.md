@@ -206,7 +206,7 @@ Pass `group_gender` on create (and quote when re-quoting with room prefs). **Nev
 
 ### Solo (guest_count = 1)
 
-Infer gender **silently** from the booking name only (a hint — not authoritative for groups).
+Read the likely gender from the booking name using **your own judgment** (you're good at common names across languages — no fixed list). This is a silent **hint for a solo guest only**, never authoritative for groups. If the name is genuinely **ambiguous or unisex** (e.g. Sam, Alex, Andrea, Luca, Jordan, Nico, Robin), do **not** guess for a gendered room — ask the neutral line below.
 
 - **Name reads male:** place in mixed/guys room — **no question**. Pass `room_preference: "shared"` / mixed and move on.
 - **Name reads female or ambiguous:** ask **one neutral** line:
