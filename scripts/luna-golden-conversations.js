@@ -252,23 +252,24 @@ const FIXTURES = [
     // 042425fa / 861de06, 2026-06-18): (1) ask_quantity relay — yoga adds clean at
     // €15/1 lesson, no 422 handoff (c9ffd75); (2) balance/saldo payment-link now
     // generates for a post-create add-on (861de06) — turn 5 returns a real pay link.
-    // THIRD layer is now INTERMITTENT (agent fickleness, not a server gap). Both server
-    // bugs are fixed and the capability is PROVEN: in one verified run (2026-06-18) Luna
-    // added the yoga FOR "16 agosto", priced €15 and returned a balance link with NO
-    // handoff (XPASS). In another run she instead called flag_needs_human to have staff
-    // put the class on the calendar. Same image, same script → gpt-5.5 non-determinism on
-    // the dated-add-on step. Kept as expect_fail so the flaky fixture never breaks the gate
-    // (both XFAIL and XPASS exit 0). DO NOT remove the marker on a single XPASS — only once
-    // it's RELIABLY green. The durable cure is a SOUL nudge (Captain lane, needs a build):
-    // when a guest gives a date for an add-on service, add it directly via
-    // add_service_to_booking + the date — never hand off just to schedule it.
+    // THIRD layer ROOT CAUSE FOUND (image 763f32ad, 2026-06-18): the SOUL scheduling
+    // nudge works — Luna now asks the day and calls add_service_to_booking WITH a
+    // service_date. But add_service_to_booking is CASE-SENSITIVE on booking_code:
+    // passing the guest-facing UPPER code (e.g. MB-WOLFHO-...-F2787B, as shown in the
+    // confirmation) returns service_status "booking_not_found" + write_performed:false;
+    // the lowercase form succeeds. So Luna hits a "booking not found", reports an
+    // "intoppo", and falls back to flag_needs_human. Confirmed in the real Borja
+    // session: msg 2241 (UPPER) → booking_not_found, msg 2243 (lower) → success.
+    // This is the SAME case bug Cursor fixed on the cancel endpoint (UPPER(booking_code)
+    // =UPPER($)) — needs the same fix on /staff/bot/addon-requests/create. Server fix,
+    // Cursor lane. Kept expect_fail (flaky never breaks the gate) until that lands.
     name: 'fix1b-post-booking-yoga-alias',
     lang: 'it',
     allow_writes: true,                                        // creates a Stripe-TEST booking (self-cancelled in teardown)
-    expect_fail: 'Fix1b layer 3 (INTERMITTENT) — yoga add (€15) + balance link both work; '
-      + 'remaining flake is whether Luna self-serves the class DATE or hands off to staff to '
-      + 'schedule it (flag_needs_human). Proven passable (XPASS seen). Cure: SOUL nudge to add '
-      + 'a dated service directly, never hand off just to schedule. Do not remove on one XPASS.',
+    expect_fail: 'Fix1b layer 3 — SOUL scheduling nudge works (Luna asks the day + passes '
+      + 'service_date), but add_service_to_booking is CASE-SENSITIVE on booking_code: UPPER '
+      + 'code → service_status booking_not_found → "intoppo" → flag_needs_human. Fix (Cursor): '
+      + 'UPPER(booking_code)=UPPER($) on /staff/bot/addon-requests/create, same as cancel.',
     turns: [
       { text: '2 persone, 3 notti dal 15 al 18 agosto, senza pacchetto, e una tavola soft top a testa.', expect: {} },
       { text: 'Va bene il prezzo, procediamo. Mi chiamo Marco e paghiamo la caparra.', expect: {} },
