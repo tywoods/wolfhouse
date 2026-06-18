@@ -293,6 +293,26 @@
     }
   },
 
+  "service_addons": {
+    "_note": "Compatibility block for existing Luna Front Desk engine readers. Rich Sunset lesson catalog remains under catalog.lessons; current engine reads lesson_scheduling from service_addons.lesson_scheduling.",
+    "lesson_scheduling": {
+      "enabled": false,
+      "inventory_model": "capacity_limited",
+      "tracking": "staff_api_slots",
+      "bot_checks_slot_availability": true,
+      "bot_assigns_slot": false,
+      "bot_collects_request_then_staff_schedule": false,
+      "daily_slots": [],
+      "verification_status": "unverified_seed",
+      "source": "platform_config_skeleton",
+      "notes": [
+        "Sunset lessons are capacity-limited by date/time.",
+        "When enabled, availability must come from Staff API lesson slots, not model memory.",
+        "This block is present for compatibility with existing engine readers."
+      ]
+    }
+  },
+
   "payment": {
     "_status": "skeleton",
     "_note": "Reused engine spine. Values owner_required. Bot may create payment links only after the required fields are collected and pricing_status=confirmed. Links come from the Staff API / payment tool only — never constructed by Luna.",
