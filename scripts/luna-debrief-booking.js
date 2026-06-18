@@ -21,6 +21,8 @@
  */
 
 const { execFileSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
 
 const CONTAINER = process.env.HERMES_CONTAINER || 'hermes-luna';
 const DOCKER = (process.env.SIM_DOCKER || 'docker').trim().split(/\s+/);
@@ -181,6 +183,57 @@ function finding2Unscheduled(msgs) {
   return !msgs.some((m) => JSON.stringify(m.tool_calls || '').includes('service_date'));
 }
 
+// ---- auto-draft a golden fixture from the real conversation ------------------
+// Turns the confirmed issues into a fixture skeleton: the real guest turns + an
+// expect_overall asserting the CORRECT behavior (so once fixed it can't regress).
+// Written to reports/luna-debrief/ as a DRAFT for human review/trim — never
+// auto-added to the gated suite (a human approves what enters the regression net).
+function langGuess(guest) {
+  if (/\b(ciao|vorrei|grazie|notti|prenotazione|siamo|coppia)\b/.test(guest)) return 'it';
+  if (/\b(hola|quiero|gracias|noches|reserva|pareja)\b/.test(guest)) return 'es';
+  if (/\b(hallo|möchte|danke|nächte|buchung|zimmer)\b/.test(guest)) return 'de';
+  return 'en';
+}
+
+function draftFixture(trace, code, findings) {
+  const issues = findings.filter((f) => !f.ok && f.severity !== 'info');
+  if (!issues.length) return null;
+  const msgs = trace.messages || [];
+  const turns = msgs.filter((m) => m.role === 'user' && m.content && m.content.trim()).map((m) => m.content.trim());
+  const tools = toolNames(msgs);
+  const lang = langGuess(guestText(msgs));
+  const allowWrites = tools.includes('create_booking_from_plan');
+
+  const called = new Set(), notCalled = new Set();
+  let needsServiceDate = false, leak = false;
+  for (const f of issues) {
+    if (/transfer|shuttle/.test(f.title)) called.add('save_transfer_request');
+    if (/scheduled/.test(f.title)) { called.add('add_service_to_booking'); needsServiceDate = true; }
+    if (/handoff/.test(f.title)) notCalled.add('flag_needs_human');
+    if (/leak/.test(f.title)) leak = true;
+  }
+
+  const L = [];
+  L.push('  {');
+  L.push(`    // AUTO-DRAFTED by luna-debrief-booking from real session ${trace.session_id}`);
+  L.push(`    // (booking ${code || 'n/a'}). REVIEW & TRIM the turns to a minimal repro before`);
+  L.push('    // adding to FIXTURES in luna-golden-conversations.js. Asserts the CORRECT behavior.');
+  L.push(`    name: 'debrief-${(code || trace.session_id).toLowerCase()}',`);
+  L.push(`    lang: '${lang}',  // verify`);
+  if (allowWrites) L.push('    allow_writes: true,  // creates a Stripe-TEST booking (self-cancelled in teardown)');
+  L.push('    turns: [');
+  for (const t of turns) L.push(`      { text: ${JSON.stringify(t)}, expect: {} },`);
+  L.push('    ],');
+  L.push('    expect_overall: {');
+  if (called.size) L.push(`      tool_called: ${JSON.stringify([...called])},`);
+  if (needsServiceDate) L.push('      tool_args_include: { add_service_to_booking: { service_date: /\\d{4}-\\d{2}-\\d{2}/ } },');
+  if (notCalled.size) L.push(`      tool_not_called: ${notCalled.size === 1 ? `'${[...notCalled][0]}'` : JSON.stringify([...notCalled])},`);
+  L.push('    },');
+  if (leak) L.push('    invariants: { reply_not_contains: LEAK_PHRASES },');
+  L.push('  },');
+  return { lang, allowWrites, turns: turns.length, asserts: { called: [...called], notCalled: [...notCalled], needsServiceDate, leak }, js: L.join('\n') };
+}
+
 // ---- report ------------------------------------------------------------------
 function main() {
   const trace = pull();
@@ -190,8 +243,20 @@ function main() {
   const pay = code ? bookingPaymentState(code) : null;
   const { tools, findings } = detect(trace, pay);
 
+  // Auto-draft a golden fixture for the confirmed issues (written for review).
+  const draft = draftFixture(trace, code, findings);
+  let draftPath = null;
+  if (draft) {
+    try {
+      const dir = path.join(__dirname, '..', 'reports', 'luna-debrief');
+      fs.mkdirSync(dir, { recursive: true });
+      draftPath = path.join(dir, `${(code || trace.session_id).toLowerCase()}.fixture.js`);
+      fs.writeFileSync(draftPath, draft.js + '\n');
+    } catch (_) { draftPath = null; }
+  }
+
   if (JSON_OUT) {
-    console.log(JSON.stringify({ session_id: trace.session_id, booking_code: code, tools, findings }, null, 2));
+    console.log(JSON.stringify({ session_id: trace.session_id, booking_code: code, tools, findings, draft_fixture: draft ? draft.js : null, draft_path: draftPath }, null, 2));
     process.exit(findings.some((f) => !f.ok) ? 1 : 0);
   }
 
@@ -213,6 +278,10 @@ function main() {
       console.log(`    fix:  ${f.fix}`);
     }
     console.log('\n  → lock each confirmed issue as a golden fixture so it cannot regress.');
+  }
+  if (draft) {
+    console.log(`\n📝 drafted golden fixture (${draft.turns} turns, lang ${draft.lang}${draft.allowWrites ? ', writes' : ''}) → ${draftPath || '(write failed)'}`);
+    console.log('   review/trim it, then paste into FIXTURES in scripts/luna-golden-conversations.js.');
   }
   console.log('');
   process.exit(issues.length ? 1 : 0);

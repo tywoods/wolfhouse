@@ -31,3 +31,6 @@ docs/knowledge/whatsapp-private/
 
 # generated nightly run artifacts
 reports/luna-nightly/
+
+# debrief draft fixtures (review before adding to the suite)
+reports/luna-debrief/
