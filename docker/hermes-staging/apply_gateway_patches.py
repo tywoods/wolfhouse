@@ -695,6 +695,22 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
             return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})
         except Exception:
             return None
+    # Staff Portal pause gate — block outbound guest replies when Luna is paused.
+    try:
+        from wolfhouse.pause_gate import whatsapp_send_blocked
+        if whatsapp_send_blocked(chat_id):
+            try:
+                import sys as _sys
+                print("[wolfhouse] guest automation paused — suppressing WhatsApp send", file=_sys.stderr)
+            except Exception:
+                pass
+            try:
+                from gateway.platforms.base import SendResult
+                return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_automation_paused": True})
+            except Exception:
+                return None
+    except Exception:
+        pass
     # Guest output-guard (step 3): a backend/tool leak ("il sistema…", "the quote
     # tool…") must never reach a guest. Replace the whole reply with a warm,
     # localized fallback. Defensive: if the guard module can't import in the gateway
@@ -729,7 +745,7 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
 
 def install_runtime_whatsapp_patches() -> dict:
     """Apply in-process WhatsApp patches (gateway process, not bootstrap-only)."""
-    applied = {"status_filter": False, "plain_reply_send": False}
+    applied = {"status_filter": False, "plain_reply_send": False, "pause_webhook": False, "pause_send": False}
     try:
         import gateway.run as _gw_run_mod
         if not getattr(_gw_run_mod, "_wh_status_filter_applied", False):
@@ -748,6 +764,12 @@ def install_runtime_whatsapp_patches() -> dict:
             _wh_cloud_mod.WhatsAppCloudAdapter.send = _patched_whatsapp_cloud_send
             _wh_cloud_mod.WhatsAppCloudAdapter._wolfhouse_internal_status_send_filter = True
             applied["plain_reply_send"] = True
+            applied["pause_send"] = True
+    except Exception:
+        pass
+    try:
+        from wolfhouse.pause_gate import install_whatsapp_pause_webhook_patch
+        applied["pause_webhook"] = bool(install_whatsapp_pause_webhook_patch())
     except Exception:
         pass
     return applied
