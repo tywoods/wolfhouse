@@ -257,6 +257,89 @@ const FIXTURES = [
     // by SOME later turn (after quote + transfer + payment + name) composition IS the right question
     expect_overall: { reply_contains: [/girls|guys|boys|mixed|composition|same group|all of you|all women|all men/i] },
   },
+
+  // ---- 2026-06-18 robustness fixtures: lock today's fixes so they can't silently regress.
+  // (a)/(b) pin behavior baked by the QUEUED SOUL build (55149fb lessons-by-quantity);
+  // they are RED until that Hermes image is deployed, then go green — that IS the net.
+  // VALIDATE + tune assertions per-fixture against the freshly-deployed container before trusting.
+  {
+    // 55149fb — lessons/yoga/meals bill per QUANTITY = total count, never `days`.
+    // 2 guests × 4 lesson-days = 8 lessons (NOT the old silent default of 1).
+    name: 'lessons-priced-by-quantity-not-days',
+    lang: 'it',
+    turns: [
+      { text: 'Ciao! Siamo in 2, dal 15 al 19 agosto (4 giorni). Vorremmo una lezione di surf a testa ogni giorno.', expect: {} },
+      { text: 'Sì, quotaci le lezioni per favore.',
+        expect: {
+          tool_called: 'quote_booking',
+          // lesson add-on present AND quantity = 8, in any field/element order.
+          tool_args_include: { quote_booking: { add_ons: /surf_lesson[\s\S]*"?quantity"?\s*[:=]\s*8\b|"?quantity"?\s*[:=]\s*8\b[\s\S]*surf_lesson/i } },
+          tool_not_called: 'flag_needs_human',
+          reply_contains: [/8\s*lezion/i],            // she states 8 lessons, never 1
+        } },
+    ],
+    invariants: { reply_not_contains: LEAK_PHRASES },
+  },
+  {
+    // Mixed couple → proactive private offer → accept → create → €70 FLAT room
+    // supplement on the bill, end-to-end (real Stripe-TEST create). Stronger than
+    // fix3-private-room-supplement-requote (read-only requote): asserts the supplement
+    // survives onto the created booking. --allow-writes → excluded from --gate.
+    // TEARDOWN CAVEAT: guest-fresh-start clears the session, NOT the booking ROW
+    // (known gap) — this leaves a synthetic booking each run; wipe via staff cancel.
+    name: 'mixed-couple-private-supplement-on-bill',
+    lang: 'en',
+    allow_writes: true,
+    turns: [
+      { text: "Hi! We're a couple — my girlfriend and me — 7 nights, July 6 to 13 2026, Malibu package.", expect: {} },
+      { text: 'Yes, a private room for the two of us sounds perfect.', expect: {} },
+      { text: "I'm Robin, and we'll pay the deposit.", expect: {} },
+      { text: 'Yes, go ahead and create the booking.', expect: {} },
+    ],
+    expect_overall: {
+      tool_called: ['quote_booking', 'create_booking_from_plan'],
+      tool_args_include: { quote_booking: { room_preference: /private|couple|matrimonial|double/i } },
+      tool_not_called: 'flag_needs_human',
+      reply_contains: [/€?\s?70\b|supplement|supplemento/],   // €10/night × 7n = €70 flat ROOM
+    },
+    invariants: { reply_not_contains: LEAK_PHRASES },
+  },
+  {
+    // Room flow (f64f2dd) + gender (9d81790): all-girls group → female dorm, with NO
+    // redundant second room question ("all-girls room or mixed?"). Composition asked
+    // once from the group statement; Luna must not re-interrogate room gender after.
+    name: 'all-girls-group-female-room-no-second-question',
+    lang: 'en',
+    turns: [
+      { text: 'Hi! There are 3 of us, all girls, looking for beds Aug 15 to 22.',
+        expect: {
+          tool_called: 'check_availability',
+          reply_not_contains: ['all-girls room or mixed', 'girls room or mixed', 'all girls or mixed',
+            'female room or mixed', 'would you prefer a mixed', 'mixed dorm or'],
+        } },
+      { text: 'Malibu works for all three of us.', expect: {} },
+    ],
+    expect_overall: {
+      tool_not_called: 'flag_needs_human',
+      reply_not_contains: ['all-girls room or mixed', 'girls room or mixed', 'all girls or mixed', 'female room or mixed'],
+    },
+    invariants: { reply_not_contains: LEAK_PHRASES },
+  },
+  {
+    // Room flow (f64f2dd): auto-assign the dorm — no redundant "which room type / what
+    // room preference?" for a standard solo dorm booking (no private offer to a solo).
+    name: 'auto-assign-dorm-no-redundant-room-question',
+    lang: 'en',
+    turns: [
+      { text: 'Hey, just me — 1 person, 5 nights, Aug 10 to 15, looking for a dorm bed.',
+        expect: {
+          tool_called: 'check_availability',
+          reply_not_contains: ['which room', 'what room', 'room type', 'room preference',
+            'which dorm', 'private or shared', 'shared or private'],
+        } },
+    ],
+    invariants: { reply_not_contains: LEAK_PHRASES },
+  },
 ];
 
 // ---- runner -----------------------------------------------------------------
