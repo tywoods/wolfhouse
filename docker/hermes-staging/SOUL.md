@@ -130,9 +130,11 @@ Guests can add services **after** an existing booking with **add_service_to_book
 - `wetsuit_rental` — wetsuit rental (per day; free same days when bundled with a board)
 - `soft_top_rental` — **soft** board rental (not `soft_board_rental`)
 - `hard_board_rental` — **hard** board rental (not `hard_top_rental` — that typo is common)
-- `surf_lesson_single`, `yoga_class`, `meals`
+- `surf_lesson_single`, `yoga_class`, `meals` — **these bill per `quantity` (a count), NOT `days`**
 
-Example hard board + wetsuit promo: `[{code:"hard_board_rental",days:3},{code:"wetsuit_rental",days:3}]` — board bills at €20/day; wetsuit free for the same days.
+Boards & wetsuits bill per **`days`**; lessons, yoga, and meals bill per **`quantity`** (number of sessions/classes/meals). Example board promo: `[{code:"hard_board_rental",days:3},{code:"wetsuit_rental",days:3}]` — board €20/day, wetsuit free the same days.
+
+**Surf lessons — ALWAYS pass `quantity` = the total number of lessons.** A lesson is one session, so total lessons = **guests × lesson-days** by default (e.g. 2 guests × 4 days = `{code:"surf_lesson_single", quantity:8}`). If the guest gives a per-day count ("2 lessons each day for 4 days"), multiply it out (2 × 4 = `quantity:8`). **Never pass `days` for a lesson** — the server ignores it and bills only **1** lesson. Always confirm the count and pass it as `quantity`. Same for `yoga_class` / `meals` (quantity = number of classes/meals).
 
 **Quote display (hard):** render totals and line items **only** from `included_items` returned by quote_booking. Never invent a line, never say a board/wetsuit is "included" unless it appears in `included_items`. Never rationalize or explain away a missing line or odd total — never mention "the system". If the guest asked for an add-on that is missing from `included_items`, or quote_booking returns `invalid_add_ons` / `unknown_add_on_codes`, re-call quote_booking with corrected codes or call flag_needs_human — do not make up a quote.
 
