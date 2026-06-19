@@ -28616,15 +28616,24 @@ body{
   border-color:var(--olive);
   box-shadow:0 0 0 3px rgba(143,165,142,.18);
 }
-.btn-signin{
-  width:100%;padding:11px 0;margin-top:6px;
-  background:linear-gradient(120deg,var(--olive) 0%,var(--ocean) 100%);
-  border:none;border-radius:var(--radius-sm);
-  color:#fff;font-size:14px;font-weight:700;letter-spacing:.04em;
-  cursor:pointer;transition:opacity .18s;
+.luna-login-btn{
+  width:100%;height:52px;margin-top:6px;border-radius:10px;border:1px solid #8b5a2b;
+  background:linear-gradient(180deg,#b87938 0%,#7a441f 48%,#3f2315 100%);
+  color:#f4d28a;font-size:17px;font-weight:800;letter-spacing:.2px;
+  text-shadow:0 1px 0 rgba(0,0,0,.7),0 0 8px rgba(244,210,138,.25);
+  box-shadow:inset 0 1px 0 rgba(255,220,150,.35),inset 0 -2px 0 rgba(0,0,0,.35),0 0 0 1px rgba(21,120,112,.25),0 8px 22px rgba(0,0,0,.35);
+  cursor:pointer;transition:transform 120ms ease,box-shadow 120ms ease,filter 120ms ease;
 }
-.btn-signin:hover{opacity:.88}
-.btn-signin:disabled{opacity:.55;cursor:default}
+.luna-login-btn:hover{
+  filter:brightness(1.08) saturate(1.08);
+  box-shadow:inset 0 1px 0 rgba(255,220,150,.45),inset 0 -2px 0 rgba(0,0,0,.38),0 0 0 1px rgba(36,157,147,.45),0 0 18px rgba(36,157,147,.25),0 10px 26px rgba(0,0,0,.42);
+}
+.luna-login-btn:active{transform:translateY(1px);filter:brightness(.96)}
+.luna-login-btn:focus-visible{
+  outline:none;
+  box-shadow:inset 0 1px 0 rgba(255,220,150,.45),inset 0 -2px 0 rgba(0,0,0,.38),0 0 0 3px rgba(36,157,147,.45),0 8px 22px rgba(0,0,0,.35);
+}
+.luna-login-btn:disabled{opacity:.55;cursor:default;filter:none;transform:none}
 .msg{
   margin-top:14px;padding:10px 13px;border-radius:var(--radius-sm);
   font-size:13px;display:none;
@@ -28693,7 +28702,7 @@ ${getStaffPortalI18nBootstrapScript()}
       <label for="password" data-i18n="login.password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button class="btn-signin" id="btn-signin" type="button" data-i18n="login.signIn">Sign in</button>
+    <button class="luna-login-btn" id="btn-signin" type="button" data-i18n="login.signIn">Sign in</button>
     <div class="msg" id="msg"></div>
   </form>
 </div>
