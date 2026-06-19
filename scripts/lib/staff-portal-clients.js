@@ -82,7 +82,7 @@ function loadClientPortalProfile(clientSlug) {
     client_slug: slug,
     vertical,
     is_surf_vertical: surf,
-    default_tab: surf ? 'conversations' : 'bed-calendar',
+    default_tab: surf ? 'portal-home' : 'bed-calendar',
     hidden_tabs: surf ? ['bed-calendar', 'tour-operator'] : [],
     hidden_drawer_tabs: surf ? ['transfers'] : [],
     lesson_slots_demo: surf ? loadLessonSlotsDemo(cfg) : [],

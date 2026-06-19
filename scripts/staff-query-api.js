@@ -15726,6 +15726,32 @@ body.portal-profile-pending .tab-panel{display:none!important}
 body.portal-profile-pending #portal-profile-gate{display:flex}
 #portal-profile-gate{display:none;align-items:center;justify-content:center;min-height:calc(100vh - 104px);padding:32px 20px;color:var(--text-2);font-size:14px;font-weight:600;text-align:center}
 #portal-profile-gate .portal-profile-gate-inner{max-width:420px;line-height:1.5}
+/* ── Portal home (Sunset / surf demo landing) ─────────────────────────────── */
+.portal-home-wrap{max-width:1180px;margin:0 auto;padding:24px 20px 32px}
+.portal-home-header{margin-bottom:22px}
+.portal-home-brand-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:6px}
+.portal-home-school{font-size:24px;font-weight:800;color:var(--text);letter-spacing:-.02em;margin:0}
+.portal-home-pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:4px 10px;border-radius:var(--radius-pill);background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
+.portal-home-subtitle{font-size:14px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
+.portal-home-cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:22px}
+@media(max-width:980px){.portal-home-cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:560px){.portal-home-cards{grid-template-columns:1fr}}
+.portal-home-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 18px 16px;box-shadow:var(--shadow-soft);cursor:pointer;transition:border-color .18s,box-shadow .18s}
+.portal-home-card:hover{border-color:var(--tan);box-shadow:var(--shadow)}
+.portal-home-card-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:8px}
+.portal-home-card-stat{font-size:20px;font-weight:800;color:var(--text);margin-bottom:6px;line-height:1.2}
+.portal-home-card-helper{font-size:12px;color:var(--text-3);line-height:1.45;margin:0}
+.portal-home-card-list{margin:8px 0 0;padding:0;list-style:none}
+.portal-home-card-list li{font-size:12px;color:var(--text-2);padding:4px 0;border-top:1px solid var(--border-soft);display:flex;justify-content:space-between;gap:8px}
+.portal-home-card-list li:first-child{border-top:none;padding-top:0}
+.portal-home-card-cap{font-size:11px;font-weight:600;color:var(--text-3);white-space:nowrap}
+.portal-home-main-row{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
+@media(max-width:900px){.portal-home-main-row{grid-template-columns:1fr}}
+.portal-home-luna ul{margin:10px 0 0;padding-left:18px;color:var(--text-2);font-size:13px;line-height:1.55}
+.portal-home-luna li{margin-bottom:6px}
+.portal-home-schedule .cc-section-hdr{font-size:15px}
+.portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
+#tab-portal-home.active{display:block}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -16621,6 +16647,7 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
+  <button class="tab-btn" data-tab="portal-home" data-i18n="nav.tab.portalHome" style="display:none">Today</button>
   <button class="tab-btn" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
@@ -16661,6 +16688,77 @@ ${getStaffPortalI18nBootstrapScript()}
 
 </div>
 </div><!-- /tab-today -->
+
+<!-- ── Portal home (Sunset / surf demo landing) ─────────────────────────── -->
+<div id="tab-portal-home" class="tab-panel">
+<div id="wrap-portal-home" class="portal-home-wrap">
+  <header class="portal-home-header">
+    <div class="portal-home-brand-row">
+      <h1 class="portal-home-school" data-i18n="demoHome.schoolName">Sunset Surf School</h1>
+      <span class="portal-home-pill" data-i18n="demoHome.brand">Luna Front Desk</span>
+    </div>
+    <p class="portal-home-subtitle" data-i18n="demoHome.subtitle">Today's guest messages, lessons, and rentals in one place.</p>
+  </header>
+  <div class="portal-home-cards">
+    <div class="portal-home-card" id="ph-card-inbox" role="button" tabindex="0" onclick="switchToTab('conversations','inbox')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('conversations','inbox');}">
+      <div class="portal-home-card-title" data-i18n="demoHome.card.inbox.title">Inbox</div>
+      <div class="portal-home-card-stat" id="ph-inbox-stat">…</div>
+      <p class="portal-home-card-helper" data-i18n="demoHome.card.inbox.helper">Luna will surface WhatsApp and email messages here.</p>
+    </div>
+    <div class="portal-home-card" id="ph-card-lessons" role="button" tabindex="0" onclick="switchToTab('day-schedule')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('day-schedule');}">
+      <div class="portal-home-card-title" data-i18n="demoHome.card.lessons.title">Lessons today</div>
+      <ul class="portal-home-card-list" id="ph-lessons-list"></ul>
+      <p class="portal-home-card-helper" id="ph-lessons-helper" style="display:none" data-i18n="demoHome.card.lessons.empty">No lesson slots configured yet.</p>
+    </div>
+    <div class="portal-home-card" id="ph-card-rentals" role="button" tabindex="0" onclick="switchToTab('day-schedule')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('day-schedule');}">
+      <div class="portal-home-card-title" data-i18n="demoHome.card.rentals.title">Rentals today</div>
+      <div class="portal-home-card-stat" id="ph-rentals-stat" data-i18n="demoHome.card.rentals.zero">No rentals scheduled yet</div>
+      <p class="portal-home-card-helper" data-i18n="demoHome.card.rentals.helper">Board and wetsuit rentals will appear here.</p>
+    </div>
+    <div class="portal-home-card" id="ph-card-attention" role="button" tabindex="0" onclick="switchToTab('conversations','handoffs')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('conversations','handoffs');}">
+      <div class="portal-home-card-title" data-i18n="demoHome.card.attention.title">Needs attention</div>
+      <div class="portal-home-card-stat" id="ph-attention-stat" data-i18n="demoHome.card.attention.zero">No handoffs right now</div>
+      <p class="portal-home-card-helper" data-i18n="demoHome.card.attention.helper">Luna will flag unclear bookings, payment questions, and staff handoffs.</p>
+    </div>
+  </div>
+  <div class="portal-home-main-row">
+    <section class="card portal-home-schedule">
+      <div class="cc-section-hdr" data-i18n="demoHome.schedule.title">Today's schedule</div>
+      <div class="toolbar" style="margin-top:10px">
+        <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:0">
+          <span data-i18n="daySchedule.date">Date</span>&nbsp;<input id="ph-ds-date" type="date" class="bc-date-input" autocomplete="off">
+        </label>
+        <button class="btn btn-primary" id="ph-ds-load" type="button">&#128197; <span data-i18n="daySchedule.load">Load</span></button>
+        <button class="btn btn-ghost" type="button" onclick="switchToTab('day-schedule')" data-i18n="demoHome.openSchedule">Open Day Schedule</button>
+      </div>
+      <div id="ph-ds-state" class="state-msg" data-i18n="daySchedule.loading">Loading schedule…</div>
+      <div id="ph-ds-slots-wrap" style="margin-top:14px;display:none">
+        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.demoSlots">Lesson slots (demo config)</div>
+        <div id="ph-ds-slots" class="today-grid" style="margin-top:8px"></div>
+      </div>
+      <div id="ph-ds-lessons-wrap" style="margin-top:16px;display:none">
+        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.lessons">Lessons</div>
+        <div id="ph-ds-lessons-table"></div>
+      </div>
+      <div id="ph-ds-rentals-wrap" style="margin-top:16px;display:none">
+        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.rentals">Rentals / gear</div>
+        <div id="ph-ds-rentals-table"></div>
+      </div>
+      <p class="portal-home-schedule-note" data-i18n="demoHome.schedule.capacityNote">Scheduled capacity is shown from your Sunset setup.</p>
+    </section>
+    <aside class="card portal-home-luna">
+      <div class="cc-section-hdr" data-i18n="demoHome.luna.title">What Luna will help with</div>
+      <ul>
+        <li data-i18n="demoHome.luna.item1">Answer guest questions</li>
+        <li data-i18n="demoHome.luna.item2">Draft replies</li>
+        <li data-i18n="demoHome.luna.item3">Track rentals and lessons</li>
+        <li data-i18n="demoHome.luna.item4">Flag staff handoffs</li>
+        <li data-i18n="demoHome.luna.item5">Keep WhatsApp and email threads in one inbox</li>
+      </ul>
+    </aside>
+  </div>
+</div>
+</div><!-- /tab-portal-home -->
 
 <!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel">
@@ -17553,6 +17651,7 @@ function switchToTab(tab, subtab){
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
   if (tab === 'ask-luna') lunaGlobalPauseLoad();
   if (tab === 'conversations') wireInboxLeftListWheel();
+  if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
@@ -17578,6 +17677,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'ask-luna') lunaGlobalPauseLoad();
+    if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -17908,6 +18008,7 @@ function isTabHiddenForClient(tab, clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
   if (hidden.indexOf(tab) >= 0) return true;
+  if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
   return false;
 }
@@ -17936,6 +18037,11 @@ function inboxEmptyDetailHtml(){
 }
 
 function applySurfNavLabels(profile){
+  var homeBtn = document.querySelector('.tab-btn[data-tab="portal-home"]');
+  if (homeBtn && profile.is_surf_vertical) {
+    homeBtn.setAttribute('data-i18n', 'nav.tab.portalHome');
+    homeBtn.textContent = t('nav.tab.portalHome');
+  }
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
   if (convBtn) {
     var labelKey = profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp';
@@ -17964,6 +18070,10 @@ function applyClientPortalProfile(clientSlug){
   var hidden = profile.hidden_tabs || [];
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
     var tab = btn.getAttribute('data-tab');
+    if (tab === 'portal-home') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
     if (tab === 'day-schedule') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
@@ -17971,6 +18081,164 @@ function applyClientPortalProfile(clientSlug){
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
   });
   applySurfNavLabels(profile);
+}
+
+function demoHomeSlotFriendlyLabel(slot, index){
+  var labels = ['Morning surf lesson', 'Afternoon surf lesson', 'Kids / private lesson'];
+  if (index >= 0 && index < labels.length) return labels[index];
+  return (slot && slot.offering_label) ? slot.offering_label : 'Surf lesson';
+}
+
+function demoHomeSlotCapacityText(slot){
+  var booked = slot && slot.seats_booked != null ? Number(slot.seats_booked) : 0;
+  var cap = slot && slot.capacity != null ? Number(slot.capacity) : null;
+  if (cap != null && !isNaN(cap)) return '(' + booked + '/' + cap + ')';
+  return '';
+}
+
+function renderPortalHomeLessonSlots(slots){
+  var list = el('ph-lessons-list');
+  var helper = el('ph-lessons-helper');
+  if (!list) return;
+  var demo = (slots || []).slice(0, 3);
+  if (!demo.length){
+    list.innerHTML = '';
+    if (helper) helper.style.display = '';
+    return;
+  }
+  if (helper) helper.style.display = 'none';
+  list.innerHTML = demo.map(function(s, i){
+    var label = demoHomeSlotFriendlyLabel(s, i);
+    var cap = demoHomeSlotCapacityText(s);
+    return '<li><span>' + escHtml(label) + '</span><span class="portal-home-card-cap">' + escHtml(cap) + '</span></li>';
+  }).join('');
+}
+
+function renderPortalHomeStats(convs, rentalCount){
+  var inboxEl = el('ph-inbox-stat');
+  var attnEl = el('ph-attention-stat');
+  var rentEl = el('ph-rentals-stat');
+  var openCount = (convs || []).length;
+  var nhCount = (convs || []).filter(conversationNeedsHuman).length;
+  if (inboxEl){
+    inboxEl.textContent = openCount
+      ? t('demoHome.card.inbox.count').replace('{count}', String(openCount))
+      : t('demoHome.card.inbox.zero');
+  }
+  if (attnEl){
+    attnEl.textContent = nhCount
+      ? t('demoHome.card.attention.count').replace('{count}', String(nhCount))
+      : t('demoHome.card.attention.zero');
+  }
+  if (rentEl){
+    rentEl.textContent = rentalCount
+      ? t('demoHome.card.rentals.count').replace('{count}', String(rentalCount))
+      : t('demoHome.card.rentals.zero');
+  }
+}
+
+function renderPortalHomeDayScheduleSlots(slots, dateIso){
+  var wrap = el('ph-ds-slots-wrap');
+  var box = el('ph-ds-slots');
+  if (!wrap || !box) return;
+  var list = (slots || []).filter(function(s){ return !dateIso || !s.date || s.date === dateIso; });
+  if (!list.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  box.innerHTML = list.map(function(s){
+    var cap = s.capacity != null ? s.capacity : '?';
+    var booked = s.seats_booked != null ? s.seats_booked : 0;
+    var avail = s.seats_available != null ? s.seats_available : Math.max(0, cap - booked);
+    return '<div class="today-tile"><div class="today-tile-label">' + escHtml(s.slot_time || '') + '</div>' +
+      '<div class="today-tile-sub">' + escHtml(s.offering_label || s.session_type || 'Lesson') + '</div>' +
+      '<div class="today-tile-number" style="font-size:18px">' + escHtml(String(booked) + ' / ' + String(cap)) + '</div>' +
+      '<div class="today-tile-sub">' + escHtml(String(avail) + ' available (demo)') + '</div></div>';
+  }).join('');
+}
+
+function renderPortalHomeDayScheduleTable(rows, targetId){
+  var wrapId = targetId === 'ph-ds-lessons-table' ? 'ph-ds-lessons-wrap' : 'ph-ds-rentals-wrap';
+  var wrap = el(wrapId);
+  var box = el(targetId);
+  if (!wrap || !box) return;
+  if (!rows || !rows.length){ wrap.style.display = 'none'; box.innerHTML = ''; return; }
+  wrap.style.display = '';
+  var html = '<table class="al-rows-table"><thead><tr><th>Guest</th><th>Service</th><th>Qty</th><th>Status</th><th>Payment</th><th>Booking</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr><td>' + escHtml(r.guest_name || '—') + '</td>' +
+      '<td>' + escHtml(r.service_type || '—') + '</td>' +
+      '<td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td>' +
+      '<td>' + escHtml(r.service_status || r.status || '—') + '</td>' +
+      '<td>' + escHtml(r.payment_status || '—') + '</td>' +
+      '<td>' + escHtml(r.booking_code || '—') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+function loadPortalHomeSchedule(dateIso){
+  var client = getClient();
+  var profile = getPortalProfile(client);
+  if (!profile.is_surf_vertical) return Promise.resolve();
+  var date = dateIso || (el('ph-ds-date') && el('ph-ds-date').value) || dsTodayIso();
+  if (el('ph-ds-date') && !el('ph-ds-date').value) el('ph-ds-date').value = date;
+  var state = el('ph-ds-state');
+  if (state){ state.textContent = portalT('daySchedule.loading'); state.className = 'state-msg'; state.style.display = 'block'; }
+  renderPortalHomeDayScheduleSlots(profile.lesson_slots_demo || [], date);
+  var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(date);
+  return Promise.all([
+    fetch(base + '&intent=services.lessons_today').then(function(r){ return r.json(); }),
+    fetch(base + '&intent=services.gear_today').then(function(r){ return r.json(); }),
+  ]).then(function(results){
+    var lessons = (results[0] && results[0].rows) || [];
+    var gear = (results[1] && results[1].rows) || [];
+    renderPortalHomeDayScheduleTable(lessons, 'ph-ds-lessons-table');
+    renderPortalHomeDayScheduleTable(gear, 'ph-ds-rentals-table');
+    if (state){
+      if (!lessons.length && !gear.length && !(profile.lesson_slots_demo || []).filter(function(s){ return !date || !s.date || s.date === date; }).length){
+        state.textContent = portalT('daySchedule.empty');
+        state.style.display = 'block';
+      } else {
+        state.style.display = 'none';
+      }
+    }
+    return gear.length;
+  }).catch(function(e){
+    if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
+    return 0;
+  });
+}
+
+function loadPortalHome(){
+  var profile = getPortalProfile(getClient());
+  if (!profile.is_surf_vertical) return;
+  renderPortalHomeLessonSlots(profile.lesson_slots_demo || []);
+  var inboxEl = el('ph-inbox-stat');
+  var attnEl = el('ph-attention-stat');
+  if (inboxEl) inboxEl.textContent = '…';
+  if (attnEl) attnEl.textContent = '…';
+  var convPromise = fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .catch(function(){ return null; });
+  var schedPromise = loadPortalHomeSchedule(dsTodayIso());
+  Promise.all([convPromise, schedPromise]).then(function(results){
+    var data = results[0];
+    var rentalCount = results[1] || 0;
+    var convs = (data && data.success && data.conversations) ? data.conversations : [];
+    renderPortalHomeStats(convs, rentalCount);
+  });
+}
+
+function wirePortalHomeScheduleControls(){
+  var loadBtn = el('ph-ds-load');
+  var dateInput = el('ph-ds-date');
+  if (loadBtn && !loadBtn.dataset.wired){
+    loadBtn.dataset.wired = '1';
+    loadBtn.addEventListener('click', function(){ loadPortalHomeSchedule(); });
+  }
+  if (dateInput && !dateInput.dataset.wired){
+    dateInput.dataset.wired = '1';
+    dateInput.addEventListener('change', function(){ loadPortalHomeSchedule(); });
+  }
 }
 
 function dsTodayIso(){
@@ -18053,10 +18321,11 @@ function portalStartupAfterSession(){
   var profile = getPortalProfile(getClient());
   applyClientPortalProfile(getClient());
   var tab = profile.default_tab || 'bed-calendar';
-  if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'conversations' : 'bed-calendar';
+  if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'portal-home' : 'bed-calendar';
   switchToTab(tab, null);
   if (tab === 'conversations') loadInbox();
-  if (profile.is_surf_vertical) loadDaySchedule(dsTodayIso());
+  if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
+  if (profile.is_surf_vertical && tab !== 'portal-home') loadDaySchedule(dsTodayIso());
   finishPortalProfileStartup();
 }
 
@@ -27599,9 +27868,6 @@ function loadTodaySummary(){
       if (stEl){ stEl.style.display = 'block'; stEl.textContent = 'Could not load conversation data.'; }
     });
 }
-
-/* Open Booking Calendar on first paint */
-bcOnBedCalendarTabOpen();
 
 // doLogout must be global so onclick="doLogout()" in the banner HTML resolves it
 window.doLogout = function doLogout(){
