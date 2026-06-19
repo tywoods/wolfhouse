@@ -252,6 +252,24 @@ function extractPortalHomePanel(src) {
   return src.slice(start, end);
 }
 
+
+// ── 9. Customers tab (Sunset guest history v1) ────────────────────────────────
+
+console.log('\n[9] staff-query-api.js — Customers tab (read-only v1)');
+
+if (apiSrc) {
+  assert('Customers tab button present', apiSrc.includes('data-tab="customers"'));
+  assert('Customers tab panel present', apiSrc.includes('id="tab-customers"'));
+  assert('customers tab surf-gated', apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
+  assert('/staff/customers route present', apiSrc.includes("pathname === '/staff/customers'"));
+  assert('nav.tab.customers in i18n usage', apiSrc.includes('nav.tab.customers') || apiSrc.includes('customers.title'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('nav.tab.customers i18n key', i18n.includes("'nav.tab.customers': 'Customers'"));
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));
