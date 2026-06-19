@@ -15685,9 +15685,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:14px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(68,80,74,.10)}
-#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:1;display:flex;align-items:center;gap:10px;min-height:0;line-height:1;text-decoration:none;color:inherit}
-#banner .brand-logo{height:32px;width:auto;max-width:128px;object-fit:contain;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none}
+#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:8px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
+#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 1 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit}
+#banner .brand-logo{height:48px;width:auto;max-width:min(240px,40vw);object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:auto}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -16593,7 +16593,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <a href="/staff/ui" class="brand" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
-    <img src="/staff/assets/luna-front-desk-logo.png" alt="" class="brand-logo" width="128" height="32">
+    <img src="/staff/assets/luna-front-desk-logo.png" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
     <button type="button" class="staff-lang-btn is-active" data-lang="en">EN</button>
