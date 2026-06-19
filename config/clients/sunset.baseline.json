@@ -466,5 +466,72 @@
     "Confirm refund mechanism (voucher vs cash default)",
     "Confirm handoff emergency script",
     "Flip deployment.enabled=true only after all items above are resolved"
-  ]
+  ],
+
+  "portal_demo": {
+    "_note": "Staging/demo data only. No real bookings, no real Stripe links. All records scoped to tenant_id=sunset. Remove or gate behind demo_mode=false before go-live.",
+    "demo_mode": true,
+    "tenant_id": "sunset",
+    "client_slug": "sunset",
+    "lesson_slots": [
+      {
+        "slot_id": "demo-slot-001",
+        "tenant_id": "sunset",
+        "client_slug": "sunset",
+        "date": "2026-07-10",
+        "slot_time": "11:00-13:00",
+        "session_type": "group_lesson_adult",
+        "offering_label": "Adult / adolescent group surf lesson (over 12)",
+        "capacity": 8,
+        "seats_booked": 3,
+        "seats_available": 5,
+        "price_eur_per_seat": 30,
+        "pricing_status": "unverified_seed",
+        "instructor": "<FILL: owner provides>",
+        "meet_point": "<FILL: owner provides>",
+        "arrive_before_minutes": 20,
+        "status": "demo_open",
+        "source": "demo_seed"
+      },
+      {
+        "slot_id": "demo-slot-002",
+        "tenant_id": "sunset",
+        "client_slug": "sunset",
+        "date": "2026-07-10",
+        "slot_time": "16:00-18:00",
+        "session_type": "group_lesson_adult",
+        "offering_label": "Adult / adolescent group surf lesson (over 12)",
+        "capacity": 8,
+        "seats_booked": 1,
+        "seats_available": 7,
+        "price_eur_per_seat": 30,
+        "pricing_status": "unverified_seed",
+        "instructor": "<FILL: owner provides>",
+        "meet_point": "<FILL: owner provides>",
+        "arrive_before_minutes": 20,
+        "status": "demo_open",
+        "source": "demo_seed"
+      },
+      {
+        "slot_id": "demo-slot-003",
+        "tenant_id": "sunset",
+        "client_slug": "sunset",
+        "date": "2026-07-11",
+        "slot_time": "11:00-13:00",
+        "session_type": "group_lesson_kids_surfpark",
+        "offering_label": "Children's Surfpark lesson (approx. ages 6-11)",
+        "capacity": null,
+        "seats_booked": 0,
+        "seats_available": null,
+        "price_eur_per_seat": null,
+        "pricing_status": "owner_required",
+        "instructor": "<FILL: owner provides>",
+        "meet_point": "<FILL: owner provides>",
+        "arrive_before_minutes": 20,
+        "guardian_consent_required": "<FILL: owner confirms>",
+        "status": "demo_pending_owner_confirmation",
+        "source": "demo_seed"
+      }
+    ]
+  }
 }
