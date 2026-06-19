@@ -92,9 +92,18 @@ const IT_MONTHS = ['gennaio', 'febbraio', 'marzo', 'aprile', 'maggio', 'giugno',
 // two fixtures target distinct weeks so one's create can't block the other.
 function rollingPrivateWeek(offsetMonths = 0) {
   const now = new Date();
-  // 5..12 months out, advancing each hour → distinct weeks across back-to-back runs.
-  const base = 5 + (Math.floor(Date.now() / 3600000) % 8);
-  const d = new Date(now.getFullYear(), now.getMonth() + base + offsetMonths, 6);
+  const y0 = now.getFullYear(), m0 = now.getMonth();
+  // Pick a NEAR-TERM week inside the CURRENT open season (Mar–Oct). Two failure modes to
+  // avoid: (1) Nov–Feb is CLOSED → Luna correctly refuses → false FAIL; (2) far-future dates
+  // (9+ months, next year) land in a year whose rates aren't seeded → Luna can't price them
+  // confidently and hands off → false FAIL. So target open-season months of this year that
+  // are ≥1 month out; fall back to next year's open season only if none remain. Roll by hour
+  // (and offsetMonths) for variety / so two fixtures pick distinct weeks.
+  const candidates = [];
+  for (let mo = 2; mo <= 9; mo++) if (mo >= m0 + 1) candidates.push({ y: y0, m: mo });
+  if (!candidates.length) for (let mo = 2; mo <= 9; mo++) candidates.push({ y: y0 + 1, m: mo });
+  const pick = candidates[(Math.floor(Date.now() / 3600000) + offsetMonths) % candidates.length];
+  const d = new Date(pick.y, pick.m, 6);
   const y = d.getFullYear(), m = d.getMonth();
   const iso = (day) => `${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
   return {
@@ -383,6 +392,31 @@ const FIXTURES = [
     invariants: { reply_not_contains: LEAK_PHRASES },
   },
   {
+    // Borja repro (MB-WOLFHO-20261001-f2787b): a package guest WANTS the free Santander
+    // shuttle but has NOT given arrival times, then gives explicit create consent. The
+    // transfer must be LOGGED via save_transfer_request right after create — not left as a
+    // chat note, not deferred for "times first", not handed off. This is the exact gap that
+    // dropped Borja's transfer; SOUL "Always LOG the shuttle once the booking exists"
+    // (763f32ad) is the fix. save_transfer_request is case-safe (UPPER booking_code), so the
+    // addon case-bug doesn't apply here. No times given → forces the post-create log path
+    // (vs pending_transfers on create). allow_writes; self-cleaning via teardown.
+    name: 'transfer-logged-on-package-create',
+    lang: 'en',
+    allow_writes: true,
+    rolling_week_offset: 1,                                     // dorm week, distinct from the private-room fixtures
+    turns: [
+      { text: 'Hi! My mate and I want the Malibu package — 7 nights, {{WEEK_EN}}, two guys.', expect: {} },
+      { text: "Yes please, we'd love the free Santander airport shuttle!", expect: {} },
+      { text: "I'm Sam — we'll just pay the deposit for now.", expect: {} },
+      { text: "Go ahead and create the booking — I'll send our flight times later.", expect: {} },
+    ],
+    expect_overall: {
+      tool_called: ['create_booking_from_plan', 'save_transfer_request'],
+      tool_not_called: 'flag_needs_human',
+    },
+    invariants: { reply_not_contains: LEAK_PHRASES },
+  },
+  {
     // Room flow (f64f2dd) + gender (9d81790): all-girls group → female dorm, with NO
     // redundant second room question ("all-girls room or mixed?"). Composition asked
     // once from the group statement; Luna must not re-interrogate room gender after.
@@ -434,19 +468,24 @@ function runFixture(fx, { verbose }) {
   // Private-room fixtures: roll to a future week, then skip cleanly (not FAIL)
   // if R6 is already occupied for it — a wedged precondition is not a regression.
   let turns = fx.turns;
-  if (fx.needs_private_room != null) {
-    const week = rollingPrivateWeek(fx.needs_private_room);
+  if (fx.needs_private_room != null || fx.rolling_week_offset != null) {
+    const week = rollingPrivateWeek(fx.needs_private_room != null ? fx.needs_private_room : fx.rolling_week_offset);
     turns = fx.turns.map((t) => ({ ...t,
       text: t.text.replace('{{WEEK_EN}}', week.en).replace('{{WEEK_IT}}', week.it) }));
-    const avail = privateRoomAvailable(week.ciISO, week.coISO);
-    if (avail !== true) {
-      const why = avail === false
-        ? `private room (R6) already booked for ${week.ciISO}..${week.coISO}`
-        : `could not confirm private-room availability for ${week.ciISO}..${week.coISO}`;
-      process.stdout.write(`  ⊝ SKIP — ${why}\n`);
-      return { fails: [], skipped: true };
+    // Private-room fixtures additionally pre-flight R6 and SKIP (not FAIL) if it's already
+    // taken for the rolled week — a wedged precondition is not a regression. Non-private
+    // rolling fixtures (e.g. dorm bookings) just need fresh in-season dates.
+    if (fx.needs_private_room != null) {
+      const avail = privateRoomAvailable(week.ciISO, week.coISO);
+      if (avail !== true) {
+        const why = avail === false
+          ? `private room (R6) already booked for ${week.ciISO}..${week.coISO}`
+          : `could not confirm private-room availability for ${week.ciISO}..${week.coISO}`;
+        process.stdout.write(`  ⊝ SKIP — ${why}\n`);
+        return { fails: [], skipped: true };
+      }
+      process.stdout.write(`  · private room free for ${week.ciISO}..${week.coISO} ✓\n`);
     }
-    process.stdout.write(`  · private room free for ${week.ciISO}..${week.coISO} ✓\n`);
   }
 
   try {
