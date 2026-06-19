@@ -473,7 +473,6 @@ const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
-const STAFF_PORTAL_BANNER_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-banner.png');
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
@@ -15600,7 +15599,7 @@ ${getStaffPortalThemeEarlyScript()}
   --shadow-soft:0 1px 2px rgba(0,0,0,.22),0 3px 10px rgba(0,0,0,.28);
   color-scheme:dark;
 }
-[data-theme="dark"] #banner{background-color:#1e1e1e;background-image:url('/staff/assets/luna-front-desk-banner.png');background-size:cover;background-position:left center;background-repeat:no-repeat;box-shadow:0 2px 16px rgba(0,0,0,.4)}
+[data-theme="dark"] #banner{background:linear-gradient(120deg,#252526 0%,#1e1e1e 55%,#2a2a2a 100%);box-shadow:0 2px 16px rgba(0,0,0,.4)}
 [data-theme="dark"] ::selection{background:#2a4a38;color:#cccccc}
 [data-theme="dark"] .card{background:var(--surface);border-color:var(--border-soft)}
 [data-theme="dark"] #tab-bed-calendar .card{background:linear-gradient(165deg,#252526 0%,#1e1e1e 48%,#252526 100%);background-image:repeating-linear-gradient(92deg,transparent,transparent 3px,rgba(139,115,85,.035) 3px,rgba(139,115,85,.035) 5px),linear-gradient(165deg,#252526 0%,#1e1e1e 48%,#252526 100%)}
@@ -15686,12 +15685,10 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-/* REVERT (gradient banner): height:60px; background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%); border-bottom:1px solid rgba(74,55,37,.25); box-shadow:0 2px 12px rgba(43,36,31,.14); */
-/* REVERT (dark): [data-theme="dark"] #banner{background:linear-gradient(120deg,#252526 0%,#1e1e1e 55%,#2a2a2a 100%);box-shadow:0 2px 16px rgba(0,0,0,.4)} */
-#banner{background-color:#2b241f;background-image:url('/staff/assets/luna-front-desk-banner.png');background-size:cover;background-position:left center;background-repeat:no-repeat;border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:60px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box}
-#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0;position:relative;z-index:1}
+#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:60px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box}
+#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
-#banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1;position:relative;z-index:1}
+#banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -27967,20 +27964,6 @@ function handleStaffPortalLogo(res) {
   });
 }
 
-function handleStaffPortalBanner(res) {
-  fs.readFile(STAFF_PORTAL_BANNER_PATH, (err, data) => {
-    if (err) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      return res.end('Not found');
-    }
-    res.writeHead(200, {
-      'Content-Type': 'image/png',
-      'Cache-Control': 'public, max-age=86400',
-    });
-    res.end(data);
-  });
-}
-
 function handleLoginPage(res) {
   const html = buildLoginHtml();
   res.writeHead(200, {
@@ -32943,15 +32926,6 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleBookingContext(bookingCtxMatch[1], parsed.query, res, auth.user);
-  }
-
-  // ── GET /staff/assets/luna-front-desk-banner.png — portal header background (public) ─
-  if (pathname === '/staff/assets/luna-front-desk-banner.png') {
-    if (method !== 'GET') {
-      res.writeHead(405, { Allow: 'GET' });
-      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
-    }
-    return handleStaffPortalBanner(res);
   }
 
   // ── GET /staff/assets/luna-front-desk-logo.png — portal banner logo (public) ─
