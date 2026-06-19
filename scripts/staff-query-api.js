@@ -27808,7 +27808,7 @@ body{
   width:auto;
   max-width:100%;
   height:auto;
-  max-height:72px;
+  max-height:112px;
   margin:0 auto;
 }
 .logo .sub{
