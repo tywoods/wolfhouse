@@ -2,7 +2,7 @@
 
 /**
  * Shared safety guards for Sunset Portal Slice 1 seed/cleanup scripts.
- * Fail-closed: --execute only permitted against explicit localhost/test DB hosts.
+ * Fail-closed: --execute permitted only on localhost/test OR approved Sunset staging DB.
  */
 
 const fs = require('fs');
@@ -10,22 +10,27 @@ const path = require('path');
 
 const DEMO_TAG = 'sunset_demo_slice1';
 const ALLOW_ENV_KEY = 'ALLOW_SUNSET_DEMO_SEED';
+const STAGING_DB_ALLOW_ENV_KEY = 'SUNSET_DEMO_SEED_STAGING_DB_ALLOW';
 const EXPECTED_TENANT = 'sunset';
+const APPROVED_STAGING_HOST = 'luna-sunset-staging-pg-app.postgres.database.azure.com';
+const APPROVED_STAGING_DB = 'sunset_staging';
 const MANIFEST_PATH = path.join(__dirname, '..', '..', 'fixtures', 'sunset-portal-slice1', 'seed-manifest.json');
 
 const REJECT_HOST_PATTERNS = [
+  /wh-staging/i,
+  /wolfhouse/i,
   /production/i,
   /(^|[-_.])prod([-.]|$)/i,
   /\.prod\./i,
-  /staging/i,
-  /(^|[-_.])stage([-.]|$)/i,
+  /staff-staging\.lunafrontdesk/i,
   /lunafrontdesk/i,
-  /\.postgres\.database\.azure\.com/i,
-  /azure/i,
-  /wolfhouse/i,
 ];
 
-const ALLOW_HOST_PATTERNS = [
+const REJECT_DATABASE_PATTERNS = [
+  /wolfhouse_staging/i,
+];
+
+const ALLOW_LOCAL_HOST_PATTERNS = [
   /^localhost$/i,
   /^127\.0\.0\.1$/,
   /^host\.docker\.internal$/i,
@@ -48,20 +53,54 @@ function getDatabaseUrl() {
   return String(process.env.WOLFHOUSE_DATABASE_URL || process.env.DATABASE_URL || '').trim();
 }
 
-function parseDatabaseHost(connectionString) {
+function parseDatabaseTarget(connectionString) {
   const url = String(connectionString || '').trim();
-  if (!url) return null;
+  if (!url) return { host: null, database: null };
+
+  let host = null;
+  let database = null;
   try {
     const normalized = url.replace(/^postgres(ql)?:\/\//i, 'http://');
-    return new URL(normalized).hostname || null;
+    const parsed = new URL(normalized);
+    host = parsed.hostname || null;
+    database = parsed.pathname.replace(/^\//, '').split('?')[0] || null;
   } catch {
-    const match = url.match(/@([^:/?#]+)/);
-    return match ? match[1] : null;
+    const hostMatch = url.match(/@([^:/?#]+)/);
+    const dbMatch = url.match(/\/([^/?#]+)(?:\?|$)/);
+    host = hostMatch ? hostMatch[1] : null;
+    database = dbMatch ? dbMatch[1] : null;
   }
+
+  return { host, database };
+}
+
+function parseDatabaseHost(connectionString) {
+  return parseDatabaseTarget(connectionString).host;
+}
+
+function isApprovedStagingTarget(host, database) {
+  return host === APPROVED_STAGING_HOST && database === APPROVED_STAGING_DB;
+}
+
+function matchesRejectPatterns(host, database) {
+  const hostLower = String(host || '').toLowerCase();
+  const dbLower = String(database || '').toLowerCase();
+
+  for (const pattern of REJECT_HOST_PATTERNS) {
+    if (pattern.test(hostLower)) {
+      return `blocked host pattern: ${pattern}`;
+    }
+  }
+  for (const pattern of REJECT_DATABASE_PATTERNS) {
+    if (pattern.test(dbLower)) {
+      return `blocked database pattern: ${pattern}`;
+    }
+  }
+  return null;
 }
 
 /**
- * @returns {{ status: 'allowed'|'missing'|'ambiguous'|'rejected', host?: string, reason?: string }}
+ * @returns {{ status: 'allowed'|'allowed-staging'|'missing'|'ambiguous'|'rejected', host?: string, database?: string, reason?: string }}
  */
 function classifyDatabaseUrl(connectionString) {
   const url = String(connectionString || '').trim();
@@ -69,29 +108,43 @@ function classifyDatabaseUrl(connectionString) {
     return { status: 'missing', reason: 'WOLFHOUSE_DATABASE_URL/DATABASE_URL is missing' };
   }
 
-  const host = parseDatabaseHost(url);
-  if (!host) {
-    return { status: 'ambiguous', reason: 'could not parse database host from connection string' };
+  const { host, database } = parseDatabaseTarget(url);
+  if (!host || !database) {
+    return { status: 'ambiguous', reason: 'could not parse database host/database from connection string' };
+  }
+
+  const blocked = matchesRejectPatterns(host, database);
+  if (blocked) {
+    return { status: 'rejected', host, database, reason: `host/database matches ${blocked}` };
+  }
+
+  if (isApprovedStagingTarget(host, database)) {
+    return { status: 'allowed-staging', host, database };
   }
 
   const hostLower = host.toLowerCase();
-  const allowed = ALLOW_HOST_PATTERNS.some((pattern) => pattern.test(hostLower));
-  if (allowed) {
-    return { status: 'allowed', host };
+  const localAllowed = ALLOW_LOCAL_HOST_PATTERNS.some((pattern) => pattern.test(hostLower));
+  if (localAllowed) {
+    return { status: 'allowed', host, database };
   }
 
-  for (const pattern of REJECT_HOST_PATTERNS) {
-    if (pattern.test(hostLower)) {
-      return { status: 'rejected', host, reason: `host matches blocked pattern: ${host}` };
-    }
-  }
-
-  return { status: 'rejected', host, reason: `host not in localhost/test allowlist: ${host}` };
+  return {
+    status: 'rejected',
+    host,
+    database,
+    reason: `host not in localhost/test allowlist and not approved Sunset staging target (${APPROVED_STAGING_HOST}/${APPROVED_STAGING_DB})`,
+  };
 }
 
 function assertAllowSeedEnv() {
   if (process.env[ALLOW_ENV_KEY] !== '1') {
     throw new Error(`${ALLOW_ENV_KEY}=1 is required for --execute mode`);
+  }
+}
+
+function assertStagingDbAllowEnv() {
+  if (process.env[STAGING_DB_ALLOW_ENV_KEY] !== '1') {
+    throw new Error(`${STAGING_DB_ALLOW_ENV_KEY}=1 is required for --execute against Sunset staging DB`);
   }
 }
 
@@ -103,10 +156,13 @@ function assertNotProductionEnv() {
 
 function assertDatabaseUrlForExecute(connectionString) {
   const verdict = classifyDatabaseUrl(connectionString);
-  if (verdict.status !== 'allowed') {
-    throw new Error(`database URL fail-closed for --execute: ${verdict.reason}`);
+  if (verdict.status === 'allowed' || verdict.status === 'allowed-staging') {
+    if (verdict.status === 'allowed-staging') {
+      assertStagingDbAllowEnv();
+    }
+    return verdict;
   }
-  return verdict;
+  throw new Error(`database URL fail-closed for --execute: ${verdict.reason}`);
 }
 
 function assertExecuteGates(opts, connectionString) {
@@ -114,7 +170,12 @@ function assertExecuteGates(opts, connectionString) {
   assertNotProductionEnv();
   assertAllowSeedEnv();
   const verdict = assertDatabaseUrlForExecute(connectionString || getDatabaseUrl());
-  return { mode: 'execute', host: verdict.host };
+  return {
+    mode: 'execute',
+    host: verdict.host,
+    database: verdict.database,
+    target: verdict.status,
+  };
 }
 
 function loadManifest(filePath = MANIFEST_PATH) {
@@ -300,13 +361,18 @@ function printCleanupPlan(plan, mode) {
 module.exports = {
   DEMO_TAG,
   ALLOW_ENV_KEY,
+  STAGING_DB_ALLOW_ENV_KEY,
+  APPROVED_STAGING_HOST,
+  APPROVED_STAGING_DB,
   EXPECTED_TENANT,
   MANIFEST_PATH,
   parseCliArgs,
   getDatabaseUrl,
   parseDatabaseHost,
+  parseDatabaseTarget,
   classifyDatabaseUrl,
   assertAllowSeedEnv,
+  assertStagingDbAllowEnv,
   assertNotProductionEnv,
   assertDatabaseUrlForExecute,
   assertExecuteGates,

@@ -24,6 +24,9 @@ const GUARDS_MODULE = path.join(FIXTURES, 'sunset-portal-slice1-guards.js');
 const {
   DEMO_TAG,
   ALLOW_ENV_KEY,
+  STAGING_DB_ALLOW_ENV_KEY,
+  APPROVED_STAGING_HOST,
+  APPROVED_STAGING_DB,
   classifyDatabaseUrl,
   validateManifest,
   buildSeedPlan,
@@ -75,6 +78,7 @@ const rejectUrls = [
   'postgres://user:pass@production-db.example.com:5432/app',
   'postgres://user:pass@staff-staging.lunafrontdesk.com:5432/app',
   'postgres://user:pass@wolfhouse-prod.internal:5432/app',
+  `postgres://user:pass@${APPROVED_STAGING_HOST}:5432/wolfhouse_staging`,
 ];
 
 for (const url of rejectUrls) {
@@ -92,6 +96,18 @@ for (const url of allowUrls) {
   const verdict = classifyDatabaseUrl(url);
   check(`allows ${url.split('@')[1] || url}`, verdict.status === 'allowed', verdict.status);
 }
+
+const stagingUrl = `postgres://sunsetadmin:secret@${APPROVED_STAGING_HOST}:5432/${APPROVED_STAGING_DB}?sslmode=require`;
+const stagingVerdict = classifyDatabaseUrl(stagingUrl);
+check('classifies Sunset staging host+db as allowed-staging',
+  stagingVerdict.status === 'allowed-staging',
+  stagingVerdict.status);
+check('Sunset staging host matches approved host',
+  stagingVerdict.host === APPROVED_STAGING_HOST,
+  stagingVerdict.host);
+check('Sunset staging database is sunset_staging',
+  stagingVerdict.database === APPROVED_STAGING_DB,
+  stagingVerdict.database);
 
 check('missing URL is not allowed for execute', classifyDatabaseUrl('').status === 'missing');
 check('ambiguous URL is not allowed', classifyDatabaseUrl('not-a-valid-url').status !== 'allowed');
@@ -188,6 +204,17 @@ const seedExecuteProd = spawnDry(SEED_SCRIPT, ['--execute'], {
 check('seed --execute with prod/staging URL fails', seedExecuteProd.status !== 0, `status=${seedExecuteProd.status}`);
 check('seed --execute prod URL fail-closed message',
   (seedExecuteProd.stderr || '').includes('fail-closed'));
+
+const seedExecuteStagingNoGate = spawnDry(SEED_SCRIPT, ['--execute'], {
+  ALLOW_SUNSET_DEMO_SEED: '1',
+  SUNSET_DEMO_SEED_STAGING_DB_ALLOW: undefined,
+  WOLFHOUSE_DATABASE_URL: stagingUrl,
+});
+check('seed --execute Sunset staging host without staging env gate fails',
+  seedExecuteStagingNoGate.status !== 0,
+  `status=${seedExecuteStagingNoGate.status}`);
+check('seed --execute staging without gate mentions SUNSET_DEMO_SEED_STAGING_DB_ALLOW',
+  (seedExecuteStagingNoGate.stderr || '').includes(STAGING_DB_ALLOW_ENV_KEY));
 
 const cleanupExecuteNoEnv = spawnDry(CLEANUP_SCRIPT, ['--execute'], {
   ALLOW_SUNSET_DEMO_SEED: undefined,
