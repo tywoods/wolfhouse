@@ -15685,21 +15685,22 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:3px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
+#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;padding:3px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0}
+#banner .brand.logo-wrap{background:rgba(31,25,20,.55);border:1px solid rgba(190,135,78,.35);border-radius:8px;padding:6px 8px;box-shadow:0 6px 18px rgba(0,0,0,.18);flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit}
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent}
-#banner .brand-logo{height:80px;width:auto;max-width:min(560px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
-#banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
+#banner .brand-logo{height:80px;width:auto;max-width:min(560px,calc(100vw - 360px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
+#banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
 #banner .badge-sm{background:rgba(68,80,74,.18);color:#FBF7F0;font-size:10px;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.04em}
-.staff-lang-switch{display:flex;align-items:center;gap:0;margin-right:0;font-size:11px;font-weight:600;letter-spacing:.1em}
-.staff-lang-btn{background:none;border:none;color:rgba(255,255,255,.68);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
-.staff-lang-btn:hover{color:#fff}
-.staff-lang-btn.is-active{color:#fff;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,255,255,.55)}
-.staff-lang-sep{color:rgba(255,255,255,.32);user-select:none;font-size:10px}
-.staff-theme-toggle{margin:0;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:50%;background:rgba(255,255,255,.10);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:#fff}
+.staff-lang-switch{display:flex;align-items:center;gap:0;margin-right:0;font-size:11px;font-weight:600;letter-spacing:.1em;color:#fffaf1}
+.staff-lang-btn{background:none;border:none;color:rgba(255,250,241,.72);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
+.staff-lang-btn:hover{color:#fffaf1}
+.staff-lang-btn.is-active{color:#fffaf1;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,250,241,.55)}
+.staff-lang-sep{color:rgba(255,250,241,.34);user-select:none;font-size:10px}
+.staff-theme-toggle{margin:0;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.28);border-radius:50%;background:rgba(255,255,255,.12);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:#fffaf1}
 .staff-theme-toggle:hover{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.38);box-shadow:0 0 14px rgba(255,255,255,.12)}
 .staff-theme-toggle:active{transform:scale(.96)}
 .staff-theme-toggle:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
@@ -16593,7 +16594,7 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
-  <a href="/staff/ui" class="brand" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
+  <a href="/staff/ui" class="brand logo-wrap" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
