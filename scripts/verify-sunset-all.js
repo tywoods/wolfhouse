@@ -20,9 +20,10 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 
 const CHECKS = [
-  { name: 'verify:sunset-rental-lookup',          script: 'scripts/verify-sunset-rental-lookup.js' },
-  { name: 'verify:sunset-catalog-tools',          script: 'scripts/verify-sunset-catalog-tool-executor.js' },
+  { name: 'verify:sunset-rental-lookup',            script: 'scripts/verify-sunset-rental-lookup.js' },
+  { name: 'verify:sunset-catalog-tools',            script: 'scripts/verify-sunset-catalog-tool-executor.js' },
   { name: 'verify:sunset-catalog-response-preview', script: 'scripts/verify-sunset-catalog-response-preview.js' },
+  { name: 'verify:sunset-golden',                   script: 'scripts/verify-sunset-golden.js' },
 ];
 
 const SEP = '─'.repeat(64);
