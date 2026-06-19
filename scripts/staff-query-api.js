@@ -170,6 +170,7 @@ const {
   userCanAccessClient,
   resolveStaffRole,
   canUseOwnerInsights,
+  buildClientProfilesMap,
 } = require('./lib/staff-portal-clients');
 const {
   getOpenHandoffsQuery,
@@ -16616,6 +16617,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <div id="tabs">
   <button class="tab-btn active" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
+  <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -16720,6 +16722,36 @@ ${getStaffPortalI18nBootstrapScript()}
 
 </div><!-- /wrap -->
 </div><!-- /tab-conversations -->
+
+<!-- ── Day Schedule tab (Sunset Slice 1 — read-only demo) ─────────────────── -->
+<div id="tab-day-schedule" class="tab-panel">
+<div id="wrap-day-schedule" style="max-width:1100px;margin:0 auto;padding:26px 20px">
+  <div class="card cc-section">
+    <div class="cc-section-hdr" data-i18n="daySchedule.title">Day Schedule</div>
+    <div class="cc-section-sub" data-i18n="daySchedule.sub">Read-only rentals and lessons for the selected date. Demo lesson slots come from tenant config.</div>
+    <div class="toolbar" style="margin-top:12px">
+      <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:0">
+        <span data-i18n="daySchedule.date">Date</span>&nbsp;<input id="ds-date" type="date" class="bc-date-input" autocomplete="off">
+      </label>
+      <button class="btn btn-primary" id="ds-load" type="button">&#128197; <span data-i18n="daySchedule.load">Load</span></button>
+      <span class="pill pill-grey" data-i18n="daySchedule.readOnly">View only — read-only demo</span>
+    </div>
+    <div id="ds-state" class="state-msg" data-i18n="daySchedule.loading">Loading schedule…</div>
+    <div id="ds-slots-wrap" style="margin-top:16px;display:none">
+      <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.demoSlots">Lesson slots (demo config)</div>
+      <div id="ds-slots" class="today-grid" style="margin-top:8px"></div>
+    </div>
+    <div id="ds-lessons-wrap" style="margin-top:20px;display:none">
+      <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.lessons">Lessons</div>
+      <div id="ds-lessons-table"></div>
+    </div>
+    <div id="ds-rentals-wrap" style="margin-top:20px;display:none">
+      <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.rentals">Rentals / gear</div>
+      <div id="ds-rentals-table"></div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-day-schedule -->
 
 <!-- ── Query Tools tab ────────────────────────────────────────────────────── -->
 <div id="tab-query-tools" class="tab-panel">
@@ -17493,10 +17525,14 @@ function fmtDateOnly(d){
 
 /* ── Tab utilities ────────────────────────────────────────────────────────── */
 function switchToTab(tab, subtab){
+  if (isTabHiddenForClient(tab, getClient())) {
+    var p = getPortalProfile(getClient());
+    tab = p.default_tab || 'bed-calendar';
+  }
   document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
   document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
   var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
-  if (btn) btn.classList.add('active');
+  if (btn && btn.style.display !== 'none') btn.classList.add('active');
   var panel = el('tab-' + tab);
   if (panel) panel.classList.add('active');
   if (tab === 'conversations' && subtab){
@@ -17507,6 +17543,7 @@ function switchToTab(tab, subtab){
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
   if (tab === 'ask-luna') lunaGlobalPauseLoad();
   if (tab === 'conversations') wireInboxLeftListWheel();
+  if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
@@ -17519,6 +17556,7 @@ window.switchToTabOnly = switchToTabOnly;
 document.querySelectorAll('.tab-btn').forEach(function(btn){
   btn.addEventListener('click', function(){
     const target = this.dataset.tab;
+    if (isTabHiddenForClient(target, getClient())) return;
     document.querySelectorAll('.tab-btn').forEach(function(b){ b.classList.remove('active'); });
     document.querySelectorAll('.tab-panel').forEach(function(p){ p.classList.remove('active'); });
     this.classList.add('active');
@@ -17530,6 +17568,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'ask-luna') lunaGlobalPauseLoad();
+    if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
 });
@@ -17847,6 +17886,119 @@ function syncBcClientFromInbox(){
 }
 
 var staffPortalSession = { auth_required: false, role: 'owner', clients: [], can_use_owner_insights: true };
+var staffPortalClientProfiles = {};
+
+function getPortalProfile(clientSlug){
+  var slug = clientSlug || getClient();
+  if (staffPortalClientProfiles && staffPortalClientProfiles[slug]) return staffPortalClientProfiles[slug];
+  return { default_tab: 'bed-calendar', hidden_tabs: [], hidden_drawer_tabs: [], lesson_slots_demo: [], is_surf_vertical: false };
+}
+
+function isTabHiddenForClient(tab, clientSlug){
+  var profile = getPortalProfile(clientSlug);
+  var hidden = profile.hidden_tabs || [];
+  if (hidden.indexOf(tab) >= 0) return true;
+  if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
+  return false;
+}
+
+function applyClientPortalProfile(clientSlug){
+  var profile = getPortalProfile(clientSlug);
+  var hidden = profile.hidden_tabs || [];
+  document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
+    var tab = btn.getAttribute('data-tab');
+    if (tab === 'day-schedule') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
+  });
+}
+
+function dsTodayIso(){
+  var d = new Date();
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
+}
+
+function renderDayScheduleSlots(slots, dateIso){
+  var wrap = el('ds-slots-wrap');
+  var box = el('ds-slots');
+  if (!wrap || !box) return;
+  var list = (slots || []).filter(function(s){ return !dateIso || !s.date || s.date === dateIso; });
+  if (!list.length){ wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  box.innerHTML = list.map(function(s){
+    var cap = s.capacity != null ? s.capacity : '?';
+    var booked = s.seats_booked != null ? s.seats_booked : 0;
+    var avail = s.seats_available != null ? s.seats_available : Math.max(0, cap - booked);
+    return '<div class="today-tile"><div class="today-tile-label">' + escHtml(s.slot_time || '') + '</div>' +
+      '<div class="today-tile-sub">' + escHtml(s.offering_label || s.session_type || 'Lesson') + '</div>' +
+      '<div class="today-tile-number" style="font-size:18px">' + escHtml(String(booked) + ' / ' + String(cap)) + '</div>' +
+      '<div class="today-tile-sub">' + escHtml(String(avail) + ' available (demo)') + '</div></div>';
+  }).join('');
+}
+
+function renderDayScheduleTable(rows, targetId, emptyMsg){
+  var wrapId = targetId === 'ds-lessons-table' ? 'ds-lessons-wrap' : 'ds-rentals-wrap';
+  var wrap = el(wrapId);
+  var box = el(targetId);
+  if (!wrap || !box) return;
+  if (!rows || !rows.length){ wrap.style.display = 'none'; box.innerHTML = ''; return; }
+  wrap.style.display = '';
+  var html = '<table class="al-rows-table"><thead><tr><th>Guest</th><th>Service</th><th>Qty</th><th>Status</th><th>Payment</th><th>Booking</th></tr></thead><tbody>';
+  rows.forEach(function(r){
+    html += '<tr><td>' + escHtml(r.guest_name || '—') + '</td>' +
+      '<td>' + escHtml(r.service_type || '—') + '</td>' +
+      '<td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td>' +
+      '<td>' + escHtml(r.service_status || r.status || '—') + '</td>' +
+      '<td>' + escHtml(r.payment_status || '—') + '</td>' +
+      '<td>' + escHtml(r.booking_code || '—') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+function loadDaySchedule(dateIso){
+  var client = getClient();
+  var profile = getPortalProfile(client);
+  if (!profile.is_surf_vertical) return Promise.resolve();
+  var date = dateIso || (el('ds-date') && el('ds-date').value) || dsTodayIso();
+  if (el('ds-date') && !el('ds-date').value) el('ds-date').value = date;
+  var state = el('ds-state');
+  if (state){ state.textContent = t('daySchedule.loading'); state.className = 'state-msg'; }
+  renderDayScheduleSlots(profile.lesson_slots_demo || [], date);
+  var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(date);
+  return Promise.all([
+    fetch(base + '&intent=services.lessons_today').then(function(r){ return r.json(); }),
+    fetch(base + '&intent=services.gear_today').then(function(r){ return r.json(); }),
+  ]).then(function(results){
+    var lessons = (results[0] && results[0].rows) || [];
+    var gear = (results[1] && results[1].rows) || [];
+    renderDayScheduleTable(lessons, 'ds-lessons-table', t('daySchedule.empty'));
+    renderDayScheduleTable(gear, 'ds-rentals-table', t('daySchedule.empty'));
+    if (state){
+      if (!lessons.length && !gear.length && !(profile.lesson_slots_demo || []).length){
+        state.textContent = t('daySchedule.empty');
+      } else {
+        state.style.display = 'none';
+      }
+    }
+  }).catch(function(e){
+    if (state){ state.textContent = t('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; }
+  });
+}
+
+function portalStartupAfterSession(){
+  var profile = getPortalProfile(getClient());
+  applyClientPortalProfile(getClient());
+  var tab = profile.default_tab || 'bed-calendar';
+  if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'conversations' : 'bed-calendar';
+  switchToTab(tab, null);
+  if (tab === 'conversations') loadInbox();
+  if (profile.is_surf_vertical) loadDaySchedule(dsTodayIso());
+}
 
 function staffIsAdmin(){
   if (staffPortalSession.auth_required === false) return true;
@@ -17903,8 +18055,10 @@ function initStaffPortalSession(){
         clients: data.clients || [],
         can_use_owner_insights: data.can_use_owner_insights === true,
       };
+      staffPortalClientProfiles = data.client_profiles || {};
       populateClientSelect(data.clients);
       applyOwnerInsightsGate();
+      applyClientPortalProfile(getClient());
     })
     .catch(function(){
       populateClientSelect(null);
@@ -19447,6 +19601,14 @@ if (clientSelectEl){
   clientSelectEl.addEventListener('change', function(){
     localStorage.setItem('staff_portal_client', getClient());
     syncBcClientFromInbox();
+    applyClientPortalProfile(getClient());
+    var profile = getPortalProfile(getClient());
+    var activePanel = document.querySelector('.tab-panel.active');
+    var activeTab = activePanel && activePanel.id ? activePanel.id.replace('tab-', '') : null;
+    if (!activeTab || isTabHiddenForClient(activeTab, getClient())) {
+      switchToTab(profile.default_tab || 'bed-calendar', null);
+    }
+    if (getPortalProfile(getClient()).is_surf_vertical) loadDaySchedule(dsTodayIso());
     loadInbox(null, { silent: true, preserveDetail: false });
   });
 }
@@ -19460,8 +19622,10 @@ document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
 updateInboxFilterUI();
 
 initStaffPortalSession().then(function(){
-  loadInbox();
+  portalStartupAfterSession();
 });
+var dsLoadBtn = el('ds-load');
+if (dsLoadBtn) dsLoadBtn.addEventListener('click', function(){ loadDaySchedule(); });
 wireInboxLeftListWheel();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
@@ -28980,6 +29144,7 @@ async function handleAuthSession(req, res) {
       email: null,
       display_name: null,
       clients: getAccessibleClients(null),
+      client_profiles: buildClientProfilesMap(null),
       can_use_owner_insights: true,
     });
   }
@@ -29008,6 +29173,7 @@ async function handleAuthSession(req, res) {
     email: user.email,
     display_name: user.display_name || null,
     clients: getAccessibleClients(user),
+    client_profiles: buildClientProfilesMap(user),
     can_use_owner_insights: canUseOwnerInsights(user),
   });
 }

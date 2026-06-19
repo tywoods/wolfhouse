@@ -85,9 +85,9 @@ check('CAT2', resolveRoomCategory(wolfhouseRoom('R5')) === 'female_only', 'R5 fe
 check('CAT3', resolveRoomCategory(wolfhouseRoom('R7')) === 'operator_surfweek', 'R7 operator');
 
 // ── Context ─────────────────────────────────────────────────────────────────
-check('CTX1', deriveAllocatorContext({ guestCount: 1, guestName: 'Sarah' }).groupGender === 'female', 'Sarah → female');
+check('CTX1', deriveAllocatorContext({ guestCount: 1, guestName: 'Sarah' }).groupGender === 'unknown', 'Sarah name-only → unknown (no name gender inference)');
 check('CTX2', deriveAllocatorContext({ guestCount: 8, guestName: 'Sarah' }).groupGender === 'unknown', '8 guests one name → unknown');
-check('CTX3', deriveAllocatorContext({ guestCount: 1, guestName: 'Marco' }).groupGender === 'male', 'Marco → male');
+check('CTX3', deriveAllocatorContext({ guestCount: 1, guestName: 'Marco' }).groupGender === 'unknown', 'Marco name-only → unknown (no name gender inference)');
 check('CTX4', deriveAllocatorContext({ guestCount: 3, genderPreference: 'male' }).groupGender === 'male', 'gender_preference male → male');
 check('CTX5', deriveAllocatorContext({ guestCount: 2, roomPreference: 'guys room' }).groupGender === 'male', 'guys room → male');
 check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !allowedCategoriesForGroup('female', null).has('mixed'), 'female default female_only only');
@@ -168,9 +168,9 @@ check('CTX6', allowedCategoriesForGroup('female', null).has('female_only') && !a
   check('M4', r.room_code === 'R4', 'male 4 uses R4 when R2/R1 full');
 }
 {
-  const ctx = deriveAllocatorContext({ guestCount: 1, guestName: 'Marco' });
+  const ctx = deriveAllocatorContext({ guestCount: 1, guestName: 'Marco', groupGender: 'male' });
   const r = pick({ guestCount: 1, groupGender: ctx.groupGender, roomPreference: ctx.roomPreference });
-  check('M5', r.room_code === 'R2' || r.room_code === 'R1', `Marco solo male room (${r.room_code})`);
+  check('M5', r.room_code === 'R2' || r.room_code === 'R1', `male solo → male room (${r.room_code})`);
 }
 
 // ── Unknown/mixed group → mixed pool (R1 + R3), flip spare when needed ─────

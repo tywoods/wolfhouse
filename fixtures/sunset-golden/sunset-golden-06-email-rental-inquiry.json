@@ -1,0 +1,43 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-06-email-rental-inquiry",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "email",
+  "label": "Email inquiry for rentals and lessons — structured reply, categories, no invented availability or payment links",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §4", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §0"],
+  "config_refs": ["catalog.rentals", "catalog.lessons"],
+  "contact_name": "Elena",
+  "contact_email": "elena@example.com",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "Subject: Rental and lesson enquiry\n\nHello,\n\nWe are visiting next month and would like information on surfboard rentals and group lessons for two adults. Could you send prices and availability?\n\nThanks,\nElena",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "channel_format": "email_structured",
+          "more_structured_than_whatsapp": true,
+          "includes_service_categories": ["rentals", "lessons"],
+          "may_list_options": ["board", "wetsuit", "board+suit", "SUP", "group_lessons", "private_lessons"],
+          "quote_from_config_only": true,
+          "asks_for_missing_details": ["date", "number_of_people", "service_interest"],
+          "must_not": [
+            "payment_link",
+            "invented_availability",
+            "invented_lesson_capacity_confirmation"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "pay."],
+        "expected_no_payment_link": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "channel_appropriate_structure": "email",
+    "tenant_isolation": "sunset_only"
+  }
+}

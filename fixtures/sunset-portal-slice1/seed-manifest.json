@@ -1,0 +1,188 @@
+{
+  "_schema": "sunset-portal-slice1-seed-manifest-v1",
+  "_note": "Demo seed data for Sunset portal Slice 1 read-only demo. No real Stripe links, no real secrets, placeholder guest IDs/emails/phones only. All records scoped to client_slug=sunset / tenant_id=sunset.",
+  "tenant_id": "sunset",
+  "client_slug": "sunset",
+  "demo_mode": true,
+  "source": "demo_seed",
+
+  "conversations": [
+    {
+      "conversation_id": "demo-conv-sunset-001",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "channel": "whatsapp",
+      "guest_name": "Alex",
+      "guest_phone": "+34 611 000 101",
+      "source": "demo_seed",
+      "status": "demo_closed",
+      "turns": [
+        {
+          "turn": 1,
+          "role": "guest",
+          "message": "Hi, how much is it to rent a surfboard for one day?"
+        },
+        {
+          "turn": 1,
+          "role": "luna",
+          "message": "Hi Alex! 🏄 At Sunset Surf School, a surfboard rental for the day is around €15 (price pending owner confirmation). Would you like to add a wetsuit too, or are you all set on that front?"
+        },
+        {
+          "turn": 2,
+          "role": "guest",
+          "message": "I'll need a wetsuit too."
+        },
+        {
+          "turn": 2,
+          "role": "luna",
+          "message": "Great — the board + wetsuit bundle for a day is around €20 (seed price, needs confirmation). What date are you thinking?"
+        }
+      ],
+      "demo_state": {
+        "service_type": "board_and_suit_rental",
+        "duration": "1_day",
+        "amount_eur": 20,
+        "pricing_status": "unverified_seed",
+        "payment_link": null,
+        "live_send_allowed": false
+      }
+    },
+    {
+      "conversation_id": "demo-conv-sunset-002",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "channel": "whatsapp",
+      "guest_name": "Maria",
+      "guest_phone": "+34 611 000 102",
+      "source": "demo_seed",
+      "status": "demo_handoff_pending",
+      "turns": [
+        {
+          "turn": 1,
+          "role": "guest",
+          "message": "Hello, do you have surf lessons for children? My son is 8."
+        },
+        {
+          "turn": 1,
+          "role": "luna",
+          "message": "Hi Maria! Yes, Sunset Surf School runs a Surfpark for younger surfers, roughly ages 6–11. What dates are you planning to visit?"
+        },
+        {
+          "turn": 2,
+          "role": "guest",
+          "message": "We'll be there 5–12 July."
+        },
+        {
+          "turn": 2,
+          "role": "luna",
+          "message": "Thanks! Lessons typically run 11:00–13:00 or 16:00–18:00 (times subject to confirmation). The team will confirm availability and pricing for the kids session and get back to you shortly."
+        }
+      ],
+      "demo_state": {
+        "service_type": "group_lesson_kids_surfpark",
+        "guest_age": 8,
+        "dates": "2026-07-05 to 2026-07-12",
+        "price_eur": null,
+        "pricing_status": "owner_required",
+        "handoff_needed": true,
+        "payment_link": null,
+        "live_send_allowed": false
+      }
+    }
+  ],
+
+  "booking_service_records": [
+    {
+      "record_id": "demo-sunset-bk-001",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "service_type": "board_rental",
+      "offering_label": "Surfboard rental",
+      "guest_name": "Alex García",
+      "guest_phone": "+34 611 000 101",
+      "guest_email": "alex.demo@sunset-demo.internal",
+      "date": "2026-07-10",
+      "duration": "1_day",
+      "amount_eur": 15,
+      "pricing_status": "unverified_seed",
+      "payment_status": "unpaid",
+      "payment_link": null,
+      "payment_link_note": "No link issued — pricing_status must be confirmed before link is generated.",
+      "booking_status": "demo_pending",
+      "channel": "whatsapp",
+      "source": "demo_seed"
+    },
+    {
+      "record_id": "demo-sunset-bk-002",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "service_type": "board_and_suit_rental",
+      "offering_label": "Board + wetsuit rental (bundle)",
+      "guest_name": "Sam Lee",
+      "guest_phone": "+34 611 000 103",
+      "guest_email": "sam.demo@sunset-demo.internal",
+      "date": "2026-07-11",
+      "duration": "5_days",
+      "amount_eur": 65,
+      "pricing_status": "unverified_seed",
+      "payment_status": "unpaid",
+      "payment_link": null,
+      "payment_link_note": "No link issued — pricing_status must be confirmed before link is generated.",
+      "booking_status": "demo_pending",
+      "channel": "whatsapp",
+      "source": "demo_seed"
+    },
+    {
+      "record_id": "demo-sunset-bk-003",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "service_type": "group_lesson_adult",
+      "offering_label": "Adult / adolescent group surf lesson (over 12)",
+      "guest_name": "Jordan Taylor",
+      "guest_phone": "+34 611 000 104",
+      "guest_email": "jordan.demo@sunset-demo.internal",
+      "date": "2026-07-12",
+      "slot_time": "11:00-13:00",
+      "seats": 2,
+      "amount_eur_per_seat": 30,
+      "amount_eur_total": 60,
+      "pricing_status": "unverified_seed",
+      "capacity_check": "not_run",
+      "capacity_check_note": "Lesson records require Staff API slot capacity check before confirming seats.",
+      "payment_status": "unpaid",
+      "payment_link": null,
+      "payment_link_note": "No link issued — pricing_status must be confirmed and capacity confirmed before link.",
+      "booking_status": "demo_pending",
+      "channel": "whatsapp",
+      "source": "demo_seed"
+    }
+  ],
+
+  "accommodation_partner_queue": [
+    {
+      "record_id": "demo-sunset-acc-001",
+      "tenant_id": "sunset",
+      "client_slug": "sunset",
+      "service_type": "accommodation_partner",
+      "offering_label": "Partner hotel accommodation (surf package)",
+      "guest_name": "Riley Morgan",
+      "guest_phone": "+34 611 000 105",
+      "guest_email": "riley.demo@sunset-demo.internal",
+      "check_in": "2026-07-14",
+      "check_out": "2026-07-19",
+      "nights": 5,
+      "guests": 2,
+      "amount_eur": null,
+      "pricing_status": "owner_required",
+      "partner_hotel": "<FILL: owner provides hotel name>",
+      "partner_availability": "manual_confirm",
+      "partner_availability_note": "Accommodation availability comes from partner hotel, not from Luna engine. Must be manually confirmed.",
+      "payment_status": "unpaid",
+      "payment_link": null,
+      "payment_link_note": "No link issued — accommodation pricing and partner availability must be confirmed first.",
+      "booking_status": "demo_partner_queue",
+      "channel": "whatsapp",
+      "source": "demo_seed"
+    }
+  ]
+}

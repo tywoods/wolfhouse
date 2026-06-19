@@ -1,0 +1,13 @@
+{
+  "_note": "Sunset isolated staging image only. Baked into luna-sunset-staff-api via Dockerfile.luna-sunset-staff-api. Wolfhouse staging keeps staff-portal-access.json with all_clients_emails.",
+  "_version": "sunset-staging-portal-access",
+  "all_clients_emails": [],
+  "portal_admin_emails": [
+    "tywoods@gmail.com"
+  ],
+  "client_access": {
+    "tywoods@gmail.com": [
+      "sunset"
+    ]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-02-rental-board-wetsuit-5day-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Guest asks board + wetsuit for 5 days — bundle seed quote, collect missing detail, one question",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.1", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §1"],
+  "config_refs": ["catalog.rentals.offerings.board_and_suit_rental"],
+  "contact_name": "Jamie",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "How much for a board and wetsuit for 5 days?",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "quote_from_config_only": true,
+          "config_price_refs": ["catalog.rentals.offerings.board_and_suit_rental.prices_eur.5_days"],
+          "seed_price_eur_5_days": 65,
+          "item_identified": "board_and_suit_rental",
+          "window_identified": "5_days",
+          "may_quote_if_window_known": true,
+          "collects_if_missing": ["start_date", "number_of_people"],
+          "asks_one_next_question": true,
+          "inventory_model": "unlimited",
+          "must_not": [
+            "payment_link",
+            "booking_confirmed",
+            "invented_availability"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "confirmed", "reserved"],
+        "expected_no_payment_link": true,
+        "expected_no_handoff": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "no_confirmation": true,
+    "tenant_isolation": "sunset_only"
+  }
+}

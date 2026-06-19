@@ -1,0 +1,44 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-04-kids-lesson-age-check-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Child age 6–11 inquiry — Surfpark suitability with age caveat, one next question, no overpromise",
+  "spec_refs": ["docs/sunset/LUNA-SUNSET-OVERVIEW.md §3.2", "docs/sunset/SUNSET-GUEST-JOURNEY-DRAFT.md §2"],
+  "config_refs": ["catalog.lessons.offerings.group_lesson_kids_surfpark"],
+  "contact_name": "Maria",
+  "reference_date": "2026-06-20",
+  "turns": [
+    {
+      "message": "Do you have surf lessons for my kid? She is 8.",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "lesson_type": "group_lesson_kids_surfpark",
+          "child_age_years": 8,
+          "explains_surfpark_suitability_with_caveat": true,
+          "age_rule_caveat": "approx_ages_6_11_confirm_with_owner",
+          "does_not_overpromise_eligibility": true,
+          "asks_one_next_question": true,
+          "next_question_about": ["child_age_confirm", "preferred_date", "guardian_consent"],
+          "must_not": [
+            "payment_link",
+            "lesson_confirmed",
+            "guaranteed_spot",
+            "invented_price_if_unconfirmed"
+          ]
+        },
+        "reply_not_contains": ["http", "stripe", "confirmed", "guaranteed"],
+        "expected_no_payment_link": true,
+        "expected_no_handoff": false
+      }
+    }
+  ],
+  "final_expect": {
+    "no_payment_link": true,
+    "no_overpromise_on_age_rules": true,
+    "tenant_isolation": "sunset_only"
+  }
+}
