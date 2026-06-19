@@ -62,7 +62,7 @@ if (fs.existsSync(sunsetPath)) {
   const ss = loadClientPortalProfile('sunset');
   assert('sunset vertical is surf_school_rentals', ss.vertical === 'surf_school_rentals', ss.vertical);
   assert('sunset is_surf_vertical is true', ss.is_surf_vertical === true);
-  assert('sunset default_tab is conversations', ss.default_tab === 'conversations', ss.default_tab);
+  assert('sunset default_tab is portal-home', ss.default_tab === 'portal-home', ss.default_tab);
   assert('sunset hides bed-calendar', ss.hidden_tabs.includes('bed-calendar'));
   assert('sunset hides tour-operator', ss.hidden_tabs.includes('tour-operator'));
   assert('sunset lesson_slots_demo has entries', Array.isArray(ss.lesson_slots_demo) && ss.lesson_slots_demo.length >= 2,

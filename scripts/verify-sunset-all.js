@@ -26,6 +26,7 @@ const CHECKS = [
   { name: 'verify:sunset-golden',                   script: 'scripts/verify-sunset-golden.js' },
   { name: 'verify:sunset-portal-slice1-seed',       script: 'scripts/verify-sunset-portal-slice1-seed.js' },
   { name: 'verify:sunset-portal-slice1',           script: 'scripts/verify-sunset-portal-slice1.js' },
+  { name: 'verify:sunset-portal-v1',               script: 'scripts/verify-sunset-portal-v1.js' },
   { name: 'verify:sunset-portal-slice1-seed-runner', script: 'scripts/verify-sunset-portal-slice1-seed-runner.js' },
 ];
 
