@@ -15685,20 +15685,21 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:8px 24px;display:flex;align-items:center;gap:14px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
-#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 1 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit}
-#banner .brand-logo{height:48px;width:auto;max-width:min(240px,40vw);object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:auto}
+#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:6px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
+#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent}
+#banner .brand-logo{height:72px;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
+#banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
 #banner .badge-sm{background:rgba(68,80,74,.18);color:#FBF7F0;font-size:10px;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.04em}
-.staff-lang-switch{display:flex;align-items:center;gap:0;margin-right:4px;font-size:11px;font-weight:600;letter-spacing:.1em}
+.staff-lang-switch{display:flex;align-items:center;gap:0;margin-right:0;font-size:11px;font-weight:600;letter-spacing:.1em}
 .staff-lang-btn{background:none;border:none;color:rgba(255,255,255,.68);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
 .staff-lang-btn:hover{color:#fff}
 .staff-lang-btn.is-active{color:#fff;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,255,255,.55)}
 .staff-lang-sep{color:rgba(255,255,255,.32);user-select:none;font-size:10px}
-.staff-theme-toggle{margin:0 10px 0 8px;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:50%;background:rgba(255,255,255,.10);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:#fff}
+.staff-theme-toggle{margin:0;width:30px;height:30px;padding:0;border:1px solid rgba(255,255,255,.22);border-radius:50%;background:rgba(255,255,255,.10);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:#fff}
 .staff-theme-toggle:hover{background:rgba(255,255,255,.20);border-color:rgba(255,255,255,.38);box-shadow:0 0 14px rgba(255,255,255,.12)}
 .staff-theme-toggle:active{transform:scale(.96)}
 .staff-theme-toggle:focus-visible{outline:2px solid rgba(255,255,255,.55);outline-offset:2px}
@@ -16593,8 +16594,9 @@ ${getStaffPortalI18nBootstrapScript()}
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
   <a href="/staff/ui" class="brand" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
-    <img src="/staff/assets/luna-front-desk-logo.png" alt="Luna Front Desk" class="brand-logo">
+    <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
+  <div class="banner-actions">
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
     <button type="button" class="staff-lang-btn is-active" data-lang="en">EN</button>
     <span class="staff-lang-sep">|</span>
@@ -16607,6 +16609,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
   </button>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
+  </div>
 </div>
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
