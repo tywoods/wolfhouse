@@ -5,7 +5,8 @@
 **Branch:** `feat/sunset-multitenant-luna`  
 **Portal code SHA:** `25518554bcf635b59c594dae8f930c0190609209`  
 **Parent:** `SUNSET-PORTAL-SLICE-1-STAGING-APPROVAL-PACKET.md` (v2.0 — Captain approved)  
-**Merge:** Held until isolated Sunset staging smoke passes.
+**Merge:** Held until isolated Sunset staging smoke passes.  
+**IaC:** Reviewable Bicep draft at [`infra/azure/sunset-staging/`](../../infra/azure/sunset-staging/) (`main.bicep`, `parameters.example.json`, `README.md`). Captain reviews Bicep before signing infra-creation checkbox.
 
 ---
 
@@ -90,8 +91,8 @@ az group create \
 
 ### Phase 2 — Bicep outline (recommended path)
 
-Create new template (future repo work): `infra/azure/sunset-staging/main.bicep`  
-Fork Wolfhouse `infra/azure/staging/main.bicep` with these parameter overrides:
+Bicep draft (review only): [`infra/azure/sunset-staging/main.bicep`](../../infra/azure/sunset-staging/main.bicep)  
+Forked from Wolfhouse `infra/azure/staging/main.bicep` with these parameter overrides:
 
 | Parameter | Wolfhouse value | Sunset value |
 |-----------|-----------------|--------------|

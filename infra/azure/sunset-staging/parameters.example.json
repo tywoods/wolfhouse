@@ -1,0 +1,60 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environmentName": {
+      "value": "staging"
+    },
+    "location": {
+      "value": "westeurope"
+    },
+    "containerAppsLocation": {
+      "value": "westeurope"
+    },
+    "appNamePrefix": {
+      "value": "luna-sunset-staging"
+    },
+    "acrName": {
+      "value": "whstagingacr"
+    },
+    "acrResourceGroupName": {
+      "value": "wh-staging-rg"
+    },
+    "staffApiImageTag": {
+      "value": "25518554bcf635b59c594dae8f930c0190609209"
+    },
+    "postgresSku": {
+      "value": "Standard_B1ms"
+    },
+    "postgresVersion": {
+      "value": "15"
+    },
+    "staffApiCpu": {
+      "value": "0.5"
+    },
+    "staffApiMemory": {
+      "value": "1Gi"
+    },
+    "logRetentionDays": {
+      "value": 30
+    },
+    "postgresAdminUser": {
+      "value": "sunsetadmin"
+    },
+    "appDbName": {
+      "value": "sunset_staging"
+    },
+    "ownerTag": {
+      "value": "<FILL_ME_OWNER>"
+    },
+    "postgresAllowedIpAddresses": {
+      "value": []
+    },
+    "deployContainerApps": {
+      "value": false
+    },
+    "deployStaffApi": {
+      "value": false
+    }
+  }
+}
