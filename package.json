@@ -449,7 +449,10 @@
     "verify:hermes-luna-guest-identity": "node scripts/verify-hermes-luna-guest-identity.js",
     "verify:hermes-luna-inbox-mirror": "node scripts/verify-hermes-luna-inbox-mirror.js",
     "verify:hermes-luna-staff-api-plugin": "node scripts/verify-hermes-luna-staff-api-plugin.js",
-    "verify:hermes-luna-live-feedback-rules": "node scripts/verify-hermes-luna-live-feedback-rules.js"
+    "verify:hermes-luna-live-feedback-rules": "node scripts/verify-hermes-luna-live-feedback-rules.js",
+    "verify:sunset-portal-slice1-seed-runner": "node scripts/verify-sunset-portal-slice1-seed-runner.js",
+    "sunset:portal-slice1-seed": "node scripts/fixtures/sunset-portal-slice1-seed.js",
+    "sunset:portal-slice1-cleanup": "node scripts/fixtures/sunset-portal-slice1-cleanup.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

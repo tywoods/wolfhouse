@@ -363,3 +363,10 @@ Slice 1 seed runner is **not yet implemented**. Inputs are ready (`seed-manifest
 ---
 
 *Document version: 1.0 — 2026-06-19*
+
+## Implementation note (2026-06-19)
+
+- `scripts/fixtures/sunset-portal-slice1-guards.js` — shared fail-closed guards.
+- `--execute` accepts **localhost/test DB hosts only** until Captain widens the allowlist for staging.
+- Verified offline by `verify:sunset-portal-slice1-seed-runner` (no DB, no live execute).
+
