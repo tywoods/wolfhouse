@@ -27762,6 +27762,7 @@ function buildLoginHtml() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Luna Front Desk — Sign in</title>
+${getStaffPortalThemeEarlyScript()}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -27800,20 +27801,18 @@ body{
 }
 .logo{
   text-align:center;
-  margin-bottom:28px;
+  margin-bottom:24px;
 }
-.logo-mark{
-  width:48px;height:48px;border-radius:50%;
-  background:linear-gradient(135deg,var(--sage) 0%,var(--ocean) 100%);
-  display:inline-flex;align-items:center;justify-content:center;
-  font-size:22px;font-weight:800;color:#fff;letter-spacing:-.02em;
-  margin-bottom:12px;
-}
-.logo h1{
-  font-size:20px;font-weight:700;letter-spacing:.01em;color:var(--text);
+.logo-img{
+  display:block;
+  width:auto;
+  max-width:100%;
+  height:auto;
+  max-height:72px;
+  margin:0 auto;
 }
 .logo .sub{
-  font-size:12px;color:var(--text-2);margin-top:4px;letter-spacing:.04em;text-transform:uppercase;
+  font-size:12px;color:var(--text-2);margin-top:12px;letter-spacing:.04em;text-transform:uppercase;
 }
 .field{margin-bottom:16px;}
 .field label{
@@ -27848,26 +27847,52 @@ body{
 }
 .msg.error{background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;}
 .msg.ok{background:#EFF5EE;border:1px solid #BACEA4;color:#3A6035;}
-.staff-lang-switch-login{display:flex;align-items:center;justify-content:center;gap:0;margin:0 0 18px;font-size:11px;font-weight:600;letter-spacing:.1em}
+.staff-lang-switch-login{display:flex;align-items:center;justify-content:center;gap:0;margin:0;font-size:11px;font-weight:600;letter-spacing:.1em}
 .staff-lang-btn-login{background:none;border:none;color:var(--text-3);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
 .staff-lang-btn-login:hover{color:var(--text)}
 .staff-lang-btn-login.is-active{color:var(--text);text-decoration:underline;text-underline-offset:3px}
 .staff-lang-sep-login{color:var(--text-3);opacity:.45;user-select:none;font-size:10px}
+.login-topbar{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 18px;position:relative}
+.staff-theme-toggle{margin:0;width:30px;height:30px;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--surface);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:var(--text-2)}
+.staff-theme-toggle:hover{border-color:var(--olive);color:var(--text);box-shadow:0 0 12px rgba(143,165,142,.18)}
+.staff-theme-toggle:active{transform:scale(.96)}
+.staff-theme-toggle:focus-visible{outline:2px solid var(--olive);outline-offset:2px}
+.staff-theme-icon{width:15px;height:15px;display:block;flex-shrink:0}
+.staff-theme-icon-sun{display:none}
+.staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
+.staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
+[data-theme="dark"]{
+  --cream:#181818;--surface:#252526;--sand:#3c3c3c;--tan:#454545;
+  --text:#cccccc;--text-2:#9d9d9d;--text-3:#6e6e6e;--border:#3c3c3c;
+}
+[data-theme="dark"] body{background:linear-gradient(135deg,#1e1e1e 0%,#252526 60%,#2a2a2a 100%);color:var(--text)}
+[data-theme="dark"] .card{background:var(--surface);border-color:var(--border);box-shadow:0 4px 32px rgba(0,0,0,.35)}
+[data-theme="dark"] .field input{background:#1e1e1e;border-color:var(--border);color:var(--text)}
+[data-theme="dark"] .field input:focus{border-color:#569cd6;box-shadow:0 0 0 3px rgba(86,156,214,.22)}
+[data-theme="dark"] .msg.error{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
+[data-theme="dark"] .msg.ok{background:#1e2a22;border-color:#3a5a48;color:#a8c8a8}
+[data-theme="dark"] .staff-theme-toggle{background:#2d2d2d;border-color:#454545;color:#cccccc}
+[data-theme="dark"] .staff-theme-toggle:hover{border-color:#569cd6;color:#fff}
 </style>
 </head>
 <body>
 ${getStaffPortalI18nBootstrapScript()}
 <div class="card">
-  <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
-    <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="en">EN</button>
-    <span class="staff-lang-sep-login staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="es">ES</button>
-    <span class="staff-lang-sep-login staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
+  <div class="login-topbar">
+    <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
+      <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="en">EN</button>
+      <span class="staff-lang-sep-login staff-lang-sep">|</span>
+      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="es">ES</button>
+      <span class="staff-lang-sep-login staff-lang-sep">|</span>
+      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
+    </div>
+    <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
+      <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
+      <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
+    </button>
   </div>
   <div class="logo">
-    <div class="logo-mark">L</div>
-    <h1 data-i18n="login.title">Luna Front Desk</h1>
+    <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="logo-img">
     <div class="sub" data-i18n="login.sub">Staff sign in</div>
   </div>
 
