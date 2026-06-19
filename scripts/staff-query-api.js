@@ -17744,7 +17744,10 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
   if (tab === 'ask-luna') lunaGlobalPauseLoad();
-  if (tab === 'conversations') wireInboxLeftListWheel();
+  if (tab === 'conversations') {
+    wireInboxLeftListWheel();
+    if (!subtab) ensureInboxLoadedForTab();
+  }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
   if (tab === 'day-schedule') loadDaySchedule();
@@ -17769,6 +17772,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'conversations') {
       loadMessageEvents();
       loadHandoffsQueue();
+      ensureInboxLoadedForTab();
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'ask-luna') lunaGlobalPauseLoad();
@@ -18159,6 +18163,18 @@ function updateInboxFilterUI(){
   document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
     btn.classList.toggle('active', btn.dataset.inboxFilter === inboxFilter);
   });
+}
+
+function ensureInboxLoadedForTab(opts){
+  if (inboxConversationsCache != null) applyInboxFilter(opts || {});
+  else loadInbox(null, opts || {});
+}
+
+function refreshInboxIfConversationsTabActive(){
+  var panel = el('tab-conversations');
+  if (panel && panel.classList.contains('active')) {
+    loadInbox(null, { silent: !!inboxConversationsCache, preserveDetail: true });
+  }
 }
 
 function setInboxFilter(mode){
@@ -18785,6 +18801,7 @@ function initStaffPortalSession(){
       populateClientSelect(data.clients);
       applyOwnerInsightsGate();
       applyClientPortalProfile(getClient());
+      refreshInboxIfConversationsTabActive();
     })
     .catch(function(){
       populateClientSelect(null);
@@ -28723,6 +28740,9 @@ function handleUI(res, port) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildLoginHtml() {
+  const loginDefaultClient = (process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim())
+    ? String(process.env.DEFAULT_CLIENT_SLUG).trim()
+    : 'wolfhouse-somo';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28866,7 +28886,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <form id="login-form" autocomplete="on">
     <div class="field">
       <label for="client" data-i18n="login.company">Company</label>
-      <input id="client" name="client" type="text" value="wolfhouse-somo" autocomplete="organization" spellcheck="false">
+      <input id="client" name="client" type="text" value="${loginDefaultClient}" autocomplete="organization" spellcheck="false">
     </div>
     <div class="field">
       <label for="email" data-i18n="login.email">Email</label>

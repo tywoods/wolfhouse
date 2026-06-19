@@ -343,6 +343,13 @@ if (apiSrc) {
 }
 
 const whInbox = loadClientPortalProfile('wolfhouse-somo');
+assert('Sunset staff Dockerfile sets DEFAULT_CLIENT_SLUG=sunset',
+  fs.readFileSync(path.join(ROOT, 'Dockerfile.luna-sunset-staff-api'), 'utf8').includes('DEFAULT_CLIENT_SLUG=sunset'));
+assert('Login page uses env-driven default company',
+  apiSrc.includes('loginDefaultClient') && apiSrc.includes('DEFAULT_CLIENT_SLUG'));
+assert('Inbox tab open loads conversation list',
+  apiSrc.includes('ensureInboxLoadedForTab'));
+
 assert('wolfhouse profile has no inbox_threads_demo rows', !whInbox.inbox_threads_demo || whInbox.inbox_threads_demo.length === 0,
   JSON.stringify(whInbox.inbox_threads_demo));
 
