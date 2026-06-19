@@ -15685,10 +15685,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;padding:3px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0}
-#banner .brand.logo-wrap{background:rgba(31,25,20,.55);border:1px solid rgba(190,135,78,.35);border-radius:8px;padding:6px 8px;box-shadow:0 6px 18px rgba(0,0,0,.18);flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit}
-#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent}
-#banner .brand-logo{height:80px;width:auto;max-width:min(560px,calc(100vw - 360px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
+#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:52px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box}
+#banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
+#banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
@@ -15715,8 +15714,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
-#wrap{max-width:1200px;width:100%;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 118px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
-#tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 118px);overflow:hidden;box-sizing:border-box;width:100%}
+#wrap{max-width:1200px;width:100%;margin:0 auto;padding:12px 20px 16px;height:calc(100vh - 96px);display:flex;flex-direction:column;min-height:0;box-sizing:border-box}
+#tab-conversations.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 96px);overflow:hidden;box-sizing:border-box;width:100%}
 #tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1200px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
@@ -16594,7 +16593,7 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
-  <a href="/staff/ui" class="brand logo-wrap" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
+  <a href="/staff/ui" class="brand" data-i18n-aria="app.brand" aria-label="Luna Front Desk">
     <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="brand-logo">
   </a>
   <div class="banner-actions">
