@@ -15720,6 +15720,12 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1200px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
+/* Slice 2B — neutral shell until client portal profile is applied */
+body.portal-profile-pending #tabs,
+body.portal-profile-pending .tab-panel{display:none!important}
+body.portal-profile-pending #portal-profile-gate{display:flex}
+#portal-profile-gate{display:none;align-items:center;justify-content:center;min-height:calc(100vh - 104px);padding:32px 20px;color:var(--text-2);font-size:14px;font-weight:600;text-align:center}
+#portal-profile-gate .portal-profile-gate-inner{max-width:420px;line-height:1.5}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -16589,7 +16595,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-add-ons-sched-link.is-active{color:#cccccc}
 </style>
 </head>
-<body>
+<body class="portal-profile-pending">
 ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
@@ -16615,13 +16621,17 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn active" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
+  <button class="tab-btn" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
+</div>
+
+<div id="portal-profile-gate" aria-live="polite" aria-busy="true">
+  <div class="portal-profile-gate-inner">Loading portal…</div>
 </div>
 
 <!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
@@ -16835,7 +16845,7 @@ ${getStaffPortalI18nBootstrapScript()}
 </div><!-- /tab-luna-guest-simulator -->
 
 <!-- ── Booking Calendar tab (Stage 7.7h) ──────────────────────────────────── -->
-<div id="tab-bed-calendar" class="tab-panel active">
+<div id="tab-bed-calendar" class="tab-panel">
 <div id="wrap-bc" style="max-width:100%;padding:16px 20px">
 
   <!-- Controls card -->
@@ -17938,6 +17948,17 @@ function applySurfNavLabels(profile){
   if (dsSlots) dsSlots.textContent = portalT('daySchedule.demoSlots');
 }
 
+function setPortalProfilePending(isPending){
+  if (!document.body) return;
+  document.body.classList.toggle('portal-profile-pending', !!isPending);
+  var gate = el('portal-profile-gate');
+  if (gate) gate.setAttribute('aria-busy', isPending ? 'true' : 'false');
+}
+
+function finishPortalProfileStartup(){
+  setPortalProfilePending(false);
+}
+
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
@@ -18036,6 +18057,7 @@ function portalStartupAfterSession(){
   switchToTab(tab, null);
   if (tab === 'conversations') loadInbox();
   if (profile.is_surf_vertical) loadDaySchedule(dsTodayIso());
+  finishPortalProfileStartup();
 }
 
 function staffIsAdmin(){
@@ -18084,6 +18106,9 @@ function initStaffPortalSession(){
     .then(function(data){
       if (!data || !data.success){
         populateClientSelect(null);
+        applyClientPortalProfile(getClient());
+        finishPortalProfileStartup();
+        switchToTab('bed-calendar', null);
         return;
       }
       staffPortalSession = {
@@ -18100,6 +18125,9 @@ function initStaffPortalSession(){
     })
     .catch(function(){
       populateClientSelect(null);
+      applyClientPortalProfile(getClient());
+      finishPortalProfileStartup();
+      switchToTab('bed-calendar', null);
     });
 }
 

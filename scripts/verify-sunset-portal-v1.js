@@ -35,7 +35,7 @@ function assert(label, condition, detail) {
   }
 }
 
-console.log('\nverify:sunset-portal-v1 — Sunset portal v1 Slice 2A offline checks\n');
+console.log('\nverify:sunset-portal-v1 — Sunset portal v1 offline checks\n');
 
 // ── 1. Sunset profile — drawer gating + default tab ─────────────────────────
 
@@ -106,6 +106,41 @@ if (apiSrc) {
   assert('drawer.tab.transfers i18n still referenced', apiSrc.includes('drawer.tab.transfers'));
   assert('bed-calendar tab still in markup', apiSrc.includes('data-tab="bed-calendar"'));
   assert('tour-operator tab still in markup', apiSrc.includes('data-tab="tour-operator"'));
+}
+
+// ── 6. Slice 2B — no Wolfhouse first-load flash ───────────────────────────────
+
+console.log('\n[6] staff-query-api.js — profile-pending gate (no Wolfhouse flash)');
+
+if (apiSrc) {
+  assert('body starts with portal-profile-pending class', apiSrc.includes('class="portal-profile-pending"')
+    || apiSrc.includes("class='portal-profile-pending'")
+    || apiSrc.includes('body class="portal-profile-pending"'));
+  assert('portal-profile-gate markup present', apiSrc.includes('id="portal-profile-gate"'));
+  assert('setPortalProfilePending helper present', apiSrc.includes('function setPortalProfilePending('));
+  assert('finishPortalProfileStartup helper present', apiSrc.includes('function finishPortalProfileStartup('));
+  assert('CSS hides tabs/panels while pending', apiSrc.includes('body.portal-profile-pending #tabs')
+    && apiSrc.includes('body.portal-profile-pending .tab-panel'));
+  assert('bed-calendar tab not initially active in HTML', !reBedCalActive());
+  assert('bed-calendar panel not initially active in HTML', !reBedCalPanelActive());
+  assert('finishPortalProfileStartup called after startup', apiSrc.includes('finishPortalProfileStartup();'));
+  assert('portalStartupAfterSession selects profile default_tab', apiSrc.includes('profile.default_tab || \'bed-calendar\''));
+  assert('surf fallback tab is conversations', apiSrc.includes("profile.is_surf_vertical ? 'conversations' : 'bed-calendar'"));
+  assert('no hardcoded sunset-staging URL checks', !apiSrc.includes('sunset-staging.lunafrontdesk.com'));
+  assert('Wolfhouse bed-calendar path preserved after profile', apiSrc.includes('if (tab === \'bed-calendar\') bcOnBedCalendarTabOpen()')
+    || apiSrc.includes("tab === 'bed-calendar') bcOnBedCalendarTabOpen()"));
+}
+
+function reBedCalActive() {
+  if (!apiSrc) return false;
+  const m = apiSrc.match(/<button class="tab-btn active" data-tab="bed-calendar"/);
+  return !!m;
+}
+
+function reBedCalPanelActive() {
+  if (!apiSrc) return false;
+  const m = apiSrc.match(/<div id="tab-bed-calendar" class="tab-panel active"/);
+  return !!m;
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────
