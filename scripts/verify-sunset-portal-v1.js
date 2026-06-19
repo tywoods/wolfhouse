@@ -166,6 +166,67 @@ if (apiSrc) {
   }
 }
 
+// ── 8. Shared email + WhatsApp inbox copy (Sunset surf only) ─────────────────
+
+console.log('\n[8] Sunset demo home — shared email + WhatsApp inbox copy');
+
+let i18nSrc = '';
+if (fs.existsSync(I18N_PATH)) {
+  i18nSrc = fs.readFileSync(I18N_PATH, 'utf8');
+  const demoCopy = collectDemoHomeCopy(i18nSrc);
+  assert('demoHome subtitle mentions guest emails and WhatsApp',
+    i18nSrc.includes("'demoHome.subtitle'") && /Guest emails and WhatsApp/i.test(demoCopy));
+  assert('demoHome inbox helper mentions email and WhatsApp',
+    i18nSrc.includes("'demoHome.card.inbox.helper'") && /email/i.test(demoCopy) && /WhatsApp/i.test(demoCopy));
+  assert('demoHome inbox helper leads with email',
+    emailBeforeWhatsApp(extractI18nValue(i18nSrc, 'demoHome.card.inbox.helper')));
+  assert('demoHome sidebar draft email replies',
+    i18nSrc.includes("'demoHome.luna.item2': 'Draft email replies'"));
+  assert('demoHome sidebar keep WhatsApp organized',
+    i18nSrc.includes('Keep WhatsApp threads organized'));
+  assert('demoHome sidebar flag unclear requests',
+    i18nSrc.includes('Flag unclear requests for staff'));
+  assert('demoHome shared inbox framing',
+    i18nSrc.includes('One place for guest conversations'));
+  assert('demoHome email and chat threads copy',
+    /Email and chat threads/i.test(demoCopy));
+  assert('inbox.empty.sub.surf mentions email and WhatsApp',
+    /Guest emails and WhatsApp/i.test(extractI18nValue(i18nSrc, 'inbox.empty.sub.surf')));
+  assert('inbox.empty.sub.surf not WhatsApp-only',
+    !i18nSrc.includes("'inbox.empty.sub.surf': 'Guest WhatsApp threads"));
+  assert('demoHome copy not email-only channel', /WhatsApp/i.test(demoCopy));
+  assert('demoHome copy not WhatsApp-only channel', /email/i.test(demoCopy));
+  assert('Wolfhouse whatsapp tab label unchanged', i18nSrc.includes("'nav.tab.whatsapp': 'WhatsApp'"));
+} else {
+  assert('staff-portal-i18n.js exists for shared inbox copy', false);
+}
+
+function collectDemoHomeCopy(src) {
+  const keys = [
+    'demoHome.subtitle',
+    'demoHome.card.inbox.helper',
+    'demoHome.luna.item1',
+    'demoHome.luna.item2',
+    'demoHome.luna.item3',
+    'demoHome.luna.item4',
+    'demoHome.luna.item5',
+  ];
+  return keys.map((k) => extractI18nValue(src, k)).join('\n');
+}
+
+function extractI18nValue(src, key) {
+  const re = new RegExp("'" + key.replace(/\./g, '\\.') + "':\\s*'((?:\\\\'|[^'])*)'");
+  const m = src.match(re);
+  return m ? m[1] : '';
+}
+
+function emailBeforeWhatsApp(text) {
+  const lower = String(text || '').toLowerCase();
+  const emailIdx = lower.indexOf('email');
+  const waIdx = lower.indexOf('whatsapp');
+  return emailIdx >= 0 && waIdx >= 0 && emailIdx < waIdx;
+}
+
 function reBedCalActive() {
   if (!apiSrc) return false;
   const m = apiSrc.match(/<button class="tab-btn active" data-tab="bed-calendar"/);

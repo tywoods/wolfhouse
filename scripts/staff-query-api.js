@@ -16697,13 +16697,13 @@ ${getStaffPortalI18nBootstrapScript()}
       <h1 class="portal-home-school" data-i18n="demoHome.schoolName">Sunset Surf School</h1>
       <span class="portal-home-pill" data-i18n="demoHome.brand">Luna Front Desk</span>
     </div>
-    <p class="portal-home-subtitle" data-i18n="demoHome.subtitle">Today's guest messages, lessons, and rentals in one place.</p>
+    <p class="portal-home-subtitle" data-i18n="demoHome.subtitle">Guest emails and WhatsApp messages, lessons, and rentals in one place.</p>
   </header>
   <div class="portal-home-cards">
     <div class="portal-home-card" id="ph-card-inbox" role="button" tabindex="0" onclick="switchToTab('conversations','inbox')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('conversations','inbox');}">
       <div class="portal-home-card-title" data-i18n="demoHome.card.inbox.title">Inbox</div>
       <div class="portal-home-card-stat" id="ph-inbox-stat">…</div>
-      <p class="portal-home-card-helper" data-i18n="demoHome.card.inbox.helper">Luna will surface WhatsApp and email messages here.</p>
+      <p class="portal-home-card-helper" data-i18n="demoHome.card.inbox.helper">Guest emails and WhatsApp messages will appear here.</p>
     </div>
     <div class="portal-home-card" id="ph-card-lessons" role="button" tabindex="0" onclick="switchToTab('day-schedule')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('day-schedule');}">
       <div class="portal-home-card-title" data-i18n="demoHome.card.lessons.title">Lessons today</div>
@@ -16749,11 +16749,11 @@ ${getStaffPortalI18nBootstrapScript()}
     <aside class="card portal-home-luna">
       <div class="cc-section-hdr" data-i18n="demoHome.luna.title">What Luna will help with</div>
       <ul>
-        <li data-i18n="demoHome.luna.item1">Answer guest questions</li>
-        <li data-i18n="demoHome.luna.item2">Draft replies</li>
-        <li data-i18n="demoHome.luna.item3">Track rentals and lessons</li>
-        <li data-i18n="demoHome.luna.item4">Flag staff handoffs</li>
-        <li data-i18n="demoHome.luna.item5">Keep WhatsApp and email threads in one inbox</li>
+        <li data-i18n="demoHome.luna.item1">One place for guest conversations</li>
+        <li data-i18n="demoHome.luna.item2">Draft email replies</li>
+        <li data-i18n="demoHome.luna.item3">Keep WhatsApp threads organized</li>
+        <li data-i18n="demoHome.luna.item4">Flag unclear requests for staff</li>
+        <li data-i18n="demoHome.luna.item5">Email and chat threads — designed for your shared inbox</li>
       </ul>
     </aside>
   </div>
