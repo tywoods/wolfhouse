@@ -451,6 +451,7 @@
     "verify:hermes-luna-staff-api-plugin": "node scripts/verify-hermes-luna-staff-api-plugin.js",
     "verify:hermes-luna-live-feedback-rules": "node scripts/verify-hermes-luna-live-feedback-rules.js",
     "verify:sunset-portal-slice1-seed-runner": "node scripts/verify-sunset-portal-slice1-seed-runner.js",
+    "verify:sunset-staging-staff-user": "node scripts/verify-sunset-staging-staff-user.js",
     "sunset:portal-slice1-seed": "node scripts/fixtures/sunset-portal-slice1-seed.js",
     "sunset:portal-slice1-cleanup": "node scripts/fixtures/sunset-portal-slice1-cleanup.js"
   },
