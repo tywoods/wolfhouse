@@ -10,7 +10,10 @@
     "vertical": "surf_school_rentals",
     "_vertical_note": "Combined surf school + rental shop vertical with a partner-hotel accommodation workflow. The engine vertical seam (catalog.offerings[].inventory_model) distinguishes rentals (unlimited), lessons (capacity_limited), and accommodation (partner_confirmed) within a single tenant config.",
     "timezone": "Europe/Madrid",
-    "languages": ["en", "es"],
+    "languages": [
+      "en",
+      "es"
+    ],
     "_languages_note": "English primary for MVP. Spanish expected from local customers; extend as needed.",
     "currency": "EUR",
     "based_on_schema": "config/clients/_deploy-config.template.json",
@@ -26,7 +29,6 @@
       "https://escueladesurfsunset.com/en/surf-lessons/"
     ]
   },
-
   "deployment": {
     "enabled": false,
     "deploy_target": null,
@@ -40,7 +42,6 @@
     "_stripe_note": "Sunset gets its own Stripe context (keys in secret file). Never shares Wolfhouse Stripe.",
     "notes": "Config skeleton only. Fill <FILL> fields, have owner verify pricing_status, and set enabled=true only after full deploy checklist in docs/DEPLOYMENT-CONFIG.md."
   },
-
   "secrets": {
     "_note": "Real numbers/credentials live in config/clients/sunset.secrets.json (gitignored). Reference by 'secret:<key>'. See config/clients/sunset.secrets.example.json for the required keys.",
     "secret_file": "config/clients/sunset.secrets.json",
@@ -55,7 +56,6 @@
       "stripe_webhook_secret"
     ]
   },
-
   "persona": {
     "assistant_name": "Luna",
     "brand_name": "Sunset Surf School",
@@ -66,7 +66,6 @@
     "emoji_level": "moderate",
     "_persona_note": "No separate Cami-equivalent voice module for MVP. Luna speaks warmly in the Sunset brand. A messaging playbook (sunset.messaging.json) can be added later to formalise tone and templates."
   },
-
   "channels": {
     "whatsapp": {
       "status": "mvp",
@@ -82,7 +81,6 @@
       "_note": "Email ingress is net-new plumbing; implement after WhatsApp MVP is stable. Same brain, same truth rules; only output formatting differs."
     }
   },
-
   "pricing_policy": {
     "_note": "engine_default mechanism. Every priced item carries pricing_status. unverified_seed = transcribed from public site, not owner-confirmed; may not be used for any quote to a real guest. provisional = owner has reviewed; dry-run/shadow only. confirmed = owner-verified; required for live autonomous charge.",
     "currency": "EUR",
@@ -92,7 +90,6 @@
     "rounding_rule_addons": "round_up_to_nearest_1_eur",
     "payment_claim_behavior": "check_stripe_payment_events_not_llm"
   },
-
   "catalog": {
     "_note": "Sunset multi-offering catalog. Each offering carries its own inventory_model (Skipper decision: Option A — single config, per-offering inventory_model). Engine routes each offering to the matching InventoryProvider. Prices are unverified_seed — see pricing_policy.",
     "offering_type": "multi",
@@ -103,13 +100,22 @@
       "https://escueladesurfsunset.com/en/rentals/",
       "https://escueladesurfsunset.com/en/surf-lessons/"
     ],
-
     "rentals": {
       "_note": "Surfboard / wetsuit / board+suit / SUP. inventory_model=unlimited for MVP: Luna quotes configured prices without an availability check. Revisit when real stock limits are needed.",
       "inventory_model": "unlimited",
-      "_inventory_model_options": ["unlimited", "item_x_window_x_quantity"],
+      "_inventory_model_options": [
+        "unlimited",
+        "item_x_window_x_quantity"
+      ],
       "price_basis": "per_item_per_window",
-      "windows": ["1_hour", "half_day", "1_day", "2_days", "5_days", "7_days"],
+      "windows": [
+        "1_hour",
+        "half_day",
+        "1_day",
+        "2_days",
+        "5_days",
+        "7_days"
+      ],
       "offerings": {
         "board_rental": {
           "label": "Surfboard rental",
@@ -118,12 +124,12 @@
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
-            "1_hour":   6,
+            "1_hour": 6,
             "half_day": 10,
-            "1_day":    15,
-            "2_days":   24,
-            "5_days":   50,
-            "7_days":   70
+            "1_day": 15,
+            "2_days": 24,
+            "5_days": 50,
+            "7_days": 70
           }
         },
         "wetsuit_rental": {
@@ -133,12 +139,12 @@
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
-            "1_hour":   5,
+            "1_hour": 5,
             "half_day": 8,
-            "1_day":    10,
-            "2_days":   20,
-            "5_days":   35,
-            "7_days":   45
+            "1_day": 10,
+            "2_days": 20,
+            "5_days": 35,
+            "7_days": 45
           }
         },
         "board_and_suit_rental": {
@@ -148,12 +154,12 @@
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
-            "1_hour":   10,
+            "1_hour": 10,
             "half_day": 15,
-            "1_day":    20,
-            "2_days":   30,
-            "5_days":   65,
-            "7_days":   90
+            "1_day": 20,
+            "2_days": 30,
+            "5_days": 65,
+            "7_days": 90
           }
         },
         "sup_rental": {
@@ -163,20 +169,22 @@
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
-            "1_hour":   10,
+            "1_hour": 10,
             "half_day": 15,
-            "1_day":    30
+            "1_day": 30
           },
           "_note": "2-day, 5-day, 7-day SUP prices not listed on public site; owner must confirm before offering."
         }
       },
       "safe_default": "no_price_quote_without_confirmed_config_row_no_availability_check_for_unlimited_mvp"
     },
-
     "lessons": {
       "_note": "Group / private / kids lessons. inventory_model=capacity_limited: Luna must check Staff-API slot capacity before confirming a seat. If capacity is unknown or unavailable, Luna collects the request and staff schedule manually.",
       "inventory_model": "capacity_limited",
-      "_inventory_model_options": ["capacity_limited", "manual_staff_schedule"],
+      "_inventory_model_options": [
+        "capacity_limited",
+        "manual_staff_schedule"
+      ],
       "capacity_check_source": "staff_api_slot_capacity",
       "fallback_if_no_capacity_data": "collect_request_then_staff_schedule",
       "price_basis": "per_seat_per_session",
@@ -187,7 +195,10 @@
       "insurance_and_civil_liability_included": null,
       "_insurance_note": "Public site states prices include insurance/civil liability. Owner must confirm before Luna states this to guests.",
       "scheduling": {
-        "common_slot_times": ["11:00-13:00", "16:00-18:00"],
+        "common_slot_times": [
+          "11:00-13:00",
+          "16:00-18:00"
+        ],
         "arrive_before_class_minutes": 20,
         "scheduling_source": "unverified_seed",
         "seed_source": "public_site",
@@ -208,7 +219,10 @@
           "_note": "Public site says 'roughly ages 6-11'; minimum depends on group size and child ability. Owner must confirm before Luna quotes eligibility.",
           "verification_status": "unverified_seed",
           "seed_source": "public_site",
-          "min_age_depends_on": ["group_size", "child_ability"]
+          "min_age_depends_on": [
+            "group_size",
+            "child_ability"
+          ]
         }
       },
       "offerings": {
@@ -236,7 +250,11 @@
             "single_lesson": null,
             "5_day_pack_per_surfer": null
           },
-          "owner_required": ["price_per_seat", "capacity_per_session", "guardian_consent_policy"]
+          "owner_required": [
+            "price_per_seat",
+            "capacity_per_session",
+            "guardian_consent_policy"
+          ]
         },
         "private_coaching": {
           "label": "Private / coaching lesson",
@@ -246,7 +264,10 @@
           "prices_eur": {
             "_note": "Private lesson price not listed on public site; owner must provide."
           },
-          "owner_required": ["price_per_session", "duration_minutes"]
+          "owner_required": [
+            "price_per_session",
+            "duration_minutes"
+          ]
         },
         "large_group_lesson": {
           "label": "Large group lesson",
@@ -256,13 +277,16 @@
           "prices_eur": {
             "_note": "Large group pricing and capacity limits not listed on public site; owner must provide."
           },
-          "owner_required": ["price_per_seat", "max_group_size", "handoff_threshold"],
+          "owner_required": [
+            "price_per_seat",
+            "max_group_size",
+            "handoff_threshold"
+          ],
           "_handoff_note": "Groups beyond configured max should hand off — threshold unknown until owner sets it."
         }
       },
       "safe_default": "no_lesson_seat_without_capacity_check_or_staff_schedule_confirmation_no_eligibility_guess_for_age_rules"
     },
-
     "accommodation": {
       "_note": "Surf + accommodation packages via a nearby partner hotel. inventory_model=partner_confirmed: Luna never promises a room or final price without Staff-API or partner-hotel confirmation. For MVP this is a request-then-confirm workflow.",
       "inventory_model": "partner_confirmed",
@@ -279,7 +303,10 @@
         "surf_accommodation_package": {
           "label": "Surf + accommodation package (partner hotel)",
           "inventory_model": "partner_confirmed",
-          "includes": ["surf_lessons_or_rentals", "hotel_nights"],
+          "includes": [
+            "surf_lessons_or_rentals",
+            "hotel_nights"
+          ],
           "pricing_status": "unverified_seed",
           "owner_required": [
             "hotel_name_and_address",
@@ -292,7 +319,6 @@
       "safe_default": "never_confirm_accommodation_without_partner_or_staff_api_confirmation_never_invent_hotel_price"
     }
   },
-
   "service_addons": {
     "_note": "Compatibility block for existing Luna Front Desk engine readers. Rich Sunset lesson catalog remains under catalog.lessons; current engine reads lesson_scheduling from service_addons.lesson_scheduling.",
     "lesson_scheduling": {
@@ -312,27 +338,35 @@
       ]
     }
   },
-
   "payment": {
     "_status": "skeleton",
     "_note": "Reused engine spine. Values owner_required. Bot may create payment links only after the required fields are collected and pricing_status=confirmed. Links come from the Staff API / payment tool only — never constructed by Luna.",
     "deposit_rule": {
       "type": "owner_required",
-      "_type_options": ["flat", "tiered_by_booking_type", "per_person", "per_seat", "full_upfront"],
+      "_type_options": [
+        "flat",
+        "tiered_by_booking_type",
+        "per_person",
+        "per_seat",
+        "full_upfront"
+      ],
       "scope": "owner_required",
       "default_eur": null,
       "pricing_status": "owner_required"
     },
     "hold_expiry_minutes": null,
-    "payment_link_options": ["full"],
+    "payment_link_options": [
+      "full"
+    ],
     "_payment_link_options_note": "Deposit vs full TBD by owner; default to full until deposit rule is confirmed.",
-    "balance_payment_methods": ["owner_required"],
+    "balance_payment_methods": [
+      "owner_required"
+    ],
     "payment_link_requires_name": true,
     "payment_link_requires_email": true,
     "payment_claim_behavior": "check_stripe_payment_events_not_llm",
     "safe_default": "do_not_send_payment_link_without_confirmed_deposit_rule_and_pricing_status_confirmed"
   },
-
   "confirmation": {
     "_status": "skeleton",
     "confirmation_send_mode": "dry_run",
@@ -344,7 +378,6 @@
     "include_what_to_bring": null,
     "safe_default": "keep_dry_run_until_real_send_gate_is_proven"
   },
-
   "cancellation": {
     "_status": "skeleton_handoff_only",
     "auto_cancel_allowed_if_unpaid": true,
@@ -361,7 +394,6 @@
     "no_show_policy": "owner_required",
     "safe_default": "never_cancel_refund_or_reschedule_automatically_without_confirmed_policy_handoff_otherwise"
   },
-
   "handoff": {
     "_status": "skeleton",
     "handoff_channel": "whatsapp",
@@ -392,16 +424,21 @@
     ],
     "_always_handoff_note": "Engine base list + Sunset-specific additions (minor consent, accommodation unconfirmed, age eligibility)."
   },
-
   "llm_safety": {
     "_note": "engine_default. Stated explicitly here so Sunset has a local assertion; values are non-negotiable.",
     "low_confidence_behavior": "handoff",
     "api_error_behavior": "handoff_or_logged_safe_fallback",
     "parsing_uncertainty_behavior": "ask_clarification_not_act",
-    "never_mark_from_llm_alone": ["paid", "confirmed", "cancelled"],
-    "multilingual_test_required": ["en", "es"]
+    "never_mark_from_llm_alone": [
+      "paid",
+      "confirmed",
+      "cancelled"
+    ],
+    "multilingual_test_required": [
+      "en",
+      "es"
+    ]
   },
-
   "safety_rules": {
     "_note": "Explicit Sunset assertions of the inherited engine safety contract (docs/LUNA-GUEST-BEHAVIOR-SPEC.md). Code that reads this config must enforce these; they are NOT suggestions.",
     "no_invented_prices": true,
@@ -417,15 +454,17 @@
     "minor_guardian_consent_required_before_booking": true,
     "_minor_note": "Children's lessons involve minors. Guardian consent must be confirmed; extra privacy obligations apply."
   },
-
   "customer_memory_privacy": "engine_default_blocked_until_privacy_gate",
-
   "staff_directory": {
     "_status": "skeleton",
     "default_for_unknown_number": "treat_as_guest_no_staff_privileges",
     "master_admin": {
       "numbers_ref": "secret:master_admin_numbers",
-      "default_permissions": { "can_query": true, "can_reply_handoff": true, "can_manage_staff": true }
+      "default_permissions": {
+        "can_query": true,
+        "can_reply_handoff": true,
+        "can_manage_staff": true
+      }
     },
     "admin_via_whatsapp": {
       "primary_auth": "sender_in_master_admin_numbers",
@@ -433,7 +472,6 @@
     },
     "approved_numbers": []
   },
-
   "staff_queries": {
     "_note": "Read-only ops Q&A, staff-channel only. Safe intents for a surf school/rental context.",
     "read_only": true,
@@ -446,7 +484,6 @@
       "guests_with_service_on_date"
     ]
   },
-
   "owner_required_before_go_live": [
     "Verify and confirm all prices (set pricing_status=confirmed for each offering)",
     "Confirm lesson slot times and daily schedule",
@@ -467,7 +504,6 @@
     "Confirm handoff emergency script",
     "Flip deployment.enabled=true only after all items above are resolved"
   ],
-
   "portal_demo": {
     "_note": "Staging/demo data only. No real bookings, no real Stripe links. All records scoped to tenant_id=sunset. Remove or gate behind demo_mode=false before go-live.",
     "demo_mode": true,
@@ -531,6 +567,39 @@
         "guardian_consent_required": "<FILL: owner confirms>",
         "status": "demo_pending_owner_confirmation",
         "source": "demo_seed"
+      }
+    ],
+    "inbox_threads": [
+      {
+        "thread_id": "demo-preview-email-001",
+        "channel": "email",
+        "guest_name": "Elena Ruiz",
+        "guest_email": "elena.ruiz@example.com",
+        "email_subject": "Rental and lesson enquiry for July",
+        "last_message_preview": "We are visiting next month and would like to book a lesson and rent boards for two days.",
+        "needs_human": false,
+        "relative_time": "2h ago"
+      },
+      {
+        "thread_id": "demo-preview-whatsapp-001",
+        "channel": "whatsapp",
+        "guest_name": "Marco",
+        "phone": "+34 612 345 678",
+        "last_message_preview": "Do you have boards available for rent this Friday?",
+        "needs_human": false,
+        "relative_time": "15m ago"
+      },
+      {
+        "thread_id": "demo-preview-email-002",
+        "channel": "email",
+        "guest_name": "James Porter",
+        "guest_email": "james.porter@example.com",
+        "email_subject": "Group lesson — payment question",
+        "last_message_preview": "Can we pay the deposit by bank transfer instead of card?",
+        "needs_human": true,
+        "handoff_reason": "payment_inquiry",
+        "luna_paused": true,
+        "relative_time": "Yesterday"
       }
     ]
   }

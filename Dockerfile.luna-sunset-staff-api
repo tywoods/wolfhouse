@@ -5,6 +5,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV STAFF_QUERY_API_PORT=3036
 ENV STAFF_QUERY_API_HOST=0.0.0.0
+ENV DEFAULT_CLIENT_SLUG=sunset
 
 COPY package*.json ./
 RUN npm ci --omit=dev

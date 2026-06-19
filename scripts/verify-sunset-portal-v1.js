@@ -305,6 +305,55 @@ if (apiSrc) {
 }
 
 
+
+// ── Shared Inbox Slice 3A — channel badges + mock rows ───────────────────────
+
+console.log('\n[10] Shared Inbox Slice 3A — Sunset email + WhatsApp inbox UI');
+
+const ssInbox = loadClientPortalProfile('sunset');
+assert('sunset profile has inbox_threads_demo', Array.isArray(ssInbox.inbox_threads_demo) && ssInbox.inbox_threads_demo.length >= 2,
+  String(ssInbox.inbox_threads_demo && ssInbox.inbox_threads_demo.length));
+assert('sunset inbox demo includes email channel',
+  ssInbox.inbox_threads_demo.some((r) => r.channel === 'email'));
+assert('sunset inbox demo includes whatsapp channel',
+  ssInbox.inbox_threads_demo.some((r) => r.channel === 'whatsapp'));
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18nSrc = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('inbox.badge.email i18n', i18nSrc.includes("'inbox.badge.email': 'Email'"));
+  assert('inbox.badge.whatsapp i18n', i18nSrc.includes("'inbox.badge.whatsapp': 'WhatsApp'"));
+  assert('inbox.filter.email i18n', i18nSrc.includes("'inbox.filter.email': 'Email'"));
+  assert('inbox.filter.whatsapp i18n', i18nSrc.includes("'inbox.filter.whatsapp': 'WhatsApp'"));
+  assert('inbox.preview.bannerTitle i18n', i18nSrc.includes("'inbox.preview.bannerTitle'"));
+  assert('preview examples copy present', /Preview examples|preview examples/i.test(i18nSrc));
+}
+
+if (apiSrc) {
+  assert('inbox channel badge markup', apiSrc.includes('inbox-channel-badge'));
+  assert('inboxChannelBadgeHtml helper', apiSrc.includes('function inboxChannelBadgeHtml('));
+  assert('surf inbox demo merge helper', apiSrc.includes('function mergeSurfInboxConversations('));
+  assert('email subject row support', apiSrc.includes('conv-card-subject'));
+  assert('preview banner markup', apiSrc.includes('inbox-preview-banner'));
+  assert('applySurfInboxFilters surf-only filters', apiSrc.includes('function applySurfInboxFilters('));
+  assert('demo preview detail loader', apiSrc.includes('function loadSurfInboxDemoDetail('));
+  assert('no hardcoded sunset-staging URL in shared inbox', !apiSrc.includes('sunset-staging.lunafrontdesk.com'));
+  assert('Wolfhouse whatsapp tab key preserved for shared inbox', i18nSrc.includes("'nav.tab.whatsapp': 'WhatsApp'"));
+  assert('Wolfhouse inbox filter labels preserved in applySurfInboxFilters',
+    apiSrc.includes("'inbox.filter.all': 'All Conversations'") || apiSrc.includes('inbox.filter.all'));
+}
+
+const whInbox = loadClientPortalProfile('wolfhouse-somo');
+assert('Sunset staff Dockerfile sets DEFAULT_CLIENT_SLUG=sunset',
+  fs.readFileSync(path.join(ROOT, 'Dockerfile.luna-sunset-staff-api'), 'utf8').includes('DEFAULT_CLIENT_SLUG=sunset'));
+assert('Login page uses env-driven default company',
+  apiSrc.includes('loginDefaultClient') && apiSrc.includes('DEFAULT_CLIENT_SLUG'));
+assert('Inbox tab open loads conversation list',
+  apiSrc.includes('ensureInboxLoadedForTab'));
+
+assert('wolfhouse profile has no inbox_threads_demo rows', !whInbox.inbox_threads_demo || whInbox.inbox_threads_demo.length === 0,
+  JSON.stringify(whInbox.inbox_threads_demo));
+
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

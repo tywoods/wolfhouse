@@ -15861,6 +15861,21 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .thread-section-toolbar{display:none}
 .conv-card-name{font-size:13.5px;font-weight:700;color:var(--text);margin-bottom:3px}
 .conv-card-phone{font-size:11.5px;color:var(--text-2);margin-bottom:6px}
+.conv-card-contact{font-size:11.5px;color:var(--text-2);margin-bottom:4px}
+.conv-card-subject{font-size:11.5px;font-weight:600;color:var(--text);margin-bottom:4px;line-height:1.35}
+.conv-card-preview{font-size:11.5px;color:var(--text-2);margin-bottom:4px;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.conv-card-time{font-size:10.5px;color:var(--text-3)}
+.conv-card-header-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:4px}
+.conv-card-header-row .conv-card-name{margin-bottom:0;flex:1;min-width:0}
+.inbox-channel-badge{display:inline-flex;align-items:center;font-size:10px;font-weight:700;letter-spacing:.02em;text-transform:uppercase;padding:2px 7px;border-radius:var(--radius-pill);flex-shrink:0;line-height:1.3}
+.inbox-channel-badge-email{background:#e8eef6;color:#3d5a80;border:1px solid #c5d4e8}
+.inbox-channel-badge-whatsapp{background:#e6f4ea;color:#1e6b3a;border:1px solid #b7dfc4}
+.conv-card-demo-preview{opacity:.98}
+.conv-card-demo-preview::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:linear-gradient(180deg,#c5d4e8,#b7dfc4);opacity:.85}
+.inbox-preview-banner{margin:0 12px 8px;padding:10px 12px;border:1px dashed var(--border);border-radius:var(--radius-md);background:var(--surface-soft);flex-shrink:0}
+.inbox-preview-banner-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:3px}
+.inbox-preview-banner-sub{font-size:11.5px;color:var(--text-2);line-height:1.4}
+.inbox-preview-detail-note{margin:0 0 12px;padding:10px 12px;border-radius:var(--radius-md);background:var(--surface-soft);border:1px dashed var(--border);font-size:12px;color:var(--text-2);line-height:1.45}
 .conv-card-pills{display:flex;gap:5px;flex-wrap:wrap;align-items:center}
 .conv-card-handoff{font-size:11px;color:var(--text-2);margin-top:5px;font-style:italic}
 .conv-list-empty{padding:24px 16px;color:var(--text-3);font-size:13px;text-align:center;font-style:italic}
@@ -16858,6 +16873,7 @@ ${getStaffPortalI18nBootstrapScript()}
       </div>
       <div id="inbox-ro-note" class="inbox-ro-note" aria-hidden="true"></div>
       <div id="inbox-state" class="state-msg" style="padding:8px 14px;display:none;flex-shrink:0" data-i18n="inbox.loading">Loading conversations&hellip;</div>
+      <div id="inbox-preview-banner" class="inbox-preview-banner" style="display:none" aria-hidden="true"></div>
       <div class="inbox-left-rows">
         <div id="conv-list" class="conv-list"></div>
       </div>
@@ -17728,7 +17744,10 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
   if (tab === 'ask-luna') lunaGlobalPauseLoad();
-  if (tab === 'conversations') wireInboxLeftListWheel();
+  if (tab === 'conversations') {
+    wireInboxLeftListWheel();
+    if (!subtab) ensureInboxLoadedForTab();
+  }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
   if (tab === 'day-schedule') loadDaySchedule();
@@ -17753,6 +17772,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'conversations') {
       loadMessageEvents();
       loadHandoffsQueue();
+      ensureInboxLoadedForTab();
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'ask-luna') lunaGlobalPauseLoad();
@@ -17768,8 +17788,93 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
    ═══════════════════════════════════════════════════════════════════════════ */
 
 var selectedConvId = null;
-var inboxFilter = 'all'; /* 'all' | 'needs-human' — Stage 8.7.13 */
+var inboxFilter = 'all'; /* 'all' | 'email' | 'whatsapp' | 'needs-human' — Stage 8.7.13 / Sunset shared inbox 3A */
 var inboxConversationsCache = null;
+var SURF_INBOX_DEMO_PREFIX = 'demo-preview-';
+
+function isSurfInboxDemoThread(convId){
+  return String(convId || '').indexOf(SURF_INBOX_DEMO_PREFIX) === 0;
+}
+
+function surfInboxDemoThreadsForProfile(profile){
+  if (!profile || !profile.is_surf_vertical || !profile.demo_mode) return [];
+  return (profile.inbox_threads_demo || []).map(function(row){
+    var threadId = row.thread_id || row.conversation_id;
+    return {
+      conversation_id: threadId,
+      channel: row.channel === 'email' ? 'email' : 'whatsapp',
+      guest_name: row.guest_name,
+      guest_email: row.guest_email || null,
+      phone: row.phone || null,
+      email_subject: row.email_subject || null,
+      last_message_preview: row.last_message_preview || '',
+      needs_human: !!row.needs_human,
+      handoff_reason: row.handoff_reason || null,
+      luna_paused: !!row.luna_paused,
+      last_activity_label: row.relative_time || null,
+      _is_demo_preview: true,
+    };
+  });
+}
+
+function mergeSurfInboxConversations(liveRows, profile){
+  var mocks = surfInboxDemoThreadsForProfile(profile);
+  var live = (liveRows || []).map(function(row){
+    if (row.channel) return row;
+    return Object.assign({}, row, { channel: 'whatsapp' });
+  });
+  if (!mocks.length) return live;
+  return mocks.concat(live);
+}
+
+function inboxChannelBadgeHtml(channel){
+  var ch = channel === 'email' ? 'email' : 'whatsapp';
+  return '<span class="inbox-channel-badge inbox-channel-badge-' + ch + '">' +
+    escHtml(portalT('inbox.badge.' + ch)) + '</span>';
+}
+
+function updateInboxPreviewBanner(convs){
+  var banner = el('inbox-preview-banner');
+  if (!banner) return;
+  var profile = getPortalProfile(getClient());
+  var show = profile.is_surf_vertical && (convs || []).some(function(c){ return c && c._is_demo_preview; });
+  if (!show){
+    banner.style.display = 'none';
+    banner.setAttribute('aria-hidden', 'true');
+    banner.innerHTML = '';
+    return;
+  }
+  banner.style.display = 'block';
+  banner.setAttribute('aria-hidden', 'false');
+  banner.innerHTML = '<div class="inbox-preview-banner-title">' + escHtml(portalT('inbox.preview.bannerTitle')) + '</div>' +
+    '<div class="inbox-preview-banner-sub">' + escHtml(portalT('inbox.preview.bannerSub')) + '</div>';
+}
+
+function wireInboxFilterButtons(){
+  document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      setInboxFilter(this.dataset.inboxFilter || 'all');
+    });
+  });
+}
+
+function applySurfInboxFilters(profile){
+  var bar = document.querySelector('.inbox-filters');
+  if (!bar) return;
+  if (profile.is_surf_vertical) {
+    bar.innerHTML =
+      '<button type="button" class="inbox-filter-btn active" data-inbox-filter="all" data-i18n="inbox.filter.allShared">All</button>' +
+      '<button type="button" class="inbox-filter-btn" data-inbox-filter="email" data-i18n="inbox.filter.email">Email</button>' +
+      '<button type="button" class="inbox-filter-btn" data-inbox-filter="whatsapp" data-i18n="inbox.filter.whatsapp">WhatsApp</button>' +
+      '<button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human"><span data-i18n="inbox.filter.needsAttention">Needs attention</span> <span class="hq-count" id="hq-badge">0</span></button>';
+  } else {
+    bar.innerHTML =
+      '<button type="button" class="inbox-filter-btn active" data-inbox-filter="all" data-i18n="inbox.filter.all">All Conversations</button>' +
+      '<button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human"><span data-i18n="inbox.filter.needsHuman">Needs Human</span> <span class="hq-count" id="hq-badge">0</span></button>';
+  }
+  wireInboxFilterButtons();
+  updateInboxFilterUI();
+}
 
 function conversationNeedsHuman(c){
   return !!(c && c.needs_human);
@@ -18041,10 +18146,17 @@ function conversationHasOpenHandoff(conv){
 }
 
 function filterInboxConversations(convs){
+  var list = convs || [];
   if (inboxFilter === 'needs-human'){
-    return (convs || []).filter(conversationNeedsHuman);
+    return list.filter(conversationNeedsHuman);
   }
-  return convs || [];
+  if (inboxFilter === 'email'){
+    return list.filter(function(c){ return c.channel === 'email'; });
+  }
+  if (inboxFilter === 'whatsapp'){
+    return list.filter(function(c){ return (c.channel || 'whatsapp') === 'whatsapp'; });
+  }
+  return list;
 }
 
 function updateInboxFilterUI(){
@@ -18053,8 +18165,21 @@ function updateInboxFilterUI(){
   });
 }
 
+function ensureInboxLoadedForTab(opts){
+  if (inboxConversationsCache != null) applyInboxFilter(opts || {});
+  else loadInbox(null, opts || {});
+}
+
+function refreshInboxIfConversationsTabActive(){
+  var panel = el('tab-conversations');
+  if (panel && panel.classList.contains('active')) {
+    loadInbox(null, { silent: !!inboxConversationsCache, preserveDetail: true });
+  }
+}
+
 function setInboxFilter(mode){
-  inboxFilter = (mode === 'needs-human') ? 'needs-human' : 'all';
+  var allowed = ['all', 'email', 'whatsapp', 'needs-human'];
+  inboxFilter = allowed.indexOf(mode) >= 0 ? mode : 'all';
   updateInboxFilterUI();
   if (inboxConversationsCache) applyInboxFilter();
   else loadInbox();
@@ -18174,6 +18299,7 @@ function applyClientPortalProfile(clientSlug){
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
   });
   applySurfNavLabels(profile);
+  applySurfInboxFilters(profile);
 }
 
 function demoHomeSlotFriendlyLabel(slot, index){
@@ -18675,6 +18801,7 @@ function initStaffPortalSession(){
       populateClientSelect(data.clients);
       applyOwnerInsightsGate();
       applyClientPortalProfile(getClient());
+      refreshInboxIfConversationsTabActive();
     })
     .catch(function(){
       populateClientSelect(null);
@@ -19497,16 +19624,69 @@ function wireLunaPauseSwitch(convId, targetEl){
 }
 
 /* Render inbox conversation cards (left column) */
+function renderInboxConvCardHtml(c, profile){
+  var delBtn = (staffIsAdmin() && !c._is_demo_preview)
+    ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation">&times;</button>'
+    : '';
+  var handoffLine = '';
+  if (conversationHasOpenHandoff(c) && c.handoff_reason){
+    handoffLine = '<div class="conv-card-handoff">' + escHtml(handoffLabel(c.handoff_reason)) + '</div>';
+  } else if (c.needs_human && !conversationHasOpenHandoff(c)){
+    handoffLine = '<div class="conv-card-handoff">' + escHtml(t('inbox.detail.meta.needsStaffReply')) + '</div>';
+  }
+  var demoClass = c._is_demo_preview ? ' conv-card-demo-preview' : '';
+  if (profile && profile.is_surf_vertical) {
+    var channel = c.channel || 'whatsapp';
+    var contactLine = channel === 'email'
+      ? (c.guest_email || c.email || '')
+      : (c.phone || '');
+    var subjectLine = channel === 'email' && c.email_subject
+      ? '<div class="conv-card-subject">' + escHtml(c.email_subject) + '</div>'
+      : '';
+    var previewLine = c.last_message_preview
+      ? '<div class="conv-card-preview">' + escHtml(c.last_message_preview) + '</div>'
+      : '';
+    var timeLine = c.last_activity_label
+      ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>'
+      : '';
+    return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
+      delBtn +
+      '<div class="conv-card-header-row">' +
+        '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+        inboxChannelBadgeHtml(channel) +
+      '</div>' +
+      subjectLine +
+      (contactLine ? '<div class="conv-card-contact">' + escHtml(contactLine) + '</div>' : '') +
+      previewLine +
+      '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+      handoffLine +
+      timeLine +
+    '</div>';
+  }
+  return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
+    delBtn +
+    '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+    '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
+    '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
+    handoffLine +
+  '</div>';
+}
+
 function renderInbox(convs, opts){
   opts = opts || {};
   var list = el('conv-list');
+  var profile = getPortalProfile(getClient());
+  updateInboxPreviewBanner(convs);
   if (!convs || convs.length === 0){
     var emptyMsg = inboxFilter === 'needs-human'
       ? portalT('inbox.empty.listNeedsHuman')
-      : portalT('inbox.empty.list');
+      : (inboxFilter === 'email' ? portalT('inbox.empty.listEmail')
+        : (inboxFilter === 'whatsapp' ? portalT('inbox.empty.listWhatsapp')
+          : portalT('inbox.empty.list')));
     if (opts.preserveDetail && (opts.selectedId || selectedConvId)){
       el('inbox-state').style.display = 'none';
       if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
+      updateInboxPreviewBanner([]);
       return;
     }
     el('inbox-state').textContent = emptyMsg;
@@ -19515,27 +19695,13 @@ function renderInbox(convs, opts){
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
+    updateInboxPreviewBanner([]);
     return;
   }
   el('inbox-state').style.display = 'none';
 
   var cards = convs.map(function(c){
-    var delBtn = staffIsAdmin()
-      ? '<button type="button" class="conv-card-delete" title="Delete conversation" aria-label="Delete conversation">&times;</button>'
-      : '';
-    var handoffLine = '';
-    if (conversationHasOpenHandoff(c) && c.handoff_reason){
-      handoffLine = '<div class="conv-card-handoff">' + escHtml(handoffLabel(c.handoff_reason)) + '</div>';
-    } else if (c.needs_human && !conversationHasOpenHandoff(c)){
-      handoffLine = '<div class="conv-card-handoff">Needs staff reply</div>';
-    }
-    return '<div class="conv-card" data-id="' + escHtml(c.conversation_id) + '">' +
-      delBtn +
-      '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
-      '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
-      '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
-      handoffLine +
-    '</div>';
+    return renderInboxConvCardHtml(c, profile);
   }).join('');
 
   if (list) {
@@ -19626,7 +19792,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     .then(function(data){
       if (!data) return;
       if (!data.success) throw new Error(data.error || 'API error');
-      inboxConversationsCache = data.conversations || [];
+      inboxConversationsCache = mergeSurfInboxConversations(data.conversations || [], getPortalProfile(getClient()));
       var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
       var badge = el('hq-badge');
       if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
@@ -19823,10 +19989,47 @@ function renderInboxBookingStackItemHtml(bctx, guestName){
   return html;
 }
 
+function loadSurfInboxDemoDetail(convId, targetEl){
+  var profile = getPortalProfile(getClient());
+  var row = surfInboxDemoThreadsForProfile(profile).find(function(c){ return c.conversation_id === convId; });
+  if (!row) return false;
+  targetEl = targetEl || el('detail-content');
+  selectedConvId = convId;
+  if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
+  targetEl.classList.remove('is-loading-detail');
+  var channel = row.channel || 'whatsapp';
+  var html = '<div class="inbox-preview-detail-note">' + escHtml(portalT('inbox.preview.detailNote')) + '</div>';
+  html += '<div class="detail-header"><div>';
+  html += '<div class="detail-name">' + escHtml(row.guest_name || '—') + '</div>';
+  html += '<div class="detail-meta">';
+  if (channel === 'email') {
+    html += escHtml(row.guest_email || '');
+    if (row.email_subject) html += '<div style="margin-top:6px;font-weight:600;color:var(--text)">Subject: ' + escHtml(row.email_subject) + '</div>';
+  } else {
+    html += escHtml(row.phone || '');
+  }
+  html += '</div></div>';
+  html += '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
+  html += inboxChannelBadgeHtml(channel);
+  html += convHeaderStatusPillsHtml(row, !!row.luna_paused);
+  html += '</div></div>';
+  html += '<div class="detail-layout"><div class="detail-main">';
+  html += '<div class="thread-section"><div class="thread"><div class="thread-messages">';
+  html += '<div class="msg inbound"><div class="msg-bubble">' + escHtml(row.last_message_preview || '') + '</div>';
+  html += '<div class="msg-meta">Guest &bull; ' + escHtml(row.last_activity_label || portalT('inbox.preview.exampleLabel')) + '</div></div>';
+  html += '</div></div></div>';
+  html += '<div class="draft-panel"><div class="draft-label"><span style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('inbox.detail.reply.label')) + '</span></div>';
+  html += '<textarea disabled placeholder="' + escHtml(portalT('inbox.preview.detailNote')) + '"></textarea></div>';
+  html += '</div></div>';
+  targetEl.innerHTML = html;
+  return true;
+}
+
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
   if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
+  if (isSurfInboxDemoThread(convId) && loadSurfInboxDemoDetail(convId, targetEl)) return;
   beginConvDetailLoad(targetEl);
 
   var base = '/staff/conversations/' + encodeURIComponent(convId);
@@ -20228,12 +20431,8 @@ if (clientSelectEl){
   });
 }
 
-/* Inbox filter chips (Stage 8.7.13) */
-document.querySelectorAll('.inbox-filter-btn').forEach(function(btn){
-  btn.addEventListener('click', function(){
-    setInboxFilter(this.dataset.inboxFilter || 'all');
-  });
-});
+/* Inbox filter chips (Stage 8.7.13 / Sunset shared inbox 3A) */
+wireInboxFilterButtons();
 updateInboxFilterUI();
 
 initStaffPortalSession().then(function(){
@@ -28541,6 +28740,9 @@ function handleUI(res, port) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildLoginHtml() {
+  const loginDefaultClient = (process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim())
+    ? String(process.env.DEFAULT_CLIENT_SLUG).trim()
+    : 'wolfhouse-somo';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -28684,7 +28886,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <form id="login-form" autocomplete="on">
     <div class="field">
       <label for="client" data-i18n="login.company">Company</label>
-      <input id="client" name="client" type="text" value="wolfhouse-somo" autocomplete="organization" spellcheck="false">
+      <input id="client" name="client" type="text" value="${loginDefaultClient}" autocomplete="organization" spellcheck="false">
     </div>
     <div class="field">
       <label for="email" data-i18n="login.email">Email</label>
