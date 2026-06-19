@@ -81,7 +81,10 @@ function _previewRentalPrice(clientSlug, toolId, r) {
   const liveSendAllowed = isConfirmed;
 
   const durationLabel = r.duration.replace(/_/g, ' ');
-  const itemLabel     = r.item.replace(/_/g, ' ');
+  // Item codes already carry the category suffix (e.g. board_rental, sup_rental).
+  // Strip trailing _rental before humanizing so the template word "rental" is not doubled.
+  const itemBase  = r.item.replace(/_rental$/, '');
+  const itemLabel = itemBase.replace(/_/g, ' ');
 
   let previewText;
   if (isConfirmed) {

@@ -155,6 +155,14 @@ if (dryRun.ok) {
       dryRun.preview_text.toLowerCase().includes('confirm') ||
       dryRun.preview_text.toLowerCase().includes('verification'),
     );
+    assert(
+      'dry_run: preview_text does not contain "rental rental" (label bug)',
+      !dryRun.preview_text.includes('rental rental'),
+    );
+    assert(
+      'dry_run: preview_text contains "board rental for 1 day"',
+      dryRun.preview_text.includes('board rental for 1 day'),
+    );
     console.log(`        pricing_status=${dryRun.pricing_status}  live_send_allowed=${dryRun.live_send_allowed}`);
     console.log(`        preview_text: "${dryRun.preview_text}"`);
     console.log(`        test_input: ${JSON.stringify(dryRunInput)}`);
