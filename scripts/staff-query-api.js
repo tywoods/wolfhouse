@@ -484,6 +484,7 @@ const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
+const STAFF_PORTAL_SIGNIN_BUTTON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-sign-in-button.png');
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
@@ -28799,14 +28800,14 @@ body{
   box-shadow:0 0 0 3px rgba(143,165,142,.18);
 }
 .btn-signin{
-  width:100%;padding:11px 0;margin-top:6px;
-  background:linear-gradient(120deg,var(--olive) 0%,var(--ocean) 100%);
-  border:none;border-radius:var(--radius-sm);
-  color:#fff;font-size:14px;font-weight:700;letter-spacing:.04em;
-  cursor:pointer;transition:opacity .18s;
+  display:block;width:100%;margin-top:10px;padding:0;
+  border:none;background:transparent;cursor:pointer;
+  transition:transform .15s ease,opacity .18s,filter .18s;
 }
-.btn-signin:hover{opacity:.88}
+.btn-signin:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.04)}
+.btn-signin:active:not(:disabled){transform:translateY(0);filter:brightness(.98)}
 .btn-signin:disabled{opacity:.55;cursor:default}
+.btn-signin-img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
 .msg{
   margin-top:14px;padding:10px 13px;border-radius:var(--radius-sm);
   font-size:13px;display:none;
@@ -28875,7 +28876,9 @@ ${getStaffPortalI18nBootstrapScript()}
       <label for="password" data-i18n="login.password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button class="btn-signin" id="btn-signin" type="button" data-i18n="login.signIn">Sign in</button>
+    <button class="btn-signin" id="btn-signin" type="button" aria-label="Sign in" data-i18n-aria="login.signIn">
+      <img src="/staff/assets/luna-sign-in-button.png?v=1" alt="" class="btn-signin-img" width="320" height="72">
+    </button>
     <div class="msg" id="msg"></div>
   </form>
 </div>
@@ -28943,6 +28946,20 @@ ${getStaffPortalI18nBootstrapScript()}
 
 function handleStaffPortalLogo(res) {
   fs.readFile(STAFF_PORTAL_LOGO_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
+function handleStaffPortalSignInButton(res) {
+  fs.readFile(STAFF_PORTAL_SIGNIN_BUTTON_PATH, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       return res.end('Not found');
@@ -34073,6 +34090,15 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleStaffPortalLogo(res);
+  }
+
+  // ── GET /staff/assets/luna-sign-in-button.png — login sign-in button art (public) ─
+  if (pathname === '/staff/assets/luna-sign-in-button.png') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalSignInButton(res);
   }
 
   // ── GET /staff/login  (Stage 7.3e — Luna Front Desk login page) ─────────────
