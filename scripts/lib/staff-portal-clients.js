@@ -69,6 +69,26 @@ function loadLessonSlotsDemo(cfg) {
   }));
 }
 
+function loadInboxThreadsDemo(cfg) {
+  if (!cfg || !cfg.portal_demo) return [];
+  const threads = cfg.portal_demo.inbox_threads;
+  if (!Array.isArray(threads)) return [];
+  return threads.map((row) => ({
+    thread_id: row.thread_id || row.conversation_id || null,
+    channel: row.channel === 'email' ? 'email' : 'whatsapp',
+    guest_name: row.guest_name || null,
+    guest_email: row.guest_email || null,
+    phone: row.phone || null,
+    email_subject: row.email_subject || null,
+    last_message_preview: row.last_message_preview || '',
+    needs_human: !!row.needs_human,
+    handoff_reason: row.handoff_reason || null,
+    luna_paused: !!row.luna_paused,
+    relative_time: row.relative_time || null,
+    source: row.source || 'demo_preview',
+  }));
+}
+
 /**
  * Per-tenant portal shell profile (tab gating, default tab, demo lesson slots).
  * Wolfhouse (lodging_surf_house) preserves legacy defaults.
@@ -86,6 +106,7 @@ function loadClientPortalProfile(clientSlug) {
     hidden_tabs: surf ? ['bed-calendar', 'tour-operator'] : [],
     hidden_drawer_tabs: surf ? ['transfers'] : [],
     lesson_slots_demo: surf ? loadLessonSlotsDemo(cfg) : [],
+    inbox_threads_demo: surf ? loadInboxThreadsDemo(cfg) : [],
     demo_mode: !!(cfg && cfg.portal_demo && cfg.portal_demo.demo_mode),
   };
 }
