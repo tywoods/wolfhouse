@@ -160,6 +160,16 @@ const {
   getConversationStaffStateQuery,
 } = require('./lib/staff-conversation-queries');
 const {
+  buildCustomerListParams,
+  getCustomerContextQuery,
+  getCustomerBookingsQuery,
+  getCustomerServiceRecordsQuery,
+  getCustomerHandoffsQuery,
+  getCustomerMessagesQuery,
+  buildLastSetupSummary,
+  normalizeCustomerFilter,
+} = require('./lib/staff-customer-queries');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -610,6 +620,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
   `^/staff/bookings/(${UUID_RE})/service-records/create-payment-link$`, 'i',
 );
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
+const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
 const CONV_CLEAR_RE       = new RegExp(`^/staff/conversations/(${UUID_RE})/clear-messages$`, 'i');
@@ -15752,6 +15763,45 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
+/* ── Customers tab (Sunset / surf guest history) ──────────────────────────── */
+#tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
+.customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:20px 20px 16px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
+.customers-header{margin-bottom:14px}
+.customers-header h2{font-size:18px;font-weight:800;color:var(--text);margin:0 0 4px}
+.customers-header p{font-size:13px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
+.customers-promo{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.5;max-width:720px}
+.customers-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.customers-search{flex:1;min-width:200px;max-width:420px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.customers-filter-btn{padding:7px 14px;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text-2);cursor:pointer}
+.customers-filter-btn.active{background:var(--surface-soft);color:var(--text);border-color:var(--tan)}
+.customers-two-col{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:16px;flex:1;min-height:0;overflow:hidden}
+@media(max-width:900px){.customers-two-col{grid-template-columns:1fr;overflow:auto}}
+.customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:8px}
+.customers-card{padding:12px 14px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:6px;transition:background .15s,border-color .15s}
+.customers-card:hover{background:var(--surface-soft)}
+.customers-card.selected{background:var(--surface-soft);border-color:var(--tan)}
+.customers-card-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
+.customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:6px;line-height:1.4}
+.customers-card-preview{font-size:12px;color:var(--text-2);line-height:1.4;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.customers-card-meta{font-size:11px;color:var(--text-3)}
+.customers-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
+.customers-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:var(--radius-pill);letter-spacing:.03em}
+.customers-badge-booked{background:#DCEAD2;color:#5C7350}
+.customers-badge-lesson{background:#D5E5EF;color:#3F6070}
+.customers-badge-rental{background:#F5E6D2;color:#A2743D}
+.customers-badge-attn{background:#EFD9D0;color:#9C5742}
+.customers-detail-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 20px;overflow-y:auto;min-height:0}
+.customers-detail-empty{color:var(--text-3);font-size:13px;padding:24px 8px;text-align:center}
+.customers-section{margin-top:18px}
+.customers-section-hdr{font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px}
+.customers-section-body{font-size:12px;color:var(--text-2);line-height:1.5}
+.customers-section-empty{font-size:12px;color:var(--text-3);font-style:italic}
+.customers-msg{border-top:1px solid var(--border-soft);padding:8px 0}
+.customers-msg-dir{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3)}
+.customers-row-table{width:100%;border-collapse:collapse;font-size:12px}
+.customers-row-table th,.customers-row-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
+#tab-customers .state-msg{margin:8px 0;font-size:13px;color:var(--text-2)}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -16651,6 +16701,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <button class="tab-btn" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
+  <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -16759,6 +16810,32 @@ ${getStaffPortalI18nBootstrapScript()}
   </div>
 </div>
 </div><!-- /tab-portal-home -->
+
+<!-- ── Customers tab (Sunset guest history) ─────────────────────────────── -->
+<div id="tab-customers" class="tab-panel">
+<div class="customers-wrap">
+  <header class="customers-header">
+    <h2 data-i18n="customers.title">Customers</h2>
+    <p data-i18n="customers.subtitle">Guest history, preferences, and previous lessons or rentals.</p>
+    <p class="customers-promo" data-i18n="customers.promo">Remember returning guests — see previous lessons, rentals, preferences, and notes. When someone comes back next year, confirm what they had before and book it again faster.</p>
+  </header>
+  <div class="customers-toolbar">
+    <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
+    <button type="button" class="customers-filter-btn active" data-cust-filter="all" data-i18n="customers.filter.all">All</button>
+    <button type="button" class="customers-filter-btn" data-cust-filter="booked" data-i18n="customers.filter.booked">Booked</button>
+    <button type="button" class="customers-filter-btn" data-cust-filter="needs_attention" data-i18n="customers.filter.needsAttention">Needs attention</button>
+  </div>
+  <div id="cust-state" class="state-msg" style="display:none"></div>
+  <div class="customers-two-col">
+    <div class="customers-list-col">
+      <div id="cust-list" class="customers-list-scroll"></div>
+    </div>
+    <div id="cust-detail" class="customers-detail-col">
+      <div class="customers-detail-empty" data-i18n="customers.detail.select">Select a customer to view history.</div>
+    </div>
+  </div>
+</div>
+</div><!-- /tab-customers -->
 
 <!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel">
@@ -17652,6 +17729,7 @@ function switchToTab(tab, subtab){
   if (tab === 'ask-luna') lunaGlobalPauseLoad();
   if (tab === 'conversations') wireInboxLeftListWheel();
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
+  if (tab === 'customers') loadCustomersTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
@@ -17678,6 +17756,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
     if (target === 'ask-luna') lunaGlobalPauseLoad();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
+    if (target === 'customers') loadCustomersTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -17987,6 +18066,9 @@ function applyInboxFilter(opts){
 function getClient(){
   var sel = el('c-client');
   if (sel && sel.value) return sel.value.trim();
+  if (staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length) {
+    return staffPortalSession.clients[0].slug;
+  }
   return 'wolfhouse-somo';
 }
 
@@ -18009,6 +18091,7 @@ function isTabHiddenForClient(tab, clientSlug){
   var hidden = profile.hidden_tabs || [];
   if (hidden.indexOf(tab) >= 0) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
+  if (tab === 'customers' && !profile.is_surf_vertical) return true;
   if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
   return false;
 }
@@ -18042,6 +18125,11 @@ function applySurfNavLabels(profile){
     homeBtn.setAttribute('data-i18n', 'nav.tab.portalHome');
     homeBtn.textContent = t('nav.tab.portalHome');
   }
+  var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
+  if (custBtn && profile.is_surf_vertical) {
+    custBtn.setAttribute('data-i18n', 'nav.tab.customers');
+    custBtn.textContent = t('nav.tab.customers');
+  }
   var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
   if (convBtn) {
     var labelKey = profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp';
@@ -18071,6 +18159,10 @@ function applyClientPortalProfile(clientSlug){
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
     var tab = btn.getAttribute('data-tab');
     if (tab === 'portal-home') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    if (tab === 'customers') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }
@@ -18241,6 +18333,189 @@ function wirePortalHomeScheduleControls(){
   }
 }
 
+var customersCache = [];
+var customersFilter = 'all';
+var selectedCustomerPhone = null;
+var customersSearchTimer = null;
+
+function customerBadgeHtml(badge) {
+  var cls = 'customers-badge';
+  if (badge === 'booked') cls += ' customers-badge-booked';
+  else if (badge === 'lesson') cls += ' customers-badge-lesson';
+  else if (badge === 'rental') cls += ' customers-badge-rental';
+  else if (badge === 'needs_attention') cls += ' customers-badge-attn';
+  var label = badge === 'booked' ? 'Booked' : badge === 'lesson' ? 'Lesson' : badge === 'rental' ? 'Rental' : 'Needs attention';
+  return '<span class="' + cls + '">' + escHtml(label) + '</span>';
+}
+
+function formatCustomerWhen(iso) {
+  if (!iso) return '—';
+  try {
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return String(iso).slice(0, 10);
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  } catch (_) { return '—'; }
+}
+
+function renderCustomersList(rows) {
+  var box = el('cust-list');
+  if (!box) return;
+  if (!rows || !rows.length) {
+    box.innerHTML = '<div class="customers-detail-empty"><p class="main-msg">' + escHtml(t('customers.empty.main')) + '</p>' +
+      '<p class="sub-msg" style="margin-top:8px;font-size:12px">' + escHtml(t('customers.empty.sub')) + '</p></div>';
+    return;
+  }
+  box.innerHTML = rows.map(function(c) {
+    var name = c.display_name || c.phone || 'Guest';
+    var contact = [];
+    if (c.email) contact.push(c.email);
+    if (c.phone) contact.push(c.phone);
+    var badges = (c.badges || []).map(customerBadgeHtml).join('');
+    var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
+    return '<div class="customers-card' + sel + '" data-phone="' + escHtml(c.phone) + '">' +
+      '<div class="customers-card-name">' + escHtml(name) + '</div>' +
+      '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || t('customers.contact.unknown')) + '</div>' +
+      (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
+      '<div class="customers-card-meta">' + escHtml(t('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
+      (badges ? '<div class="customers-badges">' + badges + '</div>' : '') +
+      '</div>';
+  }).join('');
+}
+
+function renderCustomerDetail(data) {
+  var box = el('cust-detail');
+  if (!box) return;
+  if (!data || !data.success) {
+    box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.detail.error')) + '</div>';
+    return;
+  }
+  var id = data.identity || {};
+  var name = id.display_name || data.phone || 'Guest';
+  var html = '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(name) + '</div>' +
+    '<div class="customers-section-body">' +
+    escHtml(t('customers.detail.phone')) + ': ' + escHtml(data.phone || '—') + '<br>' +
+    escHtml(t('customers.detail.email')) + ': ' + escHtml(id.email || '—') + '<br>' +
+    (id.language ? escHtml(t('customers.detail.language')) + ': ' + escHtml(id.language) + '<br>' : '') +
+    '</div></div>';
+
+  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.lastSetup">Last setup</div><div class="customers-section-body">' +
+    escHtml(data.last_setup_summary || t('customers.detail.noServices')) + '</div></div>';
+
+  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.services">Previous lessons and rentals</div>';
+  if (data.service_records && data.service_records.length) {
+    html += '<table class="customers-row-table"><thead><tr><th>Date</th><th>Service</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
+    data.service_records.forEach(function(r) {
+      html += '<tr><td>' + escHtml(String(r.service_date || '—')) + '</td><td>' + escHtml(String(r.service_type || '—').replace(/_/g, ' ')) + '</td><td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td><td>' + escHtml(String(r.service_status || '—')) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noServices')) + '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.notes">Notes for next time</div><div class="customers-section-body">';
+  var notes = (data.notes && (data.notes.human_notes || data.notes.internal_staff_notes)) || '';
+  html += escHtml(notes || t('customers.detail.noNotes'));
+  html += '</div></div>';
+
+  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.messages">Recent messages</div>';
+  if (data.messages && data.messages.length) {
+    data.messages.forEach(function(m) {
+      html += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(m.message_text || '') + '</div></div>';
+    });
+  } else {
+    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noMessages')) + '</div>';
+  }
+  html += '</div>';
+
+  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.handoffs">Open handoffs</div>';
+  if (data.open_handoffs && data.open_handoffs.length) {
+    data.open_handoffs.forEach(function(h) {
+      html += '<div class="customers-msg"><strong>' + escHtml(h.reason_code || 'handoff') + '</strong> — ' + escHtml(h.summary || '') + '</div>';
+    });
+  } else {
+    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noHandoffs')) + '</div>';
+  }
+  html += '</div>';
+
+  box.innerHTML = html;
+}
+
+function loadCustomersList() {
+  var profile = getPortalProfile(getClient());
+  if (!profile.is_surf_vertical) return;
+  var state = el('cust-state');
+  var q = (el('cust-search') && el('cust-search').value) ? el('cust-search').value.trim() : '';
+  var url = '/staff/customers?client=' + encodeURIComponent(getClient()) +
+    '&filter=' + encodeURIComponent(customersFilter) +
+    '&limit=50&offset=0';
+  if (q) url += '&q=' + encodeURIComponent(q);
+  if (state) { state.textContent = t('customers.loading'); state.style.display = 'block'; state.classList.remove('error'); }
+  fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data) {
+      customersCache = (data && data.customers) || [];
+      renderCustomersList(customersCache);
+      if (state) state.style.display = customersCache.length ? 'none' : 'block';
+      if (state && !customersCache.length) state.textContent = '';
+    })
+    .catch(function(e) {
+      if (state) { state.textContent = t('customers.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
+    });
+}
+
+function loadCustomerDetail(phone) {
+  selectedCustomerPhone = phone;
+  renderCustomersList(customersCache);
+  var box = el('cust-detail');
+  if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.loading')) + '</div>';
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient());
+  fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data) { renderCustomerDetail(data); })
+    .catch(function() {
+      if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.detail.error')) + '</div>';
+    });
+}
+
+function selectCustomerCard(phone) { loadCustomerDetail(phone); }
+
+function setCustomersFilter(mode) {
+  customersFilter = mode || 'all';
+  document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.getAttribute('data-cust-filter') === customersFilter);
+  });
+  loadCustomersList();
+}
+
+function wireCustomersTab() {
+  if (!el('tab-customers')) return;
+  document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function() { setCustomersFilter(btn.getAttribute('data-cust-filter')); });
+  });
+  var search = el('cust-search');
+  if (search && !search.dataset.wired) {
+    search.dataset.wired = '1';
+    search.addEventListener('input', function() {
+      clearTimeout(customersSearchTimer);
+      customersSearchTimer = setTimeout(loadCustomersList, 280);
+    });
+  }
+  var list = el('cust-list');
+  if (list && !list.dataset.wired) {
+    list.dataset.wired = '1';
+    list.addEventListener('click', function(ev) {
+      var card = ev.target && ev.target.closest ? ev.target.closest('.customers-card') : null;
+      if (card && card.dataset && card.dataset.phone) loadCustomerDetail(card.dataset.phone);
+    });
+  }
+}
+
+function loadCustomersTab() {
+  wireCustomersTab();
+  loadCustomersList();
+}
+
 function dsTodayIso(){
   var d = new Date();
   var m = String(d.getMonth() + 1).padStart(2, '0');
@@ -18358,7 +18633,15 @@ function applyOwnerInsightsGate(){
 function populateClientSelect(clients, preferredSlug){
   var sel = el('c-client');
   if (!sel) return;
-  var list = clients && clients.length ? clients : [{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }];
+  var list = (clients && clients.length)
+    ? clients
+    : ((staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length)
+        ? staffPortalSession.clients
+        : []);
+  if (!list.length) {
+    sel.innerHTML = '';
+    return;
+  }
   var html = list.map(function(c){
     return '<option value="' + escHtml(c.slug) + '">' + escHtml(c.name || c.slug) + '</option>';
   }).join('');
@@ -28512,6 +28795,151 @@ function handleLoginPage(res) {
 //   • last_seen_at slide on auth_sessions is the only DB write (via loadAuthSession)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function mapCustomerListRow(row) {
+  const serviceType = row.last_service_type || '';
+  const badges = [];
+  if (row.is_booked) badges.push('booked');
+  if (serviceType === 'surf_lesson') badges.push('lesson');
+  if (serviceType === 'wetsuit' || serviceType === 'surfboard') badges.push('rental');
+  if (row.has_open_handoff || row.needs_human) badges.push('needs_attention');
+  let lastServiceSummary = null;
+  if (serviceType) {
+    const qty = row.last_service_quantity != null ? row.last_service_quantity : 1;
+    const label = serviceType.replace(/_/g, ' ');
+    lastServiceSummary = qty + ' ' + label;
+  }
+  return {
+    phone: row.phone,
+    conversation_id: row.conversation_id || null,
+    display_name: row.display_name || null,
+    email: row.email || null,
+    language: row.language || null,
+    last_contact_at: row.last_contact_at || null,
+    needs_human: !!row.needs_human,
+    conversation_stage: row.conversation_stage || null,
+    booking_count: row.booking_count || 0,
+    service_count: row.service_count || 0,
+    last_service_summary: lastServiceSummary,
+    last_check_in: row.last_check_in || null,
+    last_service_date: row.last_service_date || row.last_service_date_detail || null,
+    has_open_handoff: !!row.has_open_handoff,
+    is_booked: !!row.is_booked,
+    badges,
+    last_message_preview: row.last_message_preview || null,
+  };
+}
+
+async function handleCustomerList(query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const built = buildCustomerListParams(clientSlug, query);
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.list',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    filter: built.filter,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  let rows;
+  try {
+    rows = await withPgClient(async (pg) => {
+      const r = await pg.query(built.sql, built.params);
+      return r.rows;
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+
+  const customers = rows.map(mapCustomerListRow);
+  const elapsed = Date.now() - started;
+  appendAuditLog({ ...auditBase, success: true, row_count: customers.length, elapsed_ms: elapsed });
+  return sendJSON(res, 200, {
+    success: true,
+    customers,
+    count: customers.length,
+    filter: built.filter,
+    limit: built.limit,
+    offset: built.offset,
+    elapsed_ms: elapsed,
+  });
+}
+
+async function handleCustomerContext(phoneRaw, query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  let phone;
+  try {
+    phone = decodeURIComponent(String(phoneRaw || '').trim());
+  } catch (_) {
+    return send400(res, 'invalid phone encoding');
+  }
+  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) {
+    return send400(res, 'invalid client or phone');
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.context',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    phone,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const data = await withPgClient(async (pg) => {
+      const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
+      const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
+      const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
+      const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
+      const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
+      return { identity, bookings, service_records, handoffs, messages };
+    });
+
+    const lastSetup = buildLastSetupSummary(data.service_records);
+    const openHandoffs = (data.handoffs || []).filter((h) => {
+      const st = String(h.handoff_status || '').toLowerCase();
+      return st === 'open' || st === 'assigned' || st === 'waiting_guest';
+    });
+
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      phone,
+      identity: data.identity || { phone, display_name: null, email: null },
+      conversation_summary: data.identity ? {
+        conversation_id: data.identity.conversation_id,
+        last_message_preview: data.identity.last_message_preview,
+        needs_human: data.identity.needs_human,
+        conversation_stage: data.identity.conversation_stage,
+        last_contact_at: data.identity.last_contact_at,
+      } : null,
+      bookings: data.bookings || [],
+      service_records: data.service_records || [],
+      handoffs: data.handoffs || [],
+      open_handoffs: openHandoffs,
+      messages: data.messages || [],
+      notes: {
+        human_notes: data.identity && data.identity.human_notes ? data.identity.human_notes : null,
+        internal_staff_notes: data.identity && data.identity.internal_staff_notes ? data.identity.internal_staff_notes : null,
+      },
+      last_setup_summary: lastSetup,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+}
+
 async function handleConversationInbox(query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -33491,6 +33919,19 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleQuery(parsed.query, res);
+  }
+
+  if (pathname === '/staff/customers') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleCustomerList(parsed.query, res, auth.user);
+  }
+
+  const customerCtxMatch = CUSTOMER_CONTEXT_RE.exec(pathname);
+  if (customerCtxMatch) {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleCustomerContext(customerCtxMatch[1], parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/conversations') {
