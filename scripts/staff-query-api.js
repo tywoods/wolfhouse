@@ -15685,9 +15685,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:6px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
+#banner{background:linear-gradient(120deg,#8FA58E 0%,#95B4C7 100%);color:#fff;padding:3px 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(68,80,74,.10);min-height:0}
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:center;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent}
-#banner .brand-logo{height:72px;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
+#banner .brand-logo{height:80px;width:auto;max-width:min(560px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
