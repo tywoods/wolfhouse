@@ -17902,6 +17902,42 @@ function isTabHiddenForClient(tab, clientSlug){
   return false;
 }
 
+function isDrawerTabHiddenForClient(tab, clientSlug){
+  var profile = getPortalProfile(clientSlug);
+  var hidden = profile.hidden_drawer_tabs || [];
+  return hidden.indexOf(tab) >= 0;
+}
+
+function portalT(key){
+  var profile = getPortalProfile(getClient());
+  if (profile.is_surf_vertical) {
+    var surfKey = key + '.surf';
+    var surfVal = t(surfKey);
+    if (surfVal !== surfKey) return surfVal;
+  }
+  return t(key);
+}
+
+function inboxEmptyDetailHtml(){
+  return '<div class="inbox-empty-right">' +
+    '<p class="main-msg">' + escHtml(portalT('inbox.empty.main')) + '</p>' +
+    '<p class="sub-msg">' + escHtml(portalT('inbox.empty.sub')) + '</p>' +
+    '</div>';
+}
+
+function applySurfNavLabels(profile){
+  var convBtn = document.querySelector('.tab-btn[data-tab="conversations"]');
+  if (convBtn) {
+    var labelKey = profile.is_surf_vertical ? 'nav.tab.inbox' : 'nav.tab.whatsapp';
+    convBtn.setAttribute('data-i18n', labelKey);
+    convBtn.textContent = t(labelKey);
+  }
+  var dsSub = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.sub"]');
+  if (dsSub) dsSub.textContent = portalT('daySchedule.sub');
+  var dsSlots = document.querySelector('#tab-day-schedule [data-i18n="daySchedule.demoSlots"]');
+  if (dsSlots) dsSlots.textContent = portalT('daySchedule.demoSlots');
+}
+
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
@@ -17913,6 +17949,7 @@ function applyClientPortalProfile(clientSlug){
     }
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
   });
+  applySurfNavLabels(profile);
 }
 
 function dsTodayIso(){
@@ -17967,7 +18004,7 @@ function loadDaySchedule(dateIso){
   var date = dateIso || (el('ds-date') && el('ds-date').value) || dsTodayIso();
   if (el('ds-date') && !el('ds-date').value) el('ds-date').value = date;
   var state = el('ds-state');
-  if (state){ state.textContent = t('daySchedule.loading'); state.className = 'state-msg'; }
+  if (state){ state.textContent = portalT('daySchedule.loading'); state.className = 'state-msg'; state.style.display = 'block'; }
   renderDayScheduleSlots(profile.lesson_slots_demo || [], date);
   var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(date);
   return Promise.all([
@@ -17976,17 +18013,18 @@ function loadDaySchedule(dateIso){
   ]).then(function(results){
     var lessons = (results[0] && results[0].rows) || [];
     var gear = (results[1] && results[1].rows) || [];
-    renderDayScheduleTable(lessons, 'ds-lessons-table', t('daySchedule.empty'));
-    renderDayScheduleTable(gear, 'ds-rentals-table', t('daySchedule.empty'));
+    renderDayScheduleTable(lessons, 'ds-lessons-table', portalT('daySchedule.empty'));
+    renderDayScheduleTable(gear, 'ds-rentals-table', portalT('daySchedule.empty'));
     if (state){
       if (!lessons.length && !gear.length && !(profile.lesson_slots_demo || []).length){
-        state.textContent = t('daySchedule.empty');
+        state.textContent = portalT('daySchedule.empty');
+        state.style.display = 'block';
       } else {
         state.style.display = 'none';
       }
     }
   }).catch(function(e){
-    if (state){ state.textContent = t('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; }
+    if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
   });
 }
 
@@ -18883,8 +18921,8 @@ function renderInbox(convs, opts){
   var list = el('conv-list');
   if (!convs || convs.length === 0){
     var emptyMsg = inboxFilter === 'needs-human'
-      ? 'No conversations need staff review right now.'
-      : 'No conversations need review right now.';
+      ? portalT('inbox.empty.listNeedsHuman')
+      : portalT('inbox.empty.list');
     if (opts.preserveDetail && (opts.selectedId || selectedConvId)){
       el('inbox-state').style.display = 'none';
       if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
@@ -18895,10 +18933,7 @@ function renderInbox(convs, opts){
     el('inbox-state').style.display = 'block';
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
     selectedConvId = null;
-    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
-      '<p class="main-msg">Select a conversation to review.</p>' +
-      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-      '</div>';
+    el('detail-content').innerHTML = inboxEmptyDetailHtml();
     return;
   }
   el('inbox-state').style.display = 'none';
@@ -18993,10 +19028,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     el('inbox-state').style.display = 'block';
     if (el('conv-list')) el('conv-list').innerHTML = '';
     selectedConvId = null;
-    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
-      '<p class="main-msg">Select a conversation to review.</p>' +
-      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-      '</div>';
+    el('detail-content').innerHTML = inboxEmptyDetailHtml();
   }
 
   fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
@@ -19167,19 +19199,25 @@ function inboxBookingSourceToneClass(bctx){
 function renderInboxBookingStackItemHtml(bctx, guestName){
   var linked = !!bctx.is_linked;
   var toneCls = inboxBookingSourceToneClass(bctx);
+  var isSurf = getPortalProfile(getClient()).is_surf_vertical;
   var html = '<div class="inbox-booking-stack-item ' + toneCls + '">';
   html += '<h4>' + escHtml(bctx.booking_code || 'Booking');
   if (linked) html += ' <span class="inbox-booking-linked-tag">Linked</span>';
   html += '</h4>';
   html += '<div class="kv2">';
   html +=   kv('Status',      bctx.booking_status) +
-            kv('Payment',     bctx.booking_payment_status) +
-            kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
+            kv('Payment',     bctx.booking_payment_status);
+  if (!isSurf) {
+    html += kv('Stay',        fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
             kv('Guests',      bctx.guest_count) +
             kv('Package',     bctx.package_code) +
             kv('Room pref',   bctx.room_preference || bctx.requested_room_type || '\u2014') +
-            kv('Assigned',    (bctx.assigned_room_code || '\u2014') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : '')) +
-            kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '\u2014');
+            kv('Assigned',    (bctx.assigned_room_code || '\u2014') + (bctx.assigned_bed_code ? ' / ' + bctx.assigned_bed_code : ''));
+  } else {
+    html += kv('Dates',       fmtDateOnly(bctx.check_in) + ' \u2192 ' + fmtDateOnly(bctx.check_out)) +
+            kv('Guests',      bctx.guest_count);
+  }
+  html += kv('Confirm',     bctx.confirmation_sent_at ? fmtTs(bctx.confirmation_sent_at) : '\u2014');
   html += '</div>';
   if (bctx.payment_amount_due_cents != null){
     html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
@@ -19191,13 +19229,15 @@ function renderInboxBookingStackItemHtml(bctx, guestName){
     html +=   '</div>';
     html += '</div>';
   }
-  html += '<button type="button" class="inbox-booking-cal-link inbox-open-booking-cal" ' +
-    'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
-    'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
-    'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
-    'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
-    'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
-    'Open Booking in Calendar</button>';
+  if (!isSurf) {
+    html += '<button type="button" class="inbox-booking-cal-link inbox-open-booking-cal" ' +
+      'data-booking-id="' + escHtml(bctx.booking_id || '') + '" ' +
+      'data-booking-code="' + escHtml(bctx.booking_code || '') + '" ' +
+      'data-check-in="' + escHtml(bctx.check_in || '') + '" ' +
+      'data-check-out="' + escHtml(bctx.check_out || '') + '" ' +
+      'data-guest-name="' + escHtml(bctx.booking_guest_name || guestName || '') + '">' +
+      'Open Booking in Calendar</button>';
+  }
   html += '</div>';
   return html;
 }
@@ -19555,10 +19595,7 @@ function wireDeleteConversation(convId){
       if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
       if (selectedConvId === convId){
         selectedConvId = null;
-        el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
-          '<p class="main-msg">Select a conversation to review.</p>' +
-          '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-          '</div>';
+        el('detail-content').innerHTML = inboxEmptyDetailHtml();
       }
       inboxConversationsCache = (inboxConversationsCache || []).filter(function(c){
         return (c.conversation_id || c.id) !== convId;
@@ -19583,10 +19620,7 @@ if (btnBack) {
   btnBack.addEventListener('click', function(){
     var convList = el('conv-list');
     if (convList) convList.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
-    el('detail-content').innerHTML = '<div class="inbox-empty-right">' +
-      '<p class="main-msg">Select a conversation to review.</p>' +
-      '<p class="sub-msg">Luna drafts and booking context will appear here.</p>' +
-      '</div>';
+    el('detail-content').innerHTML = inboxEmptyDetailHtml();
     selectedConvId = null;
   });
 }
@@ -26804,12 +26838,17 @@ function renderBookingContextDrawer(data){
   var svcRows = data.service_records || [];
   var pmt = data.payments || {};
   var activeTab = bcActiveDrawerTab || 'overview';
+  var isSurf = getPortalProfile(getClient()).is_surf_vertical;
+  var hideTransfers = isDrawerTabHiddenForClient('transfers', getClient());
+  if (hideTransfers && activeTab === 'transfers') activeTab = 'overview';
 
   html += '<div class="bc-drawer-file-tabs" id="bc-drawer-file-tabs">';
   html += '<div class="bc-drawer-tabs" id="bc-drawer-tabs" role="tablist">';
   html += bcDrawerTabBtn('overview', t('drawer.tab.overview'), activeTab === 'overview');
   html += bcDrawerTabBtn('services', t('drawer.tab.services'), activeTab === 'services');
-  html += bcDrawerTabBtn('transfers', t('drawer.tab.transfers'), activeTab === 'transfers');
+  if (!hideTransfers) {
+    html += bcDrawerTabBtn('transfers', t('drawer.tab.transfers'), activeTab === 'transfers');
+  }
   html += bcDrawerTabBtn('payments', t('drawer.tab.payments'), activeTab === 'payments');
   html += '</div>';
   html += '<div class="bc-drawer-tab-content-panel" id="bc-drawer-tab-content-panel">';
@@ -26825,25 +26864,27 @@ function renderBookingContextDrawer(data){
   html += bcRenderFieldEditSectionsHtml(data, 'after-addons');
   html += '</div>';
 
-  var rmMove = data.rooming || {};
-  var moveAssigns = rmMove.assignments || [];
-  var moveNoBeds = moveAssigns.length === 0;
-  html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
-  html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.moveBed')) + '</h3>';
-  if (moveNoBeds){
-    html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">' + escHtml(t('drawer.moveBed.noAssignments')) + '</div>';
-  } else {
-    html += bcRenderMoveSourcePillsHtml(moveAssigns);
+  if (!isSurf) {
+    var rmMove = data.rooming || {};
+    var moveAssigns = rmMove.assignments || [];
+    var moveNoBeds = moveAssigns.length === 0;
+    html += '<div class="bc-drawer-overview-card ctx-section ctx-move-bed" id="bc-move-bed">';
+    html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.moveBed')) + '</h3>';
+    if (moveNoBeds){
+      html += '<div class="state-msg error" style="margin-top:8px;font-size:12px">' + escHtml(t('drawer.moveBed.noAssignments')) + '</div>';
+    } else {
+      html += bcRenderMoveSourcePillsHtml(moveAssigns);
+    }
+    html += '<div style="margin-top:10px" id="bc-move-target-wrap">';
+    html += '<div id="bc-move-target-field">';
+    html += '<select id="bc-move-target-bed-id" class="bk-input-sm" disabled><option value="">' + escHtml(t('drawer.moveBed.loadBeds')) + '</option></select>';
+    html += '</div>';
+    html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
+    html += '<div id="bc-move-result"></div>';
+    html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
+    html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
+    html += '</div></div>';
   }
-  html += '<div style="margin-top:10px" id="bc-move-target-wrap">';
-  html += '<div id="bc-move-target-field">';
-  html += '<select id="bc-move-target-bed-id" class="bk-input-sm" disabled><option value="">' + escHtml(t('drawer.moveBed.loadBeds')) + '</option></select>';
-  html += '</div>';
-  html += '<div id="bc-move-target-note" class="ctx-none" style="margin-top:4px;font-size:11px;line-height:1.45"></div></div>';
-  html += '<div id="bc-move-result"></div>';
-  html += '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">';
-  html += '<button type="button" class="btn btn-primary" id="bc-move-booking-btn" disabled>' + escHtml(t('drawer.moveBed.btn')) + '</button>';
-  html += '</div></div>';
 
   html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
 
@@ -26891,10 +26932,12 @@ function renderBookingContextDrawer(data){
   html += '</div>';
 
   /* ── Transfers tab ────────────────────────────────────────────────────── */
-  html += '<div class="bc-drawer-tab-panel' + (activeTab === 'transfers' ? ' is-active' : '') +
-    '" id="bc-drawer-tab-transfers" data-tab="transfers" role="tabpanel">';
-  html += bcRenderTransferDetailsShell();
-  html += '</div>';
+  if (!hideTransfers) {
+    html += '<div class="bc-drawer-tab-panel' + (activeTab === 'transfers' ? ' is-active' : '') +
+      '" id="bc-drawer-tab-transfers" data-tab="transfers" role="tabpanel">';
+    html += bcRenderTransferDetailsShell();
+    html += '</div>';
+  }
 
   /* ── Payments tab ─────────────────────────────────────────────────────── */
   html += '<div class="bc-drawer-tab-panel' + (activeTab === 'payments' ? ' is-active' : '') +
