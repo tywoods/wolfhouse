@@ -484,7 +484,7 @@ const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
-const STAFF_PORTAL_SIGNIN_BUTTON_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-sign-in-button.png');
+const STAFF_PORTAL_LOGIN_BTN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-login-signin-btn.png');
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
@@ -28819,15 +28819,15 @@ body{
   border-color:var(--olive);
   box-shadow:0 0 0 3px rgba(143,165,142,.18);
 }
-.btn-signin{
-  display:block;width:100%;margin-top:10px;padding:0;
-  border:none;background:transparent;cursor:pointer;
-  transition:transform .15s ease,opacity .18s,filter .18s;
+.luna-login-btn{
+  display:block;margin:10px auto 0;padding:0;border:none;background:transparent;
+  cursor:pointer;line-height:0;transition:transform 120ms ease,filter 120ms ease,opacity 120ms ease;
 }
-.btn-signin:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.04)}
-.btn-signin:active:not(:disabled){transform:translateY(0);filter:brightness(.98)}
-.btn-signin:disabled{opacity:.55;cursor:default}
-.btn-signin-img{display:block;width:100%;height:auto;pointer-events:none;user-select:none}
+.luna-login-btn-img{display:block;height:32px;width:auto;max-width:min(100%,220px);object-fit:contain}
+.luna-login-btn:hover{filter:brightness(1.06) saturate(1.05)}
+.luna-login-btn:active{transform:translateY(1px);filter:brightness(.96)}
+.luna-login-btn:focus-visible{outline:2px solid rgba(36,157,147,.55);outline-offset:3px;border-radius:6px}
+.luna-login-btn:disabled{opacity:.5;cursor:default;filter:none;transform:none}
 .msg{
   margin-top:14px;padding:10px 13px;border-radius:var(--radius-sm);
   font-size:13px;display:none;
@@ -28896,8 +28896,8 @@ ${getStaffPortalI18nBootstrapScript()}
       <label for="password" data-i18n="login.password">Password</label>
       <input id="password" name="password" type="password" autocomplete="current-password" required>
     </div>
-    <button class="btn-signin" id="btn-signin" type="button" aria-label="Sign in" data-i18n-aria="login.signIn">
-      <img src="/staff/assets/luna-sign-in-button.png?v=1" alt="" class="btn-signin-img" width="320" height="72">
+    <button class="luna-login-btn" id="btn-signin" type="button" data-i18n-aria="login.signIn" aria-label="Sign in">
+      <img src="/staff/assets/luna-login-signin-btn.png?v=1" alt="" class="luna-login-btn-img" aria-hidden="true">
     </button>
     <div class="msg" id="msg"></div>
   </form>
@@ -28978,8 +28978,8 @@ function handleStaffPortalLogo(res) {
   });
 }
 
-function handleStaffPortalSignInButton(res) {
-  fs.readFile(STAFF_PORTAL_SIGNIN_BUTTON_PATH, (err, data) => {
+function handleStaffPortalLoginBtn(res) {
+  fs.readFile(STAFF_PORTAL_LOGIN_BTN_PATH, (err, data) => {
     if (err) {
       res.writeHead(404, { 'Content-Type': 'text/plain' });
       return res.end('Not found');
@@ -34112,13 +34112,13 @@ async function router(req, res) {
     return handleStaffPortalLogo(res);
   }
 
-  // ── GET /staff/assets/luna-sign-in-button.png — login sign-in button art (public) ─
-  if (pathname === '/staff/assets/luna-sign-in-button.png') {
+  // ── GET /staff/assets/luna-login-signin-btn.png — login sign-in button (public) ─
+  if (pathname === '/staff/assets/luna-login-signin-btn.png') {
     if (method !== 'GET') {
       res.writeHead(405, { Allow: 'GET' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
-    return handleStaffPortalSignInButton(res);
+    return handleStaffPortalLoginBtn(res);
   }
 
   // ── GET /staff/login  (Stage 7.3e — Luna Front Desk login page) ─────────────
