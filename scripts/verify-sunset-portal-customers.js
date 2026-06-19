@@ -133,6 +133,66 @@ if (fs.existsSync(I18N_PATH)) {
   assert('staff-portal-i18n.js exists', false);
 }
 
+
+// ── 6. Session-scoped client dropdown access ──────────────────────────────────
+
+console.log('\n[6] Session-scoped client dropdown access');
+
+const ACCESS_PATH = path.join(ROOT, 'config', 'clients', 'staff-portal-access.json');
+const SUNSET_ACCESS_PATH = path.join(ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
+const CLIENTS_MODULE_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-clients.js');
+
+function slugsWithAccessFile(accessFile, email) {
+  const bak = ACCESS_PATH + '.verify-bak';
+  fs.copyFileSync(ACCESS_PATH, bak);
+  fs.copyFileSync(accessFile, ACCESS_PATH);
+  delete require.cache[require.resolve('./lib/staff-portal-clients')];
+  const mod = require('./lib/staff-portal-clients');
+  const slugs = mod.getAccessibleClientSlugs({ email, role: 'owner' });
+  fs.copyFileSync(bak, ACCESS_PATH);
+  fs.unlinkSync(bak);
+  delete require.cache[require.resolve('./lib/staff-portal-clients')];
+  return slugs;
+}
+
+if (fs.existsSync(SUNSET_ACCESS_PATH)) {
+  const sunsetCfg = JSON.parse(fs.readFileSync(SUNSET_ACCESS_PATH, 'utf8'));
+  assert('sunset-staging client_access tywoods is [sunset]',
+    Array.isArray(sunsetCfg.client_access && sunsetCfg.client_access['tywoods@gmail.com'])
+      && sunsetCfg.client_access['tywoods@gmail.com'].length === 1
+      && sunsetCfg.client_access['tywoods@gmail.com'][0] === 'sunset');
+  assert('sunset-staging all_clients_emails empty',
+    !(sunsetCfg.all_clients_emails && sunsetCfg.all_clients_emails.length));
+  const sunsetSlugs = slugsWithAccessFile(SUNSET_ACCESS_PATH, 'tywoods@gmail.com');
+  assert('Sunset session clients is [sunset] only', sunsetSlugs.length === 1 && sunsetSlugs[0] === 'sunset',
+    JSON.stringify(sunsetSlugs));
+} else {
+  assert('staff-portal-access.sunset-staging.json exists', false);
+}
+
+if (apiSrc) {
+  assert('populateClientSelect uses session clients', apiSrc.includes('staffPortalSession.clients'));
+  assert('populateClientSelect no wolfhouse-somo fallback option',
+    !apiSrc.includes("{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }"));
+  assert('getClient defaults to session client before wolfhouse fallback',
+    apiSrc.includes('staffPortalSession.clients[0].slug'));
+}
+
+if (fs.existsSync(CLIENTS_MODULE_PATH)) {
+  const clientsSrc = fs.readFileSync(CLIENTS_MODULE_PATH, 'utf8');
+  assert('explicit client_access checked before all_clients_emails',
+    clientsSrc.indexOf('const explicit = cfg.client_access') < clientsSrc.indexOf('const allEmails = (cfg.all_clients_emails'));
+}
+
+if (fs.existsSync(ACCESS_PATH)) {
+  const whSlugs = slugsWithAccessFile(ACCESS_PATH, 'tywoods@gmail.com');
+  assert('Wolfhouse default tywoods still has multiple clients', whSlugs.length >= 2, JSON.stringify(whSlugs));
+  const opSlugs = slugsWithAccessFile(ACCESS_PATH, 'operator.stage72c@example.test');
+  assert('Wolfhouse operator scoped to wolfhouse-somo',
+    opSlugs.length === 1 && opSlugs[0] === 'wolfhouse-somo', JSON.stringify(opSlugs));
+}
+
+
 // ── 5. Wolfhouse preservation ───────────────────────────────────────────────
 
 console.log('\n[5] Wolfhouse portal profile preserved');

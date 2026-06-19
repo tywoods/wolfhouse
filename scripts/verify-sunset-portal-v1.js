@@ -270,6 +270,41 @@ if (fs.existsSync(I18N_PATH)) {
   assert('nav.tab.customers i18n key', i18n.includes("'nav.tab.customers': 'Customers'"));
 }
 
+
+// ── Session-scoped client dropdown (Sunset-only staff) ─────────────────────
+
+console.log('\n[9] Session-scoped client dropdown access');
+
+const ACCESS_PATH_V1 = path.join(ROOT, 'config', 'clients', 'staff-portal-access.json');
+const SUNSET_ACCESS_PATH_V1 = path.join(ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
+
+function slugsWithAccessFileV1(accessFile, email) {
+  const bak = ACCESS_PATH_V1 + '.verify-bak';
+  fs.copyFileSync(ACCESS_PATH_V1, bak);
+  fs.copyFileSync(accessFile, ACCESS_PATH_V1);
+  delete require.cache[require.resolve('./lib/staff-portal-clients')];
+  const mod = require('./lib/staff-portal-clients');
+  const slugs = mod.getAccessibleClientSlugs({ email, role: 'owner' });
+  fs.copyFileSync(bak, ACCESS_PATH_V1);
+  fs.unlinkSync(bak);
+  delete require.cache[require.resolve('./lib/staff-portal-clients')];
+  return slugs;
+}
+
+if (fs.existsSync(SUNSET_ACCESS_PATH_V1)) {
+  const sunsetSlugs = slugsWithAccessFileV1(SUNSET_ACCESS_PATH_V1, 'tywoods@gmail.com');
+  assert('Sunset staff session clients is sunset only', sunsetSlugs.length === 1 && sunsetSlugs[0] === 'sunset',
+    JSON.stringify(sunsetSlugs));
+}
+
+if (apiSrc) {
+  assert('populateClientSelect wired to session clients', apiSrc.includes('staffPortalSession.clients'));
+  assert('UI does not hardcode wolfhouse-somo dropdown fallback',
+    !apiSrc.includes("{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }"));
+  assert('no hardcoded sunset-staging URL in dropdown logic', !apiSrc.includes('sunset-staging.lunafrontdesk.com'));
+}
+
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

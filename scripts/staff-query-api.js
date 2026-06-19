@@ -18066,6 +18066,9 @@ function applyInboxFilter(opts){
 function getClient(){
   var sel = el('c-client');
   if (sel && sel.value) return sel.value.trim();
+  if (staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length) {
+    return staffPortalSession.clients[0].slug;
+  }
   return 'wolfhouse-somo';
 }
 
@@ -18630,7 +18633,15 @@ function applyOwnerInsightsGate(){
 function populateClientSelect(clients, preferredSlug){
   var sel = el('c-client');
   if (!sel) return;
-  var list = clients && clients.length ? clients : [{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }];
+  var list = (clients && clients.length)
+    ? clients
+    : ((staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length)
+        ? staffPortalSession.clients
+        : []);
+  if (!list.length) {
+    sel.innerHTML = '';
+    return;
+  }
   var html = list.map(function(c){
     return '<option value="' + escHtml(c.slug) + '">' + escHtml(c.name || c.slug) + '</option>';
   }).join('');

@@ -136,10 +136,16 @@ function getAccessibleClientSlugs(user) {
   if (!user || !user.email) return all;
   const email = normalizeEmail(user.email);
   const cfg = readAccessConfig();
+  const explicit = cfg.client_access && cfg.client_access[email];
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    const allowed = new Set(
+      explicit.map((slug) => String(slug || '').trim()).filter(Boolean),
+    );
+    return all.filter((slug) => allowed.has(slug));
+  }
   const allEmails = (cfg.all_clients_emails || []).map(normalizeEmail);
   if (allEmails.includes(email)) return all;
-  const allowed = (cfg.client_access && cfg.client_access[email]) || [];
-  return all.filter((slug) => allowed.includes(slug));
+  return [];
 }
 
 function getAccessibleClients(user) {

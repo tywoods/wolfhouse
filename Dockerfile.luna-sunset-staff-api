@@ -14,7 +14,8 @@ COPY database ./database
 COPY config ./config
 
 # Sunset isolated staging: explicit Sunset-only portal access (no all_clients_emails).
-RUN cp config/clients/staff-portal-access.sunset-staging.json config/clients/staff-portal-access.json
+RUN cp config/clients/staff-portal-access.sunset-staging.json config/clients/staff-portal-access.json \
+ && node -e "const j=JSON.parse(require('fs').readFileSync('config/clients/staff-portal-access.json','utf8')); if((j.all_clients_emails||[]).length) { console.error('Sunset overlay must clear all_clients_emails'); process.exit(1); }"
 
 EXPOSE 3036
 
