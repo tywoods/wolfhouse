@@ -186,7 +186,7 @@ if (fs.existsSync(CLIENTS_MODULE_PATH)) {
 
 if (fs.existsSync(ACCESS_PATH)) {
   const whSlugs = slugsWithAccessFile(ACCESS_PATH, 'tywoods@gmail.com');
-  assert('Wolfhouse default tywoods still has multiple clients', whSlugs.length >= 2, JSON.stringify(whSlugs));
+  assert('Wolfhouse default tywoods scoped to wolfhouse-somo only', whSlugs.length === 1 && whSlugs[0] === 'wolfhouse-somo', JSON.stringify(whSlugs));
   const opSlugs = slugsWithAccessFile(ACCESS_PATH, 'operator.stage72c@example.test');
   assert('Wolfhouse operator scoped to wolfhouse-somo',
     opSlugs.length === 1 && opSlugs[0] === 'wolfhouse-somo', JSON.stringify(opSlugs));

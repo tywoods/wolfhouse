@@ -291,6 +291,20 @@ function slugsWithAccessFileV1(accessFile, email) {
   return slugs;
 }
 
+const whSlugsDefault = (() => {
+  delete require.cache[require.resolve('./lib/staff-portal-clients')];
+  const mod = require('./lib/staff-portal-clients');
+  return mod.getAccessibleClientSlugs({ email: 'tywoods@gmail.com', role: 'owner' });
+})();
+assert('Default access config scopes tywoods@gmail.com to wolfhouse-somo only',
+  whSlugsDefault.length === 1 && whSlugsDefault[0] === 'wolfhouse-somo',
+  JSON.stringify(whSlugsDefault));
+
+assert('Wolfhouse profile default_tab is bed-calendar',
+  loadClientPortalProfile('wolfhouse-somo').default_tab === 'bed-calendar');
+assert('Sunset profile default_tab is portal-home',
+  loadClientPortalProfile('sunset').default_tab === 'portal-home');
+
 if (fs.existsSync(SUNSET_ACCESS_PATH_V1)) {
   const sunsetSlugs = slugsWithAccessFileV1(SUNSET_ACCESS_PATH_V1, 'tywoods@gmail.com');
   assert('Sunset staff session clients is sunset only', sunsetSlugs.length === 1 && sunsetSlugs[0] === 'sunset',
@@ -302,6 +316,10 @@ if (apiSrc) {
   assert('UI does not hardcode wolfhouse-somo dropdown fallback',
     !apiSrc.includes("{ slug: 'wolfhouse-somo', name: 'wolfhouse-somo' }"));
   assert('no hardcoded sunset-staging URL in dropdown logic', !apiSrc.includes('sunset-staging.lunafrontdesk.com'));
+  assert('populateClientSelect ignores stale localStorage client slug',
+    apiSrc.includes("localStorage.getItem('staff_portal_client')")
+    && apiSrc.includes('!list.some(function(c){ return c.slug === pick; })'));
+
 }
 
 

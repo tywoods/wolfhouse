@@ -18773,8 +18773,15 @@ function populateClientSelect(clients, preferredSlug){
     return '<option value="' + escHtml(c.slug) + '">' + escHtml(c.name || c.slug) + '</option>';
   }).join('');
   sel.innerHTML = html;
-  var pick = preferredSlug || localStorage.getItem('staff_portal_client') || list[0].slug;
-  if (!list.some(function(c){ return c.slug === pick; })) pick = list[0].slug;
+  var saved = null;
+  try { saved = localStorage.getItem('staff_portal_client'); } catch (_) { /* ignore */ }
+  var pick = preferredSlug || saved || list[0].slug;
+  if (!list.some(function(c){ return c.slug === pick; })) {
+    pick = list[0].slug;
+    if (saved && saved !== pick) {
+      try { localStorage.setItem('staff_portal_client', pick); } catch (_) { /* ignore */ }
+    }
+  }
   sel.value = pick;
   syncBcClientFromInbox();
 }

@@ -1,13 +1,14 @@
 {
-  "_note": "Staff Portal client access until admin portal exists. all_clients_emails get every *.baseline.json client.",
-  "_version": "25j-admin-access",
-  "all_clients_emails": [
-    "tywoods@gmail.com"
-  ],
+  "_note": "Wolfhouse Staff Portal access until admin portal exists. Keep Wolfhouse staging scoped to wolfhouse-somo; Sunset staging uses staff-portal-access.sunset-staging.json via Dockerfile.luna-sunset-staff-api.",
+  "_version": "wolfhouse-staging-access",
+  "all_clients_emails": [],
   "portal_admin_emails": [
     "tywoods@gmail.com"
   ],
   "client_access": {
+    "tywoods@gmail.com": [
+      "wolfhouse-somo"
+    ],
     "operator.stage72c@example.test": [
       "wolfhouse-somo"
     ],
