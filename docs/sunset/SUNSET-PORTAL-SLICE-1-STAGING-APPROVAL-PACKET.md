@@ -1,19 +1,50 @@
-# Sunset Portal Slice 1 — Staging Approval Packet
+# Sunset Portal Slice 1 — Staging Approval Packet (Isolated Sunset Staging)
 
 **Status:** AWAITING CAPTAIN SIGN-OFF — no staging action until checkboxes below are approved in writing  
-**Date:** 2026-06-19  
+**Date:** 2026-06-19 (revised)  
+**Packet version:** 2.0 — isolated Sunset staging  
 **Branch:** `feat/sunset-multitenant-luna`  
-**Pinned SHA:** `25518554bcf635b59c594dae8f930c0190609209`  
+**Pinned SHA (portal code):** `25518554bcf635b59c594dae8f930c0190609209`  
 **PR title:** Add isolated Sunset offline foundation and read-only portal slice  
-**Merge policy:** PR approved; **do not merge** until staging validation passes.
+**Merge policy:** PR approved; **merge held** until **isolated** Sunset staging validation passes.
+
+---
+
+## Why this changed (v2.0)
+
+The v1.0 packet **incorrectly targeted Wolfhouse Staff API staging** (`wh-staging-staff-api`, `wh-staging-rg`, `staff-staging.lunafrontdesk.com`). Captain ruled:
+
+- **Do NOT** deploy Sunset to `wh-staging-staff-api`
+- **Do NOT** use `staff-staging.lunafrontdesk.com` for Sunset validation
+- Wolfhouse staging must **not** be overwritten by Sunset work
+
+This packet **intentionally isolates** Sunset into its own staging environment. Wolfhouse staging remains unchanged and is out of scope for Sunset Portal Slice 1 deploy/seed.
 
 ---
 
 ## ⛔ Global gate
 
-**Deckhand/Cursor/Ops must not deploy, seed, widen DB allowlist, or merge until Captain signs the relevant checkboxes in §10.**
+**Deckhand/Cursor/Ops must not create Azure resources, deploy, seed, widen DB allowlist, or merge until Captain signs the relevant checkboxes in §11.**
 
 This packet authorizes planning only. Performing any staging action without sign-off is forbidden.
+
+---
+
+## ⛔ Anti-Wolfhouse guard (mandatory — abort if violated)
+
+**Any Ops runbook, script, or manual command MUST abort before making changes if any of the following are true:**
+
+| Guard | Action |
+|-------|--------|
+| Deploy target Container App is `wh-staging-staff-api` | **ABORT** — forbidden for Sunset |
+| Validation URL is `https://staff-staging.lunafrontdesk.com` (Sunset deploy/smoke/seed) | **ABORT** — Wolfhouse staging only |
+| Resource group is `wh-staging-rg` for Sunset deploy/update | **ABORT** — unless Captain explicitly changes ruling |
+| DB URL host is `wh-staging-pg-app` or database `wolfhouse_staging` | **ABORT** for Sunset seed/cleanup |
+| DB URL points to Wolfhouse production or Wolfhouse staging Postgres | **ABORT** |
+| Command would `az containerapp update` / revise traffic on Wolfhouse Staff API staging | **ABORT** |
+| Seed manifest or row has `client_slug` / `tenant_id` ≠ `sunset` | **ABORT** (script-enforced) |
+
+**Allowed Sunset targets only** (see §2). Wolfhouse staging smoke/regression stays on `staff-staging.lunafrontdesk.com` — **not** re-run as part of this packet.
 
 ---
 
@@ -22,40 +53,52 @@ This packet authorizes planning only. Performing any staging action without sign
 | Item | Value |
 |------|-------|
 | Branch | `feat/sunset-multitenant-luna` |
-| Pinned SHA | `25518554bcf635b59c594dae8f930c0190609209` |
-| Commit message | `feat(sunset): add dry-run portal seed runner` |
-| Portal Slice 1 runtime minimum | `251b4095d49eec170de793f1b8a00edd9f4eb74c` (`feat(sunset): add read-only portal slice 1`) |
-| Seed runner | `2551855` (this SHA) |
+| Pinned SHA (portal + seed runner) | `25518554bcf635b59c594dae8f930c0190609209` |
+| Portal Slice 1 runtime minimum | `251b4095d49eec170de793f1b8a00edd9f4eb74c` |
 | PR title | Add isolated Sunset offline foundation and read-only portal slice |
 
-**Captain:** confirm this SHA at deploy time and record it in the deploy log.
+**Captain:** confirm SHA at deploy time; record in Sunset staging deploy log (separate from Wolfhouse logs).
 
 ---
 
-## 2. Exact services affected
+## 2. Isolated Sunset staging target (only valid deploy surface)
+
+| Item | Value |
+|------|-------|
+| **Resource group** | `luna-sunset-staging-rg` |
+| **Container App** | `luna-sunset-staging-staff-api` *(or `sunset-staging-staff-api` — confirm at infra setup)* |
+| **Portal URL** | `https://sunset-staging.lunafrontdesk.com` |
+| **Staff API health** | `https://sunset-staging.lunafrontdesk.com/healthz` |
+| **Postgres** | **Dedicated Sunset staging DB** (own server/database; name TBD at infra setup) |
+| **Tenant scope** | `client_slug=sunset` / `tenant_id=sunset` only |
+
+### Explicitly NOT Sunset deploy targets (forbidden)
+
+| Item | Status |
+|------|--------|
+| `wh-staging-staff-api` | **FORBIDDEN** for Sunset |
+| `wh-staging-rg` | **FORBIDDEN** for Sunset deploy |
+| `staff-staging.lunafrontdesk.com` | **FORBIDDEN** for Sunset validation |
+| `wh-staging-pg-app` / `wolfhouse_staging` | **FORBIDDEN** for Sunset seed DB |
+| Production hosts | **FORBIDDEN** |
+
+### Explicitly NOT affected by this packet
 
 | Service | Action |
 |---------|--------|
-| **Staff API (staging)** | **Deploy only** — new container image from pinned SHA |
-| **URL** | `https://staff-staging.lunafrontdesk.com` |
-| Azure Container App | `wh-staging-staff-api` (resource group `wh-staging-rg`) |
-| Staging Postgres (app) | **Read for smoke; write only after separate seed approval** — `wh-staging-pg-app` / `wolfhouse_staging` |
-
-**Explicitly NOT affected:**
-
-| Service | Action |
-|---------|--------|
-| Production Staff API / production DB | **No touch** |
-| Hermes gateway / `docker/hermes-staging/SOUL.md` | **No deploy, no edit** |
-| WhatsApp / Meta runtime | **No change** (`WHATSAPP_DRY_RUN=true` on staging) |
-| n8n workers | **No deploy** |
-| Database migrations | **None for Slice 1** |
+| Wolfhouse Staff API staging (`wh-staging-staff-api`) | **No deploy, no update, no overwrite** |
+| `staff-staging.lunafrontdesk.com` | **No Sunset validation here** |
+| Production | **No touch** |
+| Hermes / Luna SOUL | **No deploy, no edit** |
+| WhatsApp runtime | **No change** |
+| n8n (Wolfhouse staging) | **No deploy** |
+| DB migrations (Slice 1) | **None** |
 
 ---
 
-## 3. Preflight checks (run at pinned SHA before deploy)
+## 3. Preflight checks (code — run before any infra/deploy)
 
-Execute on deploy worktree `/opt/luna/Luna-Sunset` @ `2551855`:
+On worktree `/opt/luna/Luna-Sunset` @ pinned SHA:
 
 ```bash
 npm run verify:sunset-all
@@ -63,148 +106,130 @@ npm run verify:sunset-portal-slice1
 node scripts/fixtures/sunset-portal-slice1-seed.js          # dry-run
 node scripts/fixtures/sunset-portal-slice1-cleanup.js       # dry-run
 npm run verify:sunset-portal-slice1-seed-runner
-git status --short   # tracked files only: no M on committed paths
+git status --short   # no M on tracked paths
 ```
 
-| Check | Expected (2026-06-19) |
-|-------|------------------------|
+| Check | Expected |
+|-------|----------|
 | `verify:sunset-all` | **7/7 PASS** |
 | `verify:sunset-portal-slice1` | **25/25 PASS** |
-| Seed dry-run | Prints `DRY-RUN`, planned counts, **no writes** |
-| Cleanup dry-run | Prints `DRY-RUN`, **no deletes** |
+| Seed/cleanup dry-run | **No writes/deletes** |
 | `verify:sunset-portal-slice1-seed-runner` | **37/37 PASS** |
-| Tracked files clean | No modified tracked files; untracked agent files OK |
-| `verify:luna-golden` | **Excluded** — documented Lunabox policy (`docs/sunset/VERIFY-LUNA-GOLDEN-DB-NOTE.md`); not a Slice 1 blocker |
+| `verify:luna-golden` | **Excluded** (`VERIFY-LUNA-GOLDEN-DB-NOTE.md`) |
 
-**Post-deploy health (before smoke):**
+**Post-deploy health (Sunset staging only — after §4 infra exists):**
 
 ```bash
-curl -s https://staff-staging.lunafrontdesk.com/healthz
+curl -s https://sunset-staging.lunafrontdesk.com/healthz
 # expect: status ok
 ```
 
 ---
 
-## 4. Staff API deploy step
+## 4. New infra required before deploy (discovery/setup — not run by this packet)
 
-### Known repo facts
+**There is no existing repo script for Sunset isolated staging.** Infra must be created/confirmed **before** Staff API deploy. Captain signs checkbox §11 #1 first.
 
-- Staff API image built from root `Dockerfile` → `npm run staff:api` → `scripts/staff-query-api.js`
-- Staging image name (IaC): `whstagingacr.azurecr.io/wh-staff-api:<tag>`
-- Container App: `wh-staging-staff-api` in `wh-staging-rg`
-- **No `npm run deploy:staff-staging` script exists** in this branch (only `deploy:hermes-staging` for Hermes)
+### Required setup items (Ops discovery checklist)
 
-### Candidate deploy sequence (Ops — **not run by this packet**)
+- [ ] **Resource group:** create/confirm `luna-sunset-staging-rg`
+- [ ] **ACR / image strategy:** dedicated image repo or tagged images (e.g. `lunastagingacr.azurecr.io/luna-sunset-staff-api:<tag>`) — confirm naming with Captain
+- [ ] **Container Apps environment:** create/confirm env within `luna-sunset-staging-rg`
+- [ ] **Container App:** create/confirm `luna-sunset-staging-staff-api` (or `sunset-staging-staff-api`)
+- [ ] **Sunset staging Postgres:** create/confirm dedicated server + database (not `wolfhouse_staging`)
+- [ ] **Key Vault / secrets:** Sunset DB URL, `staff-session-secret`, Stripe test keys (if needed), `WHATSAPP_DRY_RUN=true`, `STAFF_ACTIONS_ENABLED=false`
+- [ ] **DNS / TLS:** CNAME + managed cert for `sunset-staging.lunafrontdesk.com`
+- [ ] **Health endpoint:** `GET /healthz` returns 200 on Sunset URL
+- [ ] **Config in image:** `config/clients/sunset.baseline.json`, `staff-portal-access.json` (Sunset-scoped access)
+- [ ] **Migrations:** apply required schema to **Sunset DB only** (Captain approval; resolve migration-015 gap per `VERIFY-LUNA-GOLDEN-DB-NOTE.md` if fresh DB)
+- [ ] **`clients.slug=sunset` row** on Sunset DB (before seed)
 
-Captain/Ops must confirm the live procedure against current Azure access. Candidate pattern from `infra/azure/staging/README.md`:
+### Candidate deploy sequence (placeholder — **after infra exists**)
+
+Ops must author a Sunset-specific runbook. Illustrative pattern only — **do not run without checkbox #2**:
 
 ```bash
-# 1. Checkout pinned SHA
-git fetch origin feat/sunset-multitenant-luna
 git checkout 25518554bcf635b59c594dae8f930c0190609209
 
-# 2. Build and push Staff API image (confirm registry login + az context)
-az acr build --registry whstagingacr \
-  --image wh-staff-api:2551855-sunset-slice1 \
-  --file Dockerfile .
+# Build image (ACR name TBD at infra setup)
+# az acr build --registry <SUNSET_ACR> \
+#   --image luna-sunset-staff-api:2551855-slice1 \
+#   --file Dockerfile .
 
-# 3. Update staging Container App to new image
-az containerapp update \
-  --resource-group wh-staging-rg \
-  --name wh-staging-staff-api \
-  --image whstagingacr.azurecr.io/wh-staff-api:2551855-sunset-slice1
+# Deploy ONLY to Sunset Container App — verify RG/name before run
+# az containerapp update \
+#   --resource-group luna-sunset-staging-rg \
+#   --name luna-sunset-staging-staff-api \
+#   --image <SUNSET_ACR>.azurecr.io/luna-sunset-staff-api:2551855-slice1
 
-# 4. Verify revision + healthz
-az containerapp revision list --name wh-staging-staff-api --resource-group wh-staging-rg -o table
-curl -s https://staff-staging.lunafrontdesk.com/healthz
+curl -s https://sunset-staging.lunafrontdesk.com/healthz
 ```
 
-### Must be discovered before Captain approves deploy
-
-- [ ] Confirmed Azure subscription + `az login` identity for Ops
-- [ ] Confirmed `wh-staging-rg` / `wh-staging-staff-api` still active
-- [ ] Confirmed ACR build context includes `config/clients/sunset.baseline.json` in image
-- [ ] Confirmed canonical deploy command (may differ from candidate above)
-- [ ] Recorded **pre-deploy image digest/revision** for rollback
-
-**This packet does not perform deploy.**
+**This packet does not run `az` create/update commands.**
 
 ---
 
-## 5. Allowlist flip — separate explicit approval
+## 5. Allowlist flip — Sunset staging DB only (separate approval)
 
-### Current behavior (SHA `2551855`)
+### Current seed runner behavior (SHA `2551855`)
 
-Seed/cleanup `--execute` is **fail-closed**:
+- Dry-run by default; `--execute` requires `ALLOW_SUNSET_DEMO_SEED=1`
+- **Rejects** Wolfhouse staging DB (`wh-staging-pg-app`), production, and generic `*staging*` / `*.azure.com` hosts
+- **Allows only** localhost/test until patched
 
-- Requires `ALLOW_SUNSET_DEMO_SEED=1` **and** `--execute`
-- **Rejects** staging DB hosts (`wh-staging-pg-app.postgres.database.azure.com`, `*staging*`, `*.azure.com`, `lunafrontdesk.com`)
-- **Allows only** localhost/test hosts (`localhost`, `127.0.0.1`, `*.test`, etc.)
-
-Therefore: **Staff API deploy alone does not enable staging seed.** A code or config change is required before `seed --execute` can target staging Postgres.
-
-### Captain must approve ONE path (separate from deploy checkbox)
+### Captain must approve ONE path (checkbox §11 #3 — separate from deploy)
 
 | Option | Description |
 |--------|-------------|
-| **A. Code allowlist patch** | Add explicit staging host allowlist entry in `scripts/fixtures/sunset-portal-slice1-guards.js` (e.g. `wh-staging-pg-app.postgres.database.azure.com` only) + new verifier assertions |
-| **B. Env-gated override** | New env `SUNSET_DEMO_SEED_STAGING_DB_ALLOW=1` + fixed hostname match; still rejects production |
+| **A. Sunset hostname allowlist** | Add **only** the dedicated Sunset Postgres host (e.g. `luna-sunset-staging-pg.postgres.database.azure.com`) to `sunset-portal-slice1-guards.js` + verifier |
+| **B. Env-gated override** | `SUNSET_DEMO_SEED_STAGING_DB_ALLOW=1` + exact Sunset DB hostname match; still rejects `wh-staging-pg-app` and production |
 
-**This approval is separate from Staff API deploy.** Captain signs §10 checkbox #2 before any allowlist change or staging seed.
-
----
-
-## 6. Config-only smoke (after deploy, **before** seed `--execute`)
-
-Login: `https://staff-staging.lunafrontdesk.com/staff/login`  
-Staff email: `tywoods@gmail.com` (`all_clients_emails` — sees Wolfhouse + Sunset)
-
-### Sunset (`client=sunset`)
-
-- [ ] Select **Sunset Surf School** in client dropdown
-- [ ] **Default tab** is **WhatsApp** (`conversations`) — not Booking Calendar
-- [ ] **Booking Calendar** tab is **hidden**
-- [ ] **Tour Operator** tab is **hidden**
-- [ ] **Day Schedule** tab is **visible**
-- [ ] Day Schedule shows **demo lesson slot tiles** from `portal_demo.lesson_slots` (config; dates e.g. `2026-07-10`)
-- [ ] Lessons/rentals **tables may be empty** (no seed yet) — OK at this stage
-- [ ] WhatsApp inbox **may be empty** — OK before seed
-
-### Wolfhouse regression (`client=wolfhouse-somo`)
-
-- [ ] Switch to Wolfhouse
-- [ ] **Default tab** is **Booking Calendar**
-- [ ] Booking Calendar + Tour Operator tabs **visible**
-- [ ] Day Schedule tab **hidden**
-- [ ] Bed calendar loads normally
-
-**Gate:** Config-only smoke must pass before seed `--execute` approval.
+**Must NOT allowlist `wh-staging-pg-app` or `wolfhouse_staging`.**
 
 ---
 
-## 7. Seed `--execute` step (separate approval — not run yet)
+## 6. Config-only smoke — `sunset-staging.lunafrontdesk.com` (before seed)
 
-### Command shape (after allowlist flip + Captain approval)
+Login: `https://sunset-staging.lunafrontdesk.com/staff/login`  
+Use Sunset-scoped staff access (configure at infra setup; may differ from Wolfhouse `all_clients_emails`).
+
+### Sunset portal (`client=sunset`)
+
+- [ ] Portal loads; auth succeeds
+- [ ] **Default tab** is **WhatsApp** (`conversations`)
+- [ ] **Booking Calendar** tab **hidden**
+- [ ] **Tour Operator** tab **hidden**
+- [ ] **Day Schedule** tab **visible**
+- [ ] Demo lesson slot tiles from `portal_demo.lesson_slots` (e.g. `2026-07-10`)
+- [ ] Lessons/rentals tables **may be empty** (pre-seed) — OK
+- [ ] Inbox **may be empty** (pre-seed) — OK
+- [ ] **No Wolfhouse leakage:** no bed calendar, room codes, `wolfhouse-somo` data on Sunset URL
+
+### Wolfhouse regression
+
+**Not required on Sunset isolated URL.** Wolfhouse staging on `staff-staging.lunafrontdesk.com` must remain **unchanged** — spot-check separately if desired; **out of scope** for this packet.
+
+**Gate:** §6 must pass on `sunset-staging.lunafrontdesk.com` before seed `--execute` approval.
+
+---
+
+## 7. Seed `--execute` — Sunset staging DB only (separate approval)
 
 ```bash
-# From repo @ pinned SHA — STAGING ONLY after allowlist patch deployed
 export ALLOW_SUNSET_DEMO_SEED=1
-export WOLFHOUSE_DATABASE_URL='postgres://<user>:<pass>@wh-staging-pg-app.postgres.database.azure.com:5432/wolfhouse_staging?sslmode=require'
+export WOLFHOUSE_DATABASE_URL='postgres://<user>:<pass>@<SUNSET_PG_HOST>:5432/<SUNSET_DB>?sslmode=require'
+# <SUNSET_PG_HOST> = dedicated Sunset staging host ONLY (after §5 allowlist)
 
 node scripts/fixtures/sunset-portal-slice1-seed.js --execute
 ```
 
-### Required gates
+### Pre-flight abort checks (Ops)
 
-| Gate | Required |
-|------|----------|
-| `ALLOW_SUNSET_DEMO_SEED=1` | Yes |
-| `--execute` flag | Yes |
-| DB URL allowlist | Staging host **only after §5 allowlist approval** |
-| `NODE_ENV` | Must not be `production` |
-| Production DB | **Refused by guard** |
+- [ ] DB host is **Sunset staging** — not `wh-staging-pg-app`
+- [ ] Database name is **not** `wolfhouse_staging`
+- [ ] Anti-Wolfhouse guard § passes
 
-### Expected row counts (from dry-run @ `2551855`)
+### Expected row counts (dry-run)
 
 | Table | Count |
 |-------|-------|
@@ -214,137 +239,134 @@ node scripts/fixtures/sunset-portal-slice1-seed.js --execute
 | `booking_service_records` | 4 |
 | `staff_handoffs` | 1 |
 | `payments` | 0 |
-| `booking_beds` | 0 |
-| accommodation (manifest) | 0 inserted (skipped v1) |
 
-**Tag:** `metadata.source = sunset_demo_slice1` on all rows  
-**No real Stripe links** — manifest verified offline; `payment_link: null`  
-**Tenant:** every row `client_slug=sunset` / `tenant_id=sunset`
-
-### Pre-seed staging prerequisite
-
-- [ ] `clients.slug = 'sunset'` exists on staging DB (verify; do not auto-create without Captain approval)
+**Tag:** `sunset_demo_slice1` · **No Stripe links** · **tenant `sunset` only**
 
 ---
 
-## 8. Post-seed bidirectional zero-leakage smoke
+## 8. Post-seed smoke — Sunset isolated staging
 
-After successful `seed --execute`:
+On `https://sunset-staging.lunafrontdesk.com`:
 
-### Sunset scope (`client=sunset`)
+- [ ] Inbox: Alex + Maria demo conversations
+- [ ] Day Schedule `2026-07-10`–`12`: lessons + gear rows
+- [ ] No Wolfhouse room/bed/package UI
+- [ ] Only `sunset_demo_slice1` demo content
 
-- [ ] WhatsApp inbox shows **Alex** + **Maria** demo conversations (`demo-conv-sunset-001/002`)
-- [ ] No Wolfhouse room codes (R1–R7), bed calendar, or `wolfhouse-somo` data
-- [ ] Day Schedule date `2026-07-10`: lessons + gear tables show Sunset rows
-- [ ] Day Schedule date `2026-07-11` / `2026-07-12`: expected service rows
-- [ ] Only `sunset_demo_slice1` tagged rows visible in Sunset context
-
-### Wolfhouse scope (`client=wolfhouse-somo`)
-
-- [ ] Inbox unchanged — **no** Sunset demo phones (`+34 611 000 101–105`)
-- [ ] Bed calendar unchanged — **no** `SUNSET-DEMO-*` booking codes
-- [ ] No `sunset_demo_slice1` tagged rows in Wolfhouse views
-
-### SQL leakage checks (Ops)
+### Sunset DB leakage SQL (Sunset DB only)
 
 ```sql
--- Must be 0
+-- All sunset_demo_slice1 rows must be sunset-scoped
 SELECT COUNT(*) FROM booking_service_records
- WHERE client_slug = 'wolfhouse-somo' AND metadata->>'source' = 'sunset_demo_slice1';
+ WHERE metadata->>'source' = 'sunset_demo_slice1' AND client_slug <> 'sunset';
+-- must be 0
 
-SELECT COUNT(*) FROM conversations c
- JOIN clients cl ON cl.id = c.client_id
- WHERE cl.slug = 'wolfhouse-somo' AND c.metadata->>'source' = 'sunset_demo_slice1';
+SELECT COUNT(*) FROM booking_service_records
+ WHERE client_slug = 'wolfhouse-somo';
+-- expect 0 on isolated Sunset DB (no Wolfhouse tenant)
 ```
 
-**Gate:** Bidirectional zero-leakage must pass before merge approval.
+**Wolfhouse staging DB:** must receive **zero** Sunset seed writes (isolated DB — verify host before execute).
+
+**Gate:** Post-seed smoke passes before merge checkbox.
 
 ---
 
-## 9. Cleanup and rollback
-
-### Cleanup command shape
+## 9. Cleanup and rollback (Sunset staging only)
 
 ```bash
 export ALLOW_SUNSET_DEMO_SEED=1
-export WOLFHOUSE_DATABASE_URL='<staging-url-after-allowlist>'
+export WOLFHOUSE_DATABASE_URL='<SUNSET_STAGING_DB_URL_AFTER_ALLOWLIST>'
 
 node scripts/fixtures/sunset-portal-slice1-cleanup.js --execute
 ```
 
-Deletes **only** rows tagged `sunset_demo_slice1`. Does **not** touch `stage8_demo` Wolfhouse rows.
+Deletes **only** `sunset_demo_slice1` tagged rows on **Sunset DB**.
 
-Dry-run preview:
-
-```bash
-node scripts/fixtures/sunset-portal-slice1-cleanup.js
-```
-
-### Staff API rollback
-
-Redeploy pre-Slice-1 Staff API image/revision:
-
-- Rollback target: revision/image **before** `251b409` deploy (record in deploy log)
-- Candidate:
+### Staff API rollback (Sunset Container App only)
 
 ```bash
-az containerapp revision list --name wh-staging-staff-api --resource-group wh-staging-rg -o table
-az containerapp ingress traffic set --name wh-staging-staff-api --resource-group wh-staging-rg \
-  --revision-weight <previous-revision>=100
+# az containerapp revision list \
+#   --name luna-sunset-staging-staff-api \
+#   --resource-group luna-sunset-staging-rg -o table
+# Roll traffic to previous revision — NEVER wh-staging-staff-api
 ```
+
+### Wolfhouse staging rollback
+
+**Not applicable** — Sunset deploy must not have touched Wolfhouse staging.
 
 ### Production
 
-**No production rollback or action required** — Slice 1 does not touch production.
+**No action.**
 
 ---
 
-## 10. Captain approval checkboxes
+## 10. Validation sequence (retargeted)
 
-Captain: check and initial each line in writing (Slack/doc/PR comment) before Ops proceeds.
+| Step | Target | Approval |
+|------|--------|----------|
+| 1. Preflight | Lunabox worktree | Automatic |
+| 2. Create/confirm infra | `luna-sunset-staging-rg` | Checkbox #1 |
+| 3. Deploy Staff API | `sunset-staging.lunafrontdesk.com` only | Checkbox #2 |
+| 4. Config-only smoke | Sunset URL | Before seed |
+| 5. Allowlist flip | Sunset DB host only | Checkbox #3 |
+| 6. Seed `--execute` | Sunset DB only | Checkbox #4 |
+| 7. Post-seed smoke | Sunset URL + Sunset DB | Before merge |
+| 8. Cleanup (if needed) | Sunset DB only | Checkbox #5 |
+| 9. Merge | `feat/sunset-multitenant-luna` → master | Checkbox #6 |
+
+---
+
+## 11. Captain approval checkboxes
 
 ```
-[ ] 1. DEPLOY STAFF API STAGING
+[ ] 1. CREATE / CONFIRM ISOLATED SUNSET STAGING INFRA
+    Approve provisioning luna-sunset-staging-rg, Sunset Container App,
+    dedicated Sunset Postgres, Key Vault secrets, DNS for
+    sunset-staging.lunafrontdesk.com.
+    MUST NOT use wh-staging-rg or wh-staging-staff-api.
+
+[ ] 2. DEPLOY STAFF API TO SUNSET STAGING ONLY
     Approve deploying SHA 25518554bcf635b59c594dae8f930c0190609209
-    to wh-staging-staff-api @ staff-staging.lunafrontdesk.com only.
-    Preflight §3 passed. Deploy command confirmed by Ops.
+    to luna-sunset-staging-staff-api (luna-sunset-staging-rg) only.
+    URL: https://sunset-staging.lunafrontdesk.com
+    Preflight §3 passed. Anti-Wolfhouse guard § verified.
 
-[ ] 2. ALLOWLIST FLIP FOR STAGING DB SEED (separate from deploy)
-    Approve specific allowlist change (§5 Option A or B) so seed --execute
-    can target wh-staging-pg-app / wolfhouse_staging.
-    Production DB remains blocked.
+[ ] 3. APPROVE SUNSET STAGING DB ALLOWLIST
+    Approve allowlist change (§5) for dedicated Sunset Postgres host ONLY.
+    MUST NOT allowlist wh-staging-pg-app or wolfhouse_staging.
 
-[ ] 3. RUN SEED --execute ON STAGING
-    Approve one-time seed run after §6 config smoke passes and §2 allowlist is live.
-    ALLOW_SUNSET_DEMO_SEED=1 + --execute only.
+[ ] 4. RUN SEED --execute AGAINST SUNSET STAGING DB
+    Approve after §6 config smoke on sunset-staging.lunafrontdesk.com.
+    ALLOW_SUNSET_DEMO_SEED=1 + --execute. Sunset DB only.
 
-[ ] 4. RUN CLEANUP IF NEEDED
-    Approve cleanup --execute only if rollback of demo data required.
-    Tag sunset_demo_slice1 only.
+[ ] 5. RUN CLEANUP IF NEEDED
+    Approve cleanup --execute on Sunset DB only (sunset_demo_slice1 tag).
 
-[ ] 5. PROCEED TO MERGE
-    Approve merge of feat/sunset-multitenant-luna → master ONLY AFTER:
-    - §6 config smoke PASS
-    - §8 post-seed zero-leakage PASS (if seed was run)
-    - OR documented decision to merge deploy-only without seed (Captain explicit)
+[ ] 6. PROCEED TO MERGE
+    Approve merge ONLY AFTER isolated Sunset staging smoke passes (§6 + §8).
+    Merge remains held until this box is checked.
 ```
 
-**Default:** All boxes unchecked = **no staging action**.
+**Default:** All unchecked = **no staging action**.
 
 ---
 
-## 11. Summary
+## 12. Summary
 
 | Phase | Blocked until |
 |-------|----------------|
-| Staff API staging deploy | Checkbox #1 |
-| Staging DB allowlist change | Checkbox #2 (separate) |
-| `seed --execute` | Checkboxes #2 + #3 + §6 smoke |
-| Merge to master | Checkbox #5 + staging validation |
-| Production | **Always forbidden** for Slice 1 |
+| Sunset infra setup | Checkbox #1 |
+| Sunset Staff API deploy | Checkbox #2 |
+| Sunset DB allowlist | Checkbox #3 |
+| `seed --execute` | #3 + #4 + §6 smoke |
+| Merge | Checkbox #6 |
+| Wolfhouse staging | **Never targeted by this packet** |
+| Production | **Always forbidden** |
 
-Portal Slice 1 is code-complete @ `2551855`. Staging validation is a **Staff API image update** plus optional **seed run** (blocked by localhost-only allowlist until Captain approves §5).
+Portal Slice 1 code is ready @ `2551855`. **New isolated infra is required** before any deploy to `sunset-staging.lunafrontdesk.com`. Wolfhouse staging (`staff-staging.lunafrontdesk.com`) must remain untouched.
 
 ---
 
-*Packet version: 1.0 — 2026-06-19*
+*Packet version: 2.0 — 2026-06-19 — isolated Sunset staging*
