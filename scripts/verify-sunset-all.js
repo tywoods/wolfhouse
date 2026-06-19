@@ -25,6 +25,7 @@ const CHECKS = [
   { name: 'verify:sunset-catalog-response-preview', script: 'scripts/verify-sunset-catalog-response-preview.js' },
   { name: 'verify:sunset-golden',                   script: 'scripts/verify-sunset-golden.js' },
   { name: 'verify:sunset-portal-slice1-seed',       script: 'scripts/verify-sunset-portal-slice1-seed.js' },
+  { name: 'verify:sunset-portal-slice1',           script: 'scripts/verify-sunset-portal-slice1.js' },
 ];
 
 const SEP = '─'.repeat(64);

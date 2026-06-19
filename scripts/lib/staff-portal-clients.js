@@ -12,12 +12,91 @@ const path = require('path');
 const CLIENTS_DIR = path.join(__dirname, '..', '..', 'config', 'clients');
 const ACCESS_FILE = path.join(CLIENTS_DIR, 'staff-portal-access.json');
 
+const SURF_VERTICALS = new Set([
+  'surf_school_rentals',
+  'surf_shop_rentals',
+  'surf_school_lessons',
+  'lessons',
+]);
+
+const DEFAULT_LODGING_VERTICAL = 'lodging_surf_house';
+
 function readAccessConfig() {
   try {
     return JSON.parse(fs.readFileSync(ACCESS_FILE, 'utf8'));
   } catch {
     return { all_clients_emails: [], client_access: {} };
   }
+}
+
+function loadBaselineJson(clientSlug) {
+  const slug = String(clientSlug || '').trim();
+  if (!slug) return null;
+  try {
+    const filePath = path.join(CLIENTS_DIR, `${slug}.baseline.json`);
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+function resolveVertical(cfg) {
+  if (!cfg) return DEFAULT_LODGING_VERTICAL;
+  return (cfg._meta && cfg._meta.vertical)
+    || (cfg.portal && cfg.portal.vertical)
+    || DEFAULT_LODGING_VERTICAL;
+}
+
+function isSurfVertical(vertical) {
+  return SURF_VERTICALS.has(String(vertical || '').trim());
+}
+
+function loadLessonSlotsDemo(cfg) {
+  if (!cfg || !cfg.portal_demo) return [];
+  const slots = cfg.portal_demo.lesson_slots;
+  if (!Array.isArray(slots)) return [];
+  return slots.map((s) => ({
+    slot_id: s.slot_id || null,
+    date: s.date || null,
+    slot_time: s.slot_time || null,
+    session_type: s.session_type || null,
+    offering_label: s.offering_label || null,
+    capacity: s.capacity != null ? Number(s.capacity) : null,
+    seats_booked: s.seats_booked != null ? Number(s.seats_booked) : null,
+    seats_available: s.seats_available != null ? Number(s.seats_available) : null,
+    status: s.status || null,
+    source: s.source || 'demo_seed',
+  }));
+}
+
+/**
+ * Per-tenant portal shell profile (tab gating, default tab, demo lesson slots).
+ * Wolfhouse (lodging_surf_house) preserves legacy defaults.
+ */
+function loadClientPortalProfile(clientSlug) {
+  const slug = String(clientSlug || '').trim();
+  const cfg = loadBaselineJson(slug);
+  const vertical = resolveVertical(cfg);
+  const surf = isSurfVertical(vertical);
+  return {
+    client_slug: slug,
+    vertical,
+    is_surf_vertical: surf,
+    default_tab: surf ? 'conversations' : 'bed-calendar',
+    hidden_tabs: surf ? ['bed-calendar', 'tour-operator'] : [],
+    hidden_drawer_tabs: surf ? ['transfers'] : [],
+    lesson_slots_demo: surf ? loadLessonSlotsDemo(cfg) : [],
+    demo_mode: !!(cfg && cfg.portal_demo && cfg.portal_demo.demo_mode),
+  };
+}
+
+function buildClientProfilesMap(user) {
+  const clients = getAccessibleClients(user);
+  const out = {};
+  for (const c of clients) {
+    out[c.slug] = loadClientPortalProfile(c.slug);
+  }
+  return out;
 }
 
 function listBaselineClients() {
@@ -36,6 +115,7 @@ function listBaselineClients() {
       const slug = (json._meta && json._meta.client_slug)
         || file.replace(/\.baseline\.json$/, '');
       const name = (json.deploy_config && json.deploy_config.identity && json.deploy_config.identity.name)
+        || (json._meta && json._meta.client_name)
         || (json._meta && json._meta.client_slug)
         || slug;
       out.push({ slug, name: String(name) });
@@ -101,4 +181,9 @@ module.exports = {
   userCanAccessClient,
   resolveStaffRole,
   canUseOwnerInsights,
+  loadBaselineJson,
+  loadClientPortalProfile,
+  buildClientProfilesMap,
+  isSurfVertical,
+  SURF_VERTICALS,
 };
