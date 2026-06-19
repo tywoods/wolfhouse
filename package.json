@@ -270,6 +270,7 @@
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
+    "verify:sunset-catalog-response-preview": "node scripts/verify-sunset-catalog-response-preview.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",
     "verify:luna-nightly": "node scripts/run-luna-nightly-suite.js --quick",
     "luna:coach": "node scripts/luna-coach-evaluate-transcript.js",
