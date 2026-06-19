@@ -87,7 +87,7 @@ async function executeSeed(manifest, plan, opts) {
       const rec = manifest.booking_service_records[i];
       const bookingCode = buildBookingCode(i);
       const existingBooking = await pg.query(
-        `SELECT id::text AS id FROM bookings b
+        `SELECT b.id::text AS id FROM bookings b
          INNER JOIN clients c ON c.id = b.client_id
          WHERE c.slug = 'sunset' AND b.booking_code = $1
          LIMIT 1`,
@@ -111,7 +111,7 @@ async function executeSeed(manifest, plan, opts) {
           `INSERT INTO bookings (
              client_id, booking_code, guest_name, phone, status, check_in, check_out, metadata
            ) VALUES (
-             $1, $2, $3, $4, $5::booking_status, $6::date, $7::date, $8::jsonb
+             $1, $2, $3, $4, $5::booking_status, $6::date, ($6::date + INTERVAL '1 day')::date, $7::jsonb
            )
            RETURNING id::text AS id`,
           [
@@ -120,7 +120,6 @@ async function executeSeed(manifest, plan, opts) {
             rec.guest_name || null,
             normalizePhone(rec.guest_phone),
             bookingStatusFromManifest(rec.booking_status),
-            rec.date,
             rec.date,
             JSON.stringify(demoMetadata({
               manifest_record_id: rec.record_id,
@@ -259,11 +258,12 @@ async function executeSeed(manifest, plan, opts) {
 
         await pg.query(
           `INSERT INTO messages (
-             conversation_id, direction, body, metadata
+             client_id, conversation_id, direction, message_text, metadata, source
            ) VALUES (
-             $1::uuid, $2, $3, $4::jsonb
+             $1::uuid, $2::uuid, $3::message_direction, $4, $5::jsonb, 'demo_seed'
            )`,
           [
+            clientId,
             conversationId,
             turn.role === 'guest' ? 'inbound' : 'outbound',
             turn.message,
@@ -291,12 +291,14 @@ async function executeSeed(manifest, plan, opts) {
         } else {
           await pg.query(
             `INSERT INTO staff_handoffs (
-               conversation_id, status, priority, reason, summary, metadata
+               client_id, conversation_id, phone, reason_code, summary, metadata, priority, status
              ) VALUES (
-               $1::uuid, 'open', 'normal', 'sunset_demo_kids_lesson', $2, $3::jsonb
+               $1::uuid, $2::uuid, $3, 'sunset_demo_kids_lesson', $4, $5::jsonb, 'normal', 'open'
              )`,
             [
+              clientId,
               conversationId,
+              phone,
               'Kids lesson age check — demo handoff for Sunset portal Slice 1',
               JSON.stringify(demoMetadata({
                 manifest_id: conv.conversation_id,
