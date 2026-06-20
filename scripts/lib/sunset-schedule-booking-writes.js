@@ -76,6 +76,15 @@ function validateScheduleBookingBody(body) {
   const notes = b.notes != null ? String(b.notes).trim().slice(0, 2000) : '';
   const needs_reply = b.needs_reply === true || b.needs_reply === 'true' || b.needs_reply === 1;
   const idempotency_key = b.idempotency_key != null ? String(b.idempotency_key).trim().slice(0, 120) : '';
+  const add_board = b.add_board === true || b.add_board === 'true' || b.add_board === 1;
+  const add_wetsuit = b.add_wetsuit === true || b.add_wetsuit === 'true' || b.add_wetsuit === 1;
+  let extra_dates = [];
+  if (Array.isArray(b.extra_dates)) {
+    extra_dates = b.extra_dates.map((d) => String(d).trim()).filter(isIsoDate);
+  } else if (b.extra_dates != null && String(b.extra_dates).trim()) {
+    extra_dates = String(b.extra_dates).split(/[,;\s]+/).map((d) => d.trim()).filter(isIsoDate);
+  }
+  extra_dates = extra_dates.filter((d) => d !== service_date);
 
   return {
     ok: true,
@@ -89,6 +98,9 @@ function validateScheduleBookingBody(body) {
       notes,
       needs_reply,
       idempotency_key: idempotency_key || null,
+      add_board: booking_type === 'lesson' ? add_board : false,
+      add_wetsuit: booking_type === 'lesson' ? add_wetsuit : false,
+      extra_dates,
     },
   };
 }
@@ -179,6 +191,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           success: true,
           idempotent: true,
           booking: scheduleRowFromDb(existing),
+          bookings: [scheduleRowFromDb(existing)],
         },
       };
     }
@@ -190,21 +203,54 @@ async function createSunsetScheduleBooking(pg, opts) {
   }
   const clientId = clientRes.rows[0].id;
 
-  const dbServiceType = UI_TO_DB_SERVICE_TYPE[input.booking_type];
-  const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
+  const allDates = [input.service_date, ...(input.extra_dates || [])];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode();
-  const metadata = {
-    source: METADATA_SOURCE_TAG,
-    staff_manual_schedule: true,
-    staff_ui_service_type: input.booking_type,
-    slot_time: input.time_local,
-    notes: input.notes || null,
-    needs_reply: input.needs_reply,
-    created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
-    idempotency_key: input.idempotency_key,
-  };
+  const checkIn = allDates.slice().sort()[0];
+  const checkOutDate = allDates.slice().sort().pop();
+  const checkOut = new Date(`${checkOutDate}T12:00:00Z`);
+  checkOut.setUTCDate(checkOut.getUTCDate() + 1);
+  const checkOutIso = checkOut.toISOString().slice(0, 10);
+
+  function componentsForDate(dateIso) {
+    const list = [{
+      uiType: input.booking_type,
+      dbType: UI_TO_DB_SERVICE_TYPE[input.booking_type],
+      quantity: input.quantity,
+      slotTime: input.time_local,
+      metaExtra: {},
+    }];
+    if (input.booking_type === 'lesson' && input.add_board) {
+      list.push({
+        uiType: 'board_rental',
+        dbType: UI_TO_DB_SERVICE_TYPE.board_rental,
+        quantity: input.quantity,
+        slotTime: input.time_local,
+        metaExtra: { linked_to_lesson: true, include_board: true },
+      });
+    }
+    if (input.booking_type === 'lesson' && input.add_wetsuit) {
+      list.push({
+        uiType: 'wetsuit_rental',
+        dbType: UI_TO_DB_SERVICE_TYPE.wetsuit_rental,
+        quantity: input.quantity,
+        slotTime: input.time_local,
+        metaExtra: { linked_to_lesson: true, include_wetsuit: true, needs_wetsuit: true },
+      });
+    }
+    if (input.booking_type === 'lesson' && input.add_board) {
+      list[0].metaExtra.include_board = true;
+      list[0].metaExtra.needs_board = true;
+    }
+    if (input.booking_type === 'lesson' && input.add_wetsuit) {
+      list[0].metaExtra.include_wetsuit = true;
+      list[0].metaExtra.needs_wetsuit = true;
+    }
+    return list.map((c) => ({ ...c, service_date: dateIso }));
+  }
+
+  const servicePlans = allDates.flatMap((d) => componentsForDate(d));
 
   await pg.query('BEGIN');
   try {
@@ -214,7 +260,7 @@ async function createSunsetScheduleBooking(pg, opts) {
          check_in, check_out, guest_count, metadata
        ) VALUES (
          $1::uuid, $2, $3, $4::booking_status, $5::payment_status,
-         $6::date, ($6::date + INTERVAL '1 day')::date, $7, $8::jsonb
+         $6::date, $7::date, $8, $9::jsonb
        )
        RETURNING id::text AS id, booking_code`,
       [
@@ -223,56 +269,75 @@ async function createSunsetScheduleBooking(pg, opts) {
         input.guest_name,
         bookingStatus,
         bookingPayment,
-        input.service_date,
+        checkIn,
+        checkOutIso,
         input.quantity,
         JSON.stringify({ source: METADATA_SOURCE_TAG, staff_manual_schedule: true }),
       ],
     );
     const bookingId = bookingIns.rows[0].id;
+    const savedRows = [];
 
-    const svcIns = await pg.query(
-      `INSERT INTO booking_service_records (
-         client_slug, booking_id, booking_code, guest_name, service_type, service_date,
-         quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
-       ) VALUES (
-         $1, $2::uuid, $3, $4, $5, $6::date,
-         $7, 'confirmed', 0, 0, $8, $9, $10::jsonb
-       )
-       RETURNING id::text AS service_record_id,
-                 booking_id::text AS booking_id,
-                 booking_code,
-                 guest_name,
-                 service_type::text AS service_type,
-                 service_date::text AS service_date,
-                 quantity,
-                 payment_status::text AS payment_status,
-                 source AS record_source,
-                 metadata->>'slot_time' AS slot_time,
-                 metadata->>'notes' AS notes,
-                 COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
-                 metadata->>'staff_ui_service_type' AS staff_ui_service_type,
-                 metadata->>'source' AS metadata_source`,
-      [
-        clientSlug,
-        bookingId,
-        bookingCode,
-        input.guest_name,
-        dbServiceType,
-        input.service_date,
-        input.quantity,
-        srPayment,
-        DB_SOURCE,
-        JSON.stringify(metadata),
-      ],
-    );
+    for (const plan of servicePlans) {
+      const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
+      const metadata = {
+        source: METADATA_SOURCE_TAG,
+        staff_manual_schedule: true,
+        staff_ui_service_type: plan.uiType,
+        slot_time: plan.slotTime,
+        notes: input.notes || null,
+        needs_reply: input.needs_reply,
+        created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+        idempotency_key: input.idempotency_key,
+        ...plan.metaExtra,
+      };
+      const svcIns = await pg.query(
+        `INSERT INTO booking_service_records (
+           client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+           quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
+         ) VALUES (
+           $1, $2::uuid, $3, $4, $5, $6::date,
+           $7, 'confirmed', 0, 0, $8, $9, $10::jsonb
+         )
+         RETURNING id::text AS service_record_id,
+                   booking_id::text AS booking_id,
+                   booking_code,
+                   guest_name,
+                   service_type::text AS service_type,
+                   service_date::text AS service_date,
+                   quantity,
+                   payment_status::text AS payment_status,
+                   source AS record_source,
+                   metadata->>'slot_time' AS slot_time,
+                   metadata->>'notes' AS notes,
+                   COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
+                   metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+                   metadata->>'source' AS metadata_source`,
+        [
+          clientSlug,
+          bookingId,
+          bookingCode,
+          input.guest_name,
+          plan.dbType,
+          plan.service_date,
+          plan.quantity,
+          srPayment,
+          DB_SOURCE,
+          JSON.stringify(metadata),
+        ],
+      );
+      savedRows.push(scheduleRowFromDb(svcIns.rows[0]));
+    }
 
     await pg.query('COMMIT');
+    const primary = savedRows.find((r) => r.service_type === input.booking_type) || savedRows[0];
     return {
       ok: true,
       status: 201,
       body: {
         success: true,
-        booking: scheduleRowFromDb(svcIns.rows[0]),
+        booking: primary,
+        bookings: savedRows,
       },
     };
   } catch (err) {
