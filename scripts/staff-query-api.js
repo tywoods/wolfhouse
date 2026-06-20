@@ -15901,29 +15901,33 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-metric-card .portal-schedule-card-stat-lg{font-size:36px;font-weight:800;line-height:1.05}
 .portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
 .portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);overflow:hidden;box-shadow:none}
-.portal-schedule-ops-lesson-hdr{display:grid;grid-template-columns:minmax(120px,1fr) auto minmax(160px,1.2fr);align-items:baseline;gap:8px 16px;padding:10px 14px;border-bottom:1px solid var(--border-soft);background:transparent}
-@media(max-width:720px){.portal-schedule-ops-lesson-hdr{grid-template-columns:1fr;gap:4px}}
-.portal-schedule-ops-lesson-hdr-left{font-size:13px;font-weight:700;color:var(--text-2);line-height:1.3}
-.portal-schedule-ops-lesson-hdr-surfers{font-size:28px;font-weight:800;line-height:1;color:var(--text);text-align:center}
-.portal-schedule-ops-lesson-hdr-meta{font-size:12px;color:var(--text-3);text-align:right;line-height:1.4}
-@media(max-width:720px){.portal-schedule-ops-lesson-hdr-surfers{text-align:left}.portal-schedule-ops-lesson-hdr-meta{text-align:left}}
+.portal-schedule-ops-lesson-hdr{padding:14px 16px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
+.portal-schedule-ops-lesson-hdr-title{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text);line-height:1.3}
+.portal-schedule-ops-lesson-hdr-booked{font-size:15px;font-weight:600;color:var(--text-2);margin-top:6px;line-height:1.35}
+.portal-schedule-ops-lesson-hdr-prep{font-size:13px;color:var(--text-3);margin-top:4px;line-height:1.35}
 .portal-schedule-ops-lesson-rows{display:flex;flex-direction:column;gap:0}
-.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
+.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 40px minmax(120px,1.5fr) minmax(96px,1fr) 72px;gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
+.portal-schedule-ops-col-hdr span:nth-child(n+3){padding-left:2px}
+.portal-schedule-ops-row{display:grid;grid-template-columns:4px 40px minmax(120px,1.5fr) minmax(96px,1fr) 72px;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
+@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 36px 1fr 88px}.portal-schedule-ops-row-equip{grid-column:3;font-size:10px;margin-top:-2px}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-row:1}}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.03)}
 .portal-schedule-ops-row-rail{width:4px;align-self:stretch;border-radius:999px;background:var(--border-soft)}
 .portal-schedule-ops-row-rail.is-staff{background:#7d9b8a}
 .portal-schedule-ops-row-rail.is-luna{background:#7a8fa6}
 .portal-schedule-ops-row-qty{display:inline-flex;align-items:center;justify-content:center;min-width:32px;height:32px;border-radius:999px;background:var(--surface-soft);border:1px solid rgba(255,255,255,.08);font-size:14px;font-weight:800;color:var(--text)}
-.portal-schedule-ops-row-main{display:flex;flex-direction:column;gap:2px;min-width:0}
-.portal-schedule-ops-row-guest{font-size:14px;font-weight:700;color:var(--text);line-height:1.2}
-.portal-schedule-ops-row-summary{font-size:12px;color:var(--text-3);line-height:1.35}
-.portal-schedule-ops-row-status{text-align:right;justify-self:end}
-.portal-schedule-ops-rental-prep{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
-@media(max-width:800px){.portal-schedule-ops-rental-prep{grid-template-columns:1fr}}
-.portal-schedule-ops-rental-block{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 14px}
-.portal-schedule-ops-rental-hdr{font-size:13px;font-weight:800;margin-bottom:10px;display:flex;justify-content:space-between;gap:8px}
-.portal-schedule-ops-rental-total{font-size:20px;font-weight:800;color:var(--text)}
+.portal-schedule-ops-row-guest-col{display:flex;flex-direction:column;gap:1px;min-width:0}
+.portal-schedule-ops-row-guest{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.portal-schedule-ops-row-source{font-size:10px;color:var(--text-3);line-height:1.2}
+.portal-schedule-ops-row-equip{font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--text-2);line-height:1.3}
+.portal-schedule-ops-row-status{text-align:right;font-size:11px}
+.portal-schedule-metric-slots{font-size:13px;line-height:1.6;color:var(--text-2)}
+.portal-schedule-metric-slots .portal-schedule-metric-slot{display:block;font-weight:600}
+.portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
+.portal-schedule-ops-rental-pickups-block{padding:0 0 8px;border-bottom:1px solid var(--border-soft)}
+.portal-schedule-ops-rental-pickups-block:last-child{border-bottom:none}
+.portal-schedule-ops-rental-pickups-subhdr{padding:10px 16px 6px;font-size:13px;font-weight:700;color:var(--text-2)}
 .portal-schedule-ops-empty{font-size:12px;color:var(--text-3);padding:12px 14px}
 .portal-schedule-ops-fallback{font-size:11px;color:var(--text-3);margin-bottom:8px}
 .portal-schedule-week-forecast{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:22px}
@@ -16941,7 +16945,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <div id="tab-portal-home" class="tab-panel">
 <div id="wrap-portal-home" class="portal-schedule-wrap">
   <div class="portal-schedule-summary portal-schedule-ops-metrics">
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsToday">Lesson surfers</div><div class="portal-schedule-card-stat-lg" id="ps-lessons-surfers-today">…</div><div class="portal-schedule-card-sub" id="ps-lessons-slot-sub">…</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonGroups">Lesson groups</div><div class="portal-schedule-card-stat-lg" id="ps-lessons-surfers-today">…</div><div class="portal-schedule-card-sub" id="ps-lessons-slot-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div><div class="portal-schedule-card-stat-lg" id="ps-wetsuits-today">…</div><div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat-lg" id="ps-need-reply-today">…</div><div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div></div>
@@ -18619,6 +18623,33 @@ function scheduleFormatRangeLabel(start, end, viewMode){
   }
 }
 
+function scheduleEquipmentPrepLabel(group){
+  var boards = scheduleGroupBoardsNeeded(group);
+  var wets = scheduleGroupWetsuitsNeeded(group);
+  if (boards && wets) return portalT('schedule.equipment.boardAndWetsuit');
+  if (boards) return portalT('schedule.equipment.board');
+  if (wets) return portalT('schedule.equipment.wetsuit');
+  return portalT('schedule.equipment.none');
+}
+
+function scheduleRenderLessonGroupHeader(slotTime, stats, boardsNeeded, wetsuitsNeeded){
+  stats = stats || {};
+  var time = scheduleNormalizeSlotTime(slotTime || '');
+  return '<header class="portal-schedule-ops-lesson-hdr">' +
+    '<div class="portal-schedule-ops-lesson-hdr-title">' + escHtml(time + ' ' + portalT('schedule.ops.lessonGroupTitle')) + '</div>' +
+    '<div class="portal-schedule-ops-lesson-hdr-booked">' + escHtml(String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked') + ' · ' + String(stats.bookings || 0) + ' ' + portalT('schedule.slot.bookings')) + '</div>' +
+    '<div class="portal-schedule-ops-lesson-hdr-prep">' + escHtml(portalT('schedule.ops.prepare') + ': ' + String(boardsNeeded || 0) + ' ' + portalT('schedule.summary.boards') + ' · ' + String(wetsuitsNeeded || 0) + ' ' + portalT('schedule.summary.wetsuits')) + '</div>' +
+    '</header>';
+}
+
+function scheduleRenderOpsColumnHeader(){
+  return '<div class="portal-schedule-ops-col-hdr">' +
+    '<span></span><span>' + escHtml(portalT('schedule.col.qty')) + '</span>' +
+    '<span>' + escHtml(portalT('schedule.col.guest')) + '</span>' +
+    '<span>' + escHtml(portalT('schedule.col.equipment')) + '</span>' +
+    '<span>' + escHtml(portalT('schedule.col.status')) + '</span></div>';
+}
+
 function scheduleLessonGroupHeaderMeta(stats, boardsNeeded, wetsuitsNeeded){
   stats = stats || {};
   var parts = [];
@@ -19137,10 +19168,13 @@ function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
   var subHtml = '';
   slots.forEach(function(slot){
     var stats = scheduleSlotAggregates(todayLessons, slot);
-    subHtml += escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + ' · ' + escHtml(String(stats.surfers)) + ' ' + portalT('schedule.slot.surfers') + ' · ';
+    subHtml += '<span class="portal-schedule-metric-slot">' + escHtml(scheduleNormalizeSlotTime(slot.slot_time) + ' — ' + String(stats.surfers)) + '</span>';
   });
-  if (scheduleLessonTimesFallback) subHtml += escHtml(portalT('schedule.slot.fallbackNotice'));
-  if (sub) sub.textContent = subHtml.replace(/ · $/, '') || portalT('schedule.lessons.noSlotsToday');
+  if (scheduleLessonTimesFallback) subHtml += '<span class="portal-schedule-metric-slot">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</span>';
+  if (sub){
+    sub.className = 'portal-schedule-card-sub portal-schedule-metric-slots';
+    sub.innerHTML = subHtml || escHtml(portalT('schedule.lessons.noSlotsToday'));
+  }
 }
 
 function schedulePopulateCreateTimeFields(bookingType){
@@ -19349,14 +19383,16 @@ function scheduleRenderOpsBookingRow(group){
   var qty = scheduleGroupHasLesson(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'lesson') || 1)
     : (scheduleGroupBoardsNeeded(g) || scheduleGroupWetsuitsNeeded(g) || 1);
-  var summary = scheduleServiceSummaryText(g);
+  var srcLabel = (src === 'staff' || src === 'luna') ? scheduleRowSourceLabel(g) : '';
+  var equip = scheduleEquipmentPrepLabel(g);
   return '<div class="portal-schedule-ops-row' + (g._needsReply ? ' needs-reply' : '') + '" data-ps-booking-id="' + escHtml(g._scheduleId) + '">' +
-    '<span class="portal-schedule-ops-row-rail' + railCls + '" aria-hidden="true" title="' + escHtml(scheduleRowSourceLabel(g)) + '"></span>' +
+    '<span class="portal-schedule-ops-row-rail' + railCls + '" aria-hidden="true"></span>' +
     '<span class="portal-schedule-ops-row-qty">' + escHtml(String(qty)) + '</span>' +
-    '<div class="portal-schedule-ops-row-main">' +
+    '<div class="portal-schedule-ops-row-guest-col">' +
     '<span class="portal-schedule-ops-row-guest">' + escHtml(g.guest_name || 'Guest') + '</span>' +
-    (summary ? '<span class="portal-schedule-ops-row-summary">' + escHtml(summary) + '</span>' : '') +
+    (srcLabel ? '<span class="portal-schedule-ops-row-source">' + escHtml(srcLabel) + '</span>' : '') +
     '</div>' +
+    '<span class="portal-schedule-ops-row-equip">' + escHtml(equip) + '</span>' +
     '<span class="portal-schedule-ops-row-status">' + scheduleRenderRowStatusHtml(g) + '</span>' +
     '</div>';
 }
@@ -19380,12 +19416,9 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
         wetsuitsNeeded += scheduleGroupWetsuitsNeeded(g);
       });
       html += '<section class="portal-schedule-ops-lesson-group">' +
-        '<header class="portal-schedule-ops-lesson-hdr">' +
-        '<span class="portal-schedule-ops-lesson-hdr-left">' + escHtml(scheduleNormalizeSlotTime(slot.slot_time) + ' ' + portalT('schedule.ops.lessonGroup')) + '</span>' +
-        '<span class="portal-schedule-ops-lesson-hdr-surfers">' + escHtml(String(stats.surfers) + ' ' + portalT('schedule.slot.surfers')) + '</span>' +
-        '<span class="portal-schedule-ops-lesson-hdr-meta">' + escHtml(scheduleLessonGroupHeaderMeta(stats, boardsNeeded, wetsuitsNeeded)) + '</span>' +
-        '</header>' +
-        '<div class="portal-schedule-ops-lesson-rows">';
+        scheduleRenderLessonGroupHeader(slot.slot_time, stats, boardsNeeded, wetsuitsNeeded) +
+        '<div class="portal-schedule-ops-lesson-rows">' +
+        scheduleRenderOpsColumnHeader();
       if (stats.groups && stats.groups.length){
         stats.groups.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
       } else {
@@ -19405,12 +19438,14 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
     var otherGroups = scheduleBuildDisplayGroups(unmatched).filter(scheduleGroupHasLesson);
     if (otherGroups.length){
       var otherSurfers = otherGroups.reduce(function(a, g){ return a + (g.quantity || 0); }, 0);
+      var otherBoards = otherGroups.reduce(function(a, g){ return a + scheduleGroupBoardsNeeded(g); }, 0);
+      var otherWets = otherGroups.reduce(function(a, g){ return a + scheduleGroupWetsuitsNeeded(g); }, 0);
       html += '<section class="portal-schedule-ops-lesson-group portal-schedule-ops-lesson-other">' +
         '<header class="portal-schedule-ops-lesson-hdr">' +
-        '<span class="portal-schedule-ops-lesson-hdr-left">' + escHtml(portalT('schedule.slot.otherLessons')) + '</span>' +
-        '<span class="portal-schedule-ops-lesson-hdr-surfers">' + escHtml(String(otherSurfers) + ' ' + portalT('schedule.slot.surfers')) + '</span>' +
-        '<span class="portal-schedule-ops-lesson-hdr-meta">' + escHtml(String(otherGroups.length) + ' ' + portalT('schedule.slot.bookings')) + '</span>' +
-        '</header><div class="portal-schedule-ops-lesson-rows">';
+        '<div class="portal-schedule-ops-lesson-hdr-title">' + escHtml(portalT('schedule.slot.otherLessons')) + '</div>' +
+        '<div class="portal-schedule-ops-lesson-hdr-booked">' + escHtml(String(otherSurfers) + ' ' + portalT('schedule.slot.booked') + ' · ' + String(otherGroups.length) + ' ' + portalT('schedule.slot.bookings')) + '</div>' +
+        '<div class="portal-schedule-ops-lesson-hdr-prep">' + escHtml(portalT('schedule.ops.prepare') + ': ' + String(otherBoards) + ' ' + portalT('schedule.summary.boards') + ' · ' + String(otherWets) + ' ' + portalT('schedule.summary.wetsuits')) + '</div>' +
+        '</header><div class="portal-schedule-ops-lesson-rows">' + scheduleRenderOpsColumnHeader();
       otherGroups.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
       html += '</div></section>';
     }
@@ -19419,20 +19454,21 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
   var boardRentals = gearGroups.filter(function(g){ return g.components && g.components.surfboard; });
   var wetsuitRentals = gearGroups.filter(function(g){ return g.components && g.components.wetsuit; });
   if (boardRentals.length || wetsuitRentals.length){
-    html += '<section class="portal-schedule-ops-rental-prep">';
+    html += '<section class="portal-schedule-ops-rental-pickups">' +
+      '<header class="portal-schedule-ops-rental-pickups-hdr">' + escHtml(portalT('schedule.ops.rentalPickupsToday')) + '</header>';
     if (boardRentals.length){
       var boardTotal = boardRentals.reduce(function(a, g){ return a + scheduleGroupBoardsNeeded(g); }, 0);
-      html += '<div class="portal-schedule-ops-rental-block portal-schedule-ops-rental-boards">' +
-        '<header class="portal-schedule-ops-rental-hdr">' + escHtml(portalT('schedule.type.boardRental')) +
-        ' <span class="portal-schedule-ops-rental-total">' + escHtml(String(boardTotal)) + '</span></header>';
+      html += '<div class="portal-schedule-ops-rental-pickups-block">' +
+        '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(portalT('schedule.ops.surfboardsNeeded') + ': ' + String(boardTotal)) + '</div>' +
+        scheduleRenderOpsColumnHeader();
       boardRentals.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
       html += '</div>';
     }
     if (wetsuitRentals.length){
       var wetsuitTotal = wetsuitRentals.reduce(function(a, g){ return a + scheduleGroupWetsuitsNeeded(g); }, 0);
-      html += '<div class="portal-schedule-ops-rental-block portal-schedule-ops-rental-wetsuits">' +
-        '<header class="portal-schedule-ops-rental-hdr">' + escHtml(portalT('schedule.type.wetsuitRental')) +
-        ' <span class="portal-schedule-ops-rental-total">' + escHtml(String(wetsuitTotal)) + '</span></header>';
+      html += '<div class="portal-schedule-ops-rental-pickups-block">' +
+        '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(portalT('schedule.ops.wetsuitsNeeded') + ': ' + String(wetsuitTotal)) + '</div>' +
+        scheduleRenderOpsColumnHeader();
       wetsuitRentals.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
       html += '</div>';
     }
@@ -19685,6 +19721,7 @@ function openScheduleDetailDrawer(row){
     '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(group.guest_name || row.guest_name || 'Guest') + '</h3>' +
     '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(row.booking_code || '—') + '</p>' +
     '</div>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.equipment')) + ':</strong> ' + escHtml(scheduleEquipmentPrepLabel(group)) + '</p>' +
     scheduleRenderComponentListHtml(group) +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + scheduleRenderStatusBadgeHtml(group, { detail: true }) + '</p>' +

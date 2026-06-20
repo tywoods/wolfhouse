@@ -153,7 +153,7 @@ if (apiSrc) {
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
   assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
   assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday') && apiSrc.includes('id="ps-lessons-surfers-today"'));
+  assert('Schedule lesson groups summary card', apiSrc.includes('schedule.card.lessonGroups') && apiSrc.includes('id="ps-lessons-surfers-today"'));
   assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
@@ -296,7 +296,7 @@ if (apiSrc) {
 }
 
 if (i18nSrc) {
-  assert('schedule.card.lessonsToday i18n', i18nSrc.includes("'schedule.card.lessonsToday'"));
+  assert('schedule.card.lessonGroups i18n', i18nSrc.includes("'schedule.card.lessonGroups'"));
   assert('schedule.view.week i18n', i18nSrc.includes("'schedule.view.week': 'Week'"));
 }
 
@@ -622,11 +622,11 @@ if (apiSrc) {
   assert('service summary helper', apiSrc.includes('function scheduleServiceSummaryText('));
   assert('status badge helper', apiSrc.includes('function scheduleRenderStatusBadgeHtml('));
   assert('drawer component list helper', apiSrc.includes('function scheduleRenderComponentListHtml('));
-  assert('ops row summary markup', apiSrc.includes('portal-schedule-ops-row-summary'));
+  assert('ops row equipment column', apiSrc.includes('portal-schedule-ops-row-equip'));
   assert('ops row status markup', apiSrc.includes('portal-schedule-ops-row-status'));
   assert('drawer component list markup', apiSrc.includes('portal-schedule-drawer-components'));
   assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
-  assert('no source pebble in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('source shown as row subline not pebble', apiSrc.includes('portal-schedule-ops-row-source') && !apiSrc.includes('portal-schedule-ops-row-source portal-schedule-pebble'));
   assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
   assert('muted source rail colors', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff{background:#7d9b8a'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
@@ -641,15 +641,33 @@ if (apiSrc) {
 console.log('\n[20] Sunset Schedule visual polish — density + clarity');
 
 if (apiSrc) {
-  assert('lesson group header surfers label', apiSrc.includes('portal-schedule-ops-lesson-hdr-surfers') && apiSrc.includes("portalT('schedule.slot.surfers')"));
+  assert('lesson group header booked label', apiSrc.includes('portal-schedule-ops-lesson-hdr-booked') && apiSrc.includes("portalT('schedule.slot.booked')"));
   assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
   assert('row status hides paid', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('opts.row'));
   assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no Pending payment in row renderer', !apiSrc.includes("scheduleRenderRowStatusHtml(g)") || apiSrc.includes('schedule.status.pendingDetail'));
   assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
   assert('metric card lesson rental subtext keys', apiSrc.includes("portalT('schedule.metric.lesson')") && apiSrc.includes("portalT('schedule.metric.rental')"));
-  assert('slot subtext uses middle dot', apiSrc.includes("' · ' + escHtml(String(stats.surfers))"));
+  assert('metric slot summary lines', apiSrc.includes('portal-schedule-metric-slot') && apiSrc.includes("' — ' + String(stats.surfers)"));
   assert('component pebble css still absent', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+}
+
+
+
+// ── 21. Sunset Schedule prep-sheet layout ───────────────────────────────────
+
+console.log('\n[21] Sunset Schedule prep-sheet layout');
+
+if (apiSrc) {
+  assert('lesson group prepare header', apiSrc.includes('portal-schedule-ops-lesson-hdr-prep') && apiSrc.includes("portalT('schedule.ops.prepare')"));
+  assert('ops column header row', apiSrc.includes('scheduleRenderOpsColumnHeader(') && apiSrc.includes('portal-schedule-ops-col-hdr'));
+  assert('equipment prep label helper', apiSrc.includes('function scheduleEquipmentPrepLabel('));
+  assert('equipment column on rows', apiSrc.includes('portal-schedule-ops-row-equip'));
+  assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes("portalT('schedule.ops.surfboardsNeeded')"));
+  assert('short pending in rows', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
+  assert('no component pebble css', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
 }
 
 console.log('\n' + '─'.repeat(48));
