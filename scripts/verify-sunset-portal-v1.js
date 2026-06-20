@@ -626,9 +626,9 @@ if (apiSrc) {
   assert('ops row status markup', apiSrc.includes('portal-schedule-ops-row-status'));
   assert('drawer component list markup', apiSrc.includes('portal-schedule-drawer-components'));
   assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
-  assert('source shown as row subline not pebble', apiSrc.includes('portal-schedule-ops-row-source') && !apiSrc.includes('portal-schedule-ops-row-source portal-schedule-pebble'));
+  assert('no visible source tag in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
   assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
-  assert('muted source rail colors', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff{background:#7d9b8a'));
+  assert('source row glow classes', apiSrc.includes('.portal-schedule-ops-row.is-staff{background:linear-gradient') && apiSrc.includes('.portal-schedule-ops-row.is-luna{background:linear-gradient'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
   assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
@@ -663,9 +663,33 @@ if (apiSrc) {
   assert('ops column header row', apiSrc.includes('scheduleRenderOpsColumnHeader(') && apiSrc.includes('portal-schedule-ops-col-hdr'));
   assert('equipment prep label helper', apiSrc.includes('function scheduleEquipmentPrepLabel('));
   assert('equipment column on rows', apiSrc.includes('portal-schedule-ops-row-equip'));
-  assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes("portalT('schedule.ops.surfboardsNeeded')"));
+  assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes('scheduleRenderRentalPickupBlock('));
   assert('short pending in rows', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no component pebble css', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
+}
+
+
+
+// ── 22. Sunset Schedule source styling + rental pickup grouping ─────────────
+
+console.log('\n[22] Sunset Schedule source styling + rental pickup grouping');
+
+if (apiSrc) {
+  assert('no Staff-created row tag markup', !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('no demo badge in ops row renderer', !apiSrc.includes("scheduleRowSourceLabel(g)") || !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('source aria label helper', apiSrc.includes('function scheduleRowSourceAriaLabel('));
+  assert('row source class is-staff', apiSrc.includes("' is-staff'") && apiSrc.includes('.portal-schedule-ops-row.is-staff'));
+  assert('row source class is-luna', apiSrc.includes('.portal-schedule-ops-row.is-luna'));
+  assert('compact qty multiplier', apiSrc.includes("String(qty) + '×'") || apiSrc.includes('String(qty) + \'\u00d7\''));
+  assert('rental both section key', apiSrc.includes("portalT('schedule.ops.rentalBoth')") || (i18nSrc && i18nSrc.includes("'schedule.ops.rentalBoth'")));
+  assert('rental boards only section key', i18nSrc.includes("'schedule.ops.rentalBoardsOnly'") || apiSrc.includes("'schedule.ops.rentalBoardsOnly'"));
+  assert('rental wetsuits only section key', i18nSrc.includes("'schedule.ops.rentalWetsuitsOnly'") || apiSrc.includes("'schedule.ops.rentalWetsuitsOnly'"));
+  assert('rental pickup kind helper', apiSrc.includes('function scheduleRentalPickupKind('));
+  assert('drawer plain source kv', apiSrc.includes('scheduleRowSourceDrawerLabel(group)') && apiSrc.includes("portalT('schedule.drawer.source')"));
+  assert('next30 view button i18n', i18nSrc.includes("'schedule.view.next30': 'Next 30 days'") || apiSrc.includes('schedule.view.next30'));
+  assert('month label not Month', !i18nSrc.includes("'schedule.view.month': 'Month'"));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
   assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
 }

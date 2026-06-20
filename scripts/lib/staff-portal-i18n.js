@@ -568,6 +568,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.status.unpaid': 'Unpaid',
 
     'schedule.source.staff': 'Staff',
+    'schedule.source.demo': 'Demo',
+    'schedule.source.ariaStaff': 'Staff booking',
+    'schedule.source.ariaLuna': 'Luna booking',
+    'schedule.source.ariaDemo': 'Demo booking',
     'schedule.create.components': 'Booking components',
     'schedule.create.componentsRequired': 'Select at least one component.',
     'schedule.create.surferCount': 'Surfers',
@@ -608,6 +612,10 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.ops.lessonGroupTitle': 'LESSON GROUP',
     'schedule.ops.prepare': 'Prepare',
     'schedule.ops.rentalPickupsToday': 'Rental pickups today',
+    'schedule.ops.rentalBoth': 'Surfboard + wetsuit',
+    'schedule.ops.rentalBoardsOnly': 'Surfboards only',
+    'schedule.ops.rentalWetsuitsOnly': 'Wetsuits only',
+    'schedule.ops.rentalNothingScheduled': 'Nothing scheduled',
     'schedule.ops.surfboardsNeeded': 'Surfboards needed',
     'schedule.ops.wetsuitsNeeded': 'Wetsuits needed',
     'schedule.col.qty': 'Qty',
@@ -621,7 +629,7 @@ const STAFF_PORTAL_STRINGS = {
 
 
     'schedule.view.week': 'Week',
-    'schedule.view.month': 'Month',
+    'schedule.view.month': 'Next 30 days',
     'schedule.emptyDay': 'Nothing scheduled',
     'schedule.list.title': 'Bookings & actions',
     'schedule.list.empty': 'No bookings match this filter.',
