@@ -32,6 +32,8 @@ async function main() {
   await page.waitForSelector('#c-client option', { state: 'attached', timeout: 45000 });
   await page.waitForTimeout(3500);
 
+  await page.waitForSelector('.portal-schedule-slot-group, .portal-schedule-slot-fallback', { timeout: 20000 }).catch(function () {});
+
   const needsReplyGone = await page.evaluate(() => !document.getElementById('ps-create-needs-reply'));
   needsReplyGone ? ok('needs-reply checkbox removed') : bad('needs-reply checkbox removed');
 
@@ -40,6 +42,9 @@ async function main() {
 
   const lessonsCard = await page.locator('#ps-lessons-today .schedule-slot-line').count();
   lessonsCard >= 1 ? ok('lessons today per-slot breakdown', String(lessonsCard)) : bad('lessons today per-slot breakdown', String(lessonsCard));
+
+  await page.click('#ps-create-booking');
+  await page.waitForTimeout(400);
 
   const slotOptions = await page.evaluate(() => {
     const sel = document.getElementById('ps-create-time-slot');
@@ -54,7 +59,6 @@ async function main() {
     return sel && sel.options.length ? sel.options[0].value : '';
   });
 
-  await page.click('#ps-create-booking');
   await page.fill('#ps-create-guest', guestName);
   await page.selectOption('#ps-create-type', 'lesson');
   await page.fill('#ps-create-date', today);

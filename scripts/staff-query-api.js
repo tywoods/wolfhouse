@@ -18674,6 +18674,7 @@ function scheduleRenderBookingChipHtml(r){
 function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
   var html = '';
   var slots = scheduleSlotsForDate(lessonTimes, dateIso);
+  if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
   if (scheduleLessonTimesFallback && slots.length) {
     html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
   }
