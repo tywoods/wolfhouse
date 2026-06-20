@@ -184,7 +184,11 @@ const {
   buildClientProfilesMap,
   buildSessionClientProfilesMap,
 } = require('./lib/staff-portal-clients');
-const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
+const {
+  resolveTenantBusinessConfig,
+  resolveTenantBusinessConfigAsync,
+  isSunsetAdminDbReadEnabled,
+} = require('./lib/tenant-business-config');
 const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
@@ -29435,7 +29439,9 @@ async function handleAdminConfig(query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  const resolved = resolveTenantBusinessConfig(clientSlug);
+  const resolved = isSunsetAdminDbReadEnabled()
+    ? await resolveTenantBusinessConfigAsync(clientSlug)
+    : resolveTenantBusinessConfig(clientSlug);
   if (!resolved.ok) {
     appendAuditLog({
       ts: new Date().toISOString(),
