@@ -297,6 +297,32 @@ if (i18nSrc) {
   assert('schedule.view.week i18n', i18nSrc.includes("'schedule.view.week': 'Week'"));
 }
 
+
+// ── 11. Sunset Admin tab (read-only skeleton) ────────────────────────────────
+
+console.log('\n[11] Sunset Admin tab — read-only skeleton');
+
+if (apiSrc) {
+  assert('Admin tab button present', apiSrc.includes('data-tab="admin"'));
+  assert('Admin tab panel present', apiSrc.includes('id="tab-admin"'));
+  assert('admin tab surf-gated', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
+  assert('loadAdminTab helper present', apiSrc.includes('function loadAdminTab('));
+  assert('Admin prices section', apiSrc.includes('admin.section.prices') || apiSrc.includes('admin-sec-prices'));
+  assert('Admin capacity section', apiSrc.includes('admin.section.capacity') || apiSrc.includes('admin-sec-capacity'));
+  assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
+  assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
+  assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
+  assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
+  assert('Admin writes disabled copy', apiSrc.includes('admin.banner.writesDisabled'));
+  assert('Admin save button disabled coming soon', apiSrc.includes('admin.action.saveComingSoon') && apiSrc.includes('disabled'));
+  assert('Wolfhouse bed-calendar preserved', apiSrc.includes('data-tab="bed-calendar"'));
+}
+
+if (i18nSrc) {
+  assert('nav.tab.admin i18n key', i18nSrc.includes("'nav.tab.admin': 'Admin'"));
+  assert('admin.section.prices i18n', i18nSrc.includes("'admin.section.prices'"));
+}
+
 // ── Session-scoped client dropdown (Sunset-only staff) ─────────────────────
 
 console.log('\n[9] Session-scoped client dropdown access');

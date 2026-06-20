@@ -272,6 +272,7 @@ async function runWolfhouseSuite(page, context, creds) {
 
   assert('nav excludes Schedule tab label', !hasExactTabLabel(state, 'Schedule'));
   assert('nav excludes Today tab label', !hasExactTabLabel(state, 'Today'));
+  assert('nav excludes Admin tab label', !hasExactTabLabel(state, 'Admin'));
   assert('nav excludes Customers', tabLabelsExclude(state, ['Customers']));
   assert('nav excludes Day Schedule', tabLabelsExclude(state, ['Day Schedule']));
 
@@ -284,6 +285,13 @@ async function runWolfhouseSuite(page, context, creds) {
   }));
   assert('Wolfhouse excludes Sunset Schedule week grid', !whScheduleUi.weekGrid);
   assert('Wolfhouse excludes portal-schedule-wrap', !whScheduleUi.scheduleWrap);
+  const whAdminUi = await page.evaluate(() => ({
+    adminTab: !!document.querySelector('.tab-btn[data-tab="admin"]') &&
+      window.getComputedStyle(document.querySelector('.tab-btn[data-tab="admin"]')).display !== 'none',
+    adminPanel: !!document.getElementById('tab-admin'),
+  }));
+  assert('Wolfhouse excludes Admin tab visible', !whAdminUi.adminTab);
+  assert('Wolfhouse excludes Admin panel', !whAdminUi.adminPanel);
 
   if (fail > failAtStart) {
     await captureFailureScreenshot(page, 'wolfhouse', 'failure');
@@ -331,6 +339,7 @@ async function runSunsetSuite(page, context, creds) {
   assert('nav includes Inbox', tabLabelsInclude(state, ['Inbox']));
   assert('nav includes Day Schedule', tabLabelsInclude(state, ['Day Schedule']));
   assert('nav includes Customers', tabLabelsInclude(state, ['Customers']));
+  assert('nav includes Admin tab', hasExactTabLabel(state, 'Admin'));
   assert('nav includes Luna Staff', tabLabelsInclude(state, ['Luna Staff']));
 
   assert('nav excludes Booking Calendar', tabLabelsExclude(state, ['Booking Calendar']));

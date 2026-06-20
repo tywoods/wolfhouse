@@ -15764,6 +15764,27 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
+.portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
+.portal-admin-header{margin-bottom:18px}
+.portal-admin-header h2{font-size:20px;font-weight:800;color:var(--text);margin:0 0 8px}
+.portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
+.portal-admin-banner strong{color:var(--text)}
+.portal-admin-sections{display:grid;grid-template-columns:1fr;gap:14px}
+.portal-admin-section{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft)}
+.portal-admin-section-hdr{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
+.portal-admin-section-body{font-size:13px;color:var(--text);line-height:1.55}
+.portal-admin-kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border-soft)}
+.portal-admin-kv:first-child{border-top:none;padding-top:0}
+.portal-admin-kv-label{color:var(--text-2);font-weight:600}
+.portal-admin-kv-value{text-align:right;color:var(--text)}
+.portal-admin-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.portal-admin-table th,.portal-admin-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
+.portal-admin-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.portal-admin-muted{color:var(--text-3);font-style:italic}
+.portal-admin-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.portal-admin-btn[disabled]{opacity:.55;cursor:not-allowed}
+#tab-admin.active{display:block}
+
 .portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
 .portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -16747,6 +16768,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
+  <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -16853,6 +16875,48 @@ ${getStaffPortalI18nBootstrapScript()}
   </div>
 </div>
 </div><!-- /tab-customers -->
+
+<!-- ── Admin tab (Sunset read-only skeleton) ─────────────────────────────── -->
+<div id="tab-admin" class="tab-panel">
+<div class="portal-admin-wrap">
+  <header class="portal-admin-header">
+    <h2 data-i18n="admin.title">Admin</h2>
+    <div class="portal-admin-banner">
+      <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
+      <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
+      <span data-i18n="admin.banner.lunaNote"> These settings will eventually control what Luna quotes and offers.</span>
+    </div>
+  </header>
+  <div class="portal-admin-sections">
+    <section class="portal-admin-section" id="admin-sec-prices">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Prices</div>
+      <div class="portal-admin-section-body" id="admin-prices-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-capacity">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.capacity">Lesson capacity</div>
+      <div class="portal-admin-section-body" id="admin-capacity-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-times">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.lessonTimes">Lesson times</div>
+      <div class="portal-admin-section-body" id="admin-times-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-business">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.businessInfo">Business info</div>
+      <div class="portal-admin-section-body" id="admin-business-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-history">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.changeHistory">Change history</div>
+      <div class="portal-admin-section-body" id="admin-history-body"></div>
+    </section>
+  </div>
+  <div class="portal-admin-actions">
+    <button type="button" class="btn btn-primary portal-admin-btn" disabled data-i18n="admin.action.saveComingSoon">Save — Coming soon</button>
+    <button type="button" class="btn btn-ghost portal-admin-btn" disabled data-i18n="admin.action.editComingSoon">Edit — Coming soon</button>
+  </div>
+</div>
+</div><!-- /tab-admin -->
+
+
 
 <!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel">
@@ -17751,6 +17815,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
+  if (tab === 'admin') loadAdminTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
@@ -17779,6 +17844,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') lunaGlobalPauseLoad();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
+    if (target === 'admin') loadAdminTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -18219,6 +18285,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (hidden.indexOf(tab) >= 0) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !profile.is_surf_vertical) return true;
+  if (tab === 'admin' && !profile.is_surf_vertical) return true;
   if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
   return false;
 }
@@ -18290,6 +18357,10 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'customers') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    if (tab === 'admin') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }
@@ -18630,6 +18701,71 @@ function wireScheduleControls(){
 
 function loadPortalHome(){ loadSchedulePage(); }
 function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
+
+
+function renderAdminSectionPrices(){
+  var box = el('admin-prices-body');
+  if (!box) return;
+  box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.notConfigured')) + '</p>' +
+    '<p style="margin-top:8px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
+}
+
+function renderAdminSectionCapacity(){
+  var box = el('admin-capacity-body');
+  if (!box) return;
+  var cap = SUNSET_SCHEDULE_LESSON_DAY_CAP;
+  box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.capacity.dailyDefault')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(String(cap) + ' ' + portalT('admin.capacity.seatsPerDay')) + '</span></div>' +
+    '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.capacity.futureNote')) + '</p>';
+}
+
+function renderAdminSectionLessonTimes(profile){
+  var box = el('admin-times-body');
+  if (!box) return;
+  var slots = (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [];
+  if (!slots.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p>';
+    return;
+  }
+  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.lessonTimes.col.date')) +
+    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.time')) + '</th><th>' + escHtml(portalT('admin.lessonTimes.col.label')) +
+    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.capacity')) + '</th></tr></thead><tbody>';
+  slots.forEach(function(s){
+    html += '<tr><td>' + escHtml(s.date || '—') + '</td><td>' + escHtml(s.slot_time || '—') + '</td><td>' +
+      escHtml(s.offering_label || s.session_type || 'Lesson') + '</td><td>' +
+      escHtml(s.capacity != null ? String(s.capacity) : '—') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+}
+
+function renderAdminSectionBusinessInfo(){
+  var box = el('admin-business-body');
+  if (!box) return;
+  box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.schoolName')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(portalT('demoHome.schoolName')) + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.brand')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(portalT('demoHome.brand')) + '</span></div>' +
+    '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.business.futureNote')) + '</p>';
+}
+
+function renderAdminSectionChangeHistory(){
+  var box = el('admin-history-body');
+  if (!box) return;
+  box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
+}
+
+function loadAdminTab(){
+  var profile = getPortalProfile(getClient());
+  if (!profile.is_surf_vertical) return;
+  renderAdminSectionPrices();
+  renderAdminSectionCapacity();
+  renderAdminSectionLessonTimes(profile);
+  renderAdminSectionBusinessInfo();
+  renderAdminSectionChangeHistory();
+}
+
+function wireAdminTab(){ /* read-only — no interactive wiring yet */ }
 
 var customersCache = [];
 var customersFilter = 'all';
