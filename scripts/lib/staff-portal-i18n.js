@@ -583,6 +583,14 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.nav.today': 'Today',
     'schedule.nav.next': 'Next',
     'schedule.view.day': 'Day',
+
+    'schedule.view.today': 'Today',
+    'schedule.card.needReply': 'Need reply',
+    'schedule.card.unpaidPending': 'Unpaid / Pending',
+    'schedule.card.unpaidPendingSub': 'Bookings awaiting payment',
+    'schedule.type.rental': 'rental-only',
+    'schedule.ops.boardTitle': 'Today ops board',
+
     'schedule.view.week': 'Week',
     'schedule.view.month': 'Month',
     'schedule.emptyDay': 'Nothing scheduled',

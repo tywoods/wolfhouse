@@ -153,14 +153,13 @@ if (apiSrc) {
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
   assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
   assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday') && apiSrc.includes('id="ps-lessons-today"'));
-  assert('Schedule need reply email card', apiSrc.includes('schedule.card.needReplyEmail') && apiSrc.includes('id="ps-need-reply-email"'));
-  assert('Schedule need reply whatsapp card', apiSrc.includes('schedule.card.needReplyWhatsapp') && apiSrc.includes('id="ps-need-reply-whatsapp"'));
+  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday') && apiSrc.includes('id="ps-lessons-surfers-today"'));
+  assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
   assert('old unpaid summary card removed', !apiSrc.includes('id="ps-unpaid"'));
   assert('Schedule week grid markup', apiSrc.includes('id="ps-week-grid"'));
-  assert('schedule booking table present', apiSrc.includes('id="ps-booking-table"'));
+  assert('ops board replaces booking table', apiSrc.includes('id="ps-ops-board"') && !apiSrc.includes('id="ps-booking-table"'));
 
   const homePanel = extractPortalHomePanel(apiSrc);
   if (homePanel) {
@@ -288,11 +287,10 @@ if (apiSrc) {
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
     && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-surfers-today"')
-    && apiSrc.includes('id="ps-need-reply-email"') && apiSrc.includes('id="ps-need-reply-whatsapp"'));
-  assert('schedule view toggle week default', apiSrc.includes('data-ps-view="week"')
+    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-pending-today"'));
+  assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
     && apiSrc.includes('portal-schedule-view-btn active'));
-  assert('schedule booking filters present', apiSrc.includes('data-ps-filter="needs_reply"')
-    && apiSrc.includes('data-ps-filter="unpaid"'));
+  assert('ops board layout markers', apiSrc.includes('portal-schedule-ops-board') && apiSrc.includes('portal-schedule-ops-lesson-group'));
   assert('schedule day seats cap helper', apiSrc.includes('function scheduleDayLessonCap('));
   assert('Wolfhouse portal-home still gated', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
 }
@@ -543,7 +541,7 @@ if (apiSrc) {
   assert('handleSunsetScheduleBookingCreate handler', apiSrc.includes('function handleSunsetScheduleBookingCreate('));
   assert('sunset-schedule-booking-writes import', apiSrc.includes('sunset-schedule-booking-writes'));
   assert('schedule normalize API rows', apiSrc.includes('function scheduleNormalizeApiRow('));
-  assert('drawer record id field', apiSrc.includes('schedule.drawer.recordId'));
+  assert('drawer ops redesign fields', apiSrc.includes('portal-schedule-drawer-hero') && apiSrc.includes('portal-schedule-drawer-prep'));
   assert('no stripe in schedule create handler', !apiSrc.includes('handleSunsetScheduleBookingCreate') || !apiSrc.slice(apiSrc.indexOf('handleSunsetScheduleBookingCreate'), apiSrc.indexOf('handleSunsetScheduleBookingCreate') + 1200).includes('stripe'));
 }
 
