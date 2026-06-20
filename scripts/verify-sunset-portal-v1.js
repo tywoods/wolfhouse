@@ -314,7 +314,10 @@ if (apiSrc) {
   assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
   assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
   assert('Admin writes disabled copy', apiSrc.includes('admin.banner.writesDisabled'));
-  assert('Admin save button disabled coming soon', apiSrc.includes('admin.action.saveComingSoon') && apiSrc.includes('disabled'));
+  assert('Admin writes gated by cfg.writes_enabled', apiSrc.includes('function adminCfgWritesEnabled('));
+  assert('Admin edit controls hidden when writes off', apiSrc.includes('if (!adminCfgWritesEnabled(data)) adminEditTarget = null'));
+  assert('Admin save message region', apiSrc.includes('id="admin-save-msg"'));
+  assert('Admin legacy coming-soon buttons removed', !apiSrc.includes('admin.action.saveComingSoon'));
   assert('Wolfhouse bed-calendar preserved', apiSrc.includes('data-tab="bed-calendar"'));
 }
 
@@ -432,6 +435,27 @@ try {
   else process.env.SUNSET_ADMIN_WRITES_ENABLED = saved;
 } catch (err) {
   assert('tenant-admin-writes module loads', false, err.message);
+}
+
+
+
+// ── 14. Sunset Admin edit UI (writes_enabled gated) ───────────────────────────
+
+console.log('\n[14] Sunset Admin edit UI — writes_enabled gated');
+
+if (apiSrc) {
+  assert('wireAdminTab wired', apiSrc.includes('function wireAdminTab(') && apiSrc.includes("root.dataset.adminWired"));
+  assert('admin PUT lesson-capacity client call', apiSrc.includes("'/staff/admin/config/lesson-capacity'") && apiSrc.includes('adminClientQuery()'));
+  assert('admin PATCH price client call', apiSrc.includes("'/staff/admin/config/prices/'") && apiSrc.includes('save-price'));
+  assert('admin PATCH lesson-time client call', apiSrc.includes("'/staff/admin/config/lesson-times/'") && apiSrc.includes('save-time'));
+  assert('writes off skips write handlers', apiSrc.includes('if (!adminCfgWritesEnabled(cfg)) return'));
+  assert('admin tab surf-gated no Wolfhouse exposure', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
+  assert('admin edit one target at a time', apiSrc.includes('var adminEditTarget'));
+}
+
+if (i18nSrc) {
+  assert('admin.action.edit i18n', i18nSrc.includes("'admin.action.edit': 'Edit'"));
+  assert('admin.banner.writesUiEnabled i18n', i18nSrc.includes("'admin.banner.writesUiEnabled'"));
 }
 
 // ── Shared Inbox Slice 3A — channel badges + mock rows ───────────────────────
