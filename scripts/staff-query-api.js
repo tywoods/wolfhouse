@@ -190,6 +190,17 @@ const {
   isSunsetAdminDbReadEnabled,
 } = require('./lib/tenant-business-config');
 const {
+  isSunsetAdminWritesEnabled,
+  evaluateAdminWriteGate,
+  validateUuid,
+  validatePricePatchBody,
+  validateLessonCapacityBody,
+  validateLessonTimePatchBody,
+  patchPriceRule,
+  putLessonCapacityDefault,
+  patchLessonTimeRule,
+} = require('./lib/tenant-admin-writes');
+const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
 } = require('./lib/staff-handoff-queries');
@@ -16889,7 +16900,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <header class="portal-admin-header">
     <h2 data-i18n="admin.title">Admin</h2>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
-    <div class="portal-admin-banner">
+    <div class="portal-admin-banner" id="admin-write-banner">
       <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
       <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
       <span data-i18n="admin.banner.lunaNote"> These settings will eventually control what Luna quotes and offers.</span>
@@ -18794,7 +18805,28 @@ function renderAdminSectionChangeHistoryFromConfig(cfg){
   box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
 }
 
+function renderAdminWriteState(cfg){
+  var banner = el('admin-write-banner');
+  if (banner) {
+    if (cfg && cfg.writes_enabled === true) {
+      banner.innerHTML = '<strong>' + escHtml(portalT('admin.banner.writesApiOnly')) + '</strong> — ' +
+        escHtml(portalT('admin.banner.writesApiOnlySub'));
+    } else {
+      banner.innerHTML = '<strong data-i18n="admin.banner.readOnly">' + escHtml(portalT('admin.banner.readOnly')) + '</strong> — ' +
+        '<span data-i18n="admin.banner.writesDisabled">' + escHtml(portalT('admin.banner.writesDisabled')) + '</span> ' +
+        '<span data-i18n="admin.banner.lunaNote">' + escHtml(portalT('admin.banner.lunaNote')) + '</span>';
+    }
+  }
+  document.querySelectorAll('#tab-admin .portal-admin-actions button').forEach(function(btn){
+    btn.disabled = true;
+    if (cfg && cfg.writes_enabled === true) {
+      btn.title = portalT('admin.action.apiOnlyTitle');
+    }
+  });
+}
+
 function renderAdminFromConfig(cfg){
+  renderAdminWriteState(cfg);
   renderAdminSectionPricesFromConfig(cfg);
   renderAdminSectionCapacityFromConfig(cfg);
   renderAdminSectionLessonTimesFromConfig(cfg);
@@ -29477,8 +29509,151 @@ async function handleAdminConfig(query, res, user) {
   return sendJSON(res, 200, {
     success: true,
     ...payload,
+    read_only: !isSunsetAdminWritesEnabled(),
+    writes_enabled: isSunsetAdminWritesEnabled(),
     elapsed_ms: elapsed,
   });
+}
+
+async function sendAdminWriteGateFailure(res, gate) {
+  return sendJSON(res, gate.status, gate.body);
+}
+
+async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const idCheck = validateUuid(ruleIdRaw, 'price rule id');
+  if (!idCheck.ok) return send400(res, idCheck.error);
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  const validated = validatePricePatchBody(body);
+  if (!validated.ok) return send400(res, validated.error);
+
+  try {
+    const result = await withPgClient(async (pg) => patchPriceRule(pg, {
+      ruleId: idCheck.value,
+      clientSlug,
+      patch: validated.patch,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.price_patch',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  const validated = validateLessonCapacityBody(body);
+  if (!validated.ok) return send400(res, validated.error);
+
+  try {
+    const result = await withPgClient(async (pg) => putLessonCapacityDefault(pg, {
+      clientSlug,
+      capacity: validated.patch.default_daily_cap,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.lesson_capacity_put',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const idCheck = validateUuid(ruleIdRaw, 'lesson time rule id');
+  if (!idCheck.ok) return send400(res, idCheck.error);
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  const validated = validateLessonTimePatchBody(body);
+  if (!validated.ok) return send400(res, validated.error);
+
+  try {
+    const result = await withPgClient(async (pg) => patchLessonTimeRule(pg, {
+      ruleId: idCheck.value,
+      clientSlug,
+      patch: validated.patch,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.lesson_time_patch',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
 }
 
 async function handleCustomerList(query, res, user) {
@@ -34477,6 +34652,26 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return sendJSON(res, 200, { success: true, ...getAeroDataBoxStatus() });
+  }
+
+  const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([0-9a-f-]{36})$/i.exec(pathname);
+  if (adminPricePatchMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigPricePatch(adminPricePatchMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/lesson-capacity' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
+  }
+
+  const adminLessonTimePatchMatch = /^\/staff\/admin\/config\/lesson-times\/([0-9a-f-]{36})$/i.exec(pathname);
+  if (adminLessonTimePatchMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigLessonTimePatch(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

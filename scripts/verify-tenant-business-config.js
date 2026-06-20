@@ -162,6 +162,109 @@ async function runAsyncChecks() {
 
   restoreEnv();
 
+  console.log('\n[5] Admin writes — flag-gated (offline)');
+  const writes = require('./lib/tenant-admin-writes');
+  const savedWritesFlag = process.env.SUNSET_ADMIN_WRITES_ENABLED;
+
+  delete process.env.SUNSET_ADMIN_WRITES_ENABLED;
+  assert('writes flag default off', writes.isSunsetAdminWritesEnabled() === false);
+  const flagOffGate = writes.evaluateAdminWriteGate({
+    user: { role: 'owner', email: 'o@example.com', staff_user_id: 'u1' },
+    clientSlug: 'sunset',
+    staffAuthRequired: true,
+  });
+  assert('flag off blocks writes 403', flagOffGate.ok === false && flagOffGate.status === 403);
+  assert('flag off error writes_disabled', flagOffGate.body && flagOffGate.body.error === 'writes_disabled');
+
+  process.env.SUNSET_ADMIN_WRITES_ENABLED = 'true';
+  assert('writes flag true when set', writes.isSunsetAdminWritesEnabled() === true);
+
+  const viewerGate = writes.evaluateAdminWriteGate({
+    user: { role: 'viewer', email: 'v@example.com', staff_user_id: 'u2' },
+    clientSlug: 'sunset',
+    staffAuthRequired: true,
+  });
+  assert('viewer blocked from writes', viewerGate.ok === false && viewerGate.body.error === 'forbidden_role');
+
+  const wolfGate = writes.evaluateAdminWriteGate({
+    user: { role: 'owner', email: 'o@example.com', staff_user_id: 'u1' },
+    clientSlug: 'wolfhouse-somo',
+    staffAuthRequired: true,
+  });
+  assert('wolfhouse client blocked', wolfGate.ok === false && wolfGate.body.error === 'unsupported_client');
+
+  const ownerGate = writes.evaluateAdminWriteGate({
+    user: { role: 'owner', email: 'o@example.com', staff_user_id: 'u1' },
+    clientSlug: 'sunset',
+    staffAuthRequired: true,
+  });
+  assert('owner allowed past gate', ownerGate.ok === true);
+
+  const badPrice = writes.validatePricePatchBody({ amount_cents: -1 });
+  assert('negative amount rejected', badPrice.ok === false);
+  const unknownField = writes.validatePricePatchBody({ hacker: true, amount_cents: 100 });
+  assert('unknown price field rejected', unknownField.ok === false);
+  const goodPrice = writes.validatePricePatchBody({ amount_cents: 1500, currency: 'eur' });
+  assert('valid price patch accepted', goodPrice.ok === true && goodPrice.patch.amount_cents === 1500);
+
+  const badCap = writes.validateLessonCapacityBody({ default_daily_cap: 0 });
+  assert('capacity zero rejected', badCap.ok === false);
+  const goodCap = writes.validateLessonCapacityBody({ default_daily_cap: 24 });
+  assert('valid capacity accepted', goodCap.ok === true);
+
+  const badTime = writes.validateLessonTimePatchBody({ time_local: '25:00' });
+  assert('invalid time rejected', badTime.ok === false);
+  const badWeekday = writes.validateLessonTimePatchBody({ weekdays_active: [7] });
+  assert('invalid weekday rejected', badWeekday.ok === false);
+
+  const ruleId = '11111111-1111-4111-8111-111111111111';
+  let auditInserted = false;
+  let updateRan = false;
+  const mockPg = {
+    async query(sql, params) {
+      const s = String(sql);
+      if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [] };
+      if (s.includes('FROM tenant_price_rules') && s.includes('FOR UPDATE')) {
+        return {
+          rows: [{
+            id: ruleId,
+            tenant_id: 'sunset',
+            client_slug: 'sunset',
+            item_type: 'lesson',
+            item_code: 'group_lesson_adult',
+            display_name: 'Group lesson',
+            currency: 'EUR',
+            amount_cents: 5000,
+            unit: 'person',
+            active: true,
+          }],
+        };
+      }
+      if (s.startsWith('UPDATE tenant_price_rules')) {
+        updateRan = true;
+        return { rows: [{ id: ruleId, amount_cents: 5500, client_slug: 'sunset', tenant_id: 'sunset' }] };
+      }
+      if (s.includes('INSERT INTO tenant_config_audit_log')) {
+        auditInserted = true;
+        return { rows: [] };
+      }
+      throw new Error('unexpected query: ' + s.slice(0, 80));
+    },
+  };
+
+  const writeResult = await writes.patchPriceRule(mockPg, {
+    ruleId,
+    clientSlug: 'sunset',
+    patch: { amount_cents: 5500 },
+    actor: { staff_user_id: 'u1', email: 'owner@example.com' },
+  });
+  assert('mock price write success', writeResult.ok === true && writeResult.status === 200);
+  assert('mock update ran', updateRan === true);
+  assert('mock audit inserted', auditInserted === true);
+
+  if (savedWritesFlag == null) delete process.env.SUNSET_ADMIN_WRITES_ENABLED;
+  else process.env.SUNSET_ADMIN_WRITES_ENABLED = savedWritesFlag;
+
   console.log('\n' + '─'.repeat(48));
   console.log(`Results: ${pass} passed, ${fail} failed`);
   if (fail > 0) {
