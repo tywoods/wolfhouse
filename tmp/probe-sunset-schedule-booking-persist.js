@@ -30,7 +30,8 @@ async function login(page) {
   await page.fill('#password', PASSWORD);
   await page.click('#btn-signin');
   await page.waitForFunction(() => !window.location.pathname.includes('/staff/login'), { timeout: 45000 });
-  await page.waitForSelector('#c-client option', { timeout: 45000 });
+  await page.waitForSelector('#c-client option', { state: 'attached', timeout: 45000 });
+  await page.waitForTimeout(2500);
 }
 
 async function main() {

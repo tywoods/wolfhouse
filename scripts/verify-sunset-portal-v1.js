@@ -554,6 +554,27 @@ if (fs.existsSync(writesPath)) {
 }
 
 
+// ── 17. Sunset Schedule timeslots — Admin-configured lesson slots ────────────
+
+console.log('\n[17] Sunset Schedule timeslots — Admin-configured lesson slots');
+
+if (apiSrc) {
+  assert('needs-reply checkbox removed from create form', !apiSrc.includes('id="ps-create-needs-reply"'));
+  assert('schedule loads admin lesson times', apiSrc.includes('function scheduleFetchLessonTimesConfig('));
+  assert('schedule slot grouping helper', apiSrc.includes('function scheduleRenderDayBodyHtml('));
+  assert('schedule slot aggregates', apiSrc.includes('function scheduleSlotAggregates('));
+  assert('lessons today slot breakdown', apiSrc.includes('function scheduleRenderLessonsTodayBreakdown('));
+  assert('create lesson slot select', apiSrc.includes('id="ps-create-time-slot"'));
+  assert('no hardcoded-only slot times', !apiSrc.includes("slot_time: '10:00'") || apiSrc.includes('scheduleNormalizeSlotTime'));
+  assert('submit no longer sends needs_reply from UI', !apiSrc.includes('ps-create-needs-reply'));
+}
+
+if (i18nSrc) {
+  assert('schedule.slot.bookings i18n', i18nSrc.includes("'schedule.slot.bookings'"));
+  assert('schedule.create.lessonSlot i18n', i18nSrc.includes("'schedule.create.lessonSlot'"));
+}
+
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

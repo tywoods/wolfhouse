@@ -15825,6 +15825,16 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-soft)}
 .portal-schedule-card-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:6px}
 .portal-schedule-card-stat{font-size:22px;font-weight:800;color:var(--text);line-height:1.2}
+.portal-schedule-card-body{font-size:12px;line-height:1.45;color:var(--text-2)}
+.portal-schedule-card-body .schedule-slot-line{margin:0 0 4px}
+.portal-schedule-card-body .schedule-slot-line strong{color:var(--text);font-weight:700}
+.portal-schedule-card-muted{font-size:11px;color:var(--text-3);margin-top:4px}
+.portal-schedule-slot-group{border:1px solid var(--border-soft);border-radius:8px;padding:8px;margin-bottom:8px;background:var(--surface-soft)}
+.portal-schedule-slot-hdr{font-size:11px;font-weight:700;color:var(--text);margin-bottom:6px;display:flex;justify-content:space-between;gap:8px}
+.portal-schedule-slot-count{font-size:10px;font-weight:600;color:var(--text-3);white-space:nowrap}
+.portal-schedule-slot-bookings{display:flex;flex-direction:column;gap:4px}
+.portal-schedule-rentals-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:4px 0 6px}
+.portal-schedule-slot-fallback{font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px}
 .portal-schedule-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
 .portal-schedule-range{font-size:14px;font-weight:700;color:var(--text);min-width:180px}
 .portal-schedule-view-toggle{display:flex;gap:4px;margin-left:auto}
@@ -15832,7 +15842,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-view-btn.active{background:var(--tan);border-color:var(--tan);font-weight:700}
 .portal-schedule-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:22px}
 @media(max-width:900px){.portal-schedule-week{grid-template-columns:repeat(2,minmax(0,1fr))}}
-.portal-schedule-day-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);min-height:140px;display:flex;flex-direction:column}
+.portal-schedule-day-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);min-height:320px;display:flex;flex-direction:column}
 .portal-schedule-day-col.is-today{border-color:var(--tan);box-shadow:var(--shadow-soft)}
 .portal-schedule-day-hdr{padding:8px 10px;border-bottom:1px solid var(--border-soft);font-size:12px;font-weight:700;color:var(--text)}
 .portal-schedule-day-seats{font-size:11px;font-weight:600;color:var(--text-3);margin-top:2px}
@@ -16859,7 +16869,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <div id="wrap-portal-home" class="portal-schedule-wrap">
   <div class="portal-schedule-summary">
     <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.rentalsToday">Rentals today</div><div class="portal-schedule-card-stat" id="ps-rentals-today">…</div></div>
-    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsToday">Lessons today</div><div class="portal-schedule-card-stat" id="ps-lessons-today">…</div></div>
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsToday">Lessons today</div><div class="portal-schedule-card-body" id="ps-lessons-today">…</div></div>
     <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat" id="ps-need-reply">…</div></div>
   </div>
   <div class="portal-schedule-toolbar">
@@ -16899,11 +16909,11 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-type" data-i18n="schedule.create.bookingType">Booking type</label><select id="ps-create-type"><option value="lesson" data-i18n="schedule.type.lesson">Lesson</option><option value="board_rental" data-i18n="schedule.type.boardRental">Board rental</option><option value="wetsuit_rental" data-i18n="schedule.type.wetsuitRental">Wetsuit rental</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date" data-i18n="schedule.create.date">Date</label><input id="ps-create-date" type="date"></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-time" data-i18n="schedule.create.time">Time</label><input id="ps-create-time" type="time"></div>
+    <div class="portal-schedule-create-field" id="ps-create-time-lesson-wrap"><label for="ps-create-time-slot" data-i18n="schedule.create.lessonSlot">Lesson time slot</label><select id="ps-create-time-slot"></select></div>
+    <div class="portal-schedule-create-field" id="ps-create-time-rental-wrap" style="display:none"><label for="ps-create-time" data-i18n="schedule.create.time">Time</label><input id="ps-create-time" type="time"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-count" data-i18n="schedule.create.count">People / items</label><input id="ps-create-count" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option><option value="pending" data-i18n="schedule.payment.pending">Pending</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
-    <div class="portal-schedule-create-field"><label><input id="ps-create-needs-reply" type="checkbox"> <span data-i18n="schedule.create.needsReply">Needs reply</span></label></div>
     <div class="portal-schedule-create-actions">
       <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
       <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
@@ -18446,6 +18456,9 @@ var scheduleWeekStart = null;
 var scheduleRowsCache = [];
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
+var scheduleLessonTimesCache = [];
+var scheduleLessonTimesFallback = false;
+var scheduleLessonTimesLoaded = false;
 
 function scheduleIsoDate(d){
   var m = String(d.getMonth() + 1).padStart(2, '0');
@@ -18556,6 +18569,202 @@ function scheduleFetchMonth(client, monthStart){
 }
 
 
+
+function scheduleNormalizeSlotTime(raw){
+  var t = String(raw || '').trim();
+  if (!t) return '';
+  if (t.indexOf('-') >= 0) t = t.split('-')[0].trim();
+  return t.slice(0, 5);
+}
+
+function scheduleFetchLessonTimesConfig(client){
+  if (scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
+  if (adminConfigCache && adminConfigCache.lesson_times && adminConfigCache.lesson_times.length){
+    scheduleLessonTimesCache = adminConfigCache.lesson_times.slice();
+    scheduleLessonTimesFallback = adminConfigCache.source !== 'db';
+    scheduleLessonTimesLoaded = true;
+    return Promise.resolve(scheduleLessonTimesCache);
+  }
+  return fetch('/staff/admin/config?client=' + encodeURIComponent(client))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data){
+      var profile = getPortalProfile(client);
+      if (data && data.success && data.lesson_times && data.lesson_times.length){
+        scheduleLessonTimesCache = data.lesson_times.slice();
+        scheduleLessonTimesFallback = data.source !== 'db';
+      } else {
+        scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
+        scheduleLessonTimesFallback = true;
+      }
+      scheduleLessonTimesLoaded = true;
+      return scheduleLessonTimesCache;
+    })
+    .catch(function(){
+      var profile = getPortalProfile(client);
+      scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
+      scheduleLessonTimesFallback = true;
+      scheduleLessonTimesLoaded = true;
+      return scheduleLessonTimesCache;
+    });
+}
+
+function scheduleUniqueConfiguredSlots(lessonTimes){
+  var seen = {};
+  var out = [];
+  (lessonTimes || []).forEach(function(s){
+    var key = scheduleNormalizeSlotTime(s.slot_time);
+    if (!key || seen[key]) return;
+    seen[key] = true;
+    out.push({
+      slot_time: s.slot_time,
+      slot_key: key,
+      label: s.offering_label || s.session_type || portalT('schedule.type.lesson'),
+      source: s.source || 'config',
+    });
+  });
+  out.sort(function(a,b){ return scheduleNormalizeSlotTime(a.slot_time).localeCompare(scheduleNormalizeSlotTime(b.slot_time)); });
+  return out;
+}
+
+function scheduleSlotsForDate(lessonTimes, dateIso){
+  var dated = [];
+  var generic = [];
+  (lessonTimes || []).forEach(function(s){
+    var key = scheduleNormalizeSlotTime(s.slot_time);
+    if (!key) return;
+    var entry = {
+      slot_time: s.slot_time,
+      slot_key: key,
+      label: s.offering_label || s.session_type || portalT('schedule.type.lesson'),
+      source: s.source || 'config',
+    };
+    if (s.date && String(s.date).slice(0, 10) === dateIso) dated.push(entry);
+    else if (!s.date) generic.push(entry);
+  });
+  var base = dated.length ? dated : generic;
+  return scheduleUniqueConfiguredSlots(base.map(function(x){
+    return { slot_time: x.slot_time, offering_label: x.label, session_type: x.label, source: x.source, date: null };
+  }));
+}
+
+function scheduleSlotAggregates(lessons, slot){
+  var key = scheduleNormalizeSlotTime(slot.slot_time);
+  var rows = (lessons || []).filter(function(l){
+    return scheduleRowType(l) === 'lesson' && scheduleNormalizeSlotTime(l.slot_time || l.service_time) === key;
+  });
+  var surfers = rows.reduce(function(a, r){ return a + (r.quantity != null ? Number(r.quantity) : 1); }, 0);
+  return { bookings: rows.length, surfers: surfers, rows: rows };
+}
+
+function scheduleSlotCountLabel(stats){
+  var b = stats.bookings || 0;
+  var s = stats.surfers || 0;
+  return String(b) + ' ' + portalT('schedule.slot.bookings') + ' / ' + String(s) + ' ' + portalT('schedule.slot.surfers');
+}
+
+function scheduleRenderBookingChipHtml(r){
+  scheduleEnsureRowId(r);
+  var typ = r._scheduleType || scheduleRowType(r);
+  var label = r.guest_name || r.offering_label || scheduleRowTypeLabel(r);
+  var extraCls = r._isDemo ? ' demo' : (r._isDbManual ? ' manual' : '');
+  return '<div class="portal-schedule-item-card ' + typ + extraCls + '" data-ps-booking-id="' + escHtml(r._scheduleId) + '">' +
+    escHtml(label) + '</div>';
+}
+
+function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
+  var html = '';
+  var slots = scheduleSlotsForDate(lessonTimes, dateIso);
+  if (scheduleLessonTimesFallback && slots.length) {
+    html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
+  }
+  if (slots.length){
+    slots.forEach(function(slot){
+      var stats = scheduleSlotAggregates(pack.lessons, slot);
+      html += '<div class="portal-schedule-slot-group">' +
+        '<div class="portal-schedule-slot-hdr"><span>' + escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + '</span>' +
+        '<span class="portal-schedule-slot-count">' + escHtml(scheduleSlotCountLabel(stats)) + '</span></div>' +
+        '<div class="portal-schedule-slot-bookings">';
+      if (stats.rows.length){
+        stats.rows.forEach(function(r){ html += scheduleRenderBookingChipHtml(r); });
+      } else {
+        html += '<div style="font-size:10px;color:var(--text-3)">' + escHtml(portalT('schedule.emptySlot')) + '</div>';
+      }
+      html += '</div></div>';
+    });
+  } else {
+    html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.noConfiguredTimes')) + '</div>';
+  }
+  var rentals = (pack.gear || []).slice();
+  if (rentals.length){
+    html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.rentals.section')) + '</div>';
+    rentals.forEach(function(r){ html += scheduleRenderBookingChipHtml(r); });
+  }
+  var unmatched = (pack.lessons || []).filter(function(l){
+    if (!slots.length) return false;
+    var key = scheduleNormalizeSlotTime(l.slot_time || l.service_time);
+    return !slots.some(function(s){ return scheduleNormalizeSlotTime(s.slot_time) === key; });
+  });
+  if (unmatched.length){
+    html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.slot.otherLessons')) + '</div>';
+    unmatched.forEach(function(r){ html += scheduleRenderBookingChipHtml(r); });
+  }
+  if (!slots.length && !rentals.length && !(pack.lessons || []).length) {
+    html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
+  }
+  return html;
+}
+
+function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
+  var box = el('ps-lessons-today');
+  if (!box) return;
+  var slots = scheduleSlotsForDate(lessonTimes, todayIso);
+  if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
+  var todayLessons = (rows || []).filter(function(r){
+    return String(r.service_date || '').slice(0, 10) === todayIso && scheduleRowType(r) === 'lesson';
+  });
+  if (!slots.length){
+    box.innerHTML = '<div class="portal-schedule-card-stat">' + escHtml(String(todayLessons.length)) + '</div>';
+    return;
+  }
+  var html = '';
+  slots.forEach(function(slot){
+    var stats = scheduleSlotAggregates(todayLessons, slot);
+    html += '<p class="schedule-slot-line"><strong>' + escHtml(scheduleNormalizeSlotTime(slot.slot_time)) +
+      '</strong> — ' + escHtml(scheduleSlotCountLabel(stats)) + '</p>';
+  });
+  if (scheduleLessonTimesFallback) {
+    html += '<p class="portal-schedule-card-muted">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</p>';
+  }
+  box.innerHTML = html || ('<div class="portal-schedule-card-stat">0</div>');
+}
+
+function schedulePopulateCreateTimeFields(bookingType){
+  var lessonWrap = el('ps-create-time-lesson-wrap');
+  var rentalWrap = el('ps-create-time-rental-wrap');
+  var slotSel = el('ps-create-time-slot');
+  var isLesson = bookingType === 'lesson';
+  if (lessonWrap) lessonWrap.style.display = isLesson ? '' : 'none';
+  if (rentalWrap) rentalWrap.style.display = isLesson ? 'none' : '';
+  if (!isLesson || !slotSel) return;
+  var slots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
+  var html = '';
+  slots.forEach(function(s){
+    html += '<option value="' + escHtml(scheduleNormalizeSlotTime(s.slot_time)) + '">' +
+      escHtml(scheduleNormalizeSlotTime(s.slot_time) + (s.label ? ' — ' + s.label : '')) + '</option>';
+  });
+  if (!html) html = '<option value="">' + escHtml(portalT('schedule.slot.noConfiguredTimes')) + '</option>';
+  slotSel.innerHTML = html;
+}
+
+function scheduleCreateTimeValue(bookingType){
+  if (bookingType === 'lesson'){
+    var slotSel = el('ps-create-time-slot');
+    return slotSel ? slotSel.value : '';
+  }
+  var timeInput = el('ps-create-time');
+  return timeInput ? timeInput.value : '10:00';
+}
+
 function scheduleEnsureRowId(row){
   if (!row) return row;
   if (!row._scheduleId) row._scheduleId = 'row-' + Math.random().toString(36).slice(2, 10);
@@ -18647,7 +18856,7 @@ function renderScheduleSummary(profile, weekData, convs){
   var today = dsTodayIso();
   var rows = scheduleRowsCache || [];
   setText('ps-rentals-today', String(scheduleRentalsToday(rows, today)));
-  setText('ps-lessons-today', String(scheduleLessonsToday(rows, today)));
+  scheduleRenderLessonsTodayBreakdown(rows, today, scheduleLessonTimesCache);
   setText('ps-need-reply', String(scheduleNeedReplyCount(convs) + scheduleBookingNeedReplyCount(rows)));
 }
 
@@ -18680,16 +18889,7 @@ function renderScheduleWeekGrid(profile, weekData, weekStart){
       '<div class="portal-schedule-day-hdr">' + escHtml(dayName) +
       '<div class="portal-schedule-day-seats">' + escHtml(String(used) + ' / ' + String(cap) + ' seats') + '</div></div>' +
       '<div class="portal-schedule-day-body">';
-    pack.rows.forEach(function(r){
-      scheduleEnsureRowId(r);
-      var typ = r._scheduleType || scheduleRowType(r);
-      var time = r.slot_time || r.service_time || '';
-      var label = r.guest_name || r.offering_label || scheduleRowTypeLabel(r);
-      var extraCls = r._isManual ? ' manual' : (r._isDemo ? ' demo' : '');
-      html += '<div class="portal-schedule-item-card ' + typ + extraCls + '" data-ps-booking-id="' + escHtml(r._scheduleId) + '">' +
-        escHtml((time ? time + ' · ' : '') + label) + '</div>';
-    });
-    if (!pack.rows.length) html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
+    html += scheduleRenderDayBodyHtml(pack, iso, scheduleLessonTimesCache);
     html += '</div></div>';
   }
   box.innerHTML = html;
@@ -18785,6 +18985,7 @@ function openScheduleDetailDrawer(row){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.type')) + ':</strong> ' + escHtml(scheduleRowTypeLabel(row)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.time')) + ':</strong> ' + escHtml(String(row.slot_time || row.service_time || '—')) + '</p>' +
+    (scheduleRowType(row) === 'lesson' ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.lessonSlot')) + ':</strong> ' + escHtml(scheduleNormalizeSlotTime(row.slot_time || row.service_time || '—') || '—') + '</p>' : '') +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.details')) + ':</strong> ' + escHtml(details) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + escHtml(row.payment_status || '—') + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.needsAction')) + ':</strong> ' + escHtml(action) + '</p>' +
@@ -18801,6 +19002,8 @@ function openScheduleCreateModal(){
   if (!modal) return;
   var dateInput = el('ps-create-date');
   if (dateInput && !dateInput.value) dateInput.value = dsTodayIso();
+  var typeSel = el('ps-create-type');
+  schedulePopulateCreateTimeFields(typeSel ? typeSel.value : 'lesson');
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
 }
@@ -18816,11 +19019,10 @@ function submitScheduleManualBooking(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
   var type = el('ps-create-type') ? el('ps-create-type').value : 'lesson';
   var dateVal = el('ps-create-date') ? el('ps-create-date').value : dsTodayIso();
-  var timeVal = el('ps-create-time') ? el('ps-create-time').value : '10:00';
+  var timeVal = scheduleCreateTimeValue(type);
   var countVal = el('ps-create-count') ? parseInt(el('ps-create-count').value, 10) : 1;
   var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
   var notes = (el('ps-create-notes') && el('ps-create-notes').value || '').trim();
-  var needsReply = !!(el('ps-create-needs-reply') && el('ps-create-needs-reply').checked);
   var submitBtn = el('ps-create-submit');
   var msg = el('ps-create-msg');
   if (!guest) {
@@ -18841,7 +19043,6 @@ function submitScheduleManualBooking(){
       quantity: countVal,
       payment_status: payment,
       notes: notes,
-      needs_reply: needsReply,
     }),
   }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, status: r.status, data: data }; }); })
     .then(function(res){
@@ -18894,10 +19095,11 @@ function loadSchedulePage(){
   setText('ps-range-label', scheduleFormatRange(scheduleWeekStart, rangeEnd));
   var convP = fetch('/staff/conversations?client=' + encodeURIComponent(client))
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var configP = scheduleFetchLessonTimesConfig(client);
   var dataP = scheduleViewMode === 'month'
     ? scheduleFetchMonth(client, new Date(scheduleWeekStart.getFullYear(), scheduleWeekStart.getMonth(), 1))
     : scheduleFetchWeek(client, scheduleViewMode === 'day' ? scheduleParseIso(dsTodayIso()) : scheduleWeekStart);
-  Promise.all([convP, dataP]).then(function(results){
+  Promise.all([convP, dataP, configP]).then(function(results){
     var convData = results[0];
     var weekData = results[1];
     scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
@@ -18905,6 +19107,16 @@ function loadSchedulePage(){
     (weekData || []).forEach(function(p){ scheduleRowsCache = scheduleRowsCache.concat(p.rows || []); });
     scheduleRowsCache.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
     var demoRows = scheduleBuildDemoBookings(scheduleWeekStart);
+    if (scheduleLessonTimesCache.length){
+      var demoSlots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
+      var demoLessonIdx = 0;
+      demoRows.forEach(function(r){
+        if (r._isDemo && scheduleRowType(r) === 'lesson' && demoSlots[demoLessonIdx]){
+          r.slot_time = scheduleNormalizeSlotTime(demoSlots[demoLessonIdx].slot_time);
+          demoLessonIdx += 1;
+        }
+      });
+    }
     weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
     scheduleRowsCache = scheduleRowsCache.concat(demoRows);
     renderScheduleSummary(profile, weekData, scheduleConversationsCache);
@@ -18942,6 +19154,11 @@ function wireScheduleControls(){
     btn.dataset.wired = '1';
     btn.addEventListener('click', function(){ setScheduleFilter(btn.getAttribute('data-ps-filter')); });
   });
+  var typeSel = el('ps-create-type');
+  if (typeSel && !typeSel.dataset.wired){
+    typeSel.dataset.wired = '1';
+    typeSel.addEventListener('change', function(){ schedulePopulateCreateTimeFields(typeSel.value); });
+  }
 }
 
 function loadPortalHome(){ loadSchedulePage(); }
