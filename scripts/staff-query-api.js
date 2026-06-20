@@ -177,10 +177,12 @@ const {
 const { resetHermesGuestSession } = require('./lib/luna-hermes-guest-session-reset');
 const {
   getAccessibleClients,
+  getSessionScopedClients,
   userCanAccessClient,
   resolveStaffRole,
   canUseOwnerInsights,
   buildClientProfilesMap,
+  buildSessionClientProfilesMap,
 } = require('./lib/staff-portal-clients');
 const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
 const {
@@ -30574,6 +30576,16 @@ async function handleAuthSession(req, res) {
   }
 
   const resolvedRole = resolveStaffRole(user);
+  const activeClient = String(user.client_slug || '').trim();
+  if (!activeClient || !userCanAccessClient(user, activeClient)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'session_client_access_denied',
+      detail: 'Authenticated session client is missing or not allowed for this user.',
+      active_client: activeClient || null,
+    });
+  }
+  const sessionClients = getSessionScopedClients(user);
   return sendJSON(res, 200, {
     success: true,
     auth_required: true,
@@ -30581,8 +30593,9 @@ async function handleAuthSession(req, res) {
     db_role: user.role,
     email: user.email,
     display_name: user.display_name || null,
-    clients: getAccessibleClients(user),
-    client_profiles: buildClientProfilesMap(user),
+    active_client: activeClient,
+    clients: sessionClients,
+    client_profiles: buildSessionClientProfilesMap(user),
     can_use_owner_insights: canUseOwnerInsights(user),
   });
 }

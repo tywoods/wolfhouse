@@ -120,6 +120,27 @@ function buildClientProfilesMap(user) {
   return out;
 }
 
+/**
+ * Session-scoped portal clients: login company (auth_sessions.client_id) is authoritative.
+ * Never return the full multi-tenant allow-list from /staff/auth/session.
+ */
+function getSessionScopedClients(user) {
+  if (!user) return getAccessibleClients(null);
+  const activeSlug = String(user.client_slug || '').trim();
+  if (!activeSlug) return [];
+  if (!userCanAccessClient(user, activeSlug)) return [];
+  return listBaselineClients().filter((c) => c.slug === activeSlug);
+}
+
+function buildSessionClientProfilesMap(user) {
+  const clients = getSessionScopedClients(user);
+  const out = {};
+  for (const c of clients) {
+    out[c.slug] = loadClientPortalProfile(c.slug);
+  }
+  return out;
+}
+
 function listBaselineClients() {
   const out = [];
   let files = [];
@@ -205,12 +226,14 @@ module.exports = {
   listBaselineClients,
   getAccessibleClients,
   getAccessibleClientSlugs,
+  getSessionScopedClients,
   userCanAccessClient,
   resolveStaffRole,
   canUseOwnerInsights,
   loadBaselineJson,
   loadClientPortalProfile,
   buildClientProfilesMap,
+  buildSessionClientProfilesMap,
   isSurfVertical,
   SURF_VERTICALS,
 };

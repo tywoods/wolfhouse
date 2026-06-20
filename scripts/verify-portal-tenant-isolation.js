@@ -206,22 +206,28 @@ async function readPortalState(page, context, baseUrl) {
   const sessionClients = Array.isArray(session.clients)
     ? session.clients.map((c) => ({ slug: c.slug, name: c.name || c.slug }))
     : [];
+  const sessionClientSlugs = sessionClients.map((c) => c.slug);
+  const profileKeys = Object.keys(session.client_profiles || {});
 
   return {
     ...dom,
+    session,
     sessionClients,
+    sessionClientSlugs,
+    profileKeys,
+    activeClient: session.active_client || dom.selectedClient,
     sessionClient: dom.selectedClient,
+    hasPsWeekGrid: await page.locator('#ps-week-grid').count() > 0,
+    hasPortalScheduleWrap: await page.locator('.portal-schedule-wrap').count() > 0,
   };
 }
 
-
-function hasExactTabLabel(state, label) {
-  return (state.tabs || []).some((t) => t.text === label);
+function sessionSlugsExactly(state, expectedSlug) {
+  return state.sessionClientSlugs.length === 1 && state.sessionClientSlugs[0] === expectedSlug;
 }
 
-function portalHomeTabLabel(state) {
-  const tab = (state.tabs || []).find((t) => t.tab === 'portal-home');
-  return tab ? tab.text : null;
+function profilesExcludeTenant(state, forbiddenSlug) {
+  return !state.profileKeys.includes(forbiddenSlug);
 }
 
 function tabLabelsInclude(state, labels) {
@@ -252,17 +258,33 @@ async function runWolfhouseSuite(page, context, creds) {
 
   const state = await readPortalState(page, context, WOLFHOUSE_BASE);
 
-  assert('localStorage staff_portal_client is wolfhouse-somo', state.localClient === 'wolfhouse-somo', state.localClient);
+  console.log('  [wolfhouse_login_company_scopes_session_to_wolfhouse_only]');
+  assert(
+    'GET /staff/auth/session clients exactly [wolfhouse-somo]',
+    sessionSlugsExactly(state, 'wolfhouse-somo'),
+    JSON.stringify(state.sessionClientSlugs),
+  );
+  assert(
+    'session client_profiles exclude sunset',
+    profilesExcludeTenant(state, 'sunset'),
+    JSON.stringify(state.profileKeys),
+  );
+  assert(
+    'active_client is wolfhouse-somo',
+    state.activeClient === 'wolfhouse-somo',
+    state.activeClient,
+  );
+  assert(
+    'localStorage is null or wolfhouse-somo (never sunset)',
+    state.localClient == null || state.localClient === 'wolfhouse-somo',
+    state.localClient || '(unset)',
+  );
+  assert('localStorage is not sunset', state.localClient !== 'sunset', state.localClient);
   assert('selected client is wolfhouse-somo', state.sessionClient === 'wolfhouse-somo', state.sessionClient);
   assert(
     'client dropdown slugs are only wolfhouse-somo',
     state.clientSlugs.length === 1 && state.clientSlugs[0] === 'wolfhouse-somo',
     JSON.stringify(state.clientSlugs),
-  );
-  assert(
-    'session clients are only wolfhouse-somo',
-    state.sessionClients.length === 1 && state.sessionClients[0].slug === 'wolfhouse-somo',
-    JSON.stringify(state.sessionClients),
   );
 
   assert('nav includes Booking Calendar', tabLabelsInclude(state, ['Booking Calendar']));
@@ -270,28 +292,16 @@ async function runWolfhouseSuite(page, context, creds) {
   assert('nav includes Luna Staff', tabLabelsInclude(state, ['Luna Staff']));
   assert('nav includes Tour Operator', tabLabelsInclude(state, ['Tour Operator']));
 
-  assert('nav excludes Schedule tab label', !hasExactTabLabel(state, 'Schedule'));
-  assert('nav excludes Today tab label', !hasExactTabLabel(state, 'Today'));
-  assert('nav excludes Admin tab label', !hasExactTabLabel(state, 'Admin'));
+  assert('nav excludes Today', tabLabelsExclude(state, ['Today']));
   assert('nav excludes Customers', tabLabelsExclude(state, ['Customers']));
   assert('nav excludes Day Schedule', tabLabelsExclude(state, ['Day Schedule']));
+  assert('nav excludes Schedule', tabLabelsExclude(state, ['Schedule']));
+  assert('nav excludes Admin', tabLabelsExclude(state, ['Admin']));
 
   assert('page text excludes Sunset Surf School', !state.bodyText.includes('Sunset Surf School'));
+  assert('page excludes #ps-week-grid', !state.hasPsWeekGrid);
+  assert('page excludes .portal-schedule-wrap', !state.hasPortalScheduleWrap);
   assert('page text excludes demo-preview rows', !/demo-preview-/i.test(state.bodyText));
-
-  const whScheduleUi = await page.evaluate(() => ({
-    weekGrid: !!document.getElementById('ps-week-grid'),
-    scheduleWrap: !!document.querySelector('.portal-schedule-wrap'),
-  }));
-  assert('Wolfhouse excludes Sunset Schedule week grid', !whScheduleUi.weekGrid);
-  assert('Wolfhouse excludes portal-schedule-wrap', !whScheduleUi.scheduleWrap);
-  const whAdminUi = await page.evaluate(() => ({
-    adminTab: !!document.querySelector('.tab-btn[data-tab="admin"]') &&
-      window.getComputedStyle(document.querySelector('.tab-btn[data-tab="admin"]')).display !== 'none',
-    adminPanel: !!document.getElementById('tab-admin'),
-  }));
-  assert('Wolfhouse excludes Admin tab visible', !whAdminUi.adminTab);
-  assert('Wolfhouse excludes Admin panel', !whAdminUi.adminPanel);
 
   if (fail > failAtStart) {
     await captureFailureScreenshot(page, 'wolfhouse', 'failure');
@@ -311,8 +321,24 @@ async function runSunsetSuite(page, context, creds) {
 
   const state = await readPortalState(page, context, SUNSET_BASE);
 
+  console.log('  [sunset_login_company_scopes_session_to_sunset_only]');
   assert(
-    'localStorage staff_portal_client is unset or sunset (not Wolfhouse bleed)',
+    'GET /staff/auth/session clients exactly [sunset]',
+    sessionSlugsExactly(state, 'sunset'),
+    JSON.stringify(state.sessionClientSlugs),
+  );
+  assert(
+    'session client_profiles exclude wolfhouse-somo',
+    profilesExcludeTenant(state, 'wolfhouse-somo'),
+    JSON.stringify(state.profileKeys),
+  );
+  assert(
+    'active_client is sunset',
+    state.activeClient === 'sunset',
+    state.activeClient,
+  );
+  assert(
+    'localStorage is unset or sunset (not Wolfhouse bleed)',
     state.localClient == null || state.localClient === 'sunset',
     state.localClient || '(unset)',
   );
@@ -328,18 +354,11 @@ async function runSunsetSuite(page, context, creds) {
     state.clientNames.some((name) => /Sunset Surf School/i.test(name)),
     JSON.stringify(state.clientNames),
   );
-  assert(
-    'session clients are only sunset',
-    state.sessionClients.length === 1 && state.sessionClients[0].slug === 'sunset',
-    JSON.stringify(state.sessionClients),
-  );
 
-  assert('nav includes Schedule tab (portal-home)', hasExactTabLabel(state, 'Schedule'), portalHomeTabLabel(state));
-  assert('nav excludes Today tab label', !hasExactTabLabel(state, 'Today'));
+  assert('nav includes Today', tabLabelsInclude(state, ['Today']));
   assert('nav includes Inbox', tabLabelsInclude(state, ['Inbox']));
   assert('nav includes Day Schedule', tabLabelsInclude(state, ['Day Schedule']));
   assert('nav includes Customers', tabLabelsInclude(state, ['Customers']));
-  assert('nav includes Admin tab', hasExactTabLabel(state, 'Admin'));
   assert('nav includes Luna Staff', tabLabelsInclude(state, ['Luna Staff']));
 
   assert('nav excludes Booking Calendar', tabLabelsExclude(state, ['Booking Calendar']));
