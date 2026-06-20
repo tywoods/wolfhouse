@@ -592,7 +592,7 @@ if (apiSrc) {
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
   assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
-  assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleRenderPebblesHtml('));
+  assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
   assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
   assert('drawer stripe placeholder disabled', apiSrc.includes('schedule.drawer.stripeLink') && apiSrc.includes('disabled'));
   assert('submit sends components payload', apiSrc.includes('components: payload.components'));
@@ -611,6 +611,28 @@ if (i18nSrc) {
 
 
 // ── Summary ─────────────────────────────────────────────────────────────────
+
+
+
+// ── 19. Sunset Schedule visual refine — muted ops board ─────────────────────
+
+console.log('\n[19] Sunset Schedule visual refine — muted ops board');
+
+if (apiSrc) {
+  assert('service summary helper', apiSrc.includes('function scheduleServiceSummaryText('));
+  assert('status badge helper', apiSrc.includes('function scheduleRenderStatusBadgeHtml('));
+  assert('drawer component list helper', apiSrc.includes('function scheduleRenderComponentListHtml('));
+  assert('ops row summary markup', apiSrc.includes('portal-schedule-ops-row-summary'));
+  assert('ops row status markup', apiSrc.includes('portal-schedule-ops-row-status'));
+  assert('drawer component list markup', apiSrc.includes('portal-schedule-drawer-components'));
+  assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
+  assert('no source pebble in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+  assert('muted source rail colors', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff{background:#7d9b8a'));
+  assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
+}
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

@@ -557,6 +557,15 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.card.needReplyWhatsapp': 'Need reply — WhatsApp',
     'schedule.view.next30': 'Next 30 days',
     'schedule.source.luna': 'Luna',
+
+    'schedule.summary.boardShort': 'board',
+    'schedule.summary.wetsuitShort': 'wetsuit',
+    'schedule.summary.boards': 'boards',
+    'schedule.summary.wetsuits': 'wetsuits',
+    'schedule.status.paid': 'Paid',
+    'schedule.status.pending': 'Pending payment',
+    'schedule.status.unpaid': 'Unpaid',
+
     'schedule.source.staff': 'Staff',
     'schedule.create.components': 'Booking components',
     'schedule.create.componentsRequired': 'Select at least one component.',
