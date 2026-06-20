@@ -151,10 +151,12 @@ if (apiSrc) {
   assert('portal-home gated for surf vertical', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
   assert('Schedule page wrap present', apiSrc.includes('portal-schedule-wrap'));
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
-  assert('Schedule unpaid summary card', apiSrc.includes('schedule.card.unpaid'));
-  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday'));
-  assert('Schedule seats left summary card', apiSrc.includes('schedule.card.seatsLeft'));
-  assert('Schedule need reply summary card', apiSrc.includes('schedule.card.needReply'));
+  assert('Schedule rentals today summary card', apiSrc.includes('schedule.card.rentalsToday') && apiSrc.includes('id="ps-rentals-today"'));
+  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday') && apiSrc.includes('id="ps-lessons-today"'));
+  assert('Schedule need reply summary card', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply"'));
+  assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
+  assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
+  assert('old unpaid summary card removed', !apiSrc.includes('id="ps-unpaid"'));
   assert('Schedule week grid markup', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule booking table present', apiSrc.includes('id="ps-booking-table"'));
 
@@ -282,8 +284,8 @@ if (apiSrc) {
   assert('SUNSET_SCHEDULE_LESSON_DAY_CAP constant', apiSrc.includes('SUNSET_SCHEDULE_LESSON_DAY_CAP = 24'));
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
-  assert('schedule summary cards present', apiSrc.includes('id="ps-lessons-today"')
-    && apiSrc.includes('id="ps-seats-left"'));
+  assert('schedule summary cards present', apiSrc.includes('id="ps-rentals-today"')
+    && apiSrc.includes('id="ps-lessons-today"') && apiSrc.includes('id="ps-need-reply"'));
   assert('schedule view toggle week default', apiSrc.includes('data-ps-view="week"')
     && apiSrc.includes('portal-schedule-view-btn active'));
   assert('schedule booking filters present', apiSrc.includes('data-ps-filter="needs_reply"')
@@ -504,6 +506,28 @@ assert('Inbox tab open loads conversation list',
 
 assert('wolfhouse profile has no inbox_threads_demo rows', !whInbox.inbox_threads_demo || whInbox.inbox_threads_demo.length === 0,
   JSON.stringify(whInbox.inbox_threads_demo));
+
+
+// ── 15. Sunset Schedule cleanup — demo bookings, drawer, manual create ───────
+
+console.log('\n[15] Sunset Schedule cleanup — demo bookings, drawer, manual create');
+
+if (apiSrc) {
+  assert('Day Schedule hidden from nav', apiSrc.includes("if (tab === 'day-schedule') return true;"));
+  assert('schedule demo bookings helper', apiSrc.includes('function scheduleBuildDemoBookings('));
+  assert('schedule manual bookings state', apiSrc.includes('var scheduleManualBookings'));
+  assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
+  assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
+  assert('schedule detail drawer', apiSrc.includes('function openScheduleDetailDrawer(') && apiSrc.includes('id="ps-detail-drawer"'));
+  assert('manual create booking UI', apiSrc.includes('id="ps-create-booking"') && apiSrc.includes('function submitScheduleManualBooking('));
+  assert('schedule create is local only', apiSrc.includes('scheduleManualBookings.push'));
+}
+
+if (i18nSrc) {
+  assert('schedule.card.rentalsToday i18n', i18nSrc.includes("'schedule.card.rentalsToday'"));
+  assert('schedule.createBooking i18n', i18nSrc.includes("'schedule.createBooking'"));
+  assert('schedule.badge.manualDraft i18n', i18nSrc.includes("'schedule.badge.manualDraft'"));
+}
 
 
 // ── Summary ─────────────────────────────────────────────────────────────────

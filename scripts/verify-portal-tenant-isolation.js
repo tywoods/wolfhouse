@@ -409,7 +409,8 @@ async function runSunsetSuite(page, context, creds) {
     state.visiblePortalHomeTab || state.tabLabels.join(' | '),
   );
   assert('nav includes Inbox', tabLabelsInclude(state, ['Inbox']));
-  assert('nav includes Day Schedule', tabLabelsInclude(state, ['Day Schedule']));
+  assert('nav excludes Day Schedule', tabLabelsExclude(state, ['Day Schedule']));
+  assert('nav includes Admin', tabLabelsInclude(state, ['Admin']));
   assert('nav includes Customers', tabLabelsInclude(state, ['Customers']));
   assert('nav includes Luna Staff', tabLabelsInclude(state, ['Luna Staff']));
 

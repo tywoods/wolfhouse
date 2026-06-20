@@ -15814,7 +15814,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 #tab-admin.active{display:block}
 
 .portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
-.portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.portal-schedule-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-summary{grid-template-columns:1fr 1fr}}
 .portal-schedule-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-soft)}
@@ -15841,6 +15841,20 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
 .portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:20px;overflow:auto}
 .portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:8999}
+.portal-schedule-item-card.demo{opacity:.95;border-style:dashed}
+.portal-schedule-item-card.manual{border-style:dashed;border-left-width:3px}
+.portal-schedule-demo-badge{font-size:10px;font-weight:700;color:var(--text-3);text-transform:uppercase;letter-spacing:.04em;margin-bottom:8px}
+.portal-schedule-drawer-kv{margin:0 0 10px;font-size:13px;line-height:1.45}
+.portal-schedule-drawer-kv strong{display:inline-block;min-width:110px;color:var(--text-2)}
+.portal-schedule-create-modal{position:fixed;inset:0;z-index:9100;display:flex;align-items:center;justify-content:center;padding:20px}
+.portal-schedule-create-backdrop{position:absolute;inset:0;background:rgba(0,0,0,.35)}
+.portal-schedule-create-panel{position:relative;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;width:min(440px,94vw);max-height:90vh;overflow:auto;box-shadow:var(--shadow)}
+.portal-schedule-create-panel h3{margin:0 0 6px;font-size:17px}
+.portal-schedule-create-sub{font-size:12px;color:var(--text-3);margin:0 0 16px;line-height:1.45}
+.portal-schedule-create-field{margin-bottom:12px}
+.portal-schedule-create-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
+.portal-schedule-create-field input,.portal-schedule-create-field select,.portal-schedule-create-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 
 /* ── Customers tab (Sunset / surf guest history) ──────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
@@ -16839,11 +16853,9 @@ ${getStaffPortalI18nBootstrapScript()}
 <div id="tab-portal-home" class="tab-panel">
 <div id="wrap-portal-home" class="portal-schedule-wrap">
   <div class="portal-schedule-summary">
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.rentalsToday">Rentals today</div><div class="portal-schedule-card-stat" id="ps-rentals-today">…</div></div>
     <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsToday">Lessons today</div><div class="portal-schedule-card-stat" id="ps-lessons-today">…</div></div>
-    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.seatsLeft">Seats left today</div><div class="portal-schedule-card-stat" id="ps-seats-left">…</div></div>
-    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsWeek">Lessons this week</div><div class="portal-schedule-card-stat" id="ps-lessons-week">…</div></div>
     <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat" id="ps-need-reply">…</div></div>
-    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.unpaid">Unpaid</div><div class="portal-schedule-card-stat" id="ps-unpaid">…</div></div>
   </div>
   <div class="portal-schedule-toolbar">
     <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
@@ -16855,6 +16867,7 @@ ${getStaffPortalI18nBootstrapScript()}
       <button type="button" class="portal-schedule-view-btn active" data-ps-view="week" data-i18n="schedule.view.week">Week</button>
       <button type="button" class="portal-schedule-view-btn" data-ps-view="month" data-i18n="schedule.view.month">Month</button>
     </div>
+    <button type="button" class="btn btn-primary" id="ps-create-booking" data-i18n="schedule.createBooking">Create booking</button>
   </div>
   <div id="ps-state" class="state-msg" style="display:none"></div>
   <div id="ps-week-grid" class="portal-schedule-week"></div>
@@ -16870,6 +16883,26 @@ ${getStaffPortalI18nBootstrapScript()}
     </div>
     <div id="ps-booking-table"></div>
   </section>
+</div>
+
+<div id="ps-create-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
+  <div class="portal-schedule-create-backdrop" id="ps-create-backdrop"></div>
+  <div class="portal-schedule-create-panel" role="dialog" aria-labelledby="ps-create-title">
+    <h3 id="ps-create-title" data-i18n="schedule.create.title">Create booking (demo)</h3>
+    <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Staging only — saved in this browser session, not persisted to DB.</p>
+    <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-type" data-i18n="schedule.create.bookingType">Booking type</label><select id="ps-create-type"><option value="lesson" data-i18n="schedule.type.lesson">Lesson</option><option value="board_rental" data-i18n="schedule.type.boardRental">Board rental</option><option value="wetsuit_rental" data-i18n="schedule.type.wetsuitRental">Wetsuit rental</option></select></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-date" data-i18n="schedule.create.date">Date</label><input id="ps-create-date" type="date"></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-time" data-i18n="schedule.create.time">Time</label><input id="ps-create-time" type="time"></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-count" data-i18n="schedule.create.count">People / items</label><input id="ps-create-count" type="number" min="1" max="99" value="1"></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option><option value="pending" data-i18n="schedule.payment.pending">Pending</option></select></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
+    <div class="portal-schedule-create-field"><label><input id="ps-create-needs-reply" type="checkbox"> <span data-i18n="schedule.create.needsReply">Needs reply</span></label></div>
+    <div class="portal-schedule-create-actions">
+      <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Add demo booking</button>
+      <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
+    </div>
+  </div>
 </div>
 <div id="ps-drawer-backdrop" class="portal-schedule-drawer-backdrop" style="display:none"></div>
 <div id="ps-detail-drawer" class="portal-schedule-drawer" style="display:none">
@@ -18312,7 +18345,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !profile.is_surf_vertical) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
-  if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
+  if (tab === 'day-schedule') return true;
   return false;
 }
 
@@ -18391,7 +18424,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'day-schedule') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = 'none';
       return;
     }
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
@@ -18407,6 +18440,8 @@ var scheduleWeekStart = null;
 var scheduleRowsCache = [];
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
+var scheduleManualBookings = [];
+var scheduleManualIdSeq = 1;
 
 function scheduleIsoDate(d){
   var m = String(d.getMonth() + 1).padStart(2, '0');
@@ -18457,6 +18492,8 @@ function scheduleIsUnpaid(row){
 function scheduleRowType(row){
   var st = String(row.service_type || '').toLowerCase();
   if (/lesson/.test(st)) return 'lesson';
+  if (row && row._scheduleType === 'lesson') return 'lesson';
+  if (row && row._scheduleType === 'rental') return 'rental';
   return 'rental';
 }
 
@@ -18497,6 +18534,86 @@ function scheduleFetchMonth(client, monthStart){
   return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
 }
 
+
+function scheduleEnsureRowId(row){
+  if (!row) return row;
+  if (!row._scheduleId) row._scheduleId = 'row-' + Math.random().toString(36).slice(2, 10);
+  return row;
+}
+
+function schedulePickWeekIso(weekStart, offsetFromToday){
+  var today = dsTodayIso();
+  var dayIsos = [];
+  for (var i = 0; i < 7; i++) dayIsos.push(scheduleIsoDate(scheduleAddDays(weekStart, i)));
+  var target = scheduleIsoDate(scheduleAddDays(scheduleParseIso(today), offsetFromToday));
+  if (dayIsos.indexOf(target) >= 0) return target;
+  return dayIsos[Math.min(Math.max(offsetFromToday, 0), 6)] || today;
+}
+
+function scheduleBuildDemoBookings(weekStart){
+  return [
+    scheduleEnsureRowId({ _scheduleId: 'demo-lesson-paid', service_date: schedulePickWeekIso(weekStart, 0), slot_time: '09:00', service_type: 'lesson', guest_name: 'Demo Guest — Kai', quantity: 2, payment_status: 'paid', booking_code: 'DEMO-LSN-001', notes: 'Staging demo lesson — not a real booking.', _scheduleType: 'lesson', _isDemo: true, _needsReply: false }),
+    scheduleEnsureRowId({ _scheduleId: 'demo-board-unpaid', service_date: schedulePickWeekIso(weekStart, 0), slot_time: '11:30', service_type: 'board_rental', guest_name: 'Demo Guest — Mila', quantity: 1, payment_status: 'unpaid', booking_code: 'DEMO-BRD-002', notes: 'Board rental demo — unpaid staging example.', _scheduleType: 'rental', _isDemo: true, _needsReply: false }),
+    scheduleEnsureRowId({ _scheduleId: 'demo-wetsuit-paid', service_date: schedulePickWeekIso(weekStart, 1), slot_time: '10:00', service_type: 'wetsuit_rental', guest_name: 'Demo Guest — Noa', quantity: 2, payment_status: 'paid', booking_code: 'DEMO-WET-003', notes: 'Wetsuit rental demo.', _scheduleType: 'rental', _isDemo: true, _needsReply: false }),
+    scheduleEnsureRowId({ _scheduleId: 'demo-lesson-needs-reply', service_date: schedulePickWeekIso(weekStart, 1), slot_time: '14:00', service_type: 'lesson', guest_name: 'Demo Guest — Alex', quantity: 1, payment_status: 'pending', booking_code: 'DEMO-LSN-004', notes: 'Guest asked about group size — staging needs-reply example.', _scheduleType: 'lesson', _isDemo: true, _needsReply: true }),
+    scheduleEnsureRowId({ _scheduleId: 'demo-lesson-unpaid', service_date: schedulePickWeekIso(weekStart, 2), slot_time: '09:30', service_type: 'lesson', guest_name: 'Demo Guest — Sam', quantity: 1, payment_status: 'unpaid', booking_code: 'DEMO-LSN-005', notes: 'Unpaid lesson demo.', _scheduleType: 'lesson', _isDemo: true, _needsReply: false }),
+  ];
+}
+
+function scheduleMergeRowsIntoWeekData(weekData, extraRows){
+  var list = weekData || [];
+  var map = {};
+  list.forEach(function(p){ map[p.dateIso] = p; });
+  (extraRows || []).forEach(function(r){
+    var iso = String(r.service_date || r.date || '').slice(0, 10);
+    if (!iso) return;
+    if (!map[iso]){
+      map[iso] = { dateIso: iso, lessons: [], gear: [], rows: [] };
+      list.push(map[iso]);
+    }
+    var pack = map[iso];
+    pack.rows.push(r);
+    if (scheduleRowType(r) === 'lesson') pack.lessons.push(r);
+    else pack.gear.push(r);
+  });
+  return list;
+}
+
+function scheduleRentalsToday(rows, todayIso){
+  return (rows || []).filter(function(r){
+    return String(r.service_date || '').slice(0, 10) === todayIso && scheduleRowType(r) === 'rental';
+  }).length;
+}
+
+function scheduleLessonsToday(rows, todayIso){
+  return (rows || []).filter(function(r){
+    return String(r.service_date || '').slice(0, 10) === todayIso && scheduleRowType(r) === 'lesson';
+  }).length;
+}
+
+function scheduleBookingNeedReplyCount(rows){
+  return (rows || []).filter(function(r){ return r._needsReply; }).length;
+}
+
+function scheduleRowTypeLabel(row){
+  var st = String(row.service_type || '').toLowerCase();
+  if (/board/.test(st)) return portalT('schedule.type.boardRental');
+  if (/wetsuit/.test(st)) return portalT('schedule.type.wetsuitRental');
+  if (/lesson/.test(st)) return portalT('schedule.type.lesson');
+  return portalT('schedule.type.rental');
+}
+
+function scheduleRowBadge(row){
+  if (row && row._isManual) return portalT('schedule.badge.manualDraft');
+  if (row && row._isDemo) return portalT('schedule.badge.demo');
+  return '';
+}
+
+function scheduleFindRowById(id){
+  if (!id) return null;
+  return (scheduleRowsCache || []).find(function(r){ return r._scheduleId === id; }) || null;
+}
+
 function scheduleNeedReplyCount(convs){
   return (convs || []).filter(conversationNeedsHuman).length;
 }
@@ -18507,16 +18624,10 @@ function scheduleUnpaidCount(rows){
 
 function renderScheduleSummary(profile, weekData, convs){
   var today = dsTodayIso();
-  var todayPack = (weekData || []).find(function(d){ return d.dateIso === today; }) || { lessons: [], gear: [], rows: [] };
-  var cap = scheduleDayLessonCap(profile, today);
-  var used = scheduleLessonSeatsUsed(todayPack.lessons, today);
-  var left = Math.max(0, cap - used);
-  var weekLessons = (weekData || []).reduce(function(a, d){ return a + (d.lessons ? d.lessons.length : 0); }, 0);
-  setText('ps-lessons-today', String(todayPack.lessons.length));
-  setText('ps-seats-left', String(left) + ' / ' + String(cap));
-  setText('ps-lessons-week', String(weekLessons));
-  setText('ps-need-reply', String(scheduleNeedReplyCount(convs)));
-  setText('ps-unpaid', String(scheduleUnpaidCount(scheduleRowsCache)));
+  var rows = scheduleRowsCache || [];
+  setText('ps-rentals-today', String(scheduleRentalsToday(rows, today)));
+  setText('ps-lessons-today', String(scheduleLessonsToday(rows, today)));
+  setText('ps-need-reply', String(scheduleNeedReplyCount(convs) + scheduleBookingNeedReplyCount(rows)));
 }
 
 function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
@@ -18548,21 +18659,23 @@ function renderScheduleWeekGrid(profile, weekData, weekStart){
       '<div class="portal-schedule-day-hdr">' + escHtml(dayName) +
       '<div class="portal-schedule-day-seats">' + escHtml(String(used) + ' / ' + String(cap) + ' seats') + '</div></div>' +
       '<div class="portal-schedule-day-body">';
-    pack.rows.forEach(function(r, idx){
+    pack.rows.forEach(function(r){
+      scheduleEnsureRowId(r);
       var typ = r._scheduleType || scheduleRowType(r);
       var time = r.slot_time || r.service_time || '';
-      var label = r.offering_label || r.service_type || (typ === 'lesson' ? 'Lesson' : 'Rental');
-      html += '<div class="portal-schedule-item-card ' + typ + '" data-ps-row="' + escHtml(iso + ':' + idx) + '">' +
+      var label = r.guest_name || r.offering_label || scheduleRowTypeLabel(r);
+      var extraCls = r._isManual ? ' manual' : (r._isDemo ? ' demo' : '');
+      html += '<div class="portal-schedule-item-card ' + typ + extraCls + '" data-ps-booking-id="' + escHtml(r._scheduleId) + '">' +
         escHtml((time ? time + ' · ' : '') + label) + '</div>';
     });
     if (!pack.rows.length) html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
     html += '</div></div>';
   }
   box.innerHTML = html;
-  box.querySelectorAll('[data-ps-row]').forEach(function(node){
+  box.querySelectorAll('[data-ps-booking-id]').forEach(function(node){
     node.addEventListener('click', function(){
-      var key = node.getAttribute('data-ps-row');
-      var row = scheduleFindRowByKey(key);
+      var id = node.getAttribute('data-ps-booking-id');
+      var row = scheduleFindRowById(id);
       if (row) openScheduleDetailDrawer(row);
     });
   });
@@ -18582,15 +18695,11 @@ function renderScheduleMonthGrid(profile, monthData, box){
 }
 
 function scheduleFindRowByKey(key){
-  if (!key) return null;
-  var parts = String(key).split(':');
-  var iso = parts[0];
-  var idx = Number(parts[1]);
-  var pack = scheduleRowsCache.filter(function(r){ return String(r.service_date || '').slice(0,10) === iso; });
-  return pack[idx] || null;
+  return scheduleFindRowById(key);
 }
 
 function scheduleRowNeedsAction(row){
+  if (row && row._needsReply) return portalT('schedule.drawer.needsReply');
   if (scheduleIsUnpaid(row)) return portalT('schedule.action.unpaid');
   return '—';
 }
@@ -18617,10 +18726,11 @@ function renderScheduleBookingList(filter){
     '<th>' + escHtml(portalT('schedule.col.action')) + '</th>' +
     '</tr></thead><tbody>';
   rows.forEach(function(r){
-    html += '<tr class="ps-booking-row" style="cursor:pointer">' +
+    scheduleEnsureRowId(r);
+    html += '<tr class="ps-booking-row" style="cursor:pointer" data-ps-booking-id="' + escHtml(r._scheduleId) + '">' +
       '<td>' + escHtml(String(r.service_date || '—').slice(0, 10)) + '</td>' +
       '<td>' + escHtml(String(r.slot_time || r.service_time || '—')) + '</td>' +
-      '<td>' + escHtml(scheduleRowType(r) === 'lesson' ? portalT('schedule.type.lesson') : portalT('schedule.type.rental')) + '</td>' +
+      '<td>' + escHtml(scheduleRowTypeLabel(r)) + '</td>' +
       '<td>' + escHtml(r.guest_name || '—') + '</td>' +
       '<td>' + escHtml(String(r.service_type || '—').replace(/_/g, ' ')) + (r.quantity != null ? ' ×' + r.quantity : '') + '</td>' +
       '<td>' + escHtml(r.payment_status || '—') + '</td>' +
@@ -18628,25 +18738,88 @@ function renderScheduleBookingList(filter){
   });
   html += '</tbody></table>';
   box.innerHTML = html;
-  box.querySelectorAll('.ps-booking-row').forEach(function(tr, i){
-    tr.addEventListener('click', function(){ openScheduleDetailDrawer(rows[i]); });
+  box.querySelectorAll('.ps-booking-row').forEach(function(tr){
+    tr.addEventListener('click', function(){
+      var id = tr.getAttribute('data-ps-booking-id');
+      var row = scheduleFindRowById(id);
+      if (row) openScheduleDetailDrawer(row);
+    });
   });
 }
 
 function openScheduleDetailDrawer(row){
   if (!row) return;
+  scheduleEnsureRowId(row);
   var drawer = el('ps-detail-drawer');
   var backdrop = el('ps-drawer-backdrop');
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
-  body.innerHTML = '<h3 style="margin:0 0 12px">' + escHtml(row.guest_name || 'Guest') + '</h3>' +
-    '<p><strong>' + escHtml(portalT('schedule.col.type')) + ':</strong> ' + escHtml(String(row.service_type || '—')) + '</p>' +
-    '<p><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—')) + '</p>' +
-    '<p><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + escHtml(row.payment_status || '—') + '</p>' +
-    '<p><strong>Booking:</strong> ' + escHtml(row.booking_code || '—') + '</p>' +
-    '<p style="font-size:12px;color:var(--text-3)">' + escHtml(portalT('schedule.drawer.readOnly')) + '</p>';
+  var badge = scheduleRowBadge(row);
+  var details = String(row.service_type || '—').replace(/_/g, ' ');
+  if (row.quantity != null) details += ' ×' + row.quantity;
+  var action = scheduleRowNeedsAction(row);
+  var notes = row.notes || row.message || '';
+  body.innerHTML = (badge ? '<div class="portal-schedule-demo-badge">' + escHtml(badge) + '</div>' : '') +
+    '<h3 style="margin:0 0 12px">' + escHtml(row.guest_name || 'Guest') + '</h3>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.type')) + ':</strong> ' + escHtml(scheduleRowTypeLabel(row)) + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.time')) + ':</strong> ' + escHtml(String(row.slot_time || row.service_time || '—')) + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.details')) + ':</strong> ' + escHtml(details) + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + escHtml(row.payment_status || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.needsAction')) + ':</strong> ' + escHtml(action) + '</p>' +
+    (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
+    '<p class="portal-schedule-drawer-kv"><strong>Booking:</strong> ' + escHtml(row.booking_code || '—') + '</p>' +
+    '<p style="font-size:12px;color:var(--text-3);margin-top:14px">' + escHtml(portalT('schedule.drawer.readOnly')) + '</p>';
   drawer.style.display = 'block';
   if (backdrop) backdrop.style.display = 'block';
+}
+
+function openScheduleCreateModal(){
+  var modal = el('ps-create-modal');
+  if (!modal) return;
+  var dateInput = el('ps-create-date');
+  if (dateInput && !dateInput.value) dateInput.value = dsTodayIso();
+  modal.style.display = 'flex';
+  modal.setAttribute('aria-hidden', 'false');
+}
+
+function closeScheduleCreateModal(){
+  var modal = el('ps-create-modal');
+  if (!modal) return;
+  modal.style.display = 'none';
+  modal.setAttribute('aria-hidden', 'true');
+}
+
+function submitScheduleManualBooking(){
+  var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
+  var type = el('ps-create-type') ? el('ps-create-type').value : 'lesson';
+  var dateVal = el('ps-create-date') ? el('ps-create-date').value : dsTodayIso();
+  var timeVal = el('ps-create-time') ? el('ps-create-time').value : '10:00';
+  var countVal = el('ps-create-count') ? parseInt(el('ps-create-count').value, 10) : 1;
+  var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
+  var notes = (el('ps-create-notes') && el('ps-create-notes').value || '').trim();
+  var needsReply = !!(el('ps-create-needs-reply') && el('ps-create-needs-reply').checked);
+  if (!guest) guest = 'Manual draft guest';
+  if (!Number.isFinite(countVal) || countVal < 1) countVal = 1;
+  var id = 'manual-' + String(scheduleManualIdSeq++);
+  var row = scheduleEnsureRowId({
+    _scheduleId: id,
+    _isManual: true,
+    _isDemo: false,
+    guest_name: guest,
+    service_type: type,
+    service_date: dateVal,
+    slot_time: timeVal,
+    quantity: countVal,
+    payment_status: payment,
+    notes: notes || portalT('schedule.badge.manualDraft'),
+    _needsReply: needsReply,
+    _scheduleType: (/lesson/.test(type) ? 'lesson' : 'rental'),
+    booking_code: 'MANUAL-' + String(scheduleManualIdSeq).padStart(4, '0'),
+  });
+  scheduleManualBookings.push(row);
+  closeScheduleCreateModal();
+  loadSchedulePage();
 }
 
 function closeScheduleDetailDrawer(){
@@ -18692,7 +18865,10 @@ function loadSchedulePage(){
     scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
     scheduleRowsCache = [];
     (weekData || []).forEach(function(p){ scheduleRowsCache = scheduleRowsCache.concat(p.rows || []); });
-    scheduleRowsCache.forEach(function(r){ r._needsReply = false; });
+    scheduleRowsCache.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
+    var demoRows = scheduleBuildDemoBookings(scheduleWeekStart);
+    weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows.concat(scheduleManualBookings));
+    scheduleRowsCache = scheduleRowsCache.concat(demoRows).concat(scheduleManualBookings);
     renderScheduleSummary(profile, weekData, scheduleConversationsCache);
     renderScheduleWeekGrid(profile, weekData, scheduleWeekStart);
     renderScheduleBookingList(scheduleFilter);
@@ -18706,13 +18882,18 @@ function wireScheduleControls(){
   var ids = [['ps-prev-week', function(){ scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), -7); loadSchedulePage(); }],
     ['ps-next-week', function(){ scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), 7); loadSchedulePage(); }],
     ['ps-today', function(){ scheduleWeekStart = scheduleWeekStartMonday(new Date()); loadSchedulePage(); }],
-    ['ps-drawer-close', closeScheduleDetailDrawer]];
+    ['ps-drawer-close', closeScheduleDetailDrawer],
+    ['ps-create-booking', openScheduleCreateModal],
+    ['ps-create-cancel', closeScheduleCreateModal],
+    ['ps-create-submit', submitScheduleManualBooking]];
   ids.forEach(function(pair){
     var node = el(pair[0]);
     if (node && !node.dataset.wired){ node.dataset.wired = '1'; node.addEventListener('click', pair[1]); }
   });
   var backdrop = el('ps-drawer-backdrop');
   if (backdrop && !backdrop.dataset.wired){ backdrop.dataset.wired = '1'; backdrop.addEventListener('click', closeScheduleDetailDrawer); }
+  var createBackdrop = el('ps-create-backdrop');
+  if (createBackdrop && !createBackdrop.dataset.wired){ createBackdrop.dataset.wired = '1'; createBackdrop.addEventListener('click', closeScheduleCreateModal); }
   document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
     if (btn.dataset.wired) return;
     btn.dataset.wired = '1';
