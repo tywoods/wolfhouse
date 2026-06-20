@@ -114,7 +114,7 @@ function scheduleRowFromDb(row) {
 
   return {
     _scheduleId: String(row.service_record_id || row.id || ''),
-    _isDbManual: row.record_source === DB_SOURCE && (row.metadata_source === METADATA_SOURCE_TAG || row.staff_manual_schedule === true),
+    _isDbManual: row.record_source === DB_SOURCE && (row.metadata_source === METADATA_SOURCE_TAG || row.staff_manual_schedule === true || (row.metadata_source == null && row.staff_ui_service_type)),
     _isDemo: false,
     guest_name: row.guest_name || null,
     service_type: uiType,
@@ -250,7 +250,8 @@ async function createSunsetScheduleBooking(pg, opts) {
                  metadata->>'slot_time' AS slot_time,
                  metadata->>'notes' AS notes,
                  COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
-                 metadata->>'staff_ui_service_type' AS staff_ui_service_type`,
+                 metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+                 metadata->>'source' AS metadata_source`,
       [
         clientSlug,
         bookingId,

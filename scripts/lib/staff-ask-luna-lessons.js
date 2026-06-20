@@ -112,6 +112,7 @@ SELECT
   COALESCE((sr.metadata->>'needs_reply')::boolean, false) AS needs_reply,
   sr.metadata->>'staff_ui_service_type'     AS staff_ui_service_type,
   sr.source                                 AS record_source,
+  sr.metadata,
   COALESCE(
     (SELECT STRING_AGG(rm_bed, ', ' ORDER BY rm_bed)
      FROM (
