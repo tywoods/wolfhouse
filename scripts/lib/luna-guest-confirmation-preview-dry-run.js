@@ -45,7 +45,7 @@ const BED_CODE_RE = /(?:DEMO-R\d+-B\d+|\bB[1-9]\b)/i;
 const BED_NUMBER_RE = /\bbed\s*(?:number|#|no\.?)?\s*:?\s*\d/i;
 const HOLD_EXPIRY_RE = /\b(?:hold expires?|hold expiry|expiry time|scade tra|6[- ]?hour hold|only held for)\b/i;
 const LUNA_IDENTITY_RE = /\b(?:luna|wolfhouse)\b/i;
-const ARRIVAL_PAYMENT_RE = /\b(?:cash|bank transfer|bonifico|contanti|stripe|on arrival|check-in|check in|all'arrivo)\b/i;
+const ARRIVAL_PAYMENT_RE = /\b(?:cash|bank transfer|bonifico|contanti|stripe|on arrival|check-in|check in|all'arrivo|payment link|ask me for)\b/i;
 const BALANCE_ASK_RE = /\b(?:balance due|remaining balance|saldo|pay the balance|settle the remaining)\b/i;
 
 const PREVIEW_SAFETY = Object.freeze({
@@ -136,9 +136,9 @@ function appendDepositBalanceArrivalOptions(message, balanceDueCents, language) 
   const lang = String(language || 'en').slice(0, 2).toLowerCase();
   const amount = `€${(balanceDueCents / 100).toFixed(0)}`;
   if (lang === 'it') {
-    return `${message}\n\nIl saldo restante di ${amount} può essere saldato all'arrivo/check-in in contanti, bonifico o pagamento online.`;
+    return `${message}\n\nIl saldo restante di ${amount} può essere saldato all'arrivo/check-in in contanti, bonifico o chiedendomi un link di pagamento.`;
   }
-  return `${message}\n\nYour remaining balance of ${amount} can be settled on arrival/check-in by cash, bank transfer, or pay online.`;
+  return `${message}\n\nYour remaining balance of ${amount} can be settled on arrival/check-in by cash, bank transfer, or ask me for a payment link.`;
 }
 
 function stripBalanceCopyForFullPaid(message) {

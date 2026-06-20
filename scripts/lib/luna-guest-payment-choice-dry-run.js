@@ -59,7 +59,7 @@ const REPLY_TEMPLATES = {
     intro: "Hi! I'm Luna from Wolfhouse",
     deposit_ready: 'Thanks — I noted you would like to pay the deposit. I am not confirming the booking, creating a hold, or sending a payment link yet.',
     full_ready: 'Thanks — I noted you would like to pay the full amount. I am not confirming the booking, creating a hold, or sending a payment link yet.',
-    arrival: 'The remaining balance can be paid by cash, bank transfer, or pay online on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?',
+    arrival: 'The remaining balance can be paid by cash, bank transfer, or ask me for a payment link on arrival or at check-in. For the booking step now, would you prefer the deposit or the full amount?',
     link_request: 'I cannot send a payment link automatically yet. Would you prefer to pay the deposit or the full amount? I am not confirming the booking yet.',
     unclear: 'Thanks! Would you prefer to pay the deposit or the full amount for your stay?',
     not_ready_deposit: 'Perfect, deposit is fine 😊 First I just need to confirm the stay details so I can check the right option for you.',

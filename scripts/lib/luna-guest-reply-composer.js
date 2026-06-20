@@ -1105,9 +1105,9 @@ function buildReplyForState(state, ctx) {
     },
     answer_arrival_payment_question: () => {
       if (!deposit || !total) {
-        return 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or pay online. To hold the spot, we still need a deposit or full payment now.';
+        return 'Yep — the remaining balance can be paid on arrival by cash, bank transfer, or ask me for a payment link. To hold the spot, we still need a deposit or full payment now.';
       }
-      return `Yep — the remaining balance can be paid on arrival by cash, bank transfer, or pay online. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
+      return `Yep — the remaining balance can be paid on arrival by cash, bank transfer, or ask me for a payment link. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
     },
     addons_none: () => {
       if (!deposit || !total) return null;

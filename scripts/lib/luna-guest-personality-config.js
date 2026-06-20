@@ -189,7 +189,7 @@ function buildPersonalityReplyLexicon(clientSlug, lang, formatters, variationInp
       const { deposit, total } = ctx;
       if (!deposit || !total) {
         return t('answer_arrival_payment_question_no_amounts', {}, 'pay_later_explainer')
-          || 'Sure — balance on arrival by cash, bank transfer, or pay online works 😊 To hold the spot, we still need a deposit or full payment now.';
+          || 'Sure — balance on arrival by cash, bank transfer, or ask me for a payment link works 😊 To hold the spot, we still need a deposit or full payment now.';
       }
       return t('answer_arrival_payment_question', { deposit, total }, 'cash_side_question')
         || `Sure — cash with me at check-in, or bank transfer on your arrival day. To hold the spot, would you prefer to pay the ${deposit} deposit now, or pay the full ${total}?`;
