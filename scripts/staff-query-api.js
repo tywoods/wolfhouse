@@ -177,11 +177,18 @@ const {
 const { resetHermesGuestSession } = require('./lib/luna-hermes-guest-session-reset');
 const {
   getAccessibleClients,
+  getSessionScopedClients,
   userCanAccessClient,
   resolveStaffRole,
   canUseOwnerInsights,
   buildClientProfilesMap,
+  buildSessionClientProfilesMap,
 } = require('./lib/staff-portal-clients');
+const {
+  resolveTenantBusinessConfig,
+  resolveTenantBusinessConfigAsync,
+  isSunsetAdminDbReadEnabled,
+} = require('./lib/tenant-business-config');
 const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
@@ -15764,6 +15771,56 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
+.portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
+.portal-admin-header{margin-bottom:18px}
+.portal-admin-header h2{font-size:20px;font-weight:800;color:var(--text);margin:0 0 8px}
+.portal-admin-banner{background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 16px;margin-bottom:18px;font-size:13px;color:var(--text-2);line-height:1.5}
+.portal-admin-banner strong{color:var(--text)}
+.portal-admin-sections{display:grid;grid-template-columns:1fr;gap:14px}
+.portal-admin-section{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft)}
+.portal-admin-section-hdr{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
+.portal-admin-section-body{font-size:13px;color:var(--text);line-height:1.55}
+.portal-admin-kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border-soft)}
+.portal-admin-kv:first-child{border-top:none;padding-top:0}
+.portal-admin-kv-label{color:var(--text-2);font-weight:600}
+.portal-admin-kv-value{text-align:right;color:var(--text)}
+.portal-admin-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+.portal-admin-table th,.portal-admin-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
+.portal-admin-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.portal-admin-muted{color:var(--text-3);font-style:italic}
+.portal-admin-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
+.portal-admin-btn[disabled]{opacity:.55;cursor:not-allowed}
+#tab-admin.active{display:block}
+
+.portal-schedule-wrap{max-width:1240px;margin:0 auto;padding:24px 20px 32px}
+.portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
+@media(max-width:1100px){.portal-schedule-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:640px){.portal-schedule-summary{grid-template-columns:1fr 1fr}}
+.portal-schedule-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.portal-schedule-card-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:6px}
+.portal-schedule-card-stat{font-size:22px;font-weight:800;color:var(--text);line-height:1.2}
+.portal-schedule-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
+.portal-schedule-range{font-size:14px;font-weight:700;color:var(--text);min-width:180px}
+.portal-schedule-view-toggle{display:flex;gap:4px;margin-left:auto}
+.portal-schedule-view-btn{font-size:12px;padding:6px 12px;border-radius:var(--radius-pill);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer}
+.portal-schedule-view-btn.active{background:var(--tan);border-color:var(--tan);font-weight:700}
+.portal-schedule-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:22px}
+@media(max-width:900px){.portal-schedule-week{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.portal-schedule-day-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);min-height:140px;display:flex;flex-direction:column}
+.portal-schedule-day-col.is-today{border-color:var(--tan);box-shadow:var(--shadow-soft)}
+.portal-schedule-day-hdr{padding:8px 10px;border-bottom:1px solid var(--border-soft);font-size:12px;font-weight:700;color:var(--text)}
+.portal-schedule-day-seats{font-size:11px;font-weight:600;color:var(--text-3);margin-top:2px}
+.portal-schedule-day-body{padding:8px;flex:1;display:flex;flex-direction:column;gap:6px}
+.portal-schedule-item-card{font-size:11px;padding:6px 8px;border-radius:6px;border:1px solid var(--border-soft);background:var(--surface-soft);cursor:pointer}
+.portal-schedule-item-card.lesson{border-left:3px solid var(--tan)}
+.portal-schedule-item-card.rental{border-left:3px solid #7eb8da}
+.portal-schedule-list-hdr{font-size:15px;font-weight:700;margin:0 0 10px}
+.portal-schedule-filters{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+.portal-schedule-filter-btn{font-size:12px;padding:5px 12px;border-radius:var(--radius-pill);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer}
+.portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:20px;overflow:auto}
+.portal-schedule-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.25);z-index:8999}
+
 /* ── Customers tab (Sunset / surf guest history) ──────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:20px 20px 16px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
@@ -16713,11 +16770,12 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Tabs ───────────────────────────────────────────────────────────────── -->
 <div id="tabs">
-  <button class="tab-btn" data-tab="portal-home" data-i18n="nav.tab.portalHome" style="display:none">Today</button>
+  <button class="tab-btn" data-tab="portal-home" data-i18n="nav.tab.portalHome" style="display:none">Schedule</button>
   <button class="tab-btn" data-tab="bed-calendar" data-i18n="nav.tab.calendar">Booking Calendar</button>
   <button class="tab-btn" data-tab="conversations" data-i18n="nav.tab.whatsapp">WhatsApp</button>
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
+  <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -16758,72 +16816,44 @@ ${getStaffPortalI18nBootstrapScript()}
 
 <!-- ── Portal home (Sunset / surf demo landing) ─────────────────────────── -->
 <div id="tab-portal-home" class="tab-panel">
-<div id="wrap-portal-home" class="portal-home-wrap">
-  <header class="portal-home-header">
-    <div class="portal-home-brand-row">
-      <h1 class="portal-home-school" data-i18n="demoHome.schoolName">Sunset Surf School</h1>
-      <span class="portal-home-pill" data-i18n="demoHome.brand">Luna Front Desk</span>
-    </div>
-    <p class="portal-home-subtitle" data-i18n="demoHome.subtitle">Guest emails and WhatsApp messages, lessons, and rentals in one place.</p>
-  </header>
-  <div class="portal-home-cards">
-    <div class="portal-home-card" id="ph-card-inbox" role="button" tabindex="0" onclick="switchToTab('conversations','inbox')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('conversations','inbox');}">
-      <div class="portal-home-card-title" data-i18n="demoHome.card.inbox.title">Inbox</div>
-      <div class="portal-home-card-stat" id="ph-inbox-stat">…</div>
-      <p class="portal-home-card-helper" data-i18n="demoHome.card.inbox.helper">Guest emails and WhatsApp messages will appear here.</p>
-    </div>
-    <div class="portal-home-card" id="ph-card-lessons" role="button" tabindex="0" onclick="switchToTab('day-schedule')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('day-schedule');}">
-      <div class="portal-home-card-title" data-i18n="demoHome.card.lessons.title">Lessons today</div>
-      <ul class="portal-home-card-list" id="ph-lessons-list"></ul>
-      <p class="portal-home-card-helper" id="ph-lessons-helper" style="display:none" data-i18n="demoHome.card.lessons.empty">No lesson slots configured yet.</p>
-    </div>
-    <div class="portal-home-card" id="ph-card-rentals" role="button" tabindex="0" onclick="switchToTab('day-schedule')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('day-schedule');}">
-      <div class="portal-home-card-title" data-i18n="demoHome.card.rentals.title">Rentals today</div>
-      <div class="portal-home-card-stat" id="ph-rentals-stat" data-i18n="demoHome.card.rentals.zero">No rentals scheduled yet</div>
-      <p class="portal-home-card-helper" data-i18n="demoHome.card.rentals.helper">Board and wetsuit rentals will appear here.</p>
-    </div>
-    <div class="portal-home-card" id="ph-card-attention" role="button" tabindex="0" onclick="switchToTab('conversations','handoffs')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();switchToTab('conversations','handoffs');}">
-      <div class="portal-home-card-title" data-i18n="demoHome.card.attention.title">Needs attention</div>
-      <div class="portal-home-card-stat" id="ph-attention-stat" data-i18n="demoHome.card.attention.zero">No handoffs right now</div>
-      <p class="portal-home-card-helper" data-i18n="demoHome.card.attention.helper">Luna will flag unclear bookings, payment questions, and staff handoffs.</p>
+<div id="wrap-portal-home" class="portal-schedule-wrap">
+  <div class="portal-schedule-summary">
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsToday">Lessons today</div><div class="portal-schedule-card-stat" id="ps-lessons-today">…</div></div>
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.seatsLeft">Seats left today</div><div class="portal-schedule-card-stat" id="ps-seats-left">…</div></div>
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonsWeek">Lessons this week</div><div class="portal-schedule-card-stat" id="ps-lessons-week">…</div></div>
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat" id="ps-need-reply">…</div></div>
+    <div class="portal-schedule-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.unpaid">Unpaid</div><div class="portal-schedule-card-stat" id="ps-unpaid">…</div></div>
+  </div>
+  <div class="portal-schedule-toolbar">
+    <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
+    <button type="button" class="btn btn-primary" id="ps-today" data-i18n="schedule.nav.today">Today</button>
+    <button type="button" class="btn btn-ghost" id="ps-next-week" data-i18n="schedule.nav.next">Next</button>
+    <span class="portal-schedule-range" id="ps-range-label">—</span>
+    <div class="portal-schedule-view-toggle">
+      <button type="button" class="portal-schedule-view-btn" data-ps-view="day" data-i18n="schedule.view.day">Day</button>
+      <button type="button" class="portal-schedule-view-btn active" data-ps-view="week" data-i18n="schedule.view.week">Week</button>
+      <button type="button" class="portal-schedule-view-btn" data-ps-view="month" data-i18n="schedule.view.month">Month</button>
     </div>
   </div>
-  <div class="portal-home-main-row">
-    <section class="card portal-home-schedule">
-      <div class="cc-section-hdr" data-i18n="demoHome.schedule.title">Today's schedule</div>
-      <div class="toolbar" style="margin-top:10px">
-        <label style="flex-direction:row;align-items:center;gap:6px;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:0">
-          <span data-i18n="daySchedule.date">Date</span>&nbsp;<input id="ph-ds-date" type="date" class="bc-date-input" autocomplete="off">
-        </label>
-        <button class="btn btn-primary" id="ph-ds-load" type="button">&#128197; <span data-i18n="daySchedule.load">Load</span></button>
-        <button class="btn btn-ghost" type="button" onclick="switchToTab('day-schedule')" data-i18n="demoHome.openSchedule">Open Day Schedule</button>
-      </div>
-      <div id="ph-ds-state" class="state-msg" data-i18n="daySchedule.loading">Loading schedule…</div>
-      <div id="ph-ds-slots-wrap" style="margin-top:14px;display:none">
-        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.demoSlots">Lesson slots (demo config)</div>
-        <div id="ph-ds-slots" class="today-grid" style="margin-top:8px"></div>
-      </div>
-      <div id="ph-ds-lessons-wrap" style="margin-top:16px;display:none">
-        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.lessons">Lessons</div>
-        <div id="ph-ds-lessons-table"></div>
-      </div>
-      <div id="ph-ds-rentals-wrap" style="margin-top:16px;display:none">
-        <div class="cc-section-hdr" style="font-size:13px" data-i18n="daySchedule.rentals">Rentals / gear</div>
-        <div id="ph-ds-rentals-table"></div>
-      </div>
-      <p class="portal-home-schedule-note" data-i18n="demoHome.schedule.capacityNote">Scheduled capacity is shown from your Sunset setup.</p>
-    </section>
-    <aside class="card portal-home-luna">
-      <div class="cc-section-hdr" data-i18n="demoHome.luna.title">What Luna will help with</div>
-      <ul>
-        <li data-i18n="demoHome.luna.item1">One place for guest conversations</li>
-        <li data-i18n="demoHome.luna.item2">Draft email replies</li>
-        <li data-i18n="demoHome.luna.item3">Keep WhatsApp threads organized</li>
-        <li data-i18n="demoHome.luna.item4">Flag unclear requests for staff</li>
-        <li data-i18n="demoHome.luna.item5">Email and chat threads — designed for your shared inbox</li>
-      </ul>
-    </aside>
-  </div>
+  <div id="ps-state" class="state-msg" style="display:none"></div>
+  <div id="ps-week-grid" class="portal-schedule-week"></div>
+  <div id="ps-month-grid" class="portal-schedule-week" style="display:none"></div>
+  <section class="card" style="margin-top:8px">
+    <h3 class="portal-schedule-list-hdr" data-i18n="schedule.list.title">Bookings &amp; actions</h3>
+    <div class="portal-schedule-filters">
+      <button type="button" class="portal-schedule-filter-btn active" data-ps-filter="all" data-i18n="schedule.filter.all">All</button>
+      <button type="button" class="portal-schedule-filter-btn" data-ps-filter="lessons" data-i18n="schedule.filter.lessons">Lessons</button>
+      <button type="button" class="portal-schedule-filter-btn" data-ps-filter="rentals" data-i18n="schedule.filter.rentals">Rentals</button>
+      <button type="button" class="portal-schedule-filter-btn" data-ps-filter="needs_reply" data-i18n="schedule.filter.needsReply">Needs reply</button>
+      <button type="button" class="portal-schedule-filter-btn" data-ps-filter="unpaid" data-i18n="schedule.filter.unpaid">Unpaid</button>
+    </div>
+    <div id="ps-booking-table"></div>
+  </section>
+</div>
+<div id="ps-drawer-backdrop" class="portal-schedule-drawer-backdrop" style="display:none"></div>
+<div id="ps-detail-drawer" class="portal-schedule-drawer" style="display:none">
+  <button type="button" class="btn btn-ghost" id="ps-drawer-close" style="margin-bottom:12px" data-i18n="schedule.drawer.close">Close</button>
+  <div id="ps-drawer-body"></div>
 </div>
 </div><!-- /tab-portal-home -->
 
@@ -16852,6 +16882,49 @@ ${getStaffPortalI18nBootstrapScript()}
   </div>
 </div>
 </div><!-- /tab-customers -->
+
+<!-- ── Admin tab (Sunset read-only skeleton) ─────────────────────────────── -->
+<div id="tab-admin" class="tab-panel">
+<div class="portal-admin-wrap">
+  <header class="portal-admin-header">
+    <h2 data-i18n="admin.title">Admin</h2>
+    <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
+    <div class="portal-admin-banner">
+      <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
+      <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
+      <span data-i18n="admin.banner.lunaNote"> These settings will eventually control what Luna quotes and offers.</span>
+    </div>
+  </header>
+  <div class="portal-admin-sections">
+    <section class="portal-admin-section" id="admin-sec-prices">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.prices">Prices</div>
+      <div class="portal-admin-section-body" id="admin-prices-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-capacity">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.capacity">Lesson capacity</div>
+      <div class="portal-admin-section-body" id="admin-capacity-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-times">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.lessonTimes">Lesson times</div>
+      <div class="portal-admin-section-body" id="admin-times-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-business">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.businessInfo">Business info</div>
+      <div class="portal-admin-section-body" id="admin-business-body"></div>
+    </section>
+    <section class="portal-admin-section" id="admin-sec-history">
+      <div class="portal-admin-section-hdr" data-i18n="admin.section.changeHistory">Change history</div>
+      <div class="portal-admin-section-body" id="admin-history-body"></div>
+    </section>
+  </div>
+  <div class="portal-admin-actions">
+    <button type="button" class="btn btn-primary portal-admin-btn" disabled data-i18n="admin.action.saveComingSoon">Save — Coming soon</button>
+    <button type="button" class="btn btn-ghost portal-admin-btn" disabled data-i18n="admin.action.editComingSoon">Edit — Coming soon</button>
+  </div>
+</div>
+</div><!-- /tab-admin -->
+
+
 
 <!-- ── Conversations / Inbox tab ──────────────────────────────────────────── -->
 <div id="tab-conversations" class="tab-panel">
@@ -17750,6 +17823,7 @@ function switchToTab(tab, subtab){
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
+  if (tab === 'admin') loadAdminTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
 }
@@ -17778,6 +17852,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'ask-luna') lunaGlobalPauseLoad();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
+    if (target === 'admin') loadAdminTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   });
@@ -18218,6 +18293,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (hidden.indexOf(tab) >= 0) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !profile.is_surf_vertical) return true;
+  if (tab === 'admin' && !profile.is_surf_vertical) return true;
   if (tab === 'day-schedule' && !profile.is_surf_vertical) return true;
   return false;
 }
@@ -18292,6 +18368,10 @@ function applyClientPortalProfile(clientSlug){
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }
+    if (tab === 'admin') {
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
     if (tab === 'day-schedule') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
@@ -18302,163 +18382,460 @@ function applyClientPortalProfile(clientSlug){
   applySurfInboxFilters(profile);
 }
 
-function demoHomeSlotFriendlyLabel(slot, index){
-  var labels = ['Morning surf lesson', 'Afternoon surf lesson', 'Kids / private lesson'];
-  if (index >= 0 && index < labels.length) return labels[index];
-  return (slot && slot.offering_label) ? slot.offering_label : 'Surf lesson';
+
+var SUNSET_SCHEDULE_LESSON_DAY_CAP = 24;
+var scheduleViewMode = 'week';
+var scheduleWeekStart = null;
+var scheduleRowsCache = [];
+var scheduleFilter = 'all';
+var scheduleConversationsCache = [];
+
+function scheduleIsoDate(d){
+  var m = String(d.getMonth() + 1).padStart(2, '0');
+  var day = String(d.getDate()).padStart(2, '0');
+  return d.getFullYear() + '-' + m + '-' + day;
 }
 
-function demoHomeSlotCapacityText(slot){
-  var booked = slot && slot.seats_booked != null ? Number(slot.seats_booked) : 0;
-  var cap = slot && slot.capacity != null ? Number(slot.capacity) : null;
-  if (cap != null && !isNaN(cap)) return '(' + booked + '/' + cap + ')';
-  return '';
+function scheduleParseIso(s){
+  var p = String(s || '').split('-');
+  if (p.length !== 3) return new Date();
+  return new Date(Number(p[0]), Number(p[1]) - 1, Number(p[2]));
 }
 
-function renderPortalHomeLessonSlots(slots){
-  var list = el('ph-lessons-list');
-  var helper = el('ph-lessons-helper');
-  if (!list) return;
-  var demo = (slots || []).slice(0, 3);
-  if (!demo.length){
-    list.innerHTML = '';
-    if (helper) helper.style.display = '';
+function scheduleWeekStartMonday(ref){
+  var d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+  var dow = d.getDay();
+  var diff = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + diff);
+  return d;
+}
+
+function scheduleAddDays(d, n){
+  var x = new Date(d.getTime());
+  x.setDate(x.getDate() + n);
+  return x;
+}
+
+function scheduleDayLessonCap(profile, dateIso){
+  var slots = (profile.lesson_slots_demo || []).filter(function(s){ return !s.date || s.date === dateIso; });
+  if (slots.length){
+    var sum = slots.reduce(function(a, s){ return a + (s.capacity != null ? Number(s.capacity) : 0); }, 0);
+    if (sum > 0) return sum;
+  }
+  return SUNSET_SCHEDULE_LESSON_DAY_CAP;
+}
+
+function scheduleLessonSeatsUsed(rows, dateIso){
+  return (rows || []).filter(function(r){
+    return String(r.service_date || r.date || '').slice(0, 10) === dateIso;
+  }).reduce(function(a, r){ return a + (r.quantity != null ? Number(r.quantity) : 1); }, 0);
+}
+
+function scheduleIsUnpaid(row){
+  var ps = String(row.payment_status || '').toLowerCase();
+  return ps && ps !== 'paid' && ps !== 'complete' && ps !== 'completed' && ps !== 'free';
+}
+
+function scheduleRowType(row){
+  var st = String(row.service_type || '').toLowerCase();
+  if (/lesson/.test(st)) return 'lesson';
+  return 'rental';
+}
+
+function scheduleFormatRange(start, end){
+  try {
+    var opts = { month: 'short', day: 'numeric' };
+    var a = start.toLocaleDateString(undefined, opts);
+    var b = end.toLocaleDateString(undefined, Object.assign({}, opts, { year: 'numeric' }));
+    return a + ' – ' + b;
+  } catch (_) { return scheduleIsoDate(start) + ' – ' + scheduleIsoDate(end); }
+}
+
+function scheduleFetchDay(client, dateIso){
+  var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(dateIso);
+  return Promise.all([
+    fetch(base + '&intent=services.lessons_today').then(function(r){ return r.json(); }),
+    fetch(base + '&intent=services.gear_today').then(function(r){ return r.json(); }),
+  ]).then(function(res){
+    var lessons = (res[0] && res[0].rows) || [];
+    var gear = (res[1] && res[1].rows) || [];
+    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; });
+    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; });
+    return { dateIso: dateIso, lessons: lessons, gear: gear, rows: lessons.concat(gear) };
+  });
+}
+
+function scheduleFetchWeek(client, weekStart){
+  var days = [];
+  for (var i = 0; i < 7; i++) days.push(scheduleAddDays(weekStart, i));
+  return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
+}
+
+function scheduleFetchMonth(client, monthStart){
+  var end = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
+  var days = [];
+  var cur = new Date(monthStart.getTime());
+  while (cur <= end){ days.push(new Date(cur.getTime())); cur.setDate(cur.getDate() + 1); }
+  return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
+}
+
+function scheduleNeedReplyCount(convs){
+  return (convs || []).filter(conversationNeedsHuman).length;
+}
+
+function scheduleUnpaidCount(rows){
+  return (rows || []).filter(scheduleIsUnpaid).length;
+}
+
+function renderScheduleSummary(profile, weekData, convs){
+  var today = dsTodayIso();
+  var todayPack = (weekData || []).find(function(d){ return d.dateIso === today; }) || { lessons: [], gear: [], rows: [] };
+  var cap = scheduleDayLessonCap(profile, today);
+  var used = scheduleLessonSeatsUsed(todayPack.lessons, today);
+  var left = Math.max(0, cap - used);
+  var weekLessons = (weekData || []).reduce(function(a, d){ return a + (d.lessons ? d.lessons.length : 0); }, 0);
+  setText('ps-lessons-today', String(todayPack.lessons.length));
+  setText('ps-seats-left', String(left) + ' / ' + String(cap));
+  setText('ps-lessons-week', String(weekLessons));
+  setText('ps-need-reply', String(scheduleNeedReplyCount(convs)));
+  setText('ps-unpaid', String(scheduleUnpaidCount(scheduleRowsCache)));
+}
+
+function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
+
+function renderScheduleWeekGrid(profile, weekData, weekStart){
+  var box = el('ps-week-grid');
+  var monthBox = el('ps-month-grid');
+  if (!box) return;
+  if (scheduleViewMode === 'month'){
+    box.style.display = 'none';
+    if (monthBox){ monthBox.style.display = ''; renderScheduleMonthGrid(profile, weekData, monthBox); }
     return;
   }
-  if (helper) helper.style.display = 'none';
-  list.innerHTML = demo.map(function(s, i){
-    var label = demoHomeSlotFriendlyLabel(s, i);
-    var cap = demoHomeSlotCapacityText(s);
-    return '<li><span>' + escHtml(label) + '</span><span class="portal-home-card-cap">' + escHtml(cap) + '</span></li>';
-  }).join('');
+  if (monthBox) monthBox.style.display = 'none';
+  box.style.display = '';
+  var cols = scheduleViewMode === 'day' ? 1 : 7;
+  box.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+  var start = scheduleViewMode === 'day' ? scheduleParseIso(dsTodayIso()) : weekStart;
+  var html = '';
+  for (var i = 0; i < cols; i++){
+    var d = scheduleAddDays(start, i);
+    var iso = scheduleIsoDate(d);
+    var pack = (weekData || []).find(function(x){ return x.dateIso === iso; }) || { lessons: [], gear: [], rows: [] };
+    var cap = scheduleDayLessonCap(profile, iso);
+    var used = scheduleLessonSeatsUsed(pack.lessons, iso);
+    var todayCls = iso === dsTodayIso() ? ' is-today' : '';
+    var dayName = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+    html += '<div class="portal-schedule-day-col' + todayCls + '">' +
+      '<div class="portal-schedule-day-hdr">' + escHtml(dayName) +
+      '<div class="portal-schedule-day-seats">' + escHtml(String(used) + ' / ' + String(cap) + ' seats') + '</div></div>' +
+      '<div class="portal-schedule-day-body">';
+    pack.rows.forEach(function(r, idx){
+      var typ = r._scheduleType || scheduleRowType(r);
+      var time = r.slot_time || r.service_time || '';
+      var label = r.offering_label || r.service_type || (typ === 'lesson' ? 'Lesson' : 'Rental');
+      html += '<div class="portal-schedule-item-card ' + typ + '" data-ps-row="' + escHtml(iso + ':' + idx) + '">' +
+        escHtml((time ? time + ' · ' : '') + label) + '</div>';
+    });
+    if (!pack.rows.length) html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
+    html += '</div></div>';
+  }
+  box.innerHTML = html;
+  box.querySelectorAll('[data-ps-row]').forEach(function(node){
+    node.addEventListener('click', function(){
+      var key = node.getAttribute('data-ps-row');
+      var row = scheduleFindRowByKey(key);
+      if (row) openScheduleDetailDrawer(row);
+    });
+  });
 }
 
-function renderPortalHomeStats(convs, rentalCount){
-  var inboxEl = el('ph-inbox-stat');
-  var attnEl = el('ph-attention-stat');
-  var rentEl = el('ph-rentals-stat');
-  var openCount = (convs || []).length;
-  var nhCount = (convs || []).filter(conversationNeedsHuman).length;
-  if (inboxEl){
-    inboxEl.textContent = openCount
-      ? t('demoHome.card.inbox.count').replace('{count}', String(openCount))
-      : t('demoHome.card.inbox.zero');
-  }
-  if (attnEl){
-    attnEl.textContent = nhCount
-      ? t('demoHome.card.attention.count').replace('{count}', String(nhCount))
-      : t('demoHome.card.attention.zero');
-  }
-  if (rentEl){
-    rentEl.textContent = rentalCount
-      ? t('demoHome.card.rentals.count').replace('{count}', String(rentalCount))
-      : t('demoHome.card.rentals.zero');
-  }
+function renderScheduleMonthGrid(profile, monthData, box){
+  if (!box) return;
+  box.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
+  var html = '';
+  (monthData || []).forEach(function(pack){
+    var cap = scheduleDayLessonCap(profile, pack.dateIso);
+    var used = scheduleLessonSeatsUsed(pack.lessons, pack.dateIso);
+    html += '<div class="portal-schedule-day-col"><div class="portal-schedule-day-hdr">' + escHtml(pack.dateIso.slice(5)) +
+      '<div class="portal-schedule-day-seats">' + escHtml(String(used) + '/' + String(cap)) + '</div></div></div>';
+  });
+  box.innerHTML = html;
 }
 
-function renderPortalHomeDayScheduleSlots(slots, dateIso){
-  var wrap = el('ph-ds-slots-wrap');
-  var box = el('ph-ds-slots');
-  if (!wrap || !box) return;
-  var list = (slots || []).filter(function(s){ return !dateIso || !s.date || s.date === dateIso; });
-  if (!list.length){ wrap.style.display = 'none'; return; }
-  wrap.style.display = '';
-  box.innerHTML = list.map(function(s){
-    var cap = s.capacity != null ? s.capacity : '?';
-    var booked = s.seats_booked != null ? s.seats_booked : 0;
-    var avail = s.seats_available != null ? s.seats_available : Math.max(0, cap - booked);
-    return '<div class="today-tile"><div class="today-tile-label">' + escHtml(s.slot_time || '') + '</div>' +
-      '<div class="today-tile-sub">' + escHtml(s.offering_label || s.session_type || 'Lesson') + '</div>' +
-      '<div class="today-tile-number" style="font-size:18px">' + escHtml(String(booked) + ' / ' + String(cap)) + '</div>' +
-      '<div class="today-tile-sub">' + escHtml(String(avail) + ' available (demo)') + '</div></div>';
-  }).join('');
+function scheduleFindRowByKey(key){
+  if (!key) return null;
+  var parts = String(key).split(':');
+  var iso = parts[0];
+  var idx = Number(parts[1]);
+  var pack = scheduleRowsCache.filter(function(r){ return String(r.service_date || '').slice(0,10) === iso; });
+  return pack[idx] || null;
 }
 
-function renderPortalHomeDayScheduleTable(rows, targetId){
-  var wrapId = targetId === 'ph-ds-lessons-table' ? 'ph-ds-lessons-wrap' : 'ph-ds-rentals-wrap';
-  var wrap = el(wrapId);
-  var box = el(targetId);
-  if (!wrap || !box) return;
-  if (!rows || !rows.length){ wrap.style.display = 'none'; box.innerHTML = ''; return; }
-  wrap.style.display = '';
-  var html = '<table class="al-rows-table"><thead><tr><th>Guest</th><th>Service</th><th>Qty</th><th>Status</th><th>Payment</th><th>Booking</th></tr></thead><tbody>';
+function scheduleRowNeedsAction(row){
+  if (scheduleIsUnpaid(row)) return portalT('schedule.action.unpaid');
+  return '—';
+}
+
+function renderScheduleBookingList(filter){
+  var box = el('ps-booking-table');
+  if (!box) return;
+  var rows = (scheduleRowsCache || []).slice();
+  if (filter === 'lessons') rows = rows.filter(function(r){ return scheduleRowType(r) === 'lesson'; });
+  else if (filter === 'rentals') rows = rows.filter(function(r){ return scheduleRowType(r) === 'rental'; });
+  else if (filter === 'unpaid') rows = rows.filter(scheduleIsUnpaid);
+  else if (filter === 'needs_reply') rows = rows.filter(function(r){ return r._needsReply; });
+  if (!rows.length){
+    box.innerHTML = '<div class="state-msg">' + escHtml(portalT('schedule.list.empty')) + '</div>';
+    return;
+  }
+  var html = '<table class="al-rows-table"><thead><tr>' +
+    '<th>' + escHtml(portalT('schedule.col.date')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.time')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.type')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.guest')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.details')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.payment')) + '</th>' +
+    '<th>' + escHtml(portalT('schedule.col.action')) + '</th>' +
+    '</tr></thead><tbody>';
   rows.forEach(function(r){
-    html += '<tr><td>' + escHtml(r.guest_name || '—') + '</td>' +
-      '<td>' + escHtml(r.service_type || '—') + '</td>' +
-      '<td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td>' +
-      '<td>' + escHtml(r.service_status || r.status || '—') + '</td>' +
+    html += '<tr class="ps-booking-row" style="cursor:pointer">' +
+      '<td>' + escHtml(String(r.service_date || '—').slice(0, 10)) + '</td>' +
+      '<td>' + escHtml(String(r.slot_time || r.service_time || '—')) + '</td>' +
+      '<td>' + escHtml(scheduleRowType(r) === 'lesson' ? portalT('schedule.type.lesson') : portalT('schedule.type.rental')) + '</td>' +
+      '<td>' + escHtml(r.guest_name || '—') + '</td>' +
+      '<td>' + escHtml(String(r.service_type || '—').replace(/_/g, ' ')) + (r.quantity != null ? ' ×' + r.quantity : '') + '</td>' +
       '<td>' + escHtml(r.payment_status || '—') + '</td>' +
-      '<td>' + escHtml(r.booking_code || '—') + '</td></tr>';
+      '<td>' + escHtml(scheduleRowNeedsAction(r)) + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  box.innerHTML = html;
+  box.querySelectorAll('.ps-booking-row').forEach(function(tr, i){
+    tr.addEventListener('click', function(){ openScheduleDetailDrawer(rows[i]); });
+  });
+}
+
+function openScheduleDetailDrawer(row){
+  if (!row) return;
+  var drawer = el('ps-detail-drawer');
+  var backdrop = el('ps-drawer-backdrop');
+  var body = el('ps-drawer-body');
+  if (!drawer || !body) return;
+  body.innerHTML = '<h3 style="margin:0 0 12px">' + escHtml(row.guest_name || 'Guest') + '</h3>' +
+    '<p><strong>' + escHtml(portalT('schedule.col.type')) + ':</strong> ' + escHtml(String(row.service_type || '—')) + '</p>' +
+    '<p><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—')) + '</p>' +
+    '<p><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + escHtml(row.payment_status || '—') + '</p>' +
+    '<p><strong>Booking:</strong> ' + escHtml(row.booking_code || '—') + '</p>' +
+    '<p style="font-size:12px;color:var(--text-3)">' + escHtml(portalT('schedule.drawer.readOnly')) + '</p>';
+  drawer.style.display = 'block';
+  if (backdrop) backdrop.style.display = 'block';
+}
+
+function closeScheduleDetailDrawer(){
+  var drawer = el('ps-detail-drawer');
+  var backdrop = el('ps-drawer-backdrop');
+  if (drawer) drawer.style.display = 'none';
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+function setScheduleView(mode){
+  scheduleViewMode = mode || 'week';
+  document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.getAttribute('data-ps-view') === scheduleViewMode);
+  });
+  loadSchedulePage();
+}
+
+function setScheduleFilter(mode){
+  scheduleFilter = mode || 'all';
+  document.querySelectorAll('.portal-schedule-filter-btn').forEach(function(btn){
+    btn.classList.toggle('active', btn.getAttribute('data-ps-filter') === scheduleFilter);
+  });
+  renderScheduleBookingList(scheduleFilter);
+}
+
+function loadSchedulePage(){
+  var client = getClient();
+  var profile = getPortalProfile(client);
+  if (!profile.is_surf_vertical) return;
+  if (!scheduleWeekStart) scheduleWeekStart = scheduleWeekStartMonday(new Date());
+  var state = el('ps-state');
+  if (state){ state.textContent = portalT('daySchedule.loading'); state.style.display = 'block'; }
+  var rangeEnd = scheduleAddDays(scheduleWeekStart, scheduleViewMode === 'day' ? 0 : 6);
+  setText('ps-range-label', scheduleFormatRange(scheduleWeekStart, rangeEnd));
+  var convP = fetch('/staff/conversations?client=' + encodeURIComponent(client))
+    .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+  var dataP = scheduleViewMode === 'month'
+    ? scheduleFetchMonth(client, new Date(scheduleWeekStart.getFullYear(), scheduleWeekStart.getMonth(), 1))
+    : scheduleFetchWeek(client, scheduleViewMode === 'day' ? scheduleParseIso(dsTodayIso()) : scheduleWeekStart);
+  Promise.all([convP, dataP]).then(function(results){
+    var convData = results[0];
+    var weekData = results[1];
+    scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
+    scheduleRowsCache = [];
+    (weekData || []).forEach(function(p){ scheduleRowsCache = scheduleRowsCache.concat(p.rows || []); });
+    scheduleRowsCache.forEach(function(r){ r._needsReply = false; });
+    renderScheduleSummary(profile, weekData, scheduleConversationsCache);
+    renderScheduleWeekGrid(profile, weekData, scheduleWeekStart);
+    renderScheduleBookingList(scheduleFilter);
+    if (state) state.style.display = 'none';
+  }).catch(function(e){
+    if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
+  });
+}
+
+function wireScheduleControls(){
+  var ids = [['ps-prev-week', function(){ scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), -7); loadSchedulePage(); }],
+    ['ps-next-week', function(){ scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), 7); loadSchedulePage(); }],
+    ['ps-today', function(){ scheduleWeekStart = scheduleWeekStartMonday(new Date()); loadSchedulePage(); }],
+    ['ps-drawer-close', closeScheduleDetailDrawer]];
+  ids.forEach(function(pair){
+    var node = el(pair[0]);
+    if (node && !node.dataset.wired){ node.dataset.wired = '1'; node.addEventListener('click', pair[1]); }
+  });
+  var backdrop = el('ps-drawer-backdrop');
+  if (backdrop && !backdrop.dataset.wired){ backdrop.dataset.wired = '1'; backdrop.addEventListener('click', closeScheduleDetailDrawer); }
+  document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function(){ setScheduleView(btn.getAttribute('data-ps-view')); });
+  });
+  document.querySelectorAll('.portal-schedule-filter-btn').forEach(function(btn){
+    if (btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+    btn.addEventListener('click', function(){ setScheduleFilter(btn.getAttribute('data-ps-filter')); });
+  });
+}
+
+function loadPortalHome(){ loadSchedulePage(); }
+function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
+
+
+var adminConfigCache = null;
+
+function renderAdminSectionPricesFromConfig(cfg){
+  var box = el('admin-prices-body');
+  if (!box) return;
+  var prices = (cfg && cfg.prices) ? cfg.prices : [];
+  if (!prices.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.notConfigured')) + '</p>' +
+      '<p style="margin-top:8px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
+    return;
+  }
+  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.prices.col.category')) +
+    '</th><th>' + escHtml(portalT('admin.prices.col.offering')) + '</th><th>' + escHtml(portalT('admin.prices.col.unit')) +
+    '</th><th>' + escHtml(portalT('admin.prices.col.amount')) + '</th><th>' + escHtml(portalT('admin.prices.col.status')) +
+    '</th></tr></thead><tbody>';
+  prices.forEach(function(p){
+    html += '<tr><td>' + escHtml(p.category || '—') + '</td><td>' + escHtml(p.label || p.offering_key || '—') + '</td><td>' +
+      escHtml(p.unit || '—') + '</td><td>' + escHtml(String(p.amount) + ' ' + (p.currency || 'EUR')) + '</td><td>' +
+      escHtml(p.effective_state || p.pricing_status || '—') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  html += '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.configNote')) +
+    ' (' + escHtml((cfg && cfg.source) ? cfg.source : 'config') + ')</p>';
+  box.innerHTML = html;
+}
+
+function renderAdminSectionCapacityFromConfig(cfg){
+  var box = el('admin-capacity-body');
+  if (!box) return;
+  var cap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
+    ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
+  box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.capacity.dailyDefault')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(String(cap) + ' ' + portalT('admin.capacity.seatsPerDay')) + '</span></div>' +
+    '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.capacity.futureNote')) + '</p>';
+}
+
+function renderAdminSectionLessonTimesFromConfig(cfg){
+  var box = el('admin-times-body');
+  if (!box) return;
+  var slots = (cfg && cfg.lesson_times) ? cfg.lesson_times : [];
+  if (!slots.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p>';
+    return;
+  }
+  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.lessonTimes.col.date')) +
+    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.time')) + '</th><th>' + escHtml(portalT('admin.lessonTimes.col.label')) +
+    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.capacity')) + '</th></tr></thead><tbody>';
+  slots.forEach(function(s){
+    html += '<tr><td>' + escHtml(s.date || '—') + '</td><td>' + escHtml(s.slot_time || '—') + '</td><td>' +
+      escHtml(s.offering_label || s.session_type || 'Lesson') + '</td><td>' +
+      escHtml(s.capacity != null ? String(s.capacity) : '—') + '</td></tr>';
   });
   html += '</tbody></table>';
   box.innerHTML = html;
 }
 
-function loadPortalHomeSchedule(dateIso){
-  var client = getClient();
-  var profile = getPortalProfile(client);
-  if (!profile.is_surf_vertical) return Promise.resolve();
-  var date = dateIso || (el('ph-ds-date') && el('ph-ds-date').value) || dsTodayIso();
-  if (el('ph-ds-date') && !el('ph-ds-date').value) el('ph-ds-date').value = date;
-  var state = el('ph-ds-state');
-  if (state){ state.textContent = portalT('daySchedule.loading'); state.className = 'state-msg'; state.style.display = 'block'; }
-  renderPortalHomeDayScheduleSlots(profile.lesson_slots_demo || [], date);
-  var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(date);
-  return Promise.all([
-    fetch(base + '&intent=services.lessons_today').then(function(r){ return r.json(); }),
-    fetch(base + '&intent=services.gear_today').then(function(r){ return r.json(); }),
-  ]).then(function(results){
-    var lessons = (results[0] && results[0].rows) || [];
-    var gear = (results[1] && results[1].rows) || [];
-    renderPortalHomeDayScheduleTable(lessons, 'ph-ds-lessons-table');
-    renderPortalHomeDayScheduleTable(gear, 'ph-ds-rentals-table');
-    if (state){
-      if (!lessons.length && !gear.length && !(profile.lesson_slots_demo || []).filter(function(s){ return !date || !s.date || s.date === date; }).length){
-        state.textContent = portalT('daySchedule.empty');
-        state.style.display = 'block';
-      } else {
-        state.style.display = 'none';
-      }
-    }
-    return gear.length;
-  }).catch(function(e){
-    if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
-    return 0;
-  });
+function renderAdminSectionBusinessInfoFromConfig(cfg){
+  var box = el('admin-business-body');
+  if (!box) return;
+  var info = (cfg && cfg.business_info) ? cfg.business_info : {};
+  var stagingLabel = info.staging ? portalT('admin.business.stagingYes') : portalT('admin.business.stagingNo');
+  box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.schoolName')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.name || portalT('demoHome.schoolName')) + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.timezone')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.timezone || '—') + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.source')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.config_source || (cfg && cfg.source) || '—') + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.staging')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(stagingLabel) + '</span></div>' +
+    '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.business.futureNote')) + '</p>';
 }
 
-function loadPortalHome(){
+function renderAdminSectionChangeHistoryFromConfig(cfg){
+  var box = el('admin-history-body');
+  if (!box) return;
+  var rows = (cfg && cfg.change_history) ? cfg.change_history : [];
+  if (!rows.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
+    return;
+  }
+  box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
+}
+
+function renderAdminFromConfig(cfg){
+  renderAdminSectionPricesFromConfig(cfg);
+  renderAdminSectionCapacityFromConfig(cfg);
+  renderAdminSectionLessonTimesFromConfig(cfg);
+  renderAdminSectionBusinessInfoFromConfig(cfg);
+  renderAdminSectionChangeHistoryFromConfig(cfg);
+}
+
+function renderAdminFallback(profile){
+  renderAdminSectionCapacityFromConfig({ lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } });
+  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [] });
+  renderAdminSectionPricesFromConfig(null);
+  renderAdminSectionBusinessInfoFromConfig(null);
+  renderAdminSectionChangeHistoryFromConfig(null);
+}
+
+function loadAdminTab(){
   var profile = getPortalProfile(getClient());
   if (!profile.is_surf_vertical) return;
-  renderPortalHomeLessonSlots(profile.lesson_slots_demo || []);
-  var inboxEl = el('ph-inbox-stat');
-  var attnEl = el('ph-attention-stat');
-  if (inboxEl) inboxEl.textContent = '…';
-  if (attnEl) attnEl.textContent = '…';
-  var convPromise = fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
-    .then(function(r){ return r.ok ? r.json() : null; })
-    .catch(function(){ return null; });
-  var schedPromise = loadPortalHomeSchedule(dsTodayIso());
-  Promise.all([convPromise, schedPromise]).then(function(results){
-    var data = results[0];
-    var rentalCount = results[1] || 0;
-    var convs = (data && data.success && data.conversations) ? data.conversations : [];
-    renderPortalHomeStats(convs, rentalCount);
-  });
+  var state = el('admin-fetch-state');
+  if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'block'; state.classList.remove('error'); }
+  var url = '/staff/admin/config?client=' + encodeURIComponent(getClient());
+  fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data){
+      if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
+      adminConfigCache = data;
+      renderAdminFromConfig(data);
+      if (state) state.style.display = 'none';
+    })
+    .catch(function(e){
+      adminConfigCache = null;
+      renderAdminFallback(profile);
+      if (state){
+        state.textContent = portalT('admin.error') + ' ' + e.message;
+        state.className = 'state-msg error';
+        state.style.display = 'block';
+      }
+    });
 }
 
-function wirePortalHomeScheduleControls(){
-  var loadBtn = el('ph-ds-load');
-  var dateInput = el('ph-ds-date');
-  if (loadBtn && !loadBtn.dataset.wired){
-    loadBtn.dataset.wired = '1';
-    loadBtn.addEventListener('click', function(){ loadPortalHomeSchedule(); });
-  }
-  if (dateInput && !dateInput.dataset.wired){
-    dateInput.dataset.wired = '1';
-    dateInput.addEventListener('change', function(){ loadPortalHomeSchedule(); });
-  }
-}
+function wireAdminTab(){ /* read-only — no interactive wiring yet */ }
+
 
 var customersCache = [];
 var customersFilter = 'all';
@@ -29055,6 +29432,55 @@ function mapCustomerListRow(row) {
   };
 }
 
+
+async function handleAdminConfig(query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const resolved = isSunsetAdminDbReadEnabled()
+    ? await resolveTenantBusinessConfigAsync(clientSlug)
+    : resolveTenantBusinessConfig(clientSlug);
+  if (!resolved.ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: false,
+      reason: resolved.reason,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (resolved.reason === 'unsupported_client') {
+      return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+    }
+    return sendJSON(res, 404, { success: false, error: resolved.reason || 'not_found' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(),
+    intent: 'api:admin.config',
+    category: 'admin_api',
+    client_slug: clientSlug,
+    success: true,
+    read_only: true,
+    source: resolved.source,
+    price_count: (resolved.prices || []).length,
+    staff_user_id: user ? user.staff_user_id : null,
+    elapsed_ms: elapsed,
+  });
+
+  const { ok, ...payload } = resolved;
+  return sendJSON(res, 200, {
+    success: true,
+    ...payload,
+    elapsed_ms: elapsed,
+  });
+}
+
 async function handleCustomerList(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -30156,6 +30582,16 @@ async function handleAuthSession(req, res) {
   }
 
   const resolvedRole = resolveStaffRole(user);
+  const activeClient = String(user.client_slug || '').trim();
+  if (!activeClient || !userCanAccessClient(user, activeClient)) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'session_client_access_denied',
+      detail: 'Authenticated session client is missing or not allowed for this user.',
+      active_client: activeClient || null,
+    });
+  }
+  const sessionClients = getSessionScopedClients(user);
   return sendJSON(res, 200, {
     success: true,
     auth_required: true,
@@ -30163,8 +30599,9 @@ async function handleAuthSession(req, res) {
     db_role: user.role,
     email: user.email,
     display_name: user.display_name || null,
-    clients: getAccessibleClients(user),
-    client_profiles: buildClientProfilesMap(user),
+    active_client: activeClient,
+    clients: sessionClients,
+    client_profiles: buildSessionClientProfilesMap(user),
     can_use_owner_insights: canUseOwnerInsights(user),
   });
 }
@@ -34154,6 +34591,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleQuery(parsed.query, res);
+  }
+
+  if (pathname === '/staff/admin/config') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleAdminConfig(parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/customers') {
