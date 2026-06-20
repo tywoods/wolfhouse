@@ -323,6 +323,34 @@ if (i18nSrc) {
   assert('admin.section.prices i18n', i18nSrc.includes("'admin.section.prices'"));
 }
 
+
+// ── 12. Sunset Admin config API (read-only read model) ───────────────────────
+
+console.log('\n[12] Sunset Admin config API — read-only read model');
+
+if (apiSrc) {
+  assert('GET /staff/admin/config route', apiSrc.includes("pathname === '/staff/admin/config'"));
+  assert('handleAdminConfig handler', apiSrc.includes('function handleAdminConfig('));
+  assert('tenant-business-config import', apiSrc.includes("require('./lib/tenant-business-config')"));
+  assert('Admin config read_only in audit', apiSrc.includes("intent: 'api:admin.config'") && apiSrc.includes('read_only: true'));
+  assert('loadAdminTab fetches admin config', apiSrc.includes('/staff/admin/config?client='));
+  assert('Admin fetch error fallback', apiSrc.includes('renderAdminFallback'));
+  assert('unsupported_client 403 path', apiSrc.includes("'unsupported_client'"));
+}
+
+try {
+  const tbc = require('./lib/tenant-business-config');
+  assert('DEFAULT_DAILY_CAP export 24', tbc.DEFAULT_DAILY_CAP === 24);
+  const sample = tbc.resolveTenantBusinessConfig('sunset');
+  assert('resolver sunset read_only', sample.ok === true && sample.read_only === true);
+  assert('resolver sunset cap 24', sample.lesson_capacity.default_daily_cap === 24);
+  const wh = tbc.resolveTenantBusinessConfig('wolfhouse-somo');
+  assert('resolver blocks wolfhouse', wh.ok === false && wh.reason === 'unsupported_client');
+} catch (err) {
+  assert('tenant-business-config module loads', false, err.message);
+}
+
+
 // ── Session-scoped client dropdown (Sunset-only staff) ─────────────────────
 
 console.log('\n[9] Session-scoped client dropdown access');

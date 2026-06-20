@@ -182,6 +182,7 @@ const {
   canUseOwnerInsights,
   buildClientProfilesMap,
 } = require('./lib/staff-portal-clients');
+const { resolveTenantBusinessConfig } = require('./lib/tenant-business-config');
 const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
@@ -16881,6 +16882,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <div class="portal-admin-wrap">
   <header class="portal-admin-header">
     <h2 data-i18n="admin.title">Admin</h2>
+    <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
     <div class="portal-admin-banner">
       <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
       <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
@@ -18703,26 +18705,46 @@ function loadPortalHome(){ loadSchedulePage(); }
 function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
 
 
-function renderAdminSectionPrices(){
+var adminConfigCache = null;
+
+function renderAdminSectionPricesFromConfig(cfg){
   var box = el('admin-prices-body');
   if (!box) return;
-  box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.notConfigured')) + '</p>' +
-    '<p style="margin-top:8px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
+  var prices = (cfg && cfg.prices) ? cfg.prices : [];
+  if (!prices.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.notConfigured')) + '</p>' +
+      '<p style="margin-top:8px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
+    return;
+  }
+  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.prices.col.category')) +
+    '</th><th>' + escHtml(portalT('admin.prices.col.offering')) + '</th><th>' + escHtml(portalT('admin.prices.col.unit')) +
+    '</th><th>' + escHtml(portalT('admin.prices.col.amount')) + '</th><th>' + escHtml(portalT('admin.prices.col.status')) +
+    '</th></tr></thead><tbody>';
+  prices.forEach(function(p){
+    html += '<tr><td>' + escHtml(p.category || '—') + '</td><td>' + escHtml(p.label || p.offering_key || '—') + '</td><td>' +
+      escHtml(p.unit || '—') + '</td><td>' + escHtml(String(p.amount) + ' ' + (p.currency || 'EUR')) + '</td><td>' +
+      escHtml(p.effective_state || p.pricing_status || '—') + '</td></tr>';
+  });
+  html += '</tbody></table>';
+  html += '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.configNote')) +
+    ' (' + escHtml((cfg && cfg.source) ? cfg.source : 'config') + ')</p>';
+  box.innerHTML = html;
 }
 
-function renderAdminSectionCapacity(){
+function renderAdminSectionCapacityFromConfig(cfg){
   var box = el('admin-capacity-body');
   if (!box) return;
-  var cap = SUNSET_SCHEDULE_LESSON_DAY_CAP;
+  var cap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
+    ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
   box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.capacity.dailyDefault')) +
     '</span><span class="portal-admin-kv-value">' + escHtml(String(cap) + ' ' + portalT('admin.capacity.seatsPerDay')) + '</span></div>' +
     '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.capacity.futureNote')) + '</p>';
 }
 
-function renderAdminSectionLessonTimes(profile){
+function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
-  var slots = (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [];
+  var slots = (cfg && cfg.lesson_times) ? cfg.lesson_times : [];
   if (!slots.length){
     box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p>';
     return;
@@ -18739,33 +18761,75 @@ function renderAdminSectionLessonTimes(profile){
   box.innerHTML = html;
 }
 
-function renderAdminSectionBusinessInfo(){
+function renderAdminSectionBusinessInfoFromConfig(cfg){
   var box = el('admin-business-body');
   if (!box) return;
+  var info = (cfg && cfg.business_info) ? cfg.business_info : {};
+  var stagingLabel = info.staging ? portalT('admin.business.stagingYes') : portalT('admin.business.stagingNo');
   box.innerHTML = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.schoolName')) +
-    '</span><span class="portal-admin-kv-value">' + escHtml(portalT('demoHome.schoolName')) + '</span></div>' +
-    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.brand')) +
-    '</span><span class="portal-admin-kv-value">' + escHtml(portalT('demoHome.brand')) + '</span></div>' +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.name || portalT('demoHome.schoolName')) + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.timezone')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.timezone || '—') + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.source')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(info.config_source || (cfg && cfg.source) || '—') + '</span></div>' +
+    '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.business.staging')) +
+    '</span><span class="portal-admin-kv-value">' + escHtml(stagingLabel) + '</span></div>' +
     '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.business.futureNote')) + '</p>';
 }
 
-function renderAdminSectionChangeHistory(){
+function renderAdminSectionChangeHistoryFromConfig(cfg){
   var box = el('admin-history-body');
   if (!box) return;
+  var rows = (cfg && cfg.change_history) ? cfg.change_history : [];
+  if (!rows.length){
+    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
+    return;
+  }
   box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.history.empty')) + '</p>';
+}
+
+function renderAdminFromConfig(cfg){
+  renderAdminSectionPricesFromConfig(cfg);
+  renderAdminSectionCapacityFromConfig(cfg);
+  renderAdminSectionLessonTimesFromConfig(cfg);
+  renderAdminSectionBusinessInfoFromConfig(cfg);
+  renderAdminSectionChangeHistoryFromConfig(cfg);
+}
+
+function renderAdminFallback(profile){
+  renderAdminSectionCapacityFromConfig({ lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } });
+  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [] });
+  renderAdminSectionPricesFromConfig(null);
+  renderAdminSectionBusinessInfoFromConfig(null);
+  renderAdminSectionChangeHistoryFromConfig(null);
 }
 
 function loadAdminTab(){
   var profile = getPortalProfile(getClient());
   if (!profile.is_surf_vertical) return;
-  renderAdminSectionPrices();
-  renderAdminSectionCapacity();
-  renderAdminSectionLessonTimes(profile);
-  renderAdminSectionBusinessInfo();
-  renderAdminSectionChangeHistory();
+  var state = el('admin-fetch-state');
+  if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'block'; state.classList.remove('error'); }
+  var url = '/staff/admin/config?client=' + encodeURIComponent(getClient());
+  fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data){
+      if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
+      adminConfigCache = data;
+      renderAdminFromConfig(data);
+      if (state) state.style.display = 'none';
+    })
+    .catch(function(e){
+      adminConfigCache = null;
+      renderAdminFallback(profile);
+      if (state){
+        state.textContent = portalT('admin.error') + ' ' + e.message;
+        state.className = 'state-msg error';
+        state.style.display = 'block';
+      }
+    });
 }
 
 function wireAdminTab(){ /* read-only — no interactive wiring yet */ }
+
 
 var customersCache = [];
 var customersFilter = 'all';
@@ -29362,6 +29426,53 @@ function mapCustomerListRow(row) {
   };
 }
 
+
+async function handleAdminConfig(query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const resolved = resolveTenantBusinessConfig(clientSlug);
+  if (!resolved.ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: false,
+      reason: resolved.reason,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (resolved.reason === 'unsupported_client') {
+      return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+    }
+    return sendJSON(res, 404, { success: false, error: resolved.reason || 'not_found' });
+  }
+
+  const elapsed = Date.now() - started;
+  appendAuditLog({
+    ts: new Date().toISOString(),
+    intent: 'api:admin.config',
+    category: 'admin_api',
+    client_slug: clientSlug,
+    success: true,
+    read_only: true,
+    source: resolved.source,
+    price_count: (resolved.prices || []).length,
+    staff_user_id: user ? user.staff_user_id : null,
+    elapsed_ms: elapsed,
+  });
+
+  const { ok, ...payload } = resolved;
+  return sendJSON(res, 200, {
+    success: true,
+    ...payload,
+    elapsed_ms: elapsed,
+  });
+}
+
 async function handleCustomerList(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -34461,6 +34572,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleQuery(parsed.query, res);
+  }
+
+  if (pathname === '/staff/admin/config') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleAdminConfig(parsed.query, res, auth.user);
   }
 
   if (pathname === '/staff/customers') {
