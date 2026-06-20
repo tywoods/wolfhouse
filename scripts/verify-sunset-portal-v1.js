@@ -404,6 +404,36 @@ if (apiSrc) {
 
 
 
+
+// ── 13. Sunset Admin write routes (flag-gated, default off) ───────────────────
+
+console.log('\n[13] Sunset Admin write routes — flag-gated');
+
+if (apiSrc) {
+  assert('tenant-admin-writes import', apiSrc.includes("require('./lib/tenant-admin-writes')"));
+  assert('PATCH admin price route', apiSrc.includes('adminPricePatchMatch') && apiSrc.includes("method === 'PATCH'"));
+  assert('PUT admin lesson capacity route', apiSrc.includes("pathname === '/staff/admin/config/lesson-capacity'") && apiSrc.includes("method === 'PUT'"));
+  assert('PATCH admin lesson time route', apiSrc.includes('adminLessonTimePatchMatch'));
+  assert('write handlers present', apiSrc.includes('function handleAdminConfigPricePatch('));
+  assert('writes flag check in GET config', apiSrc.includes('writes_enabled: isSunsetAdminWritesEnabled()'));
+  assert('evaluateAdminWriteGate used', apiSrc.includes('evaluateAdminWriteGate'));
+  assert('writes_disabled response path', require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
+  assert('admin write routes require admin role', apiSrc.includes("requireAuth(req, res, 'admin')") && apiSrc.includes('handleAdminConfigPricePatch'));
+  assert('renderAdminWriteState helper', apiSrc.includes('function renderAdminWriteState('));
+  assert('admin banner id for write state', apiSrc.includes('id="admin-write-banner"'));
+}
+
+try {
+  const writes = require('./lib/tenant-admin-writes');
+  const saved = process.env.SUNSET_ADMIN_WRITES_ENABLED;
+  delete process.env.SUNSET_ADMIN_WRITES_ENABLED;
+  assert('writes module default off', writes.isSunsetAdminWritesEnabled() === false);
+  if (saved == null) delete process.env.SUNSET_ADMIN_WRITES_ENABLED;
+  else process.env.SUNSET_ADMIN_WRITES_ENABLED = saved;
+} catch (err) {
+  assert('tenant-admin-writes module loads', false, err.message);
+}
+
 // ── Shared Inbox Slice 3A — channel badges + mock rows ───────────────────────
 
 console.log('\n[10] Shared Inbox Slice 3A — Sunset email + WhatsApp inbox UI');

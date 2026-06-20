@@ -111,6 +111,7 @@ function formatLessonSlotTime(timeLocal, timeLocalEnd) {
 
 function mapPriceRows(rows) {
   return rows.map((row) => ({
+    id: row.id ? String(row.id) : null,
     category: row.item_type,
     offering_key: row.item_code,
     label: row.display_name,
@@ -291,7 +292,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client) {
 
   const [priceRes, capacityRes, timeRes, auditRes] = await Promise.all([
     client.query(
-      `SELECT item_type, item_code, display_name, currency, amount_cents, unit, active,
+      `SELECT id, item_type, item_code, display_name, currency, amount_cents, unit, active,
               effective_from, effective_to
          FROM tenant_price_rules
         WHERE client_slug = $1 AND active = true
