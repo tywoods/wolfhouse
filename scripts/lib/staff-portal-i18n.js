@@ -584,9 +584,9 @@ const STAFF_PORTAL_STRINGS = {
     'nav.tab.admin': 'Admin',
     'admin.title': 'Admin',
     'admin.banner.readOnly': 'Read-only preview',
-    'admin.banner.writesApiOnly': 'Writes enabled (API only)'
-    'admin.banner.writesApiOnlySub': 'Use Admin write API endpoints; UI editing is not available yet.'
-    'admin.action.apiOnlyTitle': 'Admin writes are API-only until UI editing ships'
+    'admin.banner.writesApiOnly': 'Writes enabled (API only)',
+    'admin.banner.writesApiOnlySub': 'Use Admin write API endpoints; UI editing is not available yet.',
+    'admin.action.apiOnlyTitle': 'Admin writes are API-only until UI editing ships',
     'admin.banner.writesDisabled': 'Admin writes are not enabled yet.',
     'admin.banner.lunaNote': 'These settings will eventually control what Luna quotes and offers.',
     'admin.section.prices': 'Prices',
