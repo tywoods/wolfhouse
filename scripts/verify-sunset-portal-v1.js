@@ -149,14 +149,14 @@ if (apiSrc) {
   assert('portal-home tab panel present', apiSrc.includes('id="tab-portal-home"'));
   assert('loadPortalHome helper present', apiSrc.includes('function loadPortalHome('));
   assert('portal-home gated for surf vertical', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
-  assert('Sunset Surf School in demo home markup', apiSrc.includes('demoHome.schoolName'));
-  assert('Luna Front Desk in demo home markup', apiSrc.includes('demoHome.brand'));
-  assert('Inbox card on demo home', apiSrc.includes('demoHome.card.inbox.title'));
-  assert('Lessons today card on demo home', apiSrc.includes('demoHome.card.lessons.title'));
-  assert('Rentals today card on demo home', apiSrc.includes('demoHome.card.rentals.title'));
-  assert('Needs attention card on demo home', apiSrc.includes('demoHome.card.attention.title'));
-  assert('What Luna will help with section', apiSrc.includes('demoHome.luna.title'));
-  assert('embedded schedule on demo home', apiSrc.includes('id="ph-ds-date"'));
+  assert('Schedule page wrap present', apiSrc.includes('portal-schedule-wrap'));
+  assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
+  assert('Schedule unpaid summary card', apiSrc.includes('schedule.card.unpaid'));
+  assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday'));
+  assert('Schedule seats left summary card', apiSrc.includes('schedule.card.seatsLeft'));
+  assert('Schedule need reply summary card', apiSrc.includes('schedule.card.needReply'));
+  assert('Schedule week grid markup', apiSrc.includes('id="ps-week-grid"'));
+  assert('schedule booking table present', apiSrc.includes('id="ps-booking-table"'));
 
   const homePanel = extractPortalHomePanel(apiSrc);
   if (homePanel) {
@@ -270,6 +270,32 @@ if (fs.existsSync(I18N_PATH)) {
   assert('nav.tab.customers i18n key', i18n.includes("'nav.tab.customers': 'Customers'"));
 }
 
+
+
+// ── 10. Sunset Schedule page (Slice A) ──────────────────────────────────────
+
+console.log('\n[10] Sunset Schedule page — week view + lesson capacity');
+
+if (apiSrc) {
+  assert('nav Schedule tab label in i18n', i18nSrc.includes("'nav.tab.portalHome': 'Schedule'")
+    || /nav\.tab\.portalHome['\"]:\s*['\"]Schedule/.test(i18nSrc));
+  assert('SUNSET_SCHEDULE_LESSON_DAY_CAP constant', apiSrc.includes('SUNSET_SCHEDULE_LESSON_DAY_CAP = 24'));
+  assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
+  assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
+  assert('schedule summary cards present', apiSrc.includes('id="ps-lessons-today"')
+    && apiSrc.includes('id="ps-seats-left"'));
+  assert('schedule view toggle week default', apiSrc.includes('data-ps-view="week"')
+    && apiSrc.includes('portal-schedule-view-btn active'));
+  assert('schedule booking filters present', apiSrc.includes('data-ps-filter="needs_reply"')
+    && apiSrc.includes('data-ps-filter="unpaid"'));
+  assert('schedule day seats cap helper', apiSrc.includes('function scheduleDayLessonCap('));
+  assert('Wolfhouse portal-home still gated', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
+}
+
+if (i18nSrc) {
+  assert('schedule.card.lessonsToday i18n', i18nSrc.includes("'schedule.card.lessonsToday'"));
+  assert('schedule.view.week i18n', i18nSrc.includes("'schedule.view.week': 'Week'"));
+}
 
 // ── Session-scoped client dropdown (Sunset-only staff) ─────────────────────
 

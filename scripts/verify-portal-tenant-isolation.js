@@ -214,6 +214,16 @@ async function readPortalState(page, context, baseUrl) {
   };
 }
 
+
+function hasExactTabLabel(state, label) {
+  return (state.tabs || []).some((t) => t.text === label);
+}
+
+function portalHomeTabLabel(state) {
+  const tab = (state.tabs || []).find((t) => t.tab === 'portal-home');
+  return tab ? tab.text : null;
+}
+
 function tabLabelsInclude(state, labels) {
   const hay = state.tabLabels.join(' | ');
   return labels.every((label) => hay.includes(label));
@@ -260,12 +270,20 @@ async function runWolfhouseSuite(page, context, creds) {
   assert('nav includes Luna Staff', tabLabelsInclude(state, ['Luna Staff']));
   assert('nav includes Tour Operator', tabLabelsInclude(state, ['Tour Operator']));
 
-  assert('nav excludes Today', tabLabelsExclude(state, ['Today']));
+  assert('nav excludes Schedule tab label', !hasExactTabLabel(state, 'Schedule'));
+  assert('nav excludes Today tab label', !hasExactTabLabel(state, 'Today'));
   assert('nav excludes Customers', tabLabelsExclude(state, ['Customers']));
   assert('nav excludes Day Schedule', tabLabelsExclude(state, ['Day Schedule']));
 
   assert('page text excludes Sunset Surf School', !state.bodyText.includes('Sunset Surf School'));
   assert('page text excludes demo-preview rows', !/demo-preview-/i.test(state.bodyText));
+
+  const whScheduleUi = await page.evaluate(() => ({
+    weekGrid: !!document.getElementById('ps-week-grid'),
+    scheduleWrap: !!document.querySelector('.portal-schedule-wrap'),
+  }));
+  assert('Wolfhouse excludes Sunset Schedule week grid', !whScheduleUi.weekGrid);
+  assert('Wolfhouse excludes portal-schedule-wrap', !whScheduleUi.scheduleWrap);
 
   if (fail > failAtStart) {
     await captureFailureScreenshot(page, 'wolfhouse', 'failure');
@@ -308,7 +326,8 @@ async function runSunsetSuite(page, context, creds) {
     JSON.stringify(state.sessionClients),
   );
 
-  assert('nav includes Today', tabLabelsInclude(state, ['Today']));
+  assert('nav includes Schedule tab (portal-home)', hasExactTabLabel(state, 'Schedule'), portalHomeTabLabel(state));
+  assert('nav excludes Today tab label', !hasExactTabLabel(state, 'Today'));
   assert('nav includes Inbox', tabLabelsInclude(state, ['Inbox']));
   assert('nav includes Day Schedule', tabLabelsInclude(state, ['Day Schedule']));
   assert('nav includes Customers', tabLabelsInclude(state, ['Customers']));
