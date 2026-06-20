@@ -15787,8 +15787,8 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
-/* Sunset Schedule — calm neutral ops surface (scoped to portal home tab) */
-#tab-portal-home{
+/* Sunset Schedule — calm neutral ops surface (light theme only) */
+:root:not([data-theme="dark"]) #tab-portal-home{
   --sched-bg:#F4F5F7;
   --sched-surface:#FFFFFF;
   --sched-surface-soft:#F8FAFC;
@@ -15804,53 +15804,81 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
   --sched-unpaid:#B4534A;
   background:var(--sched-bg);
 }
-#tab-portal-home .portal-schedule-wrap{padding-top:20px}
-#tab-portal-home .portal-schedule-card,
-#tab-portal-home .portal-schedule-ops-lesson-group,
-#tab-portal-home .portal-schedule-ops-rental-pickups,
-#tab-portal-home .portal-schedule-week-forecast-card,
-#tab-portal-home .portal-schedule-next30-card{background:var(--sched-surface);border-color:var(--sched-border-soft);box-shadow:0 1px 2px rgba(15,23,42,.04)}
-#tab-portal-home .portal-schedule-card-label,
-#tab-portal-home .portal-schedule-ops-lesson-hdr-title,
-#tab-portal-home .portal-schedule-ops-rental-pickups-hdr{color:var(--sched-text)}
-#tab-portal-home .portal-schedule-card-stat,
-#tab-portal-home .portal-schedule-card-stat-lg,
-#tab-portal-home .portal-schedule-lesson-time,
-#tab-portal-home .portal-schedule-lesson-time-count,
-#tab-portal-home .portal-schedule-ops-row-guest{color:var(--sched-text)}
-#tab-portal-home .portal-schedule-card-sub,
-#tab-portal-home .portal-schedule-card-body,
-#tab-portal-home .portal-schedule-ops-lesson-hdr-booked,
-#tab-portal-home .portal-schedule-ops-lesson-hdr-prep,
-#tab-portal-home .portal-schedule-ops-row-equip-sub,
-#tab-portal-home .portal-schedule-lesson-times-empty{color:var(--sched-text-2)}
-#tab-portal-home .portal-schedule-ops-col-hdr,
-#tab-portal-home .portal-schedule-ops-lesson-hdr{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
-#tab-portal-home .portal-schedule-ops-row{border-color:var(--sched-border-soft);background:transparent}
-#tab-portal-home .portal-schedule-ops-row.is-staff,
-#tab-portal-home .portal-schedule-ops-row.is-luna{background:transparent}
-#tab-portal-home .portal-schedule-ops-row:hover{background:var(--sched-surface-soft)}
-#tab-portal-home .portal-schedule-ops-row-rail.is-staff{background:var(--sched-rail-staff)}
-#tab-portal-home .portal-schedule-ops-row-rail.is-luna{background:var(--sched-rail-luna)}
-#tab-portal-home .portal-schedule-view-btn{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
-#tab-portal-home .portal-schedule-view-btn.active{background:var(--sched-text);border-color:var(--sched-text);color:#fff}
-#tab-portal-home .portal-schedule-range{color:var(--sched-text)}
-#tab-portal-home .btn-primary{background:var(--sched-primary);border-color:var(--sched-primary);color:#fff;box-shadow:none}
-#tab-portal-home .btn-primary:hover{background:var(--sched-primary-hover);border-color:var(--sched-primary-hover)}
-#tab-portal-home .btn-ghost{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
-#tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
-#tab-portal-home .portal-schedule-status.is-unpaid{color:var(--sched-unpaid)}
-#tab-portal-home .portal-schedule-status.is-pending{color:var(--sched-unpaid)}
-#tab-portal-home .portal-schedule-status.is-paid{color:var(--sched-text-3)}
-#tab-portal-home .portal-schedule-item-card.source-staff,
-#tab-portal-home .portal-schedule-item-card.source-luna{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
-#tab-portal-home .portal-schedule-week-forecast-card:hover,
-#tab-portal-home .portal-schedule-next30-card:hover{border-color:var(--sched-border);box-shadow:0 1px 3px rgba(15,23,42,.06)}
-#tab-portal-home .portal-schedule-week-forecast-card.is-today,
-#tab-portal-home .portal-schedule-next30-card.is-today{border-color:var(--sched-text-2)}
-#tab-portal-home .portal-schedule-drawer,
-#tab-portal-home .portal-schedule-create-drawer{background:var(--sched-surface);border-color:var(--sched-border-soft)}
-#tab-portal-home .portal-schedule-drawer-hint{font-size:12px;color:var(--sched-text-3);margin:6px 0 0;line-height:1.4}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-wrap{padding-top:20px}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-group,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-rental-pickups,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-next30-card{background:var(--sched-surface);border-color:var(--sched-border-soft);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-label,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-title,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-rental-pickups-hdr{color:var(--sched-text)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-stat,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-stat-lg,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-time,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-time-count,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-guest{color:var(--sched-text)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-sub,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-card-body,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-booked,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-prep,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-equip-sub,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-times-empty{color:var(--sched-text-2)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-col-hdr,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row{border-color:var(--sched-border-soft);background:transparent}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row.is-staff,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row.is-luna{background:transparent}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row:hover{background:var(--sched-surface-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-rail.is-staff{background:var(--sched-rail-staff)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row-rail.is-luna{background:var(--sched-rail-luna)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-view-btn{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-view-btn.active{background:var(--sched-text);border-color:var(--sched-text);color:#fff}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-range{color:var(--sched-text)}
+:root:not([data-theme="dark"]) #tab-portal-home .btn-primary{background:var(--sched-primary);border-color:var(--sched-primary);color:#fff;box-shadow:none}
+:root:not([data-theme="dark"]) #tab-portal-home .btn-primary:hover{background:var(--sched-primary-hover);border-color:var(--sched-primary-hover)}
+:root:not([data-theme="dark"]) #tab-portal-home .btn-ghost{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
+:root:not([data-theme="dark"]) #tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-unpaid{color:var(--sched-unpaid)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-pending{color:var(--sched-unpaid)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{color:var(--sched-text-3)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-staff,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-luna{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card:hover,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-next30-card:hover{border-color:var(--sched-border);box-shadow:0 1px 3px rgba(15,23,42,.06)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card.is-today,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-next30-card.is-today{border-color:var(--sched-text-2)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer,
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-drawer{background:var(--sched-surface);border-color:var(--sched-border-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-hint{font-size:12px;color:var(--sched-text-3);margin:6px 0 0;line-height:1.4}
+
+
+/* Sunset Schedule — dark/night mode (restore pre-calm-pass night ops feel) */
+[data-theme="dark"] #tab-portal-home{background:var(--cream)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-card,
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-lesson-group,
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-rental-pickups,
+[data-theme="dark"] #tab-portal-home .portal-schedule-week-forecast-card,
+[data-theme="dark"] #tab-portal-home .portal-schedule-next30-card{background:var(--surface);border-color:var(--border-soft);box-shadow:var(--shadow-soft)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-col-hdr,
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-lesson-hdr{background:var(--surface-soft);border-color:var(--border-soft)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row{border-color:var(--border-soft)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row.is-staff{background:linear-gradient(90deg,rgba(111,167,131,.14),transparent 42%)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row.is-luna{background:linear-gradient(90deg,rgba(111,147,184,.14),transparent 42%)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row-rail.is-staff{background:#6fa783}
+[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row-rail.is-luna{background:#6f93b8}
+[data-theme="dark"] #tab-portal-home .portal-schedule-view-btn{background:var(--surface);border-color:var(--border-soft);color:var(--text-2)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-view-btn.active{background:var(--tan);border-color:var(--tan);color:var(--text);font-weight:700}
+[data-theme="dark"] #tab-portal-home .btn-primary{background:var(--primary);border-color:var(--primary)}
+[data-theme="dark"] #tab-portal-home .btn-primary:hover{background:var(--primary-hover);border-color:var(--primary-hover)}
+[data-theme="dark"] #tab-portal-home .btn-ghost{background:var(--surface);border-color:var(--border);color:var(--text-2)}
+[data-theme="dark"] #tab-portal-home .btn-ghost:hover{background:var(--surface-soft);border-color:var(--tan)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-unpaid,
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-pending{color:#ffb896}
+[data-theme="dark"] #tab-portal-home .portal-schedule-status.is-paid{color:#9ee0a8}
+[data-theme="dark"] #tab-portal-home .portal-schedule-drawer,
+[data-theme="dark"] #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
 
 .portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
 .portal-admin-header{margin-bottom:18px}
@@ -15933,6 +15961,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-status{display:inline-block;font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap}
 .portal-schedule-status.is-paid{color:#6b8f71}
 .portal-schedule-status.is-pending,.portal-schedule-status.is-unpaid{color:#B4534A}
+[data-theme="dark"] .portal-schedule-status.is-pending,[data-theme="dark"] .portal-schedule-status.is-unpaid{color:#ffb896}
 .portal-schedule-status.is-needs-reply{color:#9a8ab8}
 .portal-schedule-pebble{display:none}
 .portal-schedule-drawer-source{font-size:11px;font-weight:600;letter-spacing:.02em;margin-bottom:8px}
@@ -15978,6 +16007,8 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
 .portal-schedule-ops-row.is-staff,.portal-schedule-ops-row.is-luna{background:transparent}
+[data-theme="dark"] .portal-schedule-ops-row.is-staff{background:linear-gradient(90deg,rgba(111,167,131,.14),transparent 42%)}
+[data-theme="dark"] .portal-schedule-ops-row.is-luna{background:linear-gradient(90deg,rgba(111,147,184,.14),transparent 42%)}
 .portal-schedule-ops-row-rail{width:4px;align-self:stretch;border-radius:999px;background:var(--border-soft);flex-shrink:0}
 .portal-schedule-ops-row-rail.is-staff{background:#6fa783}
 .portal-schedule-ops-row-rail.is-luna{background:#6f93b8}

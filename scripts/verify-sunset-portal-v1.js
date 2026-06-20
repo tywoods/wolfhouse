@@ -628,7 +628,7 @@ if (apiSrc) {
   assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
   assert('no visible source tag in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
   assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
-  assert('source row rail classes (no gradient wash)', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna') && !apiSrc.includes('rgba(111,167,131,.14)'));
+  assert('source row rail classes retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
   assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
@@ -708,6 +708,8 @@ if (apiSrc) {
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
   assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
   assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
+  assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
+  assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));
 }
 
 console.log('\n[24] Sunset Schedule — calm UI, live i18n, phone, conversation');
@@ -720,7 +722,8 @@ if (apiSrc) {
   assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
   assert('drawer conversation button', apiSrc.includes('ps-drawer-conversation-btn'));
   assert('open or start conversation', apiSrc.includes('scheduleOpenOrStartConversationFromBooking'));
-  assert('no row gradient wash', !apiSrc.includes('rgba(111,167,131,.14)'));
+  assert('light schedule rows no gradient wash', !apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row.is-staff{background:linear-gradient'));
+  assert('dark schedule row gradient restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row.is-staff{background:linear-gradient'));
   assert('reuse create-conversation endpoint', apiSrc.includes('/staff/bookings/create-conversation'));
 }
 
