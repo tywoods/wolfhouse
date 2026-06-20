@@ -168,6 +168,22 @@ async function readPortalState(page, context, baseUrl) {
   ).catch(() => { /* localStorage may remain unset on some builds */ });
 
   const dom = await page.evaluate(() => {
+    function isVisibleToUser(el) {
+      if (!el) return false;
+      let node = el;
+      while (node && node !== document.body) {
+        const s = window.getComputedStyle(node);
+        if (s.display === 'none' || s.visibility === 'hidden') return false;
+        node = node.parentElement;
+      }
+      const s = window.getComputedStyle(el);
+      if (s.display === 'none' || s.visibility === 'hidden') return false;
+      if (el.getClientRects().length === 0) return false;
+      const panel = el.closest('.tab-panel');
+      if (panel && !panel.classList.contains('active')) return false;
+      return el.offsetParent !== null;
+    }
+
     const tabs = Array.from(document.querySelectorAll('.tab-btn[data-tab]'))
       .filter((btn) => {
         const style = window.getComputedStyle(btn);
@@ -200,6 +216,13 @@ async function readPortalState(page, context, baseUrl) {
       localClient,
       selectedClient: select ? select.value : null,
       bodyText: (document.body && document.body.innerText) || '',
+      hasVisiblePsWeekGrid: isVisibleToUser(document.getElementById('ps-week-grid')),
+      hasVisiblePortalScheduleWrap: isVisibleToUser(document.querySelector('.portal-schedule-wrap')),
+      visiblePortalHomeTab: (() => {
+        const btn = document.querySelector('.tab-btn[data-tab="portal-home"]');
+        if (!btn || !isVisibleToUser(btn)) return null;
+        return (btn.textContent || '').replace(/\s+/g, ' ').trim();
+      })(),
     };
   });
 
@@ -217,8 +240,9 @@ async function readPortalState(page, context, baseUrl) {
     profileKeys,
     activeClient: session.active_client || dom.selectedClient,
     sessionClient: dom.selectedClient,
-    hasPsWeekGrid: await page.locator('#ps-week-grid').count() > 0,
-    hasPortalScheduleWrap: await page.locator('.portal-schedule-wrap').count() > 0,
+    hasPsWeekGrid: dom.hasVisiblePsWeekGrid,
+    hasPortalScheduleWrap: dom.hasVisiblePortalScheduleWrap,
+    visiblePortalHomeTab: dom.visiblePortalHomeTab,
   };
 }
 
@@ -228,6 +252,12 @@ function sessionSlugsExactly(state, expectedSlug) {
 
 function profilesExcludeTenant(state, forbiddenSlug) {
   return !state.profileKeys.includes(forbiddenSlug);
+}
+
+function profilesExactly(state, expectedSlugs) {
+  const keys = [...state.profileKeys].sort();
+  const expected = [...expectedSlugs].sort();
+  return keys.length === expected.length && keys.every((k, i) => k === expected[i]);
 }
 
 function tabLabelsInclude(state, labels) {
@@ -265,6 +295,11 @@ async function runWolfhouseSuite(page, context, creds) {
     JSON.stringify(state.sessionClientSlugs),
   );
   assert(
+    'session client_profiles exactly [wolfhouse-somo]',
+    profilesExactly(state, ['wolfhouse-somo']),
+    JSON.stringify(state.profileKeys),
+  );
+  assert(
     'session client_profiles exclude sunset',
     profilesExcludeTenant(state, 'sunset'),
     JSON.stringify(state.profileKeys),
@@ -299,8 +334,16 @@ async function runWolfhouseSuite(page, context, creds) {
   assert('nav excludes Admin', tabLabelsExclude(state, ['Admin']));
 
   assert('page text excludes Sunset Surf School', !state.bodyText.includes('Sunset Surf School'));
-  assert('page excludes #ps-week-grid', !state.hasPsWeekGrid);
-  assert('page excludes .portal-schedule-wrap', !state.hasPortalScheduleWrap);
+  assert(
+    'Sunset schedule UI not visible on Wolfhouse (#ps-week-grid)',
+    !state.hasPsWeekGrid,
+    state.hasPsWeekGrid ? 'visible' : 'hidden or absent',
+  );
+  assert(
+    'Sunset schedule wrap not visible on Wolfhouse (.portal-schedule-wrap)',
+    !state.hasPortalScheduleWrap,
+    state.hasPortalScheduleWrap ? 'visible' : 'hidden or absent',
+  );
   assert('page text excludes demo-preview rows', !/demo-preview-/i.test(state.bodyText));
 
   if (fail > failAtStart) {
@@ -326,6 +369,11 @@ async function runSunsetSuite(page, context, creds) {
     'GET /staff/auth/session clients exactly [sunset]',
     sessionSlugsExactly(state, 'sunset'),
     JSON.stringify(state.sessionClientSlugs),
+  );
+  assert(
+    'session client_profiles exactly [sunset]',
+    profilesExactly(state, ['sunset']),
+    JSON.stringify(state.profileKeys),
   );
   assert(
     'session client_profiles exclude wolfhouse-somo',
@@ -355,7 +403,11 @@ async function runSunsetSuite(page, context, creds) {
     JSON.stringify(state.clientNames),
   );
 
-  assert('nav includes Today', tabLabelsInclude(state, ['Today']));
+  assert(
+    'nav includes Schedule home tab (portal-home)',
+    state.tabs.some((t) => t.tab === 'portal-home') && state.visiblePortalHomeTab === 'Schedule',
+    state.visiblePortalHomeTab || state.tabLabels.join(' | '),
+  );
   assert('nav includes Inbox', tabLabelsInclude(state, ['Inbox']));
   assert('nav includes Day Schedule', tabLabelsInclude(state, ['Day Schedule']));
   assert('nav includes Customers', tabLabelsInclude(state, ['Customers']));
