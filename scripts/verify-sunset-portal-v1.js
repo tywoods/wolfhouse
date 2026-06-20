@@ -151,9 +151,11 @@ if (apiSrc) {
   assert('portal-home gated for surf vertical', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
   assert('Schedule page wrap present', apiSrc.includes('portal-schedule-wrap'));
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
-  assert('Schedule rentals today summary card', apiSrc.includes('schedule.card.rentalsToday') && apiSrc.includes('id="ps-rentals-today"'));
+  assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
+  assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
   assert('Schedule lessons today summary card', apiSrc.includes('schedule.card.lessonsToday') && apiSrc.includes('id="ps-lessons-today"'));
-  assert('Schedule need reply summary card', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply"'));
+  assert('Schedule need reply email card', apiSrc.includes('schedule.card.needReplyEmail') && apiSrc.includes('id="ps-need-reply-email"'));
+  assert('Schedule need reply whatsapp card', apiSrc.includes('schedule.card.needReplyWhatsapp') && apiSrc.includes('id="ps-need-reply-whatsapp"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
   assert('old unpaid summary card removed', !apiSrc.includes('id="ps-unpaid"'));
@@ -284,8 +286,9 @@ if (apiSrc) {
   assert('SUNSET_SCHEDULE_LESSON_DAY_CAP constant', apiSrc.includes('SUNSET_SCHEDULE_LESSON_DAY_CAP = 24'));
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
-  assert('schedule summary cards present', apiSrc.includes('id="ps-rentals-today"')
-    && apiSrc.includes('id="ps-lessons-today"') && apiSrc.includes('id="ps-need-reply"'));
+  assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
+    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-surfers-today"')
+    && apiSrc.includes('id="ps-need-reply-email"') && apiSrc.includes('id="ps-need-reply-whatsapp"'));
   assert('schedule view toggle week default', apiSrc.includes('data-ps-view="week"')
     && apiSrc.includes('portal-schedule-view-btn active'));
   assert('schedule booking filters present', apiSrc.includes('data-ps-filter="needs_reply"')
@@ -525,7 +528,7 @@ if (apiSrc) {
 }
 
 if (i18nSrc) {
-  assert('schedule.card.rentalsToday i18n', i18nSrc.includes("'schedule.card.rentalsToday'"));
+  assert('schedule.card.wetsuitsToday i18n', i18nSrc.includes("'schedule.card.wetsuitsToday'"));
   assert('schedule.createBooking i18n', i18nSrc.includes("'schedule.createBooking'"));
   assert('schedule.badge.manualDraft i18n', i18nSrc.includes("'schedule.badge.manualDraft'"));
 }
@@ -545,12 +548,13 @@ if (apiSrc) {
 }
 
 const writesPath = path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js');
+let writesSrc = '';
 if (fs.existsSync(writesPath)) {
-  const writesSrc = fs.readFileSync(writesPath, 'utf8');
+  writesSrc = fs.readFileSync(writesPath, 'utf8');
   assert('writes module validates body', writesSrc.includes('function validateScheduleBookingBody('));
   assert('writes module inserts booking_service_records', writesSrc.includes('INSERT INTO booking_service_records'));
   assert('writes sunset client only', writesSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
-  assert('writes no stripe', !/stripe/i.test(writesSrc));
+  assert('writes no stripe integration', !writesSrc.includes('stripe.') && !writesSrc.includes('STRIPE_'));
 }
 
 
@@ -572,6 +576,39 @@ if (apiSrc) {
 if (i18nSrc) {
   assert('schedule.slot.bookings i18n', i18nSrc.includes("'schedule.slot.bookings'"));
   assert('schedule.create.lessonSlot i18n', i18nSrc.includes("'schedule.create.lessonSlot'"));
+}
+
+
+// ── 18. Sunset Schedule booking shape — components, source, range ────────────
+
+console.log('\n[18] Sunset Schedule booking shape — components, source, range');
+
+if (apiSrc) {
+  assert('wetsuits and surfboards summary cards', apiSrc.includes('id="ps-wetsuits-today"') && apiSrc.includes('id="ps-surfboards-today"'));
+  assert('lessons surfer count prominent', apiSrc.includes('id="ps-lessons-surfers-today"') && apiSrc.includes('function scheduleLessonsSurfersToday('));
+  assert('need reply split email/whatsapp', apiSrc.includes('function scheduleNeedReplyEmailCount(') && apiSrc.includes('function scheduleNeedReplyWhatsAppCount('));
+  assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
+  assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
+  assert('today-first forward range', apiSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
+  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-lesson"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
+  assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
+  assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
+  assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleRenderPebblesHtml('));
+  assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
+  assert('drawer stripe placeholder disabled', apiSrc.includes('schedule.drawer.stripeLink') && apiSrc.includes('disabled'));
+  assert('submit sends components payload', apiSrc.includes('components: payload.components'));
+}
+
+if (writesSrc) {
+  assert('writes supports components object', writesSrc.includes('normalizeComponents'));
+  assert('writes supports multi-date', writesSrc.includes('normalizeServiceDates'));
+  assert('writes multiple service records', writesSrc.includes('for (const serviceDate of input.service_dates)'));
+}
+
+if (i18nSrc) {
+  assert('schedule.source.staff i18n', i18nSrc.includes("'schedule.source.staff'"));
+  assert('schedule.view.next30 i18n', i18nSrc.includes("'schedule.view.next30'"));
 }
 
 
