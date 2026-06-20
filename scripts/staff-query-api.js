@@ -18521,7 +18521,7 @@ function scheduleNormalizeApiRow(r){
   if (!r.slot_time) r.slot_time = meta.slot_time || null;
   if (!r.notes) r.notes = r.notes || meta.notes || null;
   if (r.needs_reply === true || r.needs_reply === 't') r._needsReply = true;
-  if (r.record_source === 'staff_manual_schedule') r._isDbManual = true;
+  if (r.record_source === 'staff_manual' && (meta.source === 'staff_manual_schedule' || meta.staff_manual_schedule)) r._isDbManual = true;
   if (r.staff_ui_service_type) r.service_type = r.staff_ui_service_type;
   if (r._needsReply == null) r._needsReply = false;
   return r;

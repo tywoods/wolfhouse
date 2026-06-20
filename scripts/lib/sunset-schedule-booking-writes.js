@@ -8,7 +8,8 @@
 const crypto = require('crypto');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
-const SOURCE_TAG = 'staff_manual_schedule';
+const METADATA_SOURCE_TAG = 'staff_manual_schedule';
+const DB_SOURCE = 'staff_manual';
 
 const UI_SERVICE_TYPES = new Set(['lesson', 'board_rental', 'wetsuit_rental']);
 const UI_PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'pending']);
@@ -113,7 +114,7 @@ function scheduleRowFromDb(row) {
 
   return {
     _scheduleId: String(row.service_record_id || row.id || ''),
-    _isDbManual: row.record_source === SOURCE_TAG || row.source === SOURCE_TAG,
+    _isDbManual: row.record_source === DB_SOURCE && (row.metadata_source === METADATA_SOURCE_TAG || row.staff_manual_schedule === true),
     _isDemo: false,
     guest_name: row.guest_name || null,
     service_type: uiType,
@@ -145,7 +146,8 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'slot_time' AS slot_time,
             sr.metadata->>'notes' AS notes,
             COALESCE((sr.metadata->>'needs_reply')::boolean, false) AS needs_reply,
-            sr.metadata->>'staff_ui_service_type' AS staff_ui_service_type
+            sr.metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+            sr.metadata->>'source' AS metadata_source
        FROM booking_service_records sr
       WHERE sr.client_slug = $1
         AND sr.metadata->>'idempotency_key' = $2
@@ -194,7 +196,8 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode();
   const metadata = {
-    source: SOURCE_TAG,
+    source: METADATA_SOURCE_TAG,
+    staff_manual_schedule: true,
     staff_ui_service_type: input.booking_type,
     slot_time: input.time_local,
     notes: input.notes || null,
@@ -222,7 +225,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         bookingPayment,
         input.service_date,
         input.quantity,
-        JSON.stringify({ source: SOURCE_TAG, staff_manual_schedule: true }),
+        JSON.stringify({ source: METADATA_SOURCE_TAG, staff_manual_schedule: true }),
       ],
     );
     const bookingId = bookingIns.rows[0].id;
@@ -257,7 +260,7 @@ async function createSunsetScheduleBooking(pg, opts) {
         input.service_date,
         input.quantity,
         srPayment,
-        SOURCE_TAG,
+        DB_SOURCE,
         JSON.stringify(metadata),
       ],
     );
@@ -279,7 +282,8 @@ async function createSunsetScheduleBooking(pg, opts) {
 
 module.exports = {
   SUNSET_CLIENT_SLUG,
-  SOURCE_TAG,
+  METADATA_SOURCE_TAG,
+  DB_SOURCE,
   UI_SERVICE_TYPES,
   validateScheduleBookingBody,
   generateSunsetManualBookingCode,
