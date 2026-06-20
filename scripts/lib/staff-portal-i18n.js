@@ -1,11 +1,13 @@
 'use strict';
 
 /**
- * Staff Portal UI — English / Spanish / Italian strings.
+ * Staff Portal UI — English / Spanish strings.
  * Client bootstrap is injected into buildUiHtml() and buildLoginHtml().
  */
 
-const STAFF_PORTAL_ES = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
+const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET);
 
 const STAFF_PORTAL_STRINGS = {
   en: {
@@ -1228,9 +1230,9 @@ function getStaffPortalI18nBootstrapScript() {
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
-      if (s === 'it' || s === 'en' || s === 'es') return s;
+      if (s === 'en' || s === 'es') return s;
     } catch(_){}
-    return 'en';
+    return 'es';
   };
   window.getStaffTheme = function(){
     try {
@@ -1315,7 +1317,7 @@ function getStaffPortalI18nBootstrapScript() {
     window.applyStaffTheme();
   };
   window.setStaffLocale = function(loc){
-    if (loc !== 'en' && loc !== 'it' && loc !== 'es') return;
+    if (loc !== 'en' && loc !== 'es') return;
     try { localStorage.setItem(STAFF_LOCALE_KEY, loc); } catch(_){}
     window.applyStaffPortalI18n(document);
     if (typeof window.staffPortalOnLocaleChange === 'function') {

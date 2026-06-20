@@ -153,7 +153,7 @@ if (apiSrc) {
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
   assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
   assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('Schedule lesson groups summary card', apiSrc.includes('schedule.card.lessonGroups') && apiSrc.includes('id="ps-lessons-surfers-today"'));
+  assert('Schedule lesson groups summary card', apiSrc.includes('schedule.card.lessonGroups') && apiSrc.includes('portal-schedule-lesson-times') && apiSrc.includes('id="ps-lessons-slot-sub"'));
   assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
@@ -286,7 +286,7 @@ if (apiSrc) {
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
-    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-surfers-today"')
+    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-slot-sub"')
     && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-pending-today"'));
   assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
     && apiSrc.includes('portal-schedule-view-btn active'));
@@ -583,7 +583,7 @@ console.log('\n[18] Sunset Schedule booking shape — components, source, range'
 
 if (apiSrc) {
   assert('wetsuits and surfboards summary cards', apiSrc.includes('id="ps-wetsuits-today"') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('lessons surfer count prominent', apiSrc.includes('id="ps-lessons-surfers-today"') && apiSrc.includes('function scheduleLessonsSurfersToday('));
+  assert('lessons time rows with counts', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('portal-schedule-lesson-time-count'));
   assert('need reply split email/whatsapp', apiSrc.includes('function scheduleNeedReplyEmailCount(') && apiSrc.includes('function scheduleNeedReplyWhatsAppCount('));
   assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
   assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
@@ -648,7 +648,7 @@ if (apiSrc) {
   assert('no Pending payment in row renderer', !apiSrc.includes("scheduleRenderRowStatusHtml(g)") || apiSrc.includes('schedule.status.pendingDetail'));
   assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
   assert('metric card lesson rental subtext keys', apiSrc.includes("portalT('schedule.metric.lesson')") && apiSrc.includes("portalT('schedule.metric.rental')"));
-  assert('metric slot summary lines', apiSrc.includes('portal-schedule-metric-slot') && apiSrc.includes("' — ' + String(stats.surfers)"));
+  assert('lesson time row layout', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('scheduleNormalizeSlotTime(slot.slot_time)'));
   assert('component pebble css still absent', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
 }
 
@@ -692,6 +692,21 @@ if (apiSrc) {
   assert('month label not Month', !i18nSrc.includes("'schedule.view.month': 'Month'"));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
   assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
+}
+
+
+
+// ── 23. Sunset UI — ES default, lesson groups card, soft light theme ────────
+
+console.log('\n[23] Sunset UI — ES default, lesson groups card, soft light theme');
+
+if (apiSrc) {
+  assert('ES default locale', i18nSrc.includes("return 'es';"));
+  assert('no IT lang button', !apiSrc.includes('data-lang="it"'));
+  assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
+  assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
+  assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
+  assert('soft light cream palette', apiSrc.includes('--cream:#EDE8E0'));
 }
 
 console.log('\n' + '─'.repeat(48));

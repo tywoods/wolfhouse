@@ -15581,29 +15581,29 @@ ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
 :root{
-  --cream:#F7F3EC;        /* page background */
-  --surface:#FFFDFA;      /* card surface */
-  --surface-soft:#FBF7F0; /* inset / muted surface */
-  --sand:#E9DDCF;         /* light sand */
-  --tan:#DCC8B7;          /* soft tan */
-  --sage:#AFC3A3;         /* sage green */
+  --cream:#EDE8E0;        /* warm oatmeal page — reduced glare */
+  --surface:#F5F1EA;      /* soft card surface */
+  --surface-soft:#EDE8E0; /* inset / muted surface */
+  --sand:#E0D8CC;         /* light sand */
+  --tan:#D4C9BA;          /* soft tan */
+  --sage:#B8CBB0;         /* muted sage green */
   --olive:#8FA58E;        /* muted olive/sage */
-  --dusty-blue:#B7CAD6;   /* dusty blue */
-  --ocean:#95B4C7;        /* soft ocean blue */
-  --teal:#C7DDD7;         /* pale teal */
-  --text:#44504A;         /* main text */
-  --text-2:#6B756F;       /* secondary text */
-  --text-3:#97A09A;       /* muted/tertiary text */
-  --border:#E6DCCD;       /* soft warm border */
-  --border-soft:#EFE8DC;  /* subtle divider */
+  --dusty-blue:#B5C4CE;   /* dusty blue */
+  --ocean:#9DB4C4;        /* soft ocean blue */
+  --teal:#D0E0DA;         /* pale teal */
+  --text:#4E5853;         /* main text — softer contrast */
+  --text-2:#727C76;       /* secondary text */
+  --text-3:#959F99;       /* muted/tertiary text */
+  --border:#DDD5C9;       /* soft warm border */
+  --border-soft:#E8E2D8;  /* subtle divider */
   --radius:14px;
   --radius-sm:10px;
   --radius-pill:999px;
-  --shadow:0 1px 2px rgba(68,80,74,.05),0 6px 18px rgba(68,80,74,.06);
-  --shadow-soft:0 1px 2px rgba(68,80,74,.04),0 3px 10px rgba(68,80,74,.04);
-  --primary:#7E947D;      /* primary action (deep sage) */
-  --primary-hover:#6C8268;
-  --focus:#95B4C7;        /* focus ring (ocean) */
+  --shadow:0 1px 2px rgba(78,88,83,.04),0 4px 14px rgba(78,88,83,.05);
+  --shadow-soft:0 1px 2px rgba(78,88,83,.03),0 2px 8px rgba(78,88,83,.04);
+  --primary:#7A9279;      /* primary action (deep sage) */
+  --primary-hover:#6A8268;
+  --focus:#9DB4C4;        /* focus ring (ocean) */
 }
 [data-theme="dark"]{
   --cream:#181818;
@@ -15822,7 +15822,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-summary{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-summary{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-summary{grid-template-columns:1fr 1fr}}
-.portal-schedule-card{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);padding:14px 16px;box-shadow:none}
+.portal-schedule-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;box-shadow:none}
 .portal-schedule-card-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:6px}
 .portal-schedule-card-stat{font-size:22px;font-weight:800;color:var(--text);line-height:1.2}
 .portal-schedule-card-body{font-size:12px;line-height:1.45;color:var(--text-2)}
@@ -15900,7 +15900,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
 .portal-schedule-metric-card .portal-schedule-card-stat-lg{font-size:36px;font-weight:800;line-height:1.05}
 .portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
-.portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:var(--radius);overflow:hidden;box-shadow:none}
+.portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden;box-shadow:none}
 .portal-schedule-ops-lesson-hdr{padding:14px 16px;border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
 .portal-schedule-ops-lesson-hdr-title{font-size:13px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text);line-height:1.3}
 .portal-schedule-ops-lesson-hdr-booked{font-size:15px;font-weight:600;color:var(--text-2);margin-top:6px;line-height:1.35}
@@ -15924,7 +15924,13 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-ops-row-status{text-align:right;font-size:11px}
 .portal-schedule-metric-slots{font-size:13px;line-height:1.6;color:var(--text-2)}
 .portal-schedule-metric-slots .portal-schedule-metric-slot{display:block;font-weight:600}
-.portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid rgba(255,255,255,.08);border-radius:var(--radius);background:var(--surface);overflow:hidden}
+.portal-schedule-metric-card-lessons .portal-schedule-card-label{margin-bottom:4px}
+.portal-schedule-lesson-times{display:flex;flex-direction:column;gap:10px;margin-top:6px;min-height:48px}
+.portal-schedule-lesson-time-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px}
+.portal-schedule-lesson-time{font-size:20px;font-weight:700;color:var(--text);letter-spacing:.01em;line-height:1.15}
+.portal-schedule-lesson-time-count{font-size:26px;font-weight:800;color:var(--text);line-height:1;min-width:28px;text-align:right}
+.portal-schedule-lesson-times-empty{font-size:13px;color:var(--text-3);line-height:1.4;padding-top:4px}
+.portal-schedule-ops-rental-pickups{margin-top:20px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface);overflow:hidden}
 .portal-schedule-ops-rental-pickups-hdr{padding:12px 16px;font-size:12px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:var(--text);border-bottom:1px solid var(--border-soft);background:rgba(255,255,255,.04)}
 .portal-schedule-ops-rental-pickups-block{padding:0 0 8px;border-bottom:1px solid var(--border-soft)}
 .portal-schedule-ops-rental-pickups-block:last-child{border-bottom:none}
@@ -16883,11 +16889,9 @@ ${getStaffPortalI18nBootstrapScript()}
   </a>
   <div class="banner-actions">
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
-    <button type="button" class="staff-lang-btn is-active" data-lang="en">EN</button>
+    <button type="button" class="staff-lang-btn is-active" data-lang="es">ES</button>
     <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn" data-lang="es">ES</button>
-    <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn" data-lang="it">IT</button>
+    <button type="button" class="staff-lang-btn" data-lang="en">EN</button>
   </div>
   <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
     <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
@@ -16947,7 +16951,7 @@ ${getStaffPortalI18nBootstrapScript()}
 <div id="tab-portal-home" class="tab-panel">
 <div id="wrap-portal-home" class="portal-schedule-wrap">
   <div class="portal-schedule-summary portal-schedule-ops-metrics">
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonGroups">Lesson groups</div><div class="portal-schedule-card-stat-lg" id="ps-lessons-surfers-today">…</div><div class="portal-schedule-card-sub" id="ps-lessons-slot-sub">…</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-lessons"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonGroups">Lesson groups</div><div class="portal-schedule-lesson-times" id="ps-lessons-slot-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div><div class="portal-schedule-card-stat-lg" id="ps-wetsuits-today">…</div><div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat-lg" id="ps-need-reply-today">…</div><div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div></div>
@@ -19195,11 +19199,8 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
 }
 
 function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
-  var stat = el('ps-lessons-surfers-today');
   var sub = el('ps-lessons-slot-sub');
-  if (!stat) return;
-  var totalSurfers = scheduleLessonsSurfersToday(rows, todayIso);
-  stat.textContent = String(totalSurfers);
+  if (!sub) return;
   var slots = scheduleSlotsForDate(lessonTimes, todayIso);
   if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
   var todayLessons = (rows || []).filter(function(r){
@@ -19208,13 +19209,14 @@ function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
   var subHtml = '';
   slots.forEach(function(slot){
     var stats = scheduleSlotAggregates(todayLessons, slot);
-    subHtml += '<span class="portal-schedule-metric-slot">' + escHtml(scheduleNormalizeSlotTime(slot.slot_time) + ' — ' + String(stats.surfers)) + '</span>';
+    subHtml += '<div class="portal-schedule-lesson-time-row">' +
+      '<span class="portal-schedule-lesson-time">' + escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + '</span>' +
+      '<span class="portal-schedule-lesson-time-count">' + escHtml(String(stats.surfers || 0)) + '</span>' +
+      '</div>';
   });
-  if (scheduleLessonTimesFallback) subHtml += '<span class="portal-schedule-metric-slot">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</span>';
-  if (sub){
-    sub.className = 'portal-schedule-card-sub portal-schedule-metric-slots';
-    sub.innerHTML = subHtml || escHtml(portalT('schedule.lessons.noSlotsToday'));
-  }
+  if (scheduleLessonTimesFallback) subHtml += '<div class="portal-schedule-lesson-times-empty">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
+  sub.className = 'portal-schedule-lesson-times';
+  sub.innerHTML = subHtml || ('<div class="portal-schedule-lesson-times-empty">' + escHtml(portalT('schedule.lessons.noSlotsToday')) + '</div>');
 }
 
 function schedulePopulateCreateTimeFields(bookingType){
@@ -30771,11 +30773,9 @@ ${getStaffPortalI18nBootstrapScript()}
 <div class="card">
   <div class="login-topbar">
     <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
-      <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="en">EN</button>
+      <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="es">ES</button>
       <span class="staff-lang-sep-login staff-lang-sep">|</span>
-      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="es">ES</button>
-      <span class="staff-lang-sep-login staff-lang-sep">|</span>
-      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
+      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="en">EN</button>
     </div>
     <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
       <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
