@@ -15787,6 +15787,71 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
+/* Sunset Schedule — calm neutral ops surface (scoped to portal home tab) */
+#tab-portal-home{
+  --sched-bg:#F4F5F7;
+  --sched-surface:#FFFFFF;
+  --sched-surface-soft:#F8FAFC;
+  --sched-border:#E5E7EB;
+  --sched-border-soft:#EEF2F6;
+  --sched-text:#334155;
+  --sched-text-2:#64748B;
+  --sched-text-3:#94A3B8;
+  --sched-rail-staff:#A8C4B4;
+  --sched-rail-luna:#A8B8CC;
+  --sched-primary:#2F6B4F;
+  --sched-primary-hover:#275C43;
+  --sched-unpaid:#B4534A;
+  background:var(--sched-bg);
+}
+#tab-portal-home .portal-schedule-wrap{padding-top:20px}
+#tab-portal-home .portal-schedule-card,
+#tab-portal-home .portal-schedule-ops-lesson-group,
+#tab-portal-home .portal-schedule-ops-rental-pickups,
+#tab-portal-home .portal-schedule-week-forecast-card,
+#tab-portal-home .portal-schedule-next30-card{background:var(--sched-surface);border-color:var(--sched-border-soft);box-shadow:0 1px 2px rgba(15,23,42,.04)}
+#tab-portal-home .portal-schedule-card-label,
+#tab-portal-home .portal-schedule-ops-lesson-hdr-title,
+#tab-portal-home .portal-schedule-ops-rental-pickups-hdr{color:var(--sched-text)}
+#tab-portal-home .portal-schedule-card-stat,
+#tab-portal-home .portal-schedule-card-stat-lg,
+#tab-portal-home .portal-schedule-lesson-time,
+#tab-portal-home .portal-schedule-lesson-time-count,
+#tab-portal-home .portal-schedule-ops-row-guest{color:var(--sched-text)}
+#tab-portal-home .portal-schedule-card-sub,
+#tab-portal-home .portal-schedule-card-body,
+#tab-portal-home .portal-schedule-ops-lesson-hdr-booked,
+#tab-portal-home .portal-schedule-ops-lesson-hdr-prep,
+#tab-portal-home .portal-schedule-ops-row-equip-sub,
+#tab-portal-home .portal-schedule-lesson-times-empty{color:var(--sched-text-2)}
+#tab-portal-home .portal-schedule-ops-col-hdr,
+#tab-portal-home .portal-schedule-ops-lesson-hdr{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
+#tab-portal-home .portal-schedule-ops-row{border-color:var(--sched-border-soft);background:transparent}
+#tab-portal-home .portal-schedule-ops-row.is-staff,
+#tab-portal-home .portal-schedule-ops-row.is-luna{background:transparent}
+#tab-portal-home .portal-schedule-ops-row:hover{background:var(--sched-surface-soft)}
+#tab-portal-home .portal-schedule-ops-row-rail.is-staff{background:var(--sched-rail-staff)}
+#tab-portal-home .portal-schedule-ops-row-rail.is-luna{background:var(--sched-rail-luna)}
+#tab-portal-home .portal-schedule-view-btn{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
+#tab-portal-home .portal-schedule-view-btn.active{background:var(--sched-text);border-color:var(--sched-text);color:#fff}
+#tab-portal-home .portal-schedule-range{color:var(--sched-text)}
+#tab-portal-home .btn-primary{background:var(--sched-primary);border-color:var(--sched-primary);color:#fff;box-shadow:none}
+#tab-portal-home .btn-primary:hover{background:var(--sched-primary-hover);border-color:var(--sched-primary-hover)}
+#tab-portal-home .btn-ghost{background:var(--sched-surface);border-color:var(--sched-border);color:var(--sched-text-2)}
+#tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
+#tab-portal-home .portal-schedule-status.is-unpaid{color:var(--sched-unpaid)}
+#tab-portal-home .portal-schedule-status.is-pending{color:var(--sched-unpaid)}
+#tab-portal-home .portal-schedule-status.is-paid{color:var(--sched-text-3)}
+#tab-portal-home .portal-schedule-item-card.source-staff,
+#tab-portal-home .portal-schedule-item-card.source-luna{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
+#tab-portal-home .portal-schedule-week-forecast-card:hover,
+#tab-portal-home .portal-schedule-next30-card:hover{border-color:var(--sched-border);box-shadow:0 1px 3px rgba(15,23,42,.06)}
+#tab-portal-home .portal-schedule-week-forecast-card.is-today,
+#tab-portal-home .portal-schedule-next30-card.is-today{border-color:var(--sched-text-2)}
+#tab-portal-home .portal-schedule-drawer,
+#tab-portal-home .portal-schedule-create-drawer{background:var(--sched-surface);border-color:var(--sched-border-soft)}
+#tab-portal-home .portal-schedule-drawer-hint{font-size:12px;color:var(--sched-text-3);margin:6px 0 0;line-height:1.4}
+
 .portal-admin-wrap{max-width:1100px;margin:0 auto;padding:24px 20px 32px}
 .portal-admin-header{margin-bottom:18px}
 .portal-admin-header h2{font-size:20px;font-weight:800;color:var(--text);margin:0 0 8px}
@@ -15867,7 +15932,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-schedule-chip-meta{display:flex;flex-wrap:wrap;gap:4px;margin-top:4px}
 .portal-schedule-status{display:inline-block;font-size:11px;font-weight:600;line-height:1.3;white-space:nowrap}
 .portal-schedule-status.is-paid{color:#6b8f71}
-.portal-schedule-status.is-pending,.portal-schedule-status.is-unpaid{color:#b8935a}
+.portal-schedule-status.is-pending,.portal-schedule-status.is-unpaid{color:#B4534A}
 .portal-schedule-status.is-needs-reply{color:#9a8ab8}
 .portal-schedule-pebble{display:none}
 .portal-schedule-drawer-source{font-size:11px;font-weight:600;letter-spacing:.02em;margin-bottom:8px}
@@ -15912,8 +15977,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 @media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px 1fr 72px}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
-.portal-schedule-ops-row.is-staff{background:linear-gradient(90deg,rgba(111,167,131,.14),transparent 42%)}
-.portal-schedule-ops-row.is-luna{background:linear-gradient(90deg,rgba(111,147,184,.14),transparent 42%)}
+.portal-schedule-ops-row.is-staff,.portal-schedule-ops-row.is-luna{background:transparent}
 .portal-schedule-ops-row-rail{width:4px;align-self:stretch;border-radius:999px;background:var(--border-soft);flex-shrink:0}
 .portal-schedule-ops-row-rail.is-staff{background:#6fa783}
 .portal-schedule-ops-row-rail.is-luna{background:#6f93b8}
@@ -16955,7 +17019,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div><div class="portal-schedule-card-stat-lg" id="ps-wetsuits-today">…</div><div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat-lg" id="ps-need-reply-today">…</div><div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div></div>
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.unpaidPending">Unpaid / Pending</div><div class="portal-schedule-card-stat-lg" id="ps-unpaid-pending-today">…</div><div class="portal-schedule-card-sub" id="ps-unpaid-pending-sub" data-i18n="schedule.card.unpaidPendingSub">Bookings awaiting payment</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.unpaid">Unpaid</div><div class="portal-schedule-card-stat-lg" id="ps-unpaid-pending-today">…</div><div class="portal-schedule-card-sub" id="ps-unpaid-pending-sub" data-i18n="schedule.card.unpaidPendingSub">Bookings awaiting payment</div></div>
   </div>
   <div class="portal-schedule-toolbar">
     <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
@@ -16982,6 +17046,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Creates a real Sunset staging booking in the database.</p>
     <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
     <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
       <div class="portal-schedule-create-components">
         <label><input id="ps-create-comp-lesson" type="checkbox" checked> <span data-i18n="schedule.type.lesson">Lesson</span></label>
@@ -16996,7 +17061,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="portal-schedule-create-field" id="ps-create-wetsuit-qty-wrap" style="display:none"><label for="ps-create-wetsuit-qty" data-i18n="schedule.create.wetsuitQty">Wetsuits</label><input id="ps-create-wetsuit-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
-    <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option><option value="pending" data-i18n="schedule.payment.pending">Pending</option></select></div>
+    <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
     <div class="portal-schedule-create-actions">
       <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
@@ -18540,6 +18605,7 @@ var scheduleForwardOffset = 0;
 var scheduleRowsCache = [];
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
+var scheduleLastDrawerRowId = null;
 var scheduleLessonTimesCache = [];
 var scheduleLessonTimesFallback = false;
 var scheduleLessonTimesLoaded = false;
@@ -18665,6 +18731,119 @@ function scheduleLessonGroupHeaderMeta(stats, boardsNeeded, wetsuitsNeeded){
 }
 
 
+function scheduleNormalizePhoneDigits(phone){
+  return String(phone || '').replace(/\D/g, '');
+}
+
+function scheduleGroupHasPhone(group){
+  var p = String(group && group.phone || '').trim();
+  return p.length > 0 && p.indexOf('staff:') !== 0;
+}
+
+function scheduleFindLinkedConversation(group){
+  var convs = scheduleConversationsCache || [];
+  if (!group) return null;
+  var bookingCode = group.booking_code;
+  if (bookingCode){
+    var byCode = convs.find(function(c){ return c.booking_code === bookingCode; });
+    if (byCode) return byCode;
+  }
+  var phone = String(group.phone || '').trim();
+  if (phone && phone.indexOf('staff:') !== 0){
+    var norm = scheduleNormalizePhoneDigits(phone);
+    var byPhone = convs.find(function(c){
+      return c.phone && scheduleNormalizePhoneDigits(c.phone) === norm;
+    });
+    if (byPhone) return byPhone;
+  }
+  return null;
+}
+
+function scheduleResolveConversationId(group){
+  var linked = scheduleFindLinkedConversation(group);
+  return linked && linked.conversation_id ? linked.conversation_id : null;
+}
+
+function scheduleStartConversationFromBooking(group){
+  if (!group) return;
+  var btn = el('ps-drawer-conversation-btn');
+  if (btn && btn.disabled) return;
+  if (btn) btn.disabled = true;
+  var client = getClient();
+  var idemKey = 'schedule-drawer-conv-' + (group.booking_id || group.booking_code || 'unknown');
+  fetch('/staff/bookings/create-conversation?client=' + encodeURIComponent(client), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'same-origin',
+    body: JSON.stringify({
+      client_slug: client,
+      booking_id: group.booking_id || undefined,
+      booking_code: group.booking_code || undefined,
+      idempotency_key: idemKey,
+      reason: 'Created from Sunset schedule drawer',
+    }),
+  })
+    .then(function(r){ return r.json().then(function(j){ return { ok: r.ok, data: j }; }); })
+    .then(function(res){
+      if (btn) btn.disabled = false;
+      if (!res.ok || !res.data || !res.data.success){
+        var errMsg = (res.data && res.data.error) || portalT('schedule.drawer.conversationFailed');
+        alert(errMsg);
+        return;
+      }
+      var convId = res.data.conversation_id;
+      if (!convId) return;
+      openInboxToConversation(convId);
+    })
+    .catch(function(e){
+      if (btn) btn.disabled = false;
+      alert(e.message || portalT('schedule.drawer.conversationFailed'));
+    });
+}
+
+function scheduleOpenOrStartConversationFromBooking(group){
+  var convId = scheduleResolveConversationId(group);
+  if (convId){
+    openInboxToConversation(convId);
+    return;
+  }
+  scheduleStartConversationFromBooking(group);
+}
+
+function scheduleRefreshOpenDrawerI18n(){
+  if (!scheduleLastDrawerRowId) return;
+  var row = scheduleFindRowById(scheduleLastDrawerRowId);
+  if (!row) return;
+  var drawer = el('ps-detail-drawer');
+  if (!drawer || drawer.style.display === 'none') return;
+  openScheduleDetailDrawer(row);
+}
+
+function scheduleRefreshOnLocaleChange(){
+  var profile = getPortalProfile(getClient());
+  if (!profile || !profile.is_surf_vertical) return;
+  var wrap = el('wrap-portal-home') || document.querySelector('.portal-schedule-wrap');
+  if (wrap && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(wrap);
+  var createModal = el('ps-create-modal');
+  if (createModal && createModal.style.display !== 'none' && typeof window.applyStaffPortalI18n === 'function'){
+    window.applyStaffPortalI18n(createModal);
+  }
+  if (!scheduleIsPortalHomeActive()) return;
+  var keepDrawerId = scheduleLastDrawerRowId;
+  var drawerWasOpen = !!(keepDrawerId && el('ps-detail-drawer') && el('ps-detail-drawer').style.display !== 'none');
+  return loadSchedulePage().then(function(){
+    if (drawerWasOpen && keepDrawerId){
+      var restored = scheduleFindRowById(keepDrawerId);
+      if (restored) openScheduleDetailDrawer(restored);
+    }
+  });
+}
+
+function scheduleIsPortalHomeActive(){
+  var tab = el('tab-portal-home');
+  return !!(tab && tab.classList.contains('active'));
+}
+
 function scheduleNormalizeApiRow(r){
   if (!r) return r;
   scheduleEnsureRowId(r);
@@ -18682,6 +18861,9 @@ function scheduleNormalizeApiRow(r){
   if (meta.bundle_id) r.bundle_id = meta.bundle_id;
   if (r.staff_ui_service_type) r.service_type = r.staff_ui_service_type;
   if (r._needsReply == null) r._needsReply = false;
+  if (!r.phone && meta.guest_phone) r.phone = meta.guest_phone;
+  var ps = String(r.payment_status || '').toLowerCase();
+  if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested') r.payment_status = 'unpaid';
   return r;
 }
 
@@ -18827,12 +19009,9 @@ function scheduleRenderStatusBadgeHtml(group, opts){
   if (!group) return '';
   var ps = String(group.payment_status || '').toLowerCase();
   var html = '';
-  var pendingKey = opts.detail ? 'schedule.status.pendingDetail' : 'schedule.status.pending';
   if (ps === 'paid'){
     if (!opts.row) html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
-  } else if (ps === 'pending'){
-    html = '<span class="portal-schedule-status is-pending">' + escHtml(portalT(pendingKey)) + '</span>';
-  } else if (ps){
+  } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
     html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
   }
   if (group._needsReply){
@@ -18895,7 +19074,12 @@ function scheduleBuildDisplayGroups(rows){
         components: {},
         slot_time: null,
         quantity: 0,
-        payment_status: r.payment_status,
+        payment_status: (function(){
+          var p = String(r.payment_status || '').toLowerCase();
+          if (p === 'pending' || p === 'waiting_payment' || p === 'not_requested') return 'unpaid';
+          return r.payment_status;
+        })(),
+        phone: r.phone || null,
         _isDemo: !!r._isDemo,
         _isDbManual: !!r._isDbManual,
         _isLuna: !!r._isLuna,
@@ -18916,6 +19100,7 @@ function scheduleBuildDisplayGroups(rows){
     if (r._isDemo) g._isDemo = true;
     if (r._needsReply) g._needsReply = true;
     if (!g.notes && r.notes) g.notes = r.notes;
+    if (!g.phone && r.phone) g.phone = r.phone;
   });
   return Object.keys(map).map(function(k){ return map[k]; });
 }
@@ -19012,6 +19197,7 @@ function schedulePopulateCreateComponentFields(){
 
 function scheduleReadCreatePayload(){
   var guest = (el('ps-create-guest') && el('ps-create-guest').value || '').trim();
+  var phone = (el('ps-create-phone') && el('ps-create-phone').value || '').trim();
   var dateFrom = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
   var dateTo = el('ps-create-date-to') ? el('ps-create-date-to').value : dateFrom;
   var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
@@ -19030,7 +19216,7 @@ function scheduleReadCreatePayload(){
   if (el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked){
     components.wetsuit = { quantity: parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value) || '1', 10) || 1 };
   }
-  return { guest_name: guest, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
+  return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
 }
 
 function scheduleNormalizeSlotTime(raw){
@@ -19755,13 +19941,39 @@ function openScheduleDetailDrawer(row){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + scheduleRenderStatusBadgeHtml(group, { detail: true }) + '</p>' +
     (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(group.phone || row.phone || '—') + '</p>' +
     '<div class="portal-schedule-drawer-actions">' +
     '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeSoon')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.conversationSoon')) + '">' + escHtml(portalT('schedule.drawer.goConversation')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
     '</div>' +
+    '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>' +
     '<p style="font-size:12px;color:var(--text-3);margin-top:14px">' + escHtml(portalT('schedule.drawer.readOnly')) + '</p>';
   drawer.style.display = 'block';
   if (backdrop) backdrop.style.display = 'block';
+  scheduleLastDrawerRowId = row._scheduleId;
+  var linkedConv = scheduleFindLinkedConversation(group);
+  var hasPhone = scheduleGroupHasPhone(group);
+  var convBtn = el('ps-drawer-conversation-btn');
+  var convHint = el('ps-drawer-conversation-hint');
+  if (convBtn){
+    if (linkedConv){
+      convBtn.textContent = portalT('schedule.drawer.openConv');
+      convBtn.disabled = false;
+      convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group); };
+    } else if (hasPhone){
+      convBtn.textContent = portalT('schedule.drawer.startConv');
+      convBtn.disabled = false;
+      convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group); };
+    } else {
+      convBtn.textContent = portalT('schedule.drawer.startConv');
+      convBtn.disabled = true;
+      convBtn.title = portalT('schedule.drawer.conversationNeedPhone');
+      if (convHint){
+        convHint.textContent = portalT('schedule.drawer.conversationNeedPhone');
+        convHint.style.display = 'block';
+      }
+    }
+  }
 }
 
 function openScheduleDetailDrawerLegacyUnused(row){
@@ -19808,6 +20020,7 @@ function submitScheduleManualBooking(){
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       guest_name: payload.guest_name,
+      guest_phone: payload.guest_phone,
       date_from: payload.date_from,
       date_to: payload.date_to,
       components: payload.components,
@@ -19880,7 +20093,7 @@ function loadSchedulePage(){
   var dataP = scheduleViewMode === 'next30'
     ? scheduleFetchNext30(client, rangeStart)
     : scheduleFetchWeek(client, rangeStart);
-  Promise.all([convP, dataP, configP]).then(function(results){
+  return Promise.all([convP, dataP, configP]).then(function(results){
     var convData = results[0];
     var weekData = results[1];
     scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
@@ -30067,6 +30280,7 @@ window.staffPortalOnLocaleChange = function(){
   if (toWrap && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(toWrap);
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
   if (toBlocksCache && toBlocksCache.length && typeof toRenderBlockSelect === 'function') toRenderBlockSelect(toBlocksCache);
+  if (typeof scheduleRefreshOnLocaleChange === 'function') scheduleRefreshOnLocaleChange();
 };
 
 function loadBedCalendar(afterRender){

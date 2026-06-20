@@ -204,6 +204,13 @@ module.exports = {
   'schedule.create.dateTo': 'Hasta',
   'schedule.create.failed': 'No se pudo crear la reserva:',
   'schedule.create.guestName': 'Nombre del huésped',
+  'schedule.create.phone': 'Teléfono',
+  'schedule.drawer.phone': 'Teléfono',
+  'schedule.drawer.openConv': 'Abrir conversación',
+  'schedule.drawer.startConv': 'Iniciar conversación',
+  'schedule.drawer.conversationNeedPhone': 'Añade un teléfono para iniciar la conversación',
+  'schedule.drawer.conversationFailed': 'No se pudo abrir la conversación',
+
   'schedule.create.guestRequired': 'El nombre del huésped es obligatorio.',
   'schedule.create.lessonCategory': 'Adultos (mayores de 12)',
   'schedule.create.lessonSlot': 'Horario de clase',

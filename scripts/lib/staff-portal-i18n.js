@@ -656,6 +656,13 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.title': 'Create booking (demo)',
     'schedule.create.sub': 'Creates a real Sunset staging booking in the database.',
     'schedule.create.guestName': 'Guest name',
+    'schedule.create.phone': 'Phone number',
+    'schedule.drawer.phone': 'Phone',
+    'schedule.drawer.openConv': 'Open conversation',
+    'schedule.drawer.startConv': 'Start conversation',
+    'schedule.drawer.conversationNeedPhone': 'Add phone number to start conversation',
+    'schedule.drawer.conversationFailed': 'Could not open conversation',
+
     'schedule.create.bookingType': 'Booking type',
     'schedule.create.date': 'Date',
     'schedule.create.time': 'Time',

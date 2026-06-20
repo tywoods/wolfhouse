@@ -105,6 +105,8 @@ function resolveAskLunaGearIntentKey(question, registryByKey, refDate = new Date
 function getAskLunaGearOnDateQuery() {
   return `
 SELECT
+  b.id::text                                AS booking_id,
+  NULLIF(BTRIM(b.phone), '')                AS phone,
   COALESCE(sr.guest_name, b.guest_name)     AS guest_name,
   COALESCE(sr.booking_code, b.booking_code) AS booking_code,
   sr.service_type::text                       AS service_type,

@@ -628,7 +628,7 @@ if (apiSrc) {
   assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
   assert('no visible source tag in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
   assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
-  assert('source row glow classes', apiSrc.includes('.portal-schedule-ops-row.is-staff{background:linear-gradient') && apiSrc.includes('.portal-schedule-ops-row.is-luna{background:linear-gradient'));
+  assert('source row rail classes (no gradient wash)', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna') && !apiSrc.includes('rgba(111,167,131,.14)'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
   assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
@@ -645,7 +645,7 @@ if (apiSrc) {
   assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
   assert('row status hides paid', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('opts.row'));
   assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
-  assert('no Pending payment in row renderer', !apiSrc.includes("scheduleRenderRowStatusHtml(g)") || apiSrc.includes('schedule.status.pendingDetail'));
+  assert('no Pending payment in row renderer', !apiSrc.includes('schedule.status.pendingDetail') || apiSrc.includes("schedule.status.unpaid"));
   assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
   assert('metric card lesson rental subtext keys', apiSrc.includes("portalT('schedule.metric.lesson')") && apiSrc.includes("portalT('schedule.metric.rental')"));
   assert('lesson time row layout', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('scheduleNormalizeSlotTime(slot.slot_time)'));
@@ -706,7 +706,33 @@ if (apiSrc) {
   assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
   assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
-  assert('soft light cream palette', apiSrc.includes('--cream:#EDE8E0'));
+  assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
+  assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
+}
+
+console.log('\n[24] Sunset Schedule — calm UI, live i18n, phone, conversation');
+
+if (apiSrc) {
+  assert('no pending payment option in create form', !apiSrc.includes('value="pending" data-i18n="schedule.payment.pending"'));
+  assert('unpaid card label key', apiSrc.includes('data-i18n="schedule.card.unpaid">Unpaid</div>'));
+  assert('create phone field', apiSrc.includes('id="ps-create-phone"'));
+  assert('post guest_phone', apiSrc.includes('guest_phone: payload.guest_phone'));
+  assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
+  assert('drawer conversation button', apiSrc.includes('ps-drawer-conversation-btn'));
+  assert('open or start conversation', apiSrc.includes('scheduleOpenOrStartConversationFromBooking'));
+  assert('no row gradient wash', !apiSrc.includes('rgba(111,167,131,.14)'));
+  assert('reuse create-conversation endpoint', apiSrc.includes('/staff/bookings/create-conversation'));
+}
+
+if (writesSrc) {
+  assert('booking insert phone column', writesSrc.includes('guest_name, phone, status'));
+  assert('validate guest_phone', writesSrc.includes('guest_phone'));
+}
+
+const calmLessonsSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-ask-luna-lessons.js'), 'utf8');
+if (calmLessonsSrc) {
+  assert('lessons query returns phone', calmLessonsSrc.includes('AS phone'));
+  assert('lessons query returns booking_id', calmLessonsSrc.includes('AS booking_id'));
 }
 
 console.log('\n' + '─'.repeat(48));
