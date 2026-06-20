@@ -634,6 +634,24 @@ if (apiSrc) {
   assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
 }
 
+
+
+// ── 20. Sunset Schedule visual polish — density + clarity ───────────────────
+
+console.log('\n[20] Sunset Schedule visual polish — density + clarity');
+
+if (apiSrc) {
+  assert('lesson group header surfers label', apiSrc.includes('portal-schedule-ops-lesson-hdr-surfers') && apiSrc.includes("portalT('schedule.slot.surfers')"));
+  assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
+  assert('row status hides paid', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('opts.row'));
+  assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
+  assert('no Pending payment in row renderer', !apiSrc.includes("scheduleRenderRowStatusHtml(g)") || apiSrc.includes('schedule.status.pendingDetail'));
+  assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
+  assert('metric card lesson rental subtext keys', apiSrc.includes("portalT('schedule.metric.lesson')") && apiSrc.includes("portalT('schedule.metric.rental')"));
+  assert('slot subtext uses middle dot', apiSrc.includes("' · ' + escHtml(String(stats.surfers))"));
+  assert('component pebble css still absent', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

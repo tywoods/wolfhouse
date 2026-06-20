@@ -563,7 +563,8 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.summary.boards': 'boards',
     'schedule.summary.wetsuits': 'wetsuits',
     'schedule.status.paid': 'Paid',
-    'schedule.status.pending': 'Pending payment',
+    'schedule.status.pending': 'Pending',
+    'schedule.status.pendingDetail': 'Pending payment',
     'schedule.status.unpaid': 'Unpaid',
 
     'schedule.source.staff': 'Staff',
@@ -599,6 +600,9 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.card.unpaidPendingSub': 'Bookings awaiting payment',
     'schedule.type.rental': 'rental-only',
     'schedule.ops.boardTitle': 'Today ops board',
+    'schedule.ops.lessonGroup': 'lesson group',
+    'schedule.metric.lesson': 'lesson',
+    'schedule.metric.rental': 'rental',
 
     'schedule.view.week': 'Week',
     'schedule.view.month': 'Month',
