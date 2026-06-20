@@ -515,18 +515,42 @@ console.log('\n[15] Sunset Schedule cleanup — demo bookings, drawer, manual cr
 if (apiSrc) {
   assert('Day Schedule hidden from nav', apiSrc.includes("if (tab === 'day-schedule') return true;"));
   assert('schedule demo bookings helper', apiSrc.includes('function scheduleBuildDemoBookings('));
-  assert('schedule manual bookings state', apiSrc.includes('var scheduleManualBookings'));
+  assert('schedule manual bookings not in-memory', !apiSrc.includes('var scheduleManualBookings'));
   assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
   assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
   assert('schedule detail drawer', apiSrc.includes('function openScheduleDetailDrawer(') && apiSrc.includes('id="ps-detail-drawer"'));
   assert('manual create booking UI', apiSrc.includes('id="ps-create-booking"') && apiSrc.includes('function submitScheduleManualBooking('));
-  assert('schedule create is local only', apiSrc.includes('scheduleManualBookings.push'));
+  assert('schedule create posts to API', apiSrc.includes("'/staff/schedule/bookings'") && apiSrc.includes('method: \'POST\''));
+  assert('schedule create not local-only array', !apiSrc.includes('scheduleManualBookings.push'));
 }
 
 if (i18nSrc) {
   assert('schedule.card.rentalsToday i18n', i18nSrc.includes("'schedule.card.rentalsToday'"));
   assert('schedule.createBooking i18n', i18nSrc.includes("'schedule.createBooking'"));
   assert('schedule.badge.manualDraft i18n', i18nSrc.includes("'schedule.badge.manualDraft'"));
+}
+
+
+// ── 16. Sunset real manual bookings — DB persistence ───────────────────────────
+
+console.log('\n[16] Sunset real manual bookings — DB persistence');
+
+if (apiSrc) {
+  assert('POST /staff/schedule/bookings route', apiSrc.includes("pathname === '/staff/schedule/bookings'") && apiSrc.includes('method === \'POST\''));
+  assert('handleSunsetScheduleBookingCreate handler', apiSrc.includes('function handleSunsetScheduleBookingCreate('));
+  assert('sunset-schedule-booking-writes import', apiSrc.includes('sunset-schedule-booking-writes'));
+  assert('schedule normalize API rows', apiSrc.includes('function scheduleNormalizeApiRow('));
+  assert('drawer record id field', apiSrc.includes('schedule.drawer.recordId'));
+  assert('no stripe in schedule create handler', !apiSrc.includes('handleSunsetScheduleBookingCreate') || !apiSrc.slice(apiSrc.indexOf('handleSunsetScheduleBookingCreate'), apiSrc.indexOf('handleSunsetScheduleBookingCreate') + 1200).includes('stripe'));
+}
+
+const writesPath = path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js');
+if (fs.existsSync(writesPath)) {
+  const writesSrc = fs.readFileSync(writesPath, 'utf8');
+  assert('writes module validates body', writesSrc.includes('function validateScheduleBookingBody('));
+  assert('writes module inserts booking_service_records', writesSrc.includes('INSERT INTO booking_service_records'));
+  assert('writes sunset client only', writesSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
+  assert('writes no stripe', !/stripe/i.test(writesSrc));
 }
 
 

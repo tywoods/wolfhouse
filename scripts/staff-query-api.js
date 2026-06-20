@@ -201,6 +201,11 @@ const {
   patchLessonTimeRule,
 } = require('./lib/tenant-admin-writes');
 const {
+  SUNSET_CLIENT_SLUG,
+  validateScheduleBookingBody,
+  createSunsetScheduleBooking,
+} = require('./lib/sunset-schedule-booking-writes');
+const {
   getOpenHandoffsQuery,
   getNeedsHumanWithoutOpenHandoffQuery,
 } = require('./lib/staff-handoff-queries');
@@ -16889,7 +16894,8 @@ ${getStaffPortalI18nBootstrapScript()}
   <div class="portal-schedule-create-backdrop" id="ps-create-backdrop"></div>
   <div class="portal-schedule-create-panel" role="dialog" aria-labelledby="ps-create-title">
     <h3 id="ps-create-title" data-i18n="schedule.create.title">Create booking (demo)</h3>
-    <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Staging only — saved in this browser session, not persisted to DB.</p>
+    <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Creates a real Sunset staging booking in the database.</p>
+    <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-type" data-i18n="schedule.create.bookingType">Booking type</label><select id="ps-create-type"><option value="lesson" data-i18n="schedule.type.lesson">Lesson</option><option value="board_rental" data-i18n="schedule.type.boardRental">Board rental</option><option value="wetsuit_rental" data-i18n="schedule.type.wetsuitRental">Wetsuit rental</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date" data-i18n="schedule.create.date">Date</label><input id="ps-create-date" type="date"></div>
@@ -16899,7 +16905,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
     <div class="portal-schedule-create-field"><label><input id="ps-create-needs-reply" type="checkbox"> <span data-i18n="schedule.create.needsReply">Needs reply</span></label></div>
     <div class="portal-schedule-create-actions">
-      <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Add demo booking</button>
+      <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
       <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
     </div>
   </div>
@@ -18440,8 +18446,6 @@ var scheduleWeekStart = null;
 var scheduleRowsCache = [];
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
-var scheduleManualBookings = [];
-var scheduleManualIdSeq = 1;
 
 function scheduleIsoDate(d){
   var m = String(d.getMonth() + 1).padStart(2, '0');
@@ -18506,6 +18510,23 @@ function scheduleFormatRange(start, end){
   } catch (_) { return scheduleIsoDate(start) + ' – ' + scheduleIsoDate(end); }
 }
 
+
+function scheduleNormalizeApiRow(r){
+  if (!r) return r;
+  scheduleEnsureRowId(r);
+  if (r.service_record_id) r._scheduleId = String(r.service_record_id);
+  var meta = {};
+  if (r.metadata && typeof r.metadata === 'object') meta = r.metadata;
+  else if (r.metadata) { try { meta = JSON.parse(r.metadata); } catch (_) { meta = {}; } }
+  if (!r.slot_time) r.slot_time = meta.slot_time || null;
+  if (!r.notes) r.notes = r.notes || meta.notes || null;
+  if (r.needs_reply === true || r.needs_reply === 't') r._needsReply = true;
+  if (r.record_source === 'staff_manual_schedule') r._isDbManual = true;
+  if (r.staff_ui_service_type) r.service_type = r.staff_ui_service_type;
+  if (r._needsReply == null) r._needsReply = false;
+  return r;
+}
+
 function scheduleFetchDay(client, dateIso){
   var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(dateIso);
   return Promise.all([
@@ -18514,8 +18535,8 @@ function scheduleFetchDay(client, dateIso){
   ]).then(function(res){
     var lessons = (res[0] && res[0].rows) || [];
     var gear = (res[1] && res[1].rows) || [];
-    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; });
-    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; });
+    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
+    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
     return { dateIso: dateIso, lessons: lessons, gear: gear, rows: lessons.concat(gear) };
   });
 }
@@ -18604,8 +18625,8 @@ function scheduleRowTypeLabel(row){
 }
 
 function scheduleRowBadge(row){
-  if (row && row._isManual) return portalT('schedule.badge.manualDraft');
   if (row && row._isDemo) return portalT('schedule.badge.demo');
+  if (row && row._isDbManual) return portalT('schedule.badge.dbManual');
   return '';
 }
 
@@ -18768,6 +18789,7 @@ function openScheduleDetailDrawer(row){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + escHtml(row.payment_status || '—') + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.needsAction')) + ':</strong> ' + escHtml(action) + '</p>' +
     (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
+    (row.service_record_id ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.recordId')) + ':</strong> ' + escHtml(String(row.service_record_id)) + '</p>' : '') +
     '<p class="portal-schedule-drawer-kv"><strong>Booking:</strong> ' + escHtml(row.booking_code || '—') + '</p>' +
     '<p style="font-size:12px;color:var(--text-3);margin-top:14px">' + escHtml(portalT('schedule.drawer.readOnly')) + '</p>';
   drawer.style.display = 'block';
@@ -18799,27 +18821,43 @@ function submitScheduleManualBooking(){
   var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
   var notes = (el('ps-create-notes') && el('ps-create-notes').value || '').trim();
   var needsReply = !!(el('ps-create-needs-reply') && el('ps-create-needs-reply').checked);
-  if (!guest) guest = 'Manual draft guest';
+  var submitBtn = el('ps-create-submit');
+  var msg = el('ps-create-msg');
+  if (!guest) {
+    if (msg) { msg.textContent = portalT('schedule.create.guestRequired'); msg.style.display = 'block'; }
+    return;
+  }
   if (!Number.isFinite(countVal) || countVal < 1) countVal = 1;
-  var id = 'manual-' + String(scheduleManualIdSeq++);
-  var row = scheduleEnsureRowId({
-    _scheduleId: id,
-    _isManual: true,
-    _isDemo: false,
-    guest_name: guest,
-    service_type: type,
-    service_date: dateVal,
-    slot_time: timeVal,
-    quantity: countVal,
-    payment_status: payment,
-    notes: notes || portalT('schedule.badge.manualDraft'),
-    _needsReply: needsReply,
-    _scheduleType: (/lesson/.test(type) ? 'lesson' : 'rental'),
-    booking_code: 'MANUAL-' + String(scheduleManualIdSeq).padStart(4, '0'),
-  });
-  scheduleManualBookings.push(row);
-  closeScheduleCreateModal();
-  loadSchedulePage();
+  if (submitBtn) submitBtn.disabled = true;
+  if (msg) msg.style.display = 'none';
+  fetch('/staff/schedule/bookings?client=' + encodeURIComponent(getClient()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      guest_name: guest,
+      booking_type: type,
+      service_date: dateVal,
+      time_local: timeVal,
+      quantity: countVal,
+      payment_status: payment,
+      notes: notes,
+      needs_reply: needsReply,
+    }),
+  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, status: r.status, data: data }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || res.data.success !== true) {
+        throw new Error((res.data && (res.data.error || res.data.message)) || ('HTTP ' + res.status));
+      }
+      closeScheduleCreateModal();
+      loadSchedulePage();
+    })
+    .catch(function(err){
+      if (msg) {
+        msg.textContent = portalT('schedule.create.failed') + ' ' + err.message;
+        msg.style.display = 'block';
+      }
+    })
+    .finally(function(){ if (submitBtn) submitBtn.disabled = false; });
 }
 
 function closeScheduleDetailDrawer(){
@@ -18867,8 +18905,8 @@ function loadSchedulePage(){
     (weekData || []).forEach(function(p){ scheduleRowsCache = scheduleRowsCache.concat(p.rows || []); });
     scheduleRowsCache.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
     var demoRows = scheduleBuildDemoBookings(scheduleWeekStart);
-    weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows.concat(scheduleManualBookings));
-    scheduleRowsCache = scheduleRowsCache.concat(demoRows).concat(scheduleManualBookings);
+    weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
+    scheduleRowsCache = scheduleRowsCache.concat(demoRows);
     renderScheduleSummary(profile, weekData, scheduleConversationsCache);
     renderScheduleWeekGrid(profile, weekData, scheduleWeekStart);
     renderScheduleBookingList(scheduleFilter);
@@ -30109,6 +30147,45 @@ async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user
   }
 }
 
+
+async function handleSunsetScheduleBookingCreate(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {
+      clientSlug,
+      body,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.booking_create',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
 async function handleCustomerList(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -35125,6 +35202,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonTimePatch(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/schedule/bookings' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────
