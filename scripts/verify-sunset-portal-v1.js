@@ -631,7 +631,7 @@ if (apiSrc) {
   assert('source row rail classes retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
   assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
-  assert('no stripe wired in drawer', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
+  assert('drawer stripe for non-editable only', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
 }
 
 
@@ -737,6 +737,43 @@ if (calmLessonsSrc) {
   assert('lessons query returns phone', calmLessonsSrc.includes('AS phone'));
   assert('lessons query returns booking_id', calmLessonsSrc.includes('AS booking_id'));
 }
+
+console.log('\n[25] Sunset booking drawer — payments, edits, test Stripe');
+
+if (apiSrc) {
+  assert('drawer detail GET route', apiSrc.includes('/staff/schedule/bookings/detail'));
+  assert('drawer PATCH route', apiSrc.includes("pathname === '/staff/schedule/bookings' && method === 'PATCH'"));
+  assert('drawer update handler', apiSrc.includes('function handleSunsetScheduleBookingUpdate('));
+  assert('drawer detail handler', apiSrc.includes('function handleSunsetScheduleBookingDetailGet('));
+  assert('drawer payment section', apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
+  assert('drawer line item labels', apiSrc.includes('schedule.drawer.paymentSection'));
+  assert('drawer totals paid remaining', apiSrc.includes('schedule.drawer.remaining') && apiSrc.includes('ps-drawer-paid'));
+  assert('create test stripe link button', apiSrc.includes('ps-drawer-stripe-link') && apiSrc.includes('schedule.drawer.stripeLink'));
+  assert('stripe no auto send message', apiSrc.includes('schedule.drawer.stripeCreated'));
+  assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
+  assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
+  assert('stripe stale warning', apiSrc.includes('schedule.drawer.stripeStale'));
+  assert('stripe unavailable disabled', apiSrc.includes('schedule.drawer.stripeUnavailable'));
+  assert('drawer conversation action', apiSrc.includes('ps-drawer-conversation-btn'));
+  assert('no whatsapp stripe send in drawer save', !apiSrc.includes('scheduleSaveDrawerBooking') || !apiSrc.slice(apiSrc.indexOf('scheduleCreateDrawerStripeLink'), apiSrc.indexOf('scheduleCreateDrawerStripeLink') + 800).match(/whatsapp|sendMessage|send_email/i));
+}
+
+const drawerModPath = path.join(ROOT, 'scripts/lib/sunset-schedule-booking-drawer.js');
+if (fs.existsSync(drawerModPath)) {
+  const drawerModSrc = fs.readFileSync(drawerModPath, 'utf8');
+  assert('drawer module sunset only', drawerModSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
+  assert('drawer marks stripe stale on update', drawerModSrc.includes('sunset_stripe_link_stale'));
+  assert('drawer live pricing note', drawerModSrc.includes('live_pricing'));
+}
+
+const stripeModPath = path.join(ROOT, 'scripts/lib/sunset-stripe-payment-links.js');
+if (fs.existsSync(stripeModPath)) {
+  const stripeModSrc = fs.readFileSync(stripeModPath, 'utf8');
+  assert('stripe module blocks live keys', stripeModSrc.includes('sk_live_'));
+  assert('stripe module no whatsapp', !/whatsapp/i.test(stripeModSrc));
+  assert('stripe respects stale metadata', stripeModSrc.includes('sunset_stripe_link_stale'));
+}
+
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

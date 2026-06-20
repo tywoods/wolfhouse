@@ -303,4 +303,21 @@ module.exports = {
   'schedule.view.next30': 'Próximos 30 días',
   'schedule.view.today': 'Hoy',
   'schedule.view.week': 'Semana',
+
+    'schedule.drawer.stripeLink': 'Crear enlace Stripe de prueba',
+    'schedule.drawer.stripeRegenerate': 'Crear nuevo enlace Stripe de prueba',
+    'schedule.drawer.stripeSection': 'Enlace de pago Stripe',
+    'schedule.drawer.stripeCopy': 'Copiar enlace',
+    'schedule.drawer.stripeOpen': 'Abrir enlace',
+    'schedule.drawer.stripeUnavailable': 'Stripe modo prueba no configurado.',
+    'schedule.drawer.stripeStale': 'Enlace desactualizado',
+    'schedule.drawer.stripeStaleHint': 'La reserva cambió. Crea un nuevo enlace para el total actualizado.',
+    'schedule.drawer.paymentSection': 'Pago',
+    'schedule.drawer.livePricingNote': 'Los totales usan precios actuales de Admin si no hay importes guardados.',
+    'schedule.drawer.subtotal': 'Subtotal',
+    'schedule.drawer.remaining': 'Pendiente',
+    'schedule.drawer.save': 'Guardar cambios',
+    'schedule.drawer.saved': 'Reserva guardada.',
+    'schedule.drawer.loading': 'Cargando reserva…',
+
 };
