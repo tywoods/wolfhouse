@@ -650,10 +650,17 @@ async function runGuestInboundReviewDryRun(body, context) {
 
   const storedGuestContext = existingMeta.luna_guest_context || null;
   let mergedGuestContext = mergeGuestContext(storedGuestContext, normalized.guest_context);
+  const sunsetConversationMeta = isSunsetClientSlug(normalized.client_slug)
+    ? mergeSunsetInboundLocationMetadata(
+      existingMeta,
+      extractSunsetChannelHintsFromNormalized(normalized),
+      normalized.client_slug,
+    )
+    : existingMeta;
   if (isSunsetClientSlug(normalized.client_slug)) {
     mergedGuestContext = attachSunsetSchoolToGuestContext(mergedGuestContext, {
       client_slug: normalized.client_slug,
-      conversation_metadata: existingMeta,
+      conversation_metadata: sunsetConversationMeta,
     });
   }
   const automationGateContext = await buildAutomationGateContext(pg, normalized, convRow);
@@ -666,7 +673,7 @@ async function runGuestInboundReviewDryRun(body, context) {
     guest_name:              normalized.guest_name,
     contact_name:            normalized.contact_name,
     conversation_id:         convRow && convRow.conversation_id,
-    conversation_metadata:   existingMeta,
+    conversation_metadata:   sunsetConversationMeta,
     language_hint:           normalized.language_hint,
     guest_context:           mergedGuestContext,
     reference_date:          normalized.reference_date,

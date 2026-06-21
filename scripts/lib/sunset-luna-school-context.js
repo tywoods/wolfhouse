@@ -183,13 +183,18 @@ function appendSunsetAskLunaLocationFilter(baseSql, locationId, paramIndex) {
   return { sql: `${sql}${clause}`, locationParam: loc };
 }
 
-function buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId) {
+function buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId, sql) {
   if (!isSunsetClientSlug(clientSlug)) {
     return { sqlSuffix: '', params: baseParams || [] };
   }
   const loc = normalizeSunsetLocationId(locationId);
+  const trimmed = String(sql || '').trim();
+  const hasSrAlias = /\bsr\./.test(trimmed);
+  const metaExpr = hasSrAlias
+    ? `COALESCE(sr.metadata->>'location_id', b.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}')`
+    : `COALESCE(metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}')`;
   return {
-    sqlSuffix: ` AND COALESCE(metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${(baseParams || []).length + 1}`,
+    sqlSuffix: ` AND ${metaExpr} = $${(baseParams || []).length + 1}`,
     params: [...(baseParams || []), loc],
   };
 }
@@ -198,9 +203,9 @@ function applySunsetAskLunaLocationFilter(sql, baseParams, clientSlug, locationI
   if (!isSunsetClientSlug(clientSlug)) {
     return { sql: String(sql || '').trim(), params: baseParams || [] };
   }
-  const scoped = buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId);
   const trimmed = String(sql || '').trim();
-  const orderIdx = trimmed.search(/\border\s+by\b/i);
+  const scoped = buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId, trimmed);
+  const orderIdx = trimmed.toLowerCase().lastIndexOf('order by');
   const nextSql = orderIdx >= 0
     ? `${trimmed.slice(0, orderIdx).trim()}${scoped.sqlSuffix}\n${trimmed.slice(orderIdx)}`
     : `${trimmed}${scoped.sqlSuffix}`;
