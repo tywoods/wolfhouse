@@ -89,6 +89,7 @@ const {
 const {
   isSunsetClientSlug,
   buildSunsetAskLunaQueryParams,
+  applySunsetAskLunaLocationFilter,
   DEFAULT_SUNSET_LOCATION_ID,
 } = require('./sunset-luna-school-context');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
@@ -1153,8 +1154,8 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
         queryParams = [clientSlug, today];
       }
       if (isSunsetClientSlug(clientSlug) && intentKey.startsWith('services.')) {
-        const scoped = buildSunsetAskLunaQueryParams(clientSlug, queryParams, locationId);
-        sql = `${sql.trim()}${scoped.sqlSuffix}`;
+        const scoped = applySunsetAskLunaLocationFilter(sql, queryParams, clientSlug, locationId);
+        sql = scoped.sql;
         queryParams = scoped.params;
       }
       localRows = await runPg(async (pgClient) => {

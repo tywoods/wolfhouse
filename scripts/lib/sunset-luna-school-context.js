@@ -194,6 +194,19 @@ function buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId) {
   };
 }
 
+function applySunsetAskLunaLocationFilter(sql, baseParams, clientSlug, locationId) {
+  if (!isSunsetClientSlug(clientSlug)) {
+    return { sql: String(sql || '').trim(), params: baseParams || [] };
+  }
+  const scoped = buildSunsetAskLunaQueryParams(clientSlug, baseParams, locationId);
+  const trimmed = String(sql || '').trim();
+  const orderIdx = trimmed.search(/\border\s+by\b/i);
+  const nextSql = orderIdx >= 0
+    ? `${trimmed.slice(0, orderIdx).trim()}${scoped.sqlSuffix}\n${trimmed.slice(orderIdx)}`
+    : `${trimmed}${scoped.sqlSuffix}`;
+  return { sql: nextSql, params: scoped.params };
+}
+
 module.exports = {
   SUNSET_CLIENT_SLUG,
   DEFAULT_SUNSET_LOCATION_ID,
@@ -212,4 +225,5 @@ module.exports = {
   slimSunsetSchoolContextForChain,
   appendSunsetAskLunaLocationFilter,
   buildSunsetAskLunaQueryParams,
+  applySunsetAskLunaLocationFilter,
 };

@@ -654,7 +654,6 @@ async function runGuestInboundReviewDryRun(body, context) {
     mergedGuestContext = attachSunsetSchoolToGuestContext(mergedGuestContext, {
       client_slug: normalized.client_slug,
       conversation_metadata: existingMeta,
-      env: e,
     });
   }
   const automationGateContext = await buildAutomationGateContext(pg, normalized, convRow);
