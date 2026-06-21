@@ -224,6 +224,8 @@ module.exports = {
   'schedule.create.title': 'Nueva reserva manual',
   'schedule.create.wetsuitQty': 'Cantidad de neoprenos',
   'schedule.createBooking': 'Crear reserva',
+  'schedule.drawer.edit': 'Editar',
+  'schedule.drawer.cancel': 'Cancelar',
   'schedule.drawer.bookingCode': 'Código de reserva',
   'schedule.drawer.close': 'Cerrar',
   'schedule.drawer.components': 'Componentes',

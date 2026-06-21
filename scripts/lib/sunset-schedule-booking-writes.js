@@ -6,6 +6,10 @@
  */
 
 const crypto = require('crypto');
+const {
+  normalizeSunsetLocationId,
+  attachLocationToMetadata,
+} = require('./sunset-school-locations');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 const METADATA_SOURCE_TAG = 'staff_manual_schedule';
@@ -158,9 +162,7 @@ function validateScheduleBookingBody(body) {
       notes,
       needs_reply,
       idempotency_key: idempotency_key || null,
-      add_board: booking_type === 'lesson' ? add_board : false,
-      add_wetsuit: booking_type === 'lesson' ? add_wetsuit : false,
-      extra_dates,
+      location_id: normalizeSunsetLocationId(b.location_id || b.location),
     },
   };
 }
@@ -208,6 +210,7 @@ function scheduleRowFromDb(row) {
     lesson_category: row.lesson_category || null,
     components: metaComponents,
     bundle_id: row.bundle_id || null,
+    location_id: row.location_id || null,
     _needsReply: row.needs_reply === true || row.needs_reply === 't',
     _scheduleType: isLesson ? 'lesson' : 'rental',
     service_record_id: row.service_record_id || row.id || null,
@@ -279,6 +282,9 @@ async function insertServiceRecord(pg, params) {
 
 async function createSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
+  const requestedLocationId = normalizeSunsetLocationId(
+    (opts.body && (opts.body.location_id || opts.body.location)) || opts.locationId,
+  );
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client', client_slug: clientSlug } };
   }
@@ -288,6 +294,7 @@ async function createSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
+  const writeLocationId = normalizeSunsetLocationId(input.location_id || requestedLocationId);
 
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
@@ -342,13 +349,13 @@ async function createSunsetScheduleBooking(pg, opts) {
         bookingPayment,
         firstDate,
         guestCount,
-        JSON.stringify({
+        JSON.stringify(attachLocationToMetadata({
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
           bundle_id: bundleId,
           components: componentKeys,
           guest_phone: input.guest_phone || null,
-        }),
+        }, writeLocationId)),
       ],
     );
     const bookingId = bookingIns.rows[0].id;
@@ -358,7 +365,7 @@ async function createSunsetScheduleBooking(pg, opts) {
       for (const componentKey of componentKeys) {
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
-        const metadata = {
+        const metadata = attachLocationToMetadata({
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
           staff_ui_service_type: componentKey === 'lesson' ? 'lesson' : (componentKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental'),

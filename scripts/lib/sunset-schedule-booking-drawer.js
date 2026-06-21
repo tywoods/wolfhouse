@@ -6,6 +6,11 @@
  */
 
 const crypto = require('crypto');
+const {
+  normalizeSunsetLocationId,
+  resolveRecordLocationId,
+  attachLocationToMetadata,
+} = require('./sunset-school-locations');
 
 const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
 const {
@@ -174,6 +179,14 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
   const meta = parseMeta(bundle.booking.metadata);
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const recordLocationId = resolveRecordLocationId(
+    parseMeta((bundle.services[0] && bundle.services[0].metadata) || {}),
+    meta,
+  );
+  if (recordLocationId !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
   if (meta.source !== METADATA_SOURCE_TAG && !meta.staff_manual_schedule) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
   }
@@ -211,6 +224,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       } : null,
       stripe_link_stale: linkStale,
       editable: true,
+      location_id: recordLocationId,
     },
   };
 }
@@ -230,6 +244,14 @@ async function updateSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
   const meta = parseMeta(bundle.booking.metadata);
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const recordLocationId = resolveRecordLocationId(
+    parseMeta((bundle.services[0] && bundle.services[0].metadata) || {}),
+    meta,
+  );
+  if (recordLocationId !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
   if (meta.source !== METADATA_SOURCE_TAG && !meta.staff_manual_schedule) {
     return { ok: false, status: 403, body: { success: false, error: 'updates_limited_to_staff_manual_schedule' } };
   }
@@ -277,13 +299,13 @@ async function updateSunsetScheduleBooking(pg, opts) {
         firstDate,
         lastDate,
         guestCount,
-        JSON.stringify({
+        JSON.stringify(attachLocationToMetadata({
           guest_phone: guest_phone || null,
           bundle_id: bundleId,
           components: componentKeys,
           sunset_stripe_link_stale: true,
           sunset_updated_at: new Date().toISOString(),
-        }),
+        }, recordLocationId)),
         bookingId,
       ],
     );
@@ -299,7 +321,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
       for (const componentKey of componentKeys) {
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
-        const srMeta = {
+        const srMeta = attachLocationToMetadata({
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
           staff_ui_service_type: componentKey === 'lesson' ? 'lesson' : (componentKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental'),
@@ -311,7 +333,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
           notes: input.notes || null,
           needs_reply: input.needs_reply,
           updated_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
-        };
+        }, recordLocationId);
         const row = await insertServiceRecord(pg, [
           clientSlug,
           bookingId,
