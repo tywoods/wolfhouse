@@ -40,6 +40,7 @@ const steps = [
   ['verify:luna-golden', 'verify-luna-golden.js'],
   ['verify:luna-coach', 'verify-luna-coach.js'],
   ['verify:luna-unified-planner', 'verify-luna-unified-planner.js'],
+  ['verify:sunset-luna-school-context', 'verify-sunset-luna-school-context.js'],
   ['verify:luna-confirmation-spacing', 'verify-luna-confirmation-spacing.js'],
   ['verify:luna-pending-transfers-save', 'verify-luna-pending-transfers-save.js'],
 ];

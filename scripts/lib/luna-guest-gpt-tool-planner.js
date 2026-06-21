@@ -14,6 +14,7 @@ const {
 } = require('./luna-guest-agent-tool-plan');
 const { executeGuestAgentReadTool } = require('./luna-guest-agent-tool-executor');
 const { mergeGuestExtractedFields, collectPriorExtractedFields } = require('./luna-guest-context-merge');
+const { buildSunsetSchoolPromptHint, isSunsetClientSlug } = require('./sunset-luna-school-context');
 
 const FLAG = 'LUNA_GUEST_GPT_TOOL_PLANNER_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_GPT_TOOL_PLANNER_ENABLED_PROD';
@@ -49,9 +50,9 @@ function plannerTimeoutMs(env) {
   return Number.isFinite(v) && v > 0 ? Math.min(v, 30000) : DEFAULT_TIMEOUT_MS;
 }
 
-function buildPlannerSystemPrompt() {
+function buildPlannerSystemPrompt(clientSlug, schoolContext) {
   const readList = GUEST_AGENT_READ_TOOL_IDS.join(', ');
-  return [
+  const lines = [
     'You are Luna guest frontdesk tool planner (Stage 50c).',
     'Plan which READ-ONLY tools should run for this guest turn.',
     `Allowed read tools: ${readList}`,
@@ -59,9 +60,14 @@ function buildPlannerSystemPrompt() {
     'Prefer collect_missing_booking_fields when guest provides booking details.',
     'Use explain_packages when guest asks about packages.',
     'Use get_conversation_context first when prior booking state exists.',
-    'Return ONLY JSON: {"planned_tools":["tool_id",...],"rationale":"short reason"}',
-    'Max 6 tools. No prose outside JSON.',
-  ].join('\n');
+  ];
+  if (isSunsetClientSlug(clientSlug)) {
+    lines.push('Sunset tenant: use get_sunset_admin_config_snapshot and get_sunset_rental_price for prices/times.');
+    if (schoolContext) lines.push(buildSunsetSchoolPromptHint(schoolContext));
+  }
+  lines.push('Return ONLY JSON: {"planned_tools":["tool_id",...],"rationale":"short reason"}');
+  lines.push('Max 6 tools. No prose outside JSON.');
+  return lines.join('\n');
 }
 
 function buildPlannerUserPrompt(input) {
@@ -184,11 +190,13 @@ async function runGuestGptToolPlanner(input, options) {
   }
 
   const caller = opts.plannerCaller || defaultPlannerCaller;
+  const prior = inp.prior_guest_context || {};
+  const schoolContext = prior.school_context || inp.school_context || null;
   let rawPlan = null;
   try {
     rawPlan = await withTimeout(
       caller({
-        system: buildPlannerSystemPrompt(),
+        system: buildPlannerSystemPrompt(inp.client_slug, schoolContext),
         user: buildPlannerUserPrompt(inp),
         model: plannerModel(env),
         env,
@@ -220,6 +228,8 @@ async function runGuestGptToolPlanner(input, options) {
 
   const execCtx = {
     client_slug: inp.client_slug,
+    location_id: inp.location_id || prior.location_id || (schoolContext && schoolContext.location_id) || null,
+    school_context: schoolContext,
     message_text: inp.message_text,
     prior_guest_context: inp.prior_guest_context,
     reference_date: inp.reference_date,

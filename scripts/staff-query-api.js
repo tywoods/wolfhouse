@@ -1701,8 +1701,12 @@ async function handleAskLuna(req, res) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
 
   // ── Resolve intent (deterministic → optional AI registry classifier) ───────
+  const askLunaLocationId = clientSlug === 'sunset'
+    ? normalizeSunsetLocationId(body.location_id || body.location)
+    : null;
   const result = await executeStaffAskLunaQuestion({
     client_slug: clientSlug,
+    location_id: askLunaLocationId,
     question,
     source,
     staff_access: staffAccess,
@@ -17193,7 +17197,7 @@ ${getStaffPortalI18nBootstrapScript()}
   <div class="staff-school-switch" id="staff-school-switch" aria-label="School">
     <button type="button" class="staff-school-btn is-active" data-school="sunset-somo" data-i18n="school.sunsetSomo">Sunset</button>
     <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">El Sardi</button>
+    <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
   </div>
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
     <button type="button" class="staff-lang-btn is-active" data-lang="es">ES</button>
@@ -21608,7 +21612,7 @@ function renderAdminSchoolContext(cfg){
     return;
   }
   var loc = (cfg && cfg.location_id) ? cfg.location_id : getSunsetLocation();
-  var text = (cfg && cfg.location_label) ? cfg.location_label : (loc === 'sunset-sardinero' ? 'El Sardi' : 'Sunset');
+  var text = (cfg && cfg.location_label) ? cfg.location_label : (loc === 'sunset-sardinero' ? 'elSardi' : 'Sunset');
   label.textContent = text;
   wrap.style.display = 'block';
 }

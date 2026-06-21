@@ -25,6 +25,11 @@ const {
 } = require('./luna-guest-addon-service-payment-link-create');
 const { collectPriorExtractedFields } = require('./luna-guest-context-merge');
 const { isOpenDemoBookingWritesEnabled } = require('./open-demo-whatsapp-gate');
+const {
+  isSunsetClientSlug,
+  withSunsetLocationIdOnPayload,
+  enrichToolContextWithSunsetSchool,
+} = require('./sunset-luna-school-context');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -197,7 +202,7 @@ function evaluateWriteToolReadiness(toolId, chainPayload, ctx) {
 async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
   const id = trimStr(toolId);
   const chain = normalizeChainPayload(chainPayload);
-  const context = ctx || {};
+  const context = enrichToolContextWithSunsetSchool(ctx || {});
   const readiness = evaluateWriteToolReadiness(id, chain, context);
 
   if (!readiness.ready) {
@@ -233,7 +238,7 @@ async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
       ...chain,
       result: { ...chain.result, extracted_fields },
     };
-    const out = await runGuestHoldPaymentDraftWriteDryRunApproved(writeChain, {
+    const out = await runGuestHoldPaymentDraftWriteDryRunApproved(writeChain, withSunsetLocationIdOnPayload({
       confirm_write: true,
       client_slug: clientSlug,
       guest_phone: context.guest_phone,
@@ -244,7 +249,7 @@ async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
       pg: context.pg,
       planner: chain.hold_payment_draft_plan,
       source: context.source || 'luna_guest_gpt_write_tool_50d',
-    });
+    }, clientSlug, context.location_id));
     return {
       tool_id: id,
       status: out.success ? 'ok' : 'error',
@@ -307,11 +312,11 @@ async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
   }
 
   if (id === 'create_service_payment_link') {
-    const out = await runGuestAddonServicePaymentLinkCreateApproved({
+    const out = await runGuestAddonServicePaymentLinkCreateApproved(withSunsetLocationIdOnPayload({
       booking_id: refs.bookingId,
       service_record_ids: context.service_record_ids,
       client_slug: clientSlug,
-    }, {
+    }, clientSlug, context.location_id), {
       confirm_service_payment_link: true,
       env,
       host_header: context.host_header,

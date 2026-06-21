@@ -943,7 +943,7 @@ if (fs.existsSync(inboxCfgPath)) {
   const somoCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-somo');
   const sardiCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-sardinero');
   assert('channel config has Sunset entry', somoCh.location_id === 'sunset-somo' && somoCh.display_name === 'Sunset');
-  assert('channel config has El Sardi entry', sardiCh.location_id === 'sunset-sardinero' && sardiCh.display_name === 'El Sardi');
+  assert('channel config has elSardi entry', sardiCh.location_id === 'sunset-sardinero' && sardiCh.display_name === 'elSardi');
   assert('channel placeholders not production numbers', /PLACEHOLDER_/.test(somoCh.whatsapp_number) && /PLACEHOLDER_/.test(sardiCh.email_address));
 }
 if (fs.existsSync(convQPath)) {
@@ -1042,6 +1042,46 @@ if (fs.existsSync(metaWebhookPath)) {
   const metaSrc = fs.readFileSync(metaWebhookPath, 'utf8');
   assert('meta webhook exposes receiving whatsapp number', metaSrc.includes('display_phone_number')
     && metaSrc.includes('receiving_whatsapp_number'));
+}
+
+
+// ── 32. Sunset Luna school-aware tool context ───────────────────────────────
+
+console.log('\n[32] Sunset Luna school-aware tool context');
+
+const sunsetLunaCtxPath = path.join(ROOT, 'scripts/lib/sunset-luna-school-context.js');
+const sunsetTurnPath = path.join(ROOT, 'scripts/lib/luna-guest-sunset-school-turn.js');
+const orchPath = path.join(ROOT, 'scripts/lib/luna-guest-automation-orchestrator-dry-run.js');
+const toolExecPath = path.join(ROOT, 'scripts/lib/luna-guest-agent-tool-executor.js');
+
+assert('sunset luna school context module present', fs.existsSync(sunsetLunaCtxPath));
+assert('sunset guest school turn module present', fs.existsSync(sunsetTurnPath));
+
+if (fs.existsSync(sunsetLunaCtxPath)) {
+  const ctxMod = require('./lib/sunset-luna-school-context');
+  const somoCtx = ctxMod.buildSunsetSchoolContext('sunset-somo');
+  const sardiCtx = ctxMod.buildSunsetSchoolContext('sunset-sardinero');
+  assert('Somo Luna context display Sunset', somoCtx.school_display_name === 'Sunset');
+  assert('elSardi Luna context display elSardi', sardiCtx.school_display_name === 'elSardi');
+  const defaulted = ctxMod.attachSunsetSchoolToGuestContext({}, { client_slug: 'sunset' });
+  assert('missing location defaults sunset-somo', defaulted.location_id === 'sunset-somo');
+  const sardiMeta = ctxMod.attachSunsetSchoolToGuestContext({}, {
+    client_slug: 'sunset',
+    conversation_metadata: { location_id: 'sunset-sardinero' },
+  });
+  assert('conversation metadata loads elSardi', sardiMeta.school_context.school_display_name === 'elSardi');
+  const adminSomo = ctxMod.resolveSunsetAdminConfigForLuna('sunset', 'sunset-somo');
+  assert('admin config lookup includes location_id', adminSomo && adminSomo.location_id === 'sunset-somo');
+  assert('wolfhouse admin lookup unchanged', ctxMod.resolveSunsetAdminConfigForLuna('wolfhouse-somo', 'sunset-somo') == null);
+}
+
+if (fs.existsSync(orchPath)) {
+  const orchSrc = fs.readFileSync(orchPath, 'utf8');
+  assert('orchestrator sunset client supported', orchSrc.includes("'sunset'") && orchSrc.includes('runSunsetGuestSchoolTurnDryRun'));
+}
+if (fs.existsSync(toolExecPath)) {
+  const toolSrc = fs.readFileSync(toolExecPath, 'utf8');
+  assert('tool executor exposes school_context', toolSrc.includes('school_context') && toolSrc.includes('school_display_name'));
 }
 
 

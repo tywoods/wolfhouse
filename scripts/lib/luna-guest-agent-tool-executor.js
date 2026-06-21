@@ -19,6 +19,12 @@ const {
   buildPackageChoiceIntakeReply,
 } = require('./luna-guest-package-explainer');
 const { isGuestAgentReadTool } = require('./luna-guest-agent-tool-plan');
+const {
+  isSunsetClientSlug,
+  enrichToolContextWithSunsetSchool,
+  resolveSunsetAdminConfigForLuna,
+} = require('./sunset-luna-school-context');
+const { executeSunsetCatalogTool } = require('./sunset-catalog-tool-executor');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -55,6 +61,44 @@ function resolvePaymentTruth(priorGuestContext) {
  */
 function executeGuestAgentReadTool(toolId, ctx) {
   const id = trimStr(toolId);
+  const execCtx = enrichToolContextWithSunsetSchool(ctx);
+  const prior = execCtx.prior_guest_context || {};
+  const priorFields = collectPriorExtractedFields(prior);
+  const lang = trimStr(execCtx.language) || 'en';
+
+  if (id === 'get_sunset_admin_config_snapshot' || id === 'get_sunset_rental_price') {
+    if (!isSunsetClientSlug(execCtx.client_slug)) {
+      return { tool_id: id, status: 'rejected', error: 'sunset_only', result: null };
+    }
+    if (id === 'get_sunset_admin_config_snapshot') {
+      const locationId = execCtx.location_id;
+      const adminCfg = resolveSunsetAdminConfigForLuna('sunset', locationId);
+      return {
+        tool_id: id,
+        status: 'ok',
+        result: {
+          location_id: adminCfg && adminCfg.location_id,
+          location_label: adminCfg && adminCfg.location_label,
+          lesson_times: adminCfg && adminCfg.lesson_times,
+          lesson_capacity: adminCfg && adminCfg.lesson_capacity,
+          prices_count: adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices.length : 0,
+        },
+      };
+    }
+    const args = execCtx.tool_args || execCtx.args || {};
+    const out = executeSunsetCatalogTool('get_sunset_rental_price', {
+      client_slug: 'sunset',
+      location_id: execCtx.location_id,
+      dry_run: true,
+      args,
+    });
+    return {
+      tool_id: id,
+      status: out.ok ? 'ok' : 'error',
+      result: out.result || out,
+    };
+  }
+
   if (!isGuestAgentReadTool(id)) {
     return {
       tool_id: id,
@@ -64,13 +108,10 @@ function executeGuestAgentReadTool(toolId, ctx) {
     };
   }
 
-  const prior = ctx.prior_guest_context || {};
-  const priorFields = collectPriorExtractedFields(prior);
-  const lang = trimStr(ctx.language) || 'en';
-
   if (id === 'get_conversation_context') {
-    const transcript = Array.isArray(ctx.transcript) ? ctx.transcript
+    const transcript = Array.isArray(execCtx.transcript) ? execCtx.transcript
       : (Array.isArray(prior.thread_transcript) ? prior.thread_transcript : []);
+    const schoolContext = execCtx.school_context || prior.school_context || null;
     return {
       tool_id: id,
       status: 'ok',
@@ -86,13 +127,16 @@ function executeGuestAgentReadTool(toolId, ctx) {
           role: t.role,
           text: trimStr(t.text).slice(0, 300),
         })),
+        location_id: execCtx.location_id || (schoolContext && schoolContext.location_id) || null,
+        school_context: schoolContext,
+        school_display_name: schoolContext && schoolContext.school_display_name,
       },
     };
   }
 
   if (id === 'collect_missing_booking_fields') {
     const extraction = extractLunaGuestMessageIntake({
-      client_slug: ctx.client_slug,
+      client_slug: execCtx.client_slug,
       message_text: ctx.message_text,
       guest_phone: ctx.guest_phone,
       guest_name: ctx.contact_name,
