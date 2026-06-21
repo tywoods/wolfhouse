@@ -10,7 +10,7 @@ const DEFAULT_SUNSET_LOCATION_ID = 'sunset-somo';
 
 const SUNSET_LOCATIONS = Object.freeze([
   { id: 'sunset-somo', displayName: 'Sunset', labelKey: 'school.sunsetSomo' },
-  { id: 'sunset-sardinero', displayName: 'El Sardi', labelKey: 'school.sunsetSardinero' },
+  { id: 'sunset-sardinero', displayName: 'elSardi', labelKey: 'school.sunsetSardinero' },
 ]);
 
 const LOCATION_ID_SET = new Set(SUNSET_LOCATIONS.map((l) => l.id));

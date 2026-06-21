@@ -44,7 +44,7 @@ async function main() {
   const somo = buildSunsetSchoolContext('sunset-somo');
   const sardi = buildSunsetSchoolContext('sunset-sardinero');
   assert('somo display Sunset', somo.school_display_name === 'Sunset');
-  assert('sardi display El Sardi', sardi.school_display_name === 'El Sardi');
+  assert('sardi display elSardi', sardi.school_display_name === 'elSardi');
   assert('somo location_id', somo.location_id === 'sunset-somo');
   assert('sardi location_id', sardi.location_id === 'sunset-sardinero');
 
@@ -59,7 +59,7 @@ async function main() {
     conversation_metadata: { location_id: 'sunset-sardinero' },
   });
   assert('metadata sunset-sardinero', fromSardi.location_id === 'sunset-sardinero');
-  assert('metadata El Sardi label', fromSardi.school_context.school_display_name === 'El Sardi');
+  assert('metadata elSardi label', fromSardi.school_context.school_display_name === 'elSardi');
 
   console.log('\n[4] No cross-school leak / Wolfhouse unchanged');
   const wolfCtx = attachSunsetSchoolToGuestContext({ client_slug: 'wolfhouse-somo' }, {
@@ -110,7 +110,7 @@ async function main() {
     prior_guest_context: { school_context: sardi },
   });
   assert('get_conversation_context ok', convCtx.status === 'ok');
-  assert('context includes school name El Sardi', convCtx.result.school_display_name === 'El Sardi');
+  assert('context includes school name elSardi', convCtx.result.school_display_name === 'elSardi');
   assert('context includes location_id', convCtx.result.location_id === 'sunset-sardinero');
 
   console.log('\n[8] Sunset guest turn dry-run (no outbound)');

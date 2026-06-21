@@ -943,7 +943,7 @@ if (fs.existsSync(inboxCfgPath)) {
   const somoCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-somo');
   const sardiCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-sardinero');
   assert('channel config has Sunset entry', somoCh.location_id === 'sunset-somo' && somoCh.display_name === 'Sunset');
-  assert('channel config has El Sardi entry', sardiCh.location_id === 'sunset-sardinero' && sardiCh.display_name === 'El Sardi');
+  assert('channel config has elSardi entry', sardiCh.location_id === 'sunset-sardinero' && sardiCh.display_name === 'elSardi');
   assert('channel placeholders not production numbers', /PLACEHOLDER_/.test(somoCh.whatsapp_number) && /PLACEHOLDER_/.test(sardiCh.email_address));
 }
 if (fs.existsSync(convQPath)) {
@@ -1062,14 +1062,14 @@ if (fs.existsSync(sunsetLunaCtxPath)) {
   const somoCtx = ctxMod.buildSunsetSchoolContext('sunset-somo');
   const sardiCtx = ctxMod.buildSunsetSchoolContext('sunset-sardinero');
   assert('Somo Luna context display Sunset', somoCtx.school_display_name === 'Sunset');
-  assert('El Sardi Luna context display El Sardi', sardiCtx.school_display_name === 'El Sardi');
+  assert('elSardi Luna context display elSardi', sardiCtx.school_display_name === 'elSardi');
   const defaulted = ctxMod.attachSunsetSchoolToGuestContext({}, { client_slug: 'sunset' });
   assert('missing location defaults sunset-somo', defaulted.location_id === 'sunset-somo');
   const sardiMeta = ctxMod.attachSunsetSchoolToGuestContext({}, {
     client_slug: 'sunset',
     conversation_metadata: { location_id: 'sunset-sardinero' },
   });
-  assert('conversation metadata loads El Sardi', sardiMeta.school_context.school_display_name === 'El Sardi');
+  assert('conversation metadata loads elSardi', sardiMeta.school_context.school_display_name === 'elSardi');
   const adminSomo = ctxMod.resolveSunsetAdminConfigForLuna('sunset', 'sunset-somo');
   assert('admin config lookup includes location_id', adminSomo && adminSomo.location_id === 'sunset-somo');
   assert('wolfhouse admin lookup unchanged', ctxMod.resolveSunsetAdminConfigForLuna('wolfhouse-somo', 'sunset-somo') == null);

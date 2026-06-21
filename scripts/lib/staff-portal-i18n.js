@@ -19,7 +19,7 @@ const STAFF_PORTAL_STRINGS = {
     'nav.tab.daySchedule': 'Day Schedule',
     'nav.tab.inbox': 'Inbox',
     'school.sunsetSomo': 'Sunset',
-    'school.sunsetSardinero': 'El Sardi',
+    'school.sunsetSardinero': 'elSardi',
     'nav.tab.portalHome': 'Schedule',
     'nav.tab.customers': 'Customers',
     'customers.title': 'Customers',

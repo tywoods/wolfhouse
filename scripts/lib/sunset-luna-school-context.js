@@ -2,7 +2,7 @@
 
 /**
  * Sunset Luna / Staff API school context helpers.
- * Tenant = sunset; locations = sunset-somo (Sunset) | sunset-sardinero (El Sardi).
+ * Tenant = sunset; locations = sunset-somo (Sunset) | sunset-sardinero (elSardi).
  * Wolfhouse callers must remain unchanged — guard every export with isSunsetClientSlug.
  */
 
@@ -162,7 +162,7 @@ function buildSunsetSchoolPromptHint(schoolContext) {
     `School: ${name} (location_id=${loc}).`,
     'Use this school name when referring to the location.',
     'Prices, lesson times, and capacity must come from admin config/tools for this location_id only.',
-    'Do not mix Sunset (Somo) and El Sardi context.',
+    'Do not mix Sunset (Somo) and elSardi context.',
   ].join(' ');
 }
 
