@@ -752,6 +752,7 @@ if (apiSrc) {
   assert('stripe no auto send message', apiSrc.includes('schedule.drawer.stripeCreated'));
   assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
   assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
+  assert('drawer payment refresh helper', apiSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));
   assert('stripe stale warning', apiSrc.includes('schedule.drawer.stripeStale'));
   assert('stripe unavailable disabled', apiSrc.includes('schedule.drawer.stripeUnavailable'));
   assert('drawer conversation action', apiSrc.includes('ps-drawer-conversation-btn'));
