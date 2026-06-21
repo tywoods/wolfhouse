@@ -151,15 +151,15 @@ if (apiSrc) {
   assert('portal-home gated for surf vertical', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
   assert('Schedule page wrap present', apiSrc.includes('portal-schedule-wrap'));
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
-  assert('Schedule operational lesson groups card', apiSrc.includes('schedule.card.lessonGroups') && apiSrc.includes('id="ps-lesson-slots"'));
-  assert('Schedule boards needed summary card', apiSrc.includes('schedule.card.boardsNeeded') && apiSrc.includes('id="ps-boards-total"'));
-  assert('Schedule need reply summary card', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-total"'));
-  assert('old total surfers summary cards removed', !apiSrc.includes('id="ps-lessons-today"') && !apiSrc.includes('id="ps-rentals-today"'));
+  assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
+  assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
+  assert('Schedule lesson groups summary card', apiSrc.includes('schedule.card.lessonGroups') && apiSrc.includes('portal-schedule-lesson-times') && apiSrc.includes('id="ps-lessons-slot-sub"'));
+  assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
   assert('old unpaid summary card removed', !apiSrc.includes('id="ps-unpaid"'));
   assert('Schedule week grid markup', apiSrc.includes('id="ps-week-grid"'));
-  assert('schedule booking table present', apiSrc.includes('id="ps-booking-table"'));
+  assert('ops board replaces booking table', apiSrc.includes('id="ps-ops-board"') && !apiSrc.includes('id="ps-booking-table"'));
 
   const homePanel = extractPortalHomePanel(apiSrc);
   if (homePanel) {
@@ -285,19 +285,19 @@ if (apiSrc) {
   assert('SUNSET_SCHEDULE_LESSON_DAY_CAP constant', apiSrc.includes('SUNSET_SCHEDULE_LESSON_DAY_CAP = 24'));
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
-  assert('schedule operational summary cards present', apiSrc.includes('id="ps-lesson-slots"')
-    && apiSrc.includes('id="ps-boards-total"') && apiSrc.includes('id="ps-payment-pending"'));
-  assert('schedule view toggle day default', apiSrc.includes('data-ps-view="day"')
-    && apiSrc.includes('portal-schedule-view-btn active" data-ps-view="day"'));
-  assert('schedule booking filters present', apiSrc.includes('data-ps-filter="needs_reply"')
-    && apiSrc.includes('data-ps-filter="unpaid"'));
+  assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
+    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-slot-sub"')
+    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-pending-today"'));
+  assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
+    && apiSrc.includes('portal-schedule-view-btn active'));
+  assert('ops board layout markers', apiSrc.includes('portal-schedule-ops-board') && apiSrc.includes('portal-schedule-ops-lesson-group'));
   assert('schedule day seats cap helper', apiSrc.includes('function scheduleDayLessonCap('));
   assert('Wolfhouse portal-home still gated', apiSrc.includes("tab === 'portal-home' && !profile.is_surf_vertical"));
 }
 
 if (i18nSrc) {
   assert('schedule.card.lessonGroups i18n', i18nSrc.includes("'schedule.card.lessonGroups'"));
-  assert('schedule.view.day i18n', i18nSrc.includes("'schedule.view.day': 'Day'"));
+  assert('schedule.view.week i18n', i18nSrc.includes("'schedule.view.week': 'Week'"));
 }
 
 
@@ -526,7 +526,7 @@ if (apiSrc) {
 }
 
 if (i18nSrc) {
-  assert('schedule.card.lessonGroups i18n', i18nSrc.includes("'schedule.card.lessonGroups'"));
+  assert('schedule.card.wetsuitsToday i18n', i18nSrc.includes("'schedule.card.wetsuitsToday'"));
   assert('schedule.createBooking i18n', i18nSrc.includes("'schedule.createBooking'"));
   assert('schedule.badge.manualDraft i18n', i18nSrc.includes("'schedule.badge.manualDraft'"));
   assert('schedule.equipment.both i18n', i18nSrc.includes("'schedule.equipment.both': 'board + wetsuit'"));
@@ -590,17 +590,18 @@ if (apiSrc) {
   assert('handleSunsetScheduleBookingCreate handler', apiSrc.includes('function handleSunsetScheduleBookingCreate('));
   assert('sunset-schedule-booking-writes import', apiSrc.includes('sunset-schedule-booking-writes'));
   assert('schedule normalize API rows', apiSrc.includes('function scheduleNormalizeApiRow('));
-  assert('drawer record id field', apiSrc.includes('schedule.drawer.recordId'));
+  assert('drawer ops redesign fields', apiSrc.includes('portal-schedule-drawer-hero') && apiSrc.includes('portal-schedule-drawer-prep'));
   assert('no stripe in schedule create handler', !apiSrc.includes('handleSunsetScheduleBookingCreate') || !apiSrc.slice(apiSrc.indexOf('handleSunsetScheduleBookingCreate'), apiSrc.indexOf('handleSunsetScheduleBookingCreate') + 1200).includes('stripe'));
 }
 
 const writesPath = path.join(ROOT, 'scripts/lib/sunset-schedule-booking-writes.js');
+let writesSrc = '';
 if (fs.existsSync(writesPath)) {
-  const writesSrc = fs.readFileSync(writesPath, 'utf8');
+  writesSrc = fs.readFileSync(writesPath, 'utf8');
   assert('writes module validates body', writesSrc.includes('function validateScheduleBookingBody('));
   assert('writes module inserts booking_service_records', writesSrc.includes('INSERT INTO booking_service_records'));
   assert('writes sunset client only', writesSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
-  assert('writes no stripe', !/stripe/i.test(writesSrc));
+  assert('writes no stripe integration', !writesSrc.includes('stripe.') && !writesSrc.includes('STRIPE_'));
 }
 
 
@@ -624,7 +625,204 @@ if (i18nSrc) {
 }
 
 
+// ── 18. Sunset Schedule booking shape — components, source, range ────────────
+
+console.log('\n[18] Sunset Schedule booking shape — components, source, range');
+
+if (apiSrc) {
+  assert('wetsuits and surfboards summary cards', apiSrc.includes('id="ps-wetsuits-today"') && apiSrc.includes('id="ps-surfboards-today"'));
+  assert('lessons time rows with counts', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('portal-schedule-lesson-time-count'));
+  assert('need reply split email/whatsapp', apiSrc.includes('function scheduleNeedReplyEmailCount(') && apiSrc.includes('function scheduleNeedReplyWhatsAppCount('));
+  assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
+  assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
+  assert('today-first forward range', apiSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
+  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-lesson"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
+  assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
+  assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
+  assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
+  assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
+  assert('drawer stripe placeholder disabled', apiSrc.includes('schedule.drawer.stripeLink') && apiSrc.includes('disabled'));
+  assert('submit sends components payload', apiSrc.includes('components: payload.components'));
+}
+
+if (writesSrc) {
+  assert('writes supports components object', writesSrc.includes('normalizeComponents'));
+  assert('writes supports multi-date', writesSrc.includes('normalizeServiceDates'));
+  assert('writes multiple service records', writesSrc.includes('for (const serviceDate of input.service_dates)'));
+}
+
+if (i18nSrc) {
+  assert('schedule.source.staff i18n', i18nSrc.includes("'schedule.source.staff'"));
+  assert('schedule.view.next30 i18n', i18nSrc.includes("'schedule.view.next30'"));
+}
+
+
 // ── Summary ─────────────────────────────────────────────────────────────────
+
+
+
+// ── 19. Sunset Schedule visual refine — muted ops board ─────────────────────
+
+console.log('\n[19] Sunset Schedule visual refine — muted ops board');
+
+if (apiSrc) {
+  assert('service summary helper', apiSrc.includes('function scheduleServiceSummaryText('));
+  assert('status badge helper', apiSrc.includes('function scheduleRenderStatusBadgeHtml('));
+  assert('drawer component list helper', apiSrc.includes('function scheduleRenderComponentListHtml('));
+  assert('ops row equipment column', apiSrc.includes('portal-schedule-ops-row-equip'));
+  assert('ops row status markup', apiSrc.includes('portal-schedule-ops-row-status'));
+  assert('drawer component list markup', apiSrc.includes('portal-schedule-drawer-components'));
+  assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
+  assert('no visible source tag in ops rows', !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+  assert('source row rail classes retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna'));
+  assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('drawer stripe for non-editable only', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
+}
+
+
+
+// ── 20. Sunset Schedule visual polish — density + clarity ───────────────────
+
+console.log('\n[20] Sunset Schedule visual polish — density + clarity');
+
+if (apiSrc) {
+  assert('lesson group header booked label', apiSrc.includes('portal-schedule-ops-lesson-hdr-booked') && apiSrc.includes("portalT('schedule.slot.booked')"));
+  assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
+  assert('row status hides paid', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('opts.row'));
+  assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
+  assert('no Pending payment in row renderer', !apiSrc.includes('schedule.status.pendingDetail') || apiSrc.includes("schedule.status.unpaid"));
+  assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
+  assert('metric card lesson rental subtext keys', apiSrc.includes("portalT('schedule.metric.lesson')") && apiSrc.includes("portalT('schedule.metric.rental')"));
+  assert('lesson time row layout', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('scheduleNormalizeSlotTime(slot.slot_time)'));
+  assert('component pebble css still absent', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+}
+
+
+
+// ── 21. Sunset Schedule prep-sheet layout ───────────────────────────────────
+
+console.log('\n[21] Sunset Schedule prep-sheet layout');
+
+if (apiSrc) {
+  assert('lesson group prepare header', apiSrc.includes('portal-schedule-ops-lesson-hdr-prep') && apiSrc.includes("portalT('schedule.ops.prepare')"));
+  assert('ops column header row', apiSrc.includes('scheduleRenderOpsColumnHeader(') && apiSrc.includes('portal-schedule-ops-col-hdr'));
+  assert('equipment prep label helper', apiSrc.includes('function scheduleEquipmentPrepLabel('));
+  assert('equipment column on rows', apiSrc.includes('portal-schedule-ops-row-equip'));
+  assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes('scheduleRenderRentalPickupBlock('));
+  assert('short pending in rows', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
+  assert('no component pebble css', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
+}
+
+
+
+// ── 22. Sunset Schedule source styling + rental pickup grouping ─────────────
+
+console.log('\n[22] Sunset Schedule source styling + rental pickup grouping');
+
+if (apiSrc) {
+  assert('no Staff-created row tag markup', !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('no demo badge in ops row renderer', !apiSrc.includes("scheduleRowSourceLabel(g)") || !apiSrc.includes('portal-schedule-ops-row-source'));
+  assert('source aria label helper', apiSrc.includes('function scheduleRowSourceAriaLabel('));
+  assert('row source class is-staff', apiSrc.includes("' is-staff'") && apiSrc.includes('.portal-schedule-ops-row.is-staff'));
+  assert('row source class is-luna', apiSrc.includes('.portal-schedule-ops-row.is-luna'));
+  assert('compact qty multiplier', apiSrc.includes("String(qty) + '×'") || apiSrc.includes('String(qty) + \'\u00d7\''));
+  assert('rental both section key', apiSrc.includes("portalT('schedule.ops.rentalBoth')") || (i18nSrc && i18nSrc.includes("'schedule.ops.rentalBoth'")));
+  assert('rental boards only section key', i18nSrc.includes("'schedule.ops.rentalBoardsOnly'") || apiSrc.includes("'schedule.ops.rentalBoardsOnly'"));
+  assert('rental wetsuits only section key', i18nSrc.includes("'schedule.ops.rentalWetsuitsOnly'") || apiSrc.includes("'schedule.ops.rentalWetsuitsOnly'"));
+  assert('rental pickup kind helper', apiSrc.includes('function scheduleRentalPickupKind('));
+  assert('drawer plain source kv', apiSrc.includes('scheduleRowSourceDrawerLabel(group)') && apiSrc.includes("portalT('schedule.drawer.source')"));
+  assert('next30 view button i18n', i18nSrc.includes("'schedule.view.next30': 'Next 30 days'") || apiSrc.includes('schedule.view.next30'));
+  assert('month label not Month', !i18nSrc.includes("'schedule.view.month': 'Month'"));
+  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
+}
+
+
+
+// ── 23. Sunset UI — ES default, lesson groups card, soft light theme ────────
+
+console.log('\n[23] Sunset UI — ES default, lesson groups card, soft light theme');
+
+if (apiSrc) {
+  assert('ES default locale', i18nSrc.includes("return 'es';"));
+  assert('no IT lang button', !apiSrc.includes('data-lang="it"'));
+  assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
+  assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
+  assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
+  assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
+  assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
+  assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
+  assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));
+}
+
+console.log('\n[24] Sunset Schedule — calm UI, live i18n, phone, conversation');
+
+if (apiSrc) {
+  assert('no pending payment option in create form', !apiSrc.includes('value="pending" data-i18n="schedule.payment.pending"'));
+  assert('unpaid card label key', apiSrc.includes('data-i18n="schedule.card.unpaid">Unpaid</div>'));
+  assert('create phone field', apiSrc.includes('id="ps-create-phone"'));
+  assert('post guest_phone', apiSrc.includes('guest_phone: payload.guest_phone'));
+  assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
+  assert('drawer conversation button', apiSrc.includes('ps-drawer-conversation-btn'));
+  assert('open or start conversation', apiSrc.includes('scheduleOpenOrStartConversationFromBooking'));
+  assert('light schedule rows no gradient wash', !apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-row.is-staff{background:linear-gradient'));
+  assert('dark schedule row gradient restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home .portal-schedule-ops-row.is-staff{background:linear-gradient'));
+  assert('reuse create-conversation endpoint', apiSrc.includes('/staff/bookings/create-conversation'));
+}
+
+if (writesSrc) {
+  assert('booking insert phone column', writesSrc.includes('guest_name, phone, status'));
+  assert('validate guest_phone', writesSrc.includes('guest_phone'));
+}
+
+const calmLessonsSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-ask-luna-lessons.js'), 'utf8');
+if (calmLessonsSrc) {
+  assert('lessons query returns phone', calmLessonsSrc.includes('AS phone'));
+  assert('lessons query returns booking_id', calmLessonsSrc.includes('AS booking_id'));
+}
+
+console.log('\n[25] Sunset booking drawer — payments, edits, test Stripe');
+
+if (apiSrc) {
+  assert('drawer detail GET route', apiSrc.includes('/staff/schedule/bookings/detail'));
+  assert('drawer PATCH route', apiSrc.includes("pathname === '/staff/schedule/bookings' && method === 'PATCH'"));
+  assert('drawer update handler', apiSrc.includes('function handleSunsetScheduleBookingUpdate('));
+  assert('drawer detail handler', apiSrc.includes('function handleSunsetScheduleBookingDetailGet('));
+  assert('drawer payment section', apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
+  assert('drawer line item labels', apiSrc.includes('schedule.drawer.paymentSection'));
+  assert('drawer totals paid remaining', apiSrc.includes('schedule.drawer.remaining') && apiSrc.includes('ps-drawer-paid'));
+  assert('create test stripe link button', apiSrc.includes('ps-drawer-stripe-link') && apiSrc.includes('schedule.drawer.stripeLink'));
+  assert('stripe no auto send message', apiSrc.includes('schedule.drawer.stripeCreated'));
+  assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
+  assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
+  assert('drawer payment refresh helper', apiSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));
+  assert('stripe stale warning', apiSrc.includes('schedule.drawer.stripeStale'));
+  assert('stripe unavailable disabled', apiSrc.includes('schedule.drawer.stripeUnavailable'));
+  assert('drawer conversation action', apiSrc.includes('ps-drawer-conversation-btn'));
+  assert('no whatsapp stripe send in drawer save', !apiSrc.includes('scheduleSaveDrawerBooking') || !apiSrc.slice(apiSrc.indexOf('scheduleCreateDrawerStripeLink'), apiSrc.indexOf('scheduleCreateDrawerStripeLink') + 800).match(/whatsapp|sendMessage|send_email/i));
+}
+
+const drawerModPath = path.join(ROOT, 'scripts/lib/sunset-schedule-booking-drawer.js');
+if (fs.existsSync(drawerModPath)) {
+  const drawerModSrc = fs.readFileSync(drawerModPath, 'utf8');
+  assert('drawer module sunset only', drawerModSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
+  assert('drawer marks stripe stale on update', drawerModSrc.includes('sunset_stripe_link_stale'));
+  assert('drawer live pricing note', drawerModSrc.includes('live_pricing'));
+}
+
+const stripeModPath = path.join(ROOT, 'scripts/lib/sunset-stripe-payment-links.js');
+if (fs.existsSync(stripeModPath)) {
+  const stripeModSrc = fs.readFileSync(stripeModPath, 'utf8');
+  assert('stripe module blocks live keys', stripeModSrc.includes('sk_live_'));
+  assert('stripe module no whatsapp', !/whatsapp/i.test(stripeModSrc));
+  assert('stripe respects stale metadata', stripeModSrc.includes('sunset_stripe_link_stale'));
+}
+
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

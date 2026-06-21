@@ -1,11 +1,13 @@
 'use strict';
 
 /**
- * Staff Portal UI — English / Spanish / Italian strings.
+ * Staff Portal UI — English / Spanish strings.
  * Client bootstrap is injected into buildUiHtml() and buildLoginHtml().
  */
 
-const STAFF_PORTAL_ES = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_BASE = require('./staff-portal-i18n-es');
+const STAFF_PORTAL_ES_SUNSET = require('./staff-portal-i18n-es-sunset');
+const STAFF_PORTAL_ES = Object.assign({}, STAFF_PORTAL_ES_BASE, STAFF_PORTAL_ES_SUNSET);
 
 const STAFF_PORTAL_STRINGS = {
   en: {
@@ -551,6 +553,66 @@ const STAFF_PORTAL_STRINGS = {
     'drawer.payments.session': 'Session',
     'drawer.payments.intent': 'Intent',
     'schedule.card.rentalsToday': 'Rentals today',
+    'schedule.card.wetsuitsToday': 'Wetsuits',
+    'schedule.card.surfboardsToday': 'Surfboards',
+    'schedule.card.needReplyEmail': 'Need reply — Email',
+    'schedule.card.needReplyWhatsapp': 'Need reply — WhatsApp',
+    'schedule.view.next30': 'Next 30 days',
+    'schedule.source.luna': 'Luna',
+
+    'schedule.summary.boardShort': 'board',
+    'schedule.summary.wetsuitShort': 'wetsuit',
+    'schedule.summary.boards': 'boards',
+    'schedule.summary.wetsuits': 'wetsuits',
+    'schedule.status.paid': 'Paid',
+    'schedule.status.pending': 'Pending',
+    'schedule.status.pendingDetail': 'Pending payment',
+    'schedule.status.unpaid': 'Unpaid',
+
+    'schedule.source.staff': 'Staff',
+    'schedule.source.demo': 'Demo',
+    'schedule.source.ariaStaff': 'Staff booking',
+    'schedule.source.ariaLuna': 'Luna booking',
+    'schedule.source.ariaDemo': 'Demo booking',
+    'schedule.create.components': 'Booking components',
+    'schedule.create.componentsRequired': 'Select at least one component.',
+    'schedule.create.surferCount': 'Surfers',
+    'schedule.create.boardQty': 'Boards',
+    'schedule.create.wetsuitQty': 'Wetsuits',
+    'schedule.create.dateFrom': 'From date',
+    'schedule.create.dateTo': 'To date',
+    'schedule.create.lessonCategory': 'Adult (Over 12)',
+    'schedule.drawer.source': 'Source',
+    'schedule.drawer.components': 'Components',
+    'schedule.drawer.bookingCode': 'Booking code',
+    'schedule.drawer.stripeLink': 'Create test Stripe link',
+    'schedule.drawer.stripeRegenerate': 'Create new test Stripe link',
+    'schedule.drawer.stripeSection': 'Stripe payment link',
+    'schedule.drawer.stripeStatus': 'Link status',
+    'schedule.drawer.stripeAmount': 'Amount',
+    'schedule.drawer.stripeNone': 'No payment link yet.',
+    'schedule.drawer.stripeCreated': 'Stripe payment link created. Nothing was sent to the guest.',
+    'schedule.drawer.stripeFailed': 'Could not create Stripe link:',
+    'schedule.drawer.stripeCopy': 'Copy link',
+    'schedule.drawer.stripeOpen': 'Open link',
+    'schedule.drawer.stripeUnavailable': 'Stripe test mode not configured on this environment.',
+    'schedule.drawer.stripeStale': 'Outdated link',
+    'schedule.drawer.stripeStaleHint': 'Booking changed since this link was created. Create a new test Stripe link for the updated total.',
+    'schedule.drawer.paymentSection': 'Payment',
+    'schedule.drawer.livePricingNote': 'Totals use current Admin prices when line amounts are not stored.',
+    'schedule.drawer.noLineItems': 'No line items',
+    'schedule.drawer.subtotal': 'Subtotal',
+    'schedule.drawer.paid': 'Paid',
+    'schedule.drawer.remaining': 'Remaining',
+    'schedule.drawer.save': 'Save changes',
+    'schedule.drawer.saved': 'Booking saved.',
+    'schedule.drawer.saveFailed': 'Could not save booking:',
+    'schedule.drawer.loading': 'Loading booking…',
+    'schedule.drawer.loadFailed': 'Could not load booking details.',
+    'schedule.drawer.stripeSoon': 'Coming in a later slice',
+    'schedule.drawer.goConversation': 'Go to conversation',
+    'schedule.drawer.conversationSoon': 'Coming in a later slice',
+    'schedule.lessons.noSlotsToday': 'No configured lesson slots today',
     'schedule.card.lessonsToday': 'Lessons today',
     'schedule.card.lessonGroups': 'Lesson groups',
     'schedule.card.boardsNeeded': 'Boards needed',
@@ -564,8 +626,39 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.nav.today': 'Today',
     'schedule.nav.next': 'Next',
     'schedule.view.day': 'Day',
+
+    'schedule.view.today': 'Today',
+    'schedule.card.needReply': 'Need reply',
+    'schedule.card.unpaidPending': 'Unpaid / Pending',
+    'schedule.card.unpaidPendingSub': 'Bookings awaiting payment',
+    'schedule.type.rental': 'rental-only',
+    'schedule.ops.boardTitle': 'Today ops board',
+    'schedule.ops.lessonGroup': 'lesson group',
+    'schedule.metric.lesson': 'lesson',
+    'schedule.metric.rental': 'rental',
+    'schedule.card.lessonGroups': 'Lesson groups',
+    'schedule.slot.booked': 'booked',
+    'schedule.ops.lessonGroupTitle': 'LESSON GROUP',
+    'schedule.ops.prepare': 'Prepare',
+    'schedule.ops.rentalPickupsToday': 'Rental pickups today',
+    'schedule.ops.rentalBoth': 'Surfboard + wetsuit',
+    'schedule.ops.rentalBoardsOnly': 'Surfboards only',
+    'schedule.ops.rentalWetsuitsOnly': 'Wetsuits only',
+    'schedule.ops.rentalNothingScheduled': 'Nothing scheduled',
+    'schedule.ops.surfboardsNeeded': 'Surfboards needed',
+    'schedule.ops.wetsuitsNeeded': 'Wetsuits needed',
+    'schedule.col.qty': 'Qty',
+    'schedule.col.guest': 'Guest',
+    'schedule.col.equipment': 'Equipment',
+    'schedule.col.status': 'Status',
+    'schedule.equipment.boardAndWetsuit': 'board + wetsuit',
+    'schedule.equipment.board': 'board',
+    'schedule.equipment.wetsuit': 'wetsuit',
+    'schedule.equipment.none': 'no equipment',
+
+
     'schedule.view.week': 'Week',
-    'schedule.view.month': 'Month',
+    'schedule.view.month': 'Next 30 days',
     'schedule.emptyDay': 'Nothing scheduled',
     'schedule.list.title': 'Bookings & actions',
     'schedule.list.empty': 'No bookings match this filter.',
@@ -590,6 +683,13 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.title': 'Create booking (demo)',
     'schedule.create.sub': 'Creates a real Sunset staging booking in the database.',
     'schedule.create.guestName': 'Guest name',
+    'schedule.create.phone': 'Phone number',
+    'schedule.drawer.phone': 'Phone',
+    'schedule.drawer.openConv': 'Open conversation',
+    'schedule.drawer.startConv': 'Start conversation',
+    'schedule.drawer.conversationNeedPhone': 'Add phone number to start conversation',
+    'schedule.drawer.conversationFailed': 'Could not open conversation',
+
     'schedule.create.bookingType': 'Booking type',
     'schedule.create.date': 'Date',
     'schedule.create.time': 'Time',
@@ -1187,9 +1287,9 @@ function getStaffPortalI18nBootstrapScript() {
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
-      if (s === 'it' || s === 'en' || s === 'es') return s;
+      if (s === 'en' || s === 'es') return s;
     } catch(_){}
-    return 'en';
+    return 'es';
   };
   window.getStaffTheme = function(){
     try {
@@ -1274,7 +1374,7 @@ function getStaffPortalI18nBootstrapScript() {
     window.applyStaffTheme();
   };
   window.setStaffLocale = function(loc){
-    if (loc !== 'en' && loc !== 'it' && loc !== 'es') return;
+    if (loc !== 'en' && loc !== 'es') return;
     try { localStorage.setItem(STAFF_LOCALE_KEY, loc); } catch(_){}
     window.applyStaffPortalI18n(document);
     if (typeof window.staffPortalOnLocaleChange === 'function') {
