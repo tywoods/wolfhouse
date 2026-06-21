@@ -6,7 +6,9 @@
  * @see docs/sunset/SUNSET-ADMIN-CONFIG-SPEC.md
  */
 
-const { SUNSET_ADMIN_CLIENT } = require('./tenant-business-config');
+const { SUNSET_ADMIN_CLIENT, adminConfigTableHasLocationColumn } = require('./tenant-business-config');
+const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const locationStore = require('./sunset-admin-location-store');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const CURRENCY_RE = /^[A-Z]{3}$/;
@@ -291,12 +293,39 @@ async function insertConfigAudit(client, {
   );
 }
 
-async function patchPriceRule(client, { ruleId, clientSlug, patch, actor }) {
+async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, actor }) {
+  const parsedCfg = locationStore.parseConfigPriceId(ruleId);
+  if (parsedCfg) {
+    const reqLoc = normalizeSunsetLocationId(locationId);
+    if (parsedCfg.locationId !== reqLoc) {
+      return { ok: false, status: 403, body: { success: false, error: 'location_mismatch' } };
+    }
+    const result = locationStore.patchConfigPrice(
+      reqLoc,
+      parsedCfg.category,
+      parsedCfg.offering_key,
+      parsedCfg.unit,
+      patch,
+    );
+    locationStore.appendLocationAudit(reqLoc, {
+      action: 'update',
+      entity_type: 'price_rule',
+      entity_id: ruleId,
+      actor_email: actor.email || 'unknown',
+      after_json: result.body.price_rule,
+    });
+    return result;
+  }
+
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  const loc = normalizeSunsetLocationId(locationId);
   await client.query('BEGIN');
   try {
     const existing = await client.query(
-      `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
-      [ruleId, clientSlug],
+      hasLoc
+        ? `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 FOR UPDATE`
+        : `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
+      hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
     );
     if (!existing.rows[0]) {
       await client.query('ROLLBACK');
@@ -342,14 +371,29 @@ async function patchPriceRule(client, { ruleId, clientSlug, patch, actor }) {
   }
 }
 
-async function putLessonCapacityDefault(client, { clientSlug, capacity, actor }) {
+async function putLessonCapacityDefault(client, { clientSlug, locationId, capacity, actor }) {
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_capacity_rules');
+  if (!hasLoc) {
+    const loc = normalizeSunsetLocationId(locationId);
+    const result = locationStore.putLocationCapacity(loc, capacity);
+    locationStore.appendLocationAudit(loc, {
+      action: 'update',
+      entity_type: 'capacity_rule',
+      entity_id: loc,
+      actor_email: actor.email || 'unknown',
+      after_json: result.body.lesson_capacity,
+    });
+    return result;
+  }
+
+  const loc = normalizeSunsetLocationId(locationId);
   await client.query('BEGIN');
   try {
     const existing = await client.query(
       `SELECT * FROM tenant_lesson_capacity_rules
-        WHERE client_slug = $1 AND scope = 'default' AND active = true
+        WHERE client_slug = $1 AND location_id = $2 AND scope = 'default' AND active = true
         FOR UPDATE`,
-      [clientSlug],
+      [clientSlug, loc],
     );
 
     let after;
@@ -368,11 +412,11 @@ async function putLessonCapacityDefault(client, { clientSlug, capacity, actor })
     } else {
       const inserted = await client.query(
         `INSERT INTO tenant_lesson_capacity_rules (
-           tenant_id, client_slug, scope, weekday, service_date, capacity,
+           tenant_id, client_slug, location_id, scope, weekday, service_date, capacity,
            active, updated_by
-         ) VALUES ($1, $2, 'default', NULL, NULL, $3, true, $4::uuid)
+         ) VALUES ($1, $2, $3, 'default', NULL, NULL, $4, true, $5::uuid)
          RETURNING *`,
-        [tenantId, clientSlug, capacity, actor.staff_user_id || null],
+        [tenantId, clientSlug, loc, capacity, actor.staff_user_id || null],
       );
       after = inserted.rows[0];
     }
@@ -403,12 +447,29 @@ async function putLessonCapacityDefault(client, { clientSlug, capacity, actor })
   }
 }
 
-async function patchLessonTimeRule(client, { ruleId, clientSlug, patch, actor }) {
+async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, patch, actor }) {
+  if (locationStore.isConfigTimeId(ruleId)) {
+    const loc = normalizeSunsetLocationId(locationId);
+    const result = locationStore.patchLocationLessonTime(loc, ruleId, patch);
+    locationStore.appendLocationAudit(loc, {
+      action: 'update',
+      entity_type: 'lesson_time_rule',
+      entity_id: ruleId,
+      actor_email: actor.email || 'unknown',
+      after_json: result.body.lesson_time_rule,
+    });
+    return result;
+  }
+
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  const loc = normalizeSunsetLocationId(locationId);
   await client.query('BEGIN');
   try {
     const existing = await client.query(
-      `SELECT * FROM tenant_lesson_time_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
-      [ruleId, clientSlug],
+      hasLoc
+        ? `SELECT * FROM tenant_lesson_time_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 FOR UPDATE`
+        : `SELECT * FROM tenant_lesson_time_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
+      hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
     );
     if (!existing.rows[0]) {
       await client.query('ROLLBACK');

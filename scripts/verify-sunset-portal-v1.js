@@ -884,6 +884,50 @@ if (fs.existsSync(qModPath)) {
 
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 
+
+// ── 29. Sunset school-aware Admin config ────────────────────────────────────
+
+console.log('\n[29] Sunset school-aware Admin config');
+
+const storePath = path.join(ROOT, 'scripts/lib/sunset-admin-location-store.js');
+const tbcPath = path.join(ROOT, 'scripts/lib/tenant-business-config.js');
+const tawPath = path.join(ROOT, 'scripts/lib/tenant-admin-writes.js');
+assert('location store module present', fs.existsSync(storePath));
+if (apiSrc) {
+  assert('admin fetch includes location param', apiSrc.includes("adminClientQuery()") && apiSrc.includes('&location=') && apiSrc.includes('getSunsetLocation()'));
+  assert('loadAdminTab uses adminClientQuery', apiSrc.includes("'/staff/admin/config' + adminClientQuery()"));
+  assert('handleAdminConfig resolves by location', apiSrc.includes('normalizeSunsetLocationId(query.location)') && apiSrc.includes('resolveTenantBusinessConfig(clientSlug, locationId)'));
+  assert('admin writes pass locationId', apiSrc.includes('locationId,') && apiSrc.includes('putLessonCapacityDefault(pg, {'));
+  assert('school switch reloads admin tab', apiSrc.includes("el('tab-admin')") && apiSrc.includes('loadAdminTab()'));
+  assert('admin school context UI', apiSrc.includes('renderAdminSchoolContext') && apiSrc.includes('admin-school-label'));
+}
+if (fs.existsSync(tbcPath)) {
+  const tbcSrc = fs.readFileSync(tbcPath, 'utf8');
+  assert('tenant config normalizes location', tbcSrc.includes('normalizeSunsetLocationId'));
+  assert('tenant config applies location store', tbcSrc.includes('applyStoreToResolvedConfig'));
+}
+if (fs.existsSync(tawPath)) {
+  const tawSrc = fs.readFileSync(tawPath, 'utf8');
+  assert('admin writes location scoped', tawSrc.includes('locationId') && tawSrc.includes('location_mismatch'));
+}
+if (fs.existsSync(storePath)) {
+  const storeSrc = fs.readFileSync(storePath, 'utf8');
+  assert('location store isolates schools', storeSrc.includes('applyStoreToResolvedConfig') && storeSrc.includes('normalizeSunsetLocationId(locationId)'));
+  assert('default admin location is sunset-somo', storeSrc.includes('DEFAULT_SUNSET_LOCATION_ID'));
+}
+{
+  const tbc = require('./lib/tenant-business-config');
+  const wh = tbc.resolveTenantBusinessConfig('wolfhouse-somo');
+  assert('wolfhouse admin resolver unchanged gate', wh && wh.ok === false && wh.reason === 'unsupported_client');
+  const somo = tbc.resolveTenantBusinessConfig('sunset', 'sunset-somo');
+  const sardi = tbc.resolveTenantBusinessConfig('sunset', 'sunset-sardinero');
+  assert('sunset admin resolves per school', somo.ok && sardi.ok && somo.location_id === 'sunset-somo' && sardi.location_id === 'sunset-sardinero');
+}
+assert('proposed migration 023 documented', fs.existsSync(path.join(ROOT, 'database/migrations/023_sunset_admin_location_id_PROPOSED.sql')));
+
+
+// ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
+
 console.log('\n[28] Staff API JS syntax (node --check)');
 
 STAFF_API_SYNTAX_MODULES.forEach(assertJsSyntax);

@@ -191,7 +191,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
   }
 
-  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg });
+  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg, locationId: activeLocationId });
   const prices = adminCfg.ok ? (adminCfg.prices || []) : [];
   const agg = aggregateComponentsFromServices(bundle.services);
   const payment = buildPaymentSummary(prices, bundle.booking, bundle.services, adminCfg.source);

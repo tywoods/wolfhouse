@@ -120,7 +120,19 @@ async function loadBookingWithServices(pg, clientSlug, bookingId, bookingCode) {
 }
 
 async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
-  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg });
+  const bookingLocRes = await pg.query(
+    `SELECT metadata FROM bookings b INNER JOIN clients c ON c.id = b.client_id
+      WHERE c.slug = $1 AND b.id = $2::uuid LIMIT 1`,
+    [clientSlug, bookingId],
+  );
+  const bookingMeta = bookingLocRes.rows[0] && bookingLocRes.rows[0].metadata
+    ? (typeof bookingLocRes.rows[0].metadata === 'object'
+      ? bookingLocRes.rows[0].metadata
+      : JSON.parse(bookingLocRes.rows[0].metadata))
+    : {};
+  const { normalizeSunsetLocationId, resolveRecordLocationId } = require('./sunset-school-locations');
+  const locationId = resolveRecordLocationId({}, bookingMeta);
+  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg, locationId });
   if (!adminCfg.ok) return { ok: false, error: 'admin_config_unavailable' };
   const prices = adminCfg.prices || [];
   const svcRes = await pg.query(

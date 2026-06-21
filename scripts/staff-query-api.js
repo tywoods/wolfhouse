@@ -17203,6 +17203,11 @@ ${getStaffPortalI18nBootstrapScript()}
   <header class="portal-admin-header">
     <h2 data-i18n="admin.title">Admin</h2>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
+    <div class="portal-admin-school-context" id="admin-school-context" style="display:none;margin-bottom:10px;font-size:13px;color:var(--text-2)">
+      <strong data-i18n="admin.school.active">Config for</strong>
+      <span id="admin-school-label">—</span>
+      <span class="portal-admin-muted" data-i18n="admin.school.switchHint"> (use header school switcher)</span>
+    </div>
     <div class="portal-admin-banner" id="admin-write-banner">
       <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
       <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
@@ -18610,6 +18615,7 @@ function setSunsetLocation(locationId){
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
+    if (el('tab-admin') && el('tab-admin').classList.contains('active')) loadAdminTab();
   }
 }
 
@@ -21130,7 +21136,11 @@ function adminCfgWritesEnabled(cfg){
 }
 
 function adminClientQuery(){
-  return '?client=' + encodeURIComponent(getClient());
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset'){
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
 }
 
 function adminShowMessage(kind, text){
@@ -21373,7 +21383,22 @@ function renderAdminWriteState(cfg){
   }
 }
 
+function renderAdminSchoolContext(cfg){
+  var wrap = el('admin-school-context');
+  var label = el('admin-school-label');
+  if (!wrap || !label) return;
+  if (getClient() !== 'sunset'){
+    wrap.style.display = 'none';
+    return;
+  }
+  var loc = (cfg && cfg.location_id) ? cfg.location_id : getSunsetLocation();
+  var text = (cfg && cfg.location_label) ? cfg.location_label : (loc === 'sunset-sardinero' ? 'El Sardi' : 'Sunset');
+  label.textContent = text;
+  wrap.style.display = 'block';
+}
+
 function renderAdminFromConfig(cfg){
+  renderAdminSchoolContext(cfg);
   renderAdminWriteState(cfg);
   renderAdminSectionPricesFromConfig(cfg);
   renderAdminSectionCapacityFromConfig(cfg);
@@ -21398,7 +21423,7 @@ function loadAdminTab(){
   if (!profile.is_surf_vertical) return;
   var state = el('admin-fetch-state');
   if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'block'; state.classList.remove('error'); }
-  var url = '/staff/admin/config?client=' + encodeURIComponent(getClient());
+  var url = '/staff/admin/config' + adminClientQuery();
   fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data){
       if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
@@ -32228,9 +32253,10 @@ async function handleAdminConfig(query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const locationId = normalizeSunsetLocationId(query.location);
   const resolved = isSunsetAdminDbReadEnabled()
-    ? await resolveTenantBusinessConfigAsync(clientSlug)
-    : resolveTenantBusinessConfig(clientSlug);
+    ? await resolveTenantBusinessConfigAsync(clientSlug, { locationId })
+    : resolveTenantBusinessConfig(clientSlug, locationId);
   if (!resolved.ok) {
     appendAuditLog({
       ts: new Date().toISOString(),
@@ -32257,6 +32283,7 @@ async function handleAdminConfig(query, res, user) {
     success: true,
     read_only: true,
     source: resolved.source,
+    location_id: locationId,
     price_count: (resolved.prices || []).length,
     staff_user_id: user ? user.staff_user_id : null,
     elapsed_ms: elapsed,
@@ -32302,9 +32329,11 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
   if (!validated.ok) return send400(res, validated.error);
 
   try {
+    const locationId = normalizeSunsetLocationId(query.location);
     const result = await withPgClient(async (pg) => patchPriceRule(pg, {
       ruleId: idCheck.value,
       clientSlug,
+      locationId,
       patch: validated.patch,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
@@ -32346,8 +32375,10 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   if (!validated.ok) return send400(res, validated.error);
 
   try {
+    const locationId = normalizeSunsetLocationId(query.location);
     const result = await withPgClient(async (pg) => putLessonCapacityDefault(pg, {
       clientSlug,
+      locationId,
       capacity: validated.patch.default_daily_cap,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));
@@ -32392,9 +32423,11 @@ async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user
   if (!validated.ok) return send400(res, validated.error);
 
   try {
+    const locationId = normalizeSunsetLocationId(query.location);
     const result = await withPgClient(async (pg) => patchLessonTimeRule(pg, {
       ruleId: idCheck.value,
       clientSlug,
+      locationId,
       patch: validated.patch,
       actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
     }));

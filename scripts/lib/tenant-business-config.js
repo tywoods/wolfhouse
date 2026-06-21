@@ -12,6 +12,8 @@
  */
 
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
+const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const locationStore = require('./sunset-admin-location-store');
 
 const SUNSET_ADMIN_CLIENT = 'sunset';
 const DEFAULT_DAILY_CAP = 24;
@@ -260,6 +262,19 @@ function resolveFromConfigFile(clientSlug) {
   };
 }
 
+async function adminConfigTableHasLocationColumn(client, tableName) {
+  const result = await client.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = 'location_id'
+      LIMIT 1`,
+    [tableName],
+  );
+  return result.rows.length > 0;
+}
+
 async function adminConfigTablesExist(client) {
   const result = await client.query(
     `SELECT table_name
@@ -278,7 +293,7 @@ async function adminConfigTablesExist(client) {
  * @param {import('pg').PoolClient} client
  * @returns {Promise<{ ok: boolean, reason?: string, hasData: boolean, prices?: any[], lesson_capacity?: any, lesson_times?: any[], change_history?: any[] }>}
  */
-async function loadTenantBusinessConfigFromDb(clientSlug, client) {
+async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const slug = String(clientSlug || '').trim();
   if (slug !== SUNSET_ADMIN_CLIENT) {
     throw new Error('tenant_scope_violation');
@@ -288,30 +303,48 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client) {
     return { ok: false, reason: 'tables_missing', hasData: false };
   }
 
-  const params = [slug];
+  const loc = normalizeSunsetLocationId(locationId);
+  const priceHasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  const capHasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_capacity_rules');
+  const timeHasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+
+  const priceParams = priceHasLoc ? [slug, loc] : [slug];
+  const capParams = capHasLoc ? [slug, loc] : [slug];
+  const timeParams = timeHasLoc ? [slug, loc] : [slug];
+  const auditParams = [slug];
+
+  const priceWhere = priceHasLoc
+    ? 'client_slug = $1 AND location_id = $2 AND active = true'
+    : 'client_slug = $1 AND active = true';
+  const capWhere = capHasLoc
+    ? 'client_slug = $1 AND location_id = $2 AND active = true'
+    : 'client_slug = $1 AND active = true';
+  const timeWhere = timeHasLoc
+    ? 'client_slug = $1 AND location_id = $2 AND active = true'
+    : 'client_slug = $1 AND active = true';
 
   const [priceRes, capacityRes, timeRes, auditRes] = await Promise.all([
     client.query(
       `SELECT id, item_type, item_code, display_name, currency, amount_cents, unit, active,
               effective_from, effective_to
          FROM tenant_price_rules
-        WHERE client_slug = $1 AND active = true
+        WHERE ${priceWhere}
         ORDER BY item_type, item_code, unit`,
-      params,
+      priceParams,
     ),
     client.query(
       `SELECT scope, weekday, service_date, capacity
          FROM tenant_lesson_capacity_rules
-        WHERE client_slug = $1 AND active = true
+        WHERE ${capWhere}
         ORDER BY scope, weekday NULLS FIRST, service_date NULLS FIRST`,
-      params,
+      capParams,
     ),
     client.query(
       `SELECT id, time_local, time_local_end, label, lesson_type, weekdays_active, service_date
          FROM tenant_lesson_time_rules
-        WHERE client_slug = $1 AND active = true
+        WHERE ${timeWhere}
         ORDER BY service_date NULLS FIRST, time_local`,
-      params,
+      timeParams,
     ),
     client.query(
       `SELECT id, action, entity_type, entity_id, actor_email, before_json, after_json, created_at
@@ -319,7 +352,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client) {
         WHERE client_slug = $1
         ORDER BY created_at DESC
         LIMIT 50`,
-      params,
+      auditParams,
     ),
   ]);
 
@@ -376,12 +409,12 @@ function mergeDbWithConfig(configBaseline, dbResult) {
   };
 }
 
-async function defaultLoadFromDb(clientSlug, pgClient) {
+async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
   if (pgClient) {
-    return loadTenantBusinessConfigFromDb(clientSlug, pgClient);
+    return loadTenantBusinessConfigFromDb(clientSlug, pgClient, locationId);
   }
   const { withPgClient } = require('./pg-connect');
-  return withPgClient((client) => loadTenantBusinessConfigFromDb(clientSlug, client));
+  return withPgClient((client) => loadTenantBusinessConfigFromDb(clientSlug, client, locationId));
 }
 
 /**
@@ -390,8 +423,10 @@ async function defaultLoadFromDb(clientSlug, pgClient) {
  *
  * @param {string} clientSlug
  */
-function resolveTenantBusinessConfig(clientSlug) {
-  return resolveFromConfigFile(clientSlug);
+function resolveTenantBusinessConfig(clientSlug, locationId) {
+  const baseline = resolveFromConfigFile(clientSlug);
+  if (!baseline.ok) return baseline;
+  return locationStore.applyStoreToResolvedConfig(baseline, normalizeSunsetLocationId(locationId));
 }
 
 /**
@@ -401,40 +436,38 @@ function resolveTenantBusinessConfig(clientSlug) {
  * @param {{ skipDb?: boolean, pgClient?: import('pg').PoolClient, loadFromDb?: Function }} [options]
  */
 async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
+  const locationId = normalizeSunsetLocationId(options.locationId);
   const configBaseline = resolveFromConfigFile(clientSlug);
   if (!configBaseline.ok) {
     return configBaseline;
   }
 
-  if (!isSunsetAdminDbReadEnabled() || options.skipDb) {
-    return configBaseline;
-  }
+  let merged = configBaseline;
+  if (isSunsetAdminDbReadEnabled() && !options.skipDb) {
+    try {
+      const loadFn = options.loadFromDb || defaultLoadFromDb;
+      const dbResult = await loadFn(clientSlug, options.pgClient, locationId);
 
-  try {
-    const loadFn = options.loadFromDb || defaultLoadFromDb;
-    const dbResult = await loadFn(clientSlug, options.pgClient);
-
-    if (!dbResult || dbResult.reason === 'tables_missing') {
-      return {
+      if (!dbResult || dbResult.reason === 'tables_missing') {
+        merged = {
+          ...configBaseline,
+          db_read_warning: 'tables_missing',
+        };
+      } else if (dbResult.hasData) {
+        merged = mergeDbWithConfig(configBaseline, dbResult);
+      }
+    } catch (err) {
+      const warning = err.code === TABLE_MISSING_CODE || /relation .* does not exist/i.test(String(err.message || ''))
+        ? 'tables_missing'
+        : (err.message || 'db_read_failed');
+      merged = {
         ...configBaseline,
-        db_read_warning: 'tables_missing',
+        db_read_warning: warning,
       };
     }
-
-    if (!dbResult.hasData) {
-      return configBaseline;
-    }
-
-    return mergeDbWithConfig(configBaseline, dbResult);
-  } catch (err) {
-    const warning = err.code === TABLE_MISSING_CODE || /relation .* does not exist/i.test(String(err.message || ''))
-      ? 'tables_missing'
-      : (err.message || 'db_read_failed');
-    return {
-      ...configBaseline,
-      db_read_warning: warning,
-    };
   }
+
+  return locationStore.applyStoreToResolvedConfig(merged, locationId);
 }
 
 module.exports = {
@@ -445,6 +478,7 @@ module.exports = {
   loadLessonTimesFromConfig,
   isSunsetAdminDbReadEnabled,
   loadTenantBusinessConfigFromDb,
+  adminConfigTableHasLocationColumn,
   resolveFromConfigFile,
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
