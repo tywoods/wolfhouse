@@ -37678,6 +37678,11 @@ async function router(req, res) {
     return handleAdminConfigLessonTimePatch(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
   }
 
+  if (pathname === '/staff/schedule/day' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleSunsetScheduleDayGet(parsed.query, res, auth.user);
+  }
   if (pathname === '/staff/schedule/bookings/detail' && method === 'GET') {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
