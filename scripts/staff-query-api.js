@@ -15875,7 +15875,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card.is-today,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-next30-card.is-today{border-color:var(--sched-text-2)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer,
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-drawer{background:var(--surface);border-color:var(--border-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-drawer{background:var(--cream);border-color:var(--border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-hint{font-size:12px;color:var(--sched-text-3);margin:6px 0 0;line-height:1.4}
 
 
@@ -18739,6 +18739,8 @@ function applyClientPortalProfile(clientSlug){
   });
   applySurfNavLabels(profile);
   applySurfInboxFilters(profile);
+  wireSunsetSchoolSwitcher();
+  syncSunsetSchoolSwitcher();
 }
 
 
@@ -20365,6 +20367,12 @@ function renderScheduleBookingList(filter){
 }
 
 var scheduleDrawerState = { row: null, ctx: null, editing: false };
+
+function scheduleDrawerEditableEnabled(row){
+  if (!row || row._isDemo) return false;
+  if (!(row._isDbManual || row.record_source === 'staff_manual')) return false;
+  return !!(row.booking_id || row.booking_code);
+}
 
 function scheduleCloneDrawerCtx(ctx){
   if (!ctx) return null;
@@ -37709,6 +37717,13 @@ async function router(req, res) {
     return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
   }
 
+  const customerPhoneMatch = CUSTOMER_PHONE_RE.exec(pathname);
+  if (customerPhoneMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerUpdate(customerPhoneMatch[1], parsed.query, req, res, auth.user);
+  }
+
   // ── All other routes: GET only ────────────────────────────────────────────
   if (method !== 'GET') {
     return send405(res);
@@ -37840,13 +37855,6 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleCustomerContext(customerCtxMatch[1], parsed.query, res, auth.user);
-  }
-
-  const customerPhoneMatch = CUSTOMER_PHONE_RE.exec(pathname);
-  if (customerPhoneMatch && method === 'PATCH') {
-    const auth = await requireAuth(req, res, 'operator');
-    if (!auth.ok) return;
-    return handleCustomerUpdate(customerPhoneMatch[1], parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/conversations') {

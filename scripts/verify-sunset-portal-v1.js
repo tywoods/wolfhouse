@@ -828,6 +828,16 @@ if (apiSrc) {
   assert('customer PATCH route', apiSrc.includes('CUSTOMER_PHONE_RE') && apiSrc.includes("method === 'PATCH'") && apiSrc.includes('handleCustomerUpdate'));
   assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));
   assert('school location suffix preserved in polish slice', apiSrc.includes('sunsetLocationQuerySuffix()'));
+
+  assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('syncSunsetSchoolSwitcher();'));
+  assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
+  assert('scheduleDrawerEditableEnabled defined', apiSrc.includes('function scheduleDrawerEditableEnabled('));
+  assert('customer PATCH before GET-only gate', (function(){
+    var gate = apiSrc.indexOf('// ── All other routes: GET only');
+    var patch = apiSrc.indexOf('customerPhoneMatch && method === \'PATCH\'');
+    return gate > -1 && patch > -1 && patch < gate;
+  })());
+  assert('create drawer light bg uses portal cream', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-drawer{background:var(--cream)'));
 }
 
 const custWritesPath = path.join(ROOT, 'scripts/lib/sunset-customer-profile-writes.js');
