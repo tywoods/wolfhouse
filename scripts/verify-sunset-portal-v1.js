@@ -708,7 +708,6 @@ if (apiSrc) {
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
   assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
   assert('schedule cards still use sched surface tokens', apiSrc.includes('--sched-surface:#FFFFFF'));
-  assert('schedule cards still use sched surface tokens', apiSrc.includes('--sched-surface:#FFFFFF'));
   assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
   assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
   assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));
@@ -777,6 +776,39 @@ if (fs.existsSync(stripeModPath)) {
   assert('stripe respects stale metadata', stripeModSrc.includes('sunset_stripe_link_stale'));
 }
 
+
+
+// ── 26. Schedule polish + edit-mode drawers ─────────────────────────────────
+
+console.log('\n[26] Schedule polish + edit-mode drawers');
+
+if (apiSrc) {
+  assert('schedule light page uses portal cream bg', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{') && apiSrc.includes('background:var(--cream)'));
+  assert('create booking title no demo text', !/schedule\.create\.title['"]:\s*['"]Create booking \(demo\)/.test(i18nSrc));
+  assert('create component order wetsuit board lesson', (function(){
+    var i = apiSrc.indexOf('id="ps-create-comp-wetsuit"');
+    var j = apiSrc.indexOf('id="ps-create-comp-surfboard"', i);
+    var k = apiSrc.indexOf('id="ps-create-comp-lesson"', j);
+    return i > -1 && j > i && k > j;
+  })());
+  assert('booking drawer view mode helper', apiSrc.includes('function scheduleRenderViewDrawerHtml('));
+  assert('booking drawer edit button', apiSrc.includes('id="ps-drawer-edit"') && apiSrc.includes('schedule.drawer.edit'));
+  assert('booking drawer cancel button', apiSrc.includes('id="ps-drawer-cancel"') && apiSrc.includes('schedule.drawer.cancel'));
+  assert('booking drawer opens read-only default', apiSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)'));
+  assert('booking drawer edit mode toggle', apiSrc.includes('function scheduleEnterDrawerEditMode(') && apiSrc.includes('function scheduleCancelDrawerEditMode('));
+  assert('customer profile edit button', apiSrc.includes('id="cust-profile-edit"'));
+  assert('customer profile save cancel', apiSrc.includes('id="cust-profile-save"') && apiSrc.includes('id="cust-profile-cancel"'));
+  assert('customer PATCH route', apiSrc.includes('CUSTOMER_PHONE_RE') && apiSrc.includes("method === 'PATCH'") && apiSrc.includes('handleCustomerUpdate'));
+  assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));
+  assert('school location suffix preserved in polish slice', apiSrc.includes('sunsetLocationQuerySuffix()'));
+}
+
+const custWritesPath = path.join(ROOT, 'scripts/lib/sunset-customer-profile-writes.js');
+if (fs.existsSync(custWritesPath)) {
+  const custWritesSrc = fs.readFileSync(custWritesPath, 'utf8');
+  assert('customer writes sunset scoped', custWritesSrc.includes("clientSlug !== SUNSET_CLIENT_SLUG"));
+  assert('customer writes no whatsapp', !/whatsapp/i.test(custWritesSrc));
+}
 
 
 // ── 27. Sunset school/location switcher ─────────────────────────────────────
