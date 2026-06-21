@@ -17,6 +17,7 @@ On a **fresh** database (no prior schema), apply SQL migrations in this order:
 3. `002_package_pricing.sql`
 4. `004` through `014`
 5. `016` through `020`
+6. `024` (Slice A — `booking_guests`; optional until Wolfhouse staging applies it)
 
 Skip `015` (documentation only).
 

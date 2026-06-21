@@ -21,6 +21,13 @@
 'use strict';
 
 const { normalizeAirportCode } = require('./client-transfer-config');
+const {
+  computePackagePricePreview,
+  buildGuestPaymentShortLinkPath,
+  guestPaymentStatusFromRow,
+  isMissingBookingGuestsTable,
+} = require('./booking-guests');
+const { buildPaymentShortLink } = require('./luna-payment-short-link');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory fake request — used to delegate to existing handler functions
@@ -1219,6 +1226,414 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   });
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/package-price-preview  (Slice A5 — read-only for Luna)
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
+  const { sendJSON, send400, readBody, DEFAULT_CLIENT } = ctx;
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const checkIn = String(body.check_in || '').trim();
+  const checkOut = String(body.check_out || '').trim();
+  const guestCount = parseInt(body.guest_count, 10) || 0;
+  const roomType = String(body.room_type || 'shared').trim();
+
+  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required');
+  if (guestCount < 1) return send400(res, 'guest_count must be at least 1');
+
+  const preview = computePackagePricePreview({
+    client_slug: clientSlug,
+    check_in: checkIn,
+    check_out: checkOut,
+    guest_count: guestCount,
+    room_type: roomType,
+  });
+
+  return sendJSON(res, 200, {
+    success: preview.success,
+    source: 'luna_bot_package_price_preview',
+    auth_mode: authMode,
+    client_slug: clientSlug,
+    check_in: checkIn,
+    check_out: checkOut,
+    guest_count: guestCount,
+    nights: preview.nights,
+    season_code: preview.season_code,
+    packages: preview.packages,
+    no_db_write: true,
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/booking-guests/:guest_id/create-payment-link  (Slice A3)
+// Body: { client_slug, payment_target: 'deposit' | 'full_share' }
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotGuestPaymentCreateLink(guestId, req, res, user, authMode, ctx) {
+  const {
+    sendJSON, send400, readBody, withPgClient, appendAuditLog,
+    guestPaymentLinkObservability,
+    BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
+    DEFAULT_CLIENT,
+    stripeCheckoutRedirectUrlsConfigured,
+    stripeCheckoutSessionSuccessUrl,
+    stripeCheckoutSessionCancelUrl,
+    STAFF_ACTIONS_ENABLED,
+  } = ctx;
+
+  if (!BOT_BOOKING_ENABLED && !STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, { success: false, error: 'Bot booking is disabled.', bot_booking_enabled: false });
+  }
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 403, { success: false, error: 'Stripe links disabled.', stripe_links_enabled: false });
+  }
+  if (!STRIPE_SECRET_KEY) {
+    return sendJSON(res, 503, { success: false, error: 'STRIPE_SECRET_KEY not configured.', no_db_write: true });
+  }
+  if (!stripeCheckoutRedirectUrlsConfigured()) {
+    return sendJSON(res, 503, { success: false, error: 'Stripe redirect URLs not configured.', no_db_write: true });
+  }
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const paymentTarget = String(body.payment_target || 'deposit').trim().toLowerCase();
+  const actorId = user ? user.staff_user_id : 'luna-bot-internal';
+
+  let stripe;
+  try {
+    stripe = require('stripe')(STRIPE_SECRET_KEY);
+  } catch (e) {
+    return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message });
+  }
+
+  let guestRow;
+  try {
+    guestRow = await withPgClient(async (pg) => {
+      const r = await pg.query(
+        `SELECT bg.id::text AS booking_guest_id,
+                bg.guest_number,
+                bg.guest_name,
+                bg.deposit_amount_cents,
+                bg.amount_paid_cents,
+                bg.payment_status,
+                bg.payment_id::text AS payment_id,
+                bg.metadata AS guest_metadata,
+                b.id::text AS booking_id,
+                b.booking_code,
+                b.check_in::text AS check_in,
+                b.check_out::text AS check_out,
+                b.status::text AS booking_status,
+                b.metadata AS booking_metadata,
+                c.slug AS client_slug
+           FROM booking_guests bg
+           JOIN bookings b ON b.id = bg.booking_id
+           JOIN clients c ON c.id = bg.client_id
+          WHERE bg.id = $1::uuid
+            AND c.slug = $2`,
+        [guestId, clientSlug],
+      );
+      return r.rows[0] || null;
+    });
+  } catch (err) {
+    if (isMissingBookingGuestsTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'booking_guests table not migrated' });
+    }
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
+  }
+
+  if (!guestRow) {
+    return sendJSON(res, 404, { success: false, error: 'booking guest not found' });
+  }
+  if (String(guestRow.booking_status || '').toLowerCase() === 'cancelled') {
+    return sendJSON(res, 400, { success: false, error: 'booking_not_active' });
+  }
+
+  let guestMeta = guestRow.guest_metadata;
+  if (typeof guestMeta === 'string') {
+    try { guestMeta = JSON.parse(guestMeta); } catch (_) { guestMeta = {}; }
+  }
+  guestMeta = guestMeta || {};
+  const subtotalCents = Number(guestMeta.subtotal_cents || 0);
+  const depositCents = Number(guestRow.deposit_amount_cents || 0);
+  const amountDueCents = paymentTarget === 'full_share'
+    ? (subtotalCents > 0 ? subtotalCents : depositCents)
+    : depositCents;
+
+  if (!amountDueCents || amountDueCents <= 0) {
+    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0 for this guest' });
+  }
+
+  const paymentKind = paymentTarget === 'full_share' ? 'full_amount' : 'deposit_only';
+  const shortUrl = buildPaymentShortLink({
+    booking_code: guestRow.booking_code,
+    guest_number: guestRow.guest_number,
+    client_slug: clientSlug,
+    env: process.env,
+  });
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      let paymentId = guestRow.payment_id;
+      let checkoutUrl = null;
+      let sessionId = null;
+      let idempotent = false;
+
+      if (paymentId) {
+        const existing = await pg.query(
+          `SELECT id::text AS payment_id, status::text AS payment_status,
+                  checkout_url, stripe_checkout_session_id, amount_due_cents
+             FROM payments WHERE id = $1::uuid`,
+          [paymentId],
+        );
+        const ex = existing.rows[0];
+        if (ex && ex.payment_status === 'checkout_created' && ex.checkout_url) {
+          idempotent = true;
+          checkoutUrl = ex.checkout_url;
+          sessionId = ex.stripe_checkout_session_id;
+          paymentId = ex.payment_id;
+        } else if (ex && ex.payment_status === 'paid') {
+          return { already_paid: true, payment_id: paymentId };
+        }
+      }
+
+      if (!checkoutUrl) {
+        const ins = await pg.query(
+          `INSERT INTO payments (
+             client_id, booking_id, booking_guest_id, status, payment_kind,
+             currency, amount_due_cents, metadata
+           )
+           SELECT bg.client_id, bg.booking_id, bg.id,
+                  'draft'::payment_record_status, $2::payment_kind,
+                  'EUR', $3,
+                  $4::jsonb
+             FROM booking_guests bg
+            WHERE bg.id = $1::uuid
+           RETURNING id::text AS payment_id`,
+          [
+            guestId,
+            paymentKind,
+            amountDueCents,
+            JSON.stringify({
+              source: 'bot_guest_payment_link_slice_a',
+              payment_target: paymentTarget,
+              booking_guest_id: guestId,
+              guest_number: guestRow.guest_number,
+              guest_name: guestRow.guest_name,
+              created_by: actorId,
+            }),
+          ],
+        );
+        paymentId = ins.rows[0].payment_id;
+
+        const session = await stripe.checkout.sessions.create({
+          mode: 'payment',
+          currency: 'eur',
+          line_items: [{
+            price_data: {
+              currency: 'eur',
+              product_data: {
+                name: `Booking ${guestRow.booking_code} — ${guestRow.guest_name}`,
+                description: `${paymentTarget === 'full_share' ? 'Full share' : 'Deposit'} | Guest ${guestRow.guest_number}`,
+              },
+              unit_amount: amountDueCents,
+            },
+            quantity: 1,
+          }],
+          metadata: {
+            client_slug: clientSlug,
+            booking_id: guestRow.booking_id,
+            booking_code: guestRow.booking_code,
+            payment_id: paymentId,
+            booking_guest_id: guestId,
+            guest_number: String(guestRow.guest_number),
+            payment_kind: paymentKind,
+            source: 'bot_guest_payment_slice_a',
+          },
+          success_url: stripeCheckoutSessionSuccessUrl(),
+          cancel_url: stripeCheckoutSessionCancelUrl(),
+        });
+
+        checkoutUrl = session.url;
+        sessionId = session.id;
+
+        await pg.query(
+          `UPDATE payments
+             SET status = 'checkout_created'::payment_record_status,
+                 stripe_checkout_session_id = $1,
+                 checkout_url = $2,
+                 metadata = metadata || $3::jsonb
+           WHERE id = $4::uuid`,
+          [
+            session.id,
+            session.url,
+            JSON.stringify({ stripe_session_id: session.id, source: 'bot_guest_payment_slice_a' }),
+            paymentId,
+          ],
+        );
+
+        await pg.query(
+          `UPDATE booking_guests
+             SET payment_id = $1::uuid,
+                 payment_status = 'checkout_created',
+                 updated_at = NOW()
+           WHERE id = $2::uuid`,
+          [paymentId, guestId],
+        );
+      }
+
+      return {
+        payment_id: paymentId,
+        checkout_url: checkoutUrl,
+        stripe_checkout_session_id: sessionId,
+        idempotent,
+        amount_due_cents: amountDueCents,
+        payment_target: paymentTarget,
+      };
+    });
+
+    if (result.already_paid) {
+      return sendJSON(res, 200, {
+        success: true,
+        idempotent: true,
+        already_paid: true,
+        booking_guest_id: guestId,
+        payment_id: result.payment_id,
+        payment_status: 'paid',
+      });
+    }
+
+    const linkObs = guestPaymentLinkObservability(
+      { booking_code: guestRow.booking_code, client_slug: clientSlug },
+      result.checkout_url,
+      result.stripe_checkout_session_id,
+    );
+    const guestShortUrl = shortUrl || linkObs.payment_short_url;
+
+    if (appendAuditLog) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:bot_guest_payment_link',
+        category: 'bot_guest_payment_link_create',
+        success: true,
+        booking_guest_id: guestId,
+        payment_id: result.payment_id,
+        auth_mode: authMode,
+      });
+    }
+
+    return sendJSON(res, 200, {
+      success: true,
+      idempotent: result.idempotent === true,
+      source: 'luna_bot_guest_payment_link',
+      booking_guest_id: guestId,
+      guest_number: guestRow.guest_number,
+      guest_name: guestRow.guest_name,
+      booking_id: guestRow.booking_id,
+      booking_code: guestRow.booking_code,
+      payment_id: result.payment_id,
+      payment_target: paymentTarget,
+      amount_due_cents: result.amount_due_cents,
+      checkout_url: result.checkout_url,
+      guest_payment_url: guestShortUrl || result.checkout_url,
+      payment_short_url: guestShortUrl,
+      payment_short_path: `${guestRow.booking_code}/g${guestRow.guest_number}`,
+      uses_short_payment_link: !!guestShortUrl,
+      payment_status: 'checkout_created',
+      no_payment_truth_recorded: true,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: err.message });
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /staff/bot/booking-guests/payment-status  (Slice A — per-guest status)
+// ─────────────────────────────────────────────────────────────────────────────
+async function handleBotGuestPaymentStatus(req, res, user, authMode, ctx) {
+  const { sendJSON, send400, readBody, withPgClient, DEFAULT_CLIENT } = ctx;
+
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid or missing JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const guestId = String(body.booking_guest_id || body.guest_id || '').trim();
+  const bookingCode = String(body.booking_code || '').trim().toUpperCase();
+  const guestNumber = parseInt(body.guest_number, 10);
+
+  if (!guestId && !(bookingCode && Number.isInteger(guestNumber) && guestNumber > 0)) {
+    return send400(res, 'booking_guest_id or (booking_code + guest_number) is required');
+  }
+
+  try {
+    const row = await withPgClient(async (pg) => {
+      const q = guestId
+        ? `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
+                  bg.deposit_amount_cents, bg.amount_paid_cents, bg.payment_status,
+                  bg.payment_id::text AS payment_id, bg.assigned_bed_code, bg.assigned_room_code,
+                  b.booking_code, b.id::text AS booking_id
+             FROM booking_guests bg
+             JOIN bookings b ON b.id = bg.booking_id
+             JOIN clients c ON c.id = bg.client_id
+            WHERE bg.id = $1::uuid AND c.slug = $2`
+        : `SELECT bg.id::text AS booking_guest_id, bg.guest_number, bg.guest_name,
+                  bg.deposit_amount_cents, bg.amount_paid_cents, bg.payment_status,
+                  bg.payment_id::text AS payment_id, bg.assigned_bed_code, bg.assigned_room_code,
+                  b.booking_code, b.id::text AS booking_id
+             FROM booking_guests bg
+             JOIN bookings b ON b.id = bg.booking_id
+             JOIN clients c ON c.id = bg.client_id
+            WHERE c.slug = $1 AND UPPER(b.booking_code) = $2 AND bg.guest_number = $3`;
+      const params = guestId ? [guestId, clientSlug] : [clientSlug, bookingCode, guestNumber];
+      const r = await pg.query(q, params);
+      return r.rows[0] || null;
+    });
+
+    if (!row) {
+      return sendJSON(res, 404, { success: false, error: 'booking guest not found' });
+    }
+
+    return sendJSON(res, 200, {
+      success: true,
+      source: 'luna_bot_guest_payment_status',
+      auth_mode: authMode,
+      client_slug: clientSlug,
+      booking_guest_id: row.booking_guest_id,
+      guest_number: row.guest_number,
+      guest_name: row.guest_name,
+      booking_id: row.booking_id,
+      booking_code: row.booking_code,
+      deposit_amount_cents: Number(row.deposit_amount_cents || 0),
+      amount_paid_cents: Number(row.amount_paid_cents || 0),
+      payment_status: guestPaymentStatusFromRow(row),
+      payment_id: row.payment_id,
+      assigned_bed_code: row.assigned_bed_code,
+      assigned_room_code: row.assigned_room_code,
+      no_payment_write: true,
+    });
+  } catch (err) {
+    if (isMissingBookingGuestsTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'booking_guests table not migrated' });
+    }
+    return sendJSON(res, 500, { success: false, error: err.message });
+  }
+}
+
 module.exports = {
   makeInMemoryBotReq,
   expandTransferDirectionPayloads,
@@ -1231,4 +1646,7 @@ module.exports = {
   handleBotBookingCreateFromPlan,
   handleBotPaymentCreateStripeLink,
   handleBotCreateBalancePaymentLink,
+  handleBotPackagePricePreview,
+  handleBotGuestPaymentCreateLink,
+  handleBotGuestPaymentStatus,
 };

@@ -75,6 +75,20 @@ function loadConfig() {
   return JSON.parse(raw);
 }
 
+function computeGuestDepositTierCents(config, packageCode, nights, isManualOverride) {
+  const KNOWN = ['malibu', 'uluwatu', 'waimea'];
+  const pkg = String(packageCode || '').trim().toLowerCase();
+  const isNoPkg = pkg === 'package_none' || pkg === 'no_package' || pkg === 'accommodation_only';
+  const usesPackageDeposit = KNOWN.includes(pkg)
+    && nights >= 7
+    && !isManualOverride
+    && pkg !== 'manual_override'
+    && !isNoPkg;
+  return usesPackageDeposit
+    ? config.deposits.tiers.standard_package.amount_cents
+    : config.deposits.tiers.custom_or_short_stay.amount_cents;
+}
+
 // ─── Shared blocked-result builder ───────────────────────────────────────────
 
 function buildBlockedResult(config, input, nights, guests, season_code, blockers, warnings, staff_review_required, missing_config, opts = {}) {
@@ -144,6 +158,7 @@ function calculateWolfhouseQuote(input, config) {
     room_type     = 'shared',
     payment_choice = 'deposit',
     add_ons       = [],
+    uses_per_guest_deposits = false,
   } = input || {};
 
   const blockers = [];
@@ -248,7 +263,7 @@ function calculateWolfhouseQuote(input, config) {
     }
   } else if (isNoPackage) {
     // accommodation-only — priced from Malibu weekly reference below
-  } else if (!KNOWN_PACKAGES.includes(normalizedPackage)) {
+  } else if (!hasGuestPackages && normalizedPackage && !KNOWN_PACKAGES.includes(normalizedPackage)) {
     staff_review_required = true;
     blockers.push(`unknown package_code "${package_code}" — staff review required`);
   }
@@ -557,9 +572,31 @@ function calculateWolfhouseQuote(input, config) {
     : KNOWN_PACKAGES.includes(normalizedPackage))
     && nights >= 7
     && !isManualOverride;
-  const deposit_required_cents = usesPackageDeposit
+  const singleTierDepositCents = usesPackageDeposit
     ? config.deposits.tiers.standard_package.amount_cents
     : config.deposits.tiers.custom_or_short_stay.amount_cents;
+
+  let per_guest_deposits = [];
+  if (uses_per_guest_deposits && guests > 0) {
+    if (hasGuestPackages) {
+      per_guest_deposits = normalizedGuestPackages.map((gp) => ({
+        guest_number: gp.guest_number,
+        package_code: gp.package_code,
+        deposit_cents: computeGuestDepositTierCents(config, gp.package_code, nights, isManualOverride),
+      }));
+    } else {
+      for (let gn = 1; gn <= guests; gn++) {
+        per_guest_deposits.push({
+          guest_number: gn,
+          package_code: effectivePackageCode,
+          deposit_cents: computeGuestDepositTierCents(config, effectivePackageCode, nights, isManualOverride),
+        });
+      }
+    }
+  }
+  const deposit_required_cents = (uses_per_guest_deposits && per_guest_deposits.length > 0)
+    ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
+    : singleTierDepositCents;
 
   // ── 12. Payment link amount ───────────────────────────────────────────────
   let payment_link_amount_cents = 0;
@@ -597,6 +634,20 @@ function calculateWolfhouseQuote(input, config) {
           ? `7-night flat: ${weekly_cents / 100}€/person/week × ${guests} guest${guests !== 1 ? 's' : ''} = ${package_cents / 100}€ package base`
           : `Formula B (per-night ceil5): ceil5(${weekly_cents / 100}€/7) = ${per_night_ceil5 / 100}€/night × ${nights}n × ${guests}g = ${package_cents / 100}€ package base`)));
 
+  const per_person = (guests > 1 || uses_per_guest_deposits)
+    ? buildQuotePerPersonBreakdown({
+      guest_count: guests,
+      line_items,
+      per_guest_deposits,
+      deposit_required_cents,
+      total_cents,
+      payment_choice,
+      package_code: hasGuestPackages ? null : effectivePackageCode,
+      single_tier_deposit_cents: singleTierDepositCents,
+      uses_per_guest_deposits,
+    })
+    : undefined;
+
   return {
     success: blockers.length === 0,
     client_slug,
@@ -612,6 +663,9 @@ function calculateWolfhouseQuote(input, config) {
     discount_cents,
     total_cents,
     deposit_required_cents,
+    per_guest_deposits: per_guest_deposits.length ? per_guest_deposits : undefined,
+    per_person,
+    uses_per_guest_deposits: !!uses_per_guest_deposits,
     payment_link_amount_cents,
     amount_paid_cents,
     balance_due_cents,
@@ -626,4 +680,89 @@ function calculateWolfhouseQuote(input, config) {
   };
 }
 
-module.exports = { calculateWolfhouseQuote };
+function splitCentsAcrossGuests(totalCents, guestCount) {
+  const n = Math.max(1, guestCount);
+  const total = Math.max(0, Math.round(Number(totalCents) || 0));
+  const base = Math.floor(total / n);
+  let remainder = total - base * n;
+  const shares = [];
+  for (let i = 0; i < n; i++) {
+    const extra = remainder > 0 ? 1 : 0;
+    if (remainder > 0) remainder--;
+    shares.push(base + extra);
+  }
+  return shares;
+}
+
+function buildQuotePerPersonBreakdown(ctx) {
+  const guestCount = Number(ctx.guest_count) || 0;
+  if (guestCount < 1) return [];
+
+  const lineItems = Array.isArray(ctx.line_items) ? ctx.line_items : [];
+  const accByGuest = {};
+  const pkgByGuest = {};
+  for (const li of lineItems) {
+    if (li.guest_number != null && String(li.code || '').startsWith('guest_')) {
+      accByGuest[li.guest_number] = (accByGuest[li.guest_number] || 0) + Number(li.total_cents || 0);
+      if (li.package_code) pkgByGuest[li.guest_number] = li.package_code;
+    }
+  }
+  if (!Object.keys(accByGuest).length) {
+    const accLines = lineItems.filter((li) => (
+      ['package', 'package_proration', 'accommodation_only', 'manual_accommodation'].includes(li.code)
+    ));
+    const accTotal = accLines.reduce((s, li) => s + Number(li.total_cents || 0), 0);
+    const shares = splitCentsAcrossGuests(accTotal, guestCount);
+    for (let i = 1; i <= guestCount; i++) accByGuest[i] = shares[i - 1];
+  }
+
+  const depositByGuest = {};
+  if (Array.isArray(ctx.per_guest_deposits) && ctx.per_guest_deposits.length) {
+    for (const row of ctx.per_guest_deposits) {
+      depositByGuest[row.guest_number] = row.deposit_cents;
+    }
+  }
+
+  const addonLines = lineItems.filter((li) => !['package', 'package_proration', 'accommodation_only', 'manual_accommodation', 'room_supplement'].includes(li.code)
+    && !String(li.code || '').startsWith('guest_'));
+  const addonShares = splitCentsAcrossGuests(
+    addonLines.reduce((s, li) => s + Number(li.total_cents || 0), 0),
+    guestCount,
+  );
+  const suppLine = lineItems.find((li) => li.code === 'room_supplement');
+  const suppShares = suppLine
+    ? splitCentsAcrossGuests(Number(suppLine.total_cents || 0), guestCount)
+    : new Array(guestCount).fill(0);
+
+  const paymentChoice = String(ctx.payment_choice || 'deposit').toLowerCase();
+  const rows = [];
+  for (let i = 1; i <= guestCount; i++) {
+    const accommodation_cents = accByGuest[i] || 0;
+    const addons_cents = addonShares[i - 1] || 0;
+    const supplement_cents = suppShares[i - 1] || 0;
+    const subtotal_cents = accommodation_cents + addons_cents + supplement_cents;
+    const deposit_cents = depositByGuest[i] != null
+      ? depositByGuest[i]
+      : (ctx.uses_per_guest_deposits ? 0 : ctx.single_tier_deposit_cents);
+    const amount_paid_cents = 0;
+    let balance_cents = subtotal_cents - amount_paid_cents;
+    if (paymentChoice === 'deposit') {
+      balance_cents = Math.max(0, subtotal_cents - deposit_cents);
+    }
+    rows.push({
+      guest_number: i,
+      package_code: pkgByGuest[i] || ctx.package_code || null,
+      accommodation_cents,
+      addons_cents,
+      supplement_cents,
+      subtotal_cents,
+      deposit_cents,
+      amount_paid_cents,
+      balance_cents,
+      payment_status: 'not_requested',
+    });
+  }
+  return rows;
+}
+
+module.exports = { calculateWolfhouseQuote, loadConfig, computeGuestDepositTierCents };

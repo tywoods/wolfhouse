@@ -299,6 +299,27 @@ def quote_booking(params, **kwargs):
     })
 
 
+def _normalize_guests_payload(payload):
+    """Normalize guests:[{name}] for Slice A per-guest bookings."""
+    raw = payload.get("guests")
+    if not isinstance(raw, list):
+        return
+    normalized = []
+    for item in raw:
+        if isinstance(item, str):
+            name = _clean(item)
+        elif isinstance(item, dict):
+            name = _clean(item.get("name") or item.get("guest_name"))
+        else:
+            name = ""
+        if name:
+            normalized.append({"name": name})
+    if normalized:
+        payload["guests"] = normalized
+        if not payload.get("guest_count"):
+            payload["guest_count"] = len(normalized)
+
+
 def _extract_booking_write_fields(data):
     """Flatten booking-create-from-plan bridge payload for tool callers."""
     if not isinstance(data, dict):
@@ -312,6 +333,9 @@ def _extract_booking_write_fields(data):
         "booking_code": data.get("booking_code") or create_response.get("booking_code"),
         "payment_id": data.get("payment_id") or create_response.get("payment_id"),
         "payment_status": data.get("payment_status") or create_response.get("payment_status"),
+        "uses_per_guest_model": data.get("uses_per_guest_model"),
+        "booking_guests": data.get("booking_guests"),
+        "per_person": data.get("per_person") or (data.get("quote") or {}).get("per_person"),
     }
 
 
@@ -428,6 +452,8 @@ def create_booking_from_plan(params, **kwargs):
         })
     payload["guest_name"] = guest_name
 
+    _normalize_guests_payload(payload)
+
     # Persist the guest's language on the booking so the post-payment confirmation
     # (built server-side from templates) goes out in the same language the booking
     # was made in, not a hardcoded English default. Stored as a short code (e.g. de).
@@ -463,6 +489,7 @@ def create_booking_from_plan(params, **kwargs):
             str(payload.get("check_out") or ""),
             str(payload.get("package_code") or ""),
             json.dumps(payload.get("guest_packages") or [], sort_keys=True),
+            json.dumps(payload.get("guests") or [], sort_keys=True),
             json.dumps(payload.get("add_ons") or [], sort_keys=True),
         ])
         payload["idempotency_key"] = "luna-" + hashlib.sha256(key_parts.encode()).hexdigest()[:16]
@@ -493,8 +520,9 @@ def create_booking_from_plan(params, **kwargs):
     secure_url = None
     link_data = {}
     payment_link_error = None
+    uses_per_guest_model = bool(data.get("uses_per_guest_model"))
 
-    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id:
+    if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not uses_per_guest_model:
         link_payload = {"client_slug": payload.get("client_slug") or "wolfhouse-somo"}
         link_data = _post_bot(
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
@@ -524,6 +552,10 @@ def create_booking_from_plan(params, **kwargs):
             fields.get("booking_code"),
         )
 
+    next_action = data.get("next_action")
+    if uses_per_guest_model and bool(data.get("write_performed")) and not secure_url:
+        next_action = "ask_per_guest_or_whole_payment_link"
+
     return _json_result({
         "success": bool(data.get("success")),
         "tool": "create_booking_from_plan",
@@ -532,13 +564,16 @@ def create_booking_from_plan(params, **kwargs):
         "booking_code": fields.get("booking_code"),
         "payment_id": payment_id or None,
         "payment_status": fields.get("payment_status") or link_data.get("payment_status"),
+        "uses_per_guest_model": uses_per_guest_model,
+        "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
+        "per_person": fields.get("per_person") or data.get("per_person"),
         "secure_payment_url": secure_url,
         "payment_link_created": bool(secure_url),
         "payment_link_error": payment_link_error,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
-        "next_action": "send_secure_payment_link" if secure_url else data.get("next_action"),
-        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url)) and not expected_missing,
+        "next_action": "send_secure_payment_link" if secure_url else next_action,
+        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model)) and not expected_missing,
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
@@ -677,6 +712,122 @@ def create_balance_payment_link(params, **kwargs):
         "idempotent": data.get("idempotent"),
         "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
         "staff_review_needed": bool(data.get("staff_review_needed")) or not ok,
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def preview_package_prices(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    check_in = _clean(payload.get("check_in"))
+    check_out = _clean(payload.get("check_out"))
+    guest_count = payload.get("guest_count")
+    if not check_in or not check_out or not guest_count:
+        return _json_result({
+            "success": False,
+            "tool": "preview_package_prices",
+            "error": "check_in_check_out_and_guest_count_required",
+            "staff_review_needed": True,
+            "guest_safe_next_action": "I need your dates and how many people are coming before I can show package prices.",
+        })
+    data = _post_bot("/package-price-preview", payload)
+    packages = data.get("packages") if isinstance(data.get("packages"), dict) else {}
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "preview_package_prices",
+        "check_in": check_in,
+        "check_out": check_out,
+        "guest_count": guest_count,
+        "nights": data.get("nights"),
+        "season_code": data.get("season_code"),
+        "packages": packages,
+        "malibu": packages.get("malibu"),
+        "uluwatu": packages.get("uluwatu"),
+        "waimea": packages.get("waimea"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def create_guest_payment_link(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    guest_id = _clean(payload.get("booking_guest_id") or payload.get("guest_id"))
+    booking_code = _clean(payload.get("booking_code"))
+    guest_number = payload.get("guest_number")
+    if not guest_id and booking_code and guest_number:
+        status = _post_bot("/booking-guests/payment-status", {
+            "client_slug": payload.get("client_slug"),
+            "booking_code": booking_code,
+            "guest_number": guest_number,
+        })
+        guest_id = _clean(status.get("booking_guest_id"))
+    if not guest_id:
+        return _json_result({
+            "success": False,
+            "tool": "create_guest_payment_link",
+            "error": "booking_guest_id_required",
+            "staff_review_needed": True,
+        })
+    payment_target = _clean(payload.get("payment_target") or "deposit").lower()
+    if payment_target not in {"deposit", "full_share"}:
+        payment_target = "deposit"
+    data = _post_bot(
+        f"/booking-guests/{urllib.parse.quote(guest_id)}/create-payment-link",
+        {
+            "client_slug": payload.get("client_slug"),
+            "payment_target": payment_target,
+        },
+    )
+    guest_url = _guest_payment_url(data)
+    return _json_result({
+        "success": bool(data.get("success")) and bool(guest_url),
+        "tool": "create_guest_payment_link",
+        "booking_guest_id": data.get("booking_guest_id") or guest_id,
+        "guest_number": data.get("guest_number"),
+        "guest_name": data.get("guest_name"),
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "payment_id": data.get("payment_id"),
+        "payment_target": data.get("payment_target") or payment_target,
+        "amount_due_cents": data.get("amount_due_cents"),
+        "secure_payment_url": guest_url,
+        "payment_short_url": data.get("payment_short_url"),
+        "payment_short_path": data.get("payment_short_path"),
+        "uses_short_payment_link": bool(data.get("uses_short_payment_link")),
+        "payment_status": data.get("payment_status"),
+        "already_paid": bool(data.get("already_paid")),
+        "next_action": "send_secure_payment_link" if guest_url else data.get("next_action"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action"),
+    })
+
+
+def get_guest_payment_status(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    data = _post_bot("/booking-guests/payment-status", payload)
+    status = _clean(data.get("payment_status")).lower()
+    paid_confirmed = status == "paid" or int(data.get("amount_paid_cents") or 0) > 0
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "get_guest_payment_status",
+        "booking_guest_id": data.get("booking_guest_id"),
+        "guest_number": data.get("guest_number"),
+        "guest_name": data.get("guest_name"),
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "deposit_amount_cents": data.get("deposit_amount_cents"),
+        "amount_paid_cents": data.get("amount_paid_cents"),
+        "payment_status": data.get("payment_status"),
+        "payment_confirmed": paid_confirmed,
+        "payment_id": data.get("payment_id"),
+        "assigned_bed_code": data.get("assigned_bed_code"),
+        "assigned_room_code": data.get("assigned_room_code"),
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
         "guest_safe_next_action": data.get("guest_safe_next_action"),
     })
 
@@ -993,10 +1144,13 @@ def register(ctx):
     tools = [
         ("check_availability", "Check real Wolfhouse bed availability (gender-neutral capacity only). Use before any availability claim. Do NOT pass group_gender — ask composition later at the room-preference step before create.", check_availability, common_availability, ["check_in", "check_out", "guest_count"]),
         ("quote_booking", "Get a Staff API-backed booking quote. Use before saying totals, deposit, balance, or included items. Show the guest ONLY lines from included_items — never invent add-on lines. When the guest chooses a private couples room and private_room_available was true, re-call with room_preference couple_private before create and show the room_supplement line (+€10/night flat room charge).", quote_booking, {**common_booking, "payment_choice": {"type": "string"}, "guest_name": {"type": "string"}, "phone": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
-        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guest_name": {"type": "string"}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
-        ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment. Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}}, ["payment_id"]),
+        ("preview_package_prices", "Read-only package totals for Malibu, Uluwatu, and Waimea plus per-person price for the given dates and guest count. Use when explaining package options before the guest picks one — no booking created.", preview_package_prices, {"client_slug": {"type": "string"}, "check_in": {"type": "string"}, "check_out": {"type": "string"}, "guest_count": {"type": "integer"}, "room_type": {"type": "string"}}, ["check_in", "check_out", "guest_count"]),
+        ("create_booking_from_plan", "Create a pending booking/hold from an accepted Staff API plan. Do not use until the guest accepts the quote. For groups with named guests pass guests:[{name}] (one entry per person) — this enables per-guest deposits and payment links. For short stays (<7 nights) pass package_code package_none and add_ons bundled in the quote. If the guest gave shuttle/transfer details earlier on a PACKAGE booking, pass them as pending_transfers.", create_booking_from_plan, {"plan_id": {"type": "string"}, "confirm": {"type": "boolean"}, **common_booking, "guests": {"type": "array", "description": "Named guests for per-guest deposits/links, e.g. [{name:'Alex'},{name:'Sam'}]. Length must match guest_count.", "items": {"type": "object"}}, "guest_name": {"type": "string", "description": "Primary/contact guest name (first guest when guests array is used)."}, "guest_phone": {"type": "string"}, "language": {"type": "string", "description": "The guest's language as a short code (e.g. 'de', 'es', 'it', 'en') — the language THIS conversation is happening in. Saved on the booking so the payment confirmation goes out in the same language."}, "payment_choice": {"type": "string"}, "selected_bed_codes": {"type": "array", "items": {"type": "string"}}, "pending_transfers": {"type": "array", "description": "Package bookings only — transfer details for the free Santander shuttle.", "items": {"type": "object"}}, "idempotency_key": {"type": "string"}}, []),
+        ("create_payment_link", "Create a secure payment link through Staff API for an existing draft payment (whole-booking deposit or full amount). Never call this Stripe to guests.", create_payment_link, {"payment_id": {"type": "string"}, "payment_choice": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}}, []),
+        ("create_guest_payment_link", "Create a secure payment link for ONE named guest's deposit or full share (/pay/<booking_code>/g<n>). Use after create_booking_from_plan when uses_per_guest_model is true and the guest chose per-guest links. Pass booking_guest_id or booking_code + guest_number.", create_guest_payment_link, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}, "payment_target": {"type": "string", "description": "deposit (default) or full_share"}}, []),
         ("create_balance_payment_link", "Create a secure payment link for ALL outstanding balance on an existing booking — remaining accommodation after deposit plus every unpaid post-booking add-on (ledger total). Use when the guest asks for balance/remaining link OR immediately after each successful add_service_to_booking. Never say Stripe to guests.", create_balance_payment_link, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
-        ("get_payment_status", "Check webhook-confirmed payment truth through Staff API. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
+        ("get_payment_status", "Check webhook-confirmed payment truth through Staff API for the whole booking. Use when a guest says they paid; never mark paid from guest text alone.", get_payment_status, {"client_slug": {"type": "string"}, "payment_id": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}}, []),
+        ("get_guest_payment_status", "Check webhook-confirmed payment truth for one named guest (deposit or share). Use after sending a per-guest /pay/.../g<n> link.", get_guest_payment_status, {"client_slug": {"type": "string"}, "booking_guest_id": {"type": "string"}, "booking_code": {"type": "string"}, "guest_number": {"type": "integer"}}, []),
         ("update_guest_packages", "Update package choices per guest on an existing booking through Staff API. Use when a guest changes package choices after booking, or says e.g. 2 Malibu + 1 Waimea.", update_guest_packages, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_packages": {"type": "array", "items": {"type": "object"}}, "reason": {"type": "string"}}, ["booking_code", "guest_packages"]),
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),

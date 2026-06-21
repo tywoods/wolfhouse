@@ -9,6 +9,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { parseGuestPaymentShortLinkToken } = require('./booking-guests');
 
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_CLIENT = 'wolfhouse-somo';
@@ -99,6 +100,18 @@ function isValidPaymentShortLinkBookingCode(code) {
  * @returns {{ ok: boolean, booking_code?: string, reason?: string }}
  */
 function parsePaymentShortLinkToken(token) {
+  const guestParsed = parseGuestPaymentShortLinkToken(token);
+  if (guestParsed.ok) {
+    const bookingCode = normalizeBookingCodeToken(guestParsed.booking_code);
+    if (!isValidPaymentShortLinkBookingCode(bookingCode)) {
+      return { ok: false, reason: 'invalid_booking_code_token' };
+    }
+    return {
+      ok: true,
+      booking_code: bookingCode,
+      guest_number: guestParsed.guest_number,
+    };
+  }
   const bookingCode = normalizeBookingCodeToken(token);
   if (!bookingCode) return { ok: false, reason: 'missing_token' };
   if (!isValidPaymentShortLinkBookingCode(bookingCode)) {
@@ -109,7 +122,15 @@ function parsePaymentShortLinkToken(token) {
 
 function buildPaymentShortLink(input) {
   const src = input || {};
-  const bookingCode = normalizeBookingCodeToken(src.booking_code);
+  const guestParsed = parseGuestPaymentShortLinkToken(src.booking_code || src.token || '');
+  let bookingCode;
+  let guestNumber = src.guest_number != null ? parseInt(src.guest_number, 10) : null;
+  if (guestParsed.ok) {
+    bookingCode = normalizeBookingCodeToken(guestParsed.booking_code);
+    if (guestNumber == null) guestNumber = guestParsed.guest_number;
+  } else {
+    bookingCode = normalizeBookingCodeToken(src.booking_code);
+  }
   if (!isValidPaymentShortLinkBookingCode(bookingCode)) return null;
   const base = resolvePublicPaymentBaseUrl({
     client_slug: src.client_slug,
@@ -117,6 +138,9 @@ function buildPaymentShortLink(input) {
     env: src.env,
   });
   if (!base) return null;
+  if (guestNumber != null && Number.isInteger(guestNumber) && guestNumber > 0) {
+    return `${base}/pay/${encodeURIComponent(bookingCode)}/g${guestNumber}`;
+  }
   return `${base}/pay/${encodeURIComponent(bookingCode)}`;
 }
 
@@ -174,8 +198,20 @@ function paymentRowIsExpired(row, now) {
   return exp.getTime() <= (now || Date.now());
 }
 
-function findLatestActiveCheckoutPayment(paymentRows, now) {
+function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
+  const guestNumber = opts && opts.guest_number != null ? parseInt(opts.guest_number, 10) : null;
   for (const row of paymentRows || []) {
+    if (guestNumber != null && Number.isInteger(guestNumber)) {
+      let md = row.metadata;
+      if (typeof md === 'string') {
+        try { md = JSON.parse(md); } catch (_) { md = {}; }
+      }
+      const rowGuest = md && md.guest_number != null ? parseInt(md.guest_number, 10) : null;
+      if (rowGuest != null && rowGuest !== guestNumber) continue;
+      if (row.booking_guest_id && md && md.guest_number == null) {
+        // payment row linked via FK — guest filter applied in SQL when available
+      }
+    }
     const st = String(row.payment_status || '').toLowerCase();
     if (paymentRowIsCancelled(st)) continue;
     if (paymentRowIsPaid(row)) continue;
@@ -241,6 +277,7 @@ function resolvePaymentShortLinkRedirect(input) {
   }
 
   const bookingCode = parsed.booking_code;
+  const guestNumber = parsed.guest_number != null ? parsed.guest_number : null;
   const bookingRow = src.booking_row || src.bookingRow || null;
   const paymentRows = src.payment_rows || src.paymentRows || [];
 
@@ -249,10 +286,11 @@ function resolvePaymentShortLinkRedirect(input) {
       status: 'not_found',
       message: 'This payment link is no longer active — please message Wolfhouse and we\'ll send a fresh one.',
       booking_code: bookingCode,
+      guest_number: guestNumber,
     };
   }
 
-  const active = findLatestActiveCheckoutPayment(paymentRows);
+  const active = findLatestActiveCheckoutPayment(paymentRows, null, { guest_number: guestNumber });
   if (active && active.checkout_url) {
     if (!isPublicPaymentRedirectSafe(env, active.checkout_url)) {
       return {
@@ -273,6 +311,7 @@ function resolvePaymentShortLinkRedirect(input) {
       stripe_session_id: active.row.stripe_checkout_session_id || null,
       payment_short_url: buildPaymentShortLink({
         booking_code: bookingCode,
+        guest_number: guestNumber,
         client_slug: src.client_slug,
         env,
       }),
@@ -358,6 +397,7 @@ SELECT
   p.stripe_checkout_session_id,
   p.expires_at,
   p.metadata,
+  p.booking_guest_id::text      AS booking_guest_id,
   p.created_at
 FROM payments p
 INNER JOIN bookings b ON b.id = p.booking_id
@@ -378,11 +418,23 @@ async function resolvePaymentShortLinkRedirectFromDb(pg, input) {
     pg.query(PAYMENT_SHORT_LINK_LOOKUP_SQL, [clientSlug, parsed.booking_code]),
     pg.query(PAYMENT_SHORT_LINK_PAYMENTS_SQL, [clientSlug, parsed.booking_code]),
   ]);
+  let paymentRows = paymentRes.rows || [];
+  if (parsed.guest_number != null) {
+    paymentRows = paymentRows.filter((row) => {
+      let md = row.metadata;
+      if (typeof md === 'string') {
+        try { md = JSON.parse(md); } catch (_) { md = {}; }
+      }
+      const mdGuest = md && md.guest_number != null ? parseInt(md.guest_number, 10) : null;
+      return mdGuest === parsed.guest_number;
+    });
+  }
   return resolvePaymentShortLinkRedirect({
     booking_code: parsed.booking_code,
+    guest_number: parsed.guest_number,
     client_slug: clientSlug,
     booking_row: bookingRes.rows[0] || null,
-    payment_rows: paymentRes.rows || [],
+    payment_rows: paymentRows,
     env: src.env,
   });
 }

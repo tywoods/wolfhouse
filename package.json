@@ -268,6 +268,7 @@
     "setup:git-hooks": "node scripts/setup-git-hooks.js",
     "verify:luna-soul-clean": "node scripts/verify-luna-soul-clean.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
+    "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-catalog-response-preview": "node scripts/verify-sunset-catalog-response-preview.js",

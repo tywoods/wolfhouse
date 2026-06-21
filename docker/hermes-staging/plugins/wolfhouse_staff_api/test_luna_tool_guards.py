@@ -332,5 +332,77 @@ check("A7 guest must not get per-service URLs from addon tool",
       yoga.get("use_balance_payment_link") is True and lesson.get("use_balance_payment_link") is True)
 
 
+print("\n== Slice A: per-guest booking tools ==")
+
+preview_fake = with_fake({
+    "/package-price-preview": {
+        "success": True,
+        "nights": 7,
+        "season_code": "summer",
+        "packages": {
+            "malibu": {"success": True, "total_cents": 59800, "per_person_cents": 29900},
+            "uluwatu": {"success": True, "total_cents": 79800, "per_person_cents": 39900},
+            "waimea": {"success": True, "total_cents": 99800, "per_person_cents": 49900},
+        },
+    },
+})
+preview = json.loads(mod.preview_package_prices({
+    "check_in": "2026-08-01",
+    "check_out": "2026-08-08",
+    "guest_count": 2,
+}))
+check("G1 preview_package_prices succeeds", preview.get("success") is True)
+check("G2 preview exposes malibu per_person", preview.get("malibu", {}).get("per_person_cents") == 29900)
+
+guest_link_fake = with_fake({
+    "/booking-guests/payment-status": {"success": True, "booking_guest_id": "guest-uuid-2"},
+    "/booking-guests/guest-uuid-2/create-payment-link": {
+        "success": True,
+        "booking_guest_id": "guest-uuid-2",
+        "guest_number": 2,
+        "guest_name": "Sam",
+        "booking_code": "MB-TEST",
+        "payment_short_url": "https://staff-staging.lunafrontdesk.com/pay/MB-TEST/g2",
+        "amount_due_cents": 20000,
+    },
+})
+guest_link = json.loads(mod.create_guest_payment_link({
+    "booking_code": "MB-TEST",
+    "guest_number": 2,
+}))
+check("G3 create_guest_payment_link resolves guest id", guest_link.get("success") is True)
+check("G4 guest link has /g2 path", "/g2" in (guest_link.get("payment_short_url") or ""))
+check("G5 create_guest_payment_link looked up guest status",
+      any("/booking-guests/payment-status" in c[0] for c in guest_link_fake.calls))
+
+create_fake = with_fake({
+    "/booking-create-from-plan": {
+        "success": True,
+        "write_performed": True,
+        "uses_per_guest_model": True,
+        "booking_id": "bk-per-guest",
+        "booking_code": "MB-PG",
+        "payment_id": "pay-1",
+        "booking_guests": [{"booking_guest_id": "g1", "guest_number": 1, "guest_name": "Alex"}],
+        "per_person": [{"guest_number": 1, "deposit_cents": 20000}],
+    },
+})
+created = json.loads(mod.create_booking_from_plan({
+    "check_in": "2026-08-01",
+    "check_out": "2026-08-08",
+    "guest_count": 2,
+    "guest_name": "Alex",
+    "guests": [{"name": "Alex"}, {"name": "Sam"}],
+    "package_code": "malibu",
+    "payment_choice": "deposit",
+    "phone": "+34600000001",
+}))
+create_calls = [c for c in create_fake.calls if "/booking-create-from-plan" in c[0]]
+check("G6 create passes guests array", len(create_calls) == 1 and len(create_calls[0][1].get("guests") or []) == 2)
+check("G7 per-guest create skips auto whole-booking link", created.get("secure_payment_url") in (None, ""))
+check("G8 per-guest create exposes per_person", isinstance(created.get("per_person"), list))
+check("G9 next_action asks link choice", created.get("next_action") == "ask_per_guest_or_whole_payment_link")
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)
