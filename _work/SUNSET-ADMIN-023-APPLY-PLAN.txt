@@ -1,0 +1,127 @@
+Sunset Admin school-scoped persistence — apply plan (Sunset staging DB only)
+================================================================================
+Target DB: luna-sunset-staging-pg-app.postgres.database.azure.com / sunset_staging
+Container app: luna-sunset-staging-staff-api (luna-sunset-staging-rg)
+Do NOT run on Wolfhouse/prod.
+
+CURRENT LIVE STATE (verified 2026-06-21)
+----------------------------------------
+- Migration 021: APPLIED (tenant_* tables exist; Admin API source=db, 23 prices)
+- Migration 022: NOT APPLIED (booking location still metadata JSON — unchanged)
+- Migration 023: NOT APPLIED (no location_id on admin tables yet)
+- Staging env: SUNSET_ADMIN_DB_READ_ENABLED=true, SUNSET_ADMIN_WRITES_ENABLED=false
+- Container volumes: none (JSON overlay is NOT durable — do not use for staging)
+
+RECOMMENDATION: Option A (Postgres) — apply 023 only
+-----------------------------------------------------
+021 is already live. School isolation + durable writes require 023 only.
+Option B (mount JSON) is rejected: no existing volume, adds infra debt, not Sunset-only DB semantics.
+
+PRE-FLIGHT
+----------
+1. Confirm tables:
+   SELECT table_name FROM information_schema.tables
+    WHERE table_schema='public' AND table_name LIKE 'tenant_%' ORDER BY 1;
+   Expect: tenant_config_audit_log, tenant_lesson_capacity_rules,
+           tenant_lesson_time_rules, tenant_price_rules
+
+2. Confirm location_id absent:
+   SELECT column_name FROM information_schema.columns
+    WHERE table_name='tenant_price_rules' AND column_name='location_id';
+   Expect: 0 rows
+
+3. Snapshot row counts (sunset client only):
+   SELECT 'prices' t, COUNT(*) FROM tenant_price_rules WHERE client_slug='sunset'
+   UNION ALL SELECT 'capacity', COUNT(*) FROM tenant_lesson_capacity_rules WHERE client_slug='sunset'
+   UNION ALL SELECT 'times', COUNT(*) FROM tenant_lesson_time_rules WHERE client_slug='sunset';
+
+APPLY 023 (requires explicit Captain approval)
+----------------------------------------------
+File: database/migrations/023_sunset_admin_location_id_PROPOSED.sql
+
+What it does:
+- ADD location_id TEXT NOT NULL DEFAULT 'sunset-somo' to all three admin rule tables
+- Replace tenant-wide unique indexes with (client_slug, location_id, ...) variants
+- Existing rows become sunset-somo scoped (compatible with current default school)
+
+Command (example — run from approved operator shell with sunset_staging URL):
+  psql "$SUNSET_STAGING_DATABASE_URL" -v ON_ERROR_STOP=1 \
+    -f database/migrations/023_sunset_admin_location_id_PROPOSED.sql
+
+POST-023 DATA: seed El Sardi rows (manual, Sunset staging only)
+---------------------------------------------------------------
+Duplicate active sunset-somo rows to sunset-sardinero so El Sardi starts with
+matching baseline; school-specific edits then diverge.
+
+  BEGIN;
+  INSERT INTO tenant_price_rules (
+    tenant_id, client_slug, location_id, item_type, item_code, display_name,
+    currency, amount_cents, unit, active, effective_from, effective_to, updated_by
+  )
+  SELECT tenant_id, client_slug, 'sunset-sardinero', item_type, item_code, display_name,
+         currency, amount_cents, unit, active, effective_from, effective_to, NULL
+    FROM tenant_price_rules
+   WHERE client_slug='sunset' AND location_id='sunset-somo' AND active=true;
+
+  INSERT INTO tenant_lesson_capacity_rules (
+    tenant_id, client_slug, location_id, scope, weekday, service_date, capacity,
+    active, effective_from, effective_to, updated_by
+  )
+  SELECT tenant_id, client_slug, 'sunset-sardinero', scope, weekday, service_date, capacity,
+         active, effective_from, effective_to, NULL
+    FROM tenant_lesson_capacity_rules
+   WHERE client_slug='sunset' AND location_id='sunset-somo' AND active=true;
+
+  INSERT INTO tenant_lesson_time_rules (
+    tenant_id, client_slug, location_id, time_local, time_local_end, label, lesson_type,
+    weekdays_active, service_date, active, effective_from, effective_to, updated_by
+  )
+  SELECT tenant_id, client_slug, 'sunset-sardinero', time_local, time_local_end, label, lesson_type,
+         weekdays_active, service_date, active, effective_from, effective_to, NULL
+    FROM tenant_lesson_time_rules
+   WHERE client_slug='sunset' AND location_id='sunset-somo' AND active=true;
+  COMMIT;
+
+Or run (after code deploy):
+  ALLOW_SUNSET_ADMIN_LOCATION_BACKFILL=1 \
+  WOLFHOUSE_DATABASE_URL=postgres://.../sunset_staging \
+  node scripts/backfill-sunset-admin-location-config.js
+
+VERIFY AFTER 023 + SARDINERO SEED
+---------------------------------
+1. Row counts: somo and sardinero each have price/capacity/time rows
+2. GET /staff/admin/config?client=sunset&location=sunset-somo → source db, location_id sunset-somo
+3. GET ...&location=sunset-sardinero → distinct rows after a school-specific edit
+4. Edit price under El Sardi → somo row unchanged (check by id)
+5. Redeploy container image → edits survive (Postgres-backed)
+
+ENABLE WRITES (separate approval, after 023 verified)
+-----------------------------------------------------
+  az containerapp update -g luna-sunset-staging-rg -n luna-sunset-staging-staff-api \
+    --set-env-vars SUNSET_ADMIN_WRITES_ENABLED=true
+Keep SUNSET_ADMIN_DB_READ_ENABLED=true.
+
+ROLLBACK 023 (manual — only if no production audit data)
+--------------------------------------------------------
+  BEGIN;
+  DROP INDEX IF EXISTS uq_tenant_price_rules_active_window_loc;
+  DROP INDEX IF EXISTS uq_tenant_lesson_capacity_default_loc;
+  DROP INDEX IF EXISTS uq_tenant_lesson_capacity_weekday_loc;
+  DROP INDEX IF EXISTS uq_tenant_lesson_capacity_date_loc;
+  DROP INDEX IF EXISTS uq_tenant_lesson_time_recurring_loc;
+  DROP INDEX IF EXISTS uq_tenant_lesson_time_date_loc;
+  ALTER TABLE tenant_price_rules DROP COLUMN IF EXISTS location_id;
+  ALTER TABLE tenant_lesson_capacity_rules DROP COLUMN IF EXISTS location_id;
+  ALTER TABLE tenant_lesson_time_rules DROP COLUMN IF EXISTS location_id;
+  -- Recreate 021 indexes from 021_sunset_admin_business_config.sql if needed
+  COMMIT;
+If audit log has edits: disable writes (SUNSET_ADMIN_WRITES_ENABLED=false) instead of DROP.
+
+MIGRATION 022
+-------------
+Not required for Admin config. Keep separate; do not apply unless booking column migration approved.
+
+JSON OVERLAY (config/clients/sunset.location-admin.json)
+--------------------------------------------------------
+Fallback for local dev without DB. Code uses DB when tenant_* tables exist.
+Set SUNSET_ADMIN_JSON_OVERLAY=false on staging after 023 to ignore any stale file.

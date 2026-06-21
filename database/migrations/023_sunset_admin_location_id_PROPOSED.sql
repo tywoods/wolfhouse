@@ -1,7 +1,8 @@
 -- PROPOSED ONLY — DO NOT RUN without explicit Captain approval.
 -- Adds school/location scoping to Sunset Admin config tables (migration 021).
--- Until applied, runtime uses config/clients/sunset.location-admin.json overlays.
---
+-- On Sunset staging, 021 is already applied (2026-06); apply this file only for 023.
+-- Until applied, runtime uses Postgres tenant_* without per-school rows; JSON overlay
+-- is dev-only fallback when tables are absent.--
 -- Apply after: 021_sunset_admin_business_config.sql (when approved)
 -- Rollback (manual):
 --   DROP INDEX IF EXISTS uq_tenant_price_rules_active_window_loc;

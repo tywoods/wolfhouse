@@ -925,6 +925,17 @@ if (fs.existsSync(storePath)) {
 }
 assert('proposed migration 023 documented', fs.existsSync(path.join(ROOT, 'database/migrations/023_sunset_admin_location_id_PROPOSED.sql')));
 
+if (fs.existsSync(tawPath)) {
+  const tawSrc2 = fs.readFileSync(tawPath, 'utf8');
+  assert('admin writes DB-first when tables exist', tawSrc2.includes('adminConfigTablesExist') && tawSrc2.includes("storage: 'db'"));
+}
+if (fs.existsSync(tbcPath)) {
+  const tbcSrc2 = fs.readFileSync(tbcPath, 'utf8');
+  assert('JSON overlay gated by shouldApplyJsonLocationOverlay', tbcSrc2.includes('shouldApplyJsonLocationOverlay'));
+}
+assert('location backfill script present', fs.existsSync(path.join(ROOT, 'scripts/backfill-sunset-admin-location-config.js')));
+
+
 
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 

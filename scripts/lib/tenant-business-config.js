@@ -423,10 +423,40 @@ async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
  *
  * @param {string} clientSlug
  */
+function withLocationMeta(config, locationId) {
+  const loc = normalizeSunsetLocationId(locationId);
+  return {
+    ...config,
+    location_id: loc,
+    location_label: locationStore.resolveLocationLabel(loc),
+  };
+}
+
+async function shouldApplyJsonLocationOverlay(clientSlug, locationId, pgClient) {
+  if (clientSlug !== SUNSET_ADMIN_CLIENT) return false;
+  const raw = process.env.SUNSET_ADMIN_JSON_OVERLAY;
+  if (raw != null && /^(0|false|no|off)$/i.test(String(raw).trim())) return false;
+  if (raw != null && /^(1|true|yes|on)$/i.test(String(raw).trim())) return true;
+  try {
+    const client = pgClient;
+    if (!client) return locationStore.hasLocationOverrides(locationId);
+    const tablesExist = await adminConfigTablesExist(client);
+    if (!tablesExist) return true;
+    const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+    if (hasLoc) return false;
+    return locationStore.hasLocationOverrides(locationId);
+  } catch (_) {
+    return locationStore.hasLocationOverrides(locationId);
+  }
+}
+
 function resolveTenantBusinessConfig(clientSlug, locationId) {
   const baseline = resolveFromConfigFile(clientSlug);
   if (!baseline.ok) return baseline;
-  return locationStore.applyStoreToResolvedConfig(baseline, normalizeSunsetLocationId(locationId));
+  const loc = normalizeSunsetLocationId(locationId);
+  const withMeta = withLocationMeta(baseline, loc);
+  if (!locationStore.hasLocationOverrides(loc)) return withMeta;
+  return locationStore.applyStoreToResolvedConfig(withMeta, loc);
 }
 
 /**
@@ -467,7 +497,10 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
     }
   }
 
-  return locationStore.applyStoreToResolvedConfig(merged, locationId);
+  const withMeta = withLocationMeta(merged, locationId);
+  const overlay = await shouldApplyJsonLocationOverlay(clientSlug, locationId, options.pgClient);
+  if (!overlay) return withMeta;
+  return locationStore.applyStoreToResolvedConfig(withMeta, locationId);
 }
 
 module.exports = {
@@ -479,6 +512,9 @@ module.exports = {
   isSunsetAdminDbReadEnabled,
   loadTenantBusinessConfigFromDb,
   adminConfigTableHasLocationColumn,
+  adminConfigTablesExist,
+  shouldApplyJsonLocationOverlay,
+  withLocationMeta,
   resolveFromConfigFile,
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,

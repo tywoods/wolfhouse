@@ -224,6 +224,19 @@ async function runAsyncChecks() {
     async query(sql, params) {
       const s = String(sql);
       if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK') return { rows: [] };
+      if (s.includes('information_schema.tables')) {
+        return {
+          rows: [
+            { table_name: 'tenant_price_rules' },
+            { table_name: 'tenant_lesson_capacity_rules' },
+            { table_name: 'tenant_lesson_time_rules' },
+            { table_name: 'tenant_config_audit_log' },
+          ],
+        };
+      }
+      if (s.includes('information_schema.columns')) {
+        return { rows: [] };
+      }
       if (s.includes('FROM tenant_price_rules') && s.includes('FOR UPDATE')) {
         return {
           rows: [{
@@ -255,10 +268,12 @@ async function runAsyncChecks() {
   const writeResult = await writes.patchPriceRule(mockPg, {
     ruleId,
     clientSlug: 'sunset',
+    locationId: 'sunset-somo',
     patch: { amount_cents: 5500 },
     actor: { staff_user_id: 'u1', email: 'owner@example.com' },
   });
   assert('mock price write success', writeResult.ok === true && writeResult.status === 200);
+  assert('mock price write uses db storage', writeResult.body && writeResult.body.storage === 'db');
   assert('mock update ran', updateRan === true);
   assert('mock audit inserted', auditInserted === true);
 

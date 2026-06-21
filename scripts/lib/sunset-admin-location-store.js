@@ -2,7 +2,8 @@
 
 /**
  * School-scoped Sunset Admin config persistence (JSON file).
- * Used for staging without migration 021/023; overlays tenant baseline per location.
+ * Dev/local fallback and pre-023 school-delta bridge. Production staging uses Postgres
+ * tenant_* tables (021 + 023) as authoritative store when present.
  *
  * @see database/migrations/023_sunset_admin_location_id_PROPOSED.sql
  */
@@ -94,6 +95,16 @@ function ensureLocationBucket(store, locationId) {
 function resolveLocationLabel(locationId) {
   const loc = SUNSET_LOCATIONS.find((l) => l.id === normalizeSunsetLocationId(locationId));
   return loc ? loc.displayName : normalizeSunsetLocationId(locationId);
+}
+
+function hasLocationOverrides(locationId) {
+  const loc = normalizeSunsetLocationId(locationId);
+  const bucket = readStoreSync().locations[loc];
+  if (!bucket) return false;
+  if (bucket.lesson_capacity && bucket.lesson_capacity.default_daily_cap != null) return true;
+  if (bucket.prices && Object.keys(bucket.prices).length) return true;
+  if (bucket.lesson_times && Object.keys(bucket.lesson_times).length) return true;
+  return false;
 }
 
 function assignConfigPriceId(price, locationId) {
@@ -285,4 +296,5 @@ module.exports = {
   patchLocationLessonTime,
   appendLocationAudit,
   resolveLocationLabel,
+  hasLocationOverrides,
 };

@@ -1,13 +1,16 @@
 'use strict';
 
 /**
- * Sunset Admin config writes — gated by SUNSET_ADMIN_WRITES_ENABLED (default off).
- *
- * @see docs/sunset/SUNSET-ADMIN-CONFIG-SPEC.md
+ * Sunset Admin config — DB-first writes with JSON fallback when tenant_* tables absent.
+ * School isolation requires migration 023 (location_id on admin tables).
  */
 
-const { SUNSET_ADMIN_CLIENT, adminConfigTableHasLocationColumn } = require('./tenant-business-config');
-const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const {
+  SUNSET_ADMIN_CLIENT,
+  adminConfigTableHasLocationColumn,
+  adminConfigTablesExist,
+} = require('./tenant-business-config');
+const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -62,11 +65,6 @@ function resolveActorRole(user) {
   return String(user.role || '').trim().toLowerCase();
 }
 
-/**
- * Gate for write handlers after session auth.
- *
- * @param {{ user: object|null, clientSlug: string, staffAuthRequired?: boolean, resolveStaffRole?: Function }} ctx
- */
 function evaluateAdminWriteGate(ctx) {
   const clientSlug = String(ctx.clientSlug || '').trim();
   if (!isSunsetAdminWritesEnabled()) {
@@ -264,6 +262,24 @@ function rowToAuditJson(row) {
   return JSON.parse(JSON.stringify(row));
 }
 
+function mapCategoryToItemType(category) {
+  if (category === 'package') return 'package';
+  if (category === 'lesson') return 'lesson';
+  return 'rental';
+}
+
+function buildDbItemCode(offeringKey, baselineUnit) {
+  return `${offeringKey}__${baselineUnit}`;
+}
+
+function mapBaselineUnitToDb(unitKey) {
+  const key = String(unitKey || '').trim();
+  if (/surfer|person|single_lesson/i.test(key)) return 'person';
+  if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
+  if (/hour|half_day|lesson/i.test(key)) return 'session';
+  return 'item';
+}
+
 async function insertConfigAudit(client, {
   tenantId,
   clientSlug,
@@ -293,12 +309,128 @@ async function insertConfigAudit(client, {
   );
 }
 
+async function findPriceRuleRow(client, {
+  clientSlug, locationId, itemType, itemCode, ruleId, hasLoc,
+}) {
+  const loc = normalizeSunsetLocationId(locationId);
+  if (ruleId) {
+    return client.query(
+      hasLoc
+        ? `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 FOR UPDATE`
+        : `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
+      hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
+    );
+  }
+  return client.query(
+    hasLoc
+      ? `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4 AND active = true
+          FOR UPDATE`
+      : `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND item_type = $2 AND item_code = $3 AND active = true
+          FOR UPDATE`,
+    hasLoc ? [clientSlug, loc, itemType, itemCode] : [clientSlug, itemType, itemCode],
+  );
+}
+
+async function upsertConfigPriceRule(client, {
+  clientSlug, locationId, category, offeringKey, unit, patch, actor,
+}) {
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  const loc = normalizeSunsetLocationId(locationId);
+  const itemType = mapCategoryToItemType(category);
+  const itemCode = buildDbItemCode(offeringKey, unit);
+  const dbUnit = mapBaselineUnitToDb(unit);
+
+  await client.query('BEGIN');
+  try {
+    const existing = await findPriceRuleRow(client, {
+      clientSlug, locationId: loc, itemType, itemCode, hasLoc,
+    });
+    let before = existing.rows[0] || null;
+    let after;
+
+    if (before) {
+      const sets = [];
+      const params = [];
+      let idx = 3;
+      for (const [key, value] of Object.entries(patch)) {
+        sets.push(`${key} = $${idx}`);
+        params.push(value);
+        idx += 1;
+      }
+      sets.push('updated_at = NOW()');
+      sets.push(`updated_by = $${idx}::uuid`);
+      params.push(actor.staff_user_id || null);
+      const updated = await client.query(
+        `UPDATE tenant_price_rules SET ${sets.join(', ')}
+          WHERE id = $1::uuid AND client_slug = $2
+          RETURNING *`,
+        [before.id, clientSlug, ...params],
+      );
+      after = updated.rows[0];
+    } else {
+      const displayName = patch.display_name || `${offeringKey} (${unit})`;
+      const amountCents = patch.amount_cents != null ? patch.amount_cents : 0;
+      const currency = patch.currency || 'EUR';
+      const insertCols = hasLoc
+        ? `(tenant_id, client_slug, location_id, item_type, item_code, display_name, currency, amount_cents, unit, active, updated_by)`
+        : `(tenant_id, client_slug, item_type, item_code, display_name, currency, amount_cents, unit, active, updated_by)`;
+      const insertVals = hasLoc
+        ? `($1, $2, $3, $4, $5, $6, $7, $8, $9, true, $10::uuid)`
+        : `($1, $2, $3, $4, $5, $6, $7, $8, true, $9::uuid)`;
+      const insertParams = hasLoc
+        ? ['sunset', clientSlug, loc, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null]
+        : ['sunset', clientSlug, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null];
+      const inserted = await client.query(
+        `INSERT INTO tenant_price_rules ${insertCols} VALUES ${insertVals} RETURNING *`,
+        insertParams,
+      );
+      after = inserted.rows[0];
+    }
+
+    await insertConfigAudit(client, {
+      tenantId: after.tenant_id,
+      clientSlug,
+      actor,
+      action: before ? 'update' : 'create',
+      entityType: 'price_rule',
+      entityId: after.id,
+      beforeJson: rowToAuditJson(before),
+      afterJson: rowToAuditJson(after),
+    });
+
+    await client.query('COMMIT');
+    return {
+      ok: true,
+      status: 200,
+      body: { success: true, price_rule: after, storage: 'db' },
+    };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+
 async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, actor }) {
+  const tablesExist = await adminConfigTablesExist(client);
   const parsedCfg = locationStore.parseConfigPriceId(ruleId);
+  const reqLoc = normalizeSunsetLocationId(locationId);
+
   if (parsedCfg) {
-    const reqLoc = normalizeSunsetLocationId(locationId);
     if (parsedCfg.locationId !== reqLoc) {
       return { ok: false, status: 403, body: { success: false, error: 'location_mismatch' } };
+    }
+    if (tablesExist) {
+      return upsertConfigPriceRule(client, {
+        clientSlug,
+        locationId: reqLoc,
+        category: parsedCfg.category,
+        offeringKey: parsedCfg.offering_key,
+        unit: parsedCfg.unit,
+        patch,
+        actor,
+      });
     }
     const result = locationStore.patchConfigPrice(
       reqLoc,
@@ -314,19 +446,19 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
       actor_email: actor.email || 'unknown',
       after_json: result.body.price_rule,
     });
-    return result;
+    return { ...result, body: { ...result.body, storage: 'location_store' } };
+  }
+
+  if (!tablesExist) {
+    return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
-  const loc = normalizeSunsetLocationId(locationId);
   await client.query('BEGIN');
   try {
-    const existing = await client.query(
-      hasLoc
-        ? `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 FOR UPDATE`
-        : `SELECT * FROM tenant_price_rules WHERE id = $1::uuid AND client_slug = $2 FOR UPDATE`,
-      hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
-    );
+    const existing = await findPriceRuleRow(client, {
+      clientSlug, locationId: reqLoc, ruleId, hasLoc,
+    });
     if (!existing.rows[0]) {
       await client.query('ROLLBACK');
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
@@ -364,7 +496,7 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
     });
 
     await client.query('COMMIT');
-    return { ok: true, status: 200, body: { success: true, price_rule: after } };
+    return { ok: true, status: 200, body: { success: true, price_rule: after, storage: 'db' } };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -372,9 +504,10 @@ async function patchPriceRule(client, { ruleId, clientSlug, locationId, patch, a
 }
 
 async function putLessonCapacityDefault(client, { clientSlug, locationId, capacity, actor }) {
-  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_capacity_rules');
-  if (!hasLoc) {
-    const loc = normalizeSunsetLocationId(locationId);
+  const tablesExist = await adminConfigTablesExist(client);
+  const loc = normalizeSunsetLocationId(locationId);
+
+  if (!tablesExist) {
     const result = locationStore.putLocationCapacity(loc, capacity);
     locationStore.appendLocationAudit(loc, {
       action: 'update',
@@ -383,21 +516,25 @@ async function putLessonCapacityDefault(client, { clientSlug, locationId, capaci
       actor_email: actor.email || 'unknown',
       after_json: result.body.lesson_capacity,
     });
-    return result;
+    return { ...result, body: { ...result.body, storage: 'location_store' } };
   }
 
-  const loc = normalizeSunsetLocationId(locationId);
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_capacity_rules');
   await client.query('BEGIN');
   try {
     const existing = await client.query(
-      `SELECT * FROM tenant_lesson_capacity_rules
-        WHERE client_slug = $1 AND location_id = $2 AND scope = 'default' AND active = true
-        FOR UPDATE`,
-      [clientSlug, loc],
+      hasLoc
+        ? `SELECT * FROM tenant_lesson_capacity_rules
+            WHERE client_slug = $1 AND location_id = $2 AND scope = 'default' AND active = true
+            FOR UPDATE`
+        : `SELECT * FROM tenant_lesson_capacity_rules
+            WHERE client_slug = $1 AND scope = 'default' AND active = true
+            FOR UPDATE`,
+      hasLoc ? [clientSlug, loc] : [clientSlug],
     );
 
     let after;
-    let before = existing.rows[0] || null;
+    const before = existing.rows[0] || null;
     const tenantId = before ? before.tenant_id : 'sunset';
 
     if (before) {
@@ -411,12 +548,20 @@ async function putLessonCapacityDefault(client, { clientSlug, locationId, capaci
       after = updated.rows[0];
     } else {
       const inserted = await client.query(
-        `INSERT INTO tenant_lesson_capacity_rules (
-           tenant_id, client_slug, location_id, scope, weekday, service_date, capacity,
-           active, updated_by
-         ) VALUES ($1, $2, $3, 'default', NULL, NULL, $4, true, $5::uuid)
-         RETURNING *`,
-        [tenantId, clientSlug, loc, capacity, actor.staff_user_id || null],
+        hasLoc
+          ? `INSERT INTO tenant_lesson_capacity_rules (
+               tenant_id, client_slug, location_id, scope, weekday, service_date, capacity,
+               active, updated_by
+             ) VALUES ($1, $2, $3, 'default', NULL, NULL, $4, true, $5::uuid)
+             RETURNING *`
+          : `INSERT INTO tenant_lesson_capacity_rules (
+               tenant_id, client_slug, scope, weekday, service_date, capacity,
+               active, updated_by
+             ) VALUES ($1, $2, 'default', NULL, NULL, $3, true, $4::uuid)
+             RETURNING *`,
+        hasLoc
+          ? [tenantId, clientSlug, loc, capacity, actor.staff_user_id || null]
+          : [tenantId, clientSlug, capacity, actor.staff_user_id || null],
       );
       after = inserted.rows[0];
     }
@@ -439,6 +584,7 @@ async function putLessonCapacityDefault(client, { clientSlug, locationId, capaci
       body: {
         success: true,
         lesson_capacity: { default_daily_cap: Number(after.capacity) },
+        storage: 'db',
       },
     };
   } catch (err) {
@@ -448,8 +594,10 @@ async function putLessonCapacityDefault(client, { clientSlug, locationId, capaci
 }
 
 async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, patch, actor }) {
-  if (locationStore.isConfigTimeId(ruleId)) {
-    const loc = normalizeSunsetLocationId(locationId);
+  const tablesExist = await adminConfigTablesExist(client);
+  const loc = normalizeSunsetLocationId(locationId);
+
+  if (locationStore.isConfigTimeId(ruleId) && !tablesExist) {
     const result = locationStore.patchLocationLessonTime(loc, ruleId, patch);
     locationStore.appendLocationAudit(loc, {
       action: 'update',
@@ -458,11 +606,26 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
       actor_email: actor.email || 'unknown',
       after_json: result.body.lesson_time_rule,
     });
-    return result;
+    return { ...result, body: { ...result.body, storage: 'location_store' } };
+  }
+
+  if (locationStore.isConfigTimeId(ruleId)) {
+    return {
+      ok: false,
+      status: 409,
+      body: {
+        success: false,
+        error: 'config_slot_use_db_uuid',
+        message: 'Lesson time edits require DB-backed slot ids after admin tables exist',
+      },
+    };
+  }
+
+  if (!tablesExist) {
+    return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
-  const loc = normalizeSunsetLocationId(locationId);
   await client.query('BEGIN');
   try {
     const existing = await client.query(
@@ -521,7 +684,7 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     });
 
     await client.query('COMMIT');
-    return { ok: true, status: 200, body: { success: true, lesson_time_rule: after } };
+    return { ok: true, status: 200, body: { success: true, lesson_time_rule: after, storage: 'db' } };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -541,4 +704,6 @@ module.exports = {
   patchPriceRule,
   putLessonCapacityDefault,
   patchLessonTimeRule,
+  buildDbItemCode,
+  mapBaselineUnitToDb,
 };
