@@ -37,6 +37,9 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/lib/sunset-customer-profile-writes.js',
   'scripts/lib/staff-conversation-queries.js',
   'scripts/lib/sunset-inbox-channel-config.js',
+  'scripts/lib/luna-guest-inbound-review-dry-run.js',
+  'scripts/lib/luna-hermes-whatsapp-thread-mirror.js',
+  'scripts/lib/luna-meta-whatsapp-webhook.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -965,6 +968,81 @@ if (fs.existsSync(locModPath)) {
   assert('conversation metadata defaults to sunset-somo', locSrc.includes("metadata->>'location_id'") && locSrc.includes('sunset-somo'));
 }
 assert('proposed migration 024 documented', fs.existsSync(path.join(ROOT, 'database/migrations/024_sunset_conversation_location_id_PROPOSED.sql')));
+
+
+// ── 31. Sunset inbound channel → school routing ─────────────────────────────
+
+console.log('\n[31] Sunset inbound channel → school routing');
+
+const channelResolverPath = path.join(ROOT, 'scripts/lib/sunset-inbox-channel-config.js');
+const dryRunPath = path.join(ROOT, 'scripts/lib/luna-guest-inbound-review-dry-run.js');
+const hermesMirrorPath = path.join(ROOT, 'scripts/lib/luna-hermes-whatsapp-thread-mirror.js');
+const metaWebhookPath = path.join(ROOT, 'scripts/lib/luna-meta-whatsapp-webhook.js');
+
+assert('channel resolver module present', fs.existsSync(channelResolverPath));
+if (fs.existsSync(channelResolverPath)) {
+  const channelCfg = require('./lib/sunset-inbox-channel-config');
+  const channelMap = channelCfg.resolveSunsetInboxChannelMap();
+  assert('two channel config entries exist', Object.keys(channelMap).length === 2
+    && channelMap['sunset-somo'] && channelMap['sunset-sardinero']);
+
+  const testEnv = {
+    SUNSET_SOMO_WHATSAPP_NUMBER: '+34600111111',
+    SUNSET_SARDINERO_WHATSAPP_NUMBER: '+34600222222',
+    SUNSET_SOMO_INBOX_EMAIL: 'somo-inbox@example.test',
+    SUNSET_SARDINERO_INBOX_EMAIL: 'sardi-inbox@example.test',
+    SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID: 'somo-meta-phone-id',
+    SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID: 'sardi-meta-phone-id',
+  };
+
+  const somoWa = channelCfg.resolveSunsetLocationFromWhatsAppNumber('+34600111111', testEnv);
+  const sardiWa = channelCfg.resolveSunsetLocationFromWhatsAppNumber('34600222222', testEnv);
+  assert('WhatsApp Somo number maps to sunset-somo', somoWa && somoWa.location_id === 'sunset-somo'
+    && somoWa.channel_location_source === 'whatsapp_number' && somoWa.fallback !== true);
+  assert('WhatsApp El Sardi number maps to sunset-sardinero', sardiWa && sardiWa.location_id === 'sunset-sardinero'
+    && sardiWa.channel_location_source === 'whatsapp_number');
+
+  const somoEmail = channelCfg.resolveSunsetLocationFromInboxEmail('SOMO-INBOX@example.test', testEnv);
+  const sardiEmail = channelCfg.resolveSunsetLocationFromInboxEmail('sardi-inbox@example.test', testEnv);
+  assert('email Somo inbox maps to sunset-somo', somoEmail && somoEmail.location_id === 'sunset-somo'
+    && somoEmail.channel_location_source === 'email');
+  assert('email El Sardi inbox maps to sunset-sardinero', sardiEmail && sardiEmail.location_id === 'sunset-sardinero');
+
+  const unknown = channelCfg.resolveSunsetLocationFromInboundChannel({ channel: 'whatsapp' }, testEnv);
+  assert('unknown channel defaults to sunset-somo with fallback', unknown.location_id === 'sunset-somo'
+    && unknown.channel_location_source === 'default' && unknown.fallback === true);
+
+  const merged = channelCfg.mergeSunsetInboundLocationMetadata(
+    { channel: 'whatsapp' },
+    { channel: 'whatsapp', whatsapp_number: '+34600222222' },
+    'sunset',
+    testEnv,
+  );
+  assert('conversation upsert metadata sets location_id', merged.location_id === 'sunset-sardinero'
+    && merged.channel_location_source === 'whatsapp_number');
+  assert('inbox filter would isolate routed conversation',
+    require('./lib/sunset-school-locations').resolveConversationLocationId(merged) === 'sunset-sardinero');
+  assert('wolfhouse inbound merge unchanged', channelCfg.mergeSunsetInboundLocationMetadata(
+    { channel: 'whatsapp' },
+    { channel: 'whatsapp', whatsapp_number: '+34600222222' },
+    'wolfhouse-somo',
+    testEnv,
+  ).location_id == null);
+}
+
+if (fs.existsSync(dryRunPath)) {
+  const dryRunSrc = fs.readFileSync(dryRunPath, 'utf8');
+  assert('inbound review dry-run merges sunset location', dryRunSrc.includes('mergeSunsetInboundLocationMetadata'));
+}
+if (fs.existsSync(hermesMirrorPath)) {
+  const hermesSrc = fs.readFileSync(hermesMirrorPath, 'utf8');
+  assert('hermes mirror upsert merges sunset location', hermesSrc.includes('mergeSunsetInboundLocationMetadata'));
+}
+if (fs.existsSync(metaWebhookPath)) {
+  const metaSrc = fs.readFileSync(metaWebhookPath, 'utf8');
+  assert('meta webhook exposes receiving whatsapp number', metaSrc.includes('display_phone_number')
+    && metaSrc.includes('receiving_whatsapp_number'));
+}
 
 
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────

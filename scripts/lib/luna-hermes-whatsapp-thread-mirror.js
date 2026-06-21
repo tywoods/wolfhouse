@@ -9,6 +9,10 @@ const {
   persistHermesLunaInboundThreadMessage,
   persistHermesLunaOutboundThreadMessage,
 } = require('./luna-staff-inbox-thread-message');
+const {
+  mergeSunsetInboundLocationMetadata,
+  extractSunsetChannelHintsFromNormalized,
+} = require('./sunset-inbox-channel-config');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -53,6 +57,10 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
   const whatsappMessageId = trimStr(src.whatsapp_message_id || src.wamid || src.inbound_message_id) || null;
   const idempotencyKey = trimStr(src.idempotency_key) || null;
   const contactName = trimStr(src.contact_name || src.profile_name) || null;
+  const receivingWhatsappNumber = trimStr(
+    src.receiving_whatsapp_number || src.display_phone_number || src.whatsapp_number,
+  ) || null;
+  const phoneNumberId = trimStr(src.phone_number_id) || null;
   const needsHuman = toBool(src.needs_human);
   const handoffReason = trimStr(src.handoff_reason || src.needs_human_reason) || null;
 
@@ -72,30 +80,42 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
       whatsapp_message_id: whatsappMessageId,
       idempotency_key: idempotencyKey,
       contact_name: contactName,
+      receiving_whatsapp_number: receivingWhatsappNumber,
+      phone_number_id: phoneNumberId,
       needs_human: needsHuman,
       handoff_reason: handoffReason,
     },
   };
 }
 
-async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, contactName, previewText) {
+async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, contactName, previewText, channelHints) {
   const phone = normalizeGuestPhone(guestPhone);
   const clientR = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
   if (!clientR.rows[0]) return null;
   const clientId = clientR.rows[0].id;
   const preview = trimStr(previewText) || trimStr(contactName) || phone;
+  const metadata = mergeSunsetInboundLocationMetadata(
+    { channel: 'whatsapp', hermes_luna: true },
+    extractSunsetChannelHintsFromNormalized({
+      channel: 'whatsapp',
+      receiving_whatsapp_number: channelHints && channelHints.receiving_whatsapp_number,
+      phone_number_id: channelHints && channelHints.phone_number_id,
+    }),
+    clientSlug,
+  );
   const ins = await pg.query(
     `INSERT INTO conversations (
        client_id, phone, status, bot_mode, conversation_stage, metadata, last_message_preview
      ) VALUES (
        $1, $2, 'open'::conversation_status, 'bot'::bot_mode, 'guest_whatsapp_inbound',
-       '{"channel":"whatsapp","hermes_luna":true}'::jsonb, $3
+       $3::jsonb, $4
      )
      ON CONFLICT (client_id, phone) DO UPDATE SET
+       metadata = conversations.metadata || EXCLUDED.metadata,
        last_message_preview = EXCLUDED.last_message_preview,
        updated_at = NOW()
      RETURNING id::text AS conversation_id`,
-    [clientId, phone, preview.slice(0, 500)],
+    [clientId, phone, JSON.stringify(metadata), preview.slice(0, 500)],
   );
   return ins.rows[0] && ins.rows[0].conversation_id;
 }
@@ -108,6 +128,10 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input) {
     i.guest_phone,
     i.contact_name,
     i.message_text,
+    {
+      receiving_whatsapp_number: i.receiving_whatsapp_number,
+      phone_number_id: i.phone_number_id,
+    },
   );
   if (!conversationId) {
     return { ok: false, persisted: false, reason: 'conversation_not_found' };
