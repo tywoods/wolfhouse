@@ -6,6 +6,10 @@
  */
 
 const crypto = require('crypto');
+const {
+  normalizeSunsetLocationId,
+  resolveRecordLocationId,
+} = require('./sunset-school-locations');
 const { resolveTenantBusinessConfigAsync, SUNSET_ADMIN_CLIENT } = require('./tenant-business-config');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
@@ -226,8 +230,16 @@ async function createSunsetScheduleStripeLink(pg, opts) {
   if (!loaded) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
-  const { booking } = loaded;
+  const { booking, services } = loaded;
   const meta = parseMeta(booking.metadata);
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const recordLocationId = resolveRecordLocationId(
+    parseMeta((services[0] && services[0].metadata) || {}),
+    meta,
+  );
+  if (recordLocationId !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
   if (meta.source !== 'staff_manual_schedule' && !meta.staff_manual_schedule) {
     return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_staff_manual_schedule_bookings' } };
   }
