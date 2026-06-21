@@ -130,6 +130,7 @@ function mapRouterToQuoteFields(routerResult, context) {
   const nights = computeStayNights(extracted.check_in, extracted.check_out);
   return {
     client_slug: String(ctx.client_slug || DEFAULT_CLIENT).trim(),
+    location_id: ctx.location_id || null,
     check_in: extracted.check_in || null,
     check_out: extracted.check_out || null,
     guest_count: extracted.guest_count != null ? Number(extracted.guest_count) : null,

@@ -1701,8 +1701,12 @@ async function handleAskLuna(req, res) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client_slug');
 
   // ── Resolve intent (deterministic → optional AI registry classifier) ───────
+  const askLunaLocationId = clientSlug === 'sunset'
+    ? normalizeSunsetLocationId(body.location_id || body.location)
+    : null;
   const result = await executeStaffAskLunaQuestion({
     client_slug: clientSlug,
+    location_id: askLunaLocationId,
     question,
     source,
     staff_access: staffAccess,

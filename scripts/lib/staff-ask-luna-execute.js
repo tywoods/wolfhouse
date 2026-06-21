@@ -86,6 +86,12 @@ const {
   SURF_FORECAST_TOMORROW_KEY,
   ASK_LUNA_SURF_FORECAST_UNAVAILABLE_ANSWER,
 } = require('./staff-stormglass-forecast');
+const {
+  isSunsetClientSlug,
+  buildSunsetAskLunaQueryParams,
+  DEFAULT_SUNSET_LOCATION_ID,
+} = require('./sunset-luna-school-context');
+const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 const MAX_ROWS = 500;
@@ -983,6 +989,9 @@ function formatAnswer(intentKey, rows, ctx = {}) {
 async function executeStaffAskLunaQuestion(input, context = {}) {
   const started = Date.now();
   const clientSlug = String((input && input.client_slug) || DEFAULT_CLIENT).trim();
+  const locationId = isSunsetClientSlug(clientSlug)
+    ? normalizeSunsetLocationId((input && input.location_id) || DEFAULT_SUNSET_LOCATION_ID)
+    : null;
   const question = String((input && input.question) || '').trim();
   const source = String((input && input.source) || 'staff_portal').trim();
   const staffAccess = (input && input.staff_access) || 'session';
@@ -1028,6 +1037,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: 'unsupported_intent',
@@ -1064,6 +1074,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: OPS_MULTI_TOOL_INTENT,
@@ -1092,6 +1103,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: intentKey,
@@ -1140,6 +1152,11 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
         sql = ASK_LUNA_LOCAL_QUERY[intentKey]();
         queryParams = [clientSlug, today];
       }
+      if (isSunsetClientSlug(clientSlug) && intentKey.startsWith('services.')) {
+        const scoped = buildSunsetAskLunaQueryParams(clientSlug, queryParams, locationId);
+        sql = `${sql.trim()}${scoped.sqlSuffix}`;
+        queryParams = scoped.params;
+      }
       localRows = await runPg(async (pgClient) => {
         const result = await pgClient.query(sql, queryParams);
         return result.rows;
@@ -1155,6 +1172,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: intentKey,
@@ -1182,6 +1200,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: intentKey,
@@ -1209,6 +1228,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: intentKey,
@@ -1229,6 +1249,7 @@ async function executeStaffAskLunaQuestion(input, context = {}) {
     return {
       success: true,
       client_slug: clientSlug,
+      location_id: locationId,
       source,
       staff_access: staffAccess,
       intent: intentKey,

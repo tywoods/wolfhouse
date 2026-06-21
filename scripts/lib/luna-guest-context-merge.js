@@ -152,6 +152,9 @@ function normalizeGuestContextForChain(guestContext) {
       out.quote = { ...out.quote, payment_choice_needed: false };
     }
   }
+  if (out.school_context && typeof out.school_context === 'object') {
+    out.location_id = out.location_id || out.school_context.location_id || null;
+  }
   return restoreBookingLaneForActiveQuote(out);
 }
 

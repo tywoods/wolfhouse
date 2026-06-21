@@ -117,10 +117,19 @@ const {
 } = require('./luna-booking-addons-policy');
 const { buildReactiveServicesObservability } = require('./luna-booking-reactive-services-policy');
 const { runGuestWritePipeline } = require('./luna-guest-write-pipeline');
+const {
+  isSunsetClientSlug,
+  attachSunsetSchoolToGuestContext,
+  enrichToolContextWithSunsetSchool,
+} = require('./sunset-luna-school-context');
+const {
+  runSunsetGuestSchoolTurnDryRun,
+} = require('./luna-guest-sunset-school-turn');
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
+const SUNSET_CLIENT = 'sunset';
 
-const SUPPORTED_CLIENT_SLUGS = new Set([DEFAULT_CLIENT]);
+const SUPPORTED_CLIENT_SLUGS = new Set([DEFAULT_CLIENT, SUNSET_CLIENT]);
 const SUPPORTED_CHANNELS = new Set(['whatsapp', 'dry_run', 'harness', 'staff_review']);
 
 const REUSED_CHAIN_HELPERS = Object.freeze([
@@ -918,6 +927,28 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
   const inp = input || {};
   const ctx = context || {};
   const gate = evaluateAutomationGate(inp, ctx);
+
+  const clientSlugForRoute = trimStr(inp.client_slug) || DEFAULT_CLIENT;
+  if (isSunsetClientSlug(clientSlugForRoute)) {
+    if (gate.gate_status !== 'allowed_dry_run') {
+      return buildOrchestratorResponse({
+        automation_gate: gate,
+        result: null,
+        availability: null,
+        quote: null,
+        payment_choice: null,
+        hold_payment_draft_plan: null,
+        proposed_next_action: resolveProposedNextAction({ gate }),
+        proposed_luna_reply: buildGateBlockedReply(gate),
+      });
+    }
+    const sunsetOut = await runSunsetGuestSchoolTurnDryRun(
+      { ...inp, conversation_metadata: inp.conversation_metadata },
+      ctx,
+      gate,
+    );
+    return buildOrchestratorResponse(sunsetOut);
+  }
 
   if (gate.gate_status !== 'allowed_dry_run') {
     return buildOrchestratorResponse({

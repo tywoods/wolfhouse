@@ -16,6 +16,11 @@ const {
   mergeSunsetInboundLocationMetadata,
   extractSunsetChannelHintsFromNormalized,
 } = require('./sunset-inbox-channel-config');
+const {
+  attachSunsetSchoolToGuestContext,
+  slimSunsetSchoolContextForChain,
+  isSunsetClientSlug,
+} = require('./sunset-luna-school-context');
 
 const INBOUND_REVIEW_ROUTE = '/staff/bot/guest-inbound-review-dry-run';
 
@@ -222,6 +227,9 @@ function slimGuestContextForNextTurn(review, liveStagingPatch) {
     ...(r.guest_context_chain && typeof r.guest_context_chain === 'object' ? r.guest_context_chain : {}),
     ...(liveStagingPatch && typeof liveStagingPatch === 'object' ? liveStagingPatch : {}),
   };
+  if (ctx.school_context) {
+    ctx.school_context = slimSunsetSchoolContextForChain(ctx.school_context) || ctx.school_context;
+  }
   return normalizeGuestContextForChain(ctx);
 }
 
@@ -641,7 +649,14 @@ async function runGuestInboundReviewDryRun(body, context) {
   }
 
   const storedGuestContext = existingMeta.luna_guest_context || null;
-  const mergedGuestContext = mergeGuestContext(storedGuestContext, normalized.guest_context);
+  let mergedGuestContext = mergeGuestContext(storedGuestContext, normalized.guest_context);
+  if (isSunsetClientSlug(normalized.client_slug)) {
+    mergedGuestContext = attachSunsetSchoolToGuestContext(mergedGuestContext, {
+      client_slug: normalized.client_slug,
+      conversation_metadata: existingMeta,
+      env: e,
+    });
+  }
   const automationGateContext = await buildAutomationGateContext(pg, normalized, convRow);
 
   const orchOut = await runGuestAutomationOrchestratorDryRun({
@@ -652,6 +667,7 @@ async function runGuestInboundReviewDryRun(body, context) {
     guest_name:              normalized.guest_name,
     contact_name:            normalized.contact_name,
     conversation_id:         convRow && convRow.conversation_id,
+    conversation_metadata:   existingMeta,
     language_hint:           normalized.language_hint,
     guest_context:           mergedGuestContext,
     reference_date:          normalized.reference_date,
