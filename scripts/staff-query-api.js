@@ -17125,7 +17125,6 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
-    <div class="portal-schedule-create-field"><label><input id="ps-create-needs-reply" type="checkbox"> <span data-i18n="schedule.create.needsReply">Needs reply</span></label></div>
     <div class="portal-schedule-create-actions">
       <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
       <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>

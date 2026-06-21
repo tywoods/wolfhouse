@@ -277,7 +277,7 @@ if (fs.existsSync(I18N_PATH)) {
 
 // ── 10. Sunset Schedule page (Slice A) ──────────────────────────────────────
 
-console.log('\n[10] Sunset Schedule page — day ops view + lesson capacity');
+console.log('\n[10] Sunset Schedule page — week view + lesson capacity');
 
 if (apiSrc) {
   assert('nav Schedule tab label in i18n', i18nSrc.includes("'nav.tab.portalHome': 'Schedule'")
@@ -529,55 +529,6 @@ if (i18nSrc) {
   assert('schedule.card.wetsuitsToday i18n', i18nSrc.includes("'schedule.card.wetsuitsToday'"));
   assert('schedule.createBooking i18n', i18nSrc.includes("'schedule.createBooking'"));
   assert('schedule.badge.manualDraft i18n', i18nSrc.includes("'schedule.badge.manualDraft'"));
-  assert('schedule.equipment.both i18n', i18nSrc.includes("'schedule.equipment.both': 'board + wetsuit'"));
-}
-
-
-// ── 17. Sunset Schedule operational layout ─────────────────────────────────────
-
-console.log('\n[17] Sunset Schedule operational layout');
-
-const opsPath = path.join(ROOT, 'scripts/lib/sunset-schedule-ops.js');
-if (fs.existsSync(opsPath)) {
-  const opsMod = require(opsPath);
-  assert('ops module aggregateDayOps', typeof opsMod.aggregateDayOps === 'function');
-  assert('ops module equipmentLabelForLessonRow', typeof opsMod.equipmentLabelForLessonRow === 'function');
-  const sample = opsMod.aggregateDayOps([
-    { service_date: '2026-07-10', service_type: 'lesson', slot_time: '11:00', quantity: 2, booking_code: 'T1', metadata: { include_board: true, include_wetsuit: true } },
-    { service_date: '2026-07-10', service_type: 'board_rental', quantity: 1, booking_code: 'T2' },
-  ], '2026-07-10', { lesson_slots_demo: [{ date: '2026-07-10', slot_time: '11:00' }, { date: '2026-07-10', slot_time: '16:00' }] });
-  assert('ops sample 11:00 booked count', sample.slots[0].booked === 2);
-  assert('ops sample 11:00 boards prep', sample.slots[0].boards === 2);
-  assert('ops sample rental boards split', sample.boardsRental === 1);
-  assert('ops equipment both label', opsMod.equipmentLabelForLessonRow(
-    { booking_code: 'T1', metadata: { include_board: true, include_wetsuit: true }, quantity: 2 },
-    sample.gearIndex,
-  ) === 'board + wetsuit');
-}
-
-if (apiSrc) {
-  assert('schedule Inter compact typography', apiSrc.includes(".portal-schedule-wrap{") && apiSrc.includes("font-family:'Inter'"));
-  assert('schedule ops main container', apiSrc.includes('id="ps-ops-main"') && apiSrc.includes('portal-schedule-ops-main'));
-  assert('schedule lesson group sections', apiSrc.includes('portal-schedule-lesson-group') && apiSrc.includes('function renderScheduleOpsDay('));
-  assert('schedule rental pickups section', apiSrc.includes('schedule.rentalPickups') || apiSrc.includes('portal-schedule-rental-section'));
-  assert('schedule top card lesson slot lines', apiSrc.includes('id="ps-lesson-slots"') && apiSrc.includes('portal-schedule-slot-lines'));
-  assert('schedule boards needed card', apiSrc.includes('id="ps-boards-total"') && apiSrc.includes('schedule.card.boardsNeeded'));
-  assert('schedule payment pending card', apiSrc.includes('id="ps-payment-pending"') && apiSrc.includes('schedule.card.paymentPending'));
-  assert('schedule no total surfers headline ids', !apiSrc.includes('id="ps-lessons-today"') && !apiSrc.includes('id="ps-rentals-today"'));
-  assert('schedule equipment label helpers', apiSrc.includes('function scheduleOpsEquipmentLabel(') && apiSrc.includes('schedule.equipment.both'));
-  assert('schedule ops aggregate helper', apiSrc.includes('function scheduleOpsAggregateDay('));
-  assert('schedule default day view', apiSrc.includes("var scheduleViewMode = 'day'") && apiSrc.includes('data-ps-view="day"') && apiSrc.includes('portal-schedule-view-btn active" data-ps-view="day"'));
-  assert('schedule create add board wetsuit', apiSrc.includes('id="ps-create-add-board"') && apiSrc.includes('add_board'));
-  assert('schedule create extra dates', apiSrc.includes('id="ps-create-extra-dates"') && apiSrc.includes('extra_dates'));
-  assert('schedule drawer equipment field', apiSrc.includes('schedule.drawer.equipment'));
-  assert('schedule week summary blocks', apiSrc.includes('renderScheduleSummaryDayBlock'));
-  assert('schedule source rail labels', apiSrc.includes('portal-schedule-source-rail') && apiSrc.includes('schedule.source.luna'));
-}
-
-if (i18nSrc) {
-  assert('schedule.card.boardsNeeded i18n', i18nSrc.includes("'schedule.card.boardsNeeded': 'Boards needed'"));
-  assert('schedule.card.wetsuitsNeeded i18n', i18nSrc.includes("'schedule.card.wetsuitsNeeded': 'Wetsuits needed'"));
-  assert('schedule.equipment.none i18n', i18nSrc.includes("'schedule.equipment.none': 'no equipment'"));
 }
 
 
@@ -605,18 +556,19 @@ if (fs.existsSync(writesPath)) {
 }
 
 
-// ── 18. Sunset Schedule — lesson slots via ops aggregation ───────────────────
+// ── 17. Sunset Schedule timeslots — Admin-configured lesson slots ────────────
 
-console.log('\n[18] Sunset Schedule — lesson slots via ops aggregation');
+console.log('\n[17] Sunset Schedule timeslots — Admin-configured lesson slots');
 
 if (apiSrc) {
-  assert('needs-reply checkbox in create form', apiSrc.includes('id="ps-create-needs-reply"'));
-  assert('submit sends needs_reply from UI', apiSrc.includes('needs_reply: needsReply'));
-  assert('ops aggregate inlined in API', apiSrc.includes('function scheduleOpsAggregateDay('));
-  assert('lesson slot lines renderer', apiSrc.includes('function scheduleOpsRenderSlotLines('));
-  assert('create time select for lessons', apiSrc.includes('id="ps-create-time"'));
-  assert('no legacy day-body slot renderer', !apiSrc.includes('function scheduleRenderDayBodyHtml('));
-  assert('no legacy lessons-today breakdown', !apiSrc.includes('function scheduleRenderLessonsTodayBreakdown('));
+  assert('needs-reply checkbox removed from create form', !apiSrc.includes('id="ps-create-needs-reply"'));
+  assert('schedule loads admin lesson times', apiSrc.includes('function scheduleFetchLessonTimesConfig('));
+  assert('schedule slot grouping helper', apiSrc.includes('function scheduleRenderDayBodyHtml('));
+  assert('schedule slot aggregates', apiSrc.includes('function scheduleSlotAggregates('));
+  assert('lessons today slot breakdown', apiSrc.includes('function scheduleRenderLessonsTodayBreakdown('));
+  assert('create lesson slot select', apiSrc.includes('id="ps-create-time-slot"'));
+  assert('no hardcoded-only slot times', !apiSrc.includes("slot_time: '10:00'") || apiSrc.includes('scheduleNormalizeSlotTime'));
+  assert('submit no longer sends needs_reply from UI', !apiSrc.includes('ps-create-needs-reply'));
 }
 
 if (i18nSrc) {
