@@ -65,6 +65,9 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     client_slug: trimStr(n.client_slug) || 'wolfhouse-somo',
     channel: 'whatsapp',
     phone_number_id: n.phone_number_id != null ? trimStr(n.phone_number_id) : null,
+    receiving_whatsapp_number: n.receiving_whatsapp_number != null
+      ? trimStr(n.receiving_whatsapp_number)
+      : (n.display_phone_number != null ? trimStr(n.display_phone_number) : null),
     guest_phone: guestPhone,
     contact_name: contactName || null,
     guest_name: contactName || null,

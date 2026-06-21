@@ -12,6 +12,10 @@ const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
 const { getPauseState } = require('./staff-bot-pause-sql');
 const { lookupStaffPhoneAccess } = require('./staff-phone-access');
 const { evaluateOpenPhoneTestingStaffRoutingBypass } = require('./luna-open-phone-testing-gate');
+const {
+  mergeSunsetInboundLocationMetadata,
+  extractSunsetChannelHintsFromNormalized,
+} = require('./sunset-inbox-channel-config');
 
 const INBOUND_REVIEW_ROUTE = '/staff/bot/guest-inbound-review-dry-run';
 
@@ -68,6 +72,12 @@ function validateInboundReviewBody(body) {
       guest_context: src.guest_context,
       guest_name: trimStr(src.guest_name || src.contact_name) || null,
       contact_name: trimStr(src.contact_name || src.guest_name) || null,
+      phone_number_id: src.phone_number_id != null ? trimStr(src.phone_number_id) || null : null,
+      receiving_whatsapp_number: src.receiving_whatsapp_number != null
+        ? trimStr(src.receiving_whatsapp_number) || null
+        : (src.display_phone_number != null ? trimStr(src.display_phone_number) || null : null),
+      inbox_email: src.inbox_email != null ? trimStr(src.inbox_email) || null : null,
+      to_email: src.to_email != null ? trimStr(src.to_email) || null : null,
       automation_gate_context: src.automation_gate_context,
     },
   };
@@ -456,15 +466,19 @@ async function persistInboundReviewArtifact(pg, {
     ...(openPhoneMeta || {}),
   };
 
-  const nextMeta = mergeOpenPhoneTestingIntoMetadata({
-    ...existingMeta,
-    source:              'luna_inbound_review_dry_run',
-    channel:             normalized.channel,
-    luna_guest_context:  slimGuestContext,
-    luna_inbound_reviews: inboundReviews,
-    last_inbound_message_id: normalized.inbound_message_id,
-    last_inbound_at:     normalized.received_at || new Date().toISOString(),
-  }, automationGateContext || normalized.automation_gate_context);
+  const nextMeta = mergeSunsetInboundLocationMetadata(
+    mergeOpenPhoneTestingIntoMetadata({
+      ...existingMeta,
+      source:              'luna_inbound_review_dry_run',
+      channel:             normalized.channel,
+      luna_guest_context:  slimGuestContext,
+      luna_inbound_reviews: inboundReviews,
+      last_inbound_message_id: normalized.inbound_message_id,
+      last_inbound_at:     normalized.received_at || new Date().toISOString(),
+    }, automationGateContext || normalized.automation_gate_context),
+    extractSunsetChannelHintsFromNormalized(normalized),
+    normalized.client_slug,
+  );
 
   if (row && row.conversation_id) {
     const upd = await pg.query(
