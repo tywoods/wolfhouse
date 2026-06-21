@@ -188,10 +188,8 @@ function scheduleReadDrawerEditPayload(){
   return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
 }
 
-
-function scheduleWireEditableDrawer(row, ctx){
+function scheduleUpdateDrawerPaymentFromContext(ctx){
   if (!ctx || !ctx.payment) return;
-  var pay = ctx.payment;
   var box = el('ps-drawer-payment-box');
   if (!box) return;
   var tmp = document.createElement('div');

@@ -20148,9 +20148,8 @@ function scheduleReadDrawerEditPayload(){
 }
 
 
-function scheduleWireEditableDrawer(row, ctx){
+function scheduleUpdateDrawerPaymentFromContext(ctx){
   if (!ctx || !ctx.payment) return;
-  var pay = ctx.payment;
   var box = el('ps-drawer-payment-box');
   if (!box) return;
   var tmp = document.createElement('div');
