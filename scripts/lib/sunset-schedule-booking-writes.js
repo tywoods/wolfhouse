@@ -378,7 +378,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           needs_reply: input.needs_reply,
           created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
           idempotency_key: input.idempotency_key,
-        };
+        }, writeLocationId);
         const row = await insertServiceRecord(pg, [
           clientSlug,
           bookingId,
@@ -396,7 +396,6 @@ async function createSunsetScheduleBooking(pg, opts) {
     }
 
     await pg.query('COMMIT');
-    const primary = savedRows.find((r) => r.service_type === input.booking_type) || savedRows[0];
     return {
       ok: true,
       status: 201,
