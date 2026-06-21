@@ -1,0 +1,18 @@
+-- PROPOSED: school-scoped Sunset conversations (do not apply without explicit approval)
+-- Staging may use conversations.metadata->>'location_id' until this is approved.
+--
+-- Adds optional location_id on conversations for indexed school inbox filtering.
+-- Messages inherit school via conversation_id (no message.location_id required for v1).
+
+-- ALTER TABLE conversations
+--   ADD COLUMN IF NOT EXISTS location_id TEXT NOT NULL DEFAULT 'sunset-somo';
+--
+-- CREATE INDEX IF NOT EXISTS idx_conversations_client_location_updated
+--   ON conversations (client_id, location_id, updated_at DESC)
+--   WHERE status IN ('open', 'on_hold');
+--
+-- Backfill from metadata:
+-- UPDATE conversations conv
+--    SET location_id = COALESCE(conv.metadata->>'location_id', 'sunset-somo')
+--   FROM clients c
+--  WHERE c.id = conv.client_id AND c.slug = 'sunset';

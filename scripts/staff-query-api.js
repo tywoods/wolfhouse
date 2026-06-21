@@ -224,6 +224,10 @@ const {
   getSunsetScheduleGearOnDateQuery,
 } = require('./lib/sunset-schedule-queries');
 const {
+  resolveSunsetInboxChannelConfig,
+  attachConversationChannelMetadata,
+} = require('./lib/sunset-inbox-channel-config');
+const {
   updateSunsetCustomerProfile,
 } = require('./lib/sunset-customer-profile-writes');
 const {
@@ -7346,18 +7350,23 @@ async function handleBookingCreateConversation(req, res, user) {
       );
       if (clientRes.rows.length === 0) return { booking: bk, clientMissing: true };
 
-      const metadata = {
+      const metadata = attachConversationChannelMetadata({
         source:           'staff_manual',
         channel:          'manual',
         idempotency_key:  idempotencyKey,
         reason,
         created_from:     'booking_drawer',
-      };
+      }, clientSlug === SUNSET_CLIENT_SLUG
+        ? normalizeSunsetLocationId(body.location_id || body.location)
+        : null);
       const sessionState = {
         source:                'staff_manual',
         channel:               'manual',
         current_hold_booking_code: bk.booking_code,
       };
+      if (clientSlug === SUNSET_CLIENT_SLUG) {
+        sessionState.location_id = metadata.location_id;
+      }
 
       const ins = await pg.query(
         `INSERT INTO conversations (
@@ -17255,6 +17264,10 @@ ${getStaffPortalI18nBootstrapScript()}
           <select id="c-client" title="Company" class="inbox-client-select"></select>
           <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
         </div>
+        <div class="portal-inbox-school-context" id="inbox-school-context" style="display:none;margin:8px 0 0;font-size:13px;color:var(--text-2)">
+          <span data-i18n="inbox.school.context">Inbox for:</span>
+          <span id="inbox-school-label">—</span>
+        </div>
         <div class="inbox-filters">
           <button type="button" class="inbox-filter-btn active" data-inbox-filter="all" id="inbox-filter-all" data-i18n="inbox.filter.all">All Conversations</button>
           <button type="button" class="inbox-filter-btn" data-inbox-filter="needs-human" id="inbox-filter-needs-human"><span data-i18n="inbox.filter.needsHuman">Needs Human</span> <span class="hq-count" id="hq-badge">0</span></button>
@@ -18203,13 +18216,17 @@ function surfInboxDemoThreadsForProfile(profile){
       handoff_reason: row.handoff_reason || null,
       luna_paused: !!row.luna_paused,
       last_activity_label: row.relative_time || null,
+      location_id: row.location_id || 'sunset-somo',
       _is_demo_preview: true,
     };
   });
 }
 
 function mergeSurfInboxConversations(liveRows, profile){
-  var mocks = surfInboxDemoThreadsForProfile(profile);
+  var activeLoc = getSunsetLocation();
+  var mocks = surfInboxDemoThreadsForProfile(profile).filter(function(row){
+    return (row.location_id || 'sunset-somo') === activeLoc;
+  });
   var live = (liveRows || []).map(function(row){
     if (row.channel) return row;
     return Object.assign({}, row, { channel: 'whatsapp' });
@@ -18596,6 +18613,50 @@ function sunsetLocationQuerySuffix(){
   return loc ? ('&location=' + encodeURIComponent(loc)) : '';
 }
 
+function inboxClientQuery(){
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset'){
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
+}
+
+function getSunsetLocationLabel(loc){
+  var id = loc || getSunsetLocation();
+  if (id === 'sunset-sardinero') return portalT('school.sunsetSardinero');
+  return portalT('school.sunsetSomo');
+}
+
+function renderInboxSchoolContext(channelConfig){
+  var wrap = el('inbox-school-context');
+  var label = el('inbox-school-label');
+  if (!wrap || !label) return;
+  if (getClient() !== 'sunset' || !getPortalProfile(getClient()).is_surf_vertical){
+    wrap.style.display = 'none';
+    return;
+  }
+  var text = (channelConfig && channelConfig.display_name)
+    ? channelConfig.display_name
+    : getSunsetLocationLabel();
+  label.textContent = text;
+  wrap.style.display = 'block';
+}
+
+function inboxEmptyListMessage(){
+  var profile = getPortalProfile(getClient());
+  if (profile.is_surf_vertical && getClient() === 'sunset'){
+    var school = getSunsetLocationLabel();
+    if (inboxFilter === 'needs-human') return portalT('inbox.empty.listNeedsHuman.surf');
+    if (inboxFilter === 'email') return portalT('inbox.empty.listEmail');
+    if (inboxFilter === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
+    return portalT('inbox.empty.list.school.surf').replace('{school}', school);
+  }
+  if (inboxFilter === 'needs-human') return portalT('inbox.empty.listNeedsHuman');
+  if (inboxFilter === 'email') return portalT('inbox.empty.listEmail');
+  if (inboxFilter === 'whatsapp') return portalT('inbox.empty.listWhatsapp');
+  return portalT('inbox.empty.list');
+}
+
 function syncSunsetSchoolSwitcher(){
   var wrap = el('staff-school-switch');
   if (!wrap) return;
@@ -18616,6 +18677,11 @@ function setSunsetLocation(locationId){
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
     if (el('tab-admin') && el('tab-admin').classList.contains('active')) loadAdminTab();
+    if (el('tab-conversations') && el('tab-conversations').classList.contains('active')) {
+      inboxConversationsCache = null;
+      selectedConvId = null;
+      loadInbox();
+    }
   }
 }
 
@@ -18680,9 +18746,19 @@ function portalT(key){
 }
 
 function inboxEmptyDetailHtml(){
+  var subKey = 'inbox.empty.sub';
+  if (getPortalProfile(getClient()).is_surf_vertical && getClient() === 'sunset') {
+    subKey = 'inbox.empty.sub.school.surf';
+  } else if (getPortalProfile(getClient()).is_surf_vertical) {
+    subKey = 'inbox.empty.sub.surf';
+  }
+  var sub = portalT(subKey);
+  if (subKey === 'inbox.empty.sub.school.surf') {
+    sub = sub.replace('{school}', getSunsetLocationLabel());
+  }
   return '<div class="inbox-empty-right">' +
     '<p class="main-msg">' + escHtml(portalT('inbox.empty.main')) + '</p>' +
-    '<p class="sub-msg">' + escHtml(portalT('inbox.empty.sub')) + '</p>' +
+    '<p class="sub-msg">' + escHtml(sub) + '</p>' +
     '</div>';
 }
 
@@ -18930,6 +19006,7 @@ function scheduleStartConversationFromBooking(group){
       client_slug: client,
       booking_id: group.booking_id || undefined,
       booking_code: group.booking_code || undefined,
+      location_id: getSunsetLocation(),
       idempotency_key: idemKey,
       reason: 'Created from Sunset schedule drawer',
     }),
@@ -21049,7 +21126,7 @@ function loadSchedulePage(){
   var span = scheduleViewMode === 'next30' ? 29 : (scheduleViewMode === 'day' ? 0 : 6);
   var rangeEnd = scheduleAddDays(rangeStart, span);
   setText('ps-range-label', scheduleFormatRangeLabel(rangeStart, rangeEnd, scheduleViewMode));
-  var convP = fetch('/staff/conversations?client=' + encodeURIComponent(client))
+  var convP = fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
   var configP = scheduleFetchLessonTimesConfig(client);
   var dataP = scheduleViewMode === 'next30'
@@ -22687,6 +22764,7 @@ function bcStartConversationFromBooking(data){
       client_slug: client,
       booking_id: bk.booking_id || undefined,
       booking_code: bk.booking_code || undefined,
+      location_id: client === 'sunset' ? getSunsetLocation() : undefined,
       idempotency_key: idemKey,
       reason: 'Created from booking drawer',
     }),
@@ -22876,11 +22954,7 @@ function renderInbox(convs, opts){
   var profile = getPortalProfile(getClient());
   updateInboxPreviewBanner(convs);
   if (!convs || convs.length === 0){
-    var emptyMsg = inboxFilter === 'needs-human'
-      ? portalT('inbox.empty.listNeedsHuman')
-      : (inboxFilter === 'email' ? portalT('inbox.empty.listEmail')
-        : (inboxFilter === 'whatsapp' ? portalT('inbox.empty.listWhatsapp')
-          : portalT('inbox.empty.list')));
+    var emptyMsg = inboxEmptyListMessage();
     if (opts.preserveDetail && (opts.selectedId || selectedConvId)){
       el('inbox-state').style.display = 'none';
       if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
@@ -22976,7 +23050,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
   }
 
-  fetch('/staff/conversations?client=' + encodeURIComponent(getClient()))
+  fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){
       if (r.status === 401){
         el('inbox-state').innerHTML = '\u26a0 Authentication required &mdash; <strong>POST /staff/auth/login</strong> first.';
@@ -22990,6 +23064,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     .then(function(data){
       if (!data) return;
       if (!data.success) throw new Error(data.error || 'API error');
+      renderInboxSchoolContext(data.channel_config || null);
       inboxConversationsCache = mergeSurfInboxConversations(data.conversations || [], getPortalProfile(getClient()));
       var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
       var badge = el('hq-badge');
@@ -23231,7 +23306,7 @@ function loadConvDetail(convId, targetEl){
   beginConvDetailLoad(targetEl);
 
   var base = '/staff/conversations/' + encodeURIComponent(convId);
-  var qs   = '?client=' + encodeURIComponent(getClient());
+  var qs   = inboxClientQuery();
   var client = getClient();
 
   function gjson(path){ return fetch(path).then(function(r){ return r.json(); }); }
@@ -23563,7 +23638,7 @@ function wireFreshStart(convId, targetEl){
 function wireDeleteConversation(convId){
   if (!convId) return;
   if (!window.confirm('Delete this conversation permanently? This cannot be undone.')) return;
-  fetch('/staff/conversations/' + encodeURIComponent(convId) + '?client=' + encodeURIComponent(getClient()), {
+  fetch('/staff/conversations/' + encodeURIComponent(convId) + inboxClientQuery(), {
     method: 'DELETE',
     headers: { Accept: 'application/json' },
   })
@@ -31528,7 +31603,7 @@ function loadTodaySummary(){
   if (inEl) inEl.textContent = '…';
   var client = (el('c-client') && el('c-client').value) || 'wolfhouse-somo';
 
-  fetch('/staff/conversations?client=' + encodeURIComponent(client))
+  fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){ return r.json(); })
     .then(function(d){
       if (!d.success || !Array.isArray(d.conversations)){
@@ -32812,24 +32887,45 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   }
 }
 
+function resolveSunsetConversationScope(clientSlug, query) {
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { scoped: false, locationId: null, queryOpts: {} };
+  }
+  const locationId = normalizeSunsetLocationId(query.location);
+  return {
+    scoped: true,
+    locationId,
+    queryOpts: { locationScoped: true },
+  };
+}
+
+function conversationDetailQueryParams(clientSlug, convId, scope) {
+  if (scope.scoped) return [clientSlug, convId, scope.locationId];
+  return [clientSlug, convId];
+}
+
 async function handleConversationInbox(query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:            new Date().toISOString(),
     intent:        'api:conversation.inbox',
     category:      'conversation_api',
     client_slug:   clientSlug,
+    location_id:   scope.locationId,
     staff_user_id: user ? user.staff_user_id : null,
   };
 
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationInboxQuery(), [clientSlug]);
+      const params = scope.scoped ? [clientSlug, scope.locationId] : [clientSlug];
+      const r = await pg.query(getConversationInboxQuery(scope.queryOpts), params);
       return r.rows;
     });
   } catch (err) {
@@ -32839,7 +32935,17 @@ async function handleConversationInbox(query, res, user) {
 
   const elapsed = Date.now() - started;
   appendAuditLog({ ...auditBase, success: true, row_count: rows.length, elapsed_ms: elapsed });
-  return sendJSON(res, 200, { success: true, conversations: rows, count: rows.length, elapsed_ms: elapsed });
+  const payload = {
+    success: true,
+    conversations: rows,
+    count: rows.length,
+    elapsed_ms: elapsed,
+  };
+  if (scope.scoped) {
+    payload.location_id = scope.locationId;
+    payload.channel_config = resolveSunsetInboxChannelConfig(scope.locationId);
+  }
+  return sendJSON(res, 200, payload);
 }
 
 async function handleConversationDetail(convId, query, res, user) {
@@ -32848,11 +32954,14 @@ async function handleConversationDetail(convId, query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'api:conversation.detail',
     category:        'conversation_api',
     client_slug:     clientSlug,
+    location_id:     scope.locationId,
     conversation_id: convId,
     staff_user_id:   user ? user.staff_user_id : null,
   };
@@ -32860,7 +32969,10 @@ async function handleConversationDetail(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationDetailQuery(), [clientSlug, convId]);
+      const r = await pg.query(
+        getConversationDetailQuery(scope.queryOpts),
+        conversationDetailQueryParams(clientSlug, convId, scope),
+      );
       return r.rows;
     });
   } catch (err) {
@@ -32884,11 +32996,14 @@ async function handleConversationMessages(convId, query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'api:conversation.messages',
     category:        'conversation_api',
     client_slug:     clientSlug,
+    location_id:     scope.locationId,
     conversation_id: convId,
     staff_user_id:   user ? user.staff_user_id : null,
   };
@@ -32896,7 +33011,10 @@ async function handleConversationMessages(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationMessagesQuery(), [clientSlug, convId]);
+      const r = await pg.query(
+        getConversationMessagesQuery(scope.queryOpts),
+        conversationDetailQueryParams(clientSlug, convId, scope),
+      );
       return r.rows;
     });
   } catch (err) {
@@ -32941,11 +33059,14 @@ async function handleConversationContext(convId, query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'api:conversation.context',
     category:        'conversation_api',
     client_slug:     clientSlug,
+    location_id:     scope.locationId,
     conversation_id: convId,
     staff_user_id:   user ? user.staff_user_id : null,
   };
@@ -32954,8 +33075,9 @@ async function handleConversationContext(convId, query, res, user) {
   let bookingRows;
   try {
     ({ contextRow, bookingRows } = await withPgClient(async (pg) => {
-      const ctx = await pg.query(getConversationContextQuery(), [clientSlug, convId]);
-      const bk = await pg.query(getConversationBookingsQuery(), [clientSlug, convId]);
+      const detailParams = conversationDetailQueryParams(clientSlug, convId, scope);
+      const ctx = await pg.query(getConversationContextQuery(scope.queryOpts), detailParams);
+      const bk = await pg.query(getConversationBookingsQuery(scope.queryOpts), detailParams);
       return { contextRow: ctx.rows[0] || null, bookingRows: bk.rows || [] };
     }));
   } catch (err) {
@@ -32992,11 +33114,14 @@ async function handleConversationDraft(convId, query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'api:conversation.draft',
     category:        'conversation_api',
     client_slug:     clientSlug,
+    location_id:     scope.locationId,
     conversation_id: convId,
     staff_user_id:   user ? user.staff_user_id : null,
   };
@@ -33004,7 +33129,10 @@ async function handleConversationDraft(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationDraftQuery(), [clientSlug, convId]);
+      const r = await pg.query(
+        getConversationDraftQuery(scope.queryOpts),
+        conversationDetailQueryParams(clientSlug, convId, scope),
+      );
       return r.rows;
     });
   } catch (err) {
@@ -33028,11 +33156,14 @@ async function handleConversationStaffState(convId, query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
+  const scope = resolveSunsetConversationScope(clientSlug, query);
+
   const auditBase = {
     ts:              new Date().toISOString(),
     intent:          'api:conversation.staff-state',
     category:        'conversation_api',
     client_slug:     clientSlug,
+    location_id:     scope.locationId,
     conversation_id: convId,
     staff_user_id:   user ? user.staff_user_id : null,
   };
@@ -33040,7 +33171,10 @@ async function handleConversationStaffState(convId, query, res, user) {
   let rows;
   try {
     rows = await withPgClient(async (pg) => {
-      const r = await pg.query(getConversationStaffStateQuery(), [clientSlug, convId]);
+      const r = await pg.query(
+        getConversationStaffStateQuery(scope.queryOpts),
+        conversationDetailQueryParams(clientSlug, convId, scope),
+      );
       return r.rows;
     });
   } catch (err) {

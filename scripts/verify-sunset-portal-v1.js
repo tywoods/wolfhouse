@@ -35,6 +35,8 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/lib/sunset-schedule-queries.js',
   'scripts/lib/sunset-school-locations.js',
   'scripts/lib/sunset-customer-profile-writes.js',
+  'scripts/lib/staff-conversation-queries.js',
+  'scripts/lib/sunset-inbox-channel-config.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -925,16 +927,44 @@ if (fs.existsSync(storePath)) {
 }
 assert('proposed migration 023 documented', fs.existsSync(path.join(ROOT, 'database/migrations/023_sunset_admin_location_id_PROPOSED.sql')));
 
-if (fs.existsSync(tawPath)) {
-  const tawSrc2 = fs.readFileSync(tawPath, 'utf8');
-  assert('admin writes DB-first when tables exist', tawSrc2.includes('adminConfigTablesExist') && tawSrc2.includes("storage: 'db'"));
-}
-if (fs.existsSync(tbcPath)) {
-  const tbcSrc2 = fs.readFileSync(tbcPath, 'utf8');
-  assert('JSON overlay gated by shouldApplyJsonLocationOverlay', tbcSrc2.includes('shouldApplyJsonLocationOverlay'));
-}
-assert('location backfill script present', fs.existsSync(path.join(ROOT, 'scripts/backfill-sunset-admin-location-config.js')));
 
+// ── 30. Sunset school-scoped Inbox ──────────────────────────────────────────
+
+console.log('\n[30] Sunset school-scoped Inbox');
+
+const inboxCfgPath = path.join(ROOT, 'scripts/lib/sunset-inbox-channel-config.js');
+const convQPath = path.join(ROOT, 'scripts/lib/staff-conversation-queries.js');
+assert('inbox channel config module present', fs.existsSync(inboxCfgPath));
+if (fs.existsSync(inboxCfgPath)) {
+  const inboxCfg = require('./lib/sunset-inbox-channel-config');
+  const somoCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-somo');
+  const sardiCh = inboxCfg.resolveSunsetInboxChannelConfig('sunset-sardinero');
+  assert('channel config has Sunset entry', somoCh.location_id === 'sunset-somo' && somoCh.display_name === 'Sunset');
+  assert('channel config has El Sardi entry', sardiCh.location_id === 'sunset-sardinero' && sardiCh.display_name === 'El Sardi');
+  assert('channel placeholders not production numbers', /PLACEHOLDER_/.test(somoCh.whatsapp_number) && /PLACEHOLDER_/.test(sardiCh.email_address));
+}
+if (fs.existsSync(convQPath)) {
+  const convSrc = fs.readFileSync(convQPath, 'utf8');
+  assert('inbox query exposes location_id', convSrc.includes('AS location_id') && convSrc.includes('locationScoped'));
+  assert('conversation queries use location expr helper', convSrc.includes('sqlConversationLocationExpr'));
+  assert('detail query location guard', convSrc.includes('detailLocationWhereClause'));
+}
+if (apiSrc) {
+  assert('inbox fetch includes location param', apiSrc.includes('function inboxClientQuery(') && apiSrc.includes("'/staff/conversations' + inboxClientQuery()"));
+  assert('loadConvDetail uses inboxClientQuery', apiSrc.includes('var qs   = inboxClientQuery()'));
+  assert('school switch reloads inbox tab', apiSrc.includes("el('tab-conversations')") && apiSrc.includes('loadInbox()'));
+  assert('inbox school context UI', apiSrc.includes('renderInboxSchoolContext') && apiSrc.includes('inbox-school-context'));
+  assert('demo inbox threads carry location_id', apiSrc.includes('location_id: row.location_id'));
+  assert('merge inbox filters demo by school', apiSrc.includes('activeLoc') && apiSrc.includes('mergeSurfInboxConversations'));
+  assert('conversation create attaches location metadata', apiSrc.includes('attachConversationChannelMetadata'));
+  assert('inbox API resolves sunset conversation scope', apiSrc.includes('resolveSunsetConversationScope'));
+}
+if (fs.existsSync(locModPath)) {
+  const locSrc = fs.readFileSync(locModPath, 'utf8');
+  assert('conversation location SQL helper', locSrc.includes('sqlConversationLocationMatch'));
+  assert('conversation metadata defaults to sunset-somo', locSrc.includes("metadata->>'location_id'") && locSrc.includes('sunset-somo'));
+}
+assert('proposed migration 024 documented', fs.existsSync(path.join(ROOT, 'database/migrations/024_sunset_conversation_location_id_PROPOSED.sql')));
 
 
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────

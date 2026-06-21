@@ -43,6 +43,28 @@ function attachLocationToMetadata(metadata, locationId) {
   return meta;
 }
 
+/** Conversation row location from metadata JSON (pre-column migration). */
+function resolveConversationLocationId(metadata) {
+  const meta = metadata && typeof metadata === 'object' ? metadata : {};
+  if (typeof metadata === 'string') {
+    try {
+      return normalizeSunsetLocationId(JSON.parse(metadata).location_id);
+    } catch (_) {
+      return DEFAULT_SUNSET_LOCATION_ID;
+    }
+  }
+  return normalizeSunsetLocationId(meta.location_id || null);
+}
+
+function sqlConversationLocationExpr(convAlias) {
+  const conv = convAlias || 'conv';
+  return `COALESCE(${conv}.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}')`;
+}
+
+function sqlConversationLocationMatch(convAlias, paramIndex) {
+  return `${sqlConversationLocationExpr(convAlias)} = $${paramIndex}`;
+}
+
 module.exports = {
   SUNSET_CLIENT_SLUG,
   DEFAULT_SUNSET_LOCATION_ID,
@@ -50,6 +72,9 @@ module.exports = {
   normalizeSunsetLocationId,
   isSunsetLocationId,
   resolveRecordLocationId,
+  resolveConversationLocationId,
   sqlLocationMatch,
+  sqlConversationLocationExpr,
+  sqlConversationLocationMatch,
   attachLocationToMetadata,
 };

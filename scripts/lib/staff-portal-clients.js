@@ -69,11 +69,13 @@ function loadLessonSlotsDemo(cfg) {
   }));
 }
 
+const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+
 function loadInboxThreadsDemo(cfg) {
   if (!cfg || !cfg.portal_demo) return [];
   const threads = cfg.portal_demo.inbox_threads;
   if (!Array.isArray(threads)) return [];
-  return threads.map((row) => ({
+  return threads.map((row, idx) => ({
     thread_id: row.thread_id || row.conversation_id || null,
     channel: row.channel === 'email' ? 'email' : 'whatsapp',
     guest_name: row.guest_name || null,
@@ -85,6 +87,9 @@ function loadInboxThreadsDemo(cfg) {
     handoff_reason: row.handoff_reason || null,
     luna_paused: !!row.luna_paused,
     relative_time: row.relative_time || null,
+    location_id: normalizeSunsetLocationId(
+      row.location_id || (idx >= 2 ? 'sunset-sardinero' : DEFAULT_SUNSET_LOCATION_ID),
+    ),
     source: row.source || 'demo_preview',
   }));
 }

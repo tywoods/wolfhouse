@@ -29,21 +29,34 @@
 
 'use strict';
 
-// ---------------------------------------------------------------------------
-// A. Inbox — conversation list for Cami review dashboard
-// ---------------------------------------------------------------------------
+const {
+  DEFAULT_SUNSET_LOCATION_ID,
+  sqlConversationLocationExpr,
+  sqlConversationLocationMatch,
+} = require('./sunset-school-locations');
+
+function inboxChannelFieldsSql() {
+  return `
+  COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
+  conv.email                                         AS guest_email,
+  conv.metadata->>'email_subject'                    AS email_subject,
+  ${sqlConversationLocationExpr('conv')}             AS location_id,`;
+}
+
+function inboxLocationWhereClause(scoped, paramIndex = 2) {
+  return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
+}
+
+function detailLocationWhereClause(scoped, paramIndex = 3) {
+  return scoped ? `\n  AND ${sqlConversationLocationMatch('conv', paramIndex)}` : '';
+}
 
 /**
- * Returns up to 200 active conversations ordered by urgency then activity.
- * Each row includes the latest open handoff (priority, reason) and current
- * booking code if a booking is linked to the conversation.
- *
- * Priority ordering: needs_human first, then by handoff priority (urgent→low),
- * then by most-recently-updated.
- *
- * @returns {string} Parameterised SQL ($1 = client slug)
+ * @param {{ locationScoped?: boolean }} [opts]
+ * @returns {string} $1 = client slug; when locationScoped, $2 = location_id
  */
-function getConversationInboxQuery() {
+function getConversationInboxQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -59,6 +72,7 @@ SELECT
   conv.updated_at            AS last_activity,
   CASE WHEN conv.metadata->>'open_phone_testing' = 'true' THEN TRUE ELSE FALSE END AS open_phone_testing,
   conv.metadata->>'guest_tester_class' AS guest_tester_class,
+${inboxChannelFieldsSql()}
   h.reason_code              AS handoff_reason,
   h.priority                 AS handoff_priority,
   h.status::text             AS handoff_status,
@@ -90,7 +104,7 @@ LEFT JOIN LATERAL (
 ) pause ON TRUE
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
 WHERE c.slug = $1
-  AND conv.status IN ('open', 'on_hold')
+  AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}
 ORDER BY
   conv.needs_human DESC,
   CASE h.priority
@@ -107,14 +121,11 @@ LIMIT 200
 // ---------------------------------------------------------------------------
 
 /**
- * Returns one conversation row with all fields needed for the detail view,
- * plus the latest open handoff summary and linked booking status.
- *
- * Returns 0 rows if the conversation does not exist for this client.
- *
- * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
+ * @param {{ locationScoped?: boolean }} [opts]
+ * @returns {string} $1 client; $2 conv id; when locationScoped $3 location_id
  */
-function getConversationDetailQuery() {
+function getConversationDetailQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -136,6 +147,9 @@ SELECT
   conv.conversation_summary,
   conv.created_at,
   conv.updated_at,
+  COALESCE(conv.metadata->>'channel', conv.session_state->>'channel', 'whatsapp') AS channel,
+  conv.metadata->>'email_subject' AS email_subject,
+  ${sqlConversationLocationExpr('conv')} AS location_id,
   b.id::text                 AS booking_id,
   b.booking_code,
   b.status::text             AS booking_status,
@@ -161,7 +175,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) h ON TRUE
 WHERE c.slug = $1
-  AND conv.id = $2::uuid
+  AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }
 
@@ -170,16 +184,10 @@ WHERE c.slug = $1
 // ---------------------------------------------------------------------------
 
 /**
- * Returns the full message thread for a conversation, ordered chronologically.
- * Includes direction (inbound/outbound), text, language, route, source.
- *
- * Returns empty rows if no messages exist — fixture conversations may not have
- * messages seeded via WhatsApp; the dashboard should handle an empty thread
- * gracefully and show a placeholder.
- *
- * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
+ * @param {{ locationScoped?: boolean }} [opts]
  */
-function getConversationMessagesQuery() {
+function getConversationMessagesQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   m.id::text                 AS message_id,
@@ -196,7 +204,7 @@ FROM messages m
 INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
 WHERE c.slug = $1
-  AND m.conversation_id = $2::uuid
+  AND m.conversation_id = $2::uuid${detailLocationWhereClause(scoped)}
 ORDER BY m.created_at ASC
 LIMIT 500
 `;
@@ -220,7 +228,8 @@ LIMIT 500
  *
  * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
  */
-function getConversationContextQuery() {
+function getConversationContextQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -276,7 +285,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) p ON b.id IS NOT NULL
 WHERE c.slug = $1
-  AND conv.id = $2::uuid
+  AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }
 
@@ -291,7 +300,8 @@ WHERE c.slug = $1
  *
  * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
  */
-function getConversationBookingsQuery() {
+function getConversationBookingsQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -352,7 +362,7 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) p ON TRUE
 WHERE c.slug = $1
-  AND conv.id = $2::uuid
+  AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
   AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY
   (b.id = conv.current_hold_booking_id) DESC,
@@ -379,7 +389,8 @@ ORDER BY
  *
  * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
  */
-function getConversationDraftQuery() {
+function getConversationDraftQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -402,7 +413,7 @@ SELECT
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
 WHERE c.slug = $1
-  AND conv.id = $2::uuid
+  AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }
 
@@ -422,7 +433,8 @@ WHERE c.slug = $1
  *
  * @returns {string} Parameterised SQL ($1 = client slug, $2 = conversation UUID)
  */
-function getConversationStaffStateQuery() {
+function getConversationStaffStateQuery(opts = {}) {
+  const scoped = !!opts.locationScoped;
   return `
 SELECT
   conv.id::text              AS conversation_id,
@@ -449,11 +461,12 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) h ON TRUE
 WHERE c.slug = $1
-  AND conv.id = $2::uuid
+  AND conv.id = $2::uuid${detailLocationWhereClause(scoped)}
 `;
 }
 
 module.exports = {
+  DEFAULT_SUNSET_LOCATION_ID,
   getConversationInboxQuery,
   getConversationDetailQuery,
   getConversationMessagesQuery,
