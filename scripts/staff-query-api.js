@@ -20364,10 +20364,115 @@ function renderScheduleBookingList(filter){
   });
 }
 
-function scheduleDrawerEditableEnabled(row){
-  if (!row || row._isDemo) return false;
-  if (!(row._isDbManual || row.record_source === 'staff_manual')) return false;
-  return !!(row.booking_id || row.booking_code);
+var scheduleDrawerState = { row: null, ctx: null, editing: false };
+
+function scheduleCloneDrawerCtx(ctx){
+  if (!ctx) return null;
+  try { return JSON.parse(JSON.stringify(ctx)); } catch (_) { return Object.assign({}, ctx); }
+}
+
+function scheduleComponentOrderKeys(){
+  return ['wetsuit', 'surfboard', 'lesson'];
+}
+
+function scheduleFormatComponentsView(comps){
+  if (!comps || typeof comps !== 'object') return '—';
+  var parts = [];
+  if (comps.wetsuit) parts.push(portalT('schedule.type.wetsuitRental') + ' × ' + String(comps.wetsuit.quantity || 1));
+  if (comps.surfboard) parts.push(portalT('schedule.type.boardRental') + ' × ' + String(comps.surfboard.quantity || 1));
+  if (comps.lesson){
+    var slot = comps.lesson.slot_time ? (' @ ' + comps.lesson.slot_time) : '';
+    parts.push(portalT('schedule.type.lesson') + slot + ' × ' + String(comps.lesson.quantity || 1));
+  }
+  return parts.length ? parts.join(' · ') : '—';
+}
+
+function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
+  var comps = (ctx && ctx.components) || {};
+  var payLabel = ctx && ctx.payment_status === 'paid' ? portalT('schedule.payment.paid') : portalT('schedule.payment.unpaid');
+  var html = '<div class="portal-schedule-drawer-hero">';
+  html += '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(ctx.guest_name || row.guest_name || 'Guest') + '</h3>';
+  html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(ctx.booking_code || row.booking_code || '—') + '</p>';
+  html += '</div>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.components')) + ':</strong> ' + escHtml(scheduleFormatComponentsView(comps)) + '</p>';
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.payment')) + ':</strong> ' + escHtml(payLabel) + '</p>';
+  if (ctx.notes) html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(ctx.notes) + '</p>';
+  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<div class="portal-schedule-drawer-actions">';
+  if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
+  var stripeAvail = ctx && ctx.stripe_available;
+  var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
+    ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
+  if (stripeAvail){
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(stripeLabel) + '</button>';
+  } else if (canEdit) {
+    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
+  }
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
+  html += '</div>';
+  html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+  return html;
+}
+
+function scheduleRenderEditableDrawerHtml(row, ctx){
+  var comps = (ctx && ctx.components) || {};
+  var lessonOn = !!comps.lesson;
+  var boardOn = !!comps.surfboard;
+  var wetsuitOn = !!comps.wetsuit;
+  var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
+  html += '<div class="portal-schedule-drawer-hero">';
+  html += '<p class="portal-schedule-card-sub" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(ctx.booking_code || row.booking_code || '—') + '</p>';
+  html += '</div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>';
+  html += '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-phone">' + escHtml(portalT('schedule.drawer.phone')) + '</label>';
+  html += '<input id="ps-drawer-phone" type="tel" value="' + escHtml(ctx.phone || '') + '"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-date-from">' + escHtml(portalT('schedule.create.dateFrom')) + '</label>';
+  html += '<input id="ps-drawer-date-from" type="date" value="' + escHtml(ctx.date_from || '') + '"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-date-to">' + escHtml(portalT('schedule.create.dateTo')) + '</label>';
+  html += '<input id="ps-drawer-date-to" type="date" value="' + escHtml(ctx.date_to || ctx.date_from || '') + '"></div>';
+  html += '<div class="portal-schedule-create-field"><span class="portal-schedule-create-label">' + escHtml(portalT('schedule.create.components')) + '</span>';
+  html += '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-wetsuit"' + (wetsuitOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.wetsuitRental')) + '</label>';
+  html += '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-surfboard"' + (boardOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.boardRental')) + '</label>';
+  html += '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-lesson"' + (lessonOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.lesson')) + '</label></div>';
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-lesson-fields"><label for="ps-drawer-time-slot">' + escHtml(portalT('schedule.create.lessonSlot')) + '</label><select id="ps-drawer-time-slot"></select></div>';
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-lesson-qty-wrap"><label for="ps-drawer-lesson-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>';
+  html += '<input id="ps-drawer-lesson-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.lesson && comps.lesson.quantity) || 1)) + '"></div>';
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-board-qty-wrap"><label for="ps-drawer-board-qty">' + escHtml(portalT('schedule.create.boardQty')) + '</label>';
+  html += '<input id="ps-drawer-board-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.surfboard && comps.surfboard.quantity) || 1)) + '"></div>';
+  html += '<div class="portal-schedule-create-field" id="ps-drawer-wetsuit-qty-wrap"><label for="ps-drawer-wetsuit-qty">' + escHtml(portalT('schedule.create.wetsuitQty')) + '</label>';
+  html += '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-payment">' + escHtml(portalT('schedule.create.payment')) + '</label>';
+  html += '<select id="ps-drawer-payment"><option value="unpaid"' + (ctx.payment_status !== 'paid' ? ' selected' : '') + '>' + escHtml(portalT('schedule.payment.unpaid')) + '</option>';
+  html += '<option value="paid"' + (ctx.payment_status === 'paid' ? ' selected' : '') + '>' + escHtml(portalT('schedule.payment.paid')) + '</option></select></div>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-notes">' + escHtml(portalT('schedule.drawer.notes')) + '</label>';
+  html += '<textarea id="ps-drawer-notes" rows="2">' + escHtml(ctx.notes || '') + '</textarea></div>';
+  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<div class="portal-schedule-drawer-actions">';
+  html += '<button type="button" class="btn btn-primary" id="ps-drawer-save">' + escHtml(portalT('schedule.drawer.save')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-cancel">' + escHtml(portalT('schedule.drawer.cancel')) + '</button>';
+  var stripeAvail = ctx && ctx.stripe_available;
+  var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
+    ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
+  if (stripeAvail){
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(stripeLabel) + '</button>';
+  } else {
+    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
+  }
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
+  html += '</div>';
+  html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+  html += '</form>';
+  return html;
 }
 
 function scheduleDrawerEur(cents){

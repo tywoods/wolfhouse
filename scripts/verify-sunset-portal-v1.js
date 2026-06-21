@@ -708,6 +708,7 @@ if (apiSrc) {
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
   assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
   assert('schedule cards still use sched surface tokens', apiSrc.includes('--sched-surface:#FFFFFF'));
+  assert('schedule cards still use sched surface tokens', apiSrc.includes('--sched-surface:#FFFFFF'));
   assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
   assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
   assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));

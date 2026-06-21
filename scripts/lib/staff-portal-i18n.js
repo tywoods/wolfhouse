@@ -614,6 +614,8 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.subtotal': 'Subtotal',
     'schedule.drawer.paid': 'Paid',
     'schedule.drawer.remaining': 'Remaining',
+    'schedule.drawer.edit': 'Edit',
+    'schedule.drawer.cancel': 'Cancel',
     'schedule.drawer.save': 'Save changes',
     'schedule.drawer.saved': 'Booking saved.',
     'schedule.drawer.saveFailed': 'Could not save booking:',
