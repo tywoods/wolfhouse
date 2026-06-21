@@ -5,7 +5,8 @@
  *
  * Offline checks for Sunset Staff Portal v1:
  * surf-school labels, demo home, hidden drawer tabs, lodging copy gating,
- * Wolfhouse preservation, no Wolfhouse first-load flash.
+ * Wolfhouse preservation, no Wolfhouse first-load flash,
+ * and node --check syntax validation for key Staff API modules.
  *
  * Run:
  *   node scripts/verify-sunset-portal-v1.js
@@ -14,6 +15,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { execFileSync } = require('child_process');
 
 const {
   loadClientPortalProfile,
@@ -24,6 +26,31 @@ const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 const WOLFHOUSE_LODGING = /\b(bed|room|hostel|move-bed|wolfhouse)\b/i;
+
+const STAFF_API_SYNTAX_MODULES = [
+  'scripts/staff-query-api.js',
+  'scripts/lib/sunset-schedule-booking-writes.js',
+  'scripts/lib/sunset-schedule-booking-drawer.js',
+  'scripts/lib/sunset-stripe-payment-links.js',
+  'scripts/lib/sunset-schedule-queries.js',
+  'scripts/lib/sunset-school-locations.js',
+  'scripts/lib/sunset-customer-profile-writes.js',
+];
+
+function assertJsSyntax(relPath) {
+  const absPath = path.join(ROOT, relPath);
+  if (!fs.existsSync(absPath)) {
+    assert(`${relPath} syntax (node --check)`, false, 'file missing');
+    return;
+  }
+  try {
+    execFileSync(process.execPath, ['--check', absPath], { encoding: 'utf8' });
+    assert(`${relPath} syntax (node --check)`, true);
+  } catch (err) {
+    const detail = (err.stderr || err.stdout || err.message || '').trim().split('\n').slice(0, 3).join(' ');
+    assert(`${relPath} syntax (node --check)`, false, detail);
+  }
+}
 
 let pass = 0;
 let fail = 0;
@@ -845,7 +872,11 @@ if (fs.existsSync(qModPath)) {
   assert('schedule queries do not hardcode sardinero into somo filter', !qSrc.includes("= 'sunset-sardinero' = 'sunset-somo'"));
 }
 
+// ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 
+console.log('\n[28] Staff API JS syntax (node --check)');
+
+STAFF_API_SYNTAX_MODULES.forEach(assertJsSyntax);
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
