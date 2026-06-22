@@ -666,8 +666,10 @@ async function upsertConfigPriceRule(client, {
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
   const loc = normalizeSunsetLocationId(locationId);
   const itemType = mapCategoryToItemType(category);
-  const itemCode = forceItemCode || buildDbItemCode(offeringKey, unit);
-  const dbUnit = forceDbUnit || mapBaselineUnitToDb(unit);
+  const effectiveUnit = patch.period_window != null ? patch.period_window : unit;
+  const itemCode = forceItemCode || buildDbItemCode(offeringKey, effectiveUnit);
+  const dbUnit = forceDbUnit || mapBaselineUnitToDb(effectiveUnit);
+  const dbPatch = preparePriceDbPatch(patch, offeringKey, effectiveUnit);
 
   await client.query('BEGIN');
   try {
@@ -681,7 +683,7 @@ async function upsertConfigPriceRule(client, {
       const sets = [];
       const params = [];
       let idx = 3;
-      for (const [key, value] of Object.entries(dbPatchLesson)) {
+      for (const [key, value] of Object.entries(dbPatch)) {
         sets.push(`${key} = $${idx}`);
         params.push(value);
         idx += 1;
