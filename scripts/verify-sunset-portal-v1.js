@@ -753,7 +753,7 @@ console.log('\n[23] Sunset UI — ES default, lesson groups card, soft light the
 
 if (apiSrc) {
   assert('ES default locale', i18nSrc.includes("return 'es';"));
-  assert('no IT lang button', !apiSrc.includes('data-lang="it"'));
+  assert('IT lang button restored', apiSrc.includes('data-lang="it"'));
   assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
   assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
