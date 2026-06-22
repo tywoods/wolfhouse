@@ -60,6 +60,10 @@ gateway:
   platforms:
     whatsapp_cloud:
       gateway_restart_notification: false
+# Voice notes: STT_PROVIDER in container env overrides stt.provider (see apply_stt_patches.py).
+stt:
+  enabled: true
+  provider: groq
 EOF
 }
 
@@ -149,6 +153,18 @@ apply_patches() {
   if [ -f /etc/hermes-staging/apply_whatsapp_simulate_route.py ]; then
     python /etc/hermes-staging/apply_whatsapp_simulate_route.py || {
       echo "apply_whatsapp_simulate_route failed — simulate-guest-turn route may be missing" >&2
+      exit 1
+    }
+  fi
+  if [ -f /etc/hermes-staging/apply_stt_patches.py ]; then
+    python /etc/hermes-staging/apply_stt_patches.py || {
+      echo "apply_stt_patches failed — STT_PROVIDER env override may be missing" >&2
+      exit 1
+    }
+  fi
+  if [ -f /etc/hermes-staging/apply_guest_send_guard_patches.py ]; then
+    python /etc/hermes-staging/apply_guest_send_guard_patches.py || {
+      echo "apply_guest_send_guard_patches failed — guest send guard may be missing" >&2
       exit 1
     }
   fi

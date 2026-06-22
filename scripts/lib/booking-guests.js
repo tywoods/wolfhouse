@@ -15,6 +15,50 @@ function trimStr(v) {
   return String(v).trim();
 }
 
+/**
+ * Normalize Luna/Hermes payment_choice for bot booking create + quote.
+ * "per_guest" means per-guest deposit links (quote still uses deposit tier math).
+ *
+ * @returns {{ payment_choice: string, per_guest_payment_links: boolean }}
+ */
+function normalizeBotBookingPaymentChoice(raw) {
+  const compact = trimStr(raw).toLowerCase().replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!compact) {
+    return { payment_choice: 'deposit', per_guest_payment_links: false };
+  }
+  if (['per_guest', 'per guest', 'each guest', 'split', 'split deposit', 'link each'].includes(compact)) {
+    return { payment_choice: 'deposit', per_guest_payment_links: true };
+  }
+  if (['full', 'full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) {
+    return { payment_choice: 'full', per_guest_payment_links: false };
+  }
+  if (['deposit', 'pay deposit', 'the deposit', 'deposit only'].includes(compact)) {
+    return { payment_choice: 'deposit', per_guest_payment_links: false };
+  }
+  if (['arrival', 'on arrival', 'pay on arrival', 'later', 'pay_on_arrival'].includes(compact)) {
+    return { payment_choice: 'pay_on_arrival', per_guest_payment_links: false };
+  }
+  return { payment_choice: compact, per_guest_payment_links: false };
+}
+
+/** Map Staff API create validation errors to bridge blocked_reason codes. */
+function mapBotBookingCreateErrorToBlockedReason(errorText) {
+  const msg = trimStr(errorText).toLowerCase();
+  if (!msg) return 'booking_create_failed';
+  if (msg.includes('guest_name')) return 'guest_name_missing';
+  if (msg.includes('phone')) return 'guest_phone_missing';
+  if (msg.includes('payment_choice')) return 'payment_choice_missing';
+  if (msg.includes('package_code') || msg.includes('package')) return 'booking_package_missing';
+  if (msg.includes('check_in') || msg.includes('check_out') || msg.includes('dates')) return 'booking_dates_missing';
+  if (msg.includes('selected_bed') || msg.includes('bed assignment')) return 'availability_selected_beds_missing';
+  if (msg.includes('confirm')) return 'confirm_true_required';
+  if (msg.includes('quote')) return 'booking_quote_missing_or_failed';
+  if (msg.includes('overlap') || msg.includes('conflict')) return 'availability_overlap_conflict';
+  if (msg.includes('guests length')) return 'guest_names_count_mismatch';
+  if (msg.includes('guest name is required')) return 'guest_name_missing';
+  return 'booking_create_failed';
+}
+
 function isNoPackageCode(code) {
   const c = trimStr(code).toLowerCase();
   return c === 'package_none' || c === 'no_package' || c === 'accommodation_only';
@@ -429,6 +473,8 @@ module.exports = {
   KNOWN_PACKAGES,
   PACKAGE_PREVIEW_CODES,
   normalizeBookingGuestsInput,
+  normalizeBotBookingPaymentChoice,
+  mapBotBookingCreateErrorToBlockedReason,
   computeGuestDepositTierCents,
   buildPerGuestDepositList,
   buildPerPersonBreakdown,

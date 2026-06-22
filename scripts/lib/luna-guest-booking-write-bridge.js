@@ -15,6 +15,10 @@ const {
   evaluateLunaBookingWriteEligibility,
   WRITE_ROUTE,
 } = require('./luna-guest-booking-write-eligibility');
+const {
+  normalizeBookingGuestsInput,
+  normalizeBotBookingPaymentChoice,
+} = require('./booking-guests');
 
 const BRIDGE_ROUTE = 'POST /staff/bot/booking-create-from-plan';
 
@@ -30,13 +34,7 @@ function trimStr(v) {
 }
 
 function normalizeBridgePaymentChoice(value) {
-  const raw = trimStr(value).toLowerCase();
-  if (!raw) return '';
-  const compact = raw.replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (['full', 'full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) return 'full';
-  if (['deposit', 'pay deposit', 'the deposit', 'deposit only'].includes(compact)) return 'deposit';
-  if (['arrival', 'on arrival', 'pay on arrival', 'later', 'pay_on_arrival'].includes(compact)) return 'pay_on_arrival';
-  return raw;
+  return normalizeBotBookingPaymentChoice(value).payment_choice;
 }
 
 /**
@@ -54,24 +52,32 @@ function buildBotBookingCreatePayload(dryRunPlan, input) {
   const phone = trimStr(plan.guest_phone) || trimStr(plan.phone)
     || trimStr(src.guest_phone) || trimStr(src.phone) || trimStr(src.from);
 
-  const paymentChoice = normalizeBridgePaymentChoice(src.payment_choice || plan.payment_choice);
+  const paymentNorm = normalizeBotBookingPaymentChoice(src.payment_choice || plan.payment_choice);
+  const guestsNorm = normalizeBookingGuestsInput(src);
+  const guestName = trimStr(src.guest_name)
+    || (guestsNorm.ok ? trimStr(guestsNorm.primary_name) : '');
 
   return {
     client_slug:        trimStr(plan.client_slug) || trimStr(src.client_slug) || 'wolfhouse-somo',
     check_in:           trimStr(avail.check_in) || trimStr(src.check_in),
     check_out:          trimStr(avail.check_out) || trimStr(src.check_out),
-    guest_name:         trimStr(src.guest_name),
+    guest_name:         guestName,
     phone,
     email:              src.email != null ? trimStr(src.email) || null : null,
     language:           trimStr(plan.language) || trimStr(src.language) || 'en',
     guest_count:        avail.guest_count != null ? Number(avail.guest_count) : Number(src.guest_count),
+    guests:             Array.isArray(src.guests) ? src.guests : undefined,
     package_code:       trimStr(src.package_code).toLowerCase(),
     guest_packages:     Array.isArray(src.guest_packages)
       ? src.guest_packages
       : (Array.isArray(plan.guest_packages) ? plan.guest_packages : []),
     room_type:          trimStr(avail.room_type) || trimStr(src.room_type) || 'shared',
+    room_preference:    trimStr(src.room_preference) || null,
+    gender_preference:  src.gender_preference != null ? trimStr(src.gender_preference) || null : null,
+    group_gender:       src.group_gender != null ? trimStr(src.group_gender) || null : null,
     add_ons:            Array.isArray(src.add_ons) ? src.add_ons : [],
-    payment_choice:     paymentChoice,
+    payment_choice:     paymentNorm.payment_choice,
+    per_guest_payment_links: paymentNorm.per_guest_payment_links,
     confirm:            true,
     idempotency_key:    trimStr(src.idempotency_key),
     selected_bed_codes: Array.isArray(avail.selected_bed_codes)

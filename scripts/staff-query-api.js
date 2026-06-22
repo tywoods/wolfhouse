@@ -73,6 +73,11 @@ const {
   buildServiceChargesDueFromContext,
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
+const {
+  buildGuestPaymentAmountsMap,
+  paymentLinkIntendedAmountCents,
+  paymentLedgerIsStaleUnpaidLinkRow: paymentLedgerIsStaleUnpaidLinkRowCore,
+} = require('./lib/payment-ledger-stale-links');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
   computeBalanceDueRows,
@@ -151,7 +156,7 @@ const {
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
 const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
-const { markConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -321,6 +326,7 @@ const {
 } = require('./lib/wolfhouse-quote-calculator');
 const {
   normalizeBookingGuestsInput,
+  normalizeBotBookingPaymentChoice,
   buildPerPersonBreakdown,
   insertBookingGuestsForBooking,
   mapBedAssignmentsToGuests,
@@ -3814,10 +3820,14 @@ SELECT
   p.stripe_checkout_session_id,
   p.stripe_payment_intent_id,
   p.metadata,
-  p.created_at
+  p.created_at,
+  p.booking_guest_id::text      AS booking_guest_id,
+  bg.deposit_amount_cents       AS guest_deposit_amount_cents,
+  bg.metadata                   AS guest_metadata
 FROM payments p
 INNER JOIN bookings b ON b.id = p.booking_id
 INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
 WHERE c.slug = $1
   AND b.booking_code = $2
 ORDER BY p.created_at DESC
@@ -3900,23 +3910,7 @@ function paymentLedgerNormalizeCtx(ctxOrBalance, bookingRow) {
   };
 }
 
-function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
-  if (!pr) return null;
-  const kind = String(pr.payment_kind || '').toLowerCase();
-  const md = paymentLedgerParseMetadata(pr.metadata);
-  const source = String(md.source || '').toLowerCase();
-  if (kind === 'deposit_only' || kind === 'deposit') {
-    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
-  }
-  if (kind === 'addon_service') return null;
-  if (kind === 'full_amount') {
-    if (source === 'staff_payment_link' || md.phase === '10.6c') {
-      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-    }
-    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-  }
-  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-}
+/* paymentLinkIntendedAmountCents — scripts/lib/payment-ledger-stale-links.js */
 
 function paymentLedgerHasActiveValidLink(rows, ledgerCtx) {
   for (const pr of rows || []) {
@@ -4011,11 +4005,8 @@ function paymentLedgerIsActiveUnpaidLinkRow(pr) {
 }
 
 function paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtxOrBalance, bookingRow) {
-  if (!paymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
   const ledgerCtx = paymentLedgerNormalizeCtx(ledgerCtxOrBalance, bookingRow);
-  const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(intended);
+  return paymentLedgerIsStaleUnpaidLinkRowCore(pr, paymentLedgerIsActiveUnpaidLinkRow, ledgerCtx);
 }
 
 function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
@@ -12942,6 +12933,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
     DEFAULT_CLIENT, STAFF_AUTH_REQUIRED, BOT_BOOKING_ENABLED,
     handleBotBookingCreate,
     handlePostBookingTransfer,
+    handleBotGuestPaymentCreateLink,
+    STRIPE_LINKS_ENABLED,
+    STRIPE_SECRET_KEY,
   });
 }
 
@@ -14378,14 +14372,17 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
   const checkIn       = String(body.check_in   || '').trim();
   const checkOut      = String(body.check_out  || '').trim();
-  const guestName     = String(body.guest_name || '').trim().slice(0, 200);
-  const phone         = String(body.phone      || '').trim().slice(0, 50);
+  const guestsNorm    = normalizeBookingGuestsInput(body);
+  if (!guestsNorm.ok) return send400(res, guestsNorm.error);
+  const guestName     = (String(body.guest_name || '').trim() || guestsNorm.primary_name || '').slice(0, 200);
+  const phone         = String(body.phone || body.guest_phone || '').trim().slice(0, 50);
   const email         = String(body.email      || '').trim().slice(0, 200) || null;
   const language      = String(body.language   || 'en').trim().slice(0, 10);
   const guestCount    = parseInt(body.guest_count, 10) || 0;
-  const guestsNorm    = normalizeBookingGuestsInput(body);
-  if (!guestsNorm.ok) return send400(res, guestsNorm.error);
   const usesPerGuestModel = guestsNorm.uses_per_guest_model === true;
+  const paymentNorm   = normalizeBotBookingPaymentChoice(body.payment_choice);
+  const paymentChoice = paymentNorm.payment_choice;
+  const perGuestPaymentLinks = paymentNorm.per_guest_payment_links === true || usesPerGuestModel;
   const resolvedGuestCount = guestsNorm.guest_count || guestCount;
   const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
   const packageCodeRaw  = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
@@ -14417,7 +14414,6 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const addOns        = addOnPrep.add_ons;
   const roomPreference = String(body.room_preference || '').trim().slice(0, 200) || null;
   const genderPreference = body.gender_preference ? String(body.gender_preference).trim().slice(0, 50) : null;
-  const paymentChoice = String(body.payment_choice || 'deposit').trim().toLowerCase();
   const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
   const confirmFlag   = body.confirm === true;
   const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
@@ -14602,6 +14598,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               bot_source:        source,
               per_person:        quote.per_person || null,
               uses_per_guest_model: usesPerGuestModel,
+              per_guest_payment_links: perGuestPaymentLinks,
               booking_guests:    usesPerGuestModel ? guestsNorm.guests : undefined,
               ...(genderPreference ? { gender_preference: genderPreference } : {}),
             }),
@@ -14765,6 +14762,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     selected_bed_codes:  assignedBedCodes,
     guest_count:         quoteGuestCount,
     uses_per_guest_model: usesPerGuestModel,
+    per_guest_payment_links: perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
     per_person:          row._per_person || quote.per_person || null,
     quote: {
@@ -26404,9 +26402,11 @@ function updateBcDetailHeader(data){
     (data && data.payments && data.payments.rows) || [],
     transferRows,
   );
+  var guestAmountsMap = buildGuestPaymentAmountsMap(data.booking_guests || [], data.per_person || []);
+  var ledgerCtx = Object.assign({}, ledger, { guest_amounts_by_id: guestAmountsMap });
   var hasActiveLink = bcPaymentLedgerHasActiveValidLinkClient(
     (data && data.payments && data.payments.rows) || [],
-    ledger,
+    ledgerCtx,
   );
   if (bcLastOpenedBlock) {
     bcLastOpenedBlock.invoice_total_cents = ledger.invoice_total_cents;
@@ -27338,21 +27338,7 @@ function bcBookingLedgerBalance(bk, svcRows, paymentRows, transferRows){
 }
 
 function bcPaymentLinkIntendedAmountCents(pr, ledgerCtx){
-  if (!pr) return null;
-  var kind = String(pr.payment_kind || '').toLowerCase();
-  var md = bcPaymentLedgerParseMetadata(pr.metadata);
-  var source = String(md.source || '').toLowerCase();
-  if (kind === 'deposit_only' || kind === 'deposit') {
-    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
-  }
-  if (kind === 'addon_service') return null;
-  if (kind === 'full_amount') {
-    if (source === 'staff_payment_link' || md.phase === '10.6c') {
-      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-    }
-    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-  }
-  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+  return paymentLinkIntendedAmountCents(pr, ledgerCtx);
 }
 
 function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
@@ -27366,11 +27352,7 @@ function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
 }
 
 function bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx){
-  if (!bcPaymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
-  ledgerCtx = ledgerCtx || {};
-  var intended = bcPaymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(intended);
+  return paymentLedgerIsStaleUnpaidLinkRowCore(pr, bcPaymentLedgerIsActiveUnpaidLinkRow, ledgerCtx || {});
 }
 
 function bcLedgerActivePaymentLinkRow(rows, ledgerCtx){
@@ -27709,6 +27691,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     balance_due_cents: balanceDue,
     deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
     invoice_total_cents: invoiceTotal,
+    guest_amounts_by_id: buildGuestPaymentAmountsMap(bookingGuests, perPerson),
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
@@ -34551,50 +34534,43 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
   const phone      = String(body.phone || body.guest_phone || '').trim();
   const reason     = String(body.reason || 'luna_safe_handoff').slice(0, 200);
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!convId && !phone) {
-    return sendJSON(res, 400, { success: false, error: 'conversation_id or phone is required' });
+  const convIdValid = convId && UUID_VALIDATE_RE.test(convId);
+  if (!convIdValid && !phone) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: 'conversation_id (UUID) or phone is required',
+      blocked_reasons: ['conversation_id_or_phone_missing'],
+    });
   }
 
   try {
-    const result = await withPgClient(async (pg) => {
-      if (convId) {
-        return markConversationNeedsHuman(pg, { conversation_id: convId, client_slug: clientSlug, reason });
-      }
-      const suffix = phone.replace(/\D/g, '').slice(-9);
-      if (!suffix) return { ok: false, updated_count: 0 };
-      const r = await pg.query(
-        `UPDATE conversations conv
-            SET needs_human = TRUE,
-                updated_at = NOW(),
-                metadata = COALESCE(conv.metadata, '{}'::jsonb)
-                  || jsonb_build_object('luna_handoff_at', to_jsonb(NOW()),
-                                        'luna_handoff_reason', to_jsonb($3::text))
-           FROM clients c
-          WHERE conv.client_id = c.id
-            AND c.slug = $1
-            AND regexp_replace(conv.phone, '\\D', '', 'g') LIKE $2
-          RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-        [clientSlug, `%${suffix}`, reason],
-      );
-      return {
-        ok: r.rowCount > 0,
-        updated_count: r.rowCount,
-        needs_human: r.rows[0] ? r.rows[0].needs_human === true : false,
-        conversation_id: r.rows[0] ? r.rows[0].conversation_id : null,
-      };
-    });
-    const ok = !!(result && (result.ok || result.updated_count > 0));
-    return sendJSON(res, 200, {
+    const result = await withPgClient(async (pg) => resolveAndMarkConversationNeedsHuman(pg, {
+      conversation_id: convIdValid ? convId : '',
+      client_slug: clientSlug,
+      phone,
+      guest_phone: phone,
+      reason,
+      uuid_validate_re: UUID_VALIDATE_RE,
+    }));
+    const ok = !!(result && result.ok && result.needs_human === true);
+    return sendJSON(res, ok ? 200 : 404, {
       success:         ok,
       tool:            'flag_needs_human',
       needs_human:     !!(result && result.needs_human),
       conversation_id: (result && result.conversation_id) || null,
+      handoff_reason:  (result && result.handoff_reason) || reason,
+      blocked_reasons: ok ? [] : [(result && result.reason) || 'conversation_not_found'],
       no_payment_write: true,
       no_whatsapp:     true,
       no_n8n:          true,
     });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'needs_human update failed', detail: err.message });
+    return sendJSON(res, 500, {
+      success: false,
+      error: 'needs_human update failed',
+      detail: err.message,
+      blocked_reasons: ['needs_human_update_failed'],
+    });
   }
 }
 
@@ -35030,8 +35006,12 @@ SELECT p.booking_id::text AS booking_id,
        p.amount_due_cents,
        p.amount_paid_cents,
        p.checkout_url,
-       p.metadata
+       p.metadata,
+       p.booking_guest_id::text AS booking_guest_id,
+       bg.deposit_amount_cents AS guest_deposit_amount_cents,
+       bg.metadata AS guest_metadata
   FROM payments p
+  LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
  WHERE p.booking_id = ANY($1::uuid[])
    AND p.status IN ('checkout_created'::payment_record_status, 'draft'::payment_record_status, 'pending'::payment_record_status)
    AND COALESCE(p.amount_paid_cents, 0) = 0
