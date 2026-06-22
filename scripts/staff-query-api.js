@@ -17304,6 +17304,8 @@ ${getStaffPortalI18nBootstrapScript()}
     <button type="button" class="staff-lang-btn is-active" data-lang="es">ES</button>
     <span class="staff-lang-sep">|</span>
     <button type="button" class="staff-lang-btn" data-lang="en">EN</button>
+    <span class="staff-lang-sep">|</span>
+    <button type="button" class="staff-lang-btn" data-lang="it">IT</button>
   </div>
   <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
     <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
@@ -32886,6 +32888,8 @@ ${getStaffPortalI18nBootstrapScript()}
       <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="es">ES</button>
       <span class="staff-lang-sep-login staff-lang-sep">|</span>
       <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="en">EN</button>
+      <span class="staff-lang-sep-login staff-lang-sep">|</span>
+      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
     </div>
     <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
       <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>

@@ -1332,7 +1332,7 @@ function getStaffPortalI18nBootstrapScript() {
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
-      if (s === 'en' || s === 'es') return s;
+      if (s === 'en' || s === 'es' || s === 'it') return s;
     } catch(_){}
     return 'es';
   };
@@ -1419,7 +1419,7 @@ function getStaffPortalI18nBootstrapScript() {
     window.applyStaffTheme();
   };
   window.setStaffLocale = function(loc){
-    if (loc !== 'en' && loc !== 'es') return;
+    if (loc !== 'en' && loc !== 'es' && loc !== 'it') return;
     try { localStorage.setItem(STAFF_LOCALE_KEY, loc); } catch(_){}
     window.applyStaffPortalI18n(document);
     if (typeof window.staffPortalOnLocaleChange === 'function') {
