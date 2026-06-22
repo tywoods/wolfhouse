@@ -362,7 +362,7 @@ if (apiSrc) {
   assert('admin tab surf-gated', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
   assert('loadAdminTab helper present', apiSrc.includes('function loadAdminTab('));
   assert('Admin prices section', apiSrc.includes('admin.section.prices') || apiSrc.includes('admin-sec-prices'));
-  assert('Admin capacity section', apiSrc.includes('admin.section.capacity') || apiSrc.includes('admin-sec-capacity'));
+  assert('Admin capacity moved into lesson cards', apiSrc.includes('admin.section.lessonTimes') && apiSrc.includes('id=\"admin-time-capacity\"'));
   assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
   assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
   assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
@@ -1263,13 +1263,15 @@ console.log('\n[37] Sunset Admin redesign — readable cards + lesson controls')
 
 if (apiSrc) {
   assert('Admin pricing uses cards not dense table', apiSrc.includes('portal-admin-price-card') && apiSrc.includes('admin-prices-card-grid'));
-  assert('Admin hides internal DB status column from price cards', !apiSrc.includes("portalT('admin.prices.col.status')") && apiSrc.includes('admin.prices.configNote'));
+  assert('Admin hides internal DB status column from price cards', !apiSrc.includes("portalT('admin.prices.col.status')") && !apiSrc.includes('admin.prices.configNote'));
   assert('Admin lesson times use cards', apiSrc.includes('portal-admin-lesson-card') && apiSrc.includes('admin-lesson-card-grid'));
   assert('Admin has add lesson UI control', apiSrc.includes("data-admin-action=\"add-time\"") && apiSrc.includes('admin-new-time-start'));
   assert('Admin has remove lesson UI control', apiSrc.includes("data-admin-action=\"delete-time\"") && apiSrc.includes('confirmRemoveLesson'));
   assert('Admin creates lesson time via POST', apiSrc.includes("adminApiRequest('POST', '/staff/admin/config/lesson-times'") && apiSrc.includes('handleAdminConfigLessonTimePost'));
   assert('Admin removes lesson time via DELETE', apiSrc.includes("adminApiRequest('DELETE', '/staff/admin/config/lesson-times/'") && apiSrc.includes('handleAdminConfigLessonTimeDelete'));
-  assert('Admin per-lesson capacity field present but disabled pending schema', apiSrc.includes('id="admin-time-capacity"') && apiSrc.includes('disabled') && apiSrc.includes('capacitySchemaNote'));
+  assert('Admin per-lesson capacity field is editable', apiSrc.includes('id="admin-time-capacity"') && apiSrc.includes('capacityParsed') && !apiSrc.includes('capacitySchemaNote'));
+  assert('Admin business info renders before prices', apiSrc.indexOf('admin-sec-business') > 0 && apiSrc.indexOf('admin-sec-business') < apiSrc.indexOf('admin-sec-prices'));
+  assert('Admin humanizes labels instead of underscores', apiSrc.includes('function adminHumanizeText(') && apiSrc.includes("replace(/_/g, ' ')"));
 }
 
 const adminWritesPath = path.join(ROOT, 'scripts', 'lib', 'tenant-admin-writes.js');
@@ -1280,8 +1282,15 @@ if (fs.existsSync(adminWritesPath)) {
   assert('tenant-admin-writes deactivates lesson time rules', adminWritesSrc.includes('async function deactivateLessonTimeRule(') && adminWritesSrc.includes('SET active = false'));
 }
 
+
+const adminCapacityMigrationPath = path.join(ROOT, 'database', 'migrations', '025_sunset_lesson_time_capacity_PROPOSED.sql');
+if (fs.existsSync(adminCapacityMigrationPath)) {
+  const migration025Src = fs.readFileSync(adminCapacityMigrationPath, 'utf8');
+  assert('Admin per-lesson capacity proposed migration exists', migration025Src.includes('tenant_lesson_time_rules') && migration025Src.includes('ADD COLUMN IF NOT EXISTS capacity'));
+}
+
 if (i18nSrc) {
-  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.lessonTimes.capacitySchemaNote'"));
+  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.prices.group.lessons'"));
 }
 
 

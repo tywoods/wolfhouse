@@ -169,7 +169,7 @@ function mapLessonTimeRows(rows) {
     slot_time: formatLessonSlotTime(row.time_local, row.time_local_end),
     offering_label: row.label || null,
     session_type: row.lesson_type || null,
-    capacity: null,
+    capacity: row.capacity != null ? Number(row.capacity) : null,
     weekdays_active: Array.isArray(row.weekdays_active) ? row.weekdays_active : [],
     source: 'db',
   }));
@@ -275,6 +275,19 @@ async function adminConfigTableHasLocationColumn(client, tableName) {
   return result.rows.length > 0;
 }
 
+async function adminConfigTableHasColumn(client, tableName, columnName) {
+  const result = await client.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = $2
+      LIMIT 1`,
+    [tableName, columnName],
+  );
+  return result.rows.length > 0;
+}
+
 async function adminConfigTablesExist(client) {
   const result = await client.query(
     `SELECT table_name
@@ -322,6 +335,8 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const timeWhere = timeHasLoc
     ? 'client_slug = $1 AND location_id = $2 AND active = true'
     : 'client_slug = $1 AND active = true';
+  const timeHasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
+  const timeCapacitySelect = timeHasCapacity ? ', capacity' : ', NULL::integer AS capacity';
 
   const [priceRes, capacityRes, timeRes, auditRes] = await Promise.all([
     client.query(
@@ -340,7 +355,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
       capParams,
     ),
     client.query(
-      `SELECT id, time_local, time_local_end, label, lesson_type, weekdays_active, service_date
+      `SELECT id, time_local, time_local_end, label, lesson_type, weekdays_active, service_date${timeCapacitySelect}
          FROM tenant_lesson_time_rules
         WHERE ${timeWhere}
         ORDER BY service_date NULLS FIRST, time_local`,

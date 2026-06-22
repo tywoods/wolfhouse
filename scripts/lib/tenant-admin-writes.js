@@ -37,6 +37,7 @@ const LESSON_TIME_PATCH_FIELDS = new Set([
   'lesson_type',
   'weekdays_active',
   'active',
+  'capacity',
 ]);
 
 function isSunsetAdminWritesEnabled() {
@@ -275,6 +276,11 @@ function validateLessonTimePatchBody(body) {
     const weekdays = validateWeekdaysActive(body.weekdays_active);
     if (!weekdays.ok) return weekdays;
     out.weekdays_active = weekdays.value;
+  }
+  if (body.capacity != null) {
+    const n = Number(body.capacity);
+    if (!Number.isInteger(n) || n < 1 || n > 999) return { ok: false, error: 'capacity must be integer 1-999' };
+    out.capacity = n;
   }
   if (body.active != null) {
     if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be boolean' };
@@ -657,6 +663,7 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   await client.query('BEGIN');
   try {
     const existing = await client.query(
@@ -682,8 +689,12 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     const params = [];
     let idx = 3;
     for (const [key, value] of Object.entries(patch)) {
+      if (key === 'capacity' && !hasCapacity) continue;
       if (key === 'weekdays_active') {
         sets.push(`${key} = $${idx}::smallint[]`);
+        params.push(value);
+      } else if (key === 'capacity') {
+        sets.push(`${key} = $${idx}::integer`);
         params.push(value);
       } else {
         sets.push(`${key} = $${idx}`);
@@ -723,6 +734,20 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
 }
 
 
+
+async function adminConfigTableHasColumn(client, tableName, columnName) {
+  const result = await client.query(
+    `SELECT 1
+       FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = $1
+        AND column_name = $2
+      LIMIT 1`,
+    [tableName, columnName],
+  );
+  return result.rows.length > 0;
+}
+
 async function createLessonTimeRule(client, { clientSlug, locationId, patch, actor }) {
   const tablesExist = await adminConfigTablesExist(client);
   const loc = normalizeSunsetLocationId(locationId);
@@ -730,18 +755,29 @@ async function createLessonTimeRule(client, { clientSlug, locationId, patch, act
     return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   await client.query('BEGIN');
   try {
     const tenantId = 'sunset';
-    const cols = hasLoc
-      ? `(tenant_id, client_slug, location_id, time_local, time_local_end, label, lesson_type, weekdays_active, active, updated_by)`
-      : `(tenant_id, client_slug, time_local, time_local_end, label, lesson_type, weekdays_active, active, updated_by)`;
-    const vals = hasLoc
-      ? `($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10::uuid)`
-      : `($1, $2, $3::time, $4::time, $5, $6, $7::smallint[], $8, $9::uuid)`;
+    const columns = hasLoc
+      ? ['tenant_id', 'client_slug', 'location_id', 'time_local', 'time_local_end', 'label', 'lesson_type', 'weekdays_active', 'active', 'updated_by']
+      : ['tenant_id', 'client_slug', 'time_local', 'time_local_end', 'label', 'lesson_type', 'weekdays_active', 'active', 'updated_by'];
     const params = hasLoc
       ? [tenantId, clientSlug, loc, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null]
       : [tenantId, clientSlug, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null];
+    if (hasCapacity && patch.capacity != null) {
+      columns.splice(columns.length - 1, 0, 'capacity');
+      params.splice(params.length - 1, 0, patch.capacity);
+    }
+    const cols = `(${columns.join(', ')})`;
+    const vals = `(${params.map((_, i) => {
+      const col = columns[i];
+      if (col === 'time_local' || col === 'time_local_end') return `$${i + 1}::time`;
+      if (col === 'weekdays_active') return `$${i + 1}::smallint[]`;
+      if (col === 'updated_by') return `$${i + 1}::uuid`;
+      if (col === 'capacity') return `$${i + 1}::integer`;
+      return `$${i + 1}`;
+    }).join(', ')})`;
     const inserted = await client.query(`INSERT INTO tenant_lesson_time_rules ${cols} VALUES ${vals} RETURNING *`, params);
     const after = inserted.rows[0];
     await insertConfigAudit(client, {
