@@ -1327,20 +1327,28 @@ function getStaffPortalThemeEarlyScript() {
   return `<script>(function(){try{var t=localStorage.getItem('wh_staff_portal_theme');if(t==='dark')document.documentElement.setAttribute('data-theme','dark');}catch(e){}})();</script>`;
 }
 
-function getStaffPortalI18nBootstrapScript() {
+function getStaffPortalI18nBootstrapScript(enabledLocales) {
   const json = JSON.stringify(STAFF_PORTAL_STRINGS);
+  // Per-tenant enabled locales — injected from the deployment (STAFF_PORTAL_LOCALES env),
+  // NOT hardcoded, so one tenant's language set can never affect another's. See
+  // verify-portal-locale-isolation.js. Falls back to es/en if not provided.
+  const locales = (Array.isArray(enabledLocales) && enabledLocales.length) ? enabledLocales : ['es', 'en'];
+  const localesJson = JSON.stringify(locales);
+  const defaultLocale = locales.indexOf('es') !== -1 ? 'es' : locales[0];
   return `<script>
 (function(){
   'use strict';
   var STAFF_I18N = ${json};
+  var STAFF_ENABLED_LOCALES = ${localesJson};
+  var STAFF_DEFAULT_LOCALE = ${JSON.stringify(defaultLocale)};
   var STAFF_LOCALE_KEY = 'wh_staff_portal_locale';
   var STAFF_THEME_KEY = 'wh_staff_portal_theme';
   window.getStaffLocale = function(){
     try {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
-      if (s === 'en' || s === 'es' || s === 'it') return s;
+      if (STAFF_ENABLED_LOCALES.indexOf(s) !== -1) return s;
     } catch(_){}
-    return 'es';
+    return STAFF_DEFAULT_LOCALE;
   };
   window.getStaffTheme = function(){
     try {
@@ -1425,7 +1433,7 @@ function getStaffPortalI18nBootstrapScript() {
     window.applyStaffTheme();
   };
   window.setStaffLocale = function(loc){
-    if (loc !== 'en' && loc !== 'es' && loc !== 'it') return;
+    if (STAFF_ENABLED_LOCALES.indexOf(loc) === -1) return;
     try { localStorage.setItem(STAFF_LOCALE_KEY, loc); } catch(_){}
     window.applyStaffPortalI18n(document);
     if (typeof window.staffPortalOnLocaleChange === 'function') {

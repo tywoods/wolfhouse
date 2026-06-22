@@ -551,6 +551,32 @@ const {
 
 const PORT               = parseInt(process.env.STAFF_QUERY_API_PORT || '3036', 10);
 const DEFAULT_CLIENT     = 'wolfhouse-somo';
+
+// Per-tenant portal languages — driven by the deployment's STAFF_PORTAL_LOCALES env
+// (e.g. Wolfhouse: "es,en,it"; Sunset: unset -> "es,en"). This lives in deployment
+// config, NOT shared source, so one tenant's language change can't silently affect
+// another's (the bug where a Sunset commit dropped Italian from Wolfhouse). The order
+// is the switcher order; 'es' (or the first entry) is the default. Pinned by
+// scripts/verify-portal-locale-isolation.js.
+const STAFF_PORTAL_LOCALES = (function () {
+  const allowed = ['es', 'en', 'it', 'de', 'fr'];
+  const raw = String(process.env.STAFF_PORTAL_LOCALES || 'es,en')
+    .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const list = raw.filter((l) => allowed.includes(l));
+  return list.length ? Array.from(new Set(list)) : ['es', 'en'];
+})();
+
+// Render the language switcher buttons from STAFF_PORTAL_LOCALES (no hardcoded locale set).
+function renderStaffLangSwitchButtons(loginVariant) {
+  const btnCls = loginVariant ? 'staff-lang-btn-login staff-lang-btn' : 'staff-lang-btn';
+  const sepCls = loginVariant ? 'staff-lang-sep-login staff-lang-sep' : 'staff-lang-sep';
+  const active = STAFF_PORTAL_LOCALES.indexOf('es') !== -1 ? 'es' : STAFF_PORTAL_LOCALES[0];
+  return STAFF_PORTAL_LOCALES.map((loc, i) => {
+    const sep = i > 0 ? `<span class="${sepCls}">|</span>` : '';
+    const isActive = loc === active ? ' is-active' : '';
+    return `${sep}<button type="button" class="${btnCls}${isActive}" data-lang="${loc}">${loc.toUpperCase()}</button>`;
+  }).join('\n    ');
+}
 const MAX_ROWS           = 500;
 const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
@@ -17287,7 +17313,7 @@ textarea.bk-input{resize:vertical;min-height:60px}
 </style>
 </head>
 <body class="portal-profile-pending">
-${getStaffPortalI18nBootstrapScript()}
+${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
@@ -17301,11 +17327,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <button type="button" class="staff-school-btn" data-school="sunset-sardinero" data-i18n="school.sunsetSardinero">elSardi</button>
   </div>
   <div class="staff-lang-switch" id="staff-lang-switch" aria-label="Language">
-    <button type="button" class="staff-lang-btn is-active" data-lang="es">ES</button>
-    <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn" data-lang="en">EN</button>
-    <span class="staff-lang-sep">|</span>
-    <button type="button" class="staff-lang-btn" data-lang="it">IT</button>
+    ${renderStaffLangSwitchButtons(false)}
   </div>
   <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
     <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
@@ -32924,15 +32946,11 @@ body{
 </style>
 </head>
 <body>
-${getStaffPortalI18nBootstrapScript()}
+${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <div class="card">
   <div class="login-topbar">
     <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
-      <button type="button" class="staff-lang-btn-login staff-lang-btn is-active" data-lang="es">ES</button>
-      <span class="staff-lang-sep-login staff-lang-sep">|</span>
-      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="en">EN</button>
-      <span class="staff-lang-sep-login staff-lang-sep">|</span>
-      <button type="button" class="staff-lang-btn-login staff-lang-btn" data-lang="it">IT</button>
+      ${renderStaffLangSwitchButtons(true)}
     </div>
     <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
       <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>

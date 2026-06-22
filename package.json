@@ -270,6 +270,7 @@
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
+    "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-catalog-response-preview": "node scripts/verify-sunset-catalog-response-preview.js",
