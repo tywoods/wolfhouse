@@ -21785,6 +21785,14 @@ function adminSlotTimeStart(slotTime){
   return raw.split('-')[0].trim();
 }
 
+function adminSlotTimeEnd(slotTime){
+  var raw = String(slotTime || '').trim();
+  if (!raw) return '';
+  var parts = raw.split('-');
+  if (parts.length < 2) return '';
+  return parts[parts.length - 1].trim();
+}
+
 function adminApiRequest(method, path, body){
   var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
   if (body != null){
