@@ -834,7 +834,7 @@ if (apiSrc) {
   assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));
   assert('school location suffix preserved in polish slice', apiSrc.includes('sunsetLocationQuerySuffix()'));
 
-  assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('syncSunsetSchoolSwitcher();'));
+  assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('scheduleDrawerEditableEnabled defined', apiSrc.includes('function scheduleDrawerEditableEnabled('));
   assert('customer PATCH before GET-only gate', (function(){
@@ -1183,6 +1183,56 @@ if (fs.existsSync(CHANNEL_HANDOFF_DOC)) {
     && CHANNEL_ENV_VARS.every((name) => handoffSrc.includes(name))
     && !handoffSrc.includes('STAFF_ACTIONS_ENABLED=')
     && !handoffSrc.includes('--image '));
+}
+
+
+// ── 36. Sunset active school context (portal tabs + persistence) ─────────────
+
+console.log('\n[36] Sunset active school context — labels + localStorage persistence');
+
+if (apiSrc) {
+  assert('STAFF_PORTAL_SUNSET_LOCATION_KEY defined', apiSrc.includes("STAFF_PORTAL_SUNSET_LOCATION_KEY = 'staff_portal_sunset_location'"));
+  assert('refreshSunsetSchoolContextLabels helper', apiSrc.includes('function refreshSunsetSchoolContextLabels('));
+  assert('profile load refreshes school labels', apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
+  assert('school switch persists localStorage', apiSrc.includes('localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY'));
+  assert('schedule school context markup', apiSrc.includes('id="schedule-school-context"') && apiSrc.includes('id="schedule-school-label"'));
+  assert('customers school context markup', apiSrc.includes('id="customers-school-context"') && apiSrc.includes('id="customers-school-label"'));
+  assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
+  assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
+  assert('admin school context preserved', apiSrc.includes('id="admin-school-context"') && apiSrc.includes('renderAdminSchoolContext'));
+  assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
+  assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
+  assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));
+  assert('setSunsetLocation reloads schedule inbox admin customers', apiSrc.includes('loadSchedulePage()') && apiSrc.includes('loadCustomersTab()') && apiSrc.includes('loadAdminTab()') && apiSrc.includes('loadInbox()'));
+}
+
+const custQPath = path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js');
+if (fs.existsSync(custQPath)) {
+  const custSrc = fs.readFileSync(custQPath, 'utf8');
+  assert('customer list query supports locationScoped', custSrc.includes('locationScoped') && custSrc.includes('sqlConversationLocationMatch'));
+  try {
+    const custMod = require('./lib/staff-customer-queries');
+    const scoped = custMod.buildCustomerListParams('sunset', { location: 'sunset-sardinero', filter: 'all' });
+    assert('customer list params include location for sunset', scoped.locationScoped === true && scoped.locationId === 'sunset-sardinero' && scoped.params[1] === 'sunset-sardinero');
+    const wolf = custMod.buildCustomerListParams('wolfhouse-somo', { location: 'sunset-sardinero', filter: 'all' });
+    assert('wolfhouse customer list ignores location param', wolf.locationScoped === false);
+  } catch (err) {
+    assert('staff-customer-queries module loads for school context', false, err.message);
+  }
+}
+
+const schoolTabsProbe = path.join(ROOT, '_work', 'probe-sunset-active-school-context-tabs.js');
+assert('active school context tabs probe present', fs.existsSync(schoolTabsProbe));
+if (fs.existsSync(schoolTabsProbe)) {
+  const probeSrc = fs.readFileSync(schoolTabsProbe, 'utf8');
+  assert('school tabs probe switches schools', probeSrc.includes('sunset-sardinero') && probeSrc.includes('staff-school-btn'));
+  assert('school tabs probe checks schedule inbox admin customers labels', probeSrc.includes('schedule-school-label') && probeSrc.includes('inbox-school-label') && probeSrc.includes('admin-school-label') && probeSrc.includes('customers-school-label'));
+  assert('school tabs probe no outbound send', !probeSrc.includes('send-reply') && !probeSrc.includes('guest-reply-send'));
+}
+
+if (i18nSrc) {
+  assert('schedule.school.context i18n', i18nSrc.includes("'schedule.school.context'"));
+  assert('customers.school.context i18n', i18nSrc.includes("'customers.school.context'"));
 }
 
 

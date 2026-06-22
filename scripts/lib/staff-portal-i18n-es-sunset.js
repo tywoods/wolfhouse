@@ -321,5 +321,13 @@ module.exports = {
     'schedule.drawer.save': 'Guardar cambios',
     'schedule.drawer.saved': 'Reserva guardada.',
     'schedule.drawer.loading': 'Cargando reserva…',
+    'schedule.drawer.school': 'Escuela',
+    'schedule.school.context': 'Horario de:',
+    'schedule.school.createHint': 'Creando reserva para:',
+    'customers.school.context': 'Clientes de:',
+    'customers.detail.school': 'Escuela activa',
+    'admin.school.active': 'Configuración de',
+    'admin.school.switchHint': ' (usa el selector de escuela del encabezado)',
+    'inbox.school.context': 'Bandeja de:',
 
 };

@@ -15907,6 +15907,11 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-school-btn{background:none;border:none;color:rgba(255,250,241,.72);cursor:pointer;padding:4px 8px;font:inherit;transition:color .15s}
 .staff-school-btn:hover{color:#fffaf1}
 .staff-school-btn.is-active{color:#fffaf1;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,250,241,.55)}
+.portal-school-context{font-size:13px;color:var(--text-2);line-height:1.45}
+.portal-school-context strong{color:var(--text);font-weight:700}
+.portal-schedule-school-context{margin:0 0 12px}
+.customers-school-context{margin:0 0 12px}
+.portal-schedule-create-school{font-size:12px;color:var(--text-2);margin:0 0 12px}
 .staff-lang-btn{background:none;border:none;color:rgba(255,250,241,.72);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
 .staff-lang-btn:hover{color:#fffaf1}
 .staff-lang-btn.is-active{color:#fffaf1;text-decoration:underline;text-underline-offset:3px;text-decoration-color:rgba(255,250,241,.55)}
@@ -17259,6 +17264,10 @@ ${getStaffPortalI18nBootstrapScript()}
 <!-- ── Portal home (Sunset / surf demo landing) ─────────────────────────── -->
 <div id="tab-portal-home" class="tab-panel">
 <div id="wrap-portal-home" class="portal-schedule-wrap">
+  <div class="portal-school-context portal-schedule-school-context" id="schedule-school-context" style="display:none" aria-live="polite">
+    <span data-i18n="schedule.school.context">Schedule for:</span>
+    <strong id="schedule-school-label">—</strong>
+  </div>
   <div class="portal-schedule-summary portal-schedule-ops-metrics">
     <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-lessons"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessonGroups">Lesson groups</div><div class="portal-schedule-lesson-times" id="ps-lessons-slot-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
@@ -17288,6 +17297,10 @@ ${getStaffPortalI18nBootstrapScript()}
   <div class="portal-schedule-create-backdrop" id="ps-create-backdrop"></div>
   <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="ps-create-title">
     <h3 id="ps-create-title" data-i18n="schedule.create.title">Create booking</h3>
+    <p class="portal-schedule-create-school portal-school-context" id="ps-create-school-context" style="display:none" aria-live="polite">
+      <span data-i18n="schedule.school.createHint">Creating booking for:</span>
+      <strong id="ps-create-school-label">—</strong>
+    </p>
     <p class="portal-schedule-create-sub" data-i18n="schedule.create.sub">Creates a real Sunset staging booking in the database.</p>
     <div id="ps-create-msg" class="state-msg error" style="display:none;margin-bottom:12px"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-guest" data-i18n="schedule.create.guestName">Guest name</label><input id="ps-create-guest" type="text" autocomplete="off"></div>
@@ -17328,6 +17341,10 @@ ${getStaffPortalI18nBootstrapScript()}
     <h2 data-i18n="customers.title">Customers</h2>
     <p data-i18n="customers.subtitle">Guest history, preferences, and previous lessons or rentals.</p>
     <p class="customers-promo" data-i18n="customers.promo">Remember returning guests — see previous lessons, rentals, preferences, and notes. When someone comes back next year, confirm what they had before and book it again faster.</p>
+    <div class="portal-school-context customers-school-context" id="customers-school-context" style="display:none" aria-live="polite">
+      <span data-i18n="customers.school.context">Customers for:</span>
+      <strong id="customers-school-label">—</strong>
+    </div>
   </header>
   <div class="customers-toolbar">
     <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
@@ -18768,6 +18785,68 @@ function getSunsetLocationLabel(loc){
   return portalT('school.sunsetSomo');
 }
 
+function isSunsetSurfActive(){
+  return getClient() === 'sunset' && !!getPortalProfile(getClient()).is_surf_vertical;
+}
+
+function customersClientQuery(){
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset') {
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
+}
+
+function scheduleResolveDrawerSchoolLabel(ctx, row){
+  var loc = (ctx && ctx.location_id) || (row && row.location_id) || getSunsetLocation();
+  return getSunsetLocationLabel(loc);
+}
+
+function renderScheduleSchoolContext(){
+  var wrap = el('schedule-school-context');
+  var label = el('schedule-school-label');
+  if (!wrap || !label) return;
+  if (!isSunsetSurfActive()) {
+    wrap.style.display = 'none';
+    return;
+  }
+  label.textContent = getSunsetLocationLabel();
+  wrap.style.display = 'block';
+}
+
+function renderCustomersSchoolContext(){
+  var wrap = el('customers-school-context');
+  var label = el('customers-school-label');
+  if (!wrap || !label) return;
+  if (!isSunsetSurfActive()) {
+    wrap.style.display = 'none';
+    return;
+  }
+  label.textContent = getSunsetLocationLabel();
+  wrap.style.display = 'block';
+}
+
+function renderScheduleCreateSchoolContext(){
+  var wrap = el('ps-create-school-context');
+  var label = el('ps-create-school-label');
+  if (!wrap || !label) return;
+  if (!isSunsetSurfActive()) {
+    wrap.style.display = 'none';
+    return;
+  }
+  label.textContent = getSunsetLocationLabel();
+  wrap.style.display = 'block';
+}
+
+function refreshSunsetSchoolContextLabels(channelConfig){
+  syncSunsetSchoolSwitcher();
+  renderScheduleSchoolContext();
+  renderCustomersSchoolContext();
+  renderScheduleCreateSchoolContext();
+  renderInboxSchoolContext(channelConfig || null);
+  renderAdminSchoolContext(adminConfigCache || null);
+}
+
 function renderInboxSchoolContext(channelConfig){
   var wrap = el('inbox-school-context');
   var label = el('inbox-school-label');
@@ -18813,7 +18892,7 @@ function syncSunsetSchoolSwitcher(){
 function setSunsetLocation(locationId){
   var next = (locationId === 'sunset-sardinero') ? 'sunset-sardinero' : 'sunset-somo';
   try { localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY, next); } catch (_) { /* ignore */ }
-  syncSunsetSchoolSwitcher();
+  refreshSunsetSchoolContextLabels();
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
     if (el('tab-customers') && el('tab-customers').classList.contains('active')) loadCustomersTab();
@@ -18963,7 +19042,7 @@ function applyClientPortalProfile(clientSlug){
   applySurfNavLabels(profile);
   applySurfInboxFilters(profile);
   wireSunsetSchoolSwitcher();
-  syncSunsetSchoolSwitcher();
+  refreshSunsetSchoolContextLabels();
 }
 
 
@@ -19197,7 +19276,10 @@ function scheduleRefreshOnLocaleChange(){
   if (createModal && createModal.style.display !== 'none' && typeof window.applyStaffPortalI18n === 'function'){
     window.applyStaffPortalI18n(createModal);
   }
-  if (!scheduleIsPortalHomeActive()) return;
+  if (!scheduleIsPortalHomeActive()) {
+    refreshSunsetSchoolContextLabels();
+    return;
+  }
   var keepDrawerId = scheduleLastDrawerRowId;
   var drawerWasOpen = !!(keepDrawerId && el('ps-detail-drawer') && el('ps-detail-drawer').style.display !== 'none');
   return loadSchedulePage().then(function(){
@@ -20627,6 +20709,9 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(ctx.booking_code || row.booking_code || '—') + '</p>';
   html += '</div>';
   html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>';
+  if (isSunsetSurfActive()) {
+    html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.school')) + ':</strong> ' + escHtml(scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
+  }
   html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>';
   html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>';
   html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>';
@@ -20661,6 +20746,9 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
   html += '<div class="portal-schedule-drawer-hero">';
   html += '<p class="portal-schedule-card-sub" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(ctx.booking_code || row.booking_code || '—') + '</p>';
+  if (isSunsetSurfActive()) {
+    html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.school')) + ': ' + escHtml(scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
+  }
   html += '</div>';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>';
   html += '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>';
@@ -20785,6 +20873,9 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
   html += '<div class="portal-schedule-drawer-hero">';
   html += '<p class="portal-schedule-card-sub" style="margin:0 0 8px">' + escHtml(portalT('schedule.drawer.bookingCode')) + ': ' + escHtml(ctx.booking_code || row.booking_code || '—') + '</p>';
+  if (isSunsetSurfActive()) {
+    html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.school')) + ': ' + escHtml(scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
+  }
   html += '</div>';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>';
   html += '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>';
@@ -21137,6 +21228,7 @@ function openScheduleCreateModal(){
   if (df && !df.value) df.value = today;
   if (dt && !dt.value) dt.value = today;
   schedulePopulateCreateComponentFields();
+  renderScheduleCreateSchoolContext();
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
 }
@@ -21260,6 +21352,7 @@ function loadSchedulePage(){
   var client = getClient();
   var profile = getPortalProfile(client);
   if (!profile.is_surf_vertical) return;
+  renderScheduleSchoolContext();
   if (scheduleForwardOffset == null || scheduleForwardOffset < 0) scheduleForwardOffset = 0;
   var state = el('ps-state');
   if (state){ state.textContent = portalT('daySchedule.loading'); state.style.display = 'block'; }
@@ -21610,7 +21703,7 @@ function renderAdminSchoolContext(cfg){
     return;
   }
   var loc = (cfg && cfg.location_id) ? cfg.location_id : getSunsetLocation();
-  var text = (cfg && cfg.location_label) ? cfg.location_label : (loc === 'sunset-sardinero' ? 'elSardi' : 'Sunset');
+  var text = (cfg && cfg.location_label) ? cfg.location_label : getSunsetLocationLabel(loc);
   label.textContent = text;
   wrap.style.display = 'block';
 }
@@ -21841,6 +21934,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-section-body customers-profile-view">' +
       '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.phone')) + ':</strong> ' + escHtml(data.phone || '—') + '</p>' +
       '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.email')) + ':</strong> ' + escHtml(id.email || '—') + '</p>' +
+      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
       '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.notes')) + ':</strong> ' + escHtml(notes || t('customers.detail.noNotes')) + '</p>' +
       (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
       '</div>' +
@@ -21981,7 +22075,7 @@ function loadCustomersList() {
   if (!profile.is_surf_vertical) return;
   var state = el('cust-state');
   var q = (el('cust-search') && el('cust-search').value) ? el('cust-search').value.trim() : '';
-  var url = '/staff/customers?client=' + encodeURIComponent(getClient()) +
+  var url = '/staff/customers' + customersClientQuery() +
     '&filter=' + encodeURIComponent(customersFilter) +
     '&limit=50&offset=0';
   if (q) url += '&q=' + encodeURIComponent(q);
@@ -22004,7 +22098,8 @@ function loadCustomerDetail(phone) {
   renderCustomersList(customersCache);
   var box = el('cust-detail');
   if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.loading')) + '</div>';
-  var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient());
+  var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient()) +
+    (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
   fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data) { renderCustomerDetail(data); })
     .catch(function() {
@@ -22049,6 +22144,7 @@ function wireCustomersTab() {
 
 function loadCustomersTab() {
   wireCustomersTab();
+  renderCustomersSchoolContext();
   loadCustomersList();
 }
 

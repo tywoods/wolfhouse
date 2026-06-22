@@ -9,6 +9,14 @@
 
 'use strict';
 
+const {
+  DEFAULT_SUNSET_LOCATION_ID,
+  SUNSET_CLIENT_SLUG,
+  normalizeSunsetLocationId,
+  sqlConversationLocationMatch,
+  sqlLocationMatch,
+} = require('./sunset-school-locations');
+
 const ALLOWED_FILTERS = new Set(['all', 'booked', 'needs_attention']);
 
 function normalizeCustomerFilter(filter) {
@@ -36,9 +44,21 @@ function clampOffset(offset) {
  * @param {boolean} opts.hasSearch - when true, adds ILIKE param $2
  * @returns {string} SQL ($1 client slug; optional $2 search; $3 limit; $4 offset)
  */
+function customerListLimitOffsetParams(opts) {
+  const hasSearch = !!(opts && opts.hasSearch);
+  const locationScoped = !!(opts && opts.locationScoped);
+  let idx = 2;
+  if (locationScoped) idx += 1;
+  const searchParam = hasSearch ? idx : null;
+  if (hasSearch) idx += 1;
+  return { limitParam: idx, offsetParam: idx + 1, searchParam };
+}
+
 function getCustomerListQuery(opts) {
   const filter = normalizeCustomerFilter(opts && opts.filter);
   const hasSearch = !!(opts && opts.hasSearch);
+  const locationScoped = !!(opts && opts.locationScoped);
+  const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
 
   let filterClause = '';
   if (filter === 'booked') {
@@ -49,11 +69,18 @@ function getCustomerListQuery(opts) {
 
   const searchClause = hasSearch
     ? `AND (
-      COALESCE(lc.display_name, '') ILIKE $2
-      OR COALESCE(lc.email, '') ILIKE $2
-      OR lc.phone ILIKE $2
+      COALESCE(lc.display_name, '') ILIKE $${searchParam}
+      OR COALESCE(lc.email, '') ILIKE $${searchParam}
+      OR lc.phone ILIKE $${searchParam}
     )`
     : '';
+
+  const locParam = locationScoped ? 2 : null;
+  const convLocClause = locationScoped ? `\n    AND ${sqlConversationLocationMatch('conv', locParam)}` : '';
+  const bookingLocClause = locationScoped
+    ? `\n    AND COALESCE(b.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}`
+    : '';
+  const serviceLocClause = locationScoped ? `\n    AND ${sqlLocationMatch('bsr', 'b', locParam)}` : '';
 
   return `
 WITH phone_universe AS (
@@ -62,7 +89,7 @@ WITH phone_universe AS (
   INNER JOIN clients c ON c.id = conv.client_id
   WHERE c.slug = $1
     AND conv.phone IS NOT NULL
-    AND TRIM(conv.phone) <> ''
+    AND TRIM(conv.phone) <> ''${convLocClause}
   UNION
   SELECT DISTINCT b.phone AS phone
   FROM bookings b
@@ -70,7 +97,7 @@ WITH phone_universe AS (
   WHERE c.slug = $1
     AND b.phone IS NOT NULL
     AND TRIM(b.phone) <> ''
-    AND b.status NOT IN ('cancelled', 'expired')
+    AND b.status NOT IN ('cancelled', 'expired')${bookingLocClause}
 ),
 latest_conv AS (
   SELECT DISTINCT ON (conv.phone)
@@ -86,7 +113,7 @@ latest_conv AS (
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
   WHERE c.slug = $1
-    AND conv.phone IS NOT NULL
+    AND conv.phone IS NOT NULL${convLocClause}
   ORDER BY conv.phone, conv.updated_at DESC
 ),
 booking_agg AS (
@@ -97,7 +124,7 @@ booking_agg AS (
   INNER JOIN clients c ON c.id = b.client_id
   WHERE c.slug = $1
     AND b.phone IS NOT NULL
-    AND b.status NOT IN ('cancelled', 'expired')
+    AND b.status NOT IN ('cancelled', 'expired')${bookingLocClause}
   GROUP BY b.phone
 ),
 service_agg AS (
@@ -109,7 +136,7 @@ service_agg AS (
   INNER JOIN clients c ON c.id = b.client_id
   WHERE bsr.client_slug = $1
     AND c.slug = $1
-    AND b.phone IS NOT NULL
+    AND b.phone IS NOT NULL${serviceLocClause}
   GROUP BY b.phone
 ),
 handoff_open AS (
@@ -118,7 +145,7 @@ handoff_open AS (
   INNER JOIN conversations conv ON conv.id = h.conversation_id
   INNER JOIN clients c ON c.id = conv.client_id
   WHERE c.slug = $1
-    AND h.status IN ('open', 'assigned', 'waiting_guest')
+    AND h.status IN ('open', 'assigned', 'waiting_guest')${convLocClause}
 ),
 last_service AS (
   SELECT DISTINCT ON (b.phone)
@@ -130,7 +157,7 @@ last_service AS (
   FROM booking_service_records bsr
   INNER JOIN bookings b ON b.id = bsr.booking_id
   WHERE bsr.client_slug = $1
-    AND b.phone IS NOT NULL
+    AND b.phone IS NOT NULL${serviceLocClause}
   ORDER BY b.phone, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
 )
 SELECT
@@ -165,7 +192,7 @@ ORDER BY
   (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) DESC,
   lc.last_contact_at DESC NULLS LAST,
   pu.phone ASC
-LIMIT $${hasSearch ? 3 : 2} OFFSET $${hasSearch ? 4 : 3}
+LIMIT $${limitParam} OFFSET $${offsetParam}
 `;
 }
 
@@ -308,7 +335,12 @@ function buildCustomerListParams(clientSlug, query) {
   const offset = clampOffset(query.offset);
   const q = String(query.q || query.query || '').trim();
   const hasSearch = q.length > 0;
+  const locationId = (clientSlug === SUNSET_CLIENT_SLUG && query && query.location)
+    ? normalizeSunsetLocationId(query.location)
+    : null;
+  const locationScoped = !!locationId;
   const params = [clientSlug];
+  if (locationScoped) params.push(locationId);
   if (hasSearch) params.push(`%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`);
   params.push(limit, offset);
   return {
@@ -316,8 +348,10 @@ function buildCustomerListParams(clientSlug, query) {
     limit,
     offset,
     hasSearch,
+    locationScoped,
+    locationId,
     params,
-    sql: getCustomerListQuery({ filter, hasSearch }),
+    sql: getCustomerListQuery({ filter, hasSearch, locationScoped }),
   };
 }
 
