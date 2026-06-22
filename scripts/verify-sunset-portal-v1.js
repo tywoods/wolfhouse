@@ -1235,6 +1235,33 @@ if (i18nSrc) {
   assert('customers.school.context i18n', i18nSrc.includes("'customers.school.context'"));
 }
 
+// ── 37. Sunset Admin redesign — cards + lesson add/remove controls ───────────
+
+console.log('\n[37] Sunset Admin redesign — readable cards + lesson controls');
+
+if (apiSrc) {
+  assert('Admin pricing uses cards not dense table', apiSrc.includes('portal-admin-price-card') && apiSrc.includes('admin-prices-card-grid'));
+  assert('Admin hides internal DB status column from price cards', !apiSrc.includes("portalT('admin.prices.col.status')") && apiSrc.includes('admin.prices.configNote'));
+  assert('Admin lesson times use cards', apiSrc.includes('portal-admin-lesson-card') && apiSrc.includes('admin-lesson-card-grid'));
+  assert('Admin has add lesson UI control', apiSrc.includes("data-admin-action=\"add-time\"") && apiSrc.includes('admin-new-time-start'));
+  assert('Admin has remove lesson UI control', apiSrc.includes("data-admin-action=\"delete-time\"") && apiSrc.includes('confirmRemoveLesson'));
+  assert('Admin creates lesson time via POST', apiSrc.includes("adminApiRequest('POST', '/staff/admin/config/lesson-times'") && apiSrc.includes('handleAdminConfigLessonTimePost'));
+  assert('Admin removes lesson time via DELETE', apiSrc.includes("adminApiRequest('DELETE', '/staff/admin/config/lesson-times/'") && apiSrc.includes('handleAdminConfigLessonTimeDelete'));
+  assert('Admin per-lesson capacity field present but disabled pending schema', apiSrc.includes('id="admin-time-capacity"') && apiSrc.includes('disabled') && apiSrc.includes('capacitySchemaNote'));
+}
+
+const adminWritesPath = path.join(ROOT, 'scripts', 'lib', 'tenant-admin-writes.js');
+if (fs.existsSync(adminWritesPath)) {
+  const adminWritesSrc = fs.readFileSync(adminWritesPath, 'utf8');
+  assert('tenant-admin-writes validates lesson create body', adminWritesSrc.includes('function validateLessonTimeCreateBody('));
+  assert('tenant-admin-writes creates lesson time rules', adminWritesSrc.includes('async function createLessonTimeRule(') && adminWritesSrc.includes('INSERT INTO tenant_lesson_time_rules'));
+  assert('tenant-admin-writes deactivates lesson time rules', adminWritesSrc.includes('async function deactivateLessonTimeRule(') && adminWritesSrc.includes('SET active = false'));
+}
+
+if (i18nSrc) {
+  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.lessonTimes.capacitySchemaNote'"));
+}
+
 
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 

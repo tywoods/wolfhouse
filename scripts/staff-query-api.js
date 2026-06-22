@@ -203,10 +203,13 @@ const {
   validateUuid,
   validatePricePatchBody,
   validateLessonCapacityBody,
+  validateLessonTimeCreateBody,
   validateLessonTimePatchBody,
   patchPriceRule,
   putLessonCapacityDefault,
+  createLessonTimeRule,
   patchLessonTimeRule,
+  deactivateLessonTimeRule,
 } = require('./lib/tenant-admin-writes');
 const {
   SUNSET_CLIENT_SLUG,
@@ -16117,7 +16120,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-admin-banner strong{color:var(--text)}
 .portal-admin-sections{display:grid;grid-template-columns:1fr;gap:14px}
 .portal-admin-section{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:16px 18px;box-shadow:var(--shadow-soft)}
-.portal-admin-section-hdr{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
+.portal-admin-section-hdr{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:var(--text-2);margin-bottom:10px}
 .portal-admin-section-body{font-size:13px;color:var(--text);line-height:1.55}
 .portal-admin-kv{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-top:1px solid var(--border-soft)}
 .portal-admin-kv:first-child{border-top:none;padding-top:0}
@@ -16126,16 +16129,29 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-admin-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .portal-admin-table th,.portal-admin-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
 .portal-admin-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
+.portal-admin-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:10px;margin-top:8px}
+.portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:12px;background:var(--surface-soft);padding:12px;display:flex;flex-direction:column;gap:10px}
+.portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.35}
+.portal-admin-price-meta,.portal-admin-lesson-meta{font-size:12px;color:var(--text-3);margin-top:3px}
+.portal-admin-price-amount,.portal-admin-lesson-time{font-size:20px;font-weight:850;color:var(--text);white-space:nowrap;text-align:right}
+.portal-admin-chip-row{display:flex;gap:6px;flex-wrap:wrap}
+.portal-admin-chip{display:inline-flex;align-items:center;border:1px solid var(--border-soft);border-radius:999px;padding:2px 8px;font-size:11px;font-weight:700;color:var(--text-2);background:var(--surface)}
+.portal-admin-section-note{margin-top:10px;font-size:12px;color:var(--text-3)}
+.portal-admin-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin:2px 0 12px}
+.portal-admin-capacity-card{display:flex;align-items:center;justify-content:space-between;gap:12px;border:1px solid var(--border-soft);border-radius:12px;background:var(--surface-soft);padding:14px 16px}
+.portal-admin-capacity-number{font-size:30px;font-weight:850;color:var(--text);line-height:1}
 .portal-admin-muted{color:var(--text-3);font-style:italic}
 .portal-admin-actions{margin-top:14px;display:flex;gap:8px;flex-wrap:wrap}
 .portal-admin-btn[disabled]{opacity:.55;cursor:not-allowed}
 .portal-admin-save-msg{margin-top:12px}
-.portal-admin-edit-form{margin-top:10px;padding:12px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface-soft)}
-.portal-admin-edit-field{margin-bottom:8px}
+.portal-admin-edit-form{margin-top:10px;padding:12px;border:1px solid var(--border-soft);border-radius:var(--radius);background:var(--surface-soft);display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:end}
+.portal-admin-edit-field{margin-bottom:0}
 .portal-admin-edit-field label{display:block;font-size:11px;font-weight:700;color:var(--text-2);margin-bottom:4px}
-.portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px}
-.portal-admin-edit-actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.portal-admin-edit-field input{width:100%;max-width:240px;padding:6px 8px;border:1px solid var(--border-soft);border-radius:6px;font-size:13px;background:var(--surface);color:var(--text)}
+.portal-admin-edit-actions{display:flex;gap:8px;margin-top:0;flex-wrap:wrap;align-items:center}
 .portal-admin-row-edit{font-size:11px;padding:4px 10px}
+.portal-admin-danger{color:#9d3b30;border-color:rgba(157,59,48,.35)}
 .portal-admin-history-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .portal-admin-history-table th,.portal-admin-history-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
 .portal-admin-history-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase}
@@ -21657,6 +21673,36 @@ function adminReloadConfig(){
   loadAdminTab();
 }
 
+function adminPriceCategoryLabel(category){
+  var c = String(category || '').trim().toLowerCase();
+  if (c === 'lesson') return portalT('admin.prices.category.lesson');
+  if (c === 'rental') return portalT('admin.prices.category.rental');
+  if (c === 'package') return portalT('admin.prices.category.package');
+  return category || '—';
+}
+
+function adminUnitLabel(unit){
+  var u = String(unit || '').trim().toLowerCase();
+  if (u === 'person') return portalT('admin.unit.person');
+  if (u === 'day') return portalT('admin.unit.day');
+  if (u === 'session') return portalT('admin.unit.session');
+  if (u === 'item') return portalT('admin.unit.item');
+  return unit || '—';
+}
+
+function renderAdminPriceEditForm(pid, p){
+  return '<div class="portal-admin-edit-form">' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
+    '<input type="text" id="admin-price-display-name" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
+    '<input type="text" id="admin-price-amount-eur" value="' + escHtml(adminEurosFromAmount(p.amount)) + '" inputmode="decimal"></div>' +
+    '<div class="portal-admin-edit-actions">' +
+    '<button type="button" class="btn btn-primary" data-admin-action="save-price" data-price-id="' + escHtml(pid) + '">' +
+    escHtml(portalT('admin.action.save')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
+    '</div></div>';
+}
+
 function renderAdminSectionPricesFromConfig(cfg){
   var box = el('admin-prices-body');
   if (!box) return;
@@ -21664,47 +21710,34 @@ function renderAdminSectionPricesFromConfig(cfg){
   var prices = (cfg && cfg.prices) ? cfg.prices : [];
   if (!prices.length){
     box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.notConfigured')) + '</p>' +
-      '<p style="margin-top:8px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
+      '<p class="portal-admin-section-note">' + escHtml(portalT('admin.prices.futureNote')) + '</p>';
     return;
   }
-  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.prices.col.category')) +
-    '</th><th>' + escHtml(portalT('admin.prices.col.offering')) + '</th><th>' + escHtml(portalT('admin.prices.col.unit')) +
-    '</th><th>' + escHtml(portalT('admin.prices.col.amount')) + '</th><th>' + escHtml(portalT('admin.prices.col.status')) +
-    '</th>' + (writes ? '<th>' + escHtml(portalT('admin.edit.col.actions')) + '</th>' : '') +
-    '</tr></thead><tbody>';
-  prices.forEach(function(p){
+  var lessonPrices = prices.filter(function(p){ return String(p.category || '').toLowerCase() === 'lesson'; });
+  var otherPrices = prices.filter(function(p){ return String(p.category || '').toLowerCase() !== 'lesson'; });
+  var ordered = lessonPrices.concat(otherPrices);
+  var html = '<div class="portal-admin-toolbar"><span class="portal-admin-muted">' + escHtml(portalT('admin.prices.help')) + '</span></div>';
+  html += '<div class="portal-admin-card-grid" id="admin-prices-card-grid">';
+  ordered.forEach(function(p){
     var pid = p.id ? String(p.id) : '';
     var editing = writes && adminEditTarget === ('price:' + pid);
-    html += '<tr><td>' + escHtml(p.category || '—') + '</td><td>' + escHtml(p.label || p.offering_key || '—') + '</td><td>' +
-      escHtml(p.unit || '—') + '</td><td>' + escHtml(String(p.amount) + ' ' + (p.currency || 'EUR')) + '</td><td>' +
-      escHtml(p.effective_state || p.pricing_status || '—') + '</td>';
+    html += '<article class="portal-admin-price-card" data-admin-price-card="' + escHtml(pid) + '">' +
+      '<div class="portal-admin-price-card-main"><div><div class="portal-admin-price-title">' + escHtml(p.label || p.offering_key || '—') + '</div>' +
+      '<div class="portal-admin-price-meta">' + escHtml(adminPriceCategoryLabel(p.category)) + '</div></div>' +
+      '<div class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</div></div>' +
+      '<div class="portal-admin-chip-row"><span class="portal-admin-chip">' + escHtml(adminUnitLabel(p.unit)) + '</span></div>';
     if (writes){
       if (editing){
-        html += '<td><span class="portal-admin-muted">' + escHtml(portalT('admin.edit.editing')) + '</span></td>';
+        html += renderAdminPriceEditForm(pid, p);
       } else if (!adminEditTarget || adminEditTarget.indexOf('price:') !== 0){
-        html += '<td><button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="edit-price" data-price-id="' +
-          escHtml(pid) + '">' + escHtml(portalT('admin.action.edit')) + '</button></td>';
-      } else {
-        html += '<td></td>';
+        html += '<div><button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="edit-price" data-price-id="' +
+          escHtml(pid) + '">' + escHtml(portalT('admin.action.edit')) + '</button></div>';
       }
     }
-    html += '</tr>';
-    if (editing){
-      html += '<tr><td colspan="' + (writes ? 6 : 5) + '"><div class="portal-admin-edit-form">' +
-        '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
-        '<input type="text" id="admin-price-display-name" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
-        '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
-        '<input type="text" id="admin-price-amount-eur" value="' + escHtml(adminEurosFromAmount(p.amount)) + '" inputmode="decimal"></div>' +
-        '<div class="portal-admin-edit-actions">' +
-        '<button type="button" class="btn btn-primary" data-admin-action="save-price" data-price-id="' + escHtml(pid) + '">' +
-        escHtml(portalT('admin.action.save')) + '</button>' +
-        '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
-        '</div></div></td></tr>';
-    }
+    html += '</article>';
   });
-  html += '</tbody></table>';
-  html += '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.prices.configNote')) +
-    ' (' + escHtml((cfg && cfg.source) ? cfg.source : 'config') + ')</p>';
+  html += '</div>';
+  html += '<p class="portal-admin-section-note">' + escHtml(portalT('admin.prices.configNote')) + '</p>';
   box.innerHTML = html;
 }
 
@@ -21715,8 +21748,9 @@ function renderAdminSectionCapacityFromConfig(cfg){
   var cap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
   var editing = writes && adminEditTarget === 'capacity';
-  var html = '<div class="portal-admin-kv"><span class="portal-admin-kv-label">' + escHtml(portalT('admin.capacity.dailyDefault')) +
-    '</span><span class="portal-admin-kv-value">' + escHtml(String(cap) + ' ' + portalT('admin.capacity.seatsPerDay')) + '</span></div>';
+  var html = '<div class="portal-admin-capacity-card"><div><div class="portal-admin-kv-label">' + escHtml(portalT('admin.capacity.dailyDefault')) +
+    '</div><div class="portal-admin-section-note">' + escHtml(portalT('admin.capacity.help')) + '</div></div>' +
+    '<div class="portal-admin-capacity-number">' + escHtml(String(cap)) + '</div></div>';
   if (writes && !adminEditTarget){
     html += '<div style="margin-top:10px"><button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="edit-capacity">' +
       escHtml(portalT('admin.action.edit')) + '</button></div>';
@@ -21730,8 +21764,37 @@ function renderAdminSectionCapacityFromConfig(cfg){
       '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
       '</div></div>';
   }
-  html += '<p style="margin-top:10px;font-size:12px;color:var(--text-3)">' + escHtml(portalT('admin.capacity.futureNote')) + '</p>';
+  html += '<p class="portal-admin-section-note">' + escHtml(portalT('admin.capacity.futureNote')) + '</p>';
   box.innerHTML = html;
+}
+
+function renderAdminTimeEditForm(sid, s){
+  return '<div class="portal-admin-edit-form">' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
+    '<input type="text" id="admin-time-label" value="' + escHtml(s.offering_label || s.session_type || '') + '" maxlength="120"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
+    '<input type="text" id="admin-time-start" value="' + escHtml(adminSlotTimeStart(s.slot_time)) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.capacity')) + '</label>' +
+    '<input type="number" id="admin-time-capacity" min="1" max="999" step="1" value="' + escHtml(s.capacity != null ? String(s.capacity) : '') + '" placeholder="' + escHtml(portalT('admin.capacity.dailyDefault')) + '" disabled></div>' +
+    '<div class="portal-admin-edit-actions">' +
+    '<button type="button" class="btn btn-primary" data-admin-action="save-time" data-time-id="' + escHtml(sid) + '">' +
+    escHtml(portalT('admin.action.save')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
+    '</div></div>';
+}
+
+function renderAdminAddTimeForm(){
+  return '<div class="portal-admin-edit-form" id="admin-add-time-form">' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
+    '<input type="text" id="admin-new-time-label" value="Group surf lesson" maxlength="120"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
+    '<input type="text" id="admin-new-time-start" value="" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
+    '<input type="text" id="admin-new-time-end" value="" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-actions">' +
+    '<button type="button" class="btn btn-primary" data-admin-action="save-new-time">' + escHtml(portalT('admin.action.save')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
+    '</div></div>';
 }
 
 function renderAdminSectionLessonTimesFromConfig(cfg){
@@ -21739,46 +21802,41 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   if (!box) return;
   var writes = adminCfgWritesEnabled(cfg);
   var slots = (cfg && cfg.lesson_times) ? cfg.lesson_times : [];
+  var html = '<div class="portal-admin-toolbar"><span class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.help')) + '</span>';
+  if (writes && !adminEditTarget){
+    html += '<button type="button" class="btn btn-primary portal-admin-row-edit" data-admin-action="add-time">' + escHtml(portalT('admin.action.addLesson')) + '</button>';
+  }
+  html += '</div>';
+  if (writes && adminEditTarget === 'time:new') html += renderAdminAddTimeForm();
   if (!slots.length){
-    box.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p>';
+    html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p>';
+    box.innerHTML = html;
     return;
   }
-  var html = '<table class="portal-admin-table"><thead><tr><th>' + escHtml(portalT('admin.lessonTimes.col.date')) +
-    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.time')) + '</th><th>' + escHtml(portalT('admin.lessonTimes.col.label')) +
-    '</th><th>' + escHtml(portalT('admin.lessonTimes.col.capacity')) + '</th>' +
-    (writes ? '<th>' + escHtml(portalT('admin.edit.col.actions')) + '</th>' : '') +
-    '</tr></thead><tbody>';
+  html += '<div class="portal-admin-card-grid" id="admin-lesson-card-grid">';
   slots.forEach(function(s){
     var sid = s.slot_id ? String(s.slot_id) : '';
     var editing = writes && adminEditTarget === ('time:' + sid);
-    html += '<tr><td>' + escHtml(s.date || '—') + '</td><td>' + escHtml(s.slot_time || '—') + '</td><td>' +
-      escHtml(s.offering_label || s.session_type || 'Lesson') + '</td><td>' +
-      escHtml(s.capacity != null ? String(s.capacity) : '—') + '</td>';
+    var label = s.offering_label || s.session_type || 'Lesson';
+    html += '<article class="portal-admin-lesson-card" data-admin-lesson-card="' + escHtml(sid) + '">' +
+      '<div class="portal-admin-lesson-main"><div><div class="portal-admin-lesson-title">' + escHtml(label) + '</div>' +
+      '<div class="portal-admin-lesson-meta">' + escHtml(s.date || portalT('admin.lessonTimes.recurring')) + '</div></div>' +
+      '<div class="portal-admin-lesson-time">' + escHtml(s.slot_time || '—') + '</div></div>' +
+      '<div class="portal-admin-chip-row"><span class="portal-admin-chip">' + escHtml(s.capacity != null ? (String(s.capacity) + ' ' + portalT('admin.lessonTimes.seats')) : portalT('admin.lessonTimes.usesDefaultCapacity')) + '</span></div>';
     if (writes){
       if (editing){
-        html += '<td><span class="portal-admin-muted">' + escHtml(portalT('admin.edit.editing')) + '</span></td>';
+        html += renderAdminTimeEditForm(sid, s);
       } else if (!adminEditTarget || adminEditTarget.indexOf('time:') !== 0){
-        html += '<td><button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="edit-time" data-time-id="' +
-          escHtml(sid) + '">' + escHtml(portalT('admin.action.edit')) + '</button></td>';
-      } else {
-        html += '<td></td>';
+        html += '<div class="portal-admin-edit-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="edit-time" data-time-id="' +
+          escHtml(sid) + '">' + escHtml(portalT('admin.action.edit')) + '</button>' +
+          '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-danger" data-admin-action="delete-time" data-time-id="' +
+          escHtml(sid) + '">' + escHtml(portalT('admin.action.remove')) + '</button></div>';
       }
     }
-    html += '</tr>';
-    if (editing){
-      html += '<tr><td colspan="' + (writes ? 5 : 4) + '"><div class="portal-admin-edit-form">' +
-        '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
-        '<input type="text" id="admin-time-label" value="' + escHtml(s.offering_label || s.session_type || '') + '" maxlength="120"></div>' +
-        '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
-        '<input type="text" id="admin-time-start" value="' + escHtml(adminSlotTimeStart(s.slot_time)) + '" placeholder="HH:MM" maxlength="5"></div>' +
-        '<div class="portal-admin-edit-actions">' +
-        '<button type="button" class="btn btn-primary" data-admin-action="save-time" data-time-id="' + escHtml(sid) + '">' +
-        escHtml(portalT('admin.action.save')) + '</button>' +
-        '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
-        '</div></div></td></tr>';
-    }
+    html += '</article>';
   });
-  html += '</tbody></table>';
+  html += '</div>';
+  html += '<p class="portal-admin-section-note">' + escHtml(portalT('admin.lessonTimes.capacitySchemaNote')) + '</p>';
   box.innerHTML = html;
 }
 
@@ -21902,7 +21960,7 @@ function wireAdminTab(){
     if (!btn || adminSaveBusy) return;
     var cfg = adminConfigCache;
     var action = btn.getAttribute('data-admin-action');
-    if (action === 'edit-capacity' || action === 'edit-price' || action === 'edit-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-time'){
+    if (action === 'edit-capacity' || action === 'edit-price' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-time' || action === 'save-new-time'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'edit-capacity'){
@@ -21927,6 +21985,32 @@ function wireAdminTab(){
       adminEditTarget = 'time:' + String(btn.getAttribute('data-time-id') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'add-time'){
+      adminEditTarget = 'time:new';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'delete-time'){
+      var deleteTimeId = String(btn.getAttribute('data-time-id') || '');
+      if (!deleteTimeId || !window.confirm(portalT('admin.edit.confirmRemoveLesson'))) return;
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('DELETE', '/staff/admin/config/lesson-times/' + encodeURIComponent(deleteTimeId) + adminClientQuery(), {})
+        .then(function(res){
+          adminSaveBusy = false;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.removedTime'));
+          adminReloadConfig();
+        }).catch(function(err){
+          adminSaveBusy = false;
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
       return;
     }
     if (action === 'save-capacity'){
@@ -22002,6 +22086,46 @@ function wireAdminTab(){
         adminSaveBusy = false;
         adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
       });
+      return;
+    }
+    if (action === 'save-new-time'){
+      var newLabelInput = el('admin-new-time-label');
+      var newStartInput = el('admin-new-time-start');
+      var newEndInput = el('admin-new-time-end');
+      var newLabel = newLabelInput ? String(newLabelInput.value || '').trim() : '';
+      if (!newLabel){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
+      var newStart = adminParseTimeHm(newStartInput && newStartInput.value);
+      if (!newStart.ok){ adminShowMessage('error', newStart.error); return; }
+      var payload = {
+        label: newLabel,
+        lesson_type: 'group_surf_lesson',
+        time_local: newStart.value,
+        weekdays_active: [0, 1, 2, 3, 4, 5, 6],
+        active: true,
+      };
+      var newEndRaw = newEndInput ? String(newEndInput.value || '').trim() : '';
+      if (newEndRaw){
+        var newEnd = adminParseTimeHm(newEndRaw);
+        if (!newEnd.ok){ adminShowMessage('error', newEnd.error); return; }
+        if (newEnd.value <= newStart.value){ adminShowMessage('error', portalT('admin.edit.endAfterStart')); return; }
+        payload.time_local_end = newEnd.value;
+      }
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('POST', '/staff/admin/config/lesson-times' + adminClientQuery(), payload)
+        .then(function(res){
+          adminSaveBusy = false;
+          if (res.status !== 201 || !res.data || res.data.success !== true){
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.addedTime'));
+          adminReloadConfig();
+        }).catch(function(err){
+          adminSaveBusy = false;
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
+      return;
     }
   });
 }
@@ -33020,6 +33144,51 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   }
 }
 
+async function handleAdminConfigLessonTimePost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  const validated = validateLessonTimeCreateBody(body);
+  if (!validated.ok) return send400(res, validated.error);
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const result = await withPgClient(async (pg) => createLessonTimeRule(pg, {
+      clientSlug,
+      locationId,
+      patch: validated.patch,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.lesson_time_create',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
 async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -33057,6 +33226,44 @@ async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:admin.config.lesson_time_patch',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+async function handleAdminConfigLessonTimeDelete(ruleIdRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const idCheck = validateUuid(ruleIdRaw, 'lesson time rule id');
+  if (!idCheck.ok) return send400(res, idCheck.error);
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const result = await withPgClient(async (pg) => deactivateLessonTimeRule(pg, {
+      ruleId: idCheck.value,
+      clientSlug,
+      locationId,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.lesson_time_delete',
       category: 'admin_api',
       client_slug: clientSlug,
       success: result.ok,
@@ -38454,11 +38661,22 @@ async function router(req, res) {
     return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
   }
 
+  if (pathname === '/staff/admin/config/lesson-times' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigLessonTimePost(parsed.query, req, res, auth.user);
+  }
+
   const adminLessonTimePatchMatch = /^\/staff\/admin\/config\/lesson-times\/([0-9a-f-]{36})$/i.exec(pathname);
   if (adminLessonTimePatchMatch && method === 'PATCH') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonTimePatch(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
+  }
+  if (adminLessonTimePatchMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigLessonTimeDelete(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/schedule/day' && method === 'GET') {
