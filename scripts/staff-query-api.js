@@ -22725,8 +22725,12 @@ function populateClientSelect(clients, preferredSlug){
 }
 
 function initStaffPortalSession(){
-  return fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
-    .then(function(r){ return r.json(); })
+  var sessionTimeout = new Promise(function(resolve){
+    setTimeout(function(){ resolve({ success: false, error: 'session_timeout' }); }, 4500);
+  });
+  var sessionFetch = fetch('/staff/auth/session', { headers: { Accept: 'application/json' } })
+    .then(function(r){ return r.json(); });
+  return Promise.race([sessionFetch, sessionTimeout])
     .then(function(data){
       if (!data || !data.success){
         populateClientSelect(null);
@@ -24384,9 +24388,22 @@ if (clientSelectEl){
 wireInboxFilterButtons();
 updateInboxFilterUI();
 
-initStaffPortalSession().then(function(){
+var portalStartupCompleted = false;
+function runPortalStartupOnce(){
+  if (portalStartupCompleted) return;
+  portalStartupCompleted = true;
   portalStartupAfterSession();
+}
+initStaffPortalSession().then(function(){
+  runPortalStartupOnce();
+}).catch(function(){
+  runPortalStartupOnce();
 });
+setTimeout(function(){
+  if (document.body && document.body.classList.contains('portal-profile-pending')) {
+    runPortalStartupOnce();
+  }
+}, 5000);
 var dsLoadBtn = el('ds-load');
 if (dsLoadBtn) dsLoadBtn.addEventListener('click', function(){ loadDaySchedule(); });
 wireInboxLeftListWheel();
