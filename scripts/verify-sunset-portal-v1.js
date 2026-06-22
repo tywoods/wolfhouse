@@ -887,6 +887,8 @@ if (fs.existsSync(qModPath)) {
   assert('schedule queries do not hardcode sardinero into somo filter', !qSrc.includes("= 'sunset-sardinero' = 'sunset-somo'"));
 }
 
+
+
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 
 
@@ -1139,6 +1141,48 @@ if (fs.existsSync(convProbePath)) {
   assert('conversation probe checks isolation', probeSrc.includes('excludes sardi fixture')
     && probeSrc.includes('excludes somo fixture'));
   assert('conversation probe no secrets', !probeSrc.includes('SunsetStaging2026'));
+}
+
+
+
+
+// ── 35. Sunset channel identifier handoff doc (offline) ─────────────────────
+
+console.log('\n[35] Sunset channel identifier handoff doc (offline)');
+
+const CHANNEL_HANDOFF_DOC = path.join(ROOT, 'docs', 'sunset', 'SUNSET-CHANNEL-IDENTIFIER-HANDOFF.md');
+const CHANNEL_ENV_VARS = [
+  'SUNSET_SOMO_WHATSAPP_NUMBER',
+  'SUNSET_SARDINERO_WHATSAPP_NUMBER',
+  'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID',
+  'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID',
+  'SUNSET_SOMO_INBOX_EMAIL',
+  'SUNSET_SARDINERO_INBOX_EMAIL',
+];
+
+assert('channel handoff doc exists', fs.existsSync(CHANNEL_HANDOFF_DOC));
+if (fs.existsSync(CHANNEL_HANDOFF_DOC)) {
+  const handoffSrc = fs.readFileSync(CHANNEL_HANDOFF_DOC, 'utf8');
+  CHANNEL_ENV_VARS.forEach((name) => {
+    assert(`handoff doc names ${name}`, handoffSrc.includes(name));
+  });
+  assert('handoff doc targets Sunset staging app only',
+    handoffSrc.includes('luna-sunset-staging-staff-api')
+    && handoffSrc.includes('luna-sunset-staging-rg'));
+  assert('handoff doc forbids Wolfhouse WABA borrowing',
+    /Wolfhouse WABA|borrow Wolfhouse/i.test(handoffSrc));
+  assert('handoff doc forbids live Meta webhook routing change',
+    /Meta webhook routing/i.test(handoffSrc) && /separately approved/i.test(handoffSrc));
+  assert('handoff doc forbids outbound WhatsApp/email',
+    /outbound WhatsApp\/email/i.test(handoffSrc));
+  assert('handoff doc has manual placeholder warning',
+    /FILL PLACEHOLDERS MANUALLY/i.test(handoffSrc)
+    && /NEVER COMMIT/i.test(handoffSrc));
+  assert('handoff doc Azure template scopes six env vars only',
+    handoffSrc.includes('az containerapp update')
+    && CHANNEL_ENV_VARS.every((name) => handoffSrc.includes(name))
+    && !handoffSrc.includes('STAFF_ACTIONS_ENABLED=')
+    && !handoffSrc.includes('--image '));
 }
 
 
