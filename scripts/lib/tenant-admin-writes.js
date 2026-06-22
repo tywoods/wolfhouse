@@ -648,6 +648,18 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
   }
 }
 
+
+function preparePriceDbPatch(patch, offeringKey, currentUnit) {
+  const out = { ...patch };
+  const nextPeriod = out.period_window != null ? out.period_window : currentUnit;
+  delete out.period_window;
+  if (nextPeriod) {
+    out.item_code = buildDbItemCode(offeringKey, nextPeriod);
+    out.unit = mapBaselineUnitToDb(nextPeriod);
+  }
+  return out;
+}
+
 async function upsertConfigPriceRule(client, {
   clientSlug, locationId, category, offeringKey, unit, patch, actor, forceItemCode, forceDbUnit,
 }) {
@@ -685,9 +697,9 @@ async function upsertConfigPriceRule(client, {
       );
       after = updated.rows[0];
     } else {
-      const displayName = patch.display_name || `${offeringKey} (${unit})`;
-      const amountCents = patch.amount_cents != null ? patch.amount_cents : 0;
-      const currency = patch.currency || 'EUR';
+      const displayName = dbPatch.display_name || `${offeringKey} (${effectiveUnit})`;
+      const amountCents = dbPatch.amount_cents != null ? dbPatch.amount_cents : 0;
+      const currency = dbPatch.currency || 'EUR';
       const insertCols = hasLoc
         ? `(tenant_id, client_slug, location_id, item_type, item_code, display_name, currency, amount_cents, unit, active, updated_by)`
         : `(tenant_id, client_slug, item_type, item_code, display_name, currency, amount_cents, unit, active, updated_by)`;
