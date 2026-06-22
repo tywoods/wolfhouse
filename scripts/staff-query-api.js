@@ -201,6 +201,8 @@ const {
   isSunsetAdminWritesEnabled,
   evaluateAdminWriteGate,
   validateUuid,
+  validateAdminPriceRuleId,
+  validateAdminLessonTimeRuleId,
   validatePricePatchBody,
   validatePriceCreateBody,
   validateLessonCapacityBody,
@@ -33697,6 +33699,11 @@ function mapCustomerListRow(row) {
 }
 
 
+
+function decodeAdminPathId(segment) {
+  try { return decodeURIComponent(String(segment || '')); } catch (_) { return String(segment || ''); }
+}
+
 async function handleAdminConfig(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -33766,7 +33773,7 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  const idCheck = validateUuid(ruleIdRaw, 'price rule id');
+  const idCheck = validateAdminPriceRuleId(ruleIdRaw, 'price rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
 
   let body;
@@ -33861,7 +33868,7 @@ async function handleAdminConfigPriceDelete(ruleIdRaw, query, req, res, user) {
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  const idCheck = validateUuid(ruleIdRaw, 'price rule id');
+  const idCheck = validateAdminPriceRuleId(ruleIdRaw, 'price rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
 
   try {
@@ -33990,7 +33997,7 @@ async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  const idCheck = validateUuid(ruleIdRaw, 'lesson time rule id');
+  const idCheck = validateAdminLessonTimeRuleId(ruleIdRaw, 'lesson time rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
 
   let body;
@@ -34101,7 +34108,7 @@ async function handleAdminConfigLessonTimeDelete(ruleIdRaw, query, req, res, use
   if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
-  const idCheck = validateUuid(ruleIdRaw, 'lesson time rule id');
+  const idCheck = validateAdminLessonTimeRuleId(ruleIdRaw, 'lesson time rule id');
   if (!idCheck.ok) return send400(res, idCheck.error);
 
   try {
@@ -39505,16 +39512,16 @@ async function router(req, res) {
     return handleAdminConfigPricePost(parsed.query, req, res, auth.user);
   }
 
-  const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([0-9a-f-]{36})$/i.exec(pathname);
+  const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([^/?]+)$/i.exec(pathname);
   if (adminPricePatchMatch && method === 'PATCH') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    return handleAdminConfigPricePatch(adminPricePatchMatch[1], parsed.query, req, res, auth.user);
+    return handleAdminConfigPricePatch(decodeAdminPathId(adminPricePatchMatch[1]), parsed.query, req, res, auth.user);
   }
   if (adminPricePatchMatch && method === 'DELETE') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    return handleAdminConfigPriceDelete(adminPricePatchMatch[1], parsed.query, req, res, auth.user);
+    return handleAdminConfigPriceDelete(decodeAdminPathId(adminPricePatchMatch[1]), parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/admin/config/lesson-capacity' && method === 'PUT') {
@@ -39548,16 +39555,16 @@ async function router(req, res) {
     return handleAdminConfigLessonTimePost(parsed.query, req, res, auth.user);
   }
 
-  const adminLessonTimePatchMatch = /^\/staff\/admin\/config\/lesson-times\/([0-9a-f-]{36})$/i.exec(pathname);
+  const adminLessonTimePatchMatch = /^\/staff\/admin\/config\/lesson-times\/([^/?]+)$/i.exec(pathname);
   if (adminLessonTimePatchMatch && method === 'PATCH') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    return handleAdminConfigLessonTimePatch(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
+    return handleAdminConfigLessonTimePatch(decodeAdminPathId(adminLessonTimePatchMatch[1]), parsed.query, req, res, auth.user);
   }
   if (adminLessonTimePatchMatch && method === 'DELETE') {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
-    return handleAdminConfigLessonTimeDelete(adminLessonTimePatchMatch[1], parsed.query, req, res, auth.user);
+    return handleAdminConfigLessonTimeDelete(decodeAdminPathId(adminLessonTimePatchMatch[1]), parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/schedule/day' && method === 'GET') {

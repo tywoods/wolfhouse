@@ -182,6 +182,21 @@ function evaluateAdminWriteGate(ctx) {
   return { ok: true };
 }
 
+
+function validateAdminPriceRuleId(id, label) {
+  const text = String(id || '').trim();
+  if (!text) return { ok: false, error: `${label || 'price rule id'} required` };
+  if (locationStore.parseConfigPriceId(text)) return { ok: true, value: text };
+  return validateUuid(text, label || 'price rule id');
+}
+
+function validateAdminLessonTimeRuleId(id, label) {
+  const text = String(id || '').trim();
+  if (!text) return { ok: false, error: `${label || 'lesson time rule id'} required` };
+  if (locationStore.isConfigTimeId(text)) return { ok: true, value: text };
+  return validateUuid(text, label || 'lesson time rule id');
+}
+
 function validateUuid(id, label) {
   const text = String(id || '').trim();
   if (!UUID_RE.test(text)) {
@@ -1154,6 +1169,8 @@ module.exports = {
   writesDisabledResponse,
   evaluateAdminWriteGate,
   validateUuid,
+  validateAdminPriceRuleId,
+  validateAdminLessonTimeRuleId,
   validatePricePatchBody,
   validateLessonCapacityBody,
   validateLessonTimeCreateBody,
