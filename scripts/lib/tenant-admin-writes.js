@@ -414,7 +414,6 @@ function validateLessonTimePatchBody(body) {
     if (typeof body.active !== 'boolean') return { ok: false, error: 'active must be boolean' };
     out.active = body.active;
   }
-  if (!Object.keys(out).length) return { ok: false, error: 'empty body' };
 
   const kindAge = validateLessonKindAgeFrequency(body, out);
   if (!kindAge.ok) return kindAge;
@@ -426,6 +425,8 @@ function validateLessonTimePatchBody(body) {
     delete out.age_band;
   }
   delete out.frequency;
+
+  if (!Object.keys(out).length) return { ok: false, error: 'empty body' };
 
   if (out.time_local && out.time_local_end && out.time_local_end <= out.time_local) {
     return { ok: false, error: 'time_local_end must be after time_local' };
@@ -955,7 +956,10 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     const sets = [];
     const params = [];
     let idx = 3;
-    for (const [key, value] of Object.entries(patch)) {
+    delete dbPatchLesson.kind;
+    delete dbPatchLesson.age_band;
+    delete dbPatchLesson.frequency;
+    for (const [key, value] of Object.entries(dbPatchLesson)) {
       if (key === 'capacity' && !hasCapacity) continue;
       if (key === 'weekdays_active') {
         sets.push(`${key} = $${idx}::smallint[]`);
