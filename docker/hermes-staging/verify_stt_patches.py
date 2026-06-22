@@ -47,10 +47,14 @@ def main() -> int:
         fail("bootstrap Luna config missing stt block")
     ok("bootstrap wired")
 
-    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
-    if "apply_stt_patches.py" not in dockerfile:
-        fail("Dockerfile does not bake STT patches")
-    ok("Dockerfile wired")
+    dockerfile_path = ROOT / "Dockerfile"
+    if dockerfile_path.is_file():
+        dockerfile = dockerfile_path.read_text(encoding="utf-8")
+        if "apply_stt_patches.py" not in dockerfile:
+            fail("Dockerfile does not bake STT patches")
+        ok("Dockerfile wired")
+    else:
+        ok("Dockerfile check skipped (not copied into image)")
 
     print("\nverify_stt_patches PASSED\n")
     return 0

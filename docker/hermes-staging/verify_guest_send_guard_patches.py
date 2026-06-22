@@ -23,7 +23,8 @@ def main() -> int:
     patches = (ROOT / "apply_guest_send_guard_patches.py").read_text(encoding="utf-8")
     gateway = (ROOT / "apply_gateway_patches.py").read_text(encoding="utf-8")
     bootstrap = (ROOT / "bootstrap.sh").read_text(encoding="utf-8")
-    dockerfile = (ROOT / "Dockerfile").read_text(encoding="utf-8")
+    dockerfile_path = ROOT / "Dockerfile"
+    dockerfile = dockerfile_path.read_text(encoding="utf-8") if dockerfile_path.is_file() else ""
     stt = (ROOT / "apply_stt_patches.py").read_text(encoding="utf-8")
 
     for needle in (
@@ -57,10 +58,13 @@ def main() -> int:
         fail("bootstrap missing stt patch hook")
     ok("bootstrap hooks")
 
-    for needle in ("apply_guest_send_guard_patches.py", "apply_stt_patches.py", "apply_gateway_patches.py"):
-        if needle not in dockerfile:
-            fail(f"Dockerfile missing {needle}")
-    ok("Dockerfile")
+    if dockerfile:
+        for needle in ("apply_guest_send_guard_patches.py", "apply_stt_patches.py", "apply_gateway_patches.py"):
+            if needle not in dockerfile:
+                fail(f"Dockerfile missing {needle}")
+        ok("Dockerfile")
+    else:
+        ok("Dockerfile check skipped (not copied into image)")
 
     if "STT_PROVIDER" not in stt:
         fail("apply_stt_patches missing STT_PROVIDER")
