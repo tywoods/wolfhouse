@@ -69,6 +69,25 @@ function assert(label, condition, detail) {
     fail++;
   }
 }
+function extractJsFunctionBody(src, fnName) {
+  var needle = 'function ' + fnName + '(';
+  var start = src.indexOf(needle);
+  if (start < 0) return '';
+  var brace = src.indexOf('{', start);
+  if (brace < 0) return '';
+  var depth = 0;
+  for (var i = brace; i < src.length; i++) {
+    var ch = src[i];
+    if (ch === '{') depth++;
+    else if (ch === '}') {
+      depth--;
+      if (depth === 0) return src.slice(start, i + 1);
+    }
+  }
+  return '';
+}
+
+
 
 console.log('\nverify:sunset-portal-v1 — Sunset portal v1 offline checks\n');
 
@@ -834,7 +853,10 @@ if (apiSrc) {
   assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));
   assert('school location suffix preserved in polish slice', apiSrc.includes('sunsetLocationQuerySuffix()'));
 
-  assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
+  assert('applyClientPortalProfile wires school switcher', (function(){
+    var body = extractJsFunctionBody(apiSrc, 'applyClientPortalProfile');
+    return body.includes('wireSunsetSchoolSwitcher();') && body.includes('refreshSunsetSchoolContextLabels()');
+  })());
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('scheduleDrawerEditableEnabled defined', apiSrc.includes('function scheduleDrawerEditableEnabled('));
   assert('customer PATCH before GET-only gate', (function(){
@@ -1193,7 +1215,7 @@ console.log('\n[36] Sunset active school context — labels + localStorage persi
 if (apiSrc) {
   assert('STAFF_PORTAL_SUNSET_LOCATION_KEY defined', apiSrc.includes("STAFF_PORTAL_SUNSET_LOCATION_KEY = 'staff_portal_sunset_location'"));
   assert('refreshSunsetSchoolContextLabels helper', apiSrc.includes('function refreshSunsetSchoolContextLabels('));
-  assert('profile load refreshes school labels', apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
+  assert('profile load refreshes school labels', extractJsFunctionBody(apiSrc, 'applyClientPortalProfile').includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch persists localStorage', apiSrc.includes('localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('schedule school context markup', apiSrc.includes('id="schedule-school-context"') && apiSrc.includes('id="schedule-school-label"'));
   assert('customers school context markup', apiSrc.includes('id="customers-school-context"') && apiSrc.includes('id="customers-school-label"'));
