@@ -14,6 +14,7 @@
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
+const { loadSurfPacksFromDb, defaultPackConfig } = require('./sunset-admin-pack-rules');
 
 const SUNSET_ADMIN_CLIENT = 'sunset';
 const DEFAULT_DAILY_CAP = 24;
@@ -272,6 +273,7 @@ function resolveFromConfigFile(clientSlug) {
       prices: [],
       lesson_capacity: { default_daily_cap: DEFAULT_DAILY_CAP, overrides: [] },
       lesson_times: [],
+      surf_packs: [],
       business_info: buildBusinessInfo(slug, null),
       change_history: [],
     };
@@ -301,6 +303,7 @@ function resolveFromConfigFile(clientSlug) {
       overrides: [],
     },
     lesson_times: loadLessonTimesFromConfig(baseline),
+    surf_packs: [],
     business_info: buildBusinessInfo(slug, baseline),
     change_history: [],
   };
@@ -418,6 +421,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const prices = mapPriceRows(priceRes.rows);
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
   const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
+  const surf_packs = await loadSurfPacksFromDb(client, slug, loc);
   const change_history = mapAuditRows(auditRes.rows);
 
   const lesson_capacity = {
@@ -437,6 +441,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
     prices,
     lesson_capacity,
     lesson_times,
+    surf_packs,
     change_history,
   };
 }
@@ -464,6 +469,7 @@ function mergeDbWithConfig(configBaseline, dbResult) {
     prices,
     lesson_capacity,
     lesson_times,
+    surf_packs,
     change_history,
     read_only: true,
   };

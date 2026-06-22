@@ -1159,6 +1159,7 @@ module.exports = {
   deactivatePriceRule,
   parseItemCodeParts,
   patchPriceRule,
+  upsertConfigPriceRule,
   putLessonCapacityDefault,
   createLessonTimeRule,
   patchLessonTimeRule,
