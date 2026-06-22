@@ -16675,7 +16675,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:calc(130px * var(--bc-zoom, 1));background:var(--sand)}
 .bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1))}
 .bc-grid-shell{display:none;position:relative}
-.bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface)}
+.bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .bc-grid-resize-handle{height:10px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
 .bc-grid-resize-handle::after{content:'';width:40px;height:3px;border-radius:2px;background:#B8A99A;opacity:.85}
 .bc-grid-resize-handle:hover::after,.bc-grid-resize-handle:active::after{background:#8A7A6C}
@@ -16773,7 +16773,14 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
-@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}}
+@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}
+/* Mobile calendar polish: bigger tap targets on date presets, tighter sticky bed column + day columns so more days fit on a phone. */
+.bc-chips{gap:6px}
+.bc-chip{padding:8px 14px;font-size:12px;min-height:38px;display:inline-flex;align-items:center}
+.bc-bed-cell{min-width:calc(92px * var(--bc-zoom,1));padding:calc(6px * var(--bc-zoom,1)) calc(7px * var(--bc-zoom,1))}
+.bc-grid thead th.bc-bed-head{min-width:calc(100px * var(--bc-zoom,1))}
+.bc-grid thead th.bc-day-head{min-width:calc(40px * var(--bc-zoom,1))}
+.bc-zoom-bar{align-self:flex-start}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
 input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
