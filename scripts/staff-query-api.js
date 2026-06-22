@@ -19117,6 +19117,16 @@ function refreshSunsetSchoolContextLabels(channelConfig){
   renderAdminSchoolContext(adminConfigCache || null);
 }
 
+function renderAdminSchoolContext(cfg){
+  if (getClient() !== 'sunset' || !getPortalProfile(getClient()).is_surf_vertical) return;
+  var loc = getSunsetLocation();
+  renderAdminSectionBusinessInfoFromConfig({
+    location_id: loc,
+    location_label: (cfg && cfg.location_label) ? cfg.location_label : getSunsetLocationLabel(loc),
+    business_info: (cfg && cfg.business_info) ? cfg.business_info : {}
+  });
+}
+
 function renderInboxSchoolContext(channelConfig){
   var wrap = el('inbox-school-context');
   var label = el('inbox-school-label');
