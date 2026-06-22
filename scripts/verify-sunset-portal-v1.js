@@ -752,9 +752,9 @@ if (apiSrc) {
 console.log('\n[23] Sunset UI — ES default, lesson groups card, soft light theme');
 
 if (apiSrc) {
-  assert('ES default locale', i18nSrc.includes("return 'es';"));
-  assert('IT lang button restored', apiSrc.includes('data-lang="it"'));
-  assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
+  assert('tenant-driven default locale', apiSrc.includes('STAFF_PORTAL_LOCALES') && apiSrc.includes("process.env.STAFF_PORTAL_LOCALES || 'es,en'") && apiSrc.includes("STAFF_PORTAL_LOCALES[0]"));
+  assert('language buttons rendered from locale list', apiSrc.includes('function renderStaffLangSwitchButtons(') && apiSrc.includes('data-lang="${loc}"'));
+  assert('default locale order mentions es before en', apiSrc.includes("'es,en'") || apiSrc.includes('es,en'));
   assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
   assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
@@ -1270,8 +1270,13 @@ if (apiSrc) {
   assert('Admin creates lesson time via POST', apiSrc.includes("adminApiRequest('POST', '/staff/admin/config/lesson-times'") && apiSrc.includes('handleAdminConfigLessonTimePost'));
   assert('Admin removes lesson time via DELETE', apiSrc.includes("adminApiRequest('DELETE', '/staff/admin/config/lesson-times/'") && apiSrc.includes('handleAdminConfigLessonTimeDelete'));
   assert('Admin per-lesson capacity field is editable', apiSrc.includes('id="admin-time-capacity"') && apiSrc.includes('capacityParsed') && !apiSrc.includes('capacitySchemaNote'));
-  assert('Admin business info renders before prices', apiSrc.indexOf('admin-sec-business') > 0 && apiSrc.indexOf('admin-sec-business') < apiSrc.indexOf('admin-sec-prices'));
+  assert('Admin business info renders before Packs and Lessons', apiSrc.indexOf('admin-sec-business') > 0 && apiSrc.indexOf('admin-sec-business') < apiSrc.indexOf('admin-sec-times'));
+  assert('Admin Packs and Lessons renders before rental prices', apiSrc.indexOf('admin-sec-times') > 0 && apiSrc.indexOf('admin-sec-times') < apiSrc.indexOf('admin-sec-prices'));
   assert('Admin humanizes labels instead of underscores', apiSrc.includes('function adminHumanizeText(') && apiSrc.includes("replace(/_/g, ' ')"));
+  assert('Admin removes Lessons from rental price page', apiSrc.includes('prices.filter(function(p){ return !adminIsLessonPrice(p); })') && apiSrc.includes('adminRenderLessonPriceStrip(prices)'));
+  assert('Admin rental price groups ordered Surfboard+Wetsuit, Surfboard, Wetsuit, SUP', apiSrc.includes("['bundles', 'boards', 'wetsuits', 'sup', 'rentals', 'other']"));
+  assert('Admin lesson cards show duration and time footer', apiSrc.includes('adminSlotDurationLabel(') && apiSrc.includes('portal-admin-lesson-footer'));
+  assert('Admin change history capped to latest 10', apiSrc.includes('change_history.slice(0, 10)'));
 }
 
 const adminWritesPath = path.join(ROOT, 'scripts', 'lib', 'tenant-admin-writes.js');
@@ -1290,7 +1295,7 @@ if (fs.existsSync(adminCapacityMigrationPath)) {
 }
 
 if (i18nSrc) {
-  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.prices.group.lessons'"));
+  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.prices.group.sup'") && i18nSrc.includes("'admin.section.lessonTimes': 'Packs and Lessons'"));
 }
 
 
