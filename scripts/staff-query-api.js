@@ -21715,6 +21715,7 @@ function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
 var adminConfigCache = null;
 var adminEditTarget = null;
 var adminSaveBusy = false;
+var adminLoadSeq = 0;
 
 function adminCfgWritesEnabled(cfg){
   return !!(cfg && cfg.writes_enabled === true);
@@ -22106,13 +22107,18 @@ function loadAdminTab(){
   var profile = getPortalProfile(getClient());
   if (!profile.is_surf_vertical) return;
   var state = el('admin-fetch-state');
-  var requestedLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
+  var loadSeq = ++adminLoadSeq;
   renderAdminLoadingShell(profile);
   if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'none'; state.classList.remove('error'); }
   var url = '/staff/admin/config' + adminClientQuery();
-  fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+  var timeout = new Promise(function(_, reject){
+    setTimeout(function(){ reject(new Error('request timeout')); }, 8000);
+  });
+  var request = fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); });
+  Promise.race([request, timeout])
     .then(function(data){
-      if (requestedLocation && requestedLocation !== getSunsetLocation()) return;
+      if (loadSeq !== adminLoadSeq) return;
       if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
       adminConfigCache = data;
       if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
@@ -22120,7 +22126,7 @@ function loadAdminTab(){
       if (state) state.style.display = 'none';
     })
     .catch(function(e){
-      if (requestedLocation && requestedLocation !== getSunsetLocation()) return;
+      if (loadSeq !== adminLoadSeq) return;
       adminConfigCache = null;
       adminEditTarget = null;
       renderAdminFallback(profile);
