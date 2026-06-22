@@ -97,6 +97,14 @@ function assertRepoSync() {
   execSync('node scripts/assert-repo-sync.js', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function assertPerGuestSoulContract() {
+  // Locks the per-guest booking conversational contract (collect all names,
+  // "pay in full or a link each", one deposit locks, per-person deposits, etc.)
+  // so a SOUL tweak can't silently drop it. Fast + static.
+  console.error('[vm] per-guest SOUL contract (prebuild)...');
+  execSync('node scripts/verify-luna-perguest-soul-contract.js', { cwd: ROOT, stdio: 'inherit' });
+}
+
 function assertI18nGuestCopy() {
   // Ratcheted i18n gate: fails only on NEW untranslated guest-copy keys (a regression),
   // never on the pre-existing translation debt captured in the baseline. Fast + static.
@@ -130,6 +138,7 @@ function assertGoldenSuite() {
 function buildImage() {
   assertRepoSync();
   assertSoulClean();
+  assertPerGuestSoulContract();
   assertI18nGuestCopy();
   assertGoldenSuite();
   const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
