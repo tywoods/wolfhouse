@@ -18128,6 +18128,92 @@ function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
+
+/* ── Per-guest payment helpers — browser ports of scripts/lib/payment-ledger-stale-links.js.
+   The drawer (buildGuestPaymentAmountsMap, paymentLinkIntendedAmountCents) runs in the
+   browser, so these server-only functions must exist client-side too. Private helpers are
+   pgPay-prefixed to avoid collisions; the two public names match the call sites exactly. ── */
+function pgPayParseMetadata(raw){
+  if (raw && typeof raw === 'object') return raw;
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (e) { return {}; }
+}
+function pgPayRowBookingGuestId(pr, md){
+  if (pr && pr.booking_guest_id) return String(pr.booking_guest_id);
+  md = md || pgPayParseMetadata(pr && pr.metadata);
+  if (md && md.booking_guest_id) return String(md.booking_guest_id);
+  return null;
+}
+var PG_PAY_PER_GUEST_LINK_SOURCES = { bot_guest_payment_link_slice_a: true, bot_guest_payment_slice_a: true };
+function pgPayIsPerGuestLinkRow(pr, md){
+  if (pgPayRowBookingGuestId(pr, md)) return true;
+  md = md || pgPayParseMetadata(pr && pr.metadata);
+  var source = String((md && md.source) || '').toLowerCase();
+  return !!PG_PAY_PER_GUEST_LINK_SOURCES[source];
+}
+function pgPayGuestSubtotalFromMetadata(raw){
+  var meta = pgPayParseMetadata(raw);
+  var n = Number(meta.subtotal_cents);
+  return n > 0 ? n : null;
+}
+function buildGuestPaymentAmountsMap(bookingGuests, perPerson){
+  var map = {};
+  var rows = (perPerson && perPerson.length) ? perPerson : (bookingGuests || []);
+  for (var i = 0; i < rows.length; i++){
+    var g = rows[i];
+    var id = g.booking_guest_id;
+    if (!id) continue;
+    map[String(id)] = {
+      deposit_cents: g.deposit_amount_cents != null ? Number(g.deposit_amount_cents)
+        : (g.deposit_cents != null ? Number(g.deposit_cents) : null),
+      subtotal_cents: g.subtotal_cents != null ? Number(g.subtotal_cents)
+        : pgPayGuestSubtotalFromMetadata(g.metadata || g.guest_metadata),
+    };
+  }
+  return map;
+}
+function pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md){
+  md = md || pgPayParseMetadata(pr && pr.metadata);
+  var paymentTarget = String((md && md.payment_target) || 'deposit').toLowerCase();
+  var kind = String((pr && pr.payment_kind) || '').toLowerCase();
+  var depositCents = pr && pr.guest_deposit_amount_cents != null ? Number(pr.guest_deposit_amount_cents) : null;
+  var subtotalCents = pr && pr.guest_subtotal_cents != null ? Number(pr.guest_subtotal_cents) : null;
+  if (subtotalCents == null && pr && pr.guest_metadata != null){
+    subtotalCents = pgPayGuestSubtotalFromMetadata(pr.guest_metadata);
+  }
+  var guestId = pgPayRowBookingGuestId(pr, md);
+  var guestMap = ledgerCtx && ledgerCtx.guest_amounts_by_id;
+  if (guestId && guestMap && guestMap[guestId]){
+    if (depositCents == null) depositCents = guestMap[guestId].deposit_cents;
+    if (subtotalCents == null) subtotalCents = guestMap[guestId].subtotal_cents;
+  }
+  if (kind === 'deposit_only' || kind === 'deposit' || paymentTarget === 'deposit') return depositCents;
+  if (kind === 'full_amount' || paymentTarget === 'full_share'){
+    if (subtotalCents != null && subtotalCents > 0) return subtotalCents;
+    return depositCents;
+  }
+  return null;
+}
+function paymentLinkIntendedAmountCents(pr, ledgerCtx){
+  if (!pr) return null;
+  var md = pgPayParseMetadata(pr.metadata);
+  ledgerCtx = ledgerCtx || {};
+  var kind = String(pr.payment_kind || '').toLowerCase();
+  if (pgPayIsPerGuestLinkRow(pr, md)){
+    var guestIntended = pgPayGuestLinkIntendedAmountCents(pr, ledgerCtx, md);
+    if (guestIntended != null && guestIntended > 0) return guestIntended;
+    if (pr.amount_due_cents != null) return Number(pr.amount_due_cents);
+    return null;
+  }
+  if (kind === 'deposit_only' || kind === 'deposit'){
+    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
+  }
+  if (kind === 'addon_service') return null;
+  if (kind === 'full_amount'){
+    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+  }
+  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+}
 function bcQuoteNotRunHtml(){
   return '<div class="bk-preview-not-run">' + escHtml(t('calendar.create.quoteNotRun')) + '</div>';
 }
