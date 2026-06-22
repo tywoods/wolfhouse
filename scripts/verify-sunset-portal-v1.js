@@ -366,8 +366,7 @@ if (apiSrc) {
   assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
   assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
   assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
-  assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
-  assert('Admin writes disabled copy', apiSrc.includes('admin.banner.writesDisabled'));
+  assert('Admin no preview/banner copy', !apiSrc.includes('id="admin-write-banner"') && !apiSrc.includes('Read-only preview') && !apiSrc.includes('use header school switcher'));
   assert('Admin writes gated by cfg.writes_enabled', apiSrc.includes('function adminCfgWritesEnabled('));
   assert('Admin edit controls hidden when writes off', apiSrc.includes('if (!adminCfgWritesEnabled(data)) adminEditTarget = null'));
   assert('Admin save message region', apiSrc.includes('id="admin-save-msg"'));
@@ -476,8 +475,7 @@ if (apiSrc) {
   assert('evaluateAdminWriteGate used', apiSrc.includes('evaluateAdminWriteGate'));
   assert('writes_disabled response path', require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
   assert('admin write routes require admin role', apiSrc.includes("requireAuth(req, res, 'admin')") && apiSrc.includes('handleAdminConfigPricePatch'));
-  assert('renderAdminWriteState helper', apiSrc.includes('function renderAdminWriteState('));
-  assert('admin banner id for write state', apiSrc.includes('id="admin-write-banner"'));
+  assert('Admin write routes keep writes_disabled response', apiSrc.includes('writes_disabled') || require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
 }
 
 try {
@@ -928,7 +926,7 @@ if (apiSrc) {
   assert('handleAdminConfig resolves by location', apiSrc.includes('normalizeSunsetLocationId(query.location)') && apiSrc.includes('resolveTenantBusinessConfig(clientSlug, locationId)'));
   assert('admin writes pass locationId', apiSrc.includes('locationId,') && apiSrc.includes('putLessonCapacityDefault(pg, {'));
   assert('school switch reloads admin tab', apiSrc.includes("el('tab-admin')") && apiSrc.includes('loadAdminTab()'));
-  assert('admin school context UI', apiSrc.includes('renderAdminSchoolContext') && apiSrc.includes('admin-school-label'));
+  assert('admin school context heading UI', apiSrc.includes('portal-admin-school-heading') && apiSrc.includes('renderAdminLoadingShell') && !apiSrc.includes('admin-school-label'));
 }
 if (fs.existsSync(tbcPath)) {
   const tbcSrc = fs.readFileSync(tbcPath, 'utf8');
@@ -1221,7 +1219,8 @@ if (apiSrc) {
   assert('customers school context markup', apiSrc.includes('id="customers-school-context"') && apiSrc.includes('id="customers-school-label"'));
   assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
   assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
-  assert('admin school context preserved', apiSrc.includes('id="admin-school-context"') && apiSrc.includes('renderAdminSchoolContext'));
+  assert('admin school context collapsed into business heading', apiSrc.includes('portal-admin-school-heading') && !apiSrc.includes('id="admin-school-context"'));
+  assert('admin heading uses active school fallback', apiSrc.includes('getSunsetLocationLabel(fallbackLocation)') && apiSrc.includes('getSunsetLocationLabel(activeLocation)'));
   assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
   assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
   assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));

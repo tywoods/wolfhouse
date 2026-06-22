@@ -17520,16 +17520,6 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <header class="portal-admin-header">
     <h2 data-i18n="admin.title">Admin</h2>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
-    <div class="portal-admin-school-context" id="admin-school-context" style="display:none;margin-bottom:10px;font-size:13px;color:var(--text-2)">
-      <strong data-i18n="admin.school.active">Config for</strong>
-      <span id="admin-school-label">—</span>
-      <span class="portal-admin-muted" data-i18n="admin.school.switchHint"> (use header school switcher)</span>
-    </div>
-    <div class="portal-admin-banner" id="admin-write-banner">
-      <strong data-i18n="admin.banner.readOnly">Read-only preview</strong> —
-      <span data-i18n="admin.banner.writesDisabled">Admin writes are not enabled yet.</span>
-      <span data-i18n="admin.banner.lunaNote"> These settings will eventually control what Luna quotes and offers.</span>
-    </div>
   </header>
   <div class="portal-admin-sections">
     <section class="portal-admin-section" id="admin-sec-business">
@@ -22056,37 +22046,7 @@ function renderAdminSectionChangeHistoryFromConfig(cfg){
   box.innerHTML = html;
 }
 
-function renderAdminWriteState(cfg){
-  var banner = el('admin-write-banner');
-  if (banner) {
-    if (adminCfgWritesEnabled(cfg)) {
-      banner.innerHTML = '<strong>' + escHtml(portalT('admin.banner.writesUiEnabled')) + '</strong> — ' +
-        escHtml(portalT('admin.banner.writesUiEnabledSub'));
-    } else {
-      banner.innerHTML = '<strong data-i18n="admin.banner.readOnly">' + escHtml(portalT('admin.banner.readOnly')) + '</strong> — ' +
-        '<span data-i18n="admin.banner.writesDisabled">' + escHtml(portalT('admin.banner.writesDisabled')) + '</span> ' +
-        '<span data-i18n="admin.banner.lunaNote">' + escHtml(portalT('admin.banner.lunaNote')) + '</span>';
-    }
-  }
-}
-
-function renderAdminSchoolContext(cfg){
-  var wrap = el('admin-school-context');
-  var label = el('admin-school-label');
-  if (!wrap || !label) return;
-  if (getClient() !== 'sunset'){
-    wrap.style.display = 'none';
-    return;
-  }
-  var loc = (cfg && cfg.location_id) ? cfg.location_id : getSunsetLocation();
-  var text = (cfg && cfg.location_label) ? cfg.location_label : getSunsetLocationLabel(loc);
-  label.textContent = text;
-  wrap.style.display = 'block';
-}
-
 function renderAdminFromConfig(cfg){
-  renderAdminSchoolContext(cfg);
-  renderAdminWriteState(cfg);
   renderAdminSectionBusinessInfoFromConfig(cfg);
   renderAdminSectionLessonTimesFromConfig(cfg);
   renderAdminSectionPricesFromConfig(cfg);
@@ -22095,11 +22055,30 @@ function renderAdminFromConfig(cfg){
 
 function renderAdminFallback(profile){
   adminEditTarget = null;
-  renderAdminWriteState(null);
-  renderAdminSectionBusinessInfoFromConfig(null);
+  var fallbackLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
+  renderAdminSectionBusinessInfoFromConfig({
+    location_id: fallbackLocation,
+    location_label: fallbackLocation ? getSunsetLocationLabel(fallbackLocation) : null,
+    business_info: {}
+  });
   renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [], lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } });
   renderAdminSectionPricesFromConfig(null);
   renderAdminSectionChangeHistoryFromConfig(null);
+}
+
+function renderAdminLoadingShell(profile){
+  var activeLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
+  renderAdminSectionBusinessInfoFromConfig({
+    location_id: activeLocation,
+    location_label: activeLocation ? getSunsetLocationLabel(activeLocation) : null,
+    business_info: {}
+  });
+  var timesBox = el('admin-times-body');
+  var pricesBox = el('admin-prices-body');
+  var historyBox = el('admin-history-body');
+  if (timesBox) timesBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
+  if (pricesBox) pricesBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
+  if (historyBox) historyBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
 }
 
 function loadAdminTab(){
@@ -22107,10 +22086,13 @@ function loadAdminTab(){
   var profile = getPortalProfile(getClient());
   if (!profile.is_surf_vertical) return;
   var state = el('admin-fetch-state');
-  if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'block'; state.classList.remove('error'); }
+  var requestedLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
+  renderAdminLoadingShell(profile);
+  if (state){ state.textContent = portalT('admin.loading'); state.style.display = 'none'; state.classList.remove('error'); }
   var url = '/staff/admin/config' + adminClientQuery();
   fetch(url).then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data){
+      if (requestedLocation && requestedLocation !== getSunsetLocation()) return;
       if (!data || data.success !== true) return Promise.reject(new Error((data && data.error) ? data.error : 'load failed'));
       adminConfigCache = data;
       if (!adminCfgWritesEnabled(data)) adminEditTarget = null;
@@ -22118,6 +22100,7 @@ function loadAdminTab(){
       if (state) state.style.display = 'none';
     })
     .catch(function(e){
+      if (requestedLocation && requestedLocation !== getSunsetLocation()) return;
       adminConfigCache = null;
       adminEditTarget = null;
       renderAdminFallback(profile);
