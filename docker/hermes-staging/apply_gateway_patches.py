@@ -247,16 +247,16 @@ WHATSAPP_SEND_POST_FILTER_PATCH = (
     + '\n        formatted = self.format_message(content)'
 )
 WHATSAPP_CHUNK_CONTEXT_ANCHOR = (
-    '        if reply_to and idx == 0:\n'
-    '            # Quote the user\'s message on the first chunk only.\n'
-    '            payload["context"] = {"message_id": reply_to}'
+    '            if reply_to and idx == 0:\n'
+    '                # Quote the user\'s message on the first chunk only.\n'
+    '                payload["context"] = {"message_id": reply_to}'
 )
-WHATSAPP_CHUNK_CONTEXT_PATCH = '''        if reply_to and idx == 0:
-            _wh_meta = metadata if isinstance(metadata, dict) else {}
-            _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
-            if _wh_allow_quote:
-                # Quote the user's message on the first chunk only.
-                payload["context"] = {"message_id": reply_to}'''
+WHATSAPP_CHUNK_CONTEXT_PATCH = '''            if reply_to and idx == 0:
+                _wh_meta = metadata if isinstance(metadata, dict) else {}
+                _wh_allow_quote = bool(_wh_meta.get("wolfhouse_quote_reply") or _wh_meta.get("quote_reply"))
+                if _wh_allow_quote:
+                    # Quote the user's message on the first chunk only.
+                    payload["context"] = {"message_id": reply_to}'''
 STREAM_CONSUMER_HELPER_TAG = "def _wolfhouse_stream_reply_anchor("
 STREAM_CONSUMER_HELPERS = '''
 
@@ -550,7 +550,7 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
     old_chunk = "if _wh_allow_quote or _wolfhouse_wa_ctx_os.getenv(\"HERMES_ROLE\") not in (\"luna\",):"
     if old_chunk in s:
         s = s.replace(
-            '''        if reply_to and idx == 0:
+            '''            if reply_to and idx == 0:
             # Wolfhouse Luna: skip WhatsApp quote context unless interactive.
             import os as _wolfhouse_wa_ctx_os
             _wh_meta = metadata if isinstance(metadata, dict) else {}

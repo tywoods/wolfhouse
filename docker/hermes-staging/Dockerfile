@@ -26,6 +26,7 @@ COPY apply_stt_patches.py /etc/hermes-staging/apply_stt_patches.py
 COPY apply_guest_send_guard_patches.py /etc/hermes-staging/apply_guest_send_guard_patches.py
 COPY verify_stt_patches.py /etc/hermes-staging/verify_stt_patches.py
 COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_guard_patches.py
+COPY bootstrap.sh /etc/hermes-staging/bootstrap.sh
 COPY bootstrap.sh /etc/cont-init.d/99-wh-staging-bootstrap
 RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && chmod +x /etc/cont-init.d/99-wh-staging-bootstrap \
