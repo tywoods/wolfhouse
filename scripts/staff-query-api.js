@@ -22088,18 +22088,9 @@ function renderAdminFallback(profile){
 }
 
 function renderAdminLoadingShell(profile){
-  var activeLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
-  renderAdminSectionBusinessInfoFromConfig({
-    location_id: activeLocation,
-    location_label: activeLocation ? getSunsetLocationLabel(activeLocation) : null,
-    business_info: {}
-  });
-  var timesBox = el('admin-times-body');
-  var pricesBox = el('admin-prices-body');
-  var historyBox = el('admin-history-body');
-  if (timesBox) timesBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
-  if (pricesBox) pricesBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
-  if (historyBox) historyBox.innerHTML = '<p class="portal-admin-muted">' + escHtml(portalT('admin.loading')) + '</p>';
+  // Do not leave the Admin page blank while the DB-backed config request is in flight.
+  // Render the safe local fallback immediately; the real config replaces it when loaded.
+  renderAdminFallback(profile);
 }
 
 function loadAdminTab(){
