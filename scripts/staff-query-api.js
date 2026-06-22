@@ -15249,11 +15249,17 @@ async function handleManualBookingCreate(req, res, user) {
   const clientSlug  = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
   const checkIn     = String(body.check_in  || '').trim();
   const checkOut    = String(body.check_out || '').trim();
-  const guestName   = String(body.guest_name || '').trim().slice(0, 200);
+  const guestCount  = parseInt(body.guest_count, 10) || 0;
+  const guestsNorm    = normalizeBookingGuestsInput(body);
+  if (!guestsNorm.ok) return send400(res, guestsNorm.error);
+  const usesPerGuestModel = guestsNorm.uses_per_guest_model === true;
+  const guestName     = (String(body.guest_name || '').trim() || guestsNorm.primary_name || '').slice(0, 200);
+  const resolvedGuestCount = guestsNorm.guest_count || guestCount;
+  const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
+  const perGuestPaymentLinks = usesPerGuestModel;
   const phone       = String(body.phone || '').trim().slice(0, 50);
   const email       = String(body.email || '').trim().slice(0, 200) || null;
   const language    = String(body.language || 'en').trim().slice(0, 10) || 'en';
-  const guestCount  = parseInt(body.guest_count, 10) || 0;
   const roomPref    = String(body.room_preference || '').trim().slice(0, 200) || null;
   const notes       = String(body.notes || '').trim().slice(0, 2000) || null;
   const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
@@ -15262,7 +15268,7 @@ async function handleManualBookingCreate(req, res, user) {
   const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().toLowerCase().slice(0, 50) || null;
   const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
   const normalizedGuestPackages = rawGuestPackages.length
-    ? normalizeGuestPackagesInput(rawGuestPackages, guestCount || rawGuestPackages.length, packageCode || 'malibu')
+    ? normalizeGuestPackagesInput(rawGuestPackages, effectiveGuestCount || rawGuestPackages.length, packageCode || 'malibu')
     : { guest_packages: [] };
   if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
   const guestPackages = normalizedGuestPackages.guest_packages || [];
@@ -15330,7 +15336,7 @@ async function handleManualBookingCreate(req, res, user) {
     return send400(res, 'invalid character in selected_bed_codes');
   if (!guestName)
     return send400(res, 'guest_name is required');
-  if (guestCount < 1)
+  if (effectiveGuestCount < 1 && guestCount < 1)
     return send400(res, 'guest_count must be at least 1');
   if (!confirmFlag)
     return send400(res, 'confirm: true is required in request body');
@@ -15362,16 +15368,18 @@ async function handleManualBookingCreate(req, res, user) {
   if (!effectivePackageCode) {
     return send400(res, 'package_code or guest_packages is required for quote-driven booking');
   }
+  const quoteGuestCount = effectiveGuestCount > 0 ? effectiveGuestCount : guestCount;
   const quote = calculateWolfhouseQuote({
     client_slug:    clientSlug,
     check_in:       checkIn,
     check_out:      checkOut,
-    guest_count:    guestCount,
+    guest_count:    quoteGuestCount,
     package_code:   packageCode,
     room_type:      roomType,
     payment_choice: quotePaymentChoice,
     add_ons:        addOns,
     manual_price_per_night_cents: manualPricePerNightCents,
+    uses_per_guest_deposits: usesPerGuestModel,
   });
   if (!quote.success || quote.blockers.length > 0) {
     return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
@@ -15447,7 +15455,7 @@ async function handleManualBookingCreate(req, res, user) {
           language,          // $9
           checkIn,           // $10
           checkOut,          // $11
-          guestCount,        // $12
+          quoteGuestCount,   // $12
           selectedBedCodes,  // $13 text[]
           storagePackageCode, // $14
           roomPref,          // $15
@@ -15510,10 +15518,51 @@ async function handleManualBookingCreate(req, res, user) {
               paid_amount_type: paidAmountType,
               add_ons_at_create: addOns,
               guest_packages: guestPackages,
+              uses_per_guest_model: usesPerGuestModel,
+              per_guest_payment_links: perGuestPaymentLinks,
+              booking_guests:    usesPerGuestModel ? guestsNorm.guests : undefined,
             }),
             result.booking_id,
           ]
         );
+
+        if (usesPerGuestModel && guestsNorm.guests.length > 0) {
+          try {
+            const clientRes = await pg.query(
+              'SELECT client_id FROM bookings WHERE id = $1',
+              [result.booking_id],
+            );
+            const bedsRes = await pg.query(
+              `SELECT bed_code, room_code
+                 FROM booking_beds
+                WHERE booking_id = $1
+                ORDER BY created_at ASC`,
+              [result.booking_id],
+            );
+            const bedAssignments = bedsRes.rows.map((b, idx) => ({
+              guest_number: idx + 1,
+              bed_code: b.bed_code,
+              room_code: b.room_code,
+            }));
+            const perPersonRows = buildPerPersonBreakdown(quote, {
+              guest_names: guestsNorm.guests.map((g) => g.guest_name),
+              payment_choice: quotePaymentChoice,
+            });
+            result._booking_guests = await insertBookingGuestsForBooking(pg, {
+              clientId: clientRes.rows[0].client_id,
+              bookingId: result.booking_id,
+              guests: guestsNorm.guests,
+              bedAssignments,
+              perPersonBreakdown: perPersonRows,
+            });
+            result._per_person = perPersonRows;
+          } catch (guestErr) {
+            if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
+            result._booking_guests_warning = 'booking_guests table not migrated';
+          }
+        } else {
+          result._per_person = quote.per_person || null;
+        }
 
         let payOutcome;
         try {
@@ -15552,7 +15601,7 @@ async function handleManualBookingCreate(req, res, user) {
           bookingCode: result.booking_code,
           guestName,
           checkIn,
-          guestCount,
+          quoteGuestCount,
         });
         const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
         result._service_records_created   = svcInsert.created;
@@ -17703,10 +17752,7 @@ ${getStaffPortalI18nBootstrapScript()}
     <div class="bk-form-section">
       <div class="bk-form-section-title" data-i18n="calendar.create.guest">Guest</div>
       <div class="bk-compact-grid">
-        <div class="bk-compact-row">
-          <label class="bk-label" for="bk-guest-name" data-i18n="calendar.create.guestName">Guest name</label>
-          <input type="text" id="bk-guest-name" class="bk-input bk-input-sm" data-i18n-placeholder="calendar.create.fullName" placeholder="Full name">
-        </div>
+        <div id="bk-guest-names-wrap"></div>
         <div class="bk-compact-row">
           <label class="bk-label" for="bk-phone" data-i18n="calendar.create.phone">Phone</label>
           <input type="tel" id="bk-phone" class="bk-input bk-input-sm" placeholder="+34 600 000 000">
@@ -24684,10 +24730,11 @@ function bcClearSelection(){
   var _blEl = el('bc-sel-beds-list'); if (_blEl) _blEl.innerHTML = '';
   var _bcEl = el('bc-sel-bed-count'); if (_bcEl) _bcEl.textContent = '';
   /* Reset guest/payment/notes fields */
-  ['bk-guest-name','bk-phone','bk-email','bk-notes','bk-paid-amount-custom'].forEach(function(id){
+  ['bk-phone','bk-email','bk-notes','bk-paid-amount-custom'].forEach(function(id){
     var inp = el(id); if (inp) inp.value = '';
   });
   var gc = el('bk-guest-count'); if (gc) gc.value = '1';
+  if (typeof bcRenderGuestNameInputs === 'function') bcRenderGuestNameInputs();
   var pc = el('bk-payment-choice'); if (pc) pc.value = 'stripe_deposit';
   var pat = el('bk-paid-amount-type'); if (pat) pat.value = 'deposit';
   var pac = el('bk-paid-amount-custom'); if (pac) pac.value = '';
@@ -24782,12 +24829,73 @@ function bcApplySelectionHighlight(){
   var _qrSel = el('bc-quote-result');
   if (_qrSel) _qrSel.innerHTML = bcQuoteNotRunHtml();
   bcApplyDefaultPackageForStay(formNights);
+  bcRenderGuestNameInputs();
   bcUpdateQuoteButton();
   bcUpdateCreateButton();
   bcUpdateBlockButton();
 }
 
 /* Phase 10.6d.1 — bed codes from multi-bed selection (not bcSel, which has no bed_code). */
+function bcGuestCountForNameInputs(){
+  var gcEl = el('bk-guest-count');
+  var gc = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
+  if (bcSelectedBeds.length > 1 && gc < bcSelectedBeds.length) gc = bcSelectedBeds.length;
+  return Math.max(1, Math.min(20, gc));
+}
+
+function bcRenderGuestNameInputs(){
+  var wrap = el('bk-guest-names-wrap');
+  if (!wrap) return;
+  var count = bcGuestCountForNameInputs();
+  var existing = {};
+  wrap.querySelectorAll('.bk-guest-name-input').forEach(function(inp){
+    var n = inp.getAttribute('data-guest-num');
+    if (n) existing[n] = inp.value;
+  });
+  var html = '';
+  for (var i = 1; i <= count; i++){
+    var bed = bcSelectedBeds[i - 1] || null;
+    var val = existing[i] != null ? existing[i] : '';
+    html += '<div class="bk-compact-row bk-guest-name-row">';
+    html += '<label class="bk-label" for="bk-guest-name-' + i + '">Name (Guest ' + i + ')';
+    if (bed) html += ' <span class="bk-guest-bed-hint">' + escHtml(bed.room_code + '/' + bed.bed_code) + '</span>';
+    html += '</label>';
+    html += '<input type="text" id="bk-guest-name-' + i + '" class="bk-input bk-input-sm bk-guest-name-input" data-guest-num="' + i + '"';
+    if (bed) {
+      html += ' data-bed-code="' + escHtml(bed.bed_code) + '" data-room-code="' + escHtml(bed.room_code) + '"';
+    }
+    html += ' placeholder="Full name" value="' + escHtml(val) + '">';
+    html += '</div>';
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.bk-guest-name-input').forEach(function(inp){
+    inp.oninput = function(){ bcUpdateCreateButton(); };
+  });
+}
+
+function bcCollectGuestPayload(){
+  var count = bcGuestCountForNameInputs();
+  var guests = [];
+  for (var i = 1; i <= count; i++){
+    var inp = el('bk-guest-name-' + i);
+    var name = inp ? (inp.value || '').trim() : '';
+    var bed = bcSelectedBeds[i - 1] || null;
+    var bedCode = (inp && inp.getAttribute('data-bed-code')) || (bed ? bed.bed_code : null);
+    guests.push({ name: name, bed_code: bedCode || undefined });
+  }
+  return guests;
+}
+
+function bcAllGuestNamesFilled(){
+  var guests = bcCollectGuestPayload();
+  return guests.length > 0 && guests.every(function(g){ return !!g.name; });
+}
+
+function bcPrimaryGuestName(){
+  var guests = bcCollectGuestPayload();
+  return guests.length ? guests[0].name : '';
+}
+
 function bcSelectedBedCodes(){
   return bcSelectedBeds.map(function(b){ return b.bed_code; }).filter(Boolean);
 }
@@ -25077,7 +25185,7 @@ function bcUpdateCreateButton(){
   var gc           = parseInt(el('bk-guest-count')   ? el('bk-guest-count').value   : '0', 10) || 0;
   var pkg          = el('bk-package')        ? el('bk-package').value        : '';
   var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
-  var gname        = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim() : '';
+  var gname        = bcAllGuestNamesFilled();
   var quoteOk      = !!bcLastQuote;
   var missing = [];
   if (!hasSelection) missing.push(t('calendar.create.missing.bedSelection'));
@@ -25185,13 +25293,14 @@ function runManualBookingCreate(){
   var client       = getBcClient();
   var gcEl         = el('bk-guest-count');
   var guestCount   = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
+  var guests       = bcCollectGuestPayload();
+  var guestName    = guests.length ? guests[0].name : '';
   var packageCode  = el('bk-package')        ? el('bk-package').value        : '';
   var payChoice    = el('bk-payment-choice') ? el('bk-payment-choice').value : 'stripe_deposit';
   var paidAmtType  = el('bk-paid-amount-type') ? el('bk-paid-amount-type').value : 'deposit';
   var paidCustomEl = el('bk-paid-amount-custom');
   var paidCustomEuros = paidCustomEl ? parseFloat(paidCustomEl.value) : NaN;
   var roomType     = el('bk-room-type')      ? el('bk-room-type').value      : 'shared';
-  var guestName    = el('bk-guest-name')     ? (el('bk-guest-name').value||'').trim()     : '';
   var phone        = el('bk-phone')          ? (el('bk-phone').value||'').trim()          : '';
   var email        = el('bk-email')          ? (el('bk-email').value||'').trim()||null    : null;
   var source       = el('bk-source')         ? (el('bk-source').value||'staff_manual')    : 'staff_manual';
@@ -25203,6 +25312,7 @@ function runManualBookingCreate(){
     selected_bed_codes: bcSelectedBeds.map(function(b){ return b.bed_code; }),
     guest_count:        guestCount,
     guest_name:         guestName,
+    guests:             guests,
     phone:              phone,
     email:              email,
     package_code:       packageCode,
@@ -25226,8 +25336,8 @@ function runManualBookingCreate(){
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and dates on the calendar.</div>';
     return;
   }
-  if (!guestName) {
-    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Guest name required</div>Enter guest name before creating.</div>';
+  if (!bcAllGuestNamesFilled()) {
+    cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Guest names required</div>Enter a name for each guest before creating.</div>';
     return;
   }
   var createNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
@@ -26131,7 +26241,7 @@ function renderBedCalendar(data){
   var _blockBtn = el('bc-sel-block');
   if (_blockBtn) _blockBtn.onclick = runCalendarBedBlock;
   /* Wire form field listeners for quote + create button enable/disable */
-  ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-guest-name','bk-phone'].forEach(function(fId){
+  ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone'].forEach(function(fId){
     var fEl = el(fId);
     if (!fEl) return;
     function syncBookingFormState(){
@@ -26143,11 +26253,12 @@ function renderBedCalendar(data){
         bcPackageUserSelected = true;
         bcUpdateManualPriceOverrideVisibility();
       }
+      if (fId === 'bk-guest-count') bcRenderGuestNameInputs();
       bcUpdateQuoteButton();
       bcUpdateCreateButton();
     }
     fEl.onchange = syncBookingFormState;
-    if (fId === 'bk-guest-name' || fId === 'bk-phone') fEl.oninput = syncBookingFormState;
+    if (fId === 'bk-phone') fEl.oninput = syncBookingFormState;
   });
   var pacEl = el('bk-paid-amount-custom');
   if (pacEl) pacEl.oninput = function(){
@@ -26161,6 +26272,7 @@ function renderBedCalendar(data){
   };
   bcUpdateManualPriceOverrideVisibility();
   bcUpdateManualBookingPaidFields();
+  bcRenderGuestNameInputs();
   bcUpdateCreateButton();
   bcUpdateBlockButton();
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
