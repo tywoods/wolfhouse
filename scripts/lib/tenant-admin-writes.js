@@ -211,6 +211,37 @@ function validateWeekdaysActive(value) {
   return { ok: true, value: out };
 }
 
+
+function validateLessonTimeCreateBody(body) {
+  const unknown = rejectUnknownFields(body, LESSON_TIME_PATCH_FIELDS);
+  if (!unknown.ok) return unknown;
+  const out = {};
+  const label = String(body.label || '').trim();
+  if (!label) return { ok: false, error: 'label required' };
+  out.label = label;
+  const start = String(body.time_local || '').trim();
+  if (!TIME_RE.test(start)) return { ok: false, error: 'time_local must be HH:MM' };
+  out.time_local = start;
+  if (body.time_local_end != null && String(body.time_local_end).trim() !== '') {
+    const end = String(body.time_local_end).trim();
+    if (!TIME_RE.test(end)) return { ok: false, error: 'time_local_end must be HH:MM' };
+    if (end <= start) return { ok: false, error: 'time_local_end must be after time_local' };
+    out.time_local_end = end;
+  }
+  const type = String(body.lesson_type || 'group_surf_lesson').trim();
+  if (!type) return { ok: false, error: 'lesson_type required' };
+  out.lesson_type = type;
+  if (body.weekdays_active != null) {
+    const weekdays = validateWeekdaysActive(body.weekdays_active);
+    if (!weekdays.ok) return weekdays;
+    out.weekdays_active = weekdays.value;
+  } else {
+    out.weekdays_active = [0, 1, 2, 3, 4, 5, 6];
+  }
+  out.active = body.active !== false;
+  return { ok: true, patch: out };
+}
+
 function validateLessonTimePatchBody(body) {
   const unknown = rejectUnknownFields(body, LESSON_TIME_PATCH_FIELDS);
   if (!unknown.ok) return unknown;
@@ -691,6 +722,97 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
   }
 }
 
+
+async function createLessonTimeRule(client, { clientSlug, locationId, patch, actor }) {
+  const tablesExist = await adminConfigTablesExist(client);
+  const loc = normalizeSunsetLocationId(locationId);
+  if (!tablesExist) {
+    return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
+  }
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  await client.query('BEGIN');
+  try {
+    const tenantId = 'sunset';
+    const cols = hasLoc
+      ? `(tenant_id, client_slug, location_id, time_local, time_local_end, label, lesson_type, weekdays_active, active, updated_by)`
+      : `(tenant_id, client_slug, time_local, time_local_end, label, lesson_type, weekdays_active, active, updated_by)`;
+    const vals = hasLoc
+      ? `($1, $2, $3, $4::time, $5::time, $6, $7, $8::smallint[], $9, $10::uuid)`
+      : `($1, $2, $3::time, $4::time, $5, $6, $7::smallint[], $8, $9::uuid)`;
+    const params = hasLoc
+      ? [tenantId, clientSlug, loc, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null]
+      : [tenantId, clientSlug, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null];
+    const inserted = await client.query(`INSERT INTO tenant_lesson_time_rules ${cols} VALUES ${vals} RETURNING *`, params);
+    const after = inserted.rows[0];
+    await insertConfigAudit(client, {
+      tenantId: after.tenant_id,
+      clientSlug,
+      actor,
+      action: 'create',
+      entityType: 'lesson_time_rule',
+      entityId: after.id,
+      beforeJson: null,
+      afterJson: rowToAuditJson(after),
+    });
+    await client.query('COMMIT');
+    return { ok: true, status: 201, body: { success: true, lesson_time_rule: after, storage: 'db' } };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+
+async function deactivateLessonTimeRule(client, { ruleId, clientSlug, locationId, actor }) {
+  const tablesExist = await adminConfigTablesExist(client);
+  const loc = normalizeSunsetLocationId(locationId);
+  if (!tablesExist) {
+    return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
+  }
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  await client.query('BEGIN');
+  try {
+    const existing = await client.query(
+      hasLoc
+        ? `SELECT * FROM tenant_lesson_time_rules WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3 AND active = true FOR UPDATE`
+        : `SELECT * FROM tenant_lesson_time_rules WHERE id = $1::uuid AND client_slug = $2 AND active = true FOR UPDATE`,
+      hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
+    );
+    if (!existing.rows[0]) {
+      await client.query('ROLLBACK');
+      return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
+    }
+    const before = existing.rows[0];
+    const updated = await client.query(
+      hasLoc
+        ? `UPDATE tenant_lesson_time_rules
+            SET active = false, updated_at = NOW(), updated_by = $4::uuid
+          WHERE id = $1::uuid AND client_slug = $2 AND location_id = $3
+          RETURNING *`
+        : `UPDATE tenant_lesson_time_rules
+            SET active = false, updated_at = NOW(), updated_by = $3::uuid
+          WHERE id = $1::uuid AND client_slug = $2
+          RETURNING *`,
+      hasLoc ? [ruleId, clientSlug, loc, actor.staff_user_id || null] : [ruleId, clientSlug, actor.staff_user_id || null],
+    );
+    const after = updated.rows[0];
+    await insertConfigAudit(client, {
+      tenantId: before.tenant_id,
+      clientSlug,
+      actor,
+      action: 'deactivate',
+      entityType: 'lesson_time_rule',
+      entityId: ruleId,
+      beforeJson: rowToAuditJson(before),
+      afterJson: rowToAuditJson(after),
+    });
+    await client.query('COMMIT');
+    return { ok: true, status: 200, body: { success: true, lesson_time_rule: after, storage: 'db' } };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
+}
+
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
@@ -700,10 +822,13 @@ module.exports = {
   validateUuid,
   validatePricePatchBody,
   validateLessonCapacityBody,
+  validateLessonTimeCreateBody,
   validateLessonTimePatchBody,
   patchPriceRule,
   putLessonCapacityDefault,
+  createLessonTimeRule,
   patchLessonTimeRule,
+  deactivateLessonTimeRule,
   buildDbItemCode,
   mapBaselineUnitToDb,
 };
