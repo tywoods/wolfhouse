@@ -162,6 +162,50 @@ function mapCapacityRows(rows) {
   };
 }
 
+
+function parseAdminLessonType(lessonType) {
+  const raw = String(lessonType || '').trim();
+  const m = raw.match(/^(lesson|pack)__(all_ages|6_and_up|6_to_11|12_and_up)$/);
+  if (m) return { kind: m[1], age_band: m[2] };
+  return { kind: 'lesson', age_band: 'all_ages' };
+}
+
+function lessonSlotPriceItemCode(slotId) {
+  return `lesson_slot_${slotId}__session`;
+}
+
+function detectLessonFrequency(weekdays) {
+  const w = Array.isArray(weekdays) ? weekdays.slice().sort((a, b) => a - b) : [];
+  const key = w.join(',');
+  if (key === '0,1,2,3,4,5,6') return 'daily';
+  if (key === '0,6') return 'sat_sun';
+  if (key === '1,2,3,4,5') return 'mon_fri';
+  return 'daily';
+}
+
+function attachLessonPrices(lessonTimes, prices) {
+  const byCode = new Map();
+  for (const p of prices || []) {
+    if (String(p.category || '').toLowerCase() === 'lesson') {
+      byCode.set(String(p.offering_key || ''), p);
+    }
+  }
+  return (lessonTimes || []).map((slot) => {
+    const code = slot.slot_id ? lessonSlotPriceItemCode(slot.slot_id) : null;
+    const price = code ? byCode.get(code) : null;
+    const parsed = parseAdminLessonType(slot.session_type);
+    return {
+      ...slot,
+      kind: parsed.kind,
+      age_band: parsed.age_band,
+      frequency: detectLessonFrequency(slot.weekdays_active),
+      price_id: price ? price.id : null,
+      price_amount: price ? price.amount : null,
+      price_currency: price ? price.currency : 'EUR',
+    };
+  });
+}
+
 function mapLessonTimeRows(rows) {
   return rows.map((row) => ({
     slot_id: row.id ? String(row.id) : null,
@@ -373,7 +417,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
 
   const prices = mapPriceRows(priceRes.rows);
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
-  const lesson_times = mapLessonTimeRows(timeRes.rows);
+  const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
   const change_history = mapAuditRows(auditRes.rows);
 
   const lesson_capacity = {
@@ -405,7 +449,8 @@ function mergeDbWithConfig(configBaseline, dbResult) {
       overrides: dbResult.lesson_capacity.overrides,
     }
     : configBaseline.lesson_capacity;
-  const lesson_times = dbResult.lesson_times.length ? dbResult.lesson_times : configBaseline.lesson_times;
+  const lesson_timesRaw = dbResult.lesson_times.length ? dbResult.lesson_times : configBaseline.lesson_times;
+  const lesson_times = attachLessonPrices(lesson_timesRaw, prices);
   const change_history = dbResult.change_history.length ? dbResult.change_history : configBaseline.change_history;
 
   const hasAnyDb = dbResult.prices.length > 0
@@ -519,6 +564,9 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
 }
 
 module.exports = {
+  attachLessonPrices,
+  parseAdminLessonType,
+
   SUNSET_ADMIN_CLIENT,
   DEFAULT_DAILY_CAP,
   ADMIN_CONFIG_TABLES,

@@ -16158,17 +16158,17 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-admin-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
 .portal-admin-table th,.portal-admin-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
 .portal-admin-table th{font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em}
-.portal-admin-card-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:8px}
+.portal-admin-card-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(118px,1fr));gap:6px;margin-top:6px}
 .portal-admin-compact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:8px}
 .portal-admin-subsection{margin-top:10px}.portal-admin-subsection:first-child{margin-top:0}
 .portal-admin-subsection-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
 .portal-admin-subsection-title{font-size:12px;font-weight:850;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin:0 0 6px}
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
-.portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:9px 10px;display:flex;flex-direction:column;gap:7px;min-height:0}
+.portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:6px 8px;display:flex;flex-direction:column;gap:4px;min-height:0}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.25;font-size:13px}
 .portal-admin-price-meta,.portal-admin-lesson-meta{font-size:11px;color:var(--text-3);margin-top:2px}
-.portal-admin-price-amount,.portal-admin-lesson-time{font-size:16px;font-weight:850;color:var(--text);white-space:nowrap;text-align:right}
+.portal-admin-price-amount,.portal-admin-lesson-time{font-size:14px;font-weight:850;color:var(--text);white-space:nowrap}.portal-admin-price-card-readout{display:flex;align-items:baseline;justify-content:space-between;gap:6px;width:100%}.portal-admin-price-period{font-size:14px;font-weight:850;color:var(--text);line-height:1.2}.portal-admin-subsection-title-row .portal-admin-icon-btn{font-size:10px;padding:1px 6px;min-width:0;line-height:1.4}.portal-admin-subsection-title-row .portal-admin-card-actions{gap:2px}
 
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
@@ -21842,16 +21842,56 @@ function adminSlotDurationLabel(slotTime){
   return String(Math.floor(mins / 60)) + 'h ' + String(mins % 60) + 'm';
 }
 
-function adminRenderLessonPriceStrip(prices){
-  var lessonPrices = (prices || []).filter(adminIsLessonPrice);
-  if (!lessonPrices.length) return '';
-  var html = '<div class="portal-admin-subsection"><h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.lessonTimes.priceTitle')) + '</h3>' +
-    '<div class="portal-admin-lesson-price-strip">';
-  lessonPrices.forEach(function(p){
-    html += '<span class="portal-admin-lesson-price-pill"><span>' + escHtml(adminHumanizeText(p.label || p.offering_key || 'Lesson')) + '</span><strong>' +
-      escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</strong></span>';
-  });
-  return html + '</div></div>';
+
+function adminLessonKindOptions(selected){
+  return ['lesson', 'pack'].map(function(k){
+    var sel = (selected === k) ? ' selected' : '';
+    return '<option value="' + escHtml(k) + '"' + sel + '>' + escHtml(portalT('admin.lesson.kind.' + k)) + '</option>';
+  }).join('');
+}
+
+function adminLessonAgeOptions(selected){
+  return ['all_ages', '6_and_up', '6_to_11', '12_and_up'].map(function(a){
+    var sel = (selected === a) ? ' selected' : '';
+    return '<option value="' + escHtml(a) + '"' + sel + '>' + escHtml(portalT('admin.lesson.age.' + a)) + '</option>';
+  }).join('');
+}
+
+function adminLessonFrequencyOptions(selected){
+  return ['daily', 'sat_sun', 'mon_fri'].map(function(f){
+    var sel = (selected === f) ? ' selected' : '';
+    return '<option value="' + escHtml(f) + '"' + sel + '>' + escHtml(portalT('admin.lesson.frequency.' + f)) + '</option>';
+  }).join('');
+}
+
+function adminLessonFrequencyLabel(freq){
+  var key = String(freq || 'daily');
+  var tKey = 'admin.lesson.frequency.' + key;
+  var label = portalT(tKey);
+  return label === tKey ? key : label;
+}
+
+function adminLessonAgeLabel(age){
+  var key = String(age || 'all_ages');
+  var tKey = 'admin.lesson.age.' + key;
+  var label = portalT(tKey);
+  return label === tKey ? key : label;
+}
+
+function adminLessonKindLabel(kind){
+  var key = String(kind || 'lesson');
+  var tKey = 'admin.lesson.kind.' + key;
+  var label = portalT(tKey);
+  return label === tKey ? key : label;
+}
+
+function adminResolveLessonSlotFields(s){
+  return {
+    kind: s.kind || 'lesson',
+    age_band: s.age_band || 'all_ages',
+    frequency: s.frequency || 'daily',
+    price_amount: s.price_amount != null ? s.price_amount : null,
+  };
 }
 
 function adminRentalGroupOrder(){
@@ -21892,7 +21932,7 @@ function adminPeriodLabel(period){
 }
 
 function adminRentalPeriodOptions(selected){
-  var opts = ['1_hour', 'half_day', '1_day', '2_days', '5_days', '7_days'];
+  var opts = ['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days'];
   return opts.map(function(p){
     var sel = (selected === p) ? ' selected' : '';
     return '<option value="' + escHtml(p) + '"' + sel + '>' + escHtml(adminPeriodLabel(p)) + '</option>';
@@ -21961,16 +22001,18 @@ function renderAdminSectionPricesFromConfig(cfg){
     if (writes){
       var busyOther = adminEditTarget && !groupEditing && !adding;
       if (!busyOther){
+        html += '<div class="portal-admin-card-actions">';
         if (!groupEditing){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-price-group" data-price-group="' +
-            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">???</button>';
+            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>';
         } else {
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.done')) + '</button>';
+          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.done')) + '</button>';
         }
-        if (!adding){
-          html += '<button type="button" class="btn btn-primary portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-price" data-price-group="' +
-            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.addRental')) + '">+</button>';
+        if (!adding && !groupEditing){
+          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-price" data-price-group="' +
+            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
         }
+        html += '</div>';
       }
     }
     html += '</div>';
@@ -21982,19 +22024,14 @@ function renderAdminSectionPricesFromConfig(cfg){
       items.forEach(function(p){
         var pid = p.id ? String(p.id) : '';
         var parsed = adminParsePriceRow(p);
-        var cardTitle = adminPriceGroupTitle(key);
         html += '<article class="portal-admin-price-card" data-admin-price-card="' + escHtml(pid) + '">';
-        html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-price-title">' + escHtml(cardTitle) + '</div>' +
-          '<div class="portal-admin-price-meta">' + escHtml(adminPeriodLabel(parsed.periodWindow)) + '</div></div>';
         if (groupEditing && pid){
-          html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
-            escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">??</button></div>';
-        }
-        html += '</div>';
-        if (groupEditing && pid){
+          html += '<div class="portal-admin-card-title-row"><div></div><div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
+            escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button></div></div>';
           html += renderAdminPriceCardEditForm(pid, p, key);
         } else {
-          html += '<div class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</div>';
+          html += '<div class="portal-admin-price-card-readout"><span class="portal-admin-price-period">' + escHtml(adminPeriodLabel(parsed.periodWindow)) + '</span>' +
+            '<span class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</span></div>';
         }
         html += '</article>';
       });
@@ -22036,15 +22073,24 @@ function renderAdminSectionCapacityFromConfig(cfg){
 function renderAdminTimeEditForm(sid, s){
   var defaultCap = (adminConfigCache && adminConfigCache.lesson_capacity && adminConfigCache.lesson_capacity.default_daily_cap != null)
     ? adminConfigCache.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
+  var fields = adminResolveLessonSlotFields(s);
   return '<div class="portal-admin-edit-form">' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
-    '<input type="text" id="admin-time-label" value="' + escHtml(adminHumanizeText(s.offering_label || s.session_type || '')) + '" maxlength="120"></div>' +
+    '<input type="text" id="admin-time-label" value="' + escHtml(adminHumanizeText(s.offering_label || '')) + '" maxlength="120"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.kind')) + '</label>' +
+    '<select id="admin-time-kind">' + adminLessonKindOptions(fields.kind) + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.capacity')) + '</label>' +
+    '<input type="number" id="admin-time-capacity" min="1" max="999" step="1" value="' + escHtml(s.capacity != null ? String(s.capacity) : String(defaultCap)) + '"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
     '<input type="text" id="admin-time-start" value="' + escHtml(adminSlotTimeStart(s.slot_time)) + '" placeholder="HH:MM" maxlength="5"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
     '<input type="text" id="admin-time-end" value="' + escHtml(adminSlotTimeEnd(s.slot_time)) + '" placeholder="HH:MM" maxlength="5"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.capacity')) + '</label>' +
-    '<input type="number" id="admin-time-capacity" min="1" max="999" step="1" value="' + escHtml(s.capacity != null ? String(s.capacity) : String(defaultCap)) + '"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.age')) + '</label>' +
+    '<select id="admin-time-age">' + adminLessonAgeOptions(fields.age_band) + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.frequency')) + '</label>' +
+    '<select id="admin-time-frequency">' + adminLessonFrequencyOptions(fields.frequency) + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.cost')) + '</label>' +
+    '<input type="text" id="admin-time-cost" value="' + escHtml(fields.price_amount != null ? adminEurosFromAmount(fields.price_amount) : '') + '" inputmode="decimal"></div>' +
     '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-time" data-time-id="' + escHtml(sid) + '">' +
     escHtml(portalT('admin.action.save')) + '</button>' +
@@ -22053,15 +22099,25 @@ function renderAdminTimeEditForm(sid, s){
 }
 
 function renderAdminAddTimeForm(){
+  var defaultCap = (adminConfigCache && adminConfigCache.lesson_capacity && adminConfigCache.lesson_capacity.default_daily_cap != null)
+    ? adminConfigCache.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
   return '<div class="portal-admin-edit-form" id="admin-add-time-form">' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
-    '<input type="text" id="admin-new-time-label" value="Group surf lesson" maxlength="120"></div>' +
+    '<input type="text" id="admin-new-time-label" value="" maxlength="120" placeholder="Group surf lesson"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.kind')) + '</label>' +
+    '<select id="admin-new-time-kind">' + adminLessonKindOptions('lesson') + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.capacity')) + '</label>' +
+    '<input type="number" id="admin-new-time-capacity" min="1" max="999" step="1" value="' + escHtml(String(defaultCap)) + '"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
     '<input type="text" id="admin-new-time-start" value="" placeholder="HH:MM" maxlength="5"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
     '<input type="text" id="admin-new-time-end" value="" placeholder="HH:MM" maxlength="5"></div>' +
-    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.capacity')) + '</label>' +
-    '<input type="number" id="admin-new-time-capacity" min="1" max="999" step="1" value="24"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.age')) + '</label>' +
+    '<select id="admin-new-time-age">' + adminLessonAgeOptions('all_ages') + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.frequency')) + '</label>' +
+    '<select id="admin-new-time-frequency">' + adminLessonFrequencyOptions('daily') + '</select></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.cost')) + '</label>' +
+    '<input type="text" id="admin-new-time-cost" value="" inputmode="decimal" placeholder="0.00"></div>' +
     '<div class="portal-admin-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="save-new-time">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
@@ -22073,17 +22129,15 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   if (!box) return;
   var writes = adminCfgWritesEnabled(cfg);
   var slots = (cfg && cfg.lesson_times) ? cfg.lesson_times : [];
-  var prices = (cfg && cfg.prices) ? cfg.prices : [];
   var defaultCap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
-  var html = adminRenderLessonPriceStrip(prices);
-  html += '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.lessonTimes.scheduleTitle')) + '</h3>';
+  var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.lessonTimes.scheduleTitle')) + '</h3>';
   if (writes && !adminEditTarget){
-    html += '<button type="button" class="btn btn-primary portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-time">+ ' + escHtml(portalT('admin.action.addLesson')) + '</button>';
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-time" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
   html += '</div><p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.help')) + '</p>';
   if (writes && adminEditTarget === 'time:new') html += renderAdminAddTimeForm();
-  if (!slots.length){
+  if (!slots.length && adminEditTarget !== 'time:new'){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p></div>';
     box.innerHTML = html;
     return;
@@ -22092,26 +22146,31 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   slots.forEach(function(s){
     var sid = s.slot_id ? String(s.slot_id) : '';
     var editing = writes && adminEditTarget === ('time:' + sid);
-    var label = adminHumanizeText(s.offering_label || s.session_type || 'Lesson');
-    var capText = s.capacity != null ? (String(s.capacity) + ' ' + portalT('admin.lessonTimes.seats')) : (String(defaultCap) + ' ' + portalT('admin.lessonTimes.seats'));
+    var label = adminHumanizeText(s.offering_label || 'Lesson');
+    var fields = adminResolveLessonSlotFields(s);
+    var capText = s.capacity != null ? String(s.capacity) : String(defaultCap);
     var duration = adminSlotDurationLabel(s.slot_time);
-    html += '<article class="portal-admin-lesson-card" data-admin-lesson-card="' + escHtml(sid) + '">' +
-      '<div class="portal-admin-card-title-row"><div><div class="portal-admin-lesson-title">' + escHtml(label) + '</div>' +
-      '<div class="portal-admin-lesson-meta">' + escHtml(s.date || portalT('admin.lessonTimes.recurring')) + '</div></div>';
+    var costText = fields.price_amount != null ? (adminEurosFromAmount(fields.price_amount) + ' ' + (s.price_currency || 'EUR')) : '—';
+    html += '<article class="portal-admin-lesson-card" data-admin-lesson-card="' + escHtml(sid) + '">';
+    html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-lesson-title">' + escHtml(label) + '</div>' +
+      '<div class="portal-admin-lesson-meta">' + escHtml(adminLessonKindLabel(fields.kind)) + ' · ' + escHtml(adminLessonFrequencyLabel(fields.frequency)) + '</div></div>';
     if (writes && !editing && (!adminEditTarget || adminEditTarget.indexOf('time:') !== 0)){
       html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-time" data-time-id="' +
         escHtml(sid) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>' +
         '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-time" data-time-id="' +
-        escHtml(sid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">−</button></div>';
+        escHtml(sid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button></div>';
     }
     html += '</div>';
     if (editing){
       html += renderAdminTimeEditForm(sid, s);
     } else {
-      html += '<div class="portal-admin-lesson-facts"><div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.capacity')) + '<strong>' + escHtml(capText) + '</strong></div>' +
-        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.duration')) + '<strong>' + escHtml(duration) + '</strong></div></div>' +
-        '<div class="portal-admin-lesson-footer"><span class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.timeLabel')) + '</span>' +
-        '<div class="portal-admin-lesson-time">' + escHtml(s.slot_time || '—') + '</div></div>';
+      html += '<div class="portal-admin-lesson-facts">' +
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.capacity')) + '<strong>' + escHtml(capText + ' ' + portalT('admin.lessonTimes.seats')) + '</strong></div>' +
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.duration')) + '<strong>' + escHtml(duration) + '</strong></div>' +
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.startTime')) + '<strong>' + escHtml(adminSlotTimeStart(s.slot_time) || '—') + '</strong></div>' +
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.age')) + '<strong>' + escHtml(adminLessonAgeLabel(fields.age_band)) + '</strong></div>' +
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.cost')) + '<strong>' + escHtml(costText) + '</strong></div>' +
+        '</div>';
     }
     html += '</article>';
   });
@@ -22321,16 +22380,16 @@ function wireAdminTab(){
     }
     if (action === 'save-price'){
       var priceId = String(btn.getAttribute('data-price-id') || '');
-      var nameInput = el('admin-price-display-name');
-      var amountInput = el('admin-price-amount-eur');
-      var name = nameInput ? String(nameInput.value || '').trim() : '';
-      if (!name){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
+      var periodInput = el('admin-price-period-' + priceId);
+      var amountInput = el('admin-price-amount-' + priceId);
+      var period = periodInput ? String(periodInput.value || '').trim() : '';
+      if (!period){ adminShowMessage('error', portalT('admin.edit.periodRequired')); return; }
       var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
       if (!centsParsed.ok){ adminShowMessage('error', centsParsed.error); return; }
       adminSaveBusy = true;
       adminShowMessage('', '');
       adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(priceId) + adminClientQuery(), {
-        display_name: name,
+        period_window: period,
         amount_cents: centsParsed.value,
       }).then(function(res){
         adminSaveBusy = false;
@@ -22391,11 +22450,21 @@ function wireAdminTab(){
       if (!capacityParsed.ok){ adminShowMessage('error', capacityParsed.error); return; }
       adminSaveBusy = true;
       adminShowMessage('', '');
+      var kindInput = el('admin-time-kind');
+      var ageInput = el('admin-time-age');
+      var freqInput = el('admin-time-frequency');
+      var costInput = el('admin-time-cost');
+      var costParsed = adminParseEurosToCents(costInput && costInput.value);
+      if (!costParsed.ok){ adminShowMessage('error', costParsed.error); return; }
       adminApiRequest('PATCH', '/staff/admin/config/lesson-times/' + encodeURIComponent(timeId) + adminClientQuery(), {
         label: label,
+        kind: kindInput ? String(kindInput.value || 'lesson') : 'lesson',
+        age_band: ageInput ? String(ageInput.value || 'all_ages') : 'all_ages',
+        frequency: freqInput ? String(freqInput.value || 'daily') : 'daily',
         time_local: timeParsed.value,
         time_local_end: endParsed.value,
         capacity: capacityParsed.value,
+        amount_cents: costParsed.value,
       }).then(function(res){
         adminSaveBusy = false;
         if (res.status !== 200 || !res.data || res.data.success !== true){
@@ -22418,11 +22487,23 @@ function wireAdminTab(){
       if (!newLabel){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
       var newStart = adminParseTimeHm(newStartInput && newStartInput.value);
       if (!newStart.ok){ adminShowMessage('error', newStart.error); return; }
+      var newCapInput = el('admin-new-time-capacity');
+      var newKindInput = el('admin-new-time-kind');
+      var newAgeInput = el('admin-new-time-age');
+      var newFreqInput = el('admin-new-time-frequency');
+      var newCostInput = el('admin-new-time-cost');
+      var newCapParsed = adminParseCapacity(newCapInput && newCapInput.value);
+      if (!newCapParsed.ok){ adminShowMessage('error', newCapParsed.error); return; }
+      var newCostParsed = adminParseEurosToCents(newCostInput && newCostInput.value);
+      if (!newCostParsed.ok){ adminShowMessage('error', newCostParsed.error); return; }
       var payload = {
         label: newLabel,
-        lesson_type: 'group_surf_lesson',
+        kind: newKindInput ? String(newKindInput.value || 'lesson') : 'lesson',
+        age_band: newAgeInput ? String(newAgeInput.value || 'all_ages') : 'all_ages',
+        frequency: newFreqInput ? String(newFreqInput.value || 'daily') : 'daily',
         time_local: newStart.value,
-        weekdays_active: [0, 1, 2, 3, 4, 5, 6],
+        capacity: newCapParsed.value,
+        amount_cents: newCostParsed.value,
         active: true,
       };
       var newEndRaw = newEndInput ? String(newEndInput.value || '').trim() : '';

@@ -44,7 +44,61 @@ const RENTAL_GROUP_DISPLAY = {
   wetsuits: 'Wetsuit',
   sup: 'SUP',
 };
-const RENTAL_PERIOD_WINDOWS = new Set(['1_hour', 'half_day', '1_day', '2_days', '5_days', '7_days']);
+const RENTAL_PERIOD_WINDOWS = new Set(['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days']);
+
+
+const LESSON_KINDS = new Set(['lesson', 'pack']);
+const LESSON_AGE_BANDS = new Set(['all_ages', '6_and_up', '6_to_11', '12_and_up']);
+const LESSON_FREQUENCY_PRESETS = {
+  daily: [0, 1, 2, 3, 4, 5, 6],
+  sat_sun: [0, 6],
+  mon_fri: [1, 2, 3, 4, 5],
+};
+
+function buildLessonType(kind, ageBand) {
+  return `${kind}__${ageBand}`;
+}
+
+function parseLessonTypeValue(lessonType) {
+  const raw = String(lessonType || '').trim();
+  const m = raw.match(/^(lesson|pack)__(all_ages|6_and_up|6_to_11|12_and_up)$/);
+  if (m) return { kind: m[1], age_band: m[2] };
+  return { kind: 'lesson', age_band: 'all_ages' };
+}
+
+function lessonSlotPriceItemCode(slotId) {
+  return `lesson_slot_${slotId}__session`;
+}
+
+function resolveLessonFrequencyPreset(key) {
+  const k = String(key || 'daily').trim();
+  return LESSON_FREQUENCY_PRESETS[k] || LESSON_FREQUENCY_PRESETS.daily;
+}
+
+function validateLessonKindAgeFrequency(body, out) {
+  if (body.kind != null) {
+    const kind = String(body.kind).trim();
+    if (!LESSON_KINDS.has(kind)) return { ok: false, error: 'invalid kind' };
+    out.kind = kind;
+  }
+  if (body.age_band != null) {
+    const age = String(body.age_band).trim();
+    if (!LESSON_AGE_BANDS.has(age)) return { ok: false, error: 'invalid age_band' };
+    out.age_band = age;
+  }
+  if (body.frequency != null) {
+    const freq = String(body.frequency).trim();
+    if (!LESSON_FREQUENCY_PRESETS[freq]) return { ok: false, error: 'invalid frequency' };
+    out.frequency = freq;
+    out.weekdays_active = LESSON_FREQUENCY_PRESETS[freq];
+  }
+  if (body.amount_cents != null) {
+    const n = Number(body.amount_cents);
+    if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
+    out.amount_cents = n;
+  }
+  return { ok: true };
+}
 
 const LESSON_TIME_PATCH_FIELDS = new Set([
   'label',
@@ -54,6 +108,10 @@ const LESSON_TIME_PATCH_FIELDS = new Set([
   'weekdays_active',
   'active',
   'capacity',
+  'kind',
+  'age_band',
+  'frequency',
+  'amount_cents',
 ]);
 
 function isSunsetAdminWritesEnabled() {
@@ -301,6 +359,15 @@ function validateLessonTimeCreateBody(body) {
     out.weekdays_active = [0, 1, 2, 3, 4, 5, 6];
   }
   out.active = body.active !== false;
+  const kindAge = validateLessonKindAgeFrequency(body, out);
+  if (!kindAge.ok) return kindAge;
+  const kind = out.kind || 'lesson';
+  const age = out.age_band || 'all_ages';
+  out.lesson_type = buildLessonType(kind, age);
+  delete out.kind;
+  delete out.age_band;
+  delete out.frequency;
+  if (body.amount_cents == null) return { ok: false, error: 'amount_cents required' };
   return { ok: true, patch: out };
 }
 
@@ -348,6 +415,17 @@ function validateLessonTimePatchBody(body) {
     out.active = body.active;
   }
   if (!Object.keys(out).length) return { ok: false, error: 'empty body' };
+
+  const kindAge = validateLessonKindAgeFrequency(body, out);
+  if (!kindAge.ok) return kindAge;
+  if (out.kind != null || out.age_band != null) {
+    const kind = out.kind || 'lesson';
+    const age = out.age_band || 'all_ages';
+    out.lesson_type = buildLessonType(kind, age);
+    delete out.kind;
+    delete out.age_band;
+  }
+  delete out.frequency;
 
   if (out.time_local && out.time_local_end && out.time_local_end <= out.time_local) {
     return { ok: false, error: 'time_local_end must be after time_local' };
@@ -452,6 +530,37 @@ async function applyPricePatchFields(client, before, patch, actor) {
   return dbPatch;
 }
 
+
+
+async function upsertLessonSlotPriceRule(client, {
+  clientSlug, locationId, slotId, label, amountCents, currency, actor,
+}) {
+  const itemCode = lessonSlotPriceItemCode(slotId);
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  const loc = normalizeSunsetLocationId(locationId);
+  const existing = await findPriceRuleRow(client, {
+    clientSlug, locationId: loc, itemType: 'lesson', itemCode, hasLoc,
+  });
+  let cents = amountCents;
+  if (cents == null && existing.rows[0]) cents = existing.rows[0].amount_cents;
+  if (cents == null) return { ok: true };
+  return upsertConfigPriceRule(client, {
+    clientSlug,
+    locationId,
+    category: 'lesson',
+    offeringKey: itemCode,
+    unit: 'session',
+    patch: {
+      display_name: label,
+      amount_cents: cents,
+      currency: currency || 'EUR',
+    },
+    actor,
+    forceItemCode: itemCode,
+    forceDbUnit: 'session',
+  });
+}
+
 async function createRentalPriceRule(client, { clientSlug, locationId, patch, actor }) {
   const tablesExist = await adminConfigTablesExist(client);
   if (!tablesExist) {
@@ -544,7 +653,7 @@ async function upsertConfigPriceRule(client, {
       const sets = [];
       const params = [];
       let idx = 3;
-      for (const [key, value] of Object.entries(patch)) {
+      for (const [key, value] of Object.entries(dbPatchLesson)) {
         sets.push(`${key} = $${idx}`);
         params.push(value);
         idx += 1;
@@ -831,8 +940,12 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
     }
     const before = existing.rows[0];
-    const nextStart = patch.time_local || String(before.time_local).slice(0, 5);
-    const nextEndRaw = patch.time_local_end !== undefined ? patch.time_local_end : before.time_local_end;
+    const amountCentsPatch = patch.amount_cents;
+    const priceLabelPatch = patch.label;
+    const dbPatchLesson = { ...patch };
+    delete dbPatchLesson.amount_cents;
+    const nextStart = dbPatchLesson.time_local || String(before.time_local).slice(0, 5);
+    const nextEndRaw = dbPatchLesson.time_local_end !== undefined ? dbPatchLesson.time_local_end : before.time_local_end;
     const nextEnd = nextEndRaw == null ? null : String(nextEndRaw).slice(0, 5);
     if (nextEnd && nextEnd <= nextStart) {
       await client.query('ROLLBACK');
@@ -880,6 +993,16 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     });
 
     await client.query('COMMIT');
+    if (amountCentsPatch != null || priceLabelPatch != null) {
+      await upsertLessonSlotPriceRule(client, {
+        clientSlug,
+        locationId: loc,
+        slotId: after.id,
+        label: priceLabelPatch || after.label,
+        amountCents: amountCentsPatch != null ? amountCentsPatch : undefined,
+        actor,
+      });
+    }
     return { ok: true, status: 200, body: { success: true, lesson_time_rule: after, storage: 'db' } };
   } catch (err) {
     await client.query('ROLLBACK');
@@ -910,6 +1033,12 @@ async function createLessonTimeRule(client, { clientSlug, locationId, patch, act
   }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
   const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
+  const amountCents = patch.amount_cents;
+  const priceLabel = patch.label;
+  const priceCurrency = patch.currency || 'EUR';
+  const dbPatch = { ...patch };
+  delete dbPatch.amount_cents;
+  delete dbPatch.currency;
   await client.query('BEGIN');
   try {
     const tenantId = 'sunset';
@@ -917,11 +1046,11 @@ async function createLessonTimeRule(client, { clientSlug, locationId, patch, act
       ? ['tenant_id', 'client_slug', 'location_id', 'time_local', 'time_local_end', 'label', 'lesson_type', 'weekdays_active', 'active', 'updated_by']
       : ['tenant_id', 'client_slug', 'time_local', 'time_local_end', 'label', 'lesson_type', 'weekdays_active', 'active', 'updated_by'];
     const params = hasLoc
-      ? [tenantId, clientSlug, loc, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null]
-      : [tenantId, clientSlug, patch.time_local, patch.time_local_end || null, patch.label, patch.lesson_type, patch.weekdays_active, patch.active !== false, actor.staff_user_id || null];
-    if (hasCapacity && patch.capacity != null) {
+      ? [tenantId, clientSlug, loc, dbPatch.time_local, dbPatch.time_local_end || null, dbPatch.label, dbPatch.lesson_type, dbPatch.weekdays_active, dbPatch.active !== false, actor.staff_user_id || null]
+      : [tenantId, clientSlug, dbPatch.time_local, dbPatch.time_local_end || null, dbPatch.label, dbPatch.lesson_type, dbPatch.weekdays_active, dbPatch.active !== false, actor.staff_user_id || null];
+    if (hasCapacity && dbPatch.capacity != null) {
       columns.splice(columns.length - 1, 0, 'capacity');
-      params.splice(params.length - 1, 0, patch.capacity);
+      params.splice(params.length - 1, 0, dbPatch.capacity);
     }
     const cols = `(${columns.join(', ')})`;
     const vals = `(${params.map((_, i) => {
@@ -945,6 +1074,17 @@ async function createLessonTimeRule(client, { clientSlug, locationId, patch, act
       afterJson: rowToAuditJson(after),
     });
     await client.query('COMMIT');
+    if (amountCents != null) {
+      await upsertLessonSlotPriceRule(client, {
+        clientSlug,
+        locationId: loc,
+        slotId: after.id,
+        label: priceLabel,
+        amountCents,
+        currency: priceCurrency,
+        actor,
+      });
+    }
     return { ok: true, status: 201, body: { success: true, lesson_time_rule: after, storage: 'db' } };
   } catch (err) {
     await client.query('ROLLBACK');
