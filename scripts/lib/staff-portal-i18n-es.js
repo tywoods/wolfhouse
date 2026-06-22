@@ -18,6 +18,7 @@ module.exports = {
   "inbox.empty.main": "Selecciona una conversación para revisar.",
   "inbox.empty.sub": "Los borradores de Luna y el contexto de reserva aparecerán aquí.",
   "inbox.refreshTitle": "Actualizar lista de conversaciones",
+  "inbox.mobile.back": "Volver",
   "calendar.title": "Calendario de reservas",
   "calendar.from": "Desde",
   "calendar.to": "Hasta",

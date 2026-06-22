@@ -16553,6 +16553,39 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .inbox-filter-btn .hq-count.visible{display:inline}
 .inbox-ro-note{display:none!important}
 .inbox-ro-note .hq-ro-label{font-size:9.5px;font-weight:700;letter-spacing:.08em;color:var(--text-2);background:var(--sand);padding:3px 9px;border-radius:var(--radius-pill);margin-left:6px}
+.inbox-mobile-back{display:none}
+@media(max-width:768px){
+  #tab-conversations.active #wrap{padding:0;height:calc(100vh - 104px)}
+  .inbox-two-col{flex-direction:column;flex:1;min-height:0;border-radius:0;border-left:none;border-right:none;box-shadow:none}
+  .inbox-left{flex:1 1 auto;width:100%;max-width:100%;border-right:none;min-height:0}
+  .inbox-two-col #conv-detail{display:none;flex:1 1 auto;min-height:0;min-width:0;overflow:hidden}
+  .inbox-two-col.show-thread .inbox-left{display:none}
+  .inbox-two-col.show-thread #conv-detail{display:flex;flex-direction:column;width:100%;height:100%;min-height:0}
+  .inbox-mobile-back{display:flex;align-items:center;gap:6px;flex-shrink:0;width:100%;min-height:44px;padding:10px 14px;margin:0;border:none;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;text-align:left;box-sizing:border-box}
+  .inbox-mobile-back:hover{background:var(--surface)}
+  #detail-content{padding:12px 14px 16px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box}
+  .detail-header{flex-wrap:wrap;gap:8px;margin-bottom:12px}
+  .detail-layout{flex:1;min-height:0;overflow:hidden;flex-direction:column;gap:12px}
+  .detail-main{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+  .thread-section{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
+  .thread{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .thread-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .detail-sidebar{width:100%;max-height:200px;flex-shrink:0}
+  .draft-panel{flex-shrink:0}
+  #draft-textarea{width:100%;box-sizing:border-box;min-height:80px;font-size:16px}
+  .draft-actions{width:100%}
+  .btn-send-reply,.btn-copy{min-height:44px;padding:10px 18px;font-size:13px}
+  .draft-warning{min-width:0;flex:1 1 100%}
+  .inbox-filter-btn{min-height:40px;padding:8px 12px}
+  .inbox-refresh-btn{min-width:44px;min-height:44px;padding:8px 12px}
+  .inbox-client-select{min-height:40px;font-size:14px;width:100%;box-sizing:border-box}
+  .conv-card{min-height:44px}
+  .conv-card-delete{width:44px;height:44px;top:4px;right:4px}
+  .detail-conv-toolbar{position:static;margin-bottom:8px;flex-wrap:wrap;justify-content:flex-start}
+  .detail-conv-toolbar .pill{min-height:40px;padding:8px 12px}
+  .msg{max-width:92%}
+  .detail-header-pills{width:100%;margin-left:0!important}
+}
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
 /* ── Sidebar cards ───────────────────────────────────────────────────────── */
@@ -17504,8 +17537,9 @@ ${getStaffPortalI18nBootstrapScript()}
       </div>
     </div>
 
-    <!-- RIGHT: conversation detail (always visible) -->
+    <!-- RIGHT: conversation detail (always visible on desktop; master/detail on mobile) -->
     <div id="conv-detail">
+      <button type="button" class="inbox-mobile-back" id="inbox-mobile-back" data-i18n="inbox.mobile.back" aria-label="Back">&larr; Back</button>
       <div id="detail-content">
         <div class="inbox-empty-right">
           <p class="main-msg" data-i18n="inbox.empty.main">Select a conversation to review.</p>
@@ -18467,6 +18501,7 @@ function switchToTab(tab, subtab){
   if (tab === 'admin') loadAdminTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
+  if (tab !== 'conversations') hideInboxMobileThread();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -18496,6 +18531,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'admin') loadAdminTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
+    if (target !== 'conversations') hideInboxMobileThread();
   });
 });
 
@@ -18506,6 +18542,32 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
 var selectedConvId = null;
 var inboxFilter = 'all'; /* 'all' | 'email' | 'whatsapp' | 'needs-human' — Stage 8.7.13 / Sunset shared inbox 3A */
 var inboxConversationsCache = null;
+
+function isPortalMobile(){
+  return window.matchMedia('(max-width: 768px)').matches;
+}
+function inboxTwoColEl(){
+  return document.querySelector('.inbox-two-col');
+}
+function showInboxMobileThread(){
+  var col = inboxTwoColEl();
+  if (col && isPortalMobile()) col.classList.add('show-thread');
+}
+function hideInboxMobileThread(){
+  var col = inboxTwoColEl();
+  if (col) col.classList.remove('show-thread');
+}
+function wireInboxMobileBack(){
+  var btn = el('inbox-mobile-back');
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', function(){
+    hideInboxMobileThread();
+    var list = el('conv-list');
+    if (list) list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
+  });
+}
+
 var SURF_INBOX_DEMO_PREFIX = 'demo-preview-';
 
 function isSurfInboxDemoThread(convId){
@@ -22491,6 +22553,7 @@ function portalStartupAfterSession(){
   applyClientPortalProfile(getClient());
   var tab = profile.default_tab || 'bed-calendar';
   if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'portal-home' : 'bed-calendar';
+  if (isPortalMobile() && !isTabHiddenForClient('conversations', getClient())) tab = 'conversations';
   switchToTab(tab, null);
   if (tab === 'conversations') loadInbox();
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
@@ -23466,6 +23529,7 @@ function renderInbox(convs, opts){
     if (list) list.innerHTML = '<div class="conv-list-empty">' + escHtml(emptyMsg) + '</div>';
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
+    hideInboxMobileThread();
     updateInboxPreviewBanner([]);
     return;
   }
@@ -23509,7 +23573,7 @@ function renderInbox(convs, opts){
     } else {
       pickId = convs[0].conversation_id;
     }
-    if (pickId){
+    if (pickId && !isPortalMobile()){
       var pickCard = list.querySelector('.conv-card[data-id="' + pickId + '"]');
       if (pickCard){
         list.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
@@ -23547,6 +23611,7 @@ function loadInbox(selectConvIdAfterLoad, opts){
     if (el('conv-list')) el('conv-list').innerHTML = '';
     selectedConvId = null;
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
+    hideInboxMobileThread();
   }
 
   fetch('/staff/conversations' + inboxClientQuery())
@@ -23800,6 +23865,7 @@ function loadSurfInboxDemoDetail(convId, targetEl){
 function loadConvDetail(convId, targetEl){
   targetEl = targetEl || el('detail-content');
   selectedConvId = convId;
+  showInboxMobileThread();
   if (targetEl === el('detail-content')) el('conv-detail').classList.add('visible');
   if (isSurfInboxDemoThread(convId) && loadSurfInboxDemoDetail(convId, targetEl)) return;
   beginConvDetailLoad(targetEl);
@@ -24152,6 +24218,7 @@ function wireDeleteConversation(convId){
       if (selectedConvId === convId){
         selectedConvId = null;
         el('detail-content').innerHTML = inboxEmptyDetailHtml();
+        hideInboxMobileThread();
       }
       inboxConversationsCache = (inboxConversationsCache || []).filter(function(c){
         return (c.conversation_id || c.id) !== convId;
@@ -24178,6 +24245,7 @@ if (btnBack) {
     if (convList) convList.querySelectorAll('.conv-card').forEach(function(c){ c.classList.remove('selected'); });
     el('detail-content').innerHTML = inboxEmptyDetailHtml();
     selectedConvId = null;
+    hideInboxMobileThread();
   });
 }
 
@@ -24214,6 +24282,7 @@ initStaffPortalSession().then(function(){
 var dsLoadBtn = el('ds-load');
 if (dsLoadBtn) dsLoadBtn.addEventListener('click', function(){ loadDaySchedule(); });
 wireInboxLeftListWheel();
+wireInboxMobileBack();
 wireMessageEventsPanel();
 wireHandoffsQueuePanel();
 
