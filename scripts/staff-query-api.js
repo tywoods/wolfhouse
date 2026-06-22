@@ -17576,7 +17576,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="portal-admin-section-body" id="admin-business-body"></div>
     </section>
     <section class="portal-admin-section" id="admin-sec-times">
-      <div class="portal-admin-section-hdr" data-i18n="admin.section.lessonTimes">Packs and Lessons</div>
       <div class="portal-admin-section-body" id="admin-times-body"></div>
     </section>
     <section class="portal-admin-section" id="admin-sec-prices">
@@ -21973,8 +21972,27 @@ function adminPackWeeklyPillOptions(){
     return { value: f, label: portalT('admin.lesson.frequency.' + f) };
   });
 }
+
+var ADMIN_DEFAULT_PRICE_TIERS = [
+  { key: '1_week', label: 'Price for 1 week (10 hours)', hours: 10, amount_cents: 18000 },
+  { key: '2_weeks', label: 'Price for 2 weeks (20 hours)', hours: 20, amount_cents: 33500 },
+  { key: '3_weeks', label: 'Price for 3 weeks (30 hours)', hours: 30, amount_cents: 48000 },
+  { key: '4_weeks', label: 'Price for 4 weeks (40 hours)', hours: 40, amount_cents: 60000 },
+  { key: 'single_class', label: 'Price for 1 single class (2 hours)', hours: 2, amount_cents: 4000 },
+];
+function adminDefaultPackConfigSeed(){
+  return {
+    age_band: '12_and_up',
+    group_size: 16,
+    beaches: ['el_sardinero', 'liencres', 'somo'],
+    weekly: 'mon_fri',
+    schedules: ['0930_1130', '1215_1415'],
+    price_tiers: ADMIN_DEFAULT_PRICE_TIERS.map(function(t){ return Object.assign({}, t); }),
+  };
+}
+
 function adminDefaultPackSeed(){
-  var d = defaultPackConfig();
+  var d = adminDefaultPackConfigSeed();
   return { label: portalT('admin.packs.defaultName'), age_band: d.age_band, group_size: d.group_size, beaches: d.beaches.slice(), weekly: d.weekly, schedules: d.schedules.slice(), price_tiers: d.price_tiers.map(function(t){ return Object.assign({}, t); }) };
 }
 function adminRenderPackTierFields(tiers, prefix){
@@ -22004,7 +22022,7 @@ function adminRenderPackEditForm(pid, pack){
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPillRow('schedules', adminPackScheduleOptions(), p.schedules || [], true) +
-    adminRenderPackTierFields(p.price_tiers || DEFAULT_PRICE_TIERS, prefix) +
+    adminRenderPackTierFields(p.price_tiers || ADMIN_DEFAULT_PRICE_TIERS, prefix) +
     '<div class="portal-admin-price-card-edit-actions">' +
     '<button type="button" class="btn btn-primary" data-admin-action="' + (pid ? 'save-pack' : 'save-new-pack') + '" data-pack-id="' + escHtml(pid || '') + '">' + escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
@@ -22015,7 +22033,7 @@ function adminRenderPackEditForm(pid, pack){
 function adminReadPackFormPayload(pid){
   var prefix = pid ? ('admin-pack-' + pid) : 'admin-new-pack';
   var labelEl = el(prefix + '-label');
-  var tiers = (DEFAULT_PRICE_TIERS || []).map(function(t, idx){
+  var tiers = (ADMIN_DEFAULT_PRICE_TIERS || []).map(function(t, idx){
     var input = el(prefix + '-tier-amount-' + idx);
     var cents = adminParseEurosToCents(input && input.value);
     return { key: t.key, label: t.label, hours: t.hours, amount_cents: cents.ok ? cents.value : 0 };
@@ -22038,6 +22056,17 @@ function adminRentalGroupOrder(){
 function adminPriceGroupKey(p){
   var parsed = adminParsePriceRow(p);
   return parsed.groupKey;
+}
+
+
+function adminPriceRowId(p){
+  if (p && p.id) return String(p.id);
+  var parsed = adminParsePriceRow(p);
+  var loc = getClient() === 'sunset' ? getSunsetLocation() : 'default';
+  var cat = String((p && p.category) || 'rental');
+  var offering = String((p && (p.offering_key || parsed.offeringKey)) || '');
+  var unit = String((p && p.unit) || parsed.periodWindow || '');
+  return 'cfg:' + loc + ':' + cat + '|' + offering + '|' + unit;
 }
 
 function adminParsePriceRow(p){
@@ -22159,10 +22188,10 @@ function renderAdminSectionPricesFromConfig(cfg){
     if (items.length){
       html += '<div class="portal-admin-card-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
       items.forEach(function(p){
-        var pid = p.id ? String(p.id) : '';
+        var pid = adminPriceRowId(p);
         var parsed = adminParsePriceRow(p);
         html += '<article class="portal-admin-price-card' + (groupEditing && pid ? ' is-editing' : '') + '" data-admin-price-card="' + escHtml(pid) + '">';
-        if (groupEditing && pid){
+        if (groupEditing){
           html += '<div class="portal-admin-card-title-row"><div></div><div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
             escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button></div></div>';
           html += renderAdminPriceCardEditForm(pid, p, key);
@@ -22276,7 +22305,7 @@ function renderAdminLessonCards(slots, cfg, writes, defaultCap){
   }
   html += '<div class="portal-admin-compact-grid" id="admin-lesson-card-grid">';
   lessons.forEach(function(s){
-    var sid = s.slot_id ? String(s.slot_id) : '';
+    var sid = (s.id || s.slot_id) ? String(s.id || s.slot_id) : '';
     var editing = writes && adminEditTarget === ('time:' + sid);
     var label = adminHumanizeText(s.offering_label || 'Lesson');
     var fields = adminResolveLessonSlotFields(s);
@@ -22320,7 +22349,7 @@ function renderAdminPackCards(packs, writes){
   }
   html += '<div class="portal-admin-pack-grid" id="admin-pack-card-grid">';
   list.forEach(function(p){
-    var pid = p.pack_id ? String(p.pack_id) : '';
+    var pid = (p.pack_id || p.id) ? String(p.pack_id || p.id) : '';
     var editing = writes && adminEditTarget === ('pack:' + pid);
     html += '<article class="portal-admin-pack-card" data-admin-pack-card="' + escHtml(pid) + '">';
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
@@ -22383,10 +22412,10 @@ function renderAdminSectionChangeHistoryFromConfig(cfg){
 }
 
 function renderAdminFromConfig(cfg){
-  renderAdminSectionBusinessInfoFromConfig(cfg);
-  renderAdminSectionLessonTimesFromConfig(cfg);
-  renderAdminSectionPricesFromConfig(cfg);
-  renderAdminSectionChangeHistoryFromConfig(cfg);
+  try { renderAdminSectionBusinessInfoFromConfig(cfg); } catch (err) { console.error('admin business render failed', err); }
+  try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
+  try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
+  try { renderAdminSectionChangeHistoryFromConfig(cfg); } catch (err) { console.error('admin history render failed', err); }
 }
 
 function renderAdminFallback(profile){

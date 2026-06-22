@@ -14,6 +14,7 @@
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
+const { priceIdFromParts } = require('./sunset-admin-location-store');
 const { loadSurfPacksFromDb, defaultPackConfig } = require('./sunset-admin-pack-rules');
 
 const SUNSET_ADMIN_CLIENT = 'sunset';
@@ -491,11 +492,22 @@ async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
  */
 function withLocationMeta(config, locationId) {
   const loc = normalizeSunsetLocationId(locationId);
-  return {
+  const next = {
     ...config,
     location_id: loc,
     location_label: locationStore.resolveLocationLabel(loc),
   };
+  if (next.prices && Array.isArray(next.prices)) {
+    next.prices = next.prices.map((p) => {
+      if (!p || p.id) return p;
+      const category = p.category || 'rental';
+      const offeringKey = p.offering_key || p.item_code || '';
+      const unit = p.unit || '';
+      if (!offeringKey || !unit) return p;
+      return { ...p, id: priceIdFromParts(loc, category, offeringKey, unit) };
+    });
+  }
+  return next;
 }
 
 async function shouldApplyJsonLocationOverlay(clientSlug, locationId, pgClient) {
