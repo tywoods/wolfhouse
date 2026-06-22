@@ -122,7 +122,7 @@ STT_ECHO_BLOCK_NEW = """                if _successful_transcripts:
                                         "Transcript echo failed (non-fatal): %s", _echo_exc,
                                     )"""
 
-STT_FAIL_SEND_BLOCK_OLD = """                if any(marker in message_text for marker in _stt_fail_markers):
+STT_FAIL_SEND_BLOCK_OLD = r"""                if any(marker in message_text for marker in _stt_fail_markers):
                     _stt_adapter = self.adapters.get(source.platform)
                     _stt_meta = self._thread_metadata_for_source(source, self._reply_anchor_for_event(event))
                     if _stt_adapter:
@@ -163,7 +163,7 @@ STT_FAIL_SEND_BLOCK_NEW = """                if any(marker in message_text for m
                                 )
                                 if stt_dev_hints_enabled():
                                     _stt_msg += (
-                                        "\n\nTo enable voice: install faster-whisper and set stt.enabled in config.yaml."
+                                        "\\n\\nTo enable voice: install faster-whisper and set stt.enabled in config.yaml."
                                     )
                                 try:
                                     await _stt_adapter.send(source.chat_id, _stt_msg, metadata=_stt_meta)
@@ -192,18 +192,22 @@ STT_AGENT_NOTE_NEW = """                        _no_stt_note = (
                             "Do not mention installs, config.yaml, faster-whisper, or internal setup.]"
                         )"""
 
-FOOTER_APPEND_OLD = """            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:
-                response = f"{response}\\n\\n{_footer_line}\""""
+FOOTER_APPEND_OLD = (
+    '            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n'
+    '                response = f"{response}\\n\\n{_footer_line}"'
+)
 
-FOOTER_APPEND_NEW = """            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:
-                try:
-                    from wolfhouse.guest_send_guard import is_guest_facing_platform
-                    if is_guest_facing_platform(source.platform):
-                        _footer_line = ""
-                except Exception:
-                    pass
-                if _footer_line:
-                    response = f"{response}\n\n{_footer_line}\""""
+FOOTER_APPEND_NEW = (
+    '            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n'
+    '                try:\n'
+    '                    from wolfhouse.guest_send_guard import is_guest_facing_platform\n'
+    '                    if is_guest_facing_platform(source.platform):\n'
+    '                        _footer_line = ""\n'
+    '                except Exception:\n'
+    '                    pass\n'
+    '                if _footer_line:\n'
+    '                    response = f"{response}\\n\\n{_footer_line}"'
+)
 
 FOOTER_TRAILING_OLD = """                if _footer_line:
                     try:
@@ -271,7 +275,7 @@ def _patch_once(text: str, old: str, new: str, label: str) -> tuple[str, bool]:
     old_n = _norm_lines(old)
     new_n = _norm_lines(new)
     if new_n in text_n:
-        return text, False
+        return text_n, False
     if old_n not in text_n:
         raise RuntimeError(f"{label}: anchor not found")
     patched = text_n.replace(old_n, new_n, 1)
@@ -327,7 +331,7 @@ def apply_whatsapp_cloud_patch(path: Path) -> dict:
 
 
 def apply_run_patch(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    text = _norm_lines(path.read_text(encoding="utf-8"))
     results = {}
     for key, old, new in (
         ("stt_echo", STT_ECHO_BLOCK_OLD, STT_ECHO_BLOCK_NEW),
