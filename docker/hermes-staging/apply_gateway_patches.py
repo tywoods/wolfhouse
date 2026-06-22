@@ -613,6 +613,31 @@ def apply_stream_consumer_patch(stream_path: Path) -> dict:
     }
 
 
+def apply_run_plain_reply_patch(run_path: Path) -> dict:
+    """Idempotent run.py hooks for Luna plain WhatsApp replies (no inbox mirror)."""
+    s = run_path.read_text(encoding="utf-8")
+    logger_anchor = "logger = logging.getLogger(__name__)\n"
+    if RUNTIME_PATCH_HOOK_TAG not in s and logger_anchor in s:
+        s = s.replace(logger_anchor, logger_anchor + RUNTIME_PATCH_HOOK, 1)
+    if STREAM_INITIAL_REPLY_NEW not in s:
+        if 'HERMES_ROLE") == "luna"' in s and "initial_reply_to_id=(" in s:
+            s = re.sub(
+                r"initial_reply_to_id=\(\s*\n\s*None\s*\n\s*if __import__\(\"os\"\)\.getenv\(\"HERMES_ROLE\"\) == \"luna\"\s*\n\s*and str\(getattr\(source\.platform, \"value\", source\.platform or \"\"\)\)\.lower\(\) in \(\"whatsapp\", \"whatsapp_cloud\"\)\s*\n\s*else event_message_id\s*\n\s*\),",
+                STREAM_INITIAL_REPLY_NEW.strip(),
+                s,
+                count=2,
+            )
+        elif STREAM_INITIAL_REPLY_OLD in s:
+            s = s.replace(STREAM_INITIAL_REPLY_OLD, STREAM_INITIAL_REPLY_NEW)
+    run_path.write_text(s, encoding="utf-8")
+    _compile_check(run_path)
+    return {
+        "path": str(run_path),
+        "runtime_whatsapp_patch_hook": RUNTIME_PATCH_HOOK_TAG in s,
+        "stream_initial_reply_luna": STREAM_INITIAL_REPLY_NEW.split("\n", 1)[0] in s,
+    }
+
+
 def apply_patches(run_path: Path) -> dict:
     s = cleanup_stale_patches(run_path.read_text(encoding="utf-8"))
 
@@ -652,9 +677,11 @@ def apply_patches(run_path: Path) -> dict:
             + SANITIZE
             + OUTBOUND_MIRROR
         )
-        if not TURN_ANCHOR_RE.search(s):
+        turn_match = TURN_ANCHOR_RE.search(s)
+        if turn_match:
+            s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
+        elif MIRROR_INBOUND_TAG not in s and MIRROR_OUTBOUND_TAG not in s:
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
-        s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
 
     # Idempotent fallback: if the mirror block was already applied on a prior pass
     # (so the anchor above no longer matches) but the output-guard isn't present,
@@ -680,33 +707,19 @@ def apply_patches(run_path: Path) -> dict:
         if not applied_soul:
             soul_note = "agent-cache anchor not found (SOUL reload skipped)"
 
-    logger_anchor = "logger = logging.getLogger(__name__)\n"
-    if RUNTIME_PATCH_HOOK_TAG not in s and logger_anchor in s:
-        s = s.replace(logger_anchor, logger_anchor + RUNTIME_PATCH_HOOK, 1)
-
-    if STREAM_INITIAL_REPLY_NEW not in s:
-        if "HERMES_ROLE\") == \"luna\"" in s and "initial_reply_to_id=(" in s:
-            s = re.sub(
-                r"initial_reply_to_id=\(\s*\n\s*None\s*\n\s*if __import__\(\"os\"\)\.getenv\(\"HERMES_ROLE\"\) == \"luna\"\s*\n\s*and str\(getattr\(source\.platform, \"value\", source\.platform or \"\"\)\)\.lower\(\) in \(\"whatsapp\", \"whatsapp_cloud\"\)\s*\n\s*else event_message_id\s*\n\s*\),",
-                STREAM_INITIAL_REPLY_NEW.strip(),
-                s,
-                count=2,
-            )
-        else:
-            s = s.replace(STREAM_INITIAL_REPLY_OLD, STREAM_INITIAL_REPLY_NEW)
-
     run_path.write_text(s, encoding="utf-8")
-    _compile_check(run_path)
+    plain = apply_run_plain_reply_patch(run_path)
+    final = run_path.read_text(encoding="utf-8")
     return {
         "ok": True,
         "path": str(run_path),
-        "inbound_mirror": MIRROR_INBOUND_TAG in s,
-        "outbound_mirror": MIRROR_OUTBOUND_TAG in s,
-        "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in s and RUNNER_START_PATCH in s,
-        "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in s,
+        "inbound_mirror": MIRROR_INBOUND_TAG in final,
+        "outbound_mirror": MIRROR_OUTBOUND_TAG in final,
+        "fresh_start_runner_hook": RUNNER_GLOBAL_VAR in final and RUNNER_START_PATCH in final,
+        "luna_soul_reload": LUNA_SOUL_RELOAD_TAG in final,
         "luna_soul_reload_note": soul_note,
-        "runtime_whatsapp_patch_hook": RUNTIME_PATCH_HOOK_TAG in s,
-        "stream_initial_reply_luna": STREAM_INITIAL_REPLY_NEW.split("\n", 1)[0] in s,
+        "runtime_whatsapp_patch_hook": plain["runtime_whatsapp_patch_hook"],
+        "stream_initial_reply_luna": plain["stream_initial_reply_luna"],
     }
 
 

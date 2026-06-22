@@ -390,7 +390,7 @@ def reapply_plain_reply_patches(
         "base_platform": gw.apply_base_platform_patch(base_path),
         "whatsapp_cloud": gw.apply_whatsapp_cloud_patch(whatsapp_path),
         "stream_consumer": gw.apply_stream_consumer_patch(stream_path),
-        "gateway_run": gw.apply_patches(run_path),
+        "gateway_run": gw.apply_run_plain_reply_patch(run_path),
     }
 
 
