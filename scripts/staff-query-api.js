@@ -16780,7 +16780,10 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-bed-cell{min-width:calc(92px * var(--bc-zoom,1));padding:calc(6px * var(--bc-zoom,1)) calc(7px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-bed-head{min-width:calc(100px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-day-head{min-width:calc(40px * var(--bc-zoom,1))}
-.bc-zoom-bar{align-self:flex-start}}
+.bc-zoom-bar{align-self:flex-start}
+/* Tappable, zoom-safe toolbar on mobile (16px font avoids iOS focus-zoom). */
+#bc-start,#bc-end{height:38px;font-size:16px;min-width:128px;max-width:none}
+#bc-load{min-height:40px;font-size:14px;padding:8px 16px}}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
 input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
