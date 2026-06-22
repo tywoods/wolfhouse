@@ -18214,6 +18214,12 @@ function paymentLinkIntendedAmountCents(pr, ledgerCtx){
   }
   return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
 }
+function paymentLedgerIsStaleUnpaidLinkRowCore(pr, isActiveUnpaid, ledgerCtx){
+  if (!isActiveUnpaid(pr)) return false;
+  var intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
+  if (intended == null || intended <= 0) return false;
+  return Number(pr.amount_due_cents) !== Number(intended);
+}
 function bcQuoteNotRunHtml(){
   return '<div class="bk-preview-not-run">' + escHtml(t('calendar.create.quoteNotRun')) + '</div>';
 }
