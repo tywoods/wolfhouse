@@ -17382,6 +17382,22 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <div id="portal-profile-gate" aria-live="polite" aria-busy="true">
   <div class="portal-profile-gate-inner">Loading portal…</div>
 </div>
+<script>
+// Last-resort guard: never leave staff on the full-page loading gate if later portal JS crashes.
+window.__portalProfileGateFailsafe = setTimeout(function(){
+  try {
+    if (!document.body || !document.body.classList.contains('portal-profile-pending')) return;
+    document.body.classList.remove('portal-profile-pending');
+    var gate = document.getElementById('portal-profile-gate');
+    if (gate) gate.setAttribute('aria-busy', 'false');
+    var tabs = document.querySelectorAll('.tab-btn[data-tab]');
+    var panels = document.querySelectorAll('.tab-panel');
+    var target = document.querySelector('.tab-btn[data-tab="portal-home"]') ? 'portal-home' : 'bed-calendar';
+    tabs.forEach(function(btn){ btn.classList.toggle('active', btn.getAttribute('data-tab') === target); });
+    panels.forEach(function(panel){ panel.classList.toggle('active', panel.id === 'tab-' + target); });
+  } catch (_) { if (document.body) document.body.classList.remove('portal-profile-pending'); }
+}, 3500);
+</script>
 
 <!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
 <div id="tab-today" class="tab-panel" style="display:none">
@@ -19267,6 +19283,10 @@ function setPortalProfilePending(isPending){
 }
 
 function finishPortalProfileStartup(){
+  if (window.__portalProfileGateFailsafe) {
+    clearTimeout(window.__portalProfileGateFailsafe);
+    window.__portalProfileGateFailsafe = null;
+  }
   setPortalProfilePending(false);
 }
 
