@@ -62,8 +62,12 @@ def _compile_check(path: Path) -> None:
     py_compile.compile(str(path), doraise=True)
 
 
+def _norm_lines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def apply_transcription_tools_patch(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    text = _norm_lines(path.read_text(encoding="utf-8"))
     if STT_PATCH_TAG in text:
         return {"ok": True, "path": str(path), "already_patched": True}
 
@@ -80,7 +84,7 @@ def apply_transcription_tools_patch(path: Path) -> dict:
 
 
 def apply_config_migrate_patch(path: Path) -> dict:
-    text = path.read_text(encoding="utf-8")
+    text = _norm_lines(path.read_text(encoding="utf-8"))
     result = {"ok": True, "path": str(path), "known_root_keys": False, "stt_migrate_seed": False}
 
     if '"stt", "tts", "voice"' not in text:

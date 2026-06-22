@@ -262,21 +262,31 @@ def _compile_check(path: Path) -> None:
     py_compile.compile(str(path), doraise=True)
 
 
+def _norm_lines(text: str) -> str:
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def _patch_once(text: str, old: str, new: str, label: str) -> tuple[str, bool]:
-    if new in text:
+    text_n = _norm_lines(text)
+    old_n = _norm_lines(old)
+    new_n = _norm_lines(new)
+    if new_n in text_n:
         return text, False
-    if old not in text:
+    if old_n not in text_n:
         raise RuntimeError(f"{label}: anchor not found")
-    return text.replace(old, new, 1), True
+    patched = text_n.replace(old_n, new_n, 1)
+    return patched, True
 
 
 def _inject_whatsapp_send_guard(text: str) -> tuple[str, bool]:
     if GUEST_SEND_GUARD_IN_SEND in text:
         return text, False
     anchor = "        formatted = self.format_message(content)"
-    if anchor not in text:
+    text_n = _norm_lines(text)
+    if anchor not in text_n:
         raise RuntimeError("whatsapp_cloud send format anchor not found")
-    return text.replace(anchor, WHATSAPP_SEND_GUARD + anchor, 1), True
+    patched = text_n.replace(anchor, _norm_lines(WHATSAPP_SEND_GUARD) + anchor, 1)
+    return patched, True
 
 
 def apply_base_platform_patch(path: Path) -> dict:
@@ -336,7 +346,7 @@ def apply_run_patch(path: Path) -> dict:
 
 
 def patch_runtime_whatsapp_wrapper(gateway_patches_path: Path) -> dict:
-    text = gateway_patches_path.read_text(encoding="utf-8")
+    text = _norm_lines(gateway_patches_path.read_text(encoding="utf-8"))
     if "suppress_guest_whatsapp_text_send" in text and "suppressed_guest_system_send" in text:
         return {"path": str(gateway_patches_path), "runtime_send_guard": True, "already_patched": True}
     needle = "async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, metadata=None):"
