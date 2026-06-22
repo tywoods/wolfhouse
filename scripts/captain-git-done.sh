@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Captain — run before ENDING a Lunabox session (or when calling work "done").
 set -euo pipefail
-REPO=/opt/wolfhouse/WH
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
 # Integration branch = origin's default (falls back to master).

@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 # Captain — run at the START of every Lunabox session.
 set -euo pipefail
-REPO=/opt/wolfhouse/WH
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
 
 # Integration branch = origin's default (falls back to master).
 BASE=$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null | sed 's@^origin/@@' || true)
 BASE=${BASE:-master}
 
+echo "[captain] repo: $REPO"
 echo "[captain] git fetch (so we see what Cursor/laptop pushed)..."
 git fetch --prune origin
 

@@ -1085,6 +1085,30 @@ if (fs.existsSync(toolExecPath)) {
 }
 
 
+// ── 33. Sunset Admin QA fixture (capacity restore) ───────────────────────────
+
+console.log('\n[33] Sunset Admin QA fixture (capacity restore)');
+
+const adminQaFixturePath = path.join(ROOT, 'scripts/lib/sunset-admin-qa-fixture.js');
+const adminProbePath = path.join(ROOT, '_work/probe-sunset-admin-school-isolation-qa.js');
+
+assert('admin QA fixture module present', fs.existsSync(adminQaFixturePath));
+if (fs.existsSync(adminQaFixturePath)) {
+  const fixtureMod = require('./lib/sunset-admin-qa-fixture');
+  assert('fixture tempAlternateCapacity flips 24/25', fixtureMod.tempAlternateCapacity(24) === 25
+    && fixtureMod.tempAlternateCapacity(25) === 24);
+  assert('fixture exports withLessonCapacityRestore', typeof fixtureMod.withLessonCapacityRestore === 'function');
+  const fixtureSrc = fs.readFileSync(adminQaFixturePath, 'utf8');
+  assert('fixture restores in finally', fixtureSrc.includes('finally') && fixtureSrc.includes('restoreLessonCapacityDefaults'));
+}
+if (fs.existsSync(adminProbePath)) {
+  const probeSrc = fs.readFileSync(adminProbePath, 'utf8');
+  assert('admin probe uses QA fixture', probeSrc.includes('sunset-admin-qa-fixture')
+    && probeSrc.includes('withLessonCapacityRestore'));
+  assert('admin probe verifies restore', probeSrc.includes('fixture restored somo capacity'));
+}
+
+
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 
 console.log('\n[28] Staff API JS syntax (node --check)');
