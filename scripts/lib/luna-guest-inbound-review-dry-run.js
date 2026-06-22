@@ -84,6 +84,9 @@ function validateInboundReviewBody(body) {
       inbox_email: src.inbox_email != null ? trimStr(src.inbox_email) || null : null,
       to_email: src.to_email != null ? trimStr(src.to_email) || null : null,
       automation_gate_context: src.automation_gate_context,
+      conversation_metadata: src.conversation_metadata && typeof src.conversation_metadata === 'object'
+        ? src.conversation_metadata
+        : null,
     },
   };
 }
@@ -474,9 +477,14 @@ async function persistInboundReviewArtifact(pg, {
     ...(openPhoneMeta || {}),
   };
 
+  const requestedMeta = normalized.conversation_metadata && typeof normalized.conversation_metadata === 'object'
+    ? normalized.conversation_metadata
+    : {};
+
   const nextMeta = mergeSunsetInboundLocationMetadata(
     mergeOpenPhoneTestingIntoMetadata({
       ...existingMeta,
+      ...requestedMeta,
       source:              'luna_inbound_review_dry_run',
       channel:             normalized.channel,
       luna_guest_context:  slimGuestContext,

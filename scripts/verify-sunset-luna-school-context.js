@@ -140,6 +140,8 @@ async function main() {
   const askSrc = fs.readFileSync(path.join(root, 'scripts/lib/staff-ask-luna-execute.js'), 'utf8');
   assert('orchestrator supports sunset client', orchSrc.includes("SUNSET_CLIENT") && orchSrc.includes('runSunsetGuestSchoolTurnDryRun'));
   assert('inbound review attaches school context', inboundSrc.includes('attachSunsetSchoolToGuestContext'));
+  assert('inbound review merges qa conversation metadata', inboundSrc.includes('conversation_metadata')
+    && inboundSrc.includes('requestedMeta'));
   assert('ask luna location filter', askSrc.includes('applySunsetAskLunaLocationFilter'));
 
   console.log(`\n── Results: ${pass} passed, ${fail} failed ──`);

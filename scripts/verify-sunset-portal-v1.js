@@ -1109,6 +1109,39 @@ if (fs.existsSync(adminProbePath)) {
 }
 
 
+// ── 34. Sunset conversation QA fixtures (school isolation) ─────────────────
+
+console.log('\n[34] Sunset conversation QA fixtures (school isolation)');
+
+const convFixturePath = path.join(ROOT, 'scripts/lib/sunset-conversation-qa-fixture.js');
+const convProbePath = path.join(ROOT, '_work/probe-sunset-customer-conversation-school-fixture-qa.js');
+
+assert('conversation QA fixture module present', fs.existsSync(convFixturePath));
+if (fs.existsSync(convFixturePath)) {
+  const fixtureMod = require('./lib/sunset-conversation-qa-fixture');
+  const fixtureSrc = fs.readFileSync(convFixturePath, 'utf8');
+  const meta = fixtureMod.buildFixtureConversationMetadata('sunset-sardinero', 'qa-test-run');
+  assert('fixture metadata qa_fixture true', meta.qa_fixture === true);
+  assert('fixture metadata explicit location_id', meta.location_id === 'sunset-sardinero');
+  assert('fixture metadata run id', typeof meta.qa_fixture_run_id === 'string' && meta.qa_fixture_run_id.length > 0);
+  assert('fixture exports withSunsetConversationFixtures', typeof fixtureMod.withSunsetConversationFixtures === 'function');
+  assert('fixture teardown helper', fixtureSrc.includes('teardownFixtureConversations'));
+  assert('fixture no outbound send', !fixtureSrc.includes('inbox/send-reply') && !fixtureSrc.includes('guest-reply-send'));
+  assert('fixture uses dry-run only', fixtureSrc.includes('guest-inbound-review-dry-run'));
+  assert('fixture no production whatsapp literals', !fixtureSrc.match(/\+34[1-9]\d{8}/));
+  assert('fixture no production email literals', !fixtureSrc.match(/@[a-z0-9.-]+\.(com|es|net)/i) || fixtureSrc.includes('staging.example'));
+}
+if (fs.existsSync(convProbePath)) {
+  const probeSrc = fs.readFileSync(convProbePath, 'utf8');
+  assert('conversation probe uses QA fixture', probeSrc.includes('sunset-conversation-qa-fixture')
+    && probeSrc.includes('withSunsetConversationFixtures'));
+  assert('conversation probe finally teardown', probeSrc.includes('withSunsetConversationFixtures'));
+  assert('conversation probe checks isolation', probeSrc.includes('excludes sardi fixture')
+    && probeSrc.includes('excludes somo fixture'));
+  assert('conversation probe no secrets', !probeSrc.includes('SunsetStaging2026'));
+}
+
+
 // ── 28. Staff API JS syntax (node --check) ───────────────────────────────────
 
 console.log('\n[28] Staff API JS syntax (node --check)');
