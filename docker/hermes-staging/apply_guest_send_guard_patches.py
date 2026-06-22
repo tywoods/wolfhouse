@@ -373,6 +373,27 @@ def patch_runtime_whatsapp_wrapper(gateway_patches_path: Path) -> dict:
     return {"path": str(gateway_patches_path), "runtime_send_guard": True}
 
 
+def reapply_plain_reply_patches(
+    base_path: Path,
+    stream_path: Path,
+    whatsapp_path: Path,
+    run_path: Path,
+) -> dict:
+    """Re-apply Luna plain-reply gateway patches after guest send guard (order-independent)."""
+    gateway_script = Path(__file__).resolve().parent / "apply_gateway_patches.py"
+    spec = importlib.util.spec_from_file_location("apply_gateway_patches", gateway_script)
+    if not spec or not spec.loader:
+        raise RuntimeError("apply_gateway_patches.py not found for plain-reply reapply")
+    gw = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(gw)
+    return {
+        "base_platform": gw.apply_base_platform_patch(base_path),
+        "whatsapp_cloud": gw.apply_whatsapp_cloud_patch(whatsapp_path),
+        "stream_consumer": gw.apply_stream_consumer_patch(stream_path),
+        "gateway_run": gw.apply_patches(run_path),
+    }
+
+
 def main() -> int:
     specs = {
         "base": importlib.util.find_spec("gateway.platforms.base"),
@@ -387,13 +408,20 @@ def main() -> int:
 
     gateway_patches = Path(__file__).resolve().parent / "apply_gateway_patches.py"
     try:
+        base_path = Path(specs["base"].origin)
+        stream_path = Path(specs["stream"].origin)
+        whatsapp_path = Path(specs["whatsapp"].origin)
+        run_path = Path(specs["run"].origin)
         result = {
-            "base_platform": apply_base_platform_patch(Path(specs["base"].origin)),
-            "stream_consumer": apply_stream_consumer_patch(Path(specs["stream"].origin)),
-            "whatsapp_cloud": apply_whatsapp_cloud_patch(Path(specs["whatsapp"].origin)),
-            "gateway_run": apply_run_patch(Path(specs["run"].origin)),
+            "base_platform": apply_base_platform_patch(base_path),
+            "stream_consumer": apply_stream_consumer_patch(stream_path),
+            "whatsapp_cloud": apply_whatsapp_cloud_patch(whatsapp_path),
+            "gateway_run": apply_run_patch(run_path),
             "runtime_wrapper": patch_runtime_whatsapp_wrapper(gateway_patches),
         }
+        result["plain_reply_reapply"] = reapply_plain_reply_patches(
+            base_path, stream_path, whatsapp_path, run_path,
+        )
     except Exception as exc:
         print(f"apply_guest_send_guard_patches failed: {exc}", file=sys.stderr)
         return 1

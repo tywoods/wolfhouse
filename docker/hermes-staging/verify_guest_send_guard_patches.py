@@ -41,6 +41,7 @@ def main() -> int:
         "APPROVAL_GUARD",
         "mark_agent_reply_metadata",
         "suppress_guest_interactive_send",
+        "reapply_plain_reply_patches",
     ):
         if needle not in patches:
             fail(f"apply_guest_send_guard_patches missing {needle}")
@@ -56,7 +57,7 @@ def main() -> int:
         fail("bootstrap missing stt patch hook")
     ok("bootstrap hooks")
 
-    for needle in ("apply_guest_send_guard_patches.py", "apply_stt_patches.py"):
+    for needle in ("apply_guest_send_guard_patches.py", "apply_stt_patches.py", "apply_gateway_patches.py"):
         if needle not in dockerfile:
             fail(f"Dockerfile missing {needle}")
     ok("Dockerfile")

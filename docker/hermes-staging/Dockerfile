@@ -30,4 +30,8 @@ COPY bootstrap.sh /etc/cont-init.d/99-wh-staging-bootstrap
 RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && chmod +x /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/apply_stt_patches.py \
- && python /etc/hermes-staging/apply_guest_send_guard_patches.py
+ && python /etc/hermes-staging/apply_gateway_patches.py \
+ && python /etc/hermes-staging/apply_guest_send_guard_patches.py \
+ && python /etc/hermes-staging/verify_stt_patches.py \
+ && python /etc/hermes-staging/verify_guest_send_guard_patches.py \
+ && python /etc/hermes-staging/verify_plain_reply_patches.py

@@ -183,6 +183,54 @@ WHATSAPP_SEND_FORMATTED_PATCH = (
     + LUNA_PLAIN_REPLY_SEND_BLOCK
     + '\n        formatted = self.format_message(content)'
 )
+# Guest send guard injects suppress_guest_whatsapp_text_send immediately before
+# format_message; plain-reply must still apply when that block is already present.
+GUEST_SEND_GUARD_BLOCK = """
+        try:
+            from wolfhouse.guest_send_guard import suppress_guest_whatsapp_text_send
+            if suppress_guest_whatsapp_text_send(content, metadata):
+                return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_system_send": True})
+        except Exception:
+            pass
+"""
+GUEST_SEND_GUARD_BLOCK_ANCHOR = "        try:\n            from wolfhouse.guest_send_guard import suppress_guest_whatsapp_text_send"
+_FORMAT_LINE = "        formatted = self.format_message(content)"
+WHATSAPP_SEND_GUARDED_FORMAT_ANCHOR = (
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n\n'
+    + GUEST_SEND_GUARD_BLOCK.strip()
+    + "\n"
+    + _FORMAT_LINE
+)
+WHATSAPP_SEND_GUARDED_FORMAT_PATCH = (
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n'
+    + LUNA_PLAIN_REPLY_SEND_BLOCK
+    + "\n"
+    + GUEST_SEND_GUARD_BLOCK
+    + "\n"
+    + _FORMAT_LINE
+)
+WHATSAPP_SEND_POST_FILTER_GUARD_ANCHOR = (
+    '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n'
+    '            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n'
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n\n'
+    + GUEST_SEND_GUARD_BLOCK.strip()
+    + "\n"
+    + _FORMAT_LINE
+)
+WHATSAPP_SEND_POST_FILTER_GUARD_PATCH = (
+    '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n'
+    '            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n'
+    '        if not content or not content.strip():\n'
+    '            return SendResult(success=True, message_id=None)\n'
+    + LUNA_PLAIN_REPLY_SEND_BLOCK
+    + "\n"
+    + GUEST_SEND_GUARD_BLOCK
+    + "\n"
+    + _FORMAT_LINE
+)
 WHATSAPP_SEND_POST_FILTER_ANCHOR = (
     '        if _wolfhouse_is_whatsapp_internal_status_text(content):\n'
     '            return SendResult(success=True, message_id=None, raw_response={"suppressed_internal_status": True})\n'
@@ -472,8 +520,18 @@ def apply_whatsapp_cloud_patch(whatsapp_path: Path) -> dict:
     if LUNA_PLAIN_REPLY_SEND_TAG not in s:
         if WHATSAPP_SEND_POST_FILTER_ANCHOR in s:
             s = s.replace(WHATSAPP_SEND_POST_FILTER_ANCHOR, WHATSAPP_SEND_POST_FILTER_PATCH, 1)
+        elif WHATSAPP_SEND_POST_FILTER_GUARD_ANCHOR in s:
+            s = s.replace(WHATSAPP_SEND_POST_FILTER_GUARD_ANCHOR, WHATSAPP_SEND_POST_FILTER_GUARD_PATCH, 1)
         elif WHATSAPP_SEND_FORMATTED_ANCHOR in s:
             s = s.replace(WHATSAPP_SEND_FORMATTED_ANCHOR, WHATSAPP_SEND_FORMATTED_PATCH, 1)
+        elif WHATSAPP_SEND_GUARDED_FORMAT_ANCHOR in s:
+            s = s.replace(WHATSAPP_SEND_GUARDED_FORMAT_ANCHOR, WHATSAPP_SEND_GUARDED_FORMAT_PATCH, 1)
+        elif GUEST_SEND_GUARD_BLOCK_ANCHOR in s:
+            s = s.replace(
+                GUEST_SEND_GUARD_BLOCK_ANCHOR,
+                LUNA_PLAIN_REPLY_SEND_BLOCK.strip() + "\n" + GUEST_SEND_GUARD_BLOCK_ANCHOR,
+                1,
+            )
     else:
         old_send = "if _wolfhouse_wa_send_os.getenv(\"HERMES_ROLE\") == \"luna\" and not _wh_allow_quote:"
         if old_send in s:
