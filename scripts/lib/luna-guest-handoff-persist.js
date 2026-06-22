@@ -48,6 +48,81 @@ function detectHandoffResumeMessage(messageText) {
 
 /**
  * @param {import('pg').Client} pg
+ * @param {{ conversation_id?: string, client_slug: string, phone?: string, guest_phone?: string, reason?: string, handoff_reasons?: string[] }} input
+ */
+async function markConversationNeedsHumanByPhone(pg, input) {
+  const inp = input || {};
+  const clientSlug = trimStr(inp.client_slug) || 'wolfhouse-somo';
+  const phone = trimStr(inp.phone || inp.guest_phone);
+  const digits = phone.replace(/\D/g, '');
+  if (!digits || digits.length < 9) {
+    return { ok: false, needs_human: false, reason: 'phone_invalid_or_too_short' };
+  }
+  const suffix = digits.slice(-9);
+  const reasons = Array.isArray(inp.handoff_reasons) ? inp.handoff_reasons : [];
+  const reasonCode = trimStr(inp.reason)
+    || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
+
+  const r = await pg.query(
+    `UPDATE conversations conv
+        SET needs_human = TRUE,
+            updated_at = NOW(),
+            metadata = COALESCE(conv.metadata, '{}'::jsonb)
+              || jsonb_build_object('luna_handoff_at', to_jsonb(NOW()),
+                                    'luna_handoff_reason', to_jsonb($3::text))
+       FROM clients c
+      WHERE conv.client_id = c.id
+        AND c.slug = $1
+        AND conv.id = (
+          SELECT conv2.id
+            FROM conversations conv2
+           INNER JOIN clients c2 ON c2.id = conv2.client_id
+           WHERE c2.slug = $1
+             AND (
+               regexp_replace(conv2.phone, '\\D', '', 'g') = $4
+               OR regexp_replace(conv2.phone, '\\D', '', 'g') LIKE $2
+             )
+           ORDER BY conv2.updated_at DESC
+           LIMIT 1
+        )
+      RETURNING conv.id::text AS conversation_id, conv.needs_human`,
+    [clientSlug, `%${suffix}`, reasonCode.slice(0, 200), digits],
+  );
+
+  if (!r.rows[0]) {
+    return { ok: false, needs_human: false, reason: 'conversation_not_found_for_phone' };
+  }
+  return {
+    ok: true,
+    needs_human: r.rows[0].needs_human === true,
+    conversation_id: r.rows[0].conversation_id,
+    handoff_reason: reasonCode,
+  };
+}
+
+/**
+ * Resolve conversation from UUID id or WhatsApp phone and flag needs_human.
+ *
+ * @param {import('pg').Client} pg
+ * @param {{ conversation_id?: string, client_slug: string, phone?: string, guest_phone?: string, reason?: string, handoff_reasons?: string[], uuid_validate_re?: RegExp }} input
+ */
+async function resolveAndMarkConversationNeedsHuman(pg, input) {
+  const inp = input || {};
+  const convIdRaw = trimStr(inp.conversation_id);
+  const uuidRe = inp.uuid_validate_re || /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (convIdRaw && uuidRe.test(convIdRaw)) {
+    return markConversationNeedsHuman(pg, {
+      conversation_id: convIdRaw,
+      client_slug: inp.client_slug,
+      reason: inp.reason,
+      handoff_reasons: inp.handoff_reasons,
+    });
+  }
+  return markConversationNeedsHumanByPhone(pg, inp);
+}
+
+/**
+ * @param {import('pg').Client} pg
  * @param {{ conversation_id: string, client_slug: string, reason?: string, handoff_reasons?: string[] }} input
  */
 async function markConversationNeedsHuman(pg, input) {
@@ -143,5 +218,7 @@ module.exports = {
   detectNewBookingStartMessage,
   detectHandoffResumeMessage,
   markConversationNeedsHuman,
+  markConversationNeedsHumanByPhone,
+  resolveAndMarkConversationNeedsHuman,
   clearLunaAutoHandoffIfPresent,
 };

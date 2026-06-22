@@ -57,6 +57,8 @@ def _normalize_payment_choice(value):
     if not raw:
         return "deposit"
     compact = re.sub(r"[^a-z0-9]+", " ", raw).strip()
+    if compact in {"per_guest", "per guest", "each guest", "split", "split deposit", "link each"}:
+        return "deposit"
     if compact in {"full", "full amount", "pay full", "pay full amount", "all", "all now", "pay all", "everything", "whole amount"}:
         return "full"
     if compact in {"deposit", "pay deposit", "the deposit", "deposit only"}:
@@ -318,6 +320,8 @@ def _normalize_guests_payload(payload):
         payload["guests"] = normalized
         if not payload.get("guest_count"):
             payload["guest_count"] = len(normalized)
+        if not _clean(payload.get("guest_name")):
+            payload["guest_name"] = normalized[0]["name"]
 
 
 def _extract_booking_write_fields(data):
@@ -437,6 +441,9 @@ def create_booking_from_plan(params, **kwargs):
         or payload.get("channel_guest_name")
         or payload.get("whatsapp_guest_name")
     )
+    _normalize_guests_payload(payload)
+    if not guest_name:
+        guest_name = _clean(payload.get("guest_name"))
     if not guest_name:
         return _json_result({
             "success": True,
@@ -451,8 +458,6 @@ def create_booking_from_plan(params, **kwargs):
             "do_not_escalate": True,
         })
     payload["guest_name"] = guest_name
-
-    _normalize_guests_payload(payload)
 
     # Persist the guest's language on the booking so the post-payment confirmation
     # (built server-side from templates) goes out in the same language the booking
@@ -522,6 +527,44 @@ def create_booking_from_plan(params, **kwargs):
     payment_link_error = None
     uses_per_guest_model = bool(data.get("uses_per_guest_model"))
 
+    guest_payment_links = []
+    if bool(data.get("success")) and bool(data.get("write_performed")) and uses_per_guest_model:
+        booking_guests = fields.get("booking_guests") or data.get("booking_guests") or []
+        if isinstance(booking_guests, list):
+            payment_target = "full_share" if payload.get("payment_choice") == "full" else "deposit"
+            for bg in booking_guests:
+                if not isinstance(bg, dict):
+                    continue
+                guest_id = _clean(bg.get("booking_guest_id") or bg.get("id"))
+                guest_num = bg.get("guest_number")
+                if not guest_id and fields.get("booking_code") and guest_num:
+                    status = _post_bot("/booking-guests/payment-status", {
+                        "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+                        "booking_code": fields.get("booking_code"),
+                        "guest_number": guest_num,
+                    })
+                    guest_id = _clean(status.get("booking_guest_id"))
+                if not guest_id:
+                    continue
+                link_data = _post_bot(
+                    f"/booking-guests/{urllib.parse.quote(guest_id)}/create-payment-link",
+                    {
+                        "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+                        "payment_target": payment_target,
+                    },
+                )
+                guest_url = _guest_payment_url(link_data)
+                if guest_url:
+                    guest_payment_links.append({
+                        "guest_number": link_data.get("guest_number") or guest_num,
+                        "guest_name": link_data.get("guest_name") or bg.get("guest_name"),
+                        "booking_guest_id": link_data.get("booking_guest_id") or guest_id,
+                        "payment_id": link_data.get("payment_id"),
+                        "secure_payment_url": guest_url,
+                    })
+        if guest_payment_links:
+            secure_url = None  # per-guest links replace single booking link
+
     if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not uses_per_guest_model:
         link_payload = {"client_slug": payload.get("client_slug") or "wolfhouse-somo"}
         link_data = _post_bot(
@@ -536,6 +579,10 @@ def create_booking_from_plan(params, **kwargs):
             )
 
     blocked_reasons = data.get("blocked_reasons") or []
+    if not blocked_reasons and not bool(data.get("success")):
+        err = _clean(data.get("error") or data.get("message"))
+        if err:
+            blocked_reasons = [err]
     expected_missing = any(
         reason in {"guest_name_missing", "payment_choice_missing", "guest_phone_missing"}
         for reason in blocked_reasons
@@ -553,7 +600,9 @@ def create_booking_from_plan(params, **kwargs):
         )
 
     next_action = data.get("next_action")
-    if uses_per_guest_model and bool(data.get("write_performed")) and not secure_url:
+    if guest_payment_links:
+        next_action = "send_per_guest_payment_links"
+    elif uses_per_guest_model and bool(data.get("write_performed")) and not secure_url and not guest_payment_links:
         next_action = "ask_per_guest_or_whole_payment_link"
 
     return _json_result({
@@ -567,13 +616,14 @@ def create_booking_from_plan(params, **kwargs):
         "uses_per_guest_model": uses_per_guest_model,
         "booking_guests": fields.get("booking_guests") or data.get("booking_guests"),
         "per_person": fields.get("per_person") or data.get("per_person"),
+        "guest_payment_links": guest_payment_links or None,
         "secure_payment_url": secure_url,
         "payment_link_created": bool(secure_url),
         "payment_link_error": payment_link_error,
         "transfers_saved": [r for r in transfer_results if r.get("write_performed")],
         "transfer_save_results": transfer_results,
         "next_action": "send_secure_payment_link" if secure_url else next_action,
-        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model)) and not expected_missing,
+        "staff_review_needed": (bool(data.get("staff_review_needed")) or not bool(data.get("success")) or (bool(data.get("write_performed")) and not secure_url and not uses_per_guest_model and not guest_payment_links)) and not expected_missing,
         "blocked_reasons": blocked_reasons,
         "safe_next_step": data.get("safe_next_step"),
         "reply_draft": data.get("reply_draft"),
@@ -920,18 +970,28 @@ def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
     payload.setdefault("client_slug", "wolfhouse-somo")
-    phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
-    if phone:
-        payload["phone"] = phone
+    session_phone = _session_guest_phone()
+    model_phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone"))
+    if session_phone:
+        payload["phone"] = session_phone
+        payload["guest_phone"] = session_phone
+    elif model_phone:
+        payload["phone"] = model_phone
+        payload["guest_phone"] = model_phone
+    conv = _clean(payload.get("conversation_id"))
+    if conv and not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", conv, re.I):
+        payload.pop("conversation_id", None)
     data = _post_bot("/conversation/needs-human", payload)
+    ok = bool(data.get("success")) and bool(data.get("needs_human"))
     return _json_result({
-        "success": bool(data.get("success")),
+        "success": ok,
         "tool": "flag_needs_human",
         "needs_human": bool(data.get("needs_human")),
         "conversation_id": data.get("conversation_id"),
-        # This is a notify-staff flag, never a guest-facing error.
-        "staff_review_needed": False,
-        "do_not_escalate": True,
+        "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["conversation_not_found"]),
+        # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
+        "staff_review_needed": not ok,
+        "do_not_escalate": ok,
     })
 
 

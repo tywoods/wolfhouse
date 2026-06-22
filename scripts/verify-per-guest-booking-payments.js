@@ -208,6 +208,21 @@ section('G. Per-guest payment link stale detection');
     'full-balance staff link still tracks current balance due');
 }
 
+section('H. Per-guest create path — guest_name + payment_choice');
+{
+  const { normalizeBotBookingPaymentChoice, mapBotBookingCreateErrorToBlockedReason } = require('./lib/booking-guests');
+  const bodyOnlyGuests = normalizeBookingGuestsInput({
+    guest_count: 3,
+    guests: [{ name: 'Tyler' }, { name: 'Pietro' }, { name: 'Cathy' }],
+  });
+  check('H1', bodyOnlyGuests.primary_name === 'Tyler', 'primary_name from guests array');
+  const perGuestPay = normalizeBotBookingPaymentChoice('per_guest');
+  check('H2', perGuestPay.payment_choice === 'deposit' && perGuestPay.per_guest_payment_links, 'per_guest → deposit links');
+  check('H3', mapBotBookingCreateErrorToBlockedReason('guest_name is required') === 'guest_name_missing', 'error mapped to blocked_reason');
+  check('H4', staffApiSrc.includes('resolveAndMarkConversationNeedsHuman'), 'handoff resolves session phone');
+  check('H5', staffApiSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
+}
+
 section('F. Routes & migration wiring');
 {
   check('F1', fs.existsSync(path.join(__dirname, '..', 'database', 'migrations', '024_booking_guests.sql')), 'migration 024 exists');

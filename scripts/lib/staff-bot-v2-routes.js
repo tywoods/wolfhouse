@@ -26,6 +26,8 @@ const {
   buildGuestPaymentShortLinkPath,
   guestPaymentStatusFromRow,
   isMissingBookingGuestsTable,
+  normalizeBookingGuestsInput,
+  mapBotBookingCreateErrorToBlockedReason,
 } = require('./booking-guests');
 const { buildPaymentShortLink } = require('./luna-payment-short-link');
 
@@ -543,6 +545,9 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
   // but capture its response and flatten the key fields to top-level
   const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
 
+  const guestsNormPreview = normalizeBookingGuestsInput(body);
+  const usesPerGuestModelPreview = guestsNormPreview.uses_per_guest_model === true;
+
   // Build a synthetic result accumulator
   let bridgeResult = {
     success:          false,
@@ -552,6 +557,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
     no_whatsapp:      true,
     no_n8n:           true,
     source:           'luna_bot_booking_create_from_plan',
+    uses_per_guest_model: usesPerGuestModelPreview,
+    blocked_reasons:  [],
   };
 
   const captureRes = {
@@ -612,6 +619,78 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode, ctx) {
       );
       bridgeResult.transfer_save_results = results;
       bridgeResult.transfers_saved = saved;
+    }
+  }
+
+  if (!bridgeResult.success && (!Array.isArray(bridgeResult.blocked_reasons) || bridgeResult.blocked_reasons.length === 0)) {
+    const blocked = mapBotBookingCreateErrorToBlockedReason(bridgeResult.error || bridgeResult.message);
+    bridgeResult.blocked_reasons = [blocked];
+  }
+  if (bridgeResult.success !== true && bridgeResult.staff_review_needed !== false) {
+    bridgeResult.staff_review_needed = true;
+  }
+  if (Array.isArray(bridgeResult.blocked_reasons) && bridgeResult.blocked_reasons.length > 0) {
+    bridgeResult.staff_review_needed = true;
+  }
+  bridgeResult.uses_per_guest_model = bridgeResult.uses_per_guest_model === true
+    || usesPerGuestModelPreview === true;
+
+  if (
+    bridgeResult.success
+    && bridgeResult.write_performed
+    && bridgeResult.uses_per_guest_model
+    && Array.isArray(bridgeResult.booking_guests)
+    && bridgeResult.booking_guests.length
+    && ctx.handleBotGuestPaymentCreateLink
+    && ctx.STRIPE_LINKS_ENABLED
+    && ctx.STRIPE_SECRET_KEY
+  ) {
+    const paymentTarget = String(body.payment_choice || '').toLowerCase().includes('full')
+      ? 'full_share'
+      : 'deposit';
+    const guestLinks = [];
+    for (const guestRow of bridgeResult.booking_guests) {
+      const guestId = guestRow && (guestRow.booking_guest_id || guestRow.id);
+      if (!guestId) continue;
+      const linkCapture = {
+        _status: 200,
+        statusCode: 200,
+        setHeader() {},
+        writeHead(code) { this._status = code; linkCapture.statusCode = code; },
+        end(data) {
+          try {
+            linkCapture._body = JSON.parse(data);
+          } catch (_) {
+            linkCapture._body = { success: false, error: String(data) };
+          }
+        },
+      };
+      try {
+        await ctx.handleBotGuestPaymentCreateLink(
+          guestId,
+          makeInMemoryBotReq({
+            client_slug: clientSlug,
+            payment_target: paymentTarget,
+          }),
+          linkCapture,
+          user,
+          authMode,
+        );
+        const linkBody = linkCapture._body || {};
+        if (linkBody.success) {
+          guestLinks.push({
+            guest_number: linkBody.guest_number || guestRow.guest_number,
+            guest_name: linkBody.guest_name || guestRow.guest_name,
+            booking_guest_id: linkBody.booking_guest_id || guestId,
+            payment_id: linkBody.payment_id || null,
+            secure_payment_url: linkBody.guest_payment_url || linkBody.payment_short_url || linkBody.checkout_url || null,
+          });
+        }
+      } catch (_) { /* non-fatal — guest can retry create_guest_payment_link */ }
+    }
+    if (guestLinks.length) {
+      bridgeResult.guest_payment_links = guestLinks;
+      bridgeResult.per_guest_payment_links_created = guestLinks.length;
     }
   }
 

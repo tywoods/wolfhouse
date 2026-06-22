@@ -50,6 +50,7 @@ function resolvePaymentChoice(plan, input) {
   const raw = trimStr((input || {}).payment_choice).toLowerCase();
   const compact = raw.replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
   if (VALID_PAYMENT_CHOICES.has(compact)) return compact;
+  if (['per_guest', 'per guest', 'each guest', 'split', 'split deposit', 'link each'].includes(compact)) return 'deposit';
   if (['full amount', 'pay full', 'pay full amount', 'all now', 'pay all', 'everything', 'whole amount'].includes(compact)) return 'full';
   if (['pay deposit', 'the deposit', 'deposit only'].includes(compact)) return 'deposit';
   const missing = (plan && plan.booking_preview && plan.booking_preview.missing_fields) || [];
