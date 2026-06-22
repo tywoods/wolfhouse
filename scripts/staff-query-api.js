@@ -22353,7 +22353,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   box.innerHTML = renderAdminLessonCards(slots, cfg, writes, defaultCap) + renderAdminPackCards(packs, writes);
 }
 
-function renderAdminSectionBusinessInfoFromConfigfunction renderAdminSectionBusinessInfoFromConfig(cfg){
+function renderAdminSectionBusinessInfoFromConfig(cfg){
   var box = el('admin-business-body');
   if (!box) return;
   var info = (cfg && cfg.business_info) ? cfg.business_info : {};
