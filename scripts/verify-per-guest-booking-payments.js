@@ -17,6 +17,11 @@ const {
   parsePaymentShortLinkToken,
   buildPaymentShortLink,
 } = require('./lib/luna-payment-short-link');
+const {
+  paymentLinkIntendedAmountCents,
+  paymentLedgerIsStaleUnpaidLinkRow,
+  paymentLedgerIsPerGuestLinkRow,
+} = require('./lib/payment-ledger-stale-links');
 
 const staffApiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
 const botRoutesSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-v2-routes.js'), 'utf8');
@@ -151,6 +156,58 @@ section('E. Per-guest payment short links');
   check('E3', link && link.includes('/g2'), 'built URL has guest segment');
 }
 
+section('G. Per-guest payment link stale detection');
+{
+  const guestId = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+  const perGuestDepositLink = {
+    payment_kind: 'deposit_only',
+    amount_due_cents: 20000,
+    booking_guest_id: guestId,
+    metadata: {
+      source: 'bot_guest_payment_link_slice_a',
+      payment_target: 'deposit',
+      booking_guest_id: guestId,
+    },
+  };
+  const ledgerCtx = {
+    balance_due_cents: 106000,
+    deposit_required_cents: 60000,
+    guest_amounts_by_id: {
+      [guestId]: { deposit_cents: 20000, subtotal_cents: 45000 },
+    },
+  };
+  check('G1', paymentLedgerIsPerGuestLinkRow(perGuestDepositLink), 'per-guest link detected');
+  check('G2', paymentLinkIntendedAmountCents(perGuestDepositLink, ledgerCtx) === 20000,
+    'deposit link intended = guest €200 not booking €600');
+  check('G3', !paymentLedgerIsStaleUnpaidLinkRow(
+    perGuestDepositLink,
+    (pr) => pr === perGuestDepositLink,
+    ledgerCtx,
+  ), '€200 guest deposit link not stale when booking balance is €1060');
+
+  const bookingDepositLink = {
+    payment_kind: 'deposit_only',
+    amount_due_cents: 20000,
+    metadata: { source: 'staff_portal' },
+  };
+  check('G4', paymentLinkIntendedAmountCents(bookingDepositLink, ledgerCtx) === 60000,
+    'whole-booking deposit link still uses booking deposit total');
+  check('G5', paymentLedgerIsStaleUnpaidLinkRow(
+    bookingDepositLink,
+    (pr) => pr === bookingDepositLink,
+    ledgerCtx,
+  ), 'legacy €200 link stale when booking deposit is €600');
+
+  const fullBalanceLink = {
+    payment_kind: 'full_amount',
+    amount_due_cents: 20000,
+    checkout_url: 'https://checkout.stripe.test/x',
+    metadata: { source: 'staff_payment_link', phase: '10.6c' },
+  };
+  check('G6', paymentLinkIntendedAmountCents(fullBalanceLink, ledgerCtx) === 106000,
+    'full-balance staff link still tracks current balance due');
+}
+
 section('F. Routes & migration wiring');
 {
   check('F1', fs.existsSync(path.join(__dirname, '..', 'database', 'migrations', '024_booking_guests.sql')), 'migration 024 exists');
@@ -161,6 +218,7 @@ section('F. Routes & migration wiring');
   check('F6', staffApiSrc.includes('normalizeBookingGuestsInput'), 'booking create uses guests input');
   check('F7', staffApiSrc.includes('insertBookingGuestsForBooking'), 'booking_guests insert on create');
   check('F8', staffApiSrc.includes('/staff/bookings/generate-guest-payment-link'), 'staff guest link route');
+  check('F9', staffApiSrc.includes('payment-ledger-stale-links'), 'stale-link helper wired in staff API');
 }
 
 console.log(`\n── verify-per-guest-booking-payments ${failures ? 'FAILED' : 'PASSED'} (${passes}/${passes + failures}) ──\n`);

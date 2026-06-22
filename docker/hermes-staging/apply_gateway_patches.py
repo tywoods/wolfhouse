@@ -689,6 +689,16 @@ def _patched_prepare_gateway_status_message(platform, event_type, message):
     return _orig_prepare_gateway_status_message(platform, event_type, message)
 
 async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, metadata=None):
+    try:
+        from wolfhouse.guest_send_guard import suppress_guest_whatsapp_text_send
+        if suppress_guest_whatsapp_text_send(content, metadata):
+            try:
+                from gateway.platforms.base import SendResult
+                return SendResult(success=True, message_id=None, raw_response={"suppressed_guest_system_send": True})
+            except Exception:
+                return None
+    except Exception:
+        pass
     if _is_whatsapp_internal_status_text(content):
         try:
             from gateway.platforms.base import SendResult

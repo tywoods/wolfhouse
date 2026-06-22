@@ -73,6 +73,11 @@ const {
   buildServiceChargesDueFromContext,
   formatAddonServicePaymentLedgerLabel,
 } = require('./lib/luna-guest-addon-service-payment-ledger');
+const {
+  buildGuestPaymentAmountsMap,
+  paymentLinkIntendedAmountCents,
+  paymentLedgerIsStaleUnpaidLinkRow: paymentLedgerIsStaleUnpaidLinkRowCore,
+} = require('./lib/payment-ledger-stale-links');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
   computeBalanceDueRows,
@@ -3810,10 +3815,14 @@ SELECT
   p.stripe_checkout_session_id,
   p.stripe_payment_intent_id,
   p.metadata,
-  p.created_at
+  p.created_at,
+  p.booking_guest_id::text      AS booking_guest_id,
+  bg.deposit_amount_cents       AS guest_deposit_amount_cents,
+  bg.metadata                   AS guest_metadata
 FROM payments p
 INNER JOIN bookings b ON b.id = p.booking_id
 INNER JOIN clients c ON c.id = b.client_id
+LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
 WHERE c.slug = $1
   AND b.booking_code = $2
 ORDER BY p.created_at DESC
@@ -3896,23 +3905,7 @@ function paymentLedgerNormalizeCtx(ctxOrBalance, bookingRow) {
   };
 }
 
-function paymentLinkIntendedAmountCents(pr, ledgerCtx) {
-  if (!pr) return null;
-  const kind = String(pr.payment_kind || '').toLowerCase();
-  const md = paymentLedgerParseMetadata(pr.metadata);
-  const source = String(md.source || '').toLowerCase();
-  if (kind === 'deposit_only' || kind === 'deposit') {
-    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
-  }
-  if (kind === 'addon_service') return null;
-  if (kind === 'full_amount') {
-    if (source === 'staff_payment_link' || md.phase === '10.6c') {
-      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-    }
-    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-  }
-  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-}
+/* paymentLinkIntendedAmountCents — scripts/lib/payment-ledger-stale-links.js */
 
 function paymentLedgerHasActiveValidLink(rows, ledgerCtx) {
   for (const pr of rows || []) {
@@ -4007,11 +4000,8 @@ function paymentLedgerIsActiveUnpaidLinkRow(pr) {
 }
 
 function paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtxOrBalance, bookingRow) {
-  if (!paymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
   const ledgerCtx = paymentLedgerNormalizeCtx(ledgerCtxOrBalance, bookingRow);
-  const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(intended);
+  return paymentLedgerIsStaleUnpaidLinkRowCore(pr, paymentLedgerIsActiveUnpaidLinkRow, ledgerCtx);
 }
 
 function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
@@ -26400,9 +26390,11 @@ function updateBcDetailHeader(data){
     (data && data.payments && data.payments.rows) || [],
     transferRows,
   );
+  var guestAmountsMap = buildGuestPaymentAmountsMap(data.booking_guests || [], data.per_person || []);
+  var ledgerCtx = Object.assign({}, ledger, { guest_amounts_by_id: guestAmountsMap });
   var hasActiveLink = bcPaymentLedgerHasActiveValidLinkClient(
     (data && data.payments && data.payments.rows) || [],
-    ledger,
+    ledgerCtx,
   );
   if (bcLastOpenedBlock) {
     bcLastOpenedBlock.invoice_total_cents = ledger.invoice_total_cents;
@@ -27334,21 +27326,7 @@ function bcBookingLedgerBalance(bk, svcRows, paymentRows, transferRows){
 }
 
 function bcPaymentLinkIntendedAmountCents(pr, ledgerCtx){
-  if (!pr) return null;
-  var kind = String(pr.payment_kind || '').toLowerCase();
-  var md = bcPaymentLedgerParseMetadata(pr.metadata);
-  var source = String(md.source || '').toLowerCase();
-  if (kind === 'deposit_only' || kind === 'deposit') {
-    return ledgerCtx.deposit_required_cents != null ? Number(ledgerCtx.deposit_required_cents) : null;
-  }
-  if (kind === 'addon_service') return null;
-  if (kind === 'full_amount') {
-    if (source === 'staff_payment_link' || md.phase === '10.6c') {
-      return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-    }
-    return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
-  }
-  return ledgerCtx.balance_due_cents != null ? Number(ledgerCtx.balance_due_cents) : null;
+  return paymentLinkIntendedAmountCents(pr, ledgerCtx);
 }
 
 function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
@@ -27362,11 +27340,7 @@ function bcPaymentLedgerIsActiveUnpaidLinkRow(pr){
 }
 
 function bcPaymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx){
-  if (!bcPaymentLedgerIsActiveUnpaidLinkRow(pr)) return false;
-  ledgerCtx = ledgerCtx || {};
-  var intended = bcPaymentLinkIntendedAmountCents(pr, ledgerCtx);
-  if (intended == null || intended <= 0) return false;
-  return Number(pr.amount_due_cents) !== Number(intended);
+  return paymentLedgerIsStaleUnpaidLinkRowCore(pr, bcPaymentLedgerIsActiveUnpaidLinkRow, ledgerCtx || {});
 }
 
 function bcLedgerActivePaymentLinkRow(rows, ledgerCtx){
@@ -27705,6 +27679,7 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
     balance_due_cents: balanceDue,
     deposit_required_cents: bk.deposit_required_cents != null ? Number(bk.deposit_required_cents) : 0,
     invoice_total_cents: invoiceTotal,
+    guest_amounts_by_id: buildGuestPaymentAmountsMap(bookingGuests, perPerson),
   };
   var sortedLedgerRows = bcPaymentLedgerSortRows(ledgerRows, balanceDue);
 
@@ -35026,8 +35001,12 @@ SELECT p.booking_id::text AS booking_id,
        p.amount_due_cents,
        p.amount_paid_cents,
        p.checkout_url,
-       p.metadata
+       p.metadata,
+       p.booking_guest_id::text AS booking_guest_id,
+       bg.deposit_amount_cents AS guest_deposit_amount_cents,
+       bg.metadata AS guest_metadata
   FROM payments p
+  LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
  WHERE p.booking_id = ANY($1::uuid[])
    AND p.status IN ('checkout_created'::payment_record_status, 'draft'::payment_record_status, 'pending'::payment_record_status)
    AND COALESCE(p.amount_paid_cents, 0) = 0
