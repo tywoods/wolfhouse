@@ -19118,13 +19118,13 @@ function refreshSunsetSchoolContextLabels(channelConfig){
 }
 
 function renderAdminSchoolContext(cfg){
-  if (getClient() !== 'sunset' || !getPortalProfile(getClient()).is_surf_vertical) return;
-  var loc = getSunsetLocation();
-  renderAdminSectionBusinessInfoFromConfig({
-    location_id: loc,
-    location_label: (cfg && cfg.location_label) ? cfg.location_label : getSunsetLocationLabel(loc),
-    business_info: (cfg && cfg.business_info) ? cfg.business_info : {}
-  });
+  var profile = getPortalProfile(getClient());
+  if (getClient() !== 'sunset' || !profile.is_surf_vertical) return;
+  if (cfg && cfg.success === true) {
+    renderAdminFromConfig(cfg);
+    return;
+  }
+  renderAdminFallback(profile);
 }
 
 function renderInboxSchoolContext(channelConfig){

@@ -1220,8 +1220,9 @@ if (apiSrc) {
   assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
   assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
   assert('admin school context collapsed into business heading', apiSrc.includes('portal-admin-school-heading') && !apiSrc.includes('id="admin-school-context"'));
-  assert('admin school context function exists', apiSrc.includes('function renderAdminSchoolContext') && apiSrc.includes('renderAdminSectionBusinessInfoFromConfig({'));
+  assert('admin school context function exists', apiSrc.includes('function renderAdminSchoolContext') && apiSrc.includes('renderAdminFallback(profile)') && apiSrc.includes('renderAdminFromConfig(cfg)'));
   assert('admin heading uses active school fallback', apiSrc.includes('getSunsetLocationLabel(fallbackLocation)') && apiSrc.includes('renderAdminLoadingShell') && apiSrc.includes('renderAdminFallback(profile)'));
+  assert('admin school context fills sections', apiSrc.includes('function renderAdminSchoolContext') && apiSrc.includes('renderAdminFallback(profile)'));
   assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
   assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
   assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));
