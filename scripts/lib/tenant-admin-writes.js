@@ -72,6 +72,11 @@ function lessonSlotPriceItemCode(slotId) {
   return `lesson_slot_${slotId}__session`;
 }
 
+function isLessonSlotPriceItemCode(code) {
+  const text = String(code || '');
+  return /^lesson_slot_.+__session$/i.test(text) && !text.includes('__session__session');
+}
+
 function resolveLessonFrequencyPreset(key) {
   const k = String(key || 'daily').trim();
   return LESSON_FREQUENCY_PRESETS[k] || LESSON_FREQUENCY_PRESETS.daily;
@@ -468,6 +473,7 @@ function buildDbItemCode(offeringKey, baselineUnit) {
 
 function mapBaselineUnitToDb(unitKey) {
   const key = String(unitKey || '').trim();
+  if (key === 'session') return 'session';
   if (/surfer|person|single_lesson/i.test(key)) return 'person';
   if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
   if (/hour|half_day|lesson/i.test(key)) return 'session';
@@ -553,7 +559,9 @@ async function applyPricePatchFields(client, before, patch, actor) {
 async function upsertLessonSlotPriceRule(client, {
   clientSlug, locationId, slotId, label, amountCents, currency, actor,
 }) {
-  const itemCode = lessonSlotPriceItemCode(slotId);
+  const slotKey = String(slotId || '').trim();
+  const offeringKey = `lesson_slot_${slotKey}`;
+  const itemCode = lessonSlotPriceItemCode(slotKey);
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
   const loc = normalizeSunsetLocationId(locationId);
   const existing = await findPriceRuleRow(client, {
@@ -566,7 +574,7 @@ async function upsertLessonSlotPriceRule(client, {
     clientSlug,
     locationId,
     category: 'lesson',
-    offeringKey: itemCode,
+    offeringKey,
     unit: 'session',
     patch: {
       display_name: label,
@@ -762,10 +770,23 @@ async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, act
 }
 
 
-function preparePriceDbPatch(patch, offeringKey, currentUnit) {
+function preparePriceDbPatch(patch, offeringKey, currentUnit, opts = {}) {
   const out = { ...patch };
   const nextPeriod = out.period_window != null ? out.period_window : currentUnit;
   delete out.period_window;
+
+  if (opts.forceItemCode) {
+    out.item_code = opts.forceItemCode;
+    out.unit = opts.forceDbUnit || mapBaselineUnitToDb('session');
+    return out;
+  }
+
+  if (isLessonSlotPriceItemCode(offeringKey)) {
+    out.item_code = offeringKey;
+    out.unit = mapBaselineUnitToDb('session');
+    return out;
+  }
+
   if (nextPeriod) {
     out.item_code = buildDbItemCode(offeringKey, nextPeriod);
     out.unit = mapBaselineUnitToDb(nextPeriod);
@@ -782,7 +803,10 @@ async function upsertConfigPriceRule(client, {
   const effectiveUnit = patch.period_window != null ? patch.period_window : unit;
   const itemCode = forceItemCode || buildDbItemCode(offeringKey, effectiveUnit);
   const dbUnit = forceDbUnit || mapBaselineUnitToDb(effectiveUnit);
-  const dbPatch = preparePriceDbPatch(patch, offeringKey, effectiveUnit);
+  const dbPatch = preparePriceDbPatch(patch, offeringKey, effectiveUnit, {
+    forceItemCode: forceItemCode || null,
+    forceDbUnit: forceDbUnit || null,
+  });
 
   await client.query('BEGIN');
   try {
@@ -797,6 +821,7 @@ async function upsertConfigPriceRule(client, {
       const params = [];
       let idx = 3;
       for (const [key, value] of Object.entries(dbPatch)) {
+        if (forceItemCode && (key === 'item_code' || key === 'unit')) continue;
         sets.push(`${key} = $${idx}`);
         params.push(value);
         idx += 1;
@@ -1067,6 +1092,7 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  await ensureLessonTimeCapacityColumn(client);
   const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   await client.query('BEGIN');
   try {
@@ -1082,7 +1108,6 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     }
     const before = existing.rows[0];
     const amountCentsPatch = patch.amount_cents;
-    const priceLabelPatch = patch.label;
     const dbPatchLesson = { ...patch };
     delete dbPatchLesson.amount_cents;
     const nextStart = dbPatchLesson.time_local || String(before.time_local).slice(0, 5);
@@ -1137,15 +1162,27 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
     });
 
     await client.query('COMMIT');
-    if (amountCentsPatch != null || priceLabelPatch != null) {
+    if (amountCentsPatch != null) {
       await upsertLessonSlotPriceRule(client, {
         clientSlug,
         locationId: loc,
         slotId: after.id,
-        label: priceLabelPatch || after.label,
-        amountCents: amountCentsPatch != null ? amountCentsPatch : undefined,
+        label: patch.label != null ? patch.label : after.label,
+        amountCents: amountCentsPatch,
         actor,
       });
+    }
+    if (patch.capacity != null && !hasCapacity) {
+      try {
+        locationStore.patchLocationLessonTime(loc, after.id, {
+          label: after.label,
+          time_local: String(after.time_local || '').slice(0, 5),
+          time_local_end: after.time_local_end == null ? null : String(after.time_local_end).slice(0, 5),
+          capacity: patch.capacity,
+        });
+      } catch (capErr) {
+        console.error('lesson capacity overlay failed', capErr);
+      }
     }
     return { ok: true, status: 200, body: { success: true, lesson_time_rule: after, storage: 'db' } };
   } catch (err) {
@@ -1169,6 +1206,16 @@ async function adminConfigTableHasColumn(client, tableName, columnName) {
   return result.rows.length > 0;
 }
 
+async function ensureLessonTimeCapacityColumn(client) {
+  const has = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
+  if (has) return;
+  await client.query(
+    `ALTER TABLE tenant_lesson_time_rules
+       ADD COLUMN IF NOT EXISTS capacity INTEGER
+       CHECK (capacity IS NULL OR (capacity >= 1 AND capacity <= 999))`,
+  );
+}
+
 async function createLessonTimeRule(client, { clientSlug, locationId, patch, actor }) {
   const tablesExist = await adminConfigTablesExist(client);
   const loc = normalizeSunsetLocationId(locationId);
@@ -1176,6 +1223,7 @@ async function createLessonTimeRule(client, { clientSlug, locationId, patch, act
     return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  await ensureLessonTimeCapacityColumn(client);
   const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   const amountCents = patch.amount_cents;
   const priceLabel = patch.label;
@@ -1312,4 +1360,7 @@ module.exports = {
   deactivateLessonTimeRule,
   buildDbItemCode,
   mapBaselineUnitToDb,
+  lessonSlotPriceItemCode,
+  isLessonSlotPriceItemCode,
+  preparePriceDbPatch,
 };
