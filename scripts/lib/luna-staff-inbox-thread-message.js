@@ -278,6 +278,16 @@ async function persistOpenDemoLiveReplyThreadMessage(pg, input, sendResult) {
   });
 }
 
+// Mirror a booking confirmation that Luna sent to the guest into the staff inbox
+// thread, so staff see it like any other outbound message.
+async function persistBookingConfirmationThreadMessage(pg, input, sendResult) {
+  return persistOutboundThreadMessage(pg, input, sendResult, {
+    source: 'booking_confirmation',
+    route: 'whatsapp',
+    send_kind: 'confirmation',
+  });
+}
+
 async function persistHermesLunaInboundThreadMessage(pg, input) {
   const payload = input || {};
   const clientSlug = trimStr(payload.client_slug);
@@ -446,4 +456,5 @@ module.exports = {
   persistHermesLunaInboundThreadMessage,
   persistHermesLunaOutboundThreadMessage,
   persistStaffInboxSentThreadMessage,
+  persistBookingConfirmationThreadMessage,
 };

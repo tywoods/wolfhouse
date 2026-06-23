@@ -138,6 +138,12 @@ function appendDepositBalanceArrivalOptions(message, balanceDueCents, language) 
   if (lang === 'it') {
     return `${message}\n\nIl saldo restante di ${amount} può essere saldato all'arrivo/check-in in contanti, bonifico o chiedendomi un link di pagamento.`;
   }
+  if (lang === 'de') {
+    return `${message}\n\nEuer Restbetrag von ${amount} kann bei Anreise/Check-in bar, per Überweisung oder über einen Zahlungslink (frag mich einfach) beglichen werden.`;
+  }
+  if (lang === 'es') {
+    return `${message}\n\nEl saldo restante de ${amount} se puede pagar a la llegada/check-in en efectivo, por transferencia o pidiéndome un enlace de pago.`;
+  }
   return `${message}\n\nYour remaining balance of ${amount} can be settled on arrival/check-in by cash, bank transfer, or ask me for a payment link.`;
 }
 

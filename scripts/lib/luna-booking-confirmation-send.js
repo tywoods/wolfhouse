@@ -9,6 +9,35 @@
 
 const { getLunaBookingConfirmationPreview } = require('./luna-booking-confirmation-preview');
 const { evaluateGuestReplySendRouteWithPause } = require('./luna-guest-reply-send-route');
+const { persistBookingConfirmationThreadMessage } = require('./luna-staff-inbox-thread-message');
+
+// Best-effort: mirror a successfully-sent confirmation into the staff inbox thread.
+// Resolves the conversation by (client_slug, guest phone). Never throws — a mirror
+// failure must not affect the confirmation send result.
+async function mirrorConfirmationToStaffInbox(pg, { clientSlug, to, messageText, idempotencyKey }, sendResult) {
+  try {
+    if (!pg || typeof pg.query !== 'function' || !to || !messageText) return;
+    const convRes = await pg.query(
+      `SELECT c.id::text AS id
+         FROM conversations c
+         JOIN clients cl ON cl.id = c.client_id
+        WHERE cl.slug = $1 AND c.phone = $2
+        ORDER BY c.updated_at DESC
+        LIMIT 1`,
+      [clientSlug, to],
+    );
+    const conversationId = convRes.rows[0] && convRes.rows[0].id;
+    if (!conversationId) return;
+    await persistBookingConfirmationThreadMessage(pg, {
+      client_slug: clientSlug,
+      conversation_id: conversationId,
+      message_text: messageText,
+      idempotency_key: idempotencyKey,
+    }, sendResult);
+  } catch (_) {
+    /* best-effort mirror; never block the confirmation */
+  }
+}
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -314,6 +343,13 @@ async function sendLunaBookingConfirmation(input, context = {}) {
     out.confirmation_already_sent = true;
     out.duplicate = true;
   }
+
+  await mirrorConfirmationToStaffInbox(pg, {
+    clientSlug,
+    to,
+    messageText: preview.message_preview,
+    idempotencyKey,
+  }, sendResult);
 
   return { ok: true, status: 200, result: out };
 }
