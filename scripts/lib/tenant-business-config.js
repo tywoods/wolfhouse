@@ -15,7 +15,6 @@ const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-cl
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
 const { priceIdFromParts } = require('./sunset-admin-location-store');
-const { loadSurfPacksFromDb, defaultPackConfig } = require('./sunset-admin-pack-rules');
 
 const SUNSET_ADMIN_CLIENT = 'sunset';
 const DEFAULT_DAILY_CAP = 24;
@@ -58,6 +57,10 @@ function flattenOfferingPrices(offerings, category, currency) {
     }
   }
   return prices;
+}
+
+function defaultSurfPacksFromConfig() {
+  return [];
 }
 
 function loadLessonTimesFromConfig(cfg) {
@@ -274,7 +277,7 @@ function resolveFromConfigFile(clientSlug) {
       prices: [],
       lesson_capacity: { default_daily_cap: DEFAULT_DAILY_CAP, overrides: [] },
       lesson_times: [],
-      surf_packs: [],
+      surf_packs: defaultSurfPacksFromConfig(),
       business_info: buildBusinessInfo(slug, null),
       change_history: [],
     };
@@ -422,6 +425,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const prices = mapPriceRows(priceRes.rows);
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
   const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
+  const { loadSurfPacksFromDb } = require('./sunset-admin-pack-rules');
   const surf_packs = await loadSurfPacksFromDb(client, slug, loc);
   const change_history = mapAuditRows(auditRes.rows);
 
@@ -458,10 +462,14 @@ function mergeDbWithConfig(configBaseline, dbResult) {
   const lesson_timesRaw = dbResult.lesson_times.length ? dbResult.lesson_times : configBaseline.lesson_times;
   const lesson_times = attachLessonPrices(lesson_timesRaw, prices);
   const change_history = dbResult.change_history.length ? dbResult.change_history : configBaseline.change_history;
+  const surf_packs = dbResult.surf_packs && dbResult.surf_packs.length
+    ? dbResult.surf_packs
+    : (configBaseline.surf_packs || []);
 
   const hasAnyDb = dbResult.prices.length > 0
     || dbResult.lesson_capacity.fromDb
     || dbResult.lesson_times.length > 0
+    || (dbResult.surf_packs && dbResult.surf_packs.length > 0)
     || dbResult.change_history.length > 0;
 
   return {

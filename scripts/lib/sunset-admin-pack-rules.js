@@ -211,17 +211,25 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
     );
     const row = inserted.rows[0];
     await client.query('COMMIT');
-    await upsertPackPriceTiers(client, {
-      clientSlug,
-      locationId: loc,
-      packId: row.id,
-      packLabel: label,
-      tiers: cfg.price_tiers,
-      actor,
-    });
+    try {
+      await upsertPackPriceTiers(client, {
+        clientSlug,
+        locationId: loc,
+        packId: row.id,
+        packLabel: label,
+        tiers: cfg.price_tiers,
+        actor,
+      });
+    } catch (tierErr) {
+      return {
+        ok: false,
+        status: 500,
+        body: { success: false, error: 'pack_price_tiers_failed', message: tierErr.message },
+      };
+    }
     return { ok: true, status: 201, body: { success: true, surf_pack: mapPackRow(row) } };
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (_) { /* already committed or idle */ }
     throw err;
   }
 }

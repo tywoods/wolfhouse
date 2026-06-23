@@ -630,7 +630,7 @@ async function upsertConfigLessonTimeRule(client, { slotId, clientSlug, location
     ? patch.weekdays_active
     : (LESSON_FREQUENCY_PRESETS[freqKey] || LESSON_FREQUENCY_PRESETS.daily);
   const dbPatch = {
-    label: patch.label != null ? patch.label : (baseSlot.offering_label || 'Surf lesson'),
+    label: patch.label != null ? patch.label : ((baseSlot && baseSlot.offering_label) || 'Surf lesson'),
     time_local: patch.time_local != null ? patch.time_local : parsedTimes.timeLocal,
     time_local_end: patch.time_local_end !== undefined ? patch.time_local_end : parsedTimes.timeLocalEnd,
     lesson_type: String(slotId),
@@ -645,8 +645,8 @@ async function upsertConfigLessonTimeRule(client, { slotId, clientSlug, location
   const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   const existing = await client.query(
     hasLoc
-      ? `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND location_id = $2 AND lesson_type = $3 AND active = true FOR UPDATE`
-      : `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND lesson_type = $2 AND active = true FOR UPDATE`,
+      ? `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND location_id = $2 AND lesson_type = $3 AND active = true`
+      : `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND lesson_type = $2 AND active = true`,
     hasLoc ? [clientSlug, loc, String(slotId)] : [clientSlug, String(slotId)],
   );
   if (existing.rows[0]) {
