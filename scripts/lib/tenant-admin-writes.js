@@ -9,6 +9,8 @@ const {
   SUNSET_ADMIN_CLIENT,
   adminConfigTableHasLocationColumn,
   adminConfigTablesExist,
+  resolveFromConfigFile,
+  loadLessonTimesFromConfig,
 } = require('./tenant-business-config');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
@@ -604,9 +606,120 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
   });
 }
 
+function parseConfigSlotTimes(slotTime) {
+  const text = String(slotTime || '').trim();
+  if (!text) return { timeLocal: null, timeLocalEnd: null };
+  if (text.includes('-')) {
+    const parts = text.split('-').map((s) => s.trim());
+    return { timeLocal: parts[0] || null, timeLocalEnd: parts[1] || null };
+  }
+  return { timeLocal: text, timeLocalEnd: null };
+}
+
+async function upsertConfigLessonTimeRule(client, { slotId, clientSlug, locationId, patch, actor }) {
+  const loc = normalizeSunsetLocationId(locationId);
+  const baseline = resolveFromConfigFile(clientSlug);
+  const configSlots = loadLessonTimesFromConfig(baseline.ok ? baseline : {});
+  const baseSlot = configSlots.find((s) => String(s.slot_id) === String(slotId));
+  if (!baseSlot) {
+    return { ok: false, status: 404, body: { success: false, error: 'config_slot_not_found' } };
+  }
+  const parsedTimes = parseConfigSlotTimes(baseSlot.slot_time);
+  const freqKey = patch.frequency != null ? patch.frequency : 'daily';
+  const weekdays = patch.weekdays_active != null
+    ? patch.weekdays_active
+    : (LESSON_FREQUENCY_PRESETS[freqKey] || LESSON_FREQUENCY_PRESETS.daily);
+  const dbPatch = {
+    label: patch.label != null ? patch.label : (baseSlot.offering_label || 'Surf lesson'),
+    time_local: patch.time_local != null ? patch.time_local : parsedTimes.timeLocal,
+    time_local_end: patch.time_local_end !== undefined ? patch.time_local_end : parsedTimes.timeLocalEnd,
+    lesson_type: String(slotId),
+    weekdays_active: weekdays,
+    active: true,
+  };
+  if (patch.capacity != null) dbPatch.capacity = patch.capacity;
+  if (!dbPatch.time_local) {
+    return { ok: false, status: 400, body: { success: false, error: 'time_local required' } };
+  }
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_lesson_time_rules');
+  const hasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
+  const existing = await client.query(
+    hasLoc
+      ? `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND location_id = $2 AND lesson_type = $3 AND active = true FOR UPDATE`
+      : `SELECT * FROM tenant_lesson_time_rules WHERE client_slug = $1 AND lesson_type = $2 AND active = true FOR UPDATE`,
+    hasLoc ? [clientSlug, loc, String(slotId)] : [clientSlug, String(slotId)],
+  );
+  if (existing.rows[0]) {
+    const mergedPatch = {
+      label: dbPatch.label,
+      time_local: dbPatch.time_local,
+      time_local_end: dbPatch.time_local_end,
+      capacity: dbPatch.capacity,
+      weekdays_active: dbPatch.weekdays_active,
+      amount_cents: patch.amount_cents,
+      frequency: patch.frequency,
+    };
+    return patchLessonTimeRule(client, {
+      ruleId: existing.rows[0].id,
+      clientSlug,
+      locationId: loc,
+      patch: mergedPatch,
+      actor,
+    });
+  }
+  return createLessonTimeRule(client, {
+    clientSlug,
+    locationId: loc,
+    patch: {
+      ...dbPatch,
+      amount_cents: patch.amount_cents,
+      currency: patch.currency || 'EUR',
+    },
+    actor,
+  });
+}
+
 async function deactivatePriceRule(client, { ruleId, clientSlug, locationId, actor }) {
   const tablesExist = await adminConfigTablesExist(client);
   const loc = normalizeSunsetLocationId(locationId);
+  const parsedCfg = locationStore.parseConfigPriceId(ruleId);
+  if (parsedCfg) {
+    if (parsedCfg.locationId !== loc) {
+      return { ok: false, status: 403, body: { success: false, error: 'location_mismatch' } };
+    }
+    if (!tablesExist) {
+      const result = locationStore.deactivateConfigPrice(
+        loc,
+        parsedCfg.category,
+        parsedCfg.offering_key,
+        parsedCfg.unit,
+      );
+      if (!result.ok) return result;
+      locationStore.appendLocationAudit(loc, {
+        action: 'deactivate',
+        entity_type: 'price_rule',
+        entity_id: ruleId,
+        actor_email: actor.email || 'unknown',
+        after_json: result.body,
+      });
+      return { ...result, body: { ...result.body, success: true, storage: 'location_store' } };
+    }
+    const itemType = mapCategoryToItemType(parsedCfg.category);
+    const itemCode = buildDbItemCode(parsedCfg.offering_key, parsedCfg.unit);
+    const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+    const row = await findPriceRuleRow(client, {
+      clientSlug, locationId: loc, itemType, itemCode, hasLoc,
+    });
+    if (!row.rows[0]) {
+      return { ok: true, status: 200, body: { success: true, storage: 'noop' } };
+    }
+    return deactivatePriceRule(client, {
+      ruleId: row.rows[0].id,
+      clientSlug,
+      locationId: loc,
+      actor,
+    });
+  }
   if (!tablesExist) {
     return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
   }
@@ -940,15 +1053,13 @@ async function patchLessonTimeRule(client, { ruleId, clientSlug, locationId, pat
   }
 
   if (locationStore.isConfigTimeId(ruleId)) {
-    return {
-      ok: false,
-      status: 409,
-      body: {
-        success: false,
-        error: 'config_slot_use_db_uuid',
-        message: 'Lesson time edits require DB-backed slot ids after admin tables exist',
-      },
-    };
+    return upsertConfigLessonTimeRule(client, {
+      slotId: ruleId,
+      clientSlug,
+      locationId: loc,
+      patch,
+      actor,
+    });
   }
 
   if (!tablesExist) {

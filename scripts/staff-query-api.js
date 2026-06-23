@@ -16172,6 +16172,9 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .portal-admin-compact-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px;margin-top:8px}
 .portal-admin-subsection{margin-top:10px}.portal-admin-subsection:first-child{margin-top:0}
 .portal-admin-subsection-title-row{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.portal-admin-subsection-title-group{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.portal-admin-subsection-title-group .portal-admin-subsection-title{margin-bottom:0}
+.portal-admin-lesson-card .portal-admin-card-actions .portal-admin-icon-btn:not(.portal-admin-danger){font-size:10px;padding:0 4px;line-height:1.15;min-height:16px;border-radius:4px}
 .portal-admin-subsection-title{font-size:12px;font-weight:850;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin:0 0 6px}
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
@@ -21840,6 +21843,25 @@ function adminApiRequest(method, path, body){
   });
 }
 
+function adminReloadConfigKeepingEdit(keepTarget){
+  var saved = keepTarget || null;
+  adminSaveBusy = false;
+  var url = '/staff/admin/config' + adminClientQuery();
+  fetch(url, { credentials: 'same-origin', headers: { Accept: 'application/json' } })
+    .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data){
+      if (!data || data.success !== true) return Promise.reject(new Error('load failed'));
+      adminConfigCache = data;
+      adminEditTarget = saved;
+      renderAdminFromConfig(data);
+    })
+    .catch(function(e){
+      adminEditTarget = saved;
+      adminShowMessage('error', portalT('admin.error') + ' ' + e.message);
+      if (adminConfigCache) renderAdminFromConfig(adminConfigCache);
+    });
+}
+
 function adminReloadConfig(){
   adminEditTarget = null;
   adminSaveBusy = false;
@@ -22127,11 +22149,7 @@ function renderAdminPriceCardEditForm(pid, p, groupKey){
     '<select id="admin-price-period-' + escHtml(pid) + '">' + adminRentalPeriodOptions(period) + '</select></div>' +
     '<div><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
     '<input type="text" id="admin-price-amount-' + escHtml(pid) + '" value="' + escHtml(adminEurosFromAmount(p.amount)) + '" inputmode="decimal"></div>' +
-    '<div class="portal-admin-price-card-edit-actions">' +
-    '<button type="button" class="btn btn-primary" data-admin-action="save-price" data-price-id="' + escHtml(pid) + '">' +
-    escHtml(portalT('admin.action.save')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
-    '</div></div>';
+    '</div>';
 }
 
 function renderAdminAddPriceForm(groupKey){
@@ -22165,7 +22183,8 @@ function renderAdminSectionPricesFromConfig(cfg){
     var groupEditing = writes && adminEditTarget === ('price-group:' + key);
     var adding = writes && adminEditTarget === ('price-add:' + key);
     html += '<div class="portal-admin-subsection" data-admin-price-group="' + escHtml(key) + '">';
-    html += '<div class="portal-admin-subsection-title-row"><h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
+    html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+    html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
     if (writes){
       var busyOther = adminEditTarget && !groupEditing && !adding;
       if (!busyOther){
@@ -22173,17 +22192,20 @@ function renderAdminSectionPricesFromConfig(cfg){
         if (!groupEditing){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-price-group" data-price-group="' +
             escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button>';
+          if (!adding){
+            html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-price" data-price-group="' +
+              escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
+          }
         } else {
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.done')) + '</button>';
-        }
-        if (!adding && !groupEditing){
-          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-price" data-price-group="' +
-            escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
+          html += '<button type="button" class="btn btn-primary portal-admin-row-edit" data-admin-action="save-price-group" data-price-group="' +
+            escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button>';
+          html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' +
+            escHtml(portalT('admin.action.cancel')) + '</button>';
         }
         html += '</div>';
       }
     }
-    html += '</div>';
+    html += '</div></div>';
     if (!items.length && !adding){
       html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.emptyCategory')) + '</p>';
     }
@@ -22295,11 +22317,12 @@ function adminIsLessonSlot(s){
 function renderAdminLessonCards(slots, cfg, writes, defaultCap){
   var html = '';
   var lessons = (slots || []).filter(adminIsLessonSlot);
-  html += '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.lessonTimes.lessonsTitle')) + '</h3>';
+  html += '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.lessonTimes.lessonsTitle')) + '</h3>';
   if (writes && !adminEditTarget){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-time" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
-  html += '</div><p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.lessonsHelp')) + '</p>';
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.lessonsHelp')) + '</p>';
   if (writes && adminEditTarget === 'time:new') html += renderAdminAddTimeForm();
   if (!lessons.length && adminEditTarget !== 'time:new'){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.lessonTimes.placeholder')) + '</p></div>';
@@ -22338,11 +22361,12 @@ function renderAdminLessonCards(slots, cfg, writes, defaultCap){
   return html + '</div></div>';
 }
 function renderAdminPackCards(packs, writes){
-  var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.packs.title')) + '</h3>';
+  var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.packs.title')) + '</h3>';
   if (writes && !adminEditTarget){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-pack" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
-  html += '</div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
   if (writes && adminEditTarget === 'pack:new') html += renderAdminPackEditForm('', adminDefaultPackSeed());
   var list = packs && packs.length ? packs : [];
   if (!list.length && adminEditTarget !== 'pack:new'){
@@ -22497,7 +22521,7 @@ function wireAdminTab(){
       }
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack'){
       if (!adminCfgWritesEnabled(cfg)){ adminShowMessage('error', portalT('admin.banner.writesDisabled')); return; }
     }
     if (action === 'edit-capacity'){
@@ -22527,6 +22551,7 @@ function wireAdminTab(){
     if (action === 'delete-price'){
       var deletePriceId = String(btn.getAttribute('data-price-id') || '');
       if (!deletePriceId || !window.confirm(portalT('admin.edit.confirmRemovePrice'))) return;
+      var keepGroupEdit = adminEditTarget && String(adminEditTarget).indexOf('price-group:') === 0 ? adminEditTarget : null;
       adminSaveBusy = true;
       adminShowMessage('', '');
       adminApiRequest('DELETE', '/staff/admin/config/prices/' + encodeURIComponent(deletePriceId) + adminClientQuery(), {})
@@ -22537,7 +22562,7 @@ function wireAdminTab(){
             return;
           }
           adminShowMessage('success', portalT('admin.edit.removedPrice'));
-          adminReloadConfig();
+          adminReloadConfigKeepingEdit(keepGroupEdit);
         }).catch(function(err){
           adminSaveBusy = false;
           adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
