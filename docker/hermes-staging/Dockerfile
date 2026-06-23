@@ -1,7 +1,7 @@
 # Back on latest (v2026.6.5 was too old for our gateway patches → container
 # wouldn't start). The 2026-06-15 latest ships gpt-5.5 auto-compaction; we disable
 # it via config (compression.codex_gpt55_autoraise: false) instead of downgrading.
-FROM docker.io/nousresearch/hermes-agent:latest
+FROM docker.io/nousresearch/hermes-agent@sha256:7ad6ac6479ca777f2b44c2f703f74dcf3468d913a5b3aa174746a3260e18cc31
 ENV PYTHONPATH=/etc/hermes-staging
 
 # Slim inherited Hermes image: drop uv/pip caches and dev-only Node deps (~500MB+).

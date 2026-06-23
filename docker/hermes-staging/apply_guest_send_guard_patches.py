@@ -243,10 +243,26 @@ FOOTER_TRAILING_NEW = """                if _footer_line:
 APPROVAL_GUARD_OLD = """                cmd = approval_data.get("command", "")
                 desc = approval_data.get("description", "dangerous command")
 
+                # Redact credentials from the command before displaying it in
+                # the approval prompt — Tirith's findings are already redacted,
+                # but the raw command string still leaks secrets to the chat
+                # platform (#48456). Applied here so BOTH the button-based
+                # (send_exec_approval) and plain-text fallback paths below use
+                # the redacted value.
+                cmd = _redact_approval_command(cmd)
+
                 # Prefer button-based approval when the adapter supports it."""
 
 APPROVAL_GUARD_NEW = """                cmd = approval_data.get("command", "")
                 desc = approval_data.get("description", "dangerous command")
+
+                # Redact credentials from the command before displaying it in
+                # the approval prompt — Tirith's findings are already redacted,
+                # but the raw command string still leaks secrets to the chat
+                # platform (#48456). Applied here so BOTH the button-based
+                # (send_exec_approval) and plain-text fallback paths below use
+                # the redacted value.
+                cmd = _redact_approval_command(cmd)
 
                 try:
                     from wolfhouse.guest_send_guard import is_luna_guest_whatsapp
