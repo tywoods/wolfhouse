@@ -464,7 +464,8 @@
     "verify:sunset-admin": "node scripts/verify-sunset-admin-render.js",
     "verify:sunset-admin-i18n": "node scripts/verify-sunset-admin-i18n.js",
     "verify:sunset-admin-pure": "node scripts/verify-sunset-admin-pure.js",
-    "verify:sunset-admin-helper-parity": "node scripts/verify-sunset-admin-helper-parity.js"
+    "verify:sunset-admin-helper-parity": "node scripts/verify-sunset-admin-helper-parity.js",
+    "verify:sunset-package-runtime": "node scripts/verify-sunset-package-runtime.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
