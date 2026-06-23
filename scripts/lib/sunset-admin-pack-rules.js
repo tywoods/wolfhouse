@@ -14,6 +14,16 @@ const PACK_BEACHES = new Set(['el_sardinero', 'liencres', 'somo']);
 const PACK_AGE_BANDS = new Set(['all_ages', '6_and_up', '6_to_11', '12_and_up']);
 const PACK_WEEKLY = new Set(['daily', 'mon_fri', 'sat_sun']);
 const PACK_SCHEDULE_KEYS = new Set(['0930_1130', '1215_1415']);
+// Accept any well-formed HHMM_HHMM time window (valid 24h times, end after
+// start) instead of a fixed whitelist — the admin form lets staff enter
+// custom pack times. The two legacy preset keys still validate.
+function isValidPackScheduleKey(key) {
+  const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(key || '').trim());
+  if (!m) return false;
+  const start = Number(m[1]) * 60 + Number(m[2]);
+  const end = Number(m[3]) * 60 + Number(m[4]);
+  return end > start;
+}
 const PACK_GROUP_SIZES = new Set([8, 12, 16, 20, 24]);
 const PACK_TIER_KEYS = new Set(['1_week', '2_weeks', '3_weeks', '4_weeks', 'single_class']);
 
@@ -95,7 +105,7 @@ function validatePackBody(body, { requireLabel } = {}) {
     const schedules = [];
     for (const s of body.schedules) {
       const key = String(s).trim();
-      if (!PACK_SCHEDULE_KEYS.has(key)) return { ok: false, error: 'invalid schedule' };
+      if (!isValidPackScheduleKey(key)) return { ok: false, error: 'invalid schedule' };
       if (!schedules.includes(key)) schedules.push(key);
     }
     out.schedules = schedules;
