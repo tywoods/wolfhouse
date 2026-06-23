@@ -625,7 +625,7 @@ function renderAdminPackCards(packs, writes){
     html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-pack" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
   }
   html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
-  if (writes && adminEditTarget === 'pack:new') html += renderAdminPackEditForm('', adminDefaultPackSeed());
+  if (writes && adminEditTarget === 'pack:new') html += adminRenderPackEditForm('', adminDefaultPackSeed());
   var list = packs && packs.length ? packs : [];
   if (!list.length && adminEditTarget !== 'pack:new'){
     html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.packs.placeholder')) + '</p></div>';
@@ -644,7 +644,7 @@ function renderAdminPackCards(packs, writes){
         escHtml(pid) + '">×</button></div>';
     }
     html += '</div>';
-    if (editing) html += renderAdminPackEditForm(pid, p);
+    if (editing) html += adminRenderPackEditForm(pid, p);
     else {
       html += adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true);
       html += adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false);

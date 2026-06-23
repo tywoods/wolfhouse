@@ -850,7 +850,16 @@ async function upsertConfigPriceRule(client, {
         ? ['sunset', clientSlug, loc, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null]
         : ['sunset', clientSlug, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null];
       const inserted = await client.query(
-        `INSERT INTO tenant_price_rules ${insertCols} VALUES ${insertVals} RETURNING *`,
+        `INSERT INTO tenant_price_rules ${insertCols} VALUES ${insertVals}
+           ON CONFLICT (client_slug, item_type, item_code, unit, COALESCE(effective_from, DATE '1970-01-01'))
+           WHERE active = true
+           DO UPDATE SET
+             display_name = EXCLUDED.display_name,
+             currency     = EXCLUDED.currency,
+             amount_cents = EXCLUDED.amount_cents,
+             updated_at   = NOW(),
+             updated_by   = EXCLUDED.updated_by
+           RETURNING *`,
         insertParams,
       );
       after = inserted.rows[0];
