@@ -849,20 +849,41 @@ async function upsertConfigPriceRule(client, {
       const insertParams = hasLoc
         ? ['sunset', clientSlug, loc, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null]
         : ['sunset', clientSlug, itemType, itemCode, displayName, currency, amountCents, dbUnit, actor.staff_user_id || null];
-      const inserted = await client.query(
-        `INSERT INTO tenant_price_rules ${insertCols} VALUES ${insertVals}
-           ON CONFLICT (client_slug, item_type, item_code, unit, COALESCE(effective_from, DATE '1970-01-01'))
-           WHERE active = true
-           DO UPDATE SET
-             display_name = EXCLUDED.display_name,
-             currency     = EXCLUDED.currency,
-             amount_cents = EXCLUDED.amount_cents,
-             updated_at   = NOW(),
-             updated_by   = EXCLUDED.updated_by
-           RETURNING *`,
-        insertParams,
-      );
-      after = inserted.rows[0];
+      // Index-agnostic upsert: plain INSERT, and if a duplicate active row
+      // trips ANY unique index (parallel group-save race, or a find-miss due
+      // to location/unit scoping), roll back just the insert and update the
+      // existing active row instead of returning a 500. Avoids depending on
+      // the exact ON CONFLICT target, which differs across migrations 021/023.
+      await client.query('SAVEPOINT price_ins');
+      try {
+        const inserted = await client.query(
+          `INSERT INTO tenant_price_rules ${insertCols} VALUES ${insertVals} RETURNING *`,
+          insertParams,
+        );
+        after = inserted.rows[0];
+      } catch (insErr) {
+        if (!insErr || insErr.code !== '23505') throw insErr;
+        await client.query('ROLLBACK TO SAVEPOINT price_ins');
+        const updSql = hasLoc
+          ? `UPDATE tenant_price_rules
+                SET display_name = $5, currency = $6, amount_cents = $7,
+                    updated_at = NOW(), updated_by = $8::uuid
+              WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+                AND unit = $4 AND active = true AND location_id = $9
+              RETURNING *`
+          : `UPDATE tenant_price_rules
+                SET display_name = $5, currency = $6, amount_cents = $7,
+                    updated_at = NOW(), updated_by = $8::uuid
+              WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+                AND unit = $4 AND active = true
+              RETURNING *`;
+        const updParams = hasLoc
+          ? [clientSlug, itemType, itemCode, dbUnit, displayName, currency, amountCents, actor.staff_user_id || null, loc]
+          : [clientSlug, itemType, itemCode, dbUnit, displayName, currency, amountCents, actor.staff_user_id || null];
+        const updated = await client.query(updSql, updParams);
+        after = updated.rows[0] || null;
+        if (!after) throw insErr;
+      }
     }
 
     await insertConfigAudit(client, {

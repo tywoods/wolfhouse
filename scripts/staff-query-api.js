@@ -32757,7 +32757,8 @@ async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin.config.price_patch] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -32803,7 +32804,8 @@ async function handleAdminConfigPricePost(query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin.config.price_create] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
