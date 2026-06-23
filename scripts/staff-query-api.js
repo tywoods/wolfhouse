@@ -316,6 +316,7 @@ const {
   getLunaGuestNotesFromMetadata,
 } = require('./lib/luna-guest-booking-notes');
 const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
+const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
@@ -21822,33 +21823,8 @@ function adminParseEurosToCents(text){
   return { ok: true, value: Math.round(n * 100) };
 }
 
-function adminParseCapacity(text){
-  var n = parseInt(String(text || '').trim(), 10);
-  if (!Number.isInteger(n) || n < 1 || n > 999) return { ok: false, error: portalT('admin.edit.capacityInvalid') };
-  return { ok: true, value: n };
-}
-
-function adminParseTimeHm(text){
-  var t = String(text || '').trim();
-  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) return { ok: false, error: portalT('admin.edit.timeInvalid') };
-  return { ok: true, value: t };
-}
-
-function adminSlotTimeStart(slotTime){
-  var raw = String(slotTime || '').trim();
-  if (!raw) return '';
-  return raw.split('-')[0].trim();
-}
-
-function adminSlotTimeEnd(slotTime){
-  var raw = String(slotTime || '').trim();
-  if (!raw) return '';
-  var parts = raw.split('-');
-  if (parts.length < 2) return '';
-  return parts[parts.length - 1].trim();
-}
-
-function adminApiRequest(method, path, body){
+/* sunset-admin-ui-helpers: injected from scripts/lib/sunset-admin-ui-helpers.js */
+${getSunsetAdminBrowserHelperSource()}function adminApiRequest(method, path, body){
   var opts = { method: method, headers: { Accept: 'application/json' }, credentials: 'same-origin' };
   if (body != null){
     opts.headers['Content-Type'] = 'application/json';
@@ -21884,37 +21860,9 @@ function adminReloadConfig(){
   adminEditTarget = null;
   adminSaveBusy = false;
   loadAdminTab();
-}
-
-function adminHumanizeText(value){
-  var text = String(value || '').trim();
-  if (!text) return '—';
-  text = text.replace(/^cfg:[^:]+:/, '');
-  text = text.replace(/_/g, ' ');
-  text = text.replace(/\s+/g, ' ').trim();
-  text = text.replace(/(\d+) day pack surfer/i, '$1 day pack');
-  text = text.replace(/1 hour/i, '1 hour');
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
-function adminIsLessonPrice(p){
+}function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
-}
-
-function adminSlotDurationLabel(slotTime){
-  var start = adminSlotTimeStart(slotTime);
-  var end = adminSlotTimeEnd(slotTime);
-  if (!start || !end) return '—';
-  var sm = Number(start.slice(0,2)) * 60 + Number(start.slice(3,5));
-  var em = Number(end.slice(0,2)) * 60 + Number(end.slice(3,5));
-  if (!Number.isFinite(sm) || !Number.isFinite(em) || em <= sm) return '—';
-  var mins = em - sm;
-  if (mins % 60 === 0) return String(mins / 60) + 'h';
-  return String(Math.floor(mins / 60)) + 'h ' + String(mins % 60) + 'm';
-}
-
-
-function adminLessonKindOptions(selected){
+}function adminLessonKindOptions(selected){
   return ['lesson', 'pack'].map(function(k){
     var sel = (selected === k) ? ' selected' : '';
     return '<option value="' + escHtml(k) + '"' + sel + '>' + escHtml(portalT('admin.lesson.kind.' + k)) + '</option>';
