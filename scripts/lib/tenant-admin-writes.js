@@ -620,11 +620,11 @@ async function upsertConfigLessonTimeRule(client, { slotId, clientSlug, location
   const loc = normalizeSunsetLocationId(locationId);
   const baseline = resolveFromConfigFile(clientSlug);
   const configSlots = loadLessonTimesFromConfig(baseline.ok ? baseline : {});
-  const baseSlot = configSlots.find((s) => String(s.slot_id) === String(slotId));
-  if (!baseSlot) {
-    return { ok: false, status: 404, body: { success: false, error: 'config_slot_not_found' } };
+  const baseSlot = configSlots.find((s) => String(s.slot_id) === String(slotId)) || null;
+  const parsedTimes = parseConfigSlotTimes(baseSlot && baseSlot.slot_time);
+  if (!baseSlot && !patch.time_local) {
+    return { ok: false, status: 400, body: { success: false, error: 'time_local required' } };
   }
-  const parsedTimes = parseConfigSlotTimes(baseSlot.slot_time);
   const freqKey = patch.frequency != null ? patch.frequency : 'daily';
   const weekdays = patch.weekdays_active != null
     ? patch.weekdays_active
