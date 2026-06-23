@@ -32844,7 +32844,8 @@ async function handleAdminConfigPriceDelete(ruleIdRaw, query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -32889,7 +32890,8 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -32934,7 +32936,8 @@ async function handleAdminConfigLessonTimePost(query, req, res, user) {
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -32983,7 +32986,8 @@ async function handleAdminConfigLessonTimePatch(ruleIdRaw, query, req, res, user
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -33003,7 +33007,8 @@ async function handleAdminConfigSurfPackPost(query, req, res, user) {
     }));
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -33025,7 +33030,8 @@ async function handleAdminConfigSurfPackPatch(ruleIdRaw, query, req, res, user) 
     }));
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -33045,7 +33051,8 @@ async function handleAdminConfigSurfPackDelete(ruleIdRaw, query, req, res, user)
     }));
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -33084,7 +33091,8 @@ async function handleAdminConfigLessonTimeDelete(ruleIdRaw, query, req, res, use
     });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
@@ -33305,7 +33313,8 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
   } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'write failed' });
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
   }
 }
 
