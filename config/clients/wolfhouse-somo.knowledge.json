@@ -17,7 +17,9 @@
     "exact_dinner_time",
     "live_surf_conditions",
     "driver_name",
-    "restaurant_names_unverified"
+    "restaurant_names_unverified",
+    "exact_experience_schedule",
+    "exact_experience_price"
   ],
   "escalation_default": {
     "en": "The team will confirm the exact details with you.",
@@ -267,6 +269,21 @@
         "it": "Yoga e cene si possono aggiungere 😊 Orari confermati dal team. Di solito al checkout.",
         "es": "Yoga y cenas se pueden añadir 😊 El equipo confirma horarios. Normalmente al checkout.",
         "de": "Yoga und Abendessen können dazu gebucht werden 😊 Termine bestätigt das Team. Meist beim Checkout."
+      }
+    },
+    {
+      "id": "experiences",
+      "label": "Experiences / extra activities",
+      "visibility": "public",
+      "allowed_guest_answer": true,
+      "requires_staff_confirmation": true,
+      "keywords": ["experience", "experiences", "other activities", "activities", "what else do you do", "what else do you offer", "combo", "motocross", "moto cross", "motorcross", "enduro", "grappling", "grapple", "jiu jitsu", "jiu-jitsu", "bjj", "wrestling", "esperienza", "esperienze", "altre attività", "experiencia", "experiencias", "otras actividades", "actividades", "erlebnis", "aktivitäten"],
+      "facts": ["Beyond surf, Wolfhouse runs combo experiences (e.g. surf + motocross, surf + grappling).", "Exact schedule, details and price are arranged and confirmed by the team.", "Never invent an experience schedule or price."],
+      "templates": {
+        "en": "Yes! Beyond surfing we run combo experiences — like surf + motocross and surf + grappling 🤙 The team sorts the schedule, details and price with you, so I won't guess those — want me to have them reach out?",
+        "it": "Sì! Oltre al surf organizziamo esperienze combo — come surf + motocross e surf + grappling 🤙 Programma, dettagli e prezzo li conferma il team, quindi non li invento — vuoi che ti contattino?",
+        "es": "¡Sí! Además del surf hacemos experiencias combo — como surf + motocross y surf + grappling 🤙 El equipo coordina horario, detalles y precio contigo, así que no los invento — ¿quieres que te escriban?",
+        "de": "Ja! Neben dem Surfen bieten wir Kombi-Erlebnisse — z. B. Surf + Motocross und Surf + Grappling 🤙 Programm, Details und Preis klärt das Team mit dir, daher rate ich nichts vor — sollen sie sich bei dir melden?"
       }
     }
   ]
