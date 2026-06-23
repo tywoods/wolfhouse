@@ -1,0 +1,218 @@
+
+=== GATE ===
+if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack'){
+      if (!adminCfgWritesEnabled(cfg)){ adminShowMessage('error', portalT('admin.banner.writesDisabled')); return; }
+    }
+    if (action === 'edit-capacity'){
+      adminEditTarget = 'capacity';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'cancel-edit'){
+      adminEditTarget = null;
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'edit-price-group'){
+      adminEditTarget = 'price-group:' + String(btn.getAttribute('data-price-group') || '');
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'add-price'){
+   
+
+=== ADD_PACK ===
+if (action === 'add-pack'){
+      adminEditTarget = 'pack:new';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'edit-pack'){
+      adminEditTarget = 'pack:' + String(btn.getAttribute('data-pack-id') || '');
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'delete-pack'){
+      var deletePackId = String(btn.getAttribute('data-pack-id') || '');
+      if (!deletePackId || !window.confirm(portalT('admin.edit.confirmRemovePack'))) return;
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('DELETE', '/staff/admin/config/surf-packs/' + encodeURIComponent(deletePackId) + adminClientQuery(), {})
+        .then(function(res){
+          adminSaveBusy = false;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminShowMessage('success', portalT('admin.edit.removedPack'));
+          adminReloadConfig();
+        }).catch(function(err){
+          adminSaveBusy = false;
+   
+
+=== SAVE_NEW_TIME ===
+if (action === 'save-new-time'){
+      var newLabelInput = el('admin-new-time-label');
+      var newStartInput = el('admin-new-time-start');
+      var newEndInput = el('admin-new-time-end');
+      var newLabel = newLabelInput ? String(newLabelInput.value || '').trim() : '';
+      if (!newLabel){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
+      var newStart = adminParseTimeHm(newStartInput && newStartInput.value);
+      if (!newStart.ok){ adminShowMessage('error', newStart.error); return; }
+      var newCapInput = el('admin-new-time-capacity');
+      var newKindInput = el('admin-new-time-kind');
+      var newAgeInput = el('admin-new-time-age');
+      var newFreqInput = el('admin-new-time-frequency');
+      var newCostInput = el('admin-new-time-cost');
+      var newCapParsed = adminParseCapacity(newCapInput && newCapInput.value);
+      if (!newCapParsed.ok){ adminShowMessage('error', newCapParsed.error); return; }
+      var newCostParsed = adminParseEurosToCents(newCostInput && newCostInput.value);
+      if (!newCostParsed.ok){ adminShowMessage('error', newCostParsed.error); return; }
+      var payload = {
+        label: newLabel,
+        kind: 'lesson',
+
+=== SAVE_TIME ===
+if (action === 'save-time'){
+      var timeId = String(btn.getAttribute('data-time-id') || '');
+      var labelInput = el('admin-time-label');
+      var startInput = el('admin-time-start');
+      var endInput = el('admin-time-end');
+      var capInput = el('admin-time-capacity');
+      var label = labelInput ? String(labelInput.value || '').trim() : '';
+      if (!label){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
+      var timeParsed = adminParseTimeHm(startInput && startInput.value);
+      if (!timeParsed.ok){ adminShowMessage('error', timeParsed.error); return; }
+      var endRaw = endInput ? String(endInput.value || '').trim() : '';
+      var endParsed = { ok: true, value: null };
+      if (endRaw){
+        endParsed = adminParseTimeHm(endRaw);
+        if (!endParsed.ok){ adminShowMessage('error', endParsed.error); return; }
+        if (endParsed.value <= timeParsed.value){ adminShowMessage('error', portalT('admin.edit.endAfterStart')); return; }
+      }
+      var capacityParsed = adminParseCapacity(capInput && capInput.value);
+      if (!capacityParsed.ok){ adminShowMessage('error', capacityParsed.error); return; }
+      var ageInput = el('admin-t
+
+=== SAVE_PRICE_GROUP ===
+if (action === 'save-price-group'){
+      var saveGroup = String(btn.getAttribute('data-price-group') || '');
+      var grid = el('admin-prices-card-grid-' + saveGroup);
+      if (!grid){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
+      var cards = grid.querySelectorAll('[data-admin-price-card]');
+      var jobs = [];
+      var validationError = '';
+      cards.forEach(function(card){
+        var pid = card.getAttribute('data-admin-price-card');
+        if (!pid) return;
+        var periodInput = card.querySelector('[data-admin-price-field="period"]');
+        var amountInput = card.querySelector('[data-admin-price-field="amount"]');
+        var period = periodInput ? String(periodInput.value || '').trim() : '';
+        if (!period){ validationError = portalT('admin.edit.periodRequired'); return; }
+        var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
+        if (!centsParsed.ok){ validationError = centsParsed.error; return; }
+        jobs.push(adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(pid) + adminClientQuery(), {
+          period_window: period,
+          amount_cents: centsParsed.value,
+  
+
+=== PACK_PLUS_RENDER ===
+data-admin-action="add-pack" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
+  }
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
+  if (writes && adminEditTarget === 'pack:new') html += renderAdminPackEditForm('', adminDefaultPackSeed());
+  var list = packs && packs.length ? packs : [];
+  if (!list.length && adminEditTarget !== 'pack:new'){
+    html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.packs.placeholder')) + '</p></div>';
+    return html;
+  }
+  html += '<div class="portal-admin-pack-grid" id="admin-pack-card-grid">';
+  list.forEach(function(p){
+    var pid = (p.pack_id || p.id) ? String(p.pack_id || p.id) : '';
+    var editing = writes && adminEditTarget === ('pack:' + pid);
+    html += '<article class="portal-admin-pack-card" data-admin-pack-card="' + escHtml(pid) + '">';
+    html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
+      '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + ' · ' + escHtml(portalT('admin.packs.groupExclusive').replace('{n}', String(p.g
+BUSY_CHECK: NOT FOUND
+
+=== PACK_SECTION ===
+adminPackSectionEditing(){
+  if (!adminEditTarget) return false;
+  var t = String(adminEditTarget);
+  return t === 'pack:new' || t.indexOf('pack:') === 0;
+}
+
+var adminSaveBusy = false;
+var adminLoadSeq = 0;
+
+function adminCfgWritesEnabled(cfg){
+  return !!(cfg && cfg.writes_enabled === true);
+}
+
+function adminClientQuery(){
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset'){
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
+}
+
+function adminShowMessage(kind, text){
+  var box = el('admin-save-msg');
+  if (!box) return;
+  if (!text){
+    box.style.display = 'none';
+    box.textContent = '';
+    box.className = 'state-msg portal-admin-save-msg';
+    return;
+  }
+  box.className = 'state-msg portal-admin-save-msg ' + (kind === 'error' ? 'error' : 'success');
+  box.textContent = text;
+  box.style.display = 'block';
+}
+
+function adminEurosFromAmount(amount){
+  var n = Number(amount);
+  if (!Number.isFinite(n)) return '';
+  return n.toFixed(2);
+}
+
+function adminParseEurosToCents(text){
+  var normalized = String(text || '').trim().replace(',', '.');
+  if (!normalized) return { ok: false, error: portalT('admin.edit.amountRequ
+
+=== PRICE_CARD_EDIT ===
+portal-admin-price-card-edit select,.portal-admin-price-card-edit input{width:100%;padding:3px 6px;font-size:12px;height:26px;border:1px solid var(--border-soft);border-radius:6px;background:var(--surface);color:var(--text);box-sizing:border-box}
+.portal-admin-price-card-edit-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
+.portal-admin-price-card-edit-actions .btn{font-size:10px;padding:3px 8px}
+.portal-admin-pack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
+.portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.portal-admin-pack-title{font-size:14px;font-weight:800;color:var(--text)}
+.portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
+.portal-admin-pill-group{display:flex;flex-direction:column;gap:4px}
+.portal-admin-pill-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2)}
+.portal-admin-pill-row{display:flex;flex-wrap:wrap;gap:4px}
+.portal-admin-pill{border:1px solid var(--border-soft);background:var(--surface);color:var(--text-2);border-ra
+
+=== RENDER_PACK ===
+function renderAdminPackCards(packs, writes){
+  var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.packs.title')) + '</h3>';
+  if (writes && !adminPackSectionEditing()){
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="add-pack" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button></div>';
+  }
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.packs.help')) + '</p>';
+  if (writes && adminEditTarget === 'pack:new') html += renderAdminPackEditForm('', adminDefaultPackSeed());
+  var list = packs && packs.length ? packs : [];
+  if (!list.length && adminEditTarget !== 'pack:new'){
+    html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.packs.placeholder')) + '</p></div>';
+    return html;
+  }
+  html += '<div class="portal-admin-pack-grid" id="admin-pack-card-grid">';
+  list.forEach(function(p){
+    var pid = (p.pack_id || p.id) ? String(p.pack_id |

@@ -280,6 +280,18 @@ function appendLocationAudit(locationId, entry) {
   writeStoreSync(store);
 }
 
+
+function deactivateConfigPrice(locationId, category, offeringKey, unit) {
+  const loc = normalizeSunsetLocationId(locationId);
+  const store = readStoreSync();
+  const bucket = ensureLocationBucket(store, loc);
+  const key = stablePriceKey(category, offeringKey, unit);
+  if (bucket.prices && bucket.prices[key]) {
+    bucket.prices[key].active = false;
+    writeStoreSync(store);
+  }
+  return { ok: true, body: { price_rule: { id: priceIdFromParts(loc, category, offeringKey, unit), active: false } } };
+}
 module.exports = {
   STORE_PATH,
   CFG_PREFIX,
@@ -287,6 +299,7 @@ module.exports = {
   stablePriceKey,
   priceIdFromParts,
   parseConfigPriceId,
+  deactivateConfigPrice,
   isConfigPriceId,
   isConfigTimeId,
   readStoreSync,

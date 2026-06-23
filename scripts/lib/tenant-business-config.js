@@ -14,6 +14,7 @@
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const locationStore = require('./sunset-admin-location-store');
+const { priceIdFromParts } = require('./sunset-admin-location-store');
 
 const SUNSET_ADMIN_CLIENT = 'sunset';
 const DEFAULT_DAILY_CAP = 24;
@@ -56,6 +57,10 @@ function flattenOfferingPrices(offerings, category, currency) {
     }
   }
   return prices;
+}
+
+function defaultSurfPacksFromConfig() {
+  return [];
 }
 
 function loadLessonTimesFromConfig(cfg) {
@@ -162,6 +167,50 @@ function mapCapacityRows(rows) {
   };
 }
 
+
+function parseAdminLessonType(lessonType) {
+  const raw = String(lessonType || '').trim();
+  const m = raw.match(/^(lesson|pack)__(all_ages|6_and_up|6_to_11|12_and_up)$/);
+  if (m) return { kind: m[1], age_band: m[2] };
+  return { kind: 'lesson', age_band: 'all_ages' };
+}
+
+function lessonSlotPriceItemCode(slotId) {
+  return `lesson_slot_${slotId}__session`;
+}
+
+function detectLessonFrequency(weekdays) {
+  const w = Array.isArray(weekdays) ? weekdays.slice().sort((a, b) => a - b) : [];
+  const key = w.join(',');
+  if (key === '0,1,2,3,4,5,6') return 'daily';
+  if (key === '0,6') return 'sat_sun';
+  if (key === '1,2,3,4,5') return 'mon_fri';
+  return 'daily';
+}
+
+function attachLessonPrices(lessonTimes, prices) {
+  const byCode = new Map();
+  for (const p of prices || []) {
+    if (String(p.category || '').toLowerCase() === 'lesson') {
+      byCode.set(String(p.offering_key || ''), p);
+    }
+  }
+  return (lessonTimes || []).map((slot) => {
+    const code = slot.slot_id ? lessonSlotPriceItemCode(slot.slot_id) : null;
+    const price = code ? byCode.get(code) : null;
+    const parsed = parseAdminLessonType(slot.session_type);
+    return {
+      ...slot,
+      kind: parsed.kind,
+      age_band: parsed.age_band,
+      frequency: detectLessonFrequency(slot.weekdays_active),
+      price_id: price ? price.id : null,
+      price_amount: price ? price.amount : null,
+      price_currency: price ? price.currency : 'EUR',
+    };
+  });
+}
+
 function mapLessonTimeRows(rows) {
   return rows.map((row) => ({
     slot_id: row.id ? String(row.id) : null,
@@ -228,6 +277,7 @@ function resolveFromConfigFile(clientSlug) {
       prices: [],
       lesson_capacity: { default_daily_cap: DEFAULT_DAILY_CAP, overrides: [] },
       lesson_times: [],
+      surf_packs: defaultSurfPacksFromConfig(),
       business_info: buildBusinessInfo(slug, null),
       change_history: [],
     };
@@ -257,6 +307,7 @@ function resolveFromConfigFile(clientSlug) {
       overrides: [],
     },
     lesson_times: loadLessonTimesFromConfig(baseline),
+    surf_packs: [],
     business_info: buildBusinessInfo(slug, baseline),
     change_history: [],
   };
@@ -373,7 +424,9 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
 
   const prices = mapPriceRows(priceRes.rows);
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);
-  const lesson_times = mapLessonTimeRows(timeRes.rows);
+  const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
+  const { loadSurfPacksFromDb } = require('./sunset-admin-pack-rules');
+  const surf_packs = await loadSurfPacksFromDb(client, slug, loc);
   const change_history = mapAuditRows(auditRes.rows);
 
   const lesson_capacity = {
@@ -393,6 +446,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
     prices,
     lesson_capacity,
     lesson_times,
+    surf_packs,
     change_history,
   };
 }
@@ -405,12 +459,17 @@ function mergeDbWithConfig(configBaseline, dbResult) {
       overrides: dbResult.lesson_capacity.overrides,
     }
     : configBaseline.lesson_capacity;
-  const lesson_times = dbResult.lesson_times.length ? dbResult.lesson_times : configBaseline.lesson_times;
+  const lesson_timesRaw = dbResult.lesson_times.length ? dbResult.lesson_times : configBaseline.lesson_times;
+  const lesson_times = attachLessonPrices(lesson_timesRaw, prices);
   const change_history = dbResult.change_history.length ? dbResult.change_history : configBaseline.change_history;
+  const surf_packs = dbResult.surf_packs && dbResult.surf_packs.length
+    ? dbResult.surf_packs
+    : (configBaseline.surf_packs || []);
 
   const hasAnyDb = dbResult.prices.length > 0
     || dbResult.lesson_capacity.fromDb
     || dbResult.lesson_times.length > 0
+    || (dbResult.surf_packs && dbResult.surf_packs.length > 0)
     || dbResult.change_history.length > 0;
 
   return {
@@ -419,6 +478,7 @@ function mergeDbWithConfig(configBaseline, dbResult) {
     prices,
     lesson_capacity,
     lesson_times,
+    surf_packs,
     change_history,
     read_only: true,
   };
@@ -440,11 +500,22 @@ async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
  */
 function withLocationMeta(config, locationId) {
   const loc = normalizeSunsetLocationId(locationId);
-  return {
+  const next = {
     ...config,
     location_id: loc,
     location_label: locationStore.resolveLocationLabel(loc),
   };
+  if (next.prices && Array.isArray(next.prices)) {
+    next.prices = next.prices.map((p) => {
+      if (!p || p.id) return p;
+      const category = p.category || 'rental';
+      const offeringKey = p.offering_key || p.item_code || '';
+      const unit = p.unit || '';
+      if (!offeringKey || !unit) return p;
+      return { ...p, id: priceIdFromParts(loc, category, offeringKey, unit) };
+    });
+  }
+  return next;
 }
 
 async function shouldApplyJsonLocationOverlay(clientSlug, locationId, pgClient) {
@@ -519,6 +590,9 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
 }
 
 module.exports = {
+  attachLessonPrices,
+  parseAdminLessonType,
+
   SUNSET_ADMIN_CLIENT,
   DEFAULT_DAILY_CAP,
   ADMIN_CONFIG_TABLES,
