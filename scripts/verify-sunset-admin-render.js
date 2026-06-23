@@ -18,6 +18,7 @@ const http = require('http');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
+const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
 const BASELINE_DEST = path.join(ROOT, 'config', 'clients', 'sunset.baseline.json');
 const BASELINE_SRC = path.join(ROOT, 'sunset.baseline.json');
 
@@ -92,10 +93,7 @@ function cleanupVerifyArtifacts() {
 }
 
 function extractAdminJsBlock(src) {
-  const start = src.indexOf('var adminConfigCache = null;');
-  const end = src.indexOf('\nvar customersCache = []');
-  if (start < 0 || end < 0 || end <= start) return src;
-  return src.slice(start, end);
+  return getSunsetAdminUiBrowserSource();
 }
 
 function runStaticSourceChecks() {
@@ -106,6 +104,7 @@ function runStaticSourceChecks() {
 
   assert('adminConfigCache block found', admin.length > 500);
   assert('getSunsetAdminBrowserHelperSource() wired', src.includes('getSunsetAdminBrowserHelperSource()'));
+  assert('getSunsetAdminUiBrowserSource() wired', src.includes('getSunsetAdminUiBrowserSource()'));
 
   const usesSlotEnd = src.includes('adminSlotTimeEnd(');
   const definesSlotEnd = /function adminSlotTimeEnd\s*\(/.test(browserSrc);
@@ -116,7 +115,8 @@ function runStaticSourceChecks() {
   assert('no legacy renderAdminPackEditForm calls', legacyPackCalls === 0 || definesLegacyPack,
     legacyPackCalls ? `${legacyPackCalls} call(s) without definition` : '');
 
-  assert('adminRenderPackEditForm defined', src.includes('function adminRenderPackEditForm('));
+  const adminUiSrc = getSunsetAdminUiBrowserSource();
+  assert('adminRenderPackEditForm defined', adminUiSrc.includes('function adminRenderPackEditForm('));
 
   const schoolRefreshCalls = (src.match(/renderAdminSchoolContext\s*\(/g) || []).length;
   const definesSchoolCtx = /function renderAdminSchoolContext\s*\(/.test(src);

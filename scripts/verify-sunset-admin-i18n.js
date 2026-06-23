@@ -15,6 +15,7 @@ const ROOT = path.join(__dirname, '..');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const EN_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 const ES_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n-es-sunset.js');
+const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
 
 let pass = 0;
 let fail = 0;
@@ -51,11 +52,12 @@ function missingKeys(catalogSrc, keys) {
 console.log('\nverify:sunset-admin-i18n — Admin + schedule Admin surface keys\n');
 
 const api = fs.readFileSync(API_PATH, 'utf8');
+const adminUi = getSunsetAdminUiBrowserSource();
 const en = fs.readFileSync(EN_PATH, 'utf8');
 const es = fs.readFileSync(ES_PATH, 'utf8');
 
 const prefixes = ['admin.', 'schedule.card.surfPacks', 'schedule.packs.'];
-const keys = collectPortalKeys(api, prefixes);
+const keys = new Set([...collectPortalKeys(api, prefixes), ...collectPortalKeys(adminUi, prefixes)]);
 
 const missingEn = missingKeys(en, keys);
 const missingEs = missingKeys(es, keys);

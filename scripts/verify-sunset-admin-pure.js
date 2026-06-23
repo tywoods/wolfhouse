@@ -21,6 +21,7 @@ const {
   adminParseCapacity,
   getSunsetAdminBrowserHelperSource,
 } = require('./lib/sunset-admin-ui-helpers');
+const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
@@ -55,6 +56,16 @@ function runStaticInlineHelperChecks() {
     src.includes('getSunsetAdminBrowserHelperSource()'));
   assert('injection marker comment present',
     src.includes('sunset-admin-ui-helpers: injected'));
+  assert('admin UI injection marker present',
+    src.includes('sunset-admin-ui: injected'));
+  const adminUiSrc = getSunsetAdminUiBrowserSource();
+  assert('getSunsetAdminUiBrowserSource() wired in staff-query-api.js',
+    src.includes('getSunsetAdminUiBrowserSource()'));
+  assert('extracted admin UI defines wireAdminTab',
+    /function wireAdminTab\s*\(/.test(adminUiSrc));
+  assert('no inline adminConfigCache in staff-query-api.js',
+    !src.includes('var adminConfigCache = null;'));
+
   for (const name of names) {
     assert(`no duplicate inline function ${name}( in staff-query-api.js`,
       !new RegExp(`function ${name}\\s*\\(`).test(src));

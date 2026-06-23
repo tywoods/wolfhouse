@@ -56,6 +56,24 @@ function main() {
     assert(`scripts["${name}"] defined`, typeof scripts[name] === 'string' && scripts[name].length > 0);
   }
 
+
+  const browserUi = path.join(ROOT, 'scripts', 'browser', 'sunset-admin-ui.js');
+  const staffApi = path.join(ROOT, 'scripts', 'staff-query-api.js');
+  const staffSrc = fs.readFileSync(staffApi, 'utf8');
+  const uiSrc = fs.readFileSync(browserUi, 'utf8');
+
+  assert('scripts/browser/sunset-admin-ui.js exists', fs.existsSync(browserUi));
+  assert('getSunsetAdminUiBrowserSource() wired in staff-query-api.js',
+    staffSrc.includes('getSunsetAdminUiBrowserSource()'));
+  assert('extracted file starts with adminConfigCache',
+    uiSrc.includes('var adminConfigCache = null;'));
+  assert('extracted file defines wireAdminTab',
+    /function wireAdminTab\s*\(/.test(uiSrc));
+  assert('staff-query-api.js has no inline adminConfigCache',
+    !staffSrc.includes('var adminConfigCache = null;'));
+  assert('staff-query-api.js has no duplicate wireAdminTab',
+    !/function wireAdminTab\s*\(/.test(staffSrc));
+
   assert('staff:api runs staff-query-api.js', scripts['staff:api'] === 'node scripts/staff-query-api.js');
 
   console.log('\n' + '─'.repeat(48));

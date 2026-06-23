@@ -17,12 +17,17 @@ function loadSunsetAdminBrowserHelpers() {
   return require('./sunset-admin-ui-helpers');
 }
 
+function loadSunsetAdminBrowserUi() {
+  return require('./sunset-admin-browser-source');
+}
+
 function buildVerifyStaffUiHtml() {
   const {
     getStaffPortalThemeEarlyScript,
     getStaffPortalI18nBootstrapScript,
   } = loadStaffPortalI18n();
   const { getSunsetAdminBrowserHelperSource } = loadSunsetAdminBrowserHelpers();
+  const { getSunsetAdminUiBrowserSource } = loadSunsetAdminBrowserUi();
   const apiPath = path.join(__dirname, '..', 'staff-query-api.js');
   const apiSrc = fs.readFileSync(apiPath, 'utf8');
   const fnStart = apiSrc.indexOf('function buildUiHtml(port)');
@@ -43,6 +48,7 @@ function buildVerifyStaffUiHtml() {
     ['${getStaffPortalThemeEarlyScript()}', getStaffPortalThemeEarlyScript()],
     ['${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}', getStaffPortalI18nBootstrapScript(locales)],
     ['${getSunsetAdminBrowserHelperSource()}', getSunsetAdminBrowserHelperSource()],
+    ['${getSunsetAdminUiBrowserSource()}', getSunsetAdminUiBrowserSource()],
     ['${renderStaffLangSwitchButtons(false)}', ''],
     ['${renderStaffLangSwitchButtons(true)}', ''],
     ['${STAFF_ACTIONS_ENABLED}', 'false'],
