@@ -91,6 +91,10 @@ const {
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
 const {
+  upsertStaffPhoneAccess,
+  deactivateStaffPhoneAccess,
+} = require('./lib/staff-phone-access');
+const {
   computeBalanceDueRows,
   formatAskLunaBalanceDueAnswer,
   matchesBalanceDueQuestion,
@@ -33305,13 +33309,33 @@ async function handleStaffWhatsappNumbersPost(query, req, res, user) {
   try {
     const result = await withPgClient(async (pg) => {
       await ensureStaffWhatsappNumbersTable(pg);
-      return upsertStaffWhatsappNumber(pg, {
+      const up = await upsertStaffWhatsappNumber(pg, {
         clientSlug,
         phone: body.phone,
         permissionGroup: body.permission_group,
         displayName: body.display_name,
         active: body.active,
       });
+      // Sync into staff_phone_access (the table WhatsApp recognition reads) so the number
+      // is recognized over WhatsApp: owner -> owner Command Center (owner insights + ops),
+      // staff -> operator ops. Best-effort; never fails the portal save.
+      if (up.ok) {
+        try {
+          await upsertStaffPhoneAccess(pg, {
+            client_slug: clientSlug,
+            phone: body.phone,
+            display_name: body.display_name,
+            role: body.permission_group === 'owner' ? 'owner' : 'operator',
+            channel: 'whatsapp',
+            is_active: body.active !== false,
+          });
+          up._whatsapp_synced = true;
+        } catch (syncErr) {
+          console.error('[staff.whatsapp_numbers.sync] failed:', syncErr && syncErr.message);
+          up._whatsapp_synced = false;
+        }
+      }
+      return up;
     });
     appendAuditLog({
       ts: new Date().toISOString(),
@@ -33323,7 +33347,7 @@ async function handleStaffWhatsappNumbersPost(query, req, res, user) {
       elapsed_ms: Date.now() - started,
     });
     if (!result.ok) return sendJSON(res, 400, { success: false, error: result.error, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 200, { success: true, number: result.row, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, { success: true, number: result.row, whatsapp_recognition: result._whatsapp_synced === true, elapsed_ms: Date.now() - started });
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'write failed' });
   }
@@ -33338,7 +33362,17 @@ async function handleStaffWhatsappNumbersDelete(idRaw, query, req, res, user) {
   try {
     const result = await withPgClient(async (pg) => {
       await ensureStaffWhatsappNumbersTable(pg);
-      return deleteStaffWhatsappNumber(pg, { clientSlug, id: idRaw });
+      const del = await deleteStaffWhatsappNumber(pg, { clientSlug, id: idRaw });
+      // Revoke the matching WhatsApp recognition row so removing a number here also
+      // removes their WhatsApp access. Best-effort.
+      if (del.ok && del.phone) {
+        try {
+          await deactivateStaffPhoneAccess(pg, { client_slug: clientSlug, phone: del.phone, channel: 'whatsapp' });
+        } catch (syncErr) {
+          console.error('[staff.whatsapp_numbers.sync.delete] failed:', syncErr && syncErr.message);
+        }
+      }
+      return del;
     });
     appendAuditLog({
       ts: new Date().toISOString(),

@@ -157,10 +157,24 @@ async function upsertStaffPhoneAccess(pg, opts = {}) {
   };
 }
 
+async function deactivateStaffPhoneAccess(pg, opts = {}) {
+  const clientSlug = trimStr(opts.client_slug);
+  const channel = trimStr(opts.channel) || 'whatsapp';
+  const phoneNormalized = normalizeStaffPhone(opts.phone);
+  if (!clientSlug || !phoneNormalized) return { ok: false, deactivated: false };
+  const res = await pg.query(
+    `UPDATE staff_phone_access SET is_active = false, updated_at = NOW()
+      WHERE client_slug = $1 AND phone_normalized = $2 AND channel = $3`,
+    [clientSlug, phoneNormalized, channel],
+  );
+  return { ok: true, deactivated: res.rowCount > 0 };
+}
+
 module.exports = {
   VALID_ROLES,
   normalizeStaffPhone,
   formatStaffPhoneE164,
   lookupStaffPhoneAccess,
   upsertStaffPhoneAccess,
+  deactivateStaffPhoneAccess,
 };

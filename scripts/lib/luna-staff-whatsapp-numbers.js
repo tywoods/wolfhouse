@@ -205,10 +205,10 @@ async function deleteStaffWhatsappNumber(pg, opts) {
 
   try {
     const res = await pg.query(
-      `DELETE FROM ${TABLE} WHERE client_slug = $1 AND id = $2::uuid`,
+      `DELETE FROM ${TABLE} WHERE client_slug = $1 AND id = $2::uuid RETURNING phone`,
       [slug, id],
     );
-    return { ok: true, deleted: res.rowCount > 0 };
+    return { ok: true, deleted: res.rowCount > 0, phone: res.rows[0] ? res.rows[0].phone : null };
   } catch (err) {
     if (isMissingStaffWhatsappNumbersTable(err)) {
       return { ok: false, deleted: false, error: 'table_missing' };
