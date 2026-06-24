@@ -80,6 +80,13 @@ const {
 } = require('./lib/payment-ledger-stale-links');
 const { getEntry, REGISTRY, CATEGORIES } = require('./lib/staff-query-registry');
 const {
+  listStaffWhatsappNumbers,
+  upsertStaffWhatsappNumber,
+  deleteStaffWhatsappNumber,
+  resolveStaffWhatsappEntry,
+  ensureStaffWhatsappNumbersTable,
+} = require('./lib/luna-staff-whatsapp-numbers');
+const {
   computeBalanceDueRows,
   formatAskLunaBalanceDueAnswer,
   matchesBalanceDueQuestion,
@@ -1710,6 +1717,10 @@ async function handleAskLuna(req, res) {
 
   // ── Auth ──────────────────────────────────────────────────────────────────
   let staffAccess;
+  // DB-backed access shape (role / owner_insights / allowed_categories) when the
+  // number is recognized via the tenant-scoped DB allowlist; null otherwise.
+  let staffWhatsappAccess = null;
+  let staffWhatsappRecognition = null;
 
   if (source === 'staff_whatsapp') {
     // Phone-based auth: check allowlist config
@@ -1721,37 +1732,53 @@ async function handleAskLuna(req, res) {
       });
     }
 
-    let allowlist;
-    try {
-      allowlist = JSON.parse(fs.readFileSync(STAFF_ALLOWLIST_FILE, 'utf8'));
-    } catch (_) {
-      return sendJSON(res, 403, {
-        success: false, error: 'allowlist_not_configured',
-        detail:  'staff_whatsapp allowlist config not found',
-        sends_whatsapp: false,
-      });
-    }
+    // DB-backed allowlist first (tenant-scoped by client_slug). Falls back to the
+    // static JSON allowlist when the number is not found (or the table is absent).
+    let dbEntry = null;
+    try { dbEntry = await withPgClient((pg) => resolveStaffWhatsappEntry(pg, clientSlug, staffPhone)); } catch (_) { dbEntry = null; }
 
-    if (!allowlist.staff_whatsapp_enabled) {
-      return sendJSON(res, 403, {
-        success: false, error: 'staff_whatsapp_disabled',
-        detail:  'staff_whatsapp_enabled is false in allowlist config',
-        sends_whatsapp: false,
-      });
-    }
+    if (dbEntry && dbEntry.found) {
+      staffAccess = 'allowlisted_phone';
+      staffWhatsappRecognition = 'db_number';
+      staffWhatsappAccess = {
+        role: dbEntry.role,
+        owner_insights: dbEntry.owner_insights,
+        allowed_categories: dbEntry.allowed_categories,
+      };
+    } else {
+      let allowlist;
+      try {
+        allowlist = JSON.parse(fs.readFileSync(STAFF_ALLOWLIST_FILE, 'utf8'));
+      } catch (_) {
+        return sendJSON(res, 403, {
+          success: false, error: 'allowlist_not_configured',
+          detail:  'staff_whatsapp allowlist config not found',
+          sends_whatsapp: false,
+        });
+      }
 
-    const entry = (allowlist.staff_numbers || []).find(
-      (n) => n.phone === staffPhone && n.active === true
-    );
-    if (!entry) {
-      return sendJSON(res, 403, {
-        success: false, error: 'phone_not_allowlisted',
-        detail:  'staff_phone is not in the active staff allowlist',
-        sends_whatsapp: false,
-      });
-    }
+      if (!allowlist.staff_whatsapp_enabled) {
+        return sendJSON(res, 403, {
+          success: false, error: 'staff_whatsapp_disabled',
+          detail:  'staff_whatsapp_enabled is false in allowlist config',
+          sends_whatsapp: false,
+        });
+      }
 
-    staffAccess = 'allowlisted_phone';
+      const entry = (allowlist.staff_numbers || []).find(
+        (n) => n.phone === staffPhone && n.active === true
+      );
+      if (!entry) {
+        return sendJSON(res, 403, {
+          success: false, error: 'phone_not_allowlisted',
+          detail:  'staff_phone is not in the active staff allowlist',
+          sends_whatsapp: false,
+        });
+      }
+
+      staffAccess = 'allowlisted_phone';
+      staffWhatsappRecognition = 'json_allowlist';
+    }
 
   } else {
     // Session auth for staff_portal (or any non-whatsapp source)
@@ -1774,6 +1801,16 @@ async function handleAskLuna(req, res) {
     question,
     source,
     staff_access: staffAccess,
+    // Carry the DB-resolved access shape (owner vs operator) into execution when
+    // the number was recognized via the tenant-scoped DB allowlist.
+    ...(staffWhatsappAccess
+      ? {
+          role:               staffWhatsappAccess.role,
+          owner_insights:     staffWhatsappAccess.owner_insights,
+          allowed_categories: staffWhatsappAccess.allowed_categories,
+        }
+      : {}),
+    ...(staffWhatsappRecognition ? { recognition: staffWhatsappRecognition } : {}),
   });
 
   if (!result.success) {
@@ -18467,6 +18504,37 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
+  <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
+    <div class="cc-section-hdr">Staff &amp; Owner Numbers</div>
+    <div class="cc-section-sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
+    <div id="swn-error"></div>
+    <div id="swn-status"></div>
+    <table class="cc-table" id="swn-table" style="width:100%;border-collapse:collapse;margin:10px 0">
+      <thead>
+        <tr>
+          <th style="text-align:left">Name</th>
+          <th style="text-align:left">Phone</th>
+          <th style="text-align:left">Group</th>
+          <th style="text-align:left">Active</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="swn-tbody"></tbody>
+    </table>
+    <div class="al-form-row" style="flex-wrap:wrap;gap:8px">
+      <input id="swn-add-phone" type="text" placeholder="+15551234567" autocomplete="off" spellcheck="false">
+      <select id="swn-add-group">
+        <option value="staff">Staff</option>
+        <option value="owner">Owner</option>
+      </select>
+      <input id="swn-add-name" type="text" placeholder="Name (optional)" autocomplete="off" spellcheck="false">
+      <label style="display:inline-flex;align-items:center;gap:4px">
+        <input id="swn-add-active" type="checkbox" checked> Active
+      </label>
+      <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()">Add</button>
+    </div>
+  </div>
+
 </div>
 </div><!-- /tab-ask-luna -->
 
@@ -18747,7 +18815,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
-  if (tab === 'ask-luna') lunaGlobalPauseLoad();
+  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); }
   if (tab === 'conversations') {
     wireInboxLeftListWheel();
     if (!subtab) ensureInboxLoadedForTab();
@@ -22331,6 +22399,114 @@ function applyOwnerInsightsGate(){
     active.style.display = 'none';
     denied.style.display = 'block';
   }
+  var swnCard = el('cc-staff-whatsapp-numbers');
+  if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+}
+
+/* ── Staff & Owner WhatsApp numbers (admin/owner-only, DB-backed allowlist) ── */
+function staffWhatsappNumberQuery(){
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset'){
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
+}
+
+function staffWhatsappShowMsg(kind, text){
+  var box = el('swn-status');
+  var err = el('swn-error');
+  if (box){ box.textContent = ''; box.style.display = 'none'; }
+  if (err){ err.textContent = ''; err.style.display = 'none'; }
+  if (!text) return;
+  var target = kind === 'error' ? err : box;
+  if (!target) return;
+  target.textContent = text;
+  target.style.display = 'block';
+}
+
+function staffWhatsappNumbersRender(numbers){
+  var tbody = el('swn-tbody');
+  if (!tbody) return;
+  if (!numbers || !numbers.length){
+    tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">No numbers yet.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = numbers.map(function(n){
+    var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
+    return '<tr>'
+      + '<td>' + escHtml(n.display_name || '') + '</td>'
+      + '<td>' + escHtml(n.phone) + '</td>'
+      + '<td>' + escHtml(grp) + '</td>'
+      + '<td>' + (n.active ? 'Yes' : 'No') + '</td>'
+      + '<td><button type="button" class="btn" onclick="staffWhatsappNumberRemove(\'' + escHtml(n.id) + '\')">Remove</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+function staffWhatsappNumbersLoad(){
+  var card = el('cc-staff-whatsapp-numbers');
+  if (!card) return;
+  if (!canUseOwnerInsightsPortal()){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  staffWhatsappShowMsg(null, null);
+  fetch('/staff/whatsapp-numbers' + staffWhatsappNumberQuery(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to load numbers.');
+        staffWhatsappNumbersRender([]);
+        return;
+      }
+      staffWhatsappNumbersRender(data.numbers || []);
+    })
+    .catch(function(){ staffWhatsappShowMsg('error', 'Failed to load numbers.'); });
+}
+
+function staffWhatsappNumberAdd(){
+  var phone = (el('swn-add-phone') && el('swn-add-phone').value || '').trim();
+  var group = (el('swn-add-group') && el('swn-add-group').value || 'staff').trim();
+  var name = (el('swn-add-name') && el('swn-add-name').value || '').trim();
+  var active = !!(el('swn-add-active') && el('swn-add-active').checked);
+  if (!phone){ staffWhatsappShowMsg('error', 'Phone is required.'); return; }
+  staffWhatsappShowMsg(null, null);
+  fetch('/staff/whatsapp-numbers' + staffWhatsappNumberQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ phone: phone, permission_group: group, display_name: name || null, active: active }),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to add number.');
+        return;
+      }
+      if (el('swn-add-phone')) el('swn-add-phone').value = '';
+      if (el('swn-add-name')) el('swn-add-name').value = '';
+      staffWhatsappNumbersLoad();
+    })
+    .catch(function(){ staffWhatsappShowMsg('error', 'Failed to add number.'); });
+}
+
+function staffWhatsappNumberRemove(id){
+  if (!id) return;
+  staffWhatsappShowMsg(null, null);
+  fetch('/staff/whatsapp-numbers/' + encodeURIComponent(id) + staffWhatsappNumberQuery(), {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to remove number.');
+        return;
+      }
+      staffWhatsappNumbersLoad();
+    })
+    .catch(function(){ staffWhatsappShowMsg('error', 'Failed to remove number.'); });
 }
 
 function populateClientSelect(clients, preferredSlug){
@@ -32995,6 +33171,102 @@ async function sendAdminWriteGateFailure(res, gate) {
   return sendJSON(res, gate.status, gate.body);
 }
 
+// ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD ───────────────
+// Tenant-scoped by client_slug; admin+owner only. ensureStaffWhatsappNumbersTable
+// creates the table lazily (lunabox can't run migration 027).
+async function handleStaffWhatsappNumbersGet(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  try {
+    const numbers = await withPgClient(async (pg) => {
+      await ensureStaffWhatsappNumbersTable(pg);
+      return listStaffWhatsappNumbers(pg, clientSlug);
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.whatsapp_numbers.list',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: true,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, numbers, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
+async function handleStaffWhatsappNumbersPost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      await ensureStaffWhatsappNumbersTable(pg);
+      return upsertStaffWhatsappNumber(pg, {
+        clientSlug,
+        phone: body.phone,
+        permissionGroup: body.permission_group,
+        displayName: body.display_name,
+        active: body.active,
+      });
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.whatsapp_numbers.upsert',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) return sendJSON(res, 400, { success: false, error: result.error, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, { success: true, number: result.row, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+async function handleStaffWhatsappNumbersDelete(idRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  try {
+    const result = await withPgClient(async (pg) => {
+      await ensureStaffWhatsappNumbersTable(pg);
+      return deleteStaffWhatsappNumber(pg, { clientSlug, id: idRaw });
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.whatsapp_numbers.delete',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) return sendJSON(res, 400, { success: false, error: result.error, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, { success: true, deleted: result.deleted, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'delete failed' });
+  }
+}
+
 async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -38925,6 +39197,24 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigPricePost(parsed.query, req, res, auth.user);
+  }
+
+  // ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD (admin+owner) ─
+  if (pathname === '/staff/whatsapp-numbers' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleStaffWhatsappNumbersGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/whatsapp-numbers' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleStaffWhatsappNumbersPost(parsed.query, req, res, auth.user);
+  }
+  const staffWhatsappNumberMatch = /^\/staff\/whatsapp-numbers\/([0-9a-f-]{36})$/i.exec(pathname);
+  if (staffWhatsappNumberMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleStaffWhatsappNumbersDelete(staffWhatsappNumberMatch[1], parsed.query, req, res, auth.user);
   }
 
   const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([^/?]+)$/i.exec(pathname);

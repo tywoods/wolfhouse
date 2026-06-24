@@ -32,6 +32,32 @@ function isMissingStaffWhatsappNumbersTable(err) {
 }
 
 /**
+ * Runtime twin of migration 027 — lunabox cannot reach Postgres to run migrations,
+ * so create the table lazily (idempotent) before the first write. Same shape as the
+ * migration. Safe to call repeatedly.
+ *
+ * @param {import('pg').ClientBase} pg
+ */
+async function ensureStaffWhatsappNumbersTable(pg) {
+  await pg.query(`
+    CREATE TABLE IF NOT EXISTS ${TABLE} (
+      id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      client_slug       TEXT NOT NULL,
+      phone             TEXT NOT NULL,
+      permission_group  TEXT NOT NULL CHECK (permission_group IN ('staff', 'owner')),
+      display_name      TEXT NULL,
+      active            BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (client_slug, phone)
+    )`);
+  await pg.query(
+    `CREATE INDEX IF NOT EXISTS idx_wolfhouse_staff_whatsapp_numbers_client_active
+       ON ${TABLE} (client_slug, active)`,
+  );
+}
+
+/**
  * Normalize a raw phone string to an E.164-ish form.
  * Strips spaces, dashes, parens, dots; ensures a single leading '+'.
  * Returns null when the input cannot be a plausible E.164 number.
@@ -231,6 +257,7 @@ async function resolveStaffWhatsappEntry(pg, clientSlug, phone) {
 module.exports = {
   STAFF_OPERATIONS_CATEGORIES,
   isMissingStaffWhatsappNumbersTable,
+  ensureStaffWhatsappNumbersTable,
   normalizeStaffPhone,
   mapGroupToAccess,
   listStaffWhatsappNumbers,
