@@ -324,6 +324,9 @@ const {
   createService: createTenantService,
   patchService: patchTenantService,
   deactivateService: deactivateTenantService,
+  computeServiceChargeCents: computeTenantServiceChargeCents,
+  ensureBookingServiceGenericType,
+  GENERIC_BOOKING_SERVICE_TYPE,
 } = require('./lib/tenant-services-writes');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
@@ -8423,6 +8426,23 @@ function staffAddonResolvePricing(uiServiceType, quantity, clientSlug) {
   return { ok: false, error: 'unsupported service_type' };
 }
 
+// Count nights of a stay [checkIn, checkOut) that fall within an optional service
+// date window [startDate, endDate] (inclusive). Used to clamp per_day catalog charges.
+function catalogNightsInWindow(checkIn, checkOut, startDate, endDate) {
+  const ci = parseCalendarDate(checkIn);
+  const co = parseCalendarDate(checkOut);
+  if (!ci || !co || co <= ci) return 0;
+  const ws = startDate ? parseCalendarDate(startDate) : null;
+  const we = endDate ? parseCalendarDate(endDate) : null;
+  let nights = 0;
+  for (let d = new Date(ci); d < co && nights <= 366; d = new Date(d.getTime() + 86400000)) {
+    if (ws && d < ws) continue;
+    if (we && d > we) continue;
+    nights += 1;
+  }
+  return nights;
+}
+
 async function handleBookingAddService(req, res, user) {
   const started = Date.now();
 
@@ -8455,13 +8475,24 @@ async function handleBookingAddService(req, res, user) {
   if (bookingId && !UUID_VALIDATE_RE.test(bookingId)) return send400(res, 'booking_id must be a valid UUID');
   if (!uiServiceType) return send400(res, 'service_type is required');
   if (!idempotencyKey) return send400(res, 'idempotency_key is required');
-  if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
+
+  // Catalog services arrive as "service:<uuid>" (tenant_services). Their price needs the
+  // booking's guests + nights, so it's resolved below once bookingRow is loaded. Built-in
+  // add-ons keep the sync pricing path.
+  const isCatalog = uiServiceType.indexOf('service:') === 0;
+  const catalogServiceId = isCatalog ? uiServiceType.slice('service:'.length) : '';
+  if (isCatalog) {
+    if (!UUID_VALIDATE_RE.test(catalogServiceId)) return send400(res, 'invalid catalog service id');
+  } else if (!STAFF_ADDON_UI_SERVICE_TYPES.has(uiServiceType)) {
     return send400(res, 'service_type must be one of: wetsuit, soft_board, hard_board, surf_lesson, yoga, meals');
   }
 
-  const pricing = staffAddonResolvePricing(uiServiceType, body.quantity, clientSlug);
-  if (!pricing.ok) {
-    return send400(res, pricing.error || 'pricing failed', { detail: pricing.detail });
+  let pricing;
+  if (!isCatalog) {
+    pricing = staffAddonResolvePricing(uiServiceType, body.quantity, clientSlug);
+    if (!pricing.ok) {
+      return send400(res, pricing.error || 'pricing failed', { detail: pricing.detail });
+    }
   }
 
   const actorId    = user ? user.staff_user_id : 'dev-add-service-local';
@@ -8509,6 +8540,64 @@ async function handleBookingAddService(req, res, user) {
     });
   }
 
+  // Catalog service: load the row, price it against this booking's guests + nights.
+  // price_unit drives the math (per_day spans the stay; per_stay is one flat charge);
+  // an optional date window clamps per_day nights. The whole charge lands in ONE record.
+  if (isCatalog) {
+    let svcRow;
+    try {
+      svcRow = await withPgClient(async (pg) => {
+        const r = await pg.query(
+          `SELECT id::text AS id, name, price_cents, price_unit, per_guest,
+                  start_date::text AS start_date, end_date::text AS end_date
+             FROM tenant_services
+            WHERE id = $1::uuid AND client_slug = $2 AND active = true`,
+          [catalogServiceId, clientSlug]
+        );
+        return r.rows[0] || null;
+      });
+    } catch (err) {
+      appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+      return sendJSON(res, 500, { success: false, error: 'catalog service lookup failed', detail: err.message });
+    }
+    if (!svcRow) return send400(res, 'catalog service not found or inactive');
+
+    const guests = Number(bookingRow.guest_count) || 1;
+    const stayNights = movePreviewNights(bookingRow.check_in, bookingRow.check_out) || 1;
+    const hasWindow = !!(svcRow.start_date || svcRow.end_date);
+    const nightsInWindow = hasWindow
+      ? catalogNightsInWindow(bookingRow.check_in, bookingRow.check_out, svcRow.start_date, svcRow.end_date)
+      : null;
+    const multiplier = Math.max(1, Math.floor(Number(body.quantity) || 1));
+    const perChargeCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights, nightsInWindow });
+    const totalCents = perChargeCents * multiplier;
+    const nightsCharged = svcRow.price_unit === 'per_day'
+      ? (nightsInWindow == null ? stayNights : nightsInWindow)
+      : 1;
+
+    pricing = {
+      ok: true,
+      db_service_type: GENERIC_BOOKING_SERVICE_TYPE,
+      amount_due_cents: totalCents,
+      quantity: 1,            // catalog charge is a single record carrying the full total
+      unit_cents: totalCents,
+      pricing_unit: svcRow.price_unit,
+      pricing_addon_code: 'catalog_service',
+      metadata_extra: {
+        catalog_service: true,
+        service_id: svcRow.id,
+        service_name: svcRow.name,
+        price_unit: svcRow.price_unit,
+        per_guest: svcRow.per_guest !== false,
+        catalog_price_cents: svcRow.price_cents,
+        guests_charged: svcRow.per_guest === false ? 1 : guests,
+        nights_charged: nightsCharged,
+        multiplier,
+      },
+      warnings: [],
+    };
+  }
+
   let unitDates;
   const unitQty = Math.max(1, Number(pricing.quantity) || 1);
 
@@ -8553,6 +8642,9 @@ async function handleBookingAddService(req, res, user) {
 
   try {
     const result = await withPgClient(async (pg) => {
+      // Catalog rows insert service_type='addon_service'; lunabox can't run migration 029,
+      // so apply the CHECK-constraint twin lazily before the first such insert.
+      if (isCatalog) await ensureBookingServiceGenericType(pg);
       const idem = await pg.query(
         `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
          FROM booking_service_records
