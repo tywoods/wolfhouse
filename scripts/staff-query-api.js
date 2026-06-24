@@ -22509,9 +22509,13 @@ function staffWhatsappNumbersRender(numbers){
       + '<td>' + escHtml(n.phone) + '</td>'
       + '<td>' + escHtml(grp) + '</td>'
       + '<td>' + (n.active ? 'Yes' : 'No') + '</td>'
-      + '<td><button type="button" class="btn" onclick="staffWhatsappNumberRemove(\'' + escHtml(n.id) + '\')">Remove</button></td>'
+      + '<td><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
       + '</tr>';
   }).join('');
+  // Delegated handler (avoids inline onclick quote-escaping inside the served script).
+  tbody.querySelectorAll('.swn-remove-btn').forEach(function(b){
+    b.addEventListener('click', function(){ staffWhatsappNumberRemove(b.getAttribute('data-swn-id')); });
+  });
 }
 
 function staffWhatsappNumbersLoad(){
