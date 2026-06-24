@@ -138,6 +138,49 @@ async function ensureServicesTable(client) {
     ON tenant_services (client_slug, active)`);
 }
 
+// v3 booking integration — runtime twin of migration 029.
+// booking_service_records.service_type (migration 010) is pinned to a closed set of
+// built-in operational types. Catalog services (tenant_services) are inserted under a
+// single generic bucket 'addon_service'; the specific catalog row is in metadata.service_id.
+// lunabox cannot run migrations against staging Postgres, so extend the CHECK lazily here.
+// Check-first / idempotent, same pattern as ensureLessonTimeCapacityColumn.
+const GENERIC_BOOKING_SERVICE_TYPE = 'addon_service';
+
+async function ensureBookingServiceGenericType(client) {
+  const reg = await client.query(
+    `SELECT to_regclass('public.booking_service_records') AS t`,
+  );
+  if (!reg.rows[0] || !reg.rows[0].t) return; // table absent — INSERT path 503s on its own
+  const checks = await client.query(
+    `SELECT c.conname AS name, pg_get_constraintdef(c.oid) AS def
+       FROM pg_constraint c
+      WHERE c.conrelid = 'booking_service_records'::regclass
+        AND c.contype  = 'c'`,
+  );
+  const svc = checks.rows.find(
+    (r) => /service_type/.test(r.def) && /surf_lesson/.test(r.def),
+  );
+  if (svc && svc.def.includes(`'${GENERIC_BOOKING_SERVICE_TYPE}'`)) return; // already extended
+  // Drop whatever name the existing service_type CHECK has, plus the canonical name, then re-add.
+  if (svc && svc.name) {
+    await client.query(
+      `ALTER TABLE booking_service_records DROP CONSTRAINT IF EXISTS "${svc.name.replace(/"/g, '""')}"`,
+    );
+  }
+  await client.query(
+    `ALTER TABLE booking_service_records
+       DROP CONSTRAINT IF EXISTS booking_service_records_service_type_check`,
+  );
+  await client.query(
+    `ALTER TABLE booking_service_records
+       ADD CONSTRAINT booking_service_records_service_type_check
+       CHECK (service_type IN (
+         'yoga', 'meal', 'surf_lesson', 'wetsuit', 'surfboard',
+         '${GENERIC_BOOKING_SERVICE_TYPE}'
+       ))`,
+  );
+}
+
 async function listServices(client, { clientSlug, includeInactive = true }) {
   await ensureServicesTable(client);
   const where = includeInactive ? 'client_slug = $1' : 'client_slug = $1 AND active = true';
@@ -213,6 +256,8 @@ module.exports = {
   validateServiceBody,
   computeServiceChargeCents,
   ensureServicesTable,
+  ensureBookingServiceGenericType,
+  GENERIC_BOOKING_SERVICE_TYPE,
   listServices,
   createService,
   patchService,
