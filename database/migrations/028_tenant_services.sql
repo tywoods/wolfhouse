@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS tenant_services (
   CONSTRAINT tenant_services_date_window
     CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date),
   CONSTRAINT tenant_services_price_unit
-    CHECK (price_unit IN ('per_day', 'per_stay', 'one_off'))
+    CHECK (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_tenant_services_client_active

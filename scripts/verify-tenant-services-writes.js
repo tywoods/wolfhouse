@@ -30,6 +30,7 @@ ok('keywords deduped + lowercased', good.ok && good.patch.keywords.join(',') ===
 ok('unknown field rejected', validateServiceBody({ name: 'x', color: 'red' }, { requireName: true }).ok === false);
 ok('invalid category rejected', validateServiceBody({ name: 'x', category: 'spaceflight' }, { requireName: true }).ok === false);
 ok('invalid price_unit rejected', validateServiceBody({ name: 'x', price_unit: 'per_hour' }, { requireName: true }).ok === false);
+ok('per_week price_unit accepted', validateServiceBody({ name: 'x', price_unit: 'per_week' }, { requireName: true }).ok === true);
 ok('negative price rejected', validateServiceBody({ name: 'x', price_cents: -5 }, { requireName: true }).ok === false);
 ok('non-integer price rejected', validateServiceBody({ name: 'x', price_cents: 9.5 }, { requireName: true }).ok === false);
 ok('bad date rejected', validateServiceBody({ name: 'x', start_date: '2026-13-40' }, { requireName: true }).ok === false);

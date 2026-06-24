@@ -7,7 +7,7 @@
  */
 
 const SERVICE_CATEGORIES = new Set(['experience', 'meal', 'transfer', 'rental', 'lesson', 'other']);
-const PRICE_UNITS = new Set(['per_day', 'per_stay', 'one_off']);
+const PRICE_UNITS = new Set(['per_day', 'per_week', 'per_stay', 'one_off']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NAME_MAX = 120;
 const NOTES_MAX = 2000;

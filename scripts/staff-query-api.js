@@ -17630,7 +17630,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="svc-f-end">End date (optional)</label><input type="date" id="svc-f-end"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
-      <select id="svc-f-unit"><option value="per_day">Per day</option><option value="per_stay">Per stay</option><option value="one_off">One-off</option></select></div>
+      <select id="svc-f-unit"><option value="per_day">Per day</option><option value="per_week">Per week</option><option value="per_stay">Per stay</option><option value="one_off">One-off</option></select></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-span"> Always span across booking dates (per-day)</label></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
     <div class="portal-schedule-create-field"><label for="svc-f-keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
@@ -32920,8 +32920,7 @@ async function handleAdminServicesPost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
-  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!isSunsetAdminWritesEnabled()) return sendJSON(res, 403, { success: false, error: 'writes_disabled', message: 'Admin writes disabled' });
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body;
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
@@ -32941,8 +32940,7 @@ async function handleAdminServicesPatch(idRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
-  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!isSunsetAdminWritesEnabled()) return sendJSON(res, 403, { success: false, error: 'writes_disabled', message: 'Admin writes disabled' });
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   const id = String(idRaw || '').trim();
   if (!/^[0-9a-fA-F-]{36}$/.test(id)) return send400(res, 'invalid service id');
@@ -32964,8 +32962,7 @@ async function handleAdminServicesDelete(idRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
-  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!isSunsetAdminWritesEnabled()) return sendJSON(res, 403, { success: false, error: 'writes_disabled', message: 'Admin writes disabled' });
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   const id = String(idRaw || '').trim();
   if (!/^[0-9a-fA-F-]{36}$/.test(id)) return send400(res, 'invalid service id');
