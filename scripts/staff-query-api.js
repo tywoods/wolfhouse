@@ -22422,6 +22422,10 @@ function applyOwnerInsightsGate(){
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+  // Populate the cards now that the session + client selector are ready (this runs post
+  // session-init). Fixes a refresh on Sunset where an earlier load raced the session and
+  // fetched the wrong client (getClient() fallback) before clients=[sunset] was set.
+  if (canUseOwnerInsightsPortal()) { staffWhatsappNumbersLoad(); houseNotesLoad(); }
 }
 
 /* ── General Notes for Luna (owner-only, client-facing info) ────────────────── */
