@@ -32908,7 +32908,7 @@ async function handleAdminServicesGet(query, req, res, user) {
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   try {
-    const result = await withPgClient(async (pg) => listTenantServices(pg, { clientSlug }));
+    const result = await withPgClient(async (pg) => listTenantServices(pg, { clientSlug, includeInactive: false }));
     return sendJSON(res, result.status, result.body);
   } catch (err) {
     console.error('[admin.services.list] failed:', err && err.code, '|', err && err.message);
