@@ -27,6 +27,7 @@ const hidden = { id: 'svc-2', name: 'Secret Sauna', active: true, luna_visible: 
 // ── matching ─────────────────────────────────────────────────────────
 ok('matches keyword "jiu jitsu"', matchCatalogServices('do you have jiu jitsu?', [jiu]).length === 1);
 ok('matches keyword with punctuation "Jiu-Jitsu"', matchCatalogServices('any Jiu-Jitsu here', [jiu]).length === 1);
+ok('matches run-together "jiujitsu"', matchCatalogServices('do you do jiujitsu', [jiu]).length === 1);
 ok('matches alt keyword bjj', matchCatalogServices('is there BJJ', [jiu]).length === 1);
 ok('matches by name', matchCatalogServices('tell me about Chokes and Barrels', [jiu]).length === 1);
 ok('no match for unrelated', matchCatalogServices('what time is breakfast', [jiu]).length === 0);

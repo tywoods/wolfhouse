@@ -38,7 +38,11 @@ function phraseMatches(haystack, needle) {
   const h = normalizeText(haystack);
   const n = normalizeText(needle);
   if (!h || !n) return false;
-  return (' ' + h + ' ').indexOf(' ' + n + ' ') !== -1;
+  if ((' ' + h + ' ').indexOf(' ' + n + ' ') !== -1) return true;
+  // Run-together tolerance for multi-word keywords only ("jiu jitsu" ~ "jiujitsu").
+  // Restricted to multi-word needles so single short words can't substring-false-match.
+  if (n.indexOf(' ') !== -1 && h.replace(/\s+/g, '').indexOf(n.replace(/\s+/g, '')) !== -1) return true;
+  return false;
 }
 
 /**

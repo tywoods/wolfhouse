@@ -1214,17 +1214,22 @@ def add_catalog_service_to_booking(params, **kwargs):
         payload["idempotency_key"] = "luna-cat-" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:20]
     data = _post_bot("/add-catalog-service", payload)
     sr = data.get("service_record") if isinstance(data.get("service_record"), dict) else {}
-    return _json_result({
-        "success": bool(data.get("success")),
+    ok = bool(data.get("success"))
+    result = {
+        "success": ok,
         "tool": "add_catalog_service_to_booking",
         "created": bool(data.get("created")),
         "service_record_id": sr.get("service_record_id"),
         "amount_due_cents": sr.get("amount_due_cents"),
         "booking_code": booking_code or booking_id,
-        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
-        "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("error"),
-        "error": data.get("error"),
-    })
+    }
+    # Only surface error/review fields on actual failure — a clean success result keeps the
+    # tool executor from logging a false "returned error" on a successful add.
+    if not ok:
+        result["staff_review_needed"] = True
+        result["error"] = data.get("error")
+        result["guest_safe_next_action"] = data.get("guest_safe_next_action") or data.get("error")
+    return _json_result(result)
 
 
 def _schema(name, description, properties, required=None):
