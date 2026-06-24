@@ -24675,6 +24675,10 @@ function oiPickExample(btn){
 })();
 
 window.oiAsk = oiAsk;
+// Expose inline-onclick handlers added for the Luna Staff cards (this script is an
+// IIFE, so functions aren't global unless attached to window).
+window.houseNotesSave = houseNotesSave;
+window.staffWhatsappNumberAdd = staffWhatsappNumberAdd;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)
