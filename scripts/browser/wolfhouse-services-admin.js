@@ -43,7 +43,7 @@
     list.forEach(function (s) {
       var dates = (s.start_date || s.end_date) ? (esc(s.start_date || '…') + ' → ' + esc(s.end_date || '…')) : 'Always';
       var tags = [];
-      if (s.span_booking) tags.push('spans stay');
+      if (s.price_unit === 'per_day') tags.push('spans stay');
       if (!s.active) tags.push('inactive');
       if (s.luna_visible === false) tags.push('hidden from Luna');
       html += '<article class="portal-admin-pack-card" data-svc-id="' + esc(s.id) + '" style="opacity:' + (s.active ? '1' : '0.55') + '">'
@@ -80,7 +80,6 @@
     svcEl('svc-f-end').value = s.end_date || '';
     svcEl('svc-f-price').value = s.price_cents != null ? (Number(s.price_cents) / 100) : '';
     svcEl('svc-f-unit').value = s.price_unit || 'per_day';
-    svcEl('svc-f-span').checked = !!s.span_booking;
     svcEl('svc-f-luna').checked = s.luna_visible !== false;
     svcEl('svc-f-keywords').value = (s.keywords || []).join(', ');
     svcEl('svc-f-notes').value = s.notes_for_luna || '';
@@ -100,7 +99,6 @@
       end_date: svcEl('svc-f-end').value || '',
       price_cents: priceRaw === '' ? 0 : Math.round(parseFloat(priceRaw) * 100),
       price_unit: svcEl('svc-f-unit').value || 'per_day',
-      span_booking: !!svcEl('svc-f-span').checked,
       luna_visible: !!svcEl('svc-f-luna').checked,
     };
     if (!body.category) delete body.category;

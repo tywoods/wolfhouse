@@ -17630,8 +17630,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="svc-f-end">End date (optional)</label><input type="date" id="svc-f-end"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
-      <select id="svc-f-unit"><option value="per_day">Per day</option><option value="per_week">Per week</option><option value="per_stay">Per stay</option><option value="one_off">One-off</option></select></div>
-    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-span"> Always span across booking dates (per-day)</label></div>
+      <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option></select></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
     <div class="portal-schedule-create-field"><label for="svc-f-keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-notes">Notes for Luna</label><textarea id="svc-f-notes" rows="3" placeholder="What Luna may tell guests about this service"></textarea></div>

@@ -7,7 +7,10 @@
  */
 
 const SERVICE_CATEGORIES = new Set(['experience', 'meal', 'transfer', 'rental', 'lesson', 'other']);
-const PRICE_UNITS = new Set(['per_day', 'per_week', 'per_stay', 'one_off']);
+// Two booking-mappable units only. per_day spreads across every night of the stay;
+// per_stay is one flat charge. Legacy values (per_week/one_off) are tolerated by
+// computeServiceChargeCents (treated as flat) but can no longer be written.
+const PRICE_UNITS = new Set(['per_day', 'per_stay']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const NAME_MAX = 120;
 const NOTES_MAX = 2000;
@@ -105,8 +108,11 @@ function validateServiceBody(body, { requireName = false } = {}) {
  */
 function computeServiceChargeCents(service, { guests = 1, stayNights = 1, nightsInWindow = null } = {}) {
   const g = service.per_guest === false ? 1 : Math.max(1, guests);
+  // price_unit is the single source of truth: per_day spans every night of the stay
+  // (or the date-window overlap); anything else (per_stay, legacy per_week/one_off) is
+  // a single flat charge. No separate span_booking flag.
   let units = 1;
-  if (service.span_booking && service.price_unit === 'per_day') {
+  if (service.price_unit === 'per_day') {
     units = nightsInWindow == null ? Math.max(0, stayNights) : Math.max(0, nightsInWindow);
   }
   return Math.max(0, Math.round((service.price_cents || 0) * g * units));
