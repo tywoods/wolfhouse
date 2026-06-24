@@ -3,10 +3,14 @@
   "_version": "wolfhouse-staging-access",
   "all_clients_emails": [],
   "portal_admin_emails": [
-    "tywoods@gmail.com"
+    "tywoods@gmail.com",
+    "alex@wolf-house.com"
   ],
   "client_access": {
     "tywoods@gmail.com": [
+      "wolfhouse-somo"
+    ],
+    "alex@wolf-house.com": [
       "wolfhouse-somo"
     ],
     "operator.stage72c@example.test": [

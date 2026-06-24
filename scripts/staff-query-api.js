@@ -19486,6 +19486,10 @@ function getClient(){
   var sel = el('c-client');
   if (sel && sel.value) return sel.value.trim();
   if (staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length) {
+    // Prefer Wolfhouse on this staging portal when no explicit selection is set.
+    for (var i = 0; i < staffPortalSession.clients.length; i++) {
+      if (staffPortalSession.clients[i].slug === 'wolfhouse-somo') return 'wolfhouse-somo';
+    }
     return staffPortalSession.clients[0].slug;
   }
   return 'wolfhouse-somo';
@@ -22602,7 +22606,9 @@ function populateClientSelect(clients, preferredSlug){
   sel.innerHTML = html;
   var saved = null;
   try { saved = localStorage.getItem('staff_portal_client'); } catch (_) { /* ignore */ }
-  var pick = preferredSlug || saved || list[0].slug;
+  // Prefer Wolfhouse on this staging portal when there's no explicit or saved choice.
+  var wolfPref = list.some(function(c){ return c.slug === 'wolfhouse-somo'; }) ? 'wolfhouse-somo' : null;
+  var pick = preferredSlug || saved || wolfPref || list[0].slug;
   if (!list.some(function(c){ return c.slug === pick; })) {
     pick = list[0].slug;
     if (saved && saved !== pick) {
