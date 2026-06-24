@@ -316,11 +316,11 @@ function adminRenderPackTierRowsHtml(rows){
     var opts = durs.map(function(d){
       return '<option value="' + escHtml(d.key) + '"' + (d.key === r.key ? ' selected' : '') + '>' + escHtml(d.label) + '</option>';
     }).join('');
-    return '<div class="portal-admin-pack-tier" data-pack-tier-row>' +
+    return '<div class="portal-admin-pack-tier" data-pack-tier-row style="position:relative;padding-right:22px">' +
+      '<button type="button" class="portal-admin-icon-btn portal-admin-danger" data-admin-action="remove-pack-tier" aria-label="' + escHtml(portalT('admin.action.remove')) + '" title="' + escHtml(portalT('admin.action.remove')) + '" style="position:absolute;top:0;right:0;background:none;border:none;padding:0 2px;font-size:15px;line-height:1;cursor:pointer">×</button>' +
       '<select class="pack-tier-key">' + opts + '</select>' +
       '<input type="text" class="pack-tier-amount" value="' + escHtml(r.amount || '') + '" inputmode="decimal" placeholder="0.00">' +
       '<span class="portal-admin-muted">' + escHtml(portalT('admin.packs.perStudent')) + '</span>' +
-      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger" data-admin-action="remove-pack-tier" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button>' +
       '</div>';
   }).join('');
 }
