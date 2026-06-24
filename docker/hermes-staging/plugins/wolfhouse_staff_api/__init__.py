@@ -1232,6 +1232,29 @@ def add_catalog_service_to_booking(params, **kwargs):
     return _json_result(result)
 
 
+def owner_insights(params, **kwargs):
+    """Owner-only business intelligence over WhatsApp; sender phone gates access server-side."""
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    question = _clean(payload.get("question"))
+    if not question:
+        return _json_result({"success": False, "tool": "owner_insights", "error": "question_required"})
+    # The sender's WhatsApp number is the authority — pass it so the server verifies owner.
+    if not _clean(payload.get("phone")):
+        payload["phone"] = _session_guest_phone()
+    data = _post_bot("/owner-insights", payload)
+    if not data.get("authorized"):
+        return _json_result({"success": True, "tool": "owner_insights", "authorized": False})
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "owner_insights",
+        "authorized": True,
+        "answer": data.get("answer") or "",
+        "row_count": data.get("row_count"),
+    })
+
+
 def get_house_info(params, **kwargs):
     """Fetch owner-written house notes to answer a guest's house/policy/general question."""
     del kwargs
@@ -1299,6 +1322,7 @@ def register(ctx):
         ("add_service_to_booking", "Record a post-booking service/add-on (lessons, gear, yoga, meals). service_type must be yoga, meal, surf_lesson, wetsuit, or surfboard (server accepts quote-code aliases). After success when payment is required, call create_balance_payment_link and send that one balance link — not the per-service checkout URL.", add_service_to_booking, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "service_type": {"type": "string", "enum": ["yoga", "meal", "surf_lesson", "wetsuit", "surfboard"], "description": "Canonical post-booking code. For surfboard, also pass board_type soft or hard."}, "service_date": {"type": "string"}, "quantity": {"type": "integer"}, "board_type": {"type": "string", "description": "For surfboard rentals: soft or hard"}, "payment_choice": {"type": "string"}, "notes": {"type": "string"}}, ["service_type"]),
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
+        ("owner_insights", "Owner-only business intelligence: revenue, occupancy stats, payments owed, totals, most-popular package — the owner's private operating numbers. Call this when a guest asks a business/owner question (e.g. 'how much revenue this month', 'who hasn't paid', 'how many bookings/occupancy', 'which package is most popular'). The sender's WhatsApp number is verified server-side: if authorized=true, share the 'answer' in your warm voice; if authorized=false the sender is NOT an owner — do NOT reveal any business numbers, just respond as you would to a normal guest. Never invent figures.", owner_insights, {"client_slug": {"type": "string"}, "question": {"type": "string", "description": "The owner's business question, verbatim."}}, ["question"]),
         ("get_house_info", "Fetch the house's owner-written general info (parking, wifi, quiet hours, pet policy, amenities, practical 'how the stay works' details) to answer a guest's question about the house/stay. Call it whenever a guest asks about house rules, facilities, or practical info you don't already have a specific tool or answer for. If has_notes is true, answer from 'notes' in your own warm voice (never invent anything not in there); if has_notes is false, tell them you'll check with the team rather than guessing.", get_house_info, {"client_slug": {"type": "string"}}, []),
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, just answer normally — there's no such bookable experience.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use after the guest agrees to add it AND a booking exists (create it first if mid-intake — use the camp dates). Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),

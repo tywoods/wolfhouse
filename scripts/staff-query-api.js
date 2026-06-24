@@ -93,6 +93,7 @@ const {
 const {
   upsertStaffPhoneAccess,
   deactivateStaffPhoneAccess,
+  lookupStaffPhoneAccess: lookupStaffPhoneAccessRecognition,
 } = require('./lib/staff-phone-access');
 const {
   computeBalanceDueRows,
@@ -33443,6 +33444,36 @@ async function handleBotHouseInfo(req, res, user) {
   }
 }
 
+// Luna guest brain (Hermes): owner-only business intelligence over WhatsApp.
+// The sender's phone is the authority — only an active OWNER (staff_phone_access) gets data.
+async function handleBotOwnerInsights(req, res, user) {
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const question = String(body.question || body.message_text || '').trim();
+  const phone = String(body.phone || '').trim();
+  if (!question) return send400(res, 'question is required');
+  if (!phone) return sendJSON(res, 200, { success: true, authorized: false });
+  try {
+    const access = await withPgClient((pg) => lookupStaffPhoneAccessRecognition(pg, { client_slug: clientSlug, phone, channel: 'whatsapp' }));
+    const isOwner = !!(access && access.found && access.active && String(access.role || '').toLowerCase() === 'owner');
+    if (!isOwner) return sendJSON(res, 200, { success: true, authorized: false });
+    const result = await withPgClient((pg) => planAndExecuteOwnerSqlQuestion(pg, {
+      client_slug: clientSlug, question, role: 'owner', maxRows: 50, timeoutMs: 4000, env: process.env,
+    }));
+    return sendJSON(res, 200, {
+      success: !!result.success,
+      authorized: true,
+      answer: result.answer || '',
+      row_count: result.row_count != null ? result.row_count : 0,
+    });
+  } catch (err) {
+    console.error('[bot.owner-insights] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'owner_insights_failed' });
+  }
+}
+
 async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -38799,6 +38830,17 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotCatalogServiceLookup(req, res, auth.user);
+  }
+
+  // ── Luna owner-only business intelligence over WhatsApp (sender-phone gated) ─
+  if (pathname === '/staff/bot/owner-insights') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/owner-insights' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotOwnerInsights(req, res, auth.user);
   }
 
   // ── Wolfhouse v3 — Luna fetches owner house notes on demand (read-only) ────
