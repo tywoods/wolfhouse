@@ -87,6 +87,10 @@ const {
   ensureStaffWhatsappNumbersTable,
 } = require('./lib/luna-staff-whatsapp-numbers');
 const {
+  getHouseNotes: getTenantHouseNotes,
+  setHouseNotes: setTenantHouseNotes,
+} = require('./lib/tenant-house-notes');
+const {
   computeBalanceDueRows,
   formatAskLunaBalanceDueAnswer,
   matchesBalanceDueQuestion,
@@ -18535,6 +18539,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
+  <div class="card cc-section" id="cc-house-notes" style="display:none">
+    <div class="cc-section-hdr">General Notes for Luna</div>
+    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
+    <div id="hn-error"></div>
+    <div id="hn-status"></div>
+    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
+    <div class="al-form-row" style="margin-top:8px">
+      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
+    </div>
+  </div>
+
 </div>
 </div><!-- /tab-ask-luna -->
 
@@ -18815,7 +18830,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
-  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); }
+  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); }
   if (tab === 'conversations') {
     wireInboxLeftListWheel();
     if (!subtab) ensureInboxLoadedForTab();
@@ -22401,6 +22416,62 @@ function applyOwnerInsightsGate(){
   }
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+  var hnCard = el('cc-house-notes');
+  if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+}
+
+/* ── General Notes for Luna (owner-only, client-facing info) ────────────────── */
+function houseNotesShowMsg(kind, text){
+  var box = el('hn-status');
+  var err = el('hn-error');
+  if (box){ box.textContent = ''; box.style.display = 'none'; }
+  if (err){ err.textContent = ''; err.style.display = 'none'; }
+  if (!text) return;
+  var target = kind === 'error' ? err : box;
+  if (!target) return;
+  target.textContent = text;
+  target.style.display = 'block';
+}
+
+function houseNotesLoad(){
+  var card = el('cc-house-notes');
+  if (!card) return;
+  if (!canUseOwnerInsightsPortal()){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  houseNotesShowMsg(null, null);
+  fetch('/staff/admin/house-notes' + staffWhatsappNumberQuery(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        houseNotesShowMsg('error', (data && data.error) ? data.error : 'Failed to load notes.');
+        return;
+      }
+      if (el('hn-text')) el('hn-text').value = data.notes || '';
+    })
+    .catch(function(){ houseNotesShowMsg('error', 'Failed to load notes.'); });
+}
+
+function houseNotesSave(){
+  var notes = (el('hn-text') && el('hn-text').value) || '';
+  houseNotesShowMsg(null, null);
+  var btn = el('hn-save-btn');
+  if (btn) btn.disabled = true;
+  fetch('/staff/admin/house-notes' + staffWhatsappNumberQuery(), {
+    method: 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ notes: notes }),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (btn) btn.disabled = false;
+      if (!data || data.success !== true){
+        houseNotesShowMsg('error', (data && data.error) ? data.error : 'Failed to save notes.');
+        return;
+      }
+      houseNotesShowMsg('ok', 'Notes saved.');
+    })
+    .catch(function(){ if (btn) btn.disabled = false; houseNotesShowMsg('error', 'Failed to save notes.'); });
 }
 
 /* ── Staff & Owner WhatsApp numbers (admin/owner-only, DB-backed allowlist) ── */
@@ -33267,6 +33338,59 @@ async function handleStaffWhatsappNumbersDelete(idRaw, query, req, res, user) {
   }
 }
 
+// ── Tenant house notes — owner-editable client-facing info for Luna ─────────
+async function handleHouseNotesGet(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const r = await withPgClient((pg) => getTenantHouseNotes(pg, { clientSlug }));
+    return sendJSON(res, 200, { success: true, client_slug: clientSlug, notes: r.notes, updated_at: r.updated_at });
+  } catch (err) {
+    console.error('[house-notes.get] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
+async function handleHouseNotesPost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  try {
+    const r = await withPgClient((pg) => setTenantHouseNotes(pg, { clientSlug, notes: body.notes, actor: user }));
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:house_notes.set', category: 'admin_api',
+      client_slug: clientSlug, success: r.ok, staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
+    return sendJSON(res, 200, { success: true, notes: r.notes, updated_at: r.updated_at });
+  } catch (err) {
+    console.error('[house-notes.set] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+// Bot read: the guest agent (Hermes) fetches house notes on demand to answer guest
+// questions about house info/policies. Read-only.
+async function handleBotHouseInfo(req, res, user) {
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  try {
+    const r = await withPgClient((pg) => getTenantHouseNotes(pg, { clientSlug }));
+    const notes = (r.notes || '').trim();
+    return sendJSON(res, 200, { success: true, has_notes: !!notes, notes });
+  } catch (err) {
+    console.error('[bot.house-info] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
 async function handleAdminConfigPricePatch(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -38625,6 +38749,17 @@ async function router(req, res) {
     return handleBotCatalogServiceLookup(req, res, auth.user);
   }
 
+  // ── Wolfhouse v3 — Luna fetches owner house notes on demand (read-only) ────
+  if (pathname === '/staff/bot/house-info') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/house-info' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotHouseInfo(req, res, auth.user);
+  }
+
   // ── Wolfhouse v3 — Luna adds a catalog service to a booking (Phase 2) ──────
   // POST /staff/bot/add-catalog-service — reuses the catalog-aware add-service
   // handler. Body: { booking_code, service_type:"service:<uuid>", idempotency_key,
@@ -39215,6 +39350,18 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleStaffWhatsappNumbersDelete(staffWhatsappNumberMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  // ── Tenant house notes — owner-editable client-facing info for Luna ─────────
+  if (pathname === '/staff/admin/house-notes' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleHouseNotesGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/house-notes' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleHouseNotesPost(parsed.query, req, res, auth.user);
   }
 
   const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([^/?]+)$/i.exec(pathname);
