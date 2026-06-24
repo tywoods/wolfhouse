@@ -8436,23 +8436,6 @@ function staffAddonResolvePricing(uiServiceType, quantity, clientSlug) {
   return { ok: false, error: 'unsupported service_type' };
 }
 
-// Count nights of a stay [checkIn, checkOut) that fall within an optional service
-// date window [startDate, endDate] (inclusive). Used to clamp per_day catalog charges.
-function catalogNightsInWindow(checkIn, checkOut, startDate, endDate) {
-  const ci = parseCalendarDate(checkIn);
-  const co = parseCalendarDate(checkOut);
-  if (!ci || !co || co <= ci) return 0;
-  const ws = startDate ? parseCalendarDate(startDate) : null;
-  const we = endDate ? parseCalendarDate(endDate) : null;
-  let nights = 0;
-  for (let d = new Date(ci); d < co && nights <= 366; d = new Date(d.getTime() + 86400000)) {
-    if (ws && d < ws) continue;
-    if (we && d > we) continue;
-    nights += 1;
-  }
-  return nights;
-}
-
 async function handleBookingAddService(req, res, user) {
   const started = Date.now();
 
@@ -8572,18 +8555,44 @@ async function handleBookingAddService(req, res, user) {
     }
     if (!svcRow) return send400(res, 'catalog service not found or inactive');
 
-    const guests = Number(bookingRow.guest_count) || 1;
-    const stayNights = movePreviewNights(bookingRow.check_in, bookingRow.check_out) || 1;
-    const hasWindow = !!(svcRow.start_date || svcRow.end_date);
-    const nightsInWindow = hasWindow
-      ? catalogNightsInWindow(bookingRow.check_in, bookingRow.check_out, svcRow.start_date, svcRow.end_date)
-      : null;
-    const multiplier = Math.max(1, Math.floor(Number(body.quantity) || 1));
-    const perChargeCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights, nightsInWindow });
-    const totalCents = perChargeCents * multiplier;
-    const nightsCharged = svcRow.price_unit === 'per_day'
-      ? (nightsInWindow == null ? stayNights : nightsInWindow)
+    // Quantity = number of guests taking the service (defaults to the whole party,
+    // staff can lower it). per_guest=false services are flat (quantity ignored for math).
+    const guests = Math.max(1, Math.floor(Number(body.quantity) || Number(bookingRow.guest_count) || 1));
+    const effGuests = svcRow.per_guest === false ? 1 : guests;
+
+    // Which days the service applies to (half-open, like check_in/check_out). Defaults to
+    // the whole stay; staff pick a sub-range via apply_from/apply_to. per_stay = one charge.
+    const clampDate = (d, lo, hi) => (d < lo ? lo : (d > hi ? hi : d));
+    let applyFrom = bookingRow.check_in;
+    let applyTo = bookingRow.check_out;
+    if (svcRow.price_unit === 'per_day') {
+      const reqFrom = body.apply_from && DATE_RE.test(String(body.apply_from)) ? String(body.apply_from) : null;
+      const reqTo = body.apply_to && DATE_RE.test(String(body.apply_to)) ? String(body.apply_to) : null;
+      if (reqFrom) applyFrom = clampDate(reqFrom, bookingRow.check_in, bookingRow.check_out);
+      if (reqTo) applyTo = clampDate(reqTo, bookingRow.check_in, bookingRow.check_out);
+    }
+    const daysApplied = svcRow.price_unit === 'per_day'
+      ? (movePreviewNights(applyFrom, applyTo) || 0)
       : 1;
+    if (svcRow.price_unit === 'per_day' && daysApplied < 1) {
+      return send400(res, 'Select at least one night within the stay (From must be before To).');
+    }
+
+    // Availability window: block (naming the available range) if any applied night is outside it.
+    if (svcRow.price_unit === 'per_day' && (svcRow.start_date || svcRow.end_date)) {
+      const firstNight = parseCalendarDate(applyFrom);
+      const lastNightDate = parseCalendarDate(applyTo);
+      const lastNight = lastNightDate ? new Date(lastNightDate.getTime() - 86400000) : null;
+      const wf = svcRow.start_date ? parseCalendarDate(svcRow.start_date) : null;
+      const wt = svcRow.end_date ? parseCalendarDate(svcRow.end_date) : null;
+      const outOfWindow = (wf && firstNight && firstNight < wf) || (wt && lastNight && lastNight > wt);
+      if (outOfWindow) {
+        const human = `${svcRow.start_date || '…'} to ${svcRow.end_date || '…'}`;
+        return send400(res, `${svcRow.name} is not available for those dates — it can only be added between ${human}.`);
+      }
+    }
+
+    const totalCents = computeTenantServiceChargeCents(svcRow, { guests, stayNights: daysApplied });
 
     pricing = {
       ok: true,
@@ -8600,9 +8609,11 @@ async function handleBookingAddService(req, res, user) {
         price_unit: svcRow.price_unit,
         per_guest: svcRow.per_guest !== false,
         catalog_price_cents: svcRow.price_cents,
-        guests_charged: svcRow.per_guest === false ? 1 : guests,
-        nights_charged: nightsCharged,
-        multiplier,
+        guests_charged: effGuests,
+        nights_charged: svcRow.price_unit === 'per_day' ? daysApplied : 1,
+        quantity: guests,
+        apply_from: svcRow.price_unit === 'per_day' ? applyFrom : null,
+        apply_to: svcRow.price_unit === 'per_day' ? applyTo : null,
       },
       warnings: [],
     };
@@ -8611,7 +8622,10 @@ async function handleBookingAddService(req, res, user) {
   let unitDates;
   const unitQty = Math.max(1, Number(pricing.quantity) || 1);
 
-  if (scheduleMode === 'schedule_later') {
+  if (isCatalog) {
+    // One consolidated record dated at the first applied night.
+    unitDates = [ (pricing.metadata_extra && pricing.metadata_extra.apply_from) || bookingRow.check_in || null ];
+  } else if (scheduleMode === 'schedule_later') {
     unitDates = Array(unitQty).fill(null);
   } else if (scheduleMode === 'span_across_booking') {
     const startDate = serviceDateIn || bookingRow.check_in || null;
@@ -29638,6 +29652,13 @@ function bcRenderAddServicePanelHtml(bk){
     '<button type="button" class="bc-add-ons-sched-link" data-mode="span_across_booking">' + escHtml(t('drawer.services.spanBooking')) + '</button>' +
     '<button type="button" class="bc-add-ons-sched-link" data-mode="schedule_later">' + escHtml(t('drawer.services.scheduleLater')) + '</button>' +
     '</div></div>' +
+    '<div id="bc-add-ons-catalog-range" style="display:none">' +
+    '<label class="ctx-field-label" for="bc-add-ons-from">Apply from (first night)</label>' +
+    '<input type="date" id="bc-add-ons-from" class="bk-input bk-input-sm">' +
+    '<label class="ctx-field-label" for="bc-add-ons-to">Apply to (checkout)</label>' +
+    '<input type="date" id="bc-add-ons-to" class="bk-input bk-input-sm">' +
+    '<div class="ctx-field-hint" id="bc-add-ons-range-hint"></div>' +
+    '</div>' +
     '<label class="ctx-field-label" for="bc-add-ons-note">' + escHtml(t('drawer.services.noteOptional')) + '</label>' +
     '<input type="text" id="bc-add-ons-note" class="bk-input bk-input-sm" maxlength="500">' +
     '<div class="ctx-field-edit-actions" style="margin-top:10px">' +
@@ -29746,18 +29767,58 @@ function bcAddServiceResetEntryRows(){
   bcAddServiceUpdateEntryQtyLabels(wrap);
 }
 
+function bcCatalogServiceById(id){
+  var list = bcServiceCatalog || [];
+  for (var i = 0; i < list.length; i++){ if (list[i] && String(list[i].id) === String(id)) return list[i]; }
+  return null;
+}
+
+function bcEntryCatalogService(value){
+  if (!value || value.indexOf('service:') !== 0) return null;
+  return bcCatalogServiceById(value.slice('service:'.length));
+}
+
 function bcAddServiceUpdateEntryQtyLabels(scope){
   (scope || document).querySelectorAll('.bc-add-ons-entry-row').forEach(function(row){
     var sel = row.querySelector('.bc-add-ons-entry-type');
     var lbl = row.querySelector('.bc-add-ons-entry-qty-label');
+    var qtyEl = row.querySelector('.bc-add-ons-entry-qty');
     if (!sel || !lbl) return;
     var t = sel.value;
-    if (t.indexOf('service:') === 0) lbl.textContent = 'Quantity';
+    var cat = bcEntryCatalogService(t);
+    if (cat) {
+      lbl.textContent = cat.per_guest === false ? 'Quantity' : 'Guests';
+      // Default headcount to the whole party the first time a catalog service is picked.
+      if (cat.per_guest !== false && qtyEl && (!qtyEl.value || qtyEl.value === '1') && bcAddServiceCtx.guestCount) {
+        qtyEl.value = String(bcAddServiceCtx.guestCount);
+      }
+    }
     else if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
     else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
     else if (t === 'meals') lbl.textContent = 'Quantity / meals';
     else lbl.textContent = 'Quantity / Days';
   });
+  bcAddServiceUpdateCatalogUi();
+}
+
+// Show the From/To range when a per-day catalog service is selected; keep the built-in
+// Service Date / schedule links for built-in add-ons.
+function bcAddServiceUpdateCatalogUi(){
+  var anyCatalogPerDay = false;
+  document.querySelectorAll('.bc-add-ons-entry-row .bc-add-ons-entry-type').forEach(function(sel){
+    var cat = bcEntryCatalogService(sel.value);
+    if (cat && cat.price_unit === 'per_day') anyCatalogPerDay = true;
+  });
+  var range = el('bc-add-ons-catalog-range');
+  if (range) range.style.display = anyCatalogPerDay ? '' : 'none';
+  var hint = el('bc-add-ons-range-hint');
+  if (hint && anyCatalogPerDay) {
+    var f = el('bc-add-ons-from'), tt = el('bc-add-ons-to');
+    var nights = bcAddServiceCtx.checkIn && bcAddServiceCtx.checkOut
+      ? Math.round((new Date((tt && tt.value) || bcAddServiceCtx.checkOut) - new Date((f && f.value) || bcAddServiceCtx.checkIn)) / 86400000)
+      : null;
+    hint.textContent = nights != null && nights > 0 ? (nights + (nights === 1 ? ' night' : ' nights') + ' selected') : 'Defaults to the whole stay.';
+  }
 }
 
 function bcAddServiceCollectEntryRows(){
@@ -29828,11 +29889,17 @@ function bcOpenAddServiceForm(data){
   if (!wrap) return;
   var bk = (data && data.booking) || {};
   bcAddServiceCtx.checkIn = bk.check_in || null;
+  bcAddServiceCtx.checkOut = bk.check_out || null;
+  bcAddServiceCtx.guestCount = Number(bk.guest_count) || 1;
   bcAddServiceApplyScheduleMode('specific_date');
   bcAddServiceResetEntryRows();
   bcLoadServiceCatalog(function(){ bcAddServiceResetEntryRows(); });
   var dateEl = el('bc-add-ons-date');
   if (dateEl && bk.check_in) dateEl.value = bk.check_in;
+  var fromEl = el('bc-add-ons-from');
+  if (fromEl && bk.check_in) fromEl.value = bk.check_in;
+  var toEl = el('bc-add-ons-to');
+  if (toEl && bk.check_out) toEl.value = bk.check_out;
   var noteEl = el('bc-add-ons-note');
   if (noteEl) noteEl.value = '';
   wrap.style.display = '';
@@ -29972,6 +30039,10 @@ function bcRunAddServiceSave(){
   var serviceDate = null;
   if (scheduleMode !== 'schedule_later' && dateEl && dateEl.value) serviceDate = dateEl.value;
   var note = noteEl && noteEl.value ? noteEl.value : null;
+  var fromEl = el('bc-add-ons-from');
+  var toEl = el('bc-add-ons-to');
+  var applyFrom = fromEl && fromEl.value ? fromEl.value : null;
+  var applyTo = toEl && toEl.value ? toEl.value : null;
   var client = getBcClient();
   var chain = Promise.resolve();
   entries.forEach(function(entry){
@@ -29987,6 +30058,8 @@ function bcRunAddServiceSave(){
           quantity: entry.quantity,
           schedule_mode: scheduleMode,
           service_date: serviceDate,
+          apply_from: applyFrom,
+          apply_to: applyTo,
           note: note,
           idempotency_key: bcNewAddServiceIdempotencyKey(),
         }),
@@ -30106,6 +30179,10 @@ function bcInitAddServiceShell(data){
       }
     });
   }
+  ['bc-add-ons-from', 'bc-add-ons-to'].forEach(function(id){
+    var node = el(id);
+    if (node) node.addEventListener('change', bcAddServiceUpdateCatalogUi);
+  });
   document.querySelectorAll('.bc-add-ons-sched-link').forEach(function(btn){
     btn.addEventListener('click', function(e){
       e.preventDefault();
