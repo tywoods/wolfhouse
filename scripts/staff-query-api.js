@@ -29576,6 +29576,36 @@ function bcCloseAddServiceForm(){
   if (saveBtn) saveBtn.disabled = false;
 }
 
+// Catalog services (tenant_services) for the dropdown — loaded once per drawer open.
+// Built-in operational add-ons stay hardcoded; catalog services are data-driven so
+// new ones appear automatically with no client change.
+var bcServiceCatalog = [];
+
+function bcLoadServiceCatalog(cb){
+  var client = getBcClient();
+  fetch('/staff/bookings/service-catalog?client=' + encodeURIComponent(client))
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      bcServiceCatalog = (d && d.success && Array.isArray(d.services)) ? d.services : [];
+      if (cb) cb();
+    })
+    .catch(function(){ bcServiceCatalog = []; if (cb) cb(); });
+}
+
+function bcServiceCatalogOptionsHtml(){
+  if (!bcServiceCatalog || !bcServiceCatalog.length) return '';
+  var out = '';
+  bcServiceCatalog.forEach(function(s){
+    if (!s || !s.id) return;
+    var unit = s.price_unit === 'per_day' ? '/day' : '/stay';
+    var per = s.per_guest === false ? '' : '/guest';
+    var price = '€' + (Number(s.price_cents || 0) / 100).toFixed(2);
+    out += '<option value="service:' + escHtml(String(s.id)) + '">' +
+      escHtml(s.name + ' — ' + price + unit + per) + '</option>';
+  });
+  return out ? ('<optgroup label="Catalog services">' + out + '</optgroup>') : '';
+}
+
 function bcAddServiceEntryRowHtml(rowId){
   return '<div class="bc-add-ons-entry-row" data-row-id="' + escHtml(rowId) + '">' +
     '<label class="ctx-field-label">Service Type</label>' +
@@ -29586,6 +29616,7 @@ function bcAddServiceEntryRowHtml(rowId){
     '<option value="surf_lesson">Surf lesson</option>' +
     '<option value="yoga">Yoga</option>' +
     '<option value="meals">Meal</option>' +
+    bcServiceCatalogOptionsHtml() +
     '</select>' +
     '<label class="ctx-field-label bc-add-ons-entry-qty-label">Quantity / Days</label>' +
     '<input type="number" class="bk-input bk-input-sm bc-add-ons-entry-qty" min="1" value="1">' +
@@ -29605,7 +29636,8 @@ function bcAddServiceUpdateEntryQtyLabels(scope){
     var lbl = row.querySelector('.bc-add-ons-entry-qty-label');
     if (!sel || !lbl) return;
     var t = sel.value;
-    if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
+    if (t.indexOf('service:') === 0) lbl.textContent = 'Quantity';
+    else if (t === 'surf_lesson') lbl.textContent = 'Quantity / lessons';
     else if (t === 'yoga') lbl.textContent = 'Quantity / classes';
     else if (t === 'meals') lbl.textContent = 'Quantity / meals';
     else lbl.textContent = 'Quantity / Days';
@@ -29682,6 +29714,7 @@ function bcOpenAddServiceForm(data){
   bcAddServiceCtx.checkIn = bk.check_in || null;
   bcAddServiceApplyScheduleMode('specific_date');
   bcAddServiceResetEntryRows();
+  bcLoadServiceCatalog(function(){ bcAddServiceResetEntryRows(); });
   var dateEl = el('bc-add-ons-date');
   if (dateEl && bk.check_in) dateEl.value = bk.check_in;
   var noteEl = el('bc-add-ons-note');
@@ -32911,6 +32944,30 @@ async function handleAdminServicesGet(query, req, res, user) {
     return sendJSON(res, result.status, result.body);
   } catch (err) {
     console.error('[admin.services.list] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'list failed', code: err && err.code });
+  }
+}
+
+// Booking-facing catalog list for the per-booking "Add service" dropdown.
+// Operator-gated (the add-service action is too); returns only active services with
+// the minimal fields the dropdown + pricing need. Single source for catalog options —
+// new admin-created services appear here automatically, no code change.
+async function handleBookingServiceCatalogGet(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const result = await withPgClient(async (pg) => listTenantServices(pg, { clientSlug, includeInactive: false }));
+    const services = (((result.body && result.body.services) || [])).map((s) => ({
+      id: s.id,
+      name: s.name,
+      price_cents: s.price_cents,
+      price_unit: s.price_unit,
+      per_guest: s.per_guest,
+    }));
+    return sendJSON(res, 200, { success: true, services });
+  } catch (err) {
+    console.error('[bookings.service-catalog] failed:', err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'list failed', code: err && err.code });
   }
 }
@@ -37838,6 +37895,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleBookingAddService(req, res, auth.user);
+  }
+
+  if (pathname === '/staff/bookings/service-catalog' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleBookingServiceCatalogGet(parsed.query, req, res, auth.user);
   }
 
   // ── Phase 10.6h — Create conversation linked to booking (no message send) ─
