@@ -318,6 +318,13 @@ const {
 const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
 const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
+const { getWolfhouseServicesAdminSource } = require('./lib/wolfhouse-services-browser-source');
+const {
+  listServices: listTenantServices,
+  createService: createTenantService,
+  patchService: patchTenantService,
+  deactivateService: deactivateTenantService,
+} = require('./lib/tenant-services-writes');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
@@ -17413,6 +17420,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
   <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
+  <button class="tab-btn" data-tab="services" style="display:none">Services</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -17597,6 +17605,42 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div id="admin-save-msg" class="state-msg portal-admin-save-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
 </div><!-- /tab-admin -->
+
+<div id="tab-services" class="tab-panel">
+<div class="portal-admin-wrap">
+  <div class="portal-admin-header-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+    <h2 class="portal-admin-title">Services</h2>
+    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create service</button>
+  </div>
+  <p class="portal-admin-muted">Add-on services Luna can offer and (later) book. The name is the booking line item; price is per guest.</p>
+  <div id="svc-list-body"><p class="portal-admin-muted">Loading…</p></div>
+  <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
+</div>
+</div><!-- /tab-services -->
+
+<div id="svc-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
+  <div class="portal-schedule-create-backdrop" id="svc-modal-backdrop"></div>
+  <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="svc-modal-title">
+    <h3 id="svc-modal-title">Create service</h3>
+    <input type="hidden" id="svc-f-id">
+    <div class="portal-schedule-create-field"><label for="svc-f-name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-category">Category</label>
+      <select id="svc-f-category"><option value="">—</option><option value="experience">Experience</option><option value="meal">Meal</option><option value="transfer">Transfer</option><option value="rental">Rental</option><option value="lesson">Lesson</option><option value="other">Other</option></select></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-start">Start date (optional)</label><input type="date" id="svc-f-start"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-end">End date (optional)</label><input type="date" id="svc-f-end"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
+      <select id="svc-f-unit"><option value="per_day">Per day</option><option value="per_stay">Per stay</option><option value="one_off">One-off</option></select></div>
+    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-span"> Always span across booking dates (per-day)</label></div>
+    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-notes">Notes for Luna</label><textarea id="svc-f-notes" rows="3" placeholder="What Luna may tell guests about this service"></textarea></div>
+    <div class="portal-schedule-create-actions">
+      <button type="button" class="btn btn-primary" id="svc-modal-submit">Save service</button>
+      <button type="button" class="btn btn-ghost" id="svc-modal-cancel">Cancel</button>
+    </div>
+  </div>
+</div>
 
 
 
@@ -18592,6 +18636,7 @@ function switchToTab(tab, subtab){
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
   if (tab === 'admin') loadAdminTab();
+  if (tab === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   if (tab !== 'conversations') hideInboxMobileThread();
@@ -18622,6 +18667,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
     if (target === 'admin') loadAdminTab();
+    if (target === 'services' && typeof loadServicesTab === 'function') loadServicesTab();
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
     if (target !== 'conversations') hideInboxMobileThread();
@@ -19264,6 +19310,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !profile.is_surf_vertical) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
+  if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
   return false;
 }
@@ -19354,6 +19401,10 @@ function applyClientPortalProfile(clientSlug){
     }
     if (tab === 'admin') {
       btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      return;
+    }
+    if (tab === 'services') {
+      btn.style.display = (clientSlug === 'wolfhouse-somo') ? '' : 'none';
       return;
     }
     if (tab === 'day-schedule') {
@@ -21766,6 +21817,9 @@ ${getSunsetAdminBrowserHelperSource()}
 
 /* sunset-admin-ui: injected from scripts/browser/sunset-admin-ui.js */
 ${getSunsetAdminUiBrowserSource()}
+
+/* wolfhouse-services-admin: injected from scripts/browser/wolfhouse-services-admin.js */
+${getWolfhouseServicesAdminSource()}
 var customersCache = [];
 var customersFilter = 'all';
 var selectedCustomerPhone = null;
@@ -32849,6 +32903,84 @@ async function handleAdminConfigPriceDelete(ruleIdRaw, query, req, res, user) {
   }
 }
 
+async function handleAdminServicesGet(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  try {
+    const result = await withPgClient(async (pg) => listTenantServices(pg, { clientSlug }));
+    return sendJSON(res, result.status, result.body);
+  } catch (err) {
+    console.error('[admin.services.list] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'list failed', code: err && err.code });
+  }
+}
+
+async function handleAdminServicesPost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  try {
+    const result = await withPgClient(async (pg) => createTenantService(pg, {
+      clientSlug, body, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:admin.services.create', category: 'admin_api', client_slug: clientSlug, success: result.ok, staff_user_id: user ? user.staff_user_id : null, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin.services.create] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
+async function handleAdminServicesPatch(idRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const id = String(idRaw || '').trim();
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return send400(res, 'invalid service id');
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  try {
+    const result = await withPgClient(async (pg) => patchTenantService(pg, {
+      id, clientSlug, patch: body, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:admin.services.patch', category: 'admin_api', client_slug: clientSlug, success: result.ok, staff_user_id: user ? user.staff_user_id : null, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin.services.patch] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
+async function handleAdminServicesDelete(idRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({ user, clientSlug, staffAuthRequired: STAFF_AUTH_REQUIRED, resolveStaffRole });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const id = String(idRaw || '').trim();
+  if (!/^[0-9a-fA-F-]{36}$/.test(id)) return send400(res, 'invalid service id');
+  try {
+    const result = await withPgClient(async (pg) => deactivateTenantService(pg, {
+      id, clientSlug, actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:admin.services.delete', category: 'admin_api', client_slug: clientSlug, success: result.ok, staff_user_id: user ? user.staff_user_id : null, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin.services.delete] write failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -38528,6 +38660,28 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonTimeDelete(decodeAdminPathId(adminLessonTimePatchMatch[1]), parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/services' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminServicesGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/admin/services' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminServicesPost(parsed.query, req, res, auth.user);
+  }
+  const adminServicePatchMatch = /^\/staff\/admin\/services\/([^/?]+)$/i.exec(pathname);
+  if (adminServicePatchMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminServicesPatch(decodeAdminPathId(adminServicePatchMatch[1]), parsed.query, req, res, auth.user);
+  }
+  if (adminServicePatchMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminServicesDelete(decodeAdminPathId(adminServicePatchMatch[1]), parsed.query, req, res, auth.user);
   }
 
   if (pathname === '/staff/schedule/day' && method === 'GET') {
