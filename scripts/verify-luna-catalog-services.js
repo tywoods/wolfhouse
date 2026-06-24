@@ -41,6 +41,7 @@ ok('stay entirely after window → false', staysOverlapWindow('2026-07-12', '202
 ok('stay entirely before window → false', staysOverlapWindow('2026-06-20', '2026-07-05', '2026-07-05', '2026-07-11') === false);
 
 // ── formatting ───────────────────────────────────────────────────────
+ok('camp dates from Date objects (pg)', formatCampDates(new Date('2026-07-05T00:00:00.000Z'), new Date('2026-07-11T00:00:00.000Z')) === '5–11 Jul 2026');
 ok('camp dates same month', formatCampDates('2026-07-05', '2026-07-11') === '5–11 Jul 2026');
 ok('camp dates cross month', formatCampDates('2026-07-28', '2026-08-03') === '28 Jul – 3 Aug 2026');
 ok('price per_day per guest', formatPrice(2000, 'per_day', true) === '€20/day per guest');

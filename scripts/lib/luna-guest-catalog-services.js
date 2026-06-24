@@ -20,6 +20,8 @@ const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 
 function dateOnly(v) {
   if (!v) return null;
+  // pg returns DATE columns as Date objects (UTC midnight); strings come from ::text casts.
+  if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10);
   const s = String(v).slice(0, 10);
   return DATE_RE.test(s) ? s : null;
 }
