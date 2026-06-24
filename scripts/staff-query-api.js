@@ -4567,11 +4567,21 @@ function editPreviewBuildLineItems(accCents, svcRows, quoteLineItems) {
     items.push({
       kind: 'addon',
       code: sr.service_type,
-      label: sr.service_type,
+      label: svcRecordDisplayLabel(sr),
       amount_cents: sr.amount_due_cents != null ? Number(sr.amount_due_cents) : null,
     });
   }
   return items;
+}
+
+// Display label for a booking service record: catalog services show their name,
+// built-ins fall back to the operational service_type. Single rule, reused server-side.
+function svcRecordDisplayLabel(sr) {
+  let meta = sr && sr.metadata;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (_) { meta = {}; } }
+  meta = meta || {};
+  if (meta.catalog_service && meta.service_name) return meta.service_name;
+  return (sr && sr.service_type) || 'Service';
 }
 
 function editPreviewInvoiceSide(accCents, svcRows, paidCents, quoteLineItems) {
@@ -27352,6 +27362,7 @@ function staffAddonUiTypeLabel(uiType){
 
 function bcRunningInvoiceSvcTypeLabel(t, meta){
   meta = meta || {};
+  if (meta.catalog_service && meta.service_name) return meta.service_name;
   if (meta.staff_ui_service_type) return staffAddonUiTypeLabel(meta.staff_ui_service_type);
   if (t === 'surfboard' && meta.board_variant === 'soft') return 'Soft board';
   if (t === 'surfboard' && meta.board_variant === 'hard') return 'Hard board';
@@ -27695,6 +27706,19 @@ function bcRunningInvoiceSvcLineText(sr){
   };
   if (totalCents == null || (totalCents === 0 && sr.amount_due_cents == null)) {
     return label + ' \u2014 Not available';
+  }
+  if (meta.catalog_service) {
+    var cg = Math.max(1, Number(meta.guests_charged || meta.quantity || 1));
+    var cgWord = bcPluralUnit(cg, 'guest', 'guests');
+    var cUnit = meta.catalog_price_cents != null ? Number(meta.catalog_price_cents) : null;
+    if (meta.price_unit === 'per_day' && Number(meta.nights_charged) > 0) {
+      var cd = Number(meta.nights_charged);
+      var cdWord = bcPluralUnit(cd, 'day', 'days');
+      if (cUnit != null) return label + ' \u2014 ' + cg + ' ' + cgWord + ' \u00d7 ' + cd + ' ' + cdWord + ' \u00d7 ' + eur(cUnit) + ' = ' + eur(totalCents);
+      return label + ' \u2014 ' + cg + ' ' + cgWord + ' \u00d7 ' + cd + ' ' + cdWord + ' = ' + eur(totalCents);
+    }
+    if (cg > 1) return label + ' \u2014 ' + cg + ' ' + cgWord + ' = ' + eur(totalCents);
+    return label + ' \u2014 ' + eur(totalCents);
   }
   var rentalPeople = bcResolveRentalPeopleFromMeta(meta, sr.quantity, sr.service_type);
   var rentalDays = meta.rental_days != null ? Number(meta.rental_days) : qty;

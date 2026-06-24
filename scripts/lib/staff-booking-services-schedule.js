@@ -77,6 +77,7 @@ function buildStayDates(checkIn, checkOut, timezone = 'Europe/Madrid') {
 
 function serviceTypeLabel(row) {
   const meta = parseMetadata(row.metadata);
+  if (meta.catalog_service && meta.service_name) return trimStr(meta.service_name);
   if (meta.staff_ui_service_type) {
     const ui = trimStr(meta.staff_ui_service_type);
     if (ui === 'soft_board') return 'Soft board';

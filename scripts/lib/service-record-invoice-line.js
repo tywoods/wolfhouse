@@ -164,6 +164,23 @@ function formatServiceRecordInvoiceLineText(sr, opts = {}) {
     return `${label} \u2014 Not available`;
   }
 
+  if (meta.catalog_service) {
+    const name = meta.service_name || label;
+    const cg = Math.max(1, Number(meta.guests_charged || meta.quantity || 1));
+    const cgWord = cg === 1 ? 'guest' : 'guests';
+    const cUnit = meta.catalog_price_cents != null ? Number(meta.catalog_price_cents) : null;
+    if (meta.price_unit === 'per_day' && Number(meta.nights_charged) > 0) {
+      const cd = Number(meta.nights_charged);
+      const cdWord = cd === 1 ? 'day' : 'days';
+      if (cUnit != null) {
+        return `${name} \u2014 ${cg} ${cgWord} \u00d7 ${cd} ${cdWord} \u00d7 ${formatEurCents(cUnit)} = ${formatEurCents(totalCents)}`;
+      }
+      return `${name} \u2014 ${cg} ${cgWord} \u00d7 ${cd} ${cdWord} = ${formatEurCents(totalCents)}`;
+    }
+    if (cg > 1) return `${name} \u2014 ${cg} ${cgWord} = ${formatEurCents(totalCents)}`;
+    return `${name} \u2014 ${formatEurCents(totalCents)}`;
+  }
+
   if (
     (sr.service_type === 'wetsuit' || sr.service_type === 'surfboard')
     && rentalDays != null && rentalDays > 0
