@@ -24,8 +24,14 @@ function isValidPackScheduleKey(key) {
   const end = Number(m[3]) * 60 + Number(m[4]);
   return end > start;
 }
-const PACK_GROUP_SIZES = new Set([8, 12, 16, 20, 24]);
-const PACK_TIER_KEYS = new Set(['1_week', '2_weeks', '3_weeks', '4_weeks', 'single_class']);
+const PACK_GROUP_SIZES = new Set([8, 12, 16, 20, 24]); // legacy presets (no longer enforced)
+// Duration tiers a course price row may use. Day + week tiers are owner-selectable;
+// single_class kept for backward compatibility with existing packs.
+const PACK_TIER_KEYS = new Set([
+  '1_day', '2_days', '3_days', '5_days', '7_days',
+  '1_week', '2_weeks', '3_weeks', '4_weeks',
+  'single_class',
+]);
 
 const DEFAULT_PRICE_TIERS = [
   { key: '1_week', label: 'Price for 1 week (10 hours)', hours: 10, amount_cents: 18000 },
@@ -82,7 +88,7 @@ function validatePackBody(body, { requireLabel } = {}) {
   }
   if (body.group_size != null) {
     const n = Number(body.group_size);
-    if (!PACK_GROUP_SIZES.has(n)) return { ok: false, error: 'invalid group_size' };
+    if (!Number.isInteger(n) || n < 1 || n > 999) return { ok: false, error: 'invalid group_size' };
     out.group_size = n;
   }
   if (body.beaches != null) {

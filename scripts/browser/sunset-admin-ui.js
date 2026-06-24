@@ -179,6 +179,20 @@ function adminRenderPillRow(group, options, selected, multi){
   });
   return html + '</div></div>';
 }
+// Read-only display of a pill group's selected values — used on the course card when NOT
+// editing, so the pills can't be toggled unless the Edit button is pressed.
+function adminRenderPackPillReadout(group, options, selected, multi){
+  var sel = multi ? (selected || []) : [selected];
+  var labelMap = {};
+  options.forEach(function(o){ labelMap[o.value] = o.label; });
+  var vals = sel.filter(Boolean).map(function(v){ return labelMap[v] || v; });
+  var groupLabel = group;
+  if (group === 'beaches') groupLabel = portalT('admin.packs.beaches');
+  else if (group === 'weekly') groupLabel = portalT('admin.edit.frequency');
+  else if (group === 'group_size') groupLabel = portalT('admin.packs.groupSize');
+  else if (group === 'age_band') groupLabel = portalT('admin.edit.age');
+  return '<div class="portal-admin-pill-group portal-admin-pill-readout"><span class="portal-admin-pill-label">' + escHtml(groupLabel) + '</span> <strong>' + escHtml(vals.join(', ') || '—') + '</strong></div>';
+}
 function adminPackFormRoot(pid){
   if (pid) return document.querySelector('[data-admin-pack-form="' + pid + '"]');
   return document.querySelector('[data-admin-pack-form="new"]');
@@ -244,39 +258,90 @@ function adminScheduleKeyFromTimes(start, end){
   return s + '_' + e;
 }
 function adminRenderPackScheduleFields(p, prefix){
-  var sched = (p && p.schedules && p.schedules[0]) ? p.schedules[0] : '0930_1130';
-  var times = adminTimesFromScheduleKey(sched);
+  var s0 = (p && p.schedules && p.schedules[0]) ? p.schedules[0] : '0930_1130';
+  var s1 = (p && p.schedules && p.schedules[1]) ? p.schedules[1] : '';
+  var t0 = adminTimesFromScheduleKey(s0);
+  var t1 = adminTimesFromScheduleKey(s1);
   return '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.startTime')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-start" value="' + escHtml(times.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<input type="text" id="' + prefix + '-schedule-start" value="' + escHtml(t0.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.endTime')) + '</label>' +
-    '<input type="text" id="' + prefix + '-schedule-end" value="' + escHtml(times.end) + '" placeholder="HH:MM" maxlength="5"></div>';
+    '<input type="text" id="' + prefix + '-schedule-end" value="' + escHtml(t0.end) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.startTime2')) + '</label>' +
+    '<input type="text" id="' + prefix + '-schedule-start2" value="' + escHtml(t1.start) + '" placeholder="HH:MM" maxlength="5"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.endTime2')) + '</label>' +
+    '<input type="text" id="' + prefix + '-schedule-end2" value="' + escHtml(t1.end) + '" placeholder="HH:MM" maxlength="5"></div>';
 }
 function adminRenderPackScheduleReadout(schedules){
-  var key = (schedules && schedules[0]) ? schedules[0] : '';
-  var times = adminTimesFromScheduleKey(key);
-  var label = (times.start && times.end) ? (times.start + ' – ' + times.end) : '—';
+  var list = (schedules || []).filter(Boolean).map(function(k){
+    var t = adminTimesFromScheduleKey(k);
+    return (t.start && t.end) ? (t.start + ' – ' + t.end) : null;
+  }).filter(Boolean);
+  var label = list.length ? list.join(', ') : '—';
   return '<div class="portal-admin-pack-schedule-readout"><span class="portal-admin-muted">' + escHtml(portalT('admin.packs.schedules')) + '</span> <strong>' + escHtml(label) + '</strong></div>';
 }
+function adminReadOnePackWindow(startId, endId, optional){
+  var s = el(startId), e = el(endId);
+  var sv = String((s && s.value) || '').trim();
+  var ev = String((e && e.value) || '').trim();
+  if (optional && !sv && !ev) return { ok: true, key: '' };
+  var sp = adminParseTimeHm(sv);
+  if (!sp.ok) return { ok: false, error: sp.error };
+  var ep = adminParseTimeHm(ev);
+  if (!ep.ok) return { ok: false, error: ep.error };
+  if (ep.value <= sp.value) return { ok: false, error: portalT('admin.edit.endAfterStart') };
+  return { ok: true, key: adminScheduleKeyFromTimes(sp.value, ep.value) };
+}
 function adminReadPackSchedules(prefix){
-  var startInput = el(prefix + '-schedule-start');
-  var endInput = el(prefix + '-schedule-end');
-  var startParsed = adminParseTimeHm(startInput && startInput.value);
-  if (!startParsed.ok) return { ok: false, error: startParsed.error };
-  var endParsed = adminParseTimeHm(endInput && endInput.value);
-  if (!endParsed.ok) return { ok: false, error: endParsed.error };
-  if (endParsed.value <= startParsed.value) return { ok: false, error: portalT('admin.edit.endAfterStart') };
-  var key = adminScheduleKeyFromTimes(startParsed.value, endParsed.value);
-  return { ok: true, value: key ? [key] : [] };
+  var w1 = adminReadOnePackWindow(prefix + '-schedule-start', prefix + '-schedule-end', false);
+  if (!w1.ok) return { ok: false, error: w1.error };
+  var w2 = adminReadOnePackWindow(prefix + '-schedule-start2', prefix + '-schedule-end2', true);
+  if (!w2.ok) return { ok: false, error: w2.error };
+  var out = [];
+  if (w1.key) out.push(w1.key);
+  if (w2.key) out.push(w2.key);
+  return { ok: true, value: out };
+}
+// Owner-selectable course price durations (key + display label + hours metadata).
+function adminPackTierDurations(){
+  return [
+    { key: '1_day', hours: 2 }, { key: '2_days', hours: 4 }, { key: '3_days', hours: 6 },
+    { key: '5_days', hours: 10 }, { key: '7_days', hours: 14 },
+    { key: '1_week', hours: 10 }, { key: '2_weeks', hours: 20 }, { key: '3_weeks', hours: 30 }, { key: '4_weeks', hours: 40 },
+    { key: 'single_class', hours: 2 },
+  ].map(function(d){ return { key: d.key, hours: d.hours, label: adminPeriodLabel(d.key) }; });
+}
+function adminRenderPackTierRowsHtml(rows){
+  var durs = adminPackTierDurations();
+  return (rows || []).map(function(r){
+    var opts = durs.map(function(d){
+      return '<option value="' + escHtml(d.key) + '"' + (d.key === r.key ? ' selected' : '') + '>' + escHtml(d.label) + '</option>';
+    }).join('');
+    return '<div class="portal-admin-pack-tier" data-pack-tier-row>' +
+      '<select class="pack-tier-key">' + opts + '</select>' +
+      '<input type="text" class="pack-tier-amount" value="' + escHtml(r.amount || '') + '" inputmode="decimal" placeholder="0.00">' +
+      '<span class="portal-admin-muted">' + escHtml(portalT('admin.packs.perStudent')) + '</span>' +
+      '<button type="button" class="btn btn-ghost portal-admin-icon-btn portal-admin-danger" data-admin-action="remove-pack-tier" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button>' +
+      '</div>';
+  }).join('');
+}
+function adminReadPackTierRows(prefix){
+  var wrap = el(prefix + '-tier-rows');
+  if (!wrap) return [];
+  return Array.prototype.slice.call(wrap.querySelectorAll('[data-pack-tier-row]')).map(function(row){
+    var keyEl = row.querySelector('.pack-tier-key');
+    var amtEl = row.querySelector('.pack-tier-amount');
+    return { key: keyEl ? keyEl.value : '', amount: amtEl ? amtEl.value : '' };
+  });
 }
 function adminRenderPackTierFields(tiers, prefix){
-  var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
-  (tiers || []).forEach(function(t, idx){
-    html += '<div class="portal-admin-pack-tier" data-pack-tier-idx="' + idx + '">' +
-      '<label>' + escHtml(t.label || t.key) + '</label>' +
-      '<input type="text" id="' + escHtml(prefix) + '-tier-amount-' + idx + '" value="' + escHtml(adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100)) + '" inputmode="decimal" placeholder="0.00">' +
-      '<span class="portal-admin-muted">' + escHtml(portalT('admin.packs.perStudent')) + '</span></div>';
+  var rows = (tiers || []).map(function(t){
+    return { key: t.key, amount: adminEurosFromAmount((t.amount_cents != null ? t.amount_cents : 0) / 100) };
   });
-  return html + '</div>';
+  if (!rows.length) rows = [{ key: '1_day', amount: '' }];
+  return '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>' +
+    '<div id="' + escHtml(prefix) + '-tier-rows">' + adminRenderPackTierRowsHtml(rows) + '</div>' +
+    '<button type="button" class="btn btn-ghost" data-admin-action="add-pack-tier" data-tier-prefix="' + escHtml(prefix) + '">+ ' + escHtml(portalT('admin.packs.addPrice')) + '</button>' +
+    '</div>';
 }
 function adminRenderPackTierReadout(tiers){
   var html = '<div class="portal-admin-pill-group"><span class="portal-admin-pill-label">' + escHtml(portalT('admin.packs.priceTiers')) + '</span>';
@@ -293,7 +358,8 @@ function adminRenderPackEditForm(pid, pack){
     '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
     '<input type="text" id="' + prefix + '-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
     adminRenderPillRow('age_band', adminPackAgeOptions(), p.age_band || '12_and_up', false) +
-    adminRenderPillRow('group_size', adminPackGroupSizeOptions(), String(p.group_size || 16), false) +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.packs.groupSize')) + '</label>' +
+    '<input type="number" id="' + prefix + '-group-size" min="1" max="999" step="1" value="' + escHtml(String(p.group_size || 16)) + '"></div>' +
     adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true) +
     adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false) +
     adminRenderPackScheduleFields(p, prefix) +
@@ -309,16 +375,23 @@ function adminReadPackFormPayload(pid){
   var root = adminPackFormRoot(pid || null);
   var prefix = pid ? ('admin-pack-' + pid) : 'admin-new-pack';
   var labelEl = el(prefix + '-label');
-  var tiers = (ADMIN_DEFAULT_PRICE_TIERS || []).map(function(t, idx){
-    var input = el(prefix + '-tier-amount-' + idx);
-    var cents = adminParseEurosToCents(input && input.value);
-    return { key: t.key, label: t.label, hours: t.hours, amount_cents: cents.ok ? cents.value : 0 };
+  var durMap = {};
+  adminPackTierDurations().forEach(function(d){ durMap[d.key] = d; });
+  var seenTierKeys = {};
+  var tiers = adminReadPackTierRows(prefix).map(function(r){
+    var d = durMap[r.key] || { key: r.key, label: r.key, hours: 0 };
+    var cents = adminParseEurosToCents(r.amount);
+    return { key: d.key, label: d.label, hours: d.hours, amount_cents: cents.ok ? cents.value : 0 };
+  }).filter(function(t){
+    if (!t.key || seenTierKeys[t.key]) return false; // drop blank + duplicate durations
+    seenTierKeys[t.key] = true;
+    return true;
   });
   var schedulesParsed = adminReadPackSchedules(prefix);
   return {
     label: labelEl ? String(labelEl.value || '').trim() : '',
     age_band: adminCollectSinglePill('age_band', '12_and_up', root),
-    group_size: Number(adminCollectSinglePill('group_size', '16', root)),
+    group_size: (function(){ var g = el(prefix + '-group-size'); var n = parseInt(g && g.value, 10); return (isFinite(n) && n > 0) ? n : 16; })(),
     beaches: adminCollectPillValues('beaches', root),
     weekly: adminCollectSinglePill('weekly', 'mon_fri', root),
     schedules: schedulesParsed.ok ? schedulesParsed.value : [],
@@ -383,6 +456,14 @@ function adminRentalPeriodOptions(selected){
   }).join('');
 }
 
+// Rank rental durations shortest → longest so prices display in time order
+// (1h, 2h, half day, 1 day, 2 day, …) instead of numeric-then-alphabetical.
+function adminRentalPeriodRank(period){
+  var order = ['1_hour', '2_hours', 'half_day', '1_day', '2_days', '3_days', '4_days', '5_days', '6_days', '7_days', '1_week', '2_weeks', '3_weeks', '4_weeks'];
+  var i = order.indexOf(String(period || '').trim());
+  return i >= 0 ? i : 999;
+}
+
 function adminPriceCategoryLabel(category){
   var c = String(category || '').trim().toLowerCase();
   if (c === 'lesson') return portalT('admin.prices.category.lesson');
@@ -437,7 +518,9 @@ function renderAdminSectionPricesFromConfig(cfg){
   var order = adminRentalGroupOrder();
   var html = '<div class="portal-admin-toolbar"><span class="portal-admin-muted">' + escHtml(portalT('admin.prices.help')) + '</span></div>';
   order.forEach(function(key){
-    var items = groups[key] || [];
+    var items = (groups[key] || []).slice().sort(function(a, b){
+      return adminRentalPeriodRank(adminParsePriceRow(a).periodWindow) - adminRentalPeriodRank(adminParsePriceRow(b).periodWindow);
+    });
     var groupEditing = writes && adminEditTarget === ('price-group:' + key);
     var adding = writes && adminEditTarget === ('price-add:' + key);
     html += '<div class="portal-admin-subsection" data-admin-price-group="' + escHtml(key) + '">';
@@ -646,8 +729,8 @@ function renderAdminPackCards(packs, writes){
     html += '</div>';
     if (editing) html += adminRenderPackEditForm(pid, p);
     else {
-      html += adminRenderPillRow('beaches', adminPackBeachOptions(), p.beaches || [], true);
-      html += adminRenderPillRow('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false);
+      html += adminRenderPackPillReadout('beaches', adminPackBeachOptions(), p.beaches || [], true);
+      html += adminRenderPackPillReadout('weekly', adminPackWeeklyPillOptions(), p.weekly || 'mon_fri', false);
       html += adminRenderPackScheduleReadout(p.schedules || []);
       html += adminRenderPackTierReadout(p.price_tiers || []);
     }
@@ -785,6 +868,20 @@ function wireAdminTab(){
       } else {
         btn.classList.toggle('is-selected');
       }
+      return;
+    }
+    if (action === 'add-pack-tier'){
+      var addPfx = btn.getAttribute('data-tier-prefix');
+      var tierWrap = addPfx ? el(addPfx + '-tier-rows') : null;
+      if (!tierWrap) return;
+      var curRows = adminReadPackTierRows(addPfx);
+      curRows.push({ key: '1_day', amount: '' });
+      tierWrap.innerHTML = adminRenderPackTierRowsHtml(curRows);
+      return;
+    }
+    if (action === 'remove-pack-tier'){
+      var tierRow = btn.closest ? btn.closest('[data-pack-tier-row]') : null;
+      if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
     if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack'){
