@@ -33,6 +33,7 @@ function parseMetadata(raw) {
 
 function serviceTypeStaffLabel(serviceType, meta) {
   const md = meta || {};
+  if (md.catalog_service && md.service_name) return String(md.service_name);
   if (md.staff_ui_service_type) {
     const ui = String(md.staff_ui_service_type);
     if (ui === 'dinner' || ui === 'meals') return 'Dinner';
