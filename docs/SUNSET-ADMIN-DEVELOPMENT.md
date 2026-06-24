@@ -2,6 +2,8 @@
 
 Rules for working on the Sunset surf-school **Admin** tab without repeating the fix6–fix19 regression cycle.
 
+**Branching, deploy, and task reporting:** see [`SUNSET-DEVELOPMENT-WORKFLOW.md`](./SUNSET-DEVELOPMENT-WORKFLOW.md) (`origin/master` base, clean worktree, Lunabox deploy-only, required deploy report fields).
+
 ## Source of truth
 
 Use **committed git source + verifiers**, not:
