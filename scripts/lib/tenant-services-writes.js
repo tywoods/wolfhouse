@@ -62,10 +62,14 @@ function validateServiceBody(body, { requireName = false } = {}) {
     if (!Array.isArray(body.keywords)) return { ok: false, error: 'keywords must be array' };
     const kws = [];
     for (const raw of body.keywords) {
-      const kw = String(raw == null ? '' : raw).trim().toLowerCase();
-      if (!kw) continue;
-      if (kw.length > KEYWORD_MAX) return { ok: false, error: 'keyword too long' };
-      if (!kws.includes(kw)) kws.push(kw);
+      // Forgiving split: people type keywords with commas, periods, semicolons or newlines
+      // ("jiu jitsu. bjj"); treat each as its own trigger term rather than one long phrase.
+      for (const part of String(raw == null ? '' : raw).split(/[,;.\n]+/)) {
+        const kw = part.trim().toLowerCase();
+        if (!kw) continue;
+        if (kw.length > KEYWORD_MAX) return { ok: false, error: 'keyword too long' };
+        if (!kws.includes(kw)) kws.push(kw);
+      }
     }
     out.keywords = kws;
   }

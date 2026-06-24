@@ -25,6 +25,7 @@ const good = validateServiceBody({
 }, { requireName: true });
 ok('valid full body accepted', good.ok === true);
 ok('keywords deduped + lowercased', good.ok && good.patch.keywords.join(',') === 'breakfast,desayuno');
+ok('keywords split on period/semicolon too', (() => { const r = validateServiceBody({ name: 'x', keywords: ['jiu jitsu. bjj', 'grappling; martial arts'] }, { requireName: true }); return r.ok && r.patch.keywords.join('|') === 'jiu jitsu|bjj|grappling|martial arts'; })());
 
 // ── validation: field rules ──────────────────────────────────────────
 ok('unknown field rejected', validateServiceBody({ name: 'x', color: 'red' }, { requireName: true }).ok === false);
