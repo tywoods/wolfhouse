@@ -1,7 +1,8 @@
 #!/bin/sh
 # Staging bootstrap: write Hermes config per role on every container startup.
-# HERMES_ROLE=luna     → guest WhatsApp Luna (default for ACA backward compat)
-# HERMES_ROLE=orchestrator → operator Discord/SSH profile (VM)
+# HERMES_ROLE=luna          → guest WhatsApp Luna (default for ACA backward compat)
+# HERMES_ROLE=orchestrator  → operator Discord/SSH profile (VM)
+# HERMES_ROLE=seadog        → Hermes Discord agent (VM, separate from Skipper)
 set -eu
 
 # s6-overlay legacy cont-init scripts run without the container environment.
@@ -19,6 +20,7 @@ mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
+STAGING_SEADOG_SOUL="/etc/hermes-staging/seadog-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
 LUNA_SOUL_VERSION="33"
@@ -130,6 +132,44 @@ write_orchestrator_env() {
   } > "$HERMES_HOME/.env"
 }
 
+write_seadog_config() {
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: gpt-5.5
+  provider: openai-codex
+agent:
+  reasoning_effort: low
+compression:
+  codex_gpt55_autoraise: false
+fallback_providers:
+  - provider: anthropic
+    model: anthropic/claude-sonnet-4-6
+# Seadog Discord profile — no guest booking tools; Luna owns WhatsApp booking.
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/wolfhouse/WH
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+}
+
+write_seadog_env() {
+  {
+    [ -n "${DISCORD_BOT_TOKEN:-}" ]                       && printf 'DISCORD_BOT_TOKEN=%s\n' "$DISCORD_BOT_TOKEN"
+    [ -n "${DISCORD_ALLOWED_USERS:-}" ]                   && printf 'DISCORD_ALLOWED_USERS=%s\n' "$DISCORD_ALLOWED_USERS"
+    [ -n "${API_SERVER_KEY:-}" ]                           && printf 'API_SERVER_KEY=%s\n' "$API_SERVER_KEY"
+    printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
+    printf 'API_SERVER_ENABLED=true\n'
+    printf 'API_SERVER_HOST=0.0.0.0\n'
+    printf 'API_SERVER_PORT=8644\n'
+    [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
+    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+  } > "$HERMES_HOME/.env"
+}
+
 install_luna_plugins() {
   if [ -d "$STAGING_PLUGINS" ]; then
     mkdir -p "$HERMES_HOME/plugins"
@@ -203,6 +243,13 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
     cp "$STAGING_ORCH_SOUL" "$HERMES_HOME/SOUL.md"
   fi
   write_orchestrator_env
+  link_shared_auth
+elif [ "$HERMES_ROLE" = "seadog" ]; then
+  write_seadog_config
+  if [ -f "$STAGING_SEADOG_SOUL" ]; then
+    cp "$STAGING_SEADOG_SOUL" "$HERMES_HOME/SOUL.md"
+  fi
+  write_seadog_env
   link_shared_auth
 else
   write_luna_config
