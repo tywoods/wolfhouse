@@ -38353,6 +38353,20 @@ async function router(req, res) {
     return handleBotCatalogServiceLookup(req, res, auth.user);
   }
 
+  // ── Wolfhouse v3 — Luna adds a catalog service to a booking (Phase 2) ──────
+  // POST /staff/bot/add-catalog-service — reuses the catalog-aware add-service
+  // handler. Body: { booking_code, service_type:"service:<uuid>", idempotency_key,
+  // [quantity (defaults to all guests)], [apply_from/apply_to (default whole stay)] }.
+  if (pathname === '/staff/bot/add-catalog-service') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/add-catalog-service' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBookingAddService(req, res, auth.user);
+  }
+
   // ── Phase 12c — Luna guest booking dry-run orchestrator (read-only plan) ───
   // POST /staff/bot/booking-dry-run
   if (pathname === '/staff/bot/booking-dry-run') {

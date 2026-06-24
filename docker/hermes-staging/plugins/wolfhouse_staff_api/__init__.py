@@ -1194,6 +1194,39 @@ def lookup_catalog_service(params, **kwargs):
     })
 
 
+def add_catalog_service_to_booking(params, **kwargs):
+    """Add an admin-created catalog service to a booking for ALL guests (Phase 2)."""
+    del kwargs
+    payload = dict(params or {})
+    payload.setdefault("client_slug", "wolfhouse-somo")
+    service_id = _clean(payload.pop("service_id", ""))
+    booking_code = _clean(payload.get("booking_code"))
+    booking_id = _clean(payload.get("booking_id"))
+    if not service_id:
+        return _json_result({"success": False, "tool": "add_catalog_service_to_booking", "error": "service_id_required"})
+    if not booking_code and not booking_id:
+        return _json_result({"success": False, "tool": "add_catalog_service_to_booking", "error": "booking_code_or_id_required"})
+    # handleBookingAddService expects service_type "service:<uuid>". Quantity defaults to all
+    # guests and the day-range to the whole stay (= the camp window after a date shift).
+    payload["service_type"] = "service:" + service_id
+    if not _clean(payload.get("idempotency_key")):
+        seed = (booking_code or booking_id) + "|" + service_id + "|" + hashlib.sha1(os.urandom(16)).hexdigest()[:8]
+        payload["idempotency_key"] = "luna-cat-" + hashlib.sha1(seed.encode("utf-8")).hexdigest()[:20]
+    data = _post_bot("/add-catalog-service", payload)
+    sr = data.get("service_record") if isinstance(data.get("service_record"), dict) else {}
+    return _json_result({
+        "success": bool(data.get("success")),
+        "tool": "add_catalog_service_to_booking",
+        "created": bool(data.get("created")),
+        "service_record_id": sr.get("service_record_id"),
+        "amount_due_cents": sr.get("amount_due_cents"),
+        "booking_code": booking_code or booking_id,
+        "staff_review_needed": bool(data.get("staff_review_needed")) or not bool(data.get("success")),
+        "guest_safe_next_action": data.get("guest_safe_next_action") or data.get("error"),
+        "error": data.get("error"),
+    })
+
+
 def _schema(name, description, properties, required=None):
     return {
         "name": name,
@@ -1246,6 +1279,7 @@ def register(ctx):
         ("save_transfer_request", "Save guest transfer details through Staff API for Staff Portal visibility. Collect airport/city, date/time, flight, guests, luggage/surfboards, notes.", save_transfer_request, {"client_slug": {"type": "string"}, "booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "direction": {"type": "string"}, "airport": {"type": "string"}, "arrival_airport_or_city": {"type": "string"}, "flight_number": {"type": "string"}, "arrival_datetime": {"type": "string"}, "guest_count": {"type": "integer"}, "luggage_or_surfboards": {"type": "string"}, "notes": {"type": "string"}, "confirm_transfer_write": {"type": "boolean"}}, []),
         ("get_surf_report", "Get a guest-friendly Somo surf/wave report through Staff API when a guest asks about the waves, surf, or conditions. Returns an on-tone 'reply' to send. day is 'today' or 'tomorrow'. Degrades gracefully if live data isn't available.", get_surf_report, {"client_slug": {"type": "string"}, "day": {"type": "string"}, "message_text": {"type": "string"}, "lang": {"type": "string"}}, []),
         ("lookup_catalog_service", "Check whether the guest is asking about a bookable extra/experience/camp (e.g. jiu jitsu, a special class or retreat). Call this ANY time a guest asks what an experience is, when it runs, or what it costs. Pass message_text (their words) plus check_in/check_out/guest_count if you know them. If matched is true, speak the returned 'reply' in your own warm voice — it already has the correct name, running dates, and price; never invent those. If needs_date_shift is true, the guest's dates fall outside the camp window: offer to move their stay to the camp dates AND add it for all guests (both in one friendly message). If matched is false, just answer normally — there's no such bookable experience.", lookup_catalog_service, {"client_slug": {"type": "string"}, "message_text": {"type": "string", "description": "The guest's message / what they asked, verbatim."}, "check_in": {"type": "string", "description": "Tentative check-in YYYY-MM-DD if known."}, "check_out": {"type": "string", "description": "Tentative check-out YYYY-MM-DD if known."}, "guest_count": {"type": "integer", "description": "Number of guests if known."}}, ["message_text"]),
+        ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use after the guest agrees to add it AND a booking exists (create it first if mid-intake — use the camp dates). Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call when you hand off for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string"}}, []),
