@@ -466,7 +466,8 @@
     "verify:sunset-admin-pure": "node scripts/verify-sunset-admin-pure.js",
     "verify:sunset-admin-helper-parity": "node scripts/verify-sunset-admin-helper-parity.js",
     "verify:sunset-package-runtime": "node scripts/verify-sunset-package-runtime.js",
-    "verify:sunset-admin-lesson-patch": "node scripts/verify-sunset-admin-lesson-patch.js"
+    "verify:sunset-admin-lesson-patch": "node scripts/verify-sunset-admin-lesson-patch.js",
+    "verify:monshies-boundaries": "node scripts/verify-monshies-boundaries.js"
   },
   "dependencies": {
     "dotenv": "^16.4.5",

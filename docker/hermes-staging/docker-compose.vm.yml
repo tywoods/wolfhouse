@@ -1,11 +1,12 @@
-# Wolfhouse staging Hermes on Azure VM — two containers (orchestrator + Luna).
+# Wolfhouse staging Hermes on Azure VM — three containers (orchestrator + Luna + Monshies Admin).
 # Hermes recommends one container per profile; shared auth.json is bind-mounted read-only.
 #
 # Host paths (created by scripts/provision-hermes-vm.sh):
-#   /var/lib/hermes-orchestrator  → orchestrator HERMES_HOME
-#   /var/lib/hermes-luna          → Luna HERMES_HOME
+#   /var/lib/hermes-orchestrator     → orchestrator HERMES_HOME
+#   /var/lib/hermes-luna             → Luna HERMES_HOME
+#   /var/lib/hermes-monshies-admin   → Monshies Admin HERMES_HOME
 #   /var/lib/hermes-shared/auth.json → OAuth credential pool (shared, must be writable for pool updates)
-#   /opt/wolfhouse/WH             → Wolfhouse git repo (orchestrator cwd)
+#   /opt/wolfhouse/WH                → Wolfhouse git repo (orchestrator + Monshies cwd)
 #
 # Usage on VM:
 #   docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d
@@ -51,3 +52,24 @@ services:
       WOLFHOUSE_STAFF_API_BASE_URL: https://staff-staging.lunafrontdesk.com
     env_file:
       - /etc/hermes-luna.env
+
+  hermes-monshies-admin:
+    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    container_name: hermes-monshies-admin
+    restart: unless-stopped
+    command: gateway run
+    ports:
+      - "8643:8643"
+    volumes:
+      - /var/lib/hermes-monshies-admin:/opt/data
+      - /var/lib/hermes-shared:/opt/data/.auth-shared
+      - /opt/wolfhouse/WH:/opt/wolfhouse/WH:ro
+      - /opt/wolfhouse/WH/docker/hermes-staging/99z-wh-vm-post-bootstrap.sh:/etc/cont-init.d/99z-wh-vm-post-bootstrap:ro
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: monshies-admin
+      HERMES_DASHBOARD: "0"
+      GENERIC_TIMEZONE: Europe/Madrid
+      WOLFHOUSE_STAFF_API_BASE_URL: https://staff-staging.lunafrontdesk.com
+    env_file:
+      - /etc/hermes-monshies-admin.env
