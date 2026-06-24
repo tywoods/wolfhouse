@@ -328,6 +328,10 @@ const {
   ensureBookingServiceGenericType,
   GENERIC_BOOKING_SERVICE_TYPE,
 } = require('./lib/tenant-services-writes');
+const {
+  matchCatalogServices,
+  buildCatalogServiceReply,
+} = require('./lib/luna-guest-catalog-services');
 const { resolveRoomCategory } = require('./lib/staff-portal-room-label');
 const {
   sumActiveTransferChargesCents,
@@ -33165,6 +33169,44 @@ async function handleBookingServiceCatalogGet(query, req, res, user) {
   }
 }
 
+// Luna guest brain: "does the guest's message ask about a catalog service, and if so what
+// do I tell them?" DB-backed (luna_visible tenant_services) + pure engine. The conversational
+// layer (Hermes/pipeline) calls this and speaks back reply/facts. No writes.
+async function handleBotCatalogServiceLookup(req, res, user) {
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const clientSlug = String(body.client_slug || body.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const messageText = String(body.message_text || '').trim();
+  if (!messageText) return send400(res, 'message_text is required');
+  const checkIn = body.check_in ? String(body.check_in).trim() : null;
+  const checkOut = body.check_out ? String(body.check_out).trim() : null;
+  const guestCount = body.guest_count != null ? Number(body.guest_count) : null;
+
+  let services;
+  try {
+    const result = await withPgClient(async (pg) => listTenantServices(pg, { clientSlug, includeInactive: false }));
+    services = (((result.body && result.body.services) || [])).filter((s) => s && s.luna_visible !== false);
+  } catch (err) {
+    console.error('[bot.catalog-service-lookup] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'catalog lookup failed', code: err && err.code });
+  }
+
+  const matches = matchCatalogServices(messageText, services);
+  if (!matches.length) return sendJSON(res, 200, { success: true, matched: false });
+  const top = matches[0];
+  const reply = buildCatalogServiceReply(top, { checkIn, checkOut, guestCount });
+  return sendJSON(res, 200, {
+    success: true,
+    matched: true,
+    service: { id: top.id, name: top.name },
+    within_window: reply.within_window,
+    needs_date_shift: reply.needs_date_shift,
+    reply: reply.text,
+    facts: reply.facts,
+  });
+}
+
 async function handleAdminServicesPost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -38297,6 +38339,18 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotBookingPreview(req, res, auth.user, auth.auth_mode);
+  }
+
+  // ── Wolfhouse v3 — Luna catalog-service inquiry lookup (read-only) ─────────
+  // POST /staff/bot/catalog-service-lookup
+  if (pathname === '/staff/bot/catalog-service-lookup') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/catalog-service-lookup' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotCatalogServiceLookup(req, res, auth.user);
   }
 
   // ── Phase 12c — Luna guest booking dry-run orchestrator (read-only plan) ───
