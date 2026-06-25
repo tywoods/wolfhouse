@@ -16013,7 +16013,7 @@ function buildUiHtml(port) {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
 ${getStaffPortalThemeEarlyScript()}
 <style>
@@ -17004,17 +17004,20 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
-@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}
-/* Mobile calendar polish: bigger tap targets on date presets, tighter sticky bed column + day columns so more days fit on a phone. */
-.bc-chips{gap:6px}
-.bc-chip{padding:8px 14px;font-size:12px;min-height:38px;display:inline-flex;align-items:center}
+@media (max-width:720px){
+.bc-controls-row{flex-direction:column;align-items:stretch}
+.bc-legend-row{align-self:flex-end}
+/* staff-portal-mobile:calendar-toolbar — compact chips + tappable date inputs on phone */
+.bc-chips{gap:6px;flex-wrap:wrap}
+.bc-chip{padding:8px 12px;font-size:12px;min-height:36px;display:inline-flex;align-items:center}
 .bc-bed-cell{min-width:calc(92px * var(--bc-zoom,1));padding:calc(6px * var(--bc-zoom,1)) calc(7px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-bed-head{min-width:calc(100px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-day-head{min-width:calc(40px * var(--bc-zoom,1))}
-.bc-zoom-bar{align-self:flex-start}
-/* Tappable, zoom-safe toolbar on mobile (16px font avoids iOS focus-zoom). */
-#bc-start,#bc-end{height:38px;font-size:16px;min-width:128px;max-width:none}
-#bc-load{min-height:40px;font-size:14px;padding:8px 16px}}
+.bc-zoom-bar{align-self:flex-start;height:auto;min-height:32px;padding:4px 6px}
+.bc-zoom-btn{width:28px;height:28px;font-size:15px}
+#bc-start,#bc-end{height:38px;font-size:16px;min-width:0;max-width:calc(50vw - 32px)}
+#bc-load{min-height:40px;font-size:14px;padding:8px 14px}
+}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
 input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
@@ -17551,6 +17554,51 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-svc-schedule-day{background:#2d2d2d;border-color:#3c3c3c}
 [data-theme="dark"] .bc-add-ons-sched-link{color:#9ec8e8}
 [data-theme="dark"] .bc-add-ons-sched-link.is-active{color:#cccccc}
+/* staff-portal-mobile:shell — full viewport width on phones (≤768px) */
+@media(max-width:768px){
+html{width:100%;max-width:100vw;overflow-x:hidden;-webkit-text-size-adjust:100%}
+body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);box-sizing:border-box}
+#banner{width:100%;max-width:100vw;height:auto;min-height:52px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));flex-wrap:wrap;gap:8px;box-sizing:border-box}
+#banner .brand{align-self:center}
+#banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
+#banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
+#tabs{width:100%;max-width:100vw;padding:0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
+.tab-btn{flex:0 0 auto;padding:12px 14px;font-size:12px;scroll-snap-align:start;white-space:nowrap;min-width:0}
+#wrap,#wrap-bc,.customers-wrap,.portal-admin-wrap,.portal-home-wrap,#al-wrap{width:100%!important;max-width:100vw!important;padding:8px 12px!important;margin:0 auto;box-sizing:border-box;height:auto!important;min-height:calc(100dvh - 120px)}
+#tab-conversations.active{display:flex;flex-direction:column;width:100%!important;max-width:100vw!important;height:calc(100dvh - 112px)!important;min-height:0;overflow:hidden;box-sizing:border-box}
+#tab-conversations.active #wrap{padding:0!important;width:100%!important;max-width:100vw!important;height:100%!important;flex:1;min-height:0;overflow:hidden}
+.tab-panel.active{width:100%;max-width:100vw;box-sizing:border-box}
+input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box}
+.card{width:100%;max-width:100%;box-sizing:border-box;padding:14px 12px;margin:8px auto}
+/* staff-portal-mobile:calendar-card — near full-width grid with inner horizontal scroll */
+#tab-bed-calendar .card{width:calc(100vw - 16px);max-width:none;margin:8px auto;padding:12px 10px;box-sizing:border-box}
+#wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
+#tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#tab-bed-calendar .bc-grid{min-width:1020px}
+#tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px}
+#tab-bed-calendar .toolbar label{min-width:0!important;flex:1 1 auto}
+#tab-bed-calendar .bc-controls-row{gap:8px}
+#tab-bed-calendar .bc-chips{flex-wrap:wrap;gap:6px}
+#tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{height:auto;min-height:32px;max-width:100%}
+/* staff-portal-mobile:inbox — dense full-width conversation cards + sticky filter bar */
+.inbox-left-toolbar{position:sticky;top:0;z-index:5;background:var(--surface-soft);border-bottom:1px solid var(--border-soft)}
+.inbox-toolbar-top{width:100%;gap:8px}
+.inbox-filters{width:100%;gap:6px}
+.inbox-filter-btn{flex:1 1 auto;min-width:0;text-align:center;font-size:12px}
+.conv-card{padding:12px 14px;border-bottom:1px solid var(--border-soft);width:100%;box-sizing:border-box;border-radius:0}
+.conv-card.conv-card-mobile-dense .conv-card-preview{-webkit-line-clamp:2;line-clamp:2}
+.conv-card-header-row .inbox-channel-badge{flex-shrink:0}
+.inbox-mobile-back{display:flex}
+/* staff-portal-mobile:staff-numbers — stacked cards on phone, desktop table unchanged */
+#swn-table thead{display:none}
+#swn-tbody tr{display:block;border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;background:var(--surface);box-shadow:var(--shadow-soft)}
+#swn-tbody td{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border:none;font-size:13px;gap:12px}
+#swn-tbody td::before{content:attr(data-label);font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
+#swn-tbody td:last-child{justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)}
+#cc-staff-whatsapp-numbers .al-form-row{flex-direction:column;align-items:stretch;gap:10px}
+#cc-staff-whatsapp-numbers .al-form-row input,#cc-staff-whatsapp-numbers .al-form-row select,#cc-staff-whatsapp-numbers .al-form-row button{width:100%;min-width:0;box-sizing:border-box}
+#cc-staff-whatsapp-numbers .al-form-row label{width:100%}
+}
 </style>
 </head>
 <body class="portal-profile-pending">
@@ -19128,7 +19176,9 @@ function bcInitCalendarResize(){
 }
 
 var BC_ZOOM_DEFAULT = 100;
+var BC_ZOOM_MOBILE_DEFAULT = 70;
 var BC_ZOOM_MIN = 60;
+var BC_ZOOM_MOBILE_MIN = 50;
 var BC_ZOOM_MAX = 200;
 var BC_ZOOM_STEP = 10;
 var BC_ZOOM_LEVEL_KEY = 'staff_bc_zoom_level';
@@ -19138,8 +19188,10 @@ var bcCalendarZoomWired = false;
 
 function bcClampZoomLevel(pct){
   var n = Number(pct);
-  if (!Number.isFinite(n)) return BC_ZOOM_DEFAULT;
-  return Math.max(BC_ZOOM_MIN, Math.min(BC_ZOOM_MAX, Math.round(n)));
+  var def = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT;
+  var min = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_MIN : BC_ZOOM_MIN;
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(BC_ZOOM_MAX, Math.round(n)));
 }
 
 function bcLoadZoomLock(){
@@ -19175,7 +19227,7 @@ function bcSyncZoomUi(){
   var lockEl = el('bc-zoom-lock');
   var level = bcZoomState.level;
   if (pctEl) pctEl.textContent = level + '%';
-  if (outBtn) outBtn.disabled = level <= BC_ZOOM_MIN;
+  if (outBtn) outBtn.disabled = level <= ((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_MIN : BC_ZOOM_MIN);
   if (inBtn) inBtn.disabled = level >= BC_ZOOM_MAX;
   if (lockEl) lockEl.checked = bcZoomState.locked;
 }
@@ -19191,7 +19243,7 @@ function bcApplyCalendarZoom(level){
 
 function bcPrepareCalendarZoomForRangeChange(){
   if (bcZoomState.locked) return;
-  bcZoomState.level = BC_ZOOM_DEFAULT;
+  bcZoomState.level = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT;
 }
 
 function bcInitCalendarZoom(){
@@ -19214,12 +19266,13 @@ function bcInitCalendarZoom(){
         bcSaveZoomLevel(bcZoomState.level);
       } else {
         try { localStorage.removeItem(BC_ZOOM_LEVEL_KEY); } catch (_) { /* ignore */ }
-        bcApplyCalendarZoom(BC_ZOOM_DEFAULT);
+        bcApplyCalendarZoom((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT);
       }
     });
   }
   bcZoomState.locked = bcLoadZoomLock();
-  bcApplyCalendarZoom(bcResolveCalendarZoom());
+  var initial = bcZoomState.locked ? bcLoadSavedZoomLevel() : ((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : bcLoadSavedZoomLevel());
+  bcApplyCalendarZoom(initial);
 }
 
 function bcNaturalCodeSort(a, b){
@@ -22517,12 +22570,12 @@ function staffWhatsappNumbersRender(numbers){
   }
   tbody.innerHTML = numbers.map(function(n){
     var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
-    return '<tr>'
-      + '<td>' + escHtml(n.display_name || '') + '</td>'
-      + '<td>' + escHtml(n.phone) + '</td>'
-      + '<td>' + escHtml(grp) + '</td>'
-      + '<td>' + (n.active ? 'Yes' : 'No') + '</td>'
-      + '<td><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
+    return '<tr class="swn-mobile-card">'
+      + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
+      + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
+      + '<td data-label="Group">' + escHtml(grp) + '</td>'
+      + '<td data-label="Active">' + (n.active ? 'Yes' : 'No') + '</td>'
+      + '<td data-label=""><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
       + '</tr>';
   }).join('');
   // Delegated handler (avoids inline onclick quote-escaping inside the served script).
@@ -23517,12 +23570,17 @@ function renderInboxConvCardHtml(c, profile){
       timeLine +
     '</div>';
   }
-  return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
+  return '<div class="conv-card conv-card-mobile-dense' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
     delBtn +
-    '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
-    '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
+    '<div class="conv-card-header-row">' +
+      '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+      inboxChannelBadgeHtml('whatsapp') +
+    '</div>' +
+    (c.phone ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
+    (c.last_message_preview ? '<div class="conv-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '') +
     '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
     handoffLine +
+    (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
   '</div>';
 }
 

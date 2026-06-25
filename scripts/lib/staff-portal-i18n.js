@@ -136,7 +136,7 @@ const STAFF_PORTAL_STRINGS = {
     'inbox.empty.listNeedsHuman': 'No conversations need staff review right now.',
     'inbox.empty.listNeedsHuman.surf': 'No conversations need staff attention right now.',
     'inbox.refreshTitle': 'Refresh conversation list',
-    'inbox.mobile.back': 'Back',
+    'inbox.mobile.back': '← Conversations',
     'calendar.title': 'Booking Calendar',
     'calendar.from': 'From',
     'calendar.to': 'To',
