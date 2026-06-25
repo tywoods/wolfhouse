@@ -16842,6 +16842,19 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
   .detail-conv-toolbar .pill{min-height:40px;padding:8px 12px}
   .msg{max-width:92%}
   .detail-header-pills{width:100%;margin-left:0!important}
+  /* Mobile thread view — maximize message area */
+  .inbox-two-col.show-thread #conv-detail{height:calc(100dvh - 112px);max-height:calc(100dvh - 112px)}
+  .inbox-two-col.show-thread #detail-content{flex:1;min-height:0;height:100%;display:flex;flex-direction:column;padding:6px 10px 8px;overflow:hidden}
+  .inbox-two-col.show-thread .detail-header{flex-shrink:0;margin-bottom:4px;padding:0}
+  .inbox-two-col.show-thread .detail-layout{flex:1 1 auto;min-height:0;overflow:hidden;gap:4px}
+  .inbox-two-col.show-thread .detail-main{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .inbox-two-col.show-thread .thread-section{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .inbox-two-col.show-thread .thread{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .inbox-two-col.show-thread .detail-conv-toolbar{display:none}
+  .inbox-two-col.show-thread .thread-messages{flex:1 1 auto;min-height:0;max-height:none;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .inbox-two-col.show-thread .detail-sidebar{display:none}
+  .inbox-two-col.show-thread .draft-panel{flex-shrink:0;margin-top:0;padding-top:6px;border-top:1px solid var(--border-soft)}
+  .inbox-two-col.show-thread #draft-textarea{min-height:48px;max-height:64px;font-size:16px}
 }
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
@@ -17015,8 +17028,8 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-grid thead th.bc-day-head{min-width:calc(40px * var(--bc-zoom,1))}
 .bc-zoom-bar{align-self:flex-start;height:auto;min-height:32px;padding:4px 6px}
 .bc-zoom-btn{width:28px;height:28px;font-size:15px}
-#bc-start,#bc-end{height:38px;font-size:16px;min-width:0;max-width:calc(50vw - 32px)}
-#bc-load{min-height:40px;font-size:14px;padding:8px 14px}
+#bc-start,#bc-end{height:30px;font-size:13px;min-width:0;max-width:102px;width:102px;padding:2px 4px;box-sizing:border-box}
+#bc-load{min-height:30px;height:30px;padding:4px 8px;font-size:11px}
 }
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
@@ -17575,8 +17588,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:1020px}
-#tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px}
-#tab-bed-calendar .toolbar label{min-width:0!important;flex:1 1 auto}
+#tab-bed-calendar .toolbar{flex-wrap:nowrap;gap:4px 6px;align-items:center;margin-bottom:10px}
+#tab-bed-calendar .toolbar h2{flex:1 1 auto;font-size:13px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+#tab-bed-calendar .toolbar label{flex:0 0 auto;flex-direction:row;align-items:center;gap:2px;font-size:10px;font-weight:600;margin:0;padding:0;min-width:0!important}
+#tab-bed-calendar .toolbar label span{font-size:10px}
+#tab-bed-calendar #bc-start,#tab-bed-calendar #bc-end{height:30px;font-size:13px;min-width:0;max-width:102px;width:102px;padding:2px 4px;box-sizing:border-box}
+#tab-bed-calendar #bc-load{flex:0 0 auto;min-height:30px;height:30px;padding:4px 8px;font-size:11px;line-height:1.2}
 #tab-bed-calendar .bc-controls-row{gap:8px}
 #tab-bed-calendar .bc-chips{flex-wrap:wrap;gap:6px}
 #tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{height:auto;min-height:32px;max-width:100%}
@@ -24155,6 +24172,21 @@ function loadConvDetail(convId, targetEl){
         });
       });
     });
+    targetEl.querySelectorAll('.inbox-booking-stack-item').forEach(function(item){
+      item.addEventListener('dblclick', function(e){
+        if (e.target.closest('.inbox-open-booking-cal')) return;
+        var link = item.querySelector('.inbox-open-booking-cal');
+        if (!link) return;
+        e.preventDefault();
+        openBookingInCalendar({
+          booking_id: link.dataset.bookingId || null,
+          booking_code: link.dataset.bookingCode || null,
+          check_in: link.dataset.checkIn || null,
+          check_out: link.dataset.checkOut || null,
+          guest_name: link.dataset.guestName || c.guest_name,
+        });
+      });
+    });
 
     /* Scroll thread to bottom */
     var threadEl = targetEl.querySelector('#thread-container');
@@ -26501,9 +26533,16 @@ function renderBedCalendar(data){
 
   /* Wire block clicks (primary bars + turnover checkout markers) */
   wrap.querySelectorAll('.bc-block, .bc-block-checkout-marker').forEach(function(bEl){
-    bEl.addEventListener('click', function(){
+    bEl.addEventListener('click', function(e){
+      e.stopPropagation();
       var idx = parseInt(this.dataset.bidx, 10);
       showBlockDetail(blocks[idx]);
+    });
+    bEl.addEventListener('dblclick', function(e){
+      e.preventDefault();
+      e.stopPropagation();
+      var idx = parseInt(this.dataset.bidx, 10);
+      bcOpenBookingDrawerOverview(blocks[idx]);
     });
   });
 
@@ -27125,6 +27164,20 @@ function bcRenderBlockSummaryPreviewHtml(blk){
   html += '<div class="ctx-loading">' + escHtml(t('calendar.create.loadingDetails')) + '</div>';
   html += '</div>';
   return html;
+}
+
+function bcOpenBookingDrawerOverview(blk){
+  if (!blk) return;
+  bcActiveDrawerTab = 'overview';
+  var sameBooking = bcLastBookingContext && bcLastBookingContext.booking && blk.booking_code &&
+    String(bcLastBookingContext.booking.booking_code) === String(blk.booking_code);
+  if (sameBooking) {
+    bcRestoreActiveDrawerTab('overview');
+    var detailEl = el('bc-detail');
+    if (detailEl) detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  showBlockDetail(blk);
 }
 
 function showBlockDetail(blk){
