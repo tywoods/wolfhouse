@@ -7,6 +7,9 @@ Client: `wolfhouse` · Location: `wolfhouse-somo` · Region: **northeurope**
 > is **dry-run only** — it prints suggested docker/`az` commands as text and runs
 > none of them. No DB migration, Meta webhook, Stripe, or WhatsApp change is made.
 >
+> **Deployed:** see `PROD-APP-DEPLOY-RECORD.md` for the as-deployed Staff API record
+> (revision, image SHA, FQDN, port 3036, verified health).
+>
 > Builds on the existing infra shells (`PROD-INFRA-PLAN.md`): RG `wh-prod-rg`, ACR
 > `whprodacr`, Key Vault `wh-prod-kv`, Log Analytics `wh-prod-logs`, Container Apps
 > env `wh-prod-env`, Postgres `wh-prod-pg`, DB `wolfhouse_prod`.
