@@ -337,6 +337,9 @@ async function callLunaAiJsonChat(opts = {}) {
   if (!cfg.enabled || !cfg.apiKey) return null;
 
   const fetchImpl = opts.fetchImpl || fetch;
+  // temperature: pass a number to set it; pass null to OMIT it entirely (some models,
+  // e.g. GPT-5.x, only accept the default temperature and 400 on an explicit 0).
+  const includeTemperature = opts.temperature !== null;
   const temperature = opts.temperature != null ? opts.temperature : 0;
   const maxTokens = opts.maxTokens != null ? opts.maxTokens : 256;
   const system = String(opts.system || '');
@@ -349,12 +352,12 @@ async function callLunaAiJsonChat(opts = {}) {
   if (cfg.provider === 'openai') {
     const body = {
       model,
-      temperature,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
     };
+    if (includeTemperature) body.temperature = temperature;
     if (opts.jsonObject) {
       body.response_format = { type: 'json_object' };
     }
@@ -386,7 +389,7 @@ async function callLunaAiJsonChat(opts = {}) {
       body: JSON.stringify({
         model,
         max_tokens: maxTokens,
-        temperature,
+        ...(includeTemperature ? { temperature } : {}),
         system,
         messages: [{ role: 'user', content: user }],
       }),

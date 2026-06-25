@@ -110,14 +110,15 @@ async function main() {
 
   // Per-path model override: OWNER_INSIGHT_AGENT_MODEL is passed to the model call
   const seen = [];
-  const capturingAi = async (callOpts) => { seen.push(callOpts.model); return JSON.stringify({ action: 'query', sql: JULY_SQL }); };
+  const capturingAi = async (callOpts) => { seen.push({ model: callOpts.model, temperature: callOpts.temperature }); return JSON.stringify({ action: 'query', sql: JULY_SQL }); };
   const f = makePg();
   await runOwnerInsightAgentLive(f.pg, {
     client_slug: CLIENT, question: 'July revenue?',
     env: { OWNER_INSIGHT_AGENT_ENABLED: '1', OWNER_INSIGHT_AGENT_MODEL: 'gpt-5.5', OWNER_INSIGHT_AGENT_MAX_STEPS: '1' },
     aiCaller: capturingAi,
   });
-  ok('MO1 model override passed to the model call', seen.length >= 1 && seen[0] === 'gpt-5.5', `seen=${JSON.stringify(seen)}`);
+  ok('MO1 model override passed to the model call', seen.length >= 1 && seen[0].model === 'gpt-5.5', `seen=${JSON.stringify(seen)}`);
+  ok('MO3 temperature omitted (null) for GPT-5.x compatibility', seen.length >= 1 && seen[0].temperature === null);
 
   const seen2 = [];
   const capturingAi2 = async (callOpts) => { seen2.push(callOpts.model); return JSON.stringify({ action: 'query', sql: JULY_SQL }); };

@@ -117,7 +117,7 @@ async function runOwnerInsightAgentLive(pg, opts = {}) {
         system,
         user,
         jsonObject: true,
-        temperature: 0,
+        temperature: null, // omit — GPT-5.x only accepts default temperature
         maxTokens: 900,
         call_label: 'owner_insight_agent',
         ...(modelOverride ? { model: modelOverride } : {}),
