@@ -64,16 +64,38 @@ prompt/parse functions behave. Run: `npm run verify:owner-insight-agent`.
 
 ## Status / rollout
 
-- **Phase 1 (this change): the engine + eval harness.** Added as new modules; the
-  live `owner-sql-planner` path is **unchanged** — no runtime behavior change, no
-  deploy. Reviewable in isolation.
-- **Phase 2 (next): wire it in.** Route the Hermes `owner_insights` tool /
-  `owner-command-center-answer.js` through `runOwnerInsightAgent` with a real
-  `callModel` (a capable model is recommended for SQL accuracy), tighten catalog
-  column descriptions, and add any missing tables (e.g. guest-level detail for "who
-  signed up"). Expand the eval set with real owner questions, then deploy behind the
-  usual gates.
-- **Phase 3: clarify-on-ambiguity UX + a numeric self-check pass.**
+- **Phase 1 (done): the engine + eval harness.** Model-agnostic agent loop +
+  deterministic gate. New modules, no runtime change.
+- **Phase 2 (done, flag-gated): live wiring.** `owner-insight-agent-live.js` wires the
+  loop to the real model client (`luna-ai-provider`), the real validator, and the real
+  read-only executor, and `planAndExecuteOwnerSqlQuestion` routes through it **when the
+  flag is on**. Default OFF → the legacy template path is unchanged, so this is safe to
+  deploy without enabling. Live gate: `npm run verify:owner-insight-agent-live`.
+- **Phase 3 (next): turn it on + measure.** Enable on staging, run the live golden
+  eval against the seeded DB, tighten catalog column descriptions, add guest-level
+  detail as needed, then enable in prod. Plus a numeric self-check pass.
+
+## Enabling (Phase 2 → live)
+
+The agent path is controlled by an environment flag — **no code change to switch on**:
+
+```
+OWNER_INSIGHT_AGENT_ENABLED=1            # turn the agent path on (default: off)
+OWNER_INSIGHT_AGENT_MAX_STEPS=5          # optional: max queries per question
+```
+
+It uses whatever model the runtime's `LUNA_AI_PROVIDER` / `LUNA_AI_MODEL` is set to.
+**Recommended:** point the owner runtime at a capable model for SQL accuracy (the
+guest stack runs `gpt-4o-mini`; NL→SQL with self-correction is where a stronger model
+clearly pays off).
+
+**Rollout order (do NOT flip prod first):**
+1. Set the flag (and a strong model) on **staging**, deploy via the gated scripts.
+2. Run the live golden eval (real model + staging Postgres) — confirm the June/July
+   case and other real questions answer correctly and grounded.
+3. Only then enable on prod, behind the same flag, and watch the first real questions.
+
+With the flag off, `planAndExecuteOwnerSqlQuestion` behaves exactly as before.
 
 ## Live evaluation (Phase 2)
 
