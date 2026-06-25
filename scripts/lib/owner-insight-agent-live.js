@@ -105,6 +105,12 @@ async function runOwnerInsightAgentLive(pg, opts = {}) {
   // Per-path model override: lets the owner SQL agent run on a stronger model than
   // the runtime-wide LUNA_AI_MODEL, without affecting other staff AI. Empty = inherit.
   const modelOverride = trimStr((env || process.env).OWNER_INSIGHT_AGENT_MODEL) || undefined;
+  // Per-path provider override: route just this agent to a different provider (e.g.
+  // Anthropic Opus) without flipping the runtime-wide LUNA_AI_PROVIDER. Explicit
+  // OWNER_INSIGHT_AGENT_PROVIDER wins; otherwise infer 'anthropic' from a claude-* model.
+  const providerOverride = trimStr((env || process.env).OWNER_INSIGHT_AGENT_PROVIDER).toLowerCase()
+    || (/^claude/i.test(modelOverride || '') ? 'anthropic' : '')
+    || undefined;
 
   const system = buildOwnerInsightSystemPrompt({ clientSlug });
 
@@ -121,6 +127,7 @@ async function runOwnerInsightAgentLive(pg, opts = {}) {
         maxTokens: 900,
         call_label: 'owner_insight_agent',
         ...(modelOverride ? { model: modelOverride } : {}),
+        ...(providerOverride ? { provider: providerOverride } : {}),
       });
     } catch (err) {
       // Model/transport error — surface as a clarify rather than crashing the turn.

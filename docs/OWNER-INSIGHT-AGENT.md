@@ -82,8 +82,16 @@ The agent path is controlled by an environment flag — **no code change to swit
 ```
 OWNER_INSIGHT_AGENT_ENABLED=1            # turn the agent path on (default: off)
 OWNER_INSIGHT_AGENT_MODEL=gpt-5.5        # optional: per-path model for the SQL agent
+OWNER_INSIGHT_AGENT_PROVIDER=anthropic   # optional: per-path provider (else inferred: claude-* => anthropic)
 OWNER_INSIGHT_AGENT_MAX_STEPS=5          # optional: max queries per question
 ```
+
+**Provider override (e.g. Anthropic Opus 4.8 for just this path):** set
+`OWNER_INSIGHT_AGENT_MODEL=claude-opus-4-8` (provider auto-infers `anthropic`), and
+ensure the Staff API has an **`ANTHROPIC_API_KEY`** (secret) — distinct from the
+OpenAI key. The per-path provider override leaves all other staff AI on its
+configured provider. GPT‑5.x note: the agent omits `temperature` (those models only
+accept their default).
 
 **Model:** by default the agent inherits the Staff API's `LUNA_AI_MODEL` (staging:
 `gpt-4o-mini`). `OWNER_INSIGHT_AGENT_MODEL` overrides **only this path** (a strong
