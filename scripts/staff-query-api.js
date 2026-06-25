@@ -207,6 +207,8 @@ const {
   canUseOwnerInsights,
   buildClientProfilesMap,
   buildSessionClientProfilesMap,
+  staffPortalDevTabsEnabled,
+  STAFF_PORTAL_DEV_TAB_IDS,
 } = require('./lib/staff-portal-clients');
 const {
   resolveTenantBusinessConfig,
@@ -16010,6 +16012,7 @@ async function handleManualBookingCreate(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function buildUiHtml(port) {
+  const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   return `<!DOCTYPE html>
 <html lang="en">
@@ -16208,6 +16211,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 body.portal-profile-pending #tabs,
 body.portal-profile-pending .tab-panel{display:none!important}
 body.portal-profile-pending #portal-profile-gate{display:flex}
+body.portal-no-dev-tabs .tab-btn.dev-tab{display:none!important}
+body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest-simulator{display:none!important}
 #portal-profile-gate{display:none;align-items:center;justify-content:center;min-height:calc(100vh - 104px);padding:32px 20px;color:var(--text-2);font-size:14px;font-weight:600;text-align:center}
 #portal-profile-gate .portal-profile-gate-inner{max-width:420px;line-height:1.5}
 /* ── Portal home (Sunset / surf demo landing) ─────────────────────────────── */
@@ -17645,8 +17650,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 </style>
 </head>
-<body class="portal-profile-pending">
+<body class="portal-profile-pending${portalDevTabsEnabled ? '' : ' portal-no-dev-tabs'}">
 ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
+<script>window.__STAFF_PORTAL_DEV_TABS__=${portalDevTabsEnabled ? 'true' : 'false'};</script>
 
 <!-- ── Top banner ─────────────────────────────────────────────────────────── -->
 <div id="banner">
@@ -19739,6 +19745,7 @@ function isTabHiddenForClient(tab, clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
   if (hidden.indexOf(tab) >= 0) return true;
+  if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
   if (tab === 'customers' && !profile.is_surf_vertical) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
@@ -19841,6 +19848,10 @@ function applyClientPortalProfile(clientSlug){
     }
     if (tab === 'day-schedule') {
       btn.style.display = 'none';
+      return;
+    }
+    if (tab === 'query-tools' || tab === 'luna-guest-simulator') {
+      btn.style.display = (window.__STAFF_PORTAL_DEV_TABS__ === true) ? '' : 'none';
       return;
     }
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';

@@ -51,6 +51,17 @@ assert('wolfhouse hidden_tabs is empty', Array.isArray(wh.hidden_tabs) && wh.hid
 assert('wolfhouse is_surf_vertical is false', wh.is_surf_vertical === false);
 assert('wolfhouse lesson_slots_demo is empty', Array.isArray(wh.lesson_slots_demo) && wh.lesson_slots_demo.length === 0);
 
+console.log('\n[1b] Dev tabs hidden when NODE_ENV=production');
+const prevNodeEnv = process.env.NODE_ENV;
+process.env.NODE_ENV = 'production';
+delete require.cache[require.resolve('./lib/staff-portal-clients')];
+const prodClients = require('./lib/staff-portal-clients');
+const whProd = prodClients.loadClientPortalProfile('wolfhouse-somo');
+assert('production hides query-tools', whProd.hidden_tabs.includes('query-tools'));
+assert('production hides luna-guest-simulator', whProd.hidden_tabs.includes('luna-guest-simulator'));
+process.env.NODE_ENV = prevNodeEnv;
+delete require.cache[require.resolve('./lib/staff-portal-clients')];
+
 // ── 2. Sunset surf vertical gating ──────────────────────────────────────────
 
 console.log('\n[2] Sunset portal profile — surf vertical gating');
@@ -94,6 +105,8 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('applyClientPortalProfile function present', apiSrc.includes('function applyClientPortalProfile'));
   assert('loadDaySchedule function present', apiSrc.includes('function loadDaySchedule'));
   assert('no unconditional bed-calendar hide', !apiSrc.includes("hidden_tabs: ['bed-calendar'"));
+  assert('portal-no-dev-tabs CSS present', apiSrc.includes('portal-no-dev-tabs'));
+  assert('STAFF_PORTAL_DEV_TABS bootstrap present', apiSrc.includes('__STAFF_PORTAL_DEV_TABS__'));
 } else {
   assert('staff-query-api.js exists', false, STAFF_API_PATH);
 }
