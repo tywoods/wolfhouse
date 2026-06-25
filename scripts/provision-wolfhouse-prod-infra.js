@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Wolfhouse prod infra — gated, hardened provision script.
+ * Wolfhouse prod infra — gated, hardened provision script (post-apply fixes).
  *
  * DEFAULT IS DRY-RUN. Nothing is created/updated/deleted unless ALL of the
  * following are true (apply guards):
@@ -15,14 +15,21 @@
  *   8. env  WOLFHOUSE_PROD_PG_ADMIN_PASSWORD  is set
  *   9. az CLI is installed AND logged in (`az account show` succeeds)
  *
- * Hardening goals: a future approved --apply is NON-INTERACTIVE (no Azure
- * prompts can hang it) and EXPLICIT (subscription + Postgres admin creds come
- * from env, never source). Secrets are NEVER committed and NEVER printed:
- * the Postgres admin user/password are read from env only in apply mode and are
- * redacted in all output (the password is never printed).
+ * Post-apply fixes (lessons from the real shell apply):
+ *   - `az group exists` returns exit 0 for both true/false: existence is decided
+ *     from stdout being exactly "true", not from the exit code.
+ *   - Key Vault secret names use HYPHENS (underscores are rejected by Key Vault).
+ *   - Key Vault is RBAC-enabled: operator needs "Key Vault Secrets Officer" on
+ *     wh-prod-kv before setting secrets (documented; role command pattern printed).
+ *   - Container Apps env must be attached to wh-prod-logs (see note; the already-
+ *     deployed env is on an auto-generated workspace — corrected separately).
+ *   - Postgres create output can contain connectionString/password: its output is
+ *     CAPTURED and SUPPRESSED in apply mode (never echoed raw).
+ *   - Postgres DB create uses `--name wolfhouse_prod` (not `--database-name`).
  *
- * It does NOT deploy app containers, NOT set Key Vault secret values, NOT change
- * the Meta webhook, NOT touch Stripe live, and NOT run DB migrations.
+ * Secrets are NEVER committed and NEVER printed. It does NOT deploy app
+ * containers, NOT set Key Vault secret values, NOT change the Meta webhook, NOT
+ * touch Stripe live, and NOT run DB migrations.
  *
  * Usage:
  *   node scripts/provision-wolfhouse-prod-infra.js              # dry-run (default)
@@ -54,19 +61,20 @@ const ENV_SUBSCRIPTION = 'AZURE_SUBSCRIPTION_ID';
 const ENV_PG_ADMIN_USER = 'WOLFHOUSE_PROD_PG_ADMIN_USER';
 const ENV_PG_ADMIN_PASSWORD = 'WOLFHOUSE_PROD_PG_ADMIN_PASSWORD';
 
-// Key Vault secret NAMES only — values are operator-provided, never written here.
+// Key Vault secret NAMES only — HYPHENATED (Key Vault rejects underscores).
+// Values are operator-provided, never written here.
 const SECRET_NAMES = [
-  'WOLFHOUSE_PROD_DB_USER',
-  'WOLFHOUSE_PROD_DB_PASSWORD',
-  'WOLFHOUSE_PROD_DATABASE_URL',
-  'LUNA_BOT_INTERNAL_TOKEN',
-  'WOLFHOUSE_STAFF_SESSION_SECRET',
-  'WOLFHOUSE_WHATSAPP_PHONE_NUMBER_ID',
-  'WOLFHOUSE_WHATSAPP_ACCESS_TOKEN',
-  'WOLFHOUSE_META_APP_SECRET',
-  'WOLFHOUSE_META_VERIFY_TOKEN',
-  'WOLFHOUSE_STRIPE_SECRET_KEY',
-  'WOLFHOUSE_STRIPE_WEBHOOK_SECRET',
+  'wolfhouse-prod-db-user',
+  'wolfhouse-prod-db-password',
+  'wolfhouse-prod-database-url',
+  'luna-bot-internal-token',
+  'wolfhouse-staff-session-secret',
+  'wolfhouse-whatsapp-phone-number-id',
+  'wolfhouse-whatsapp-access-token',
+  'wolfhouse-meta-app-secret',
+  'wolfhouse-meta-verify-token',
+  'wolfhouse-stripe-secret-key',
+  'wolfhouse-stripe-webhook-secret',
 ];
 
 const REDACTED = '***REDACTED***';
@@ -97,7 +105,6 @@ function buildContext() {
     subscription: process.env[ENV_SUBSCRIPTION] || '',
     pgAdminUser,
     pgAdminPassword,
-    // Redact real admin user + password from any printed command.
     secretsToRedact: [pgAdminPassword, pgAdminUser].filter(Boolean),
   };
 }
@@ -107,8 +114,8 @@ function withSub(cmd, ctx) {
   return [...cmd, '--subscription', ctx.subscription];
 }
 
-// Redact secret values for display. The password is ALWAYS replaced; the value
-// following --admin-password is force-redacted regardless.
+// Redact secret values for display. The value following --admin-password /
+// --admin-user is force-redacted regardless.
 function printable(cmd, ctx) {
   const out = [];
   for (let i = 0; i < cmd.length; i += 1) {
@@ -116,50 +123,74 @@ function printable(cmd, ctx) {
     if (ctx.secretsToRedact.includes(arg)) { out.push(REDACTED); continue; }
     out.push(arg);
     if (arg === '--admin-password' || arg === '--admin-user') {
-      // force-redact the following value no matter what
       if (i + 1 < cmd.length) { out.push(REDACTED); i += 1; }
     }
   }
   return out.join(' ');
 }
 
+// Redact any captured command output that might leak secrets.
+function redactText(text, ctx) {
+  let t = String(text || '');
+  for (const sec of ctx.secretsToRedact) {
+    if (sec) t = t.split(sec).join(REDACTED);
+  }
+  // Belt-and-suspenders: blank any line that mentions a secret-ish field.
+  return t
+    .split('\n')
+    .map((line) => (/password|connectionstring|secret|token|key/i.test(line) ? `      ${REDACTED} (line withheld)` : line))
+    .join('\n');
+}
+
 // ----------------------------------------------------------------------------
-// Command-list builder: each step has a read-only existence `check` and an
-// idempotent, NON-INTERACTIVE `create`. No step mutates in dry-run.
+// Command-list builder. Each step: read-only existence `check` (existsMode), an
+// idempotent NON-INTERACTIVE `create`, and flags (captureSecret).
 // ----------------------------------------------------------------------------
 function buildSteps(ctx) {
   const n = NAMES;
   return [
     {
       label: `Resource group ${n.resourceGroup}`,
+      // FIX: `az group exists` exits 0 for both true/false → decide by stdout.
       check: withSub(['az', 'group', 'exists', '--name', n.resourceGroup], ctx),
+      existsMode: 'stdout-true',
       create: withSub(['az', 'group', 'create', '--name', n.resourceGroup, '--location', n.region], ctx),
     },
     {
       label: `Container registry ${n.acr}`,
       check: withSub(['az', 'acr', 'show', '--name', n.acr, '--resource-group', n.resourceGroup], ctx),
+      existsMode: 'exit-zero',
       create: withSub(['az', 'acr', 'create', '--resource-group', n.resourceGroup, '--name', n.acr, '--sku', 'Basic'], ctx),
     },
     {
-      label: `Key Vault ${n.keyVault}`,
+      label: `Key Vault ${n.keyVault} (RBAC-enabled)`,
       check: withSub(['az', 'keyvault', 'show', '--name', n.keyVault, '--resource-group', n.resourceGroup], ctx),
-      create: withSub(['az', 'keyvault', 'create', '--resource-group', n.resourceGroup, '--name', n.keyVault, '--location', n.region], ctx),
+      existsMode: 'exit-zero',
+      create: withSub(['az', 'keyvault', 'create', '--resource-group', n.resourceGroup, '--name', n.keyVault, '--location', n.region, '--enable-rbac-authorization', 'true'], ctx),
+      note: 'RBAC-enabled: operator needs "Key Vault Secrets Officer" on this vault before setting secret values (see secret guidance below).',
     },
     {
       label: `Log Analytics ${n.logAnalytics}`,
       check: withSub(['az', 'monitor', 'log-analytics', 'workspace', 'show', '--resource-group', n.resourceGroup, '--workspace-name', n.logAnalytics], ctx),
+      existsMode: 'exit-zero',
       create: withSub(['az', 'monitor', 'log-analytics', 'workspace', 'create', '--resource-group', n.resourceGroup, '--workspace-name', n.logAnalytics, '--location', n.region, '--retention-time', '30'], ctx),
     },
     {
-      label: `Container Apps environment ${n.containerAppsEnv}`,
+      label: `Container Apps environment ${n.containerAppsEnv} (attach ${n.logAnalytics})`,
       check: withSub(['az', 'containerapp', 'env', 'show', '--name', n.containerAppsEnv, '--resource-group', n.resourceGroup], ctx),
-      create: withSub(['az', 'containerapp', 'env', 'create', '--resource-group', n.resourceGroup, '--name', n.containerAppsEnv, '--location', n.region], ctx),
+      existsMode: 'exit-zero',
+      // FIX: pass the wh-prod-logs workspace so Azure does not auto-create one.
+      // (--logs-workspace-id / --logs-workspace-key resolved by operator at apply
+      //  from wh-prod-logs; the key is a secret, supplied via env, never committed.)
+      create: withSub(['az', 'containerapp', 'env', 'create', '--resource-group', n.resourceGroup, '--name', n.containerAppsEnv, '--location', n.region, '--logs-destination', 'log-analytics', '--logs-workspace-id', `<${n.logAnalytics}-customer-id>`, '--logs-workspace-key', `<${n.logAnalytics}-shared-key>`], ctx),
+      note: `KNOWN ISSUE: the already-deployed ${n.containerAppsEnv} is attached to an auto-generated workspace (created before this fix). This create now attaches ${n.logAnalytics}; correcting the existing env is a separate approved infra-correction step — NOT done here.`,
     },
     {
-      label: `Postgres server ${n.postgresServer} (admin creds from env; --yes non-interactive)`,
+      label: `Postgres server ${n.postgresServer} (admin creds from env; --yes; output suppressed)`,
       check: withSub(['az', 'postgres', 'flexible-server', 'show', '--name', n.postgresServer, '--resource-group', n.resourceGroup], ctx),
-      // --yes suppresses the interactive firewall/networking prompt so apply can
-      // never hang. Admin user/password come from env (redacted in output).
+      existsMode: 'exit-zero',
+      // --yes = non-interactive. Output is CAPTURED + SUPPRESSED (may contain
+      // connectionString/password). Admin creds from env, redacted in the printed command.
       create: withSub([
         'az', 'postgres', 'flexible-server', 'create',
         '--resource-group', n.resourceGroup,
@@ -171,13 +202,27 @@ function buildSteps(ctx) {
         '--admin-password', ctx.pgAdminPassword,
         '--yes',
       ], ctx),
-      note: `Admin creds read from ${ENV_PG_ADMIN_USER} / ${ENV_PG_ADMIN_PASSWORD} (env only, never committed, password never printed). DB migrations are a separate later step.`,
+      captureSecret: true,
+      note: `Admin creds read from ${ENV_PG_ADMIN_USER} / ${ENV_PG_ADMIN_PASSWORD} (env only, never committed, password never printed).`,
+    },
+    {
+      label: `Database ${n.database}`,
+      check: withSub(['az', 'postgres', 'flexible-server', 'db', 'show', '--database-name', n.database, '--server-name', n.postgresServer, '--resource-group', n.resourceGroup], ctx),
+      existsMode: 'exit-zero',
+      // FIX: db create uses --name (not --database-name).
+      create: withSub(['az', 'postgres', 'flexible-server', 'db', 'create', '--name', n.database, '--server-name', n.postgresServer, '--resource-group', n.resourceGroup], ctx),
+      captureSecret: true,
+      note: 'Creates the database only. Schema/DB migrations are a separate, later step (not run here).',
     },
   ];
 }
 
 function printSecretGuidance() {
-  log('\nKEY VAULT SECRET NAMES (operator must set values manually — none written here):\n');
+  log('\nKEY VAULT SECRET NAMES (hyphenated; operator sets values manually — none written here):\n');
+  log(`  Prereq (RBAC): operator must hold "Key Vault Secrets Officer" on ${NAMES.keyVault}:`);
+  log(`    az role assignment create --role "Key Vault Secrets Officer" \\`);
+  log(`      --assignee <operator-object-id> \\`);
+  log(`      --scope /subscriptions/<${ENV_SUBSCRIPTION}>/resourceGroups/${NAMES.resourceGroup}/providers/Microsoft.KeyVault/vaults/${NAMES.keyVault}\n`);
   for (const s of SECRET_NAMES) {
     log(`  - ${NAMES.keyVault}/${s}`);
     log(`      az keyvault secret set --vault-name ${NAMES.keyVault} --name ${s} --value ${REDACTED}   # operator runs this; value never committed`);
@@ -199,12 +244,10 @@ function azAvailableAndLoggedIn() {
   return { ok: true };
 }
 
-function applyGuardFailures(ctx) {
+function applyGuardFailures() {
   const failures = [];
 
-  if (process.env[ENV_APPLY_FLAG] !== '1') {
-    failures.push(`env ${ENV_APPLY_FLAG}=1 is not set`);
-  }
+  if (process.env[ENV_APPLY_FLAG] !== '1') failures.push(`env ${ENV_APPLY_FLAG}=1 is not set`);
 
   const status = git(['status', '--porcelain']);
   if (status.code !== 0) failures.push('could not read git status');
@@ -220,15 +263,9 @@ function applyGuardFailures(ctx) {
     failures.push(`local HEAD (${head.out || '?'}) != origin/master (${originMaster.out || '?'})`);
   }
 
-  if (!process.env[ENV_SUBSCRIPTION]) {
-    failures.push(`env ${ENV_SUBSCRIPTION} is not set (explicit subscription required)`);
-  }
-  if (!process.env[ENV_PG_ADMIN_USER]) {
-    failures.push(`env ${ENV_PG_ADMIN_USER} is not set (Postgres admin user required)`);
-  }
-  if (!process.env[ENV_PG_ADMIN_PASSWORD]) {
-    failures.push(`env ${ENV_PG_ADMIN_PASSWORD} is not set (Postgres admin password required)`);
-  }
+  if (!process.env[ENV_SUBSCRIPTION]) failures.push(`env ${ENV_SUBSCRIPTION} is not set (explicit subscription required)`);
+  if (!process.env[ENV_PG_ADMIN_USER]) failures.push(`env ${ENV_PG_ADMIN_USER} is not set (Postgres admin user required)`);
+  if (!process.env[ENV_PG_ADMIN_PASSWORD]) failures.push(`env ${ENV_PG_ADMIN_PASSWORD} is not set (Postgres admin password required)`);
 
   const az = azAvailableAndLoggedIn();
   if (!az.ok) failures.push(az.reason);
@@ -236,9 +273,32 @@ function applyGuardFailures(ctx) {
   return failures;
 }
 
-function runChecked(cmd, ctx) {
-  log(`    $ ${printable(cmd, ctx)}`); // print redacted form before executing
-  const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8', stdio: 'inherit' });
+// Run a CHECK command (captured, never echoes raw output). Returns existence.
+function runCheck(step, ctx) {
+  log(`    $ ${printable(step.check, ctx)}`);
+  const r = spawnSync(step.check[0], step.check.slice(1), { encoding: 'utf8' });
+  if (step.existsMode === 'stdout-true') {
+    return String(r.stdout || '').trim() === 'true'; // FIX: az group exists
+  }
+  return r.status === 0;
+}
+
+// Run a CREATE command. Secret-risk commands are captured + suppressed.
+function runCreate(step, ctx) {
+  log(`    $ ${printable(step.create, ctx)}`);
+  if (step.captureSecret) {
+    const r = spawnSync(step.create[0], step.create.slice(1), { encoding: 'utf8' });
+    if (r.status !== 0) {
+      log('      -> create FAILED (stderr redacted):');
+      log(redactText(r.stderr, ctx));
+      return r.status || 1;
+    }
+    log('      -> done (raw output suppressed — may contain connectionString/password).');
+    return 0;
+  }
+  const r = spawnSync(step.create[0], step.create.slice(1), { encoding: 'utf8' });
+  if (r.stdout) log(redactText(r.stdout, ctx));
+  if (r.status !== 0 && r.stderr) log(redactText(r.stderr, ctx));
   return r.status;
 }
 
@@ -273,8 +333,9 @@ function dryRun() {
   log('PLANNED ENSURE-STEPS (existence check, then idempotent non-interactive create):\n');
   for (const step of buildSteps(ctx)) {
     log(`  • ${step.label}`);
-    log(`      check : ${printable(step.check, ctx)}`);
+    log(`      check : ${printable(step.check, ctx)}${step.existsMode === 'stdout-true' ? '   [exists if stdout == "true"]' : ''}`);
     log(`      create: ${printable(step.create, ctx)}`);
+    if (step.captureSecret) log('      output: CAPTURED + SUPPRESSED in apply (may contain connectionString/password)');
     if (step.note) log(`      note  : ${step.note}`);
   }
   printSecretGuidance();
@@ -298,7 +359,7 @@ function apply() {
   log('  Infrastructure shells only (no app deploy, no secret values, no Meta/Stripe/live');
   log('  changes, no DB migrations). All commands run NON-INTERACTIVE; secrets redacted.\n');
 
-  const failures = applyGuardFailures(ctx);
+  const failures = applyGuardFailures();
   if (failures.length) {
     log('  APPLY REFUSED — guard checks failed:');
     failures.forEach((f) => log(`    ✗ ${f}`));
@@ -310,12 +371,11 @@ function apply() {
   log('  All guard checks passed. Executing ensure-steps sequentially (non-interactive)...\n');
   for (const step of buildSteps(ctx)) {
     log(`  • ${step.label}`);
-    const exists = runChecked(step.check, ctx) === 0;
-    if (exists) {
+    if (runCheck(step, ctx)) {
       log('      -> already exists, skipping create (idempotent).');
       continue;
     }
-    const code = runChecked(step.create, ctx);
+    const code = runCreate(step, ctx);
     if (code !== 0) {
       log(`      -> create FAILED (exit ${code}). Stopping.`);
       process.exit(code || 1);

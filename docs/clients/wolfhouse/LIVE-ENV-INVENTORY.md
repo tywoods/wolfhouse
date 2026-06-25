@@ -41,9 +41,9 @@ shared code/image. Naming follows the existing `wh-staging-*` convention, swappi
 | Postgres server strategy | dedicated prod server `wh-prod-pg` (isolated; not the staging `wh-staging-pg-app`) | proposed |
 | Database name | `wolfhouse_prod` | proposed |
 | DB host | resolved from `wh-prod-pg` | required-before-live |
-| DB user secret name | `WOLFHOUSE_PROD_DB_USER` | required-before-live (value operator-provided) |
-| DB password secret name | `WOLFHOUSE_PROD_DB_PASSWORD` | required-before-live (value operator-provided) |
-| DB connection URL secret name | `WOLFHOUSE_PROD_DATABASE_URL` | required-before-live (value operator-provided) |
+| DB user secret name | `wolfhouse-prod-db-user` | required-before-live (value operator-provided) |
+| DB password secret name | `wolfhouse-prod-db-password` | required-before-live (value operator-provided) |
+| DB connection URL secret name | `wolfhouse-prod-database-url` | required-before-live (value operator-provided) |
 
 > Strategy note: live DB is isolated per client (no cross-client rows, no shared
 > connection string). Locations live inside this DB, tagged by `location_id`.
@@ -56,8 +56,8 @@ shared code/image. Naming follows the existing `wh-staging-*` convention, swappi
 | Staff API hostname | `wh-prod-staff-api.<region>.azurecontainerapps.io` (fronted by the portal host) | proposed |
 | Staff API base URL | `https://staff.lunafrontdesk.com` | proposed |
 | Default client env | `DEFAULT_CLIENT=wolfhouse-somo` | required-before-live (env name only) |
-| Bot internal token secret name | `LUNA_BOT_INTERNAL_TOKEN` | required-before-live (value operator-provided) |
-| Staff admin session secret name | `WOLFHOUSE_STAFF_SESSION_SECRET` | required-before-live (value operator-provided) |
+| Bot internal token secret name | `luna-bot-internal-token` | required-before-live (value operator-provided) |
+| Staff admin session secret name | `wolfhouse-staff-session-secret` | required-before-live (value operator-provided) |
 | Staff admin auth allowlist | `staff-portal-access.json` (real Wolfhouse owner/admin emails) | required-before-live |
 
 ## 4. WhatsApp (Meta Cloud API)
@@ -65,10 +65,10 @@ shared code/image. Naming follows the existing `wh-staging-*` convention, swappi
 | Item | Planned name / label | Status |
 |------|----------------------|--------|
 | WhatsApp phone number | label `WOLFHOUSE_LIVE_WA_NUMBER` (E.164) | operator-provided |
-| WhatsApp `phone_number_id` secret name | `WOLFHOUSE_WHATSAPP_PHONE_NUMBER_ID` | required-before-live (value operator-provided) |
-| WhatsApp access token secret name | `WOLFHOUSE_WHATSAPP_ACCESS_TOKEN` | required-before-live (value operator-provided) |
-| Meta app secret name | `WOLFHOUSE_META_APP_SECRET` | required-before-live (value operator-provided) |
-| Meta webhook verify token secret name | `WOLFHOUSE_META_VERIFY_TOKEN` | required-before-live (value operator-provided) |
+| WhatsApp `phone_number_id` secret name | `wolfhouse-whatsapp-phone-number-id` | required-before-live (value operator-provided) |
+| WhatsApp access token secret name | `wolfhouse-whatsapp-access-token` | required-before-live (value operator-provided) |
+| Meta app secret name | `wolfhouse-meta-app-secret` | required-before-live (value operator-provided) |
+| Meta webhook verify token secret name | `wolfhouse-meta-verify-token` | required-before-live (value operator-provided) |
 | Hermes webhook hostname | `hermes.lunafrontdesk.com` (path `/whatsapp/webhook`; cf. staging `lunabox.lunafrontdesk.com`) | proposed |
 | Live webhook URL | `https://hermes.lunafrontdesk.com/whatsapp/webhook` | required-before-live — set in Meta only at approved cutover |
 | Routing | `phone_number_id → client_slug=wolfhouse` | required-before-live |
@@ -77,29 +77,33 @@ shared code/image. Naming follows the existing `wh-staging-*` convention, swappi
 
 | Item | Planned name | Status |
 |------|--------------|--------|
-| Stripe live secret key secret name | `WOLFHOUSE_STRIPE_SECRET_KEY` | required-before-live (value operator-provided; Wolfhouse's own account) |
-| Stripe webhook signing secret name | `WOLFHOUSE_STRIPE_WEBHOOK_SECRET` | required-before-live (value operator-provided) |
+| Stripe live secret key secret name | `wolfhouse-stripe-secret-key` | required-before-live (value operator-provided; Wolfhouse's own account) |
+| Stripe webhook signing secret name | `wolfhouse-stripe-webhook-secret` | required-before-live (value operator-provided) |
 | Stripe webhook endpoint | `https://staff.lunafrontdesk.com/stripe/webhook` | required-before-live — no shared default |
 
 ## 6. Key Vault / secret store
 
 | Item | Planned name | Status |
 |------|--------------|--------|
-| Key Vault | `wh-prod-kv` (cf. staging `wh-staging-kv`) | proposed |
+| Key Vault | `wh-prod-kv` (cf. staging `wh-staging-kv`) | existing (created in shell apply; RBAC-enabled) |
+
+> **Key Vault rejects underscores in secret names — names are hyphenated.** The
+> vault is RBAC-enabled: the operator must hold **Key Vault Secrets Officer** on
+> `wh-prod-kv` before setting values. See `PROD-INFRA-PLAN.md` → Post-apply fixes.
 
 Required secret **names** (all stored in `wh-prod-kv`; values operator-provided, never committed):
 
-- `WOLFHOUSE_PROD_DB_USER`
-- `WOLFHOUSE_PROD_DB_PASSWORD`
-- `WOLFHOUSE_PROD_DATABASE_URL`
-- `LUNA_BOT_INTERNAL_TOKEN`
-- `WOLFHOUSE_STAFF_SESSION_SECRET`
-- `WOLFHOUSE_WHATSAPP_PHONE_NUMBER_ID`
-- `WOLFHOUSE_WHATSAPP_ACCESS_TOKEN`
-- `WOLFHOUSE_META_APP_SECRET`
-- `WOLFHOUSE_META_VERIFY_TOKEN`
-- `WOLFHOUSE_STRIPE_SECRET_KEY`
-- `WOLFHOUSE_STRIPE_WEBHOOK_SECRET`
+- `wolfhouse-prod-db-user`
+- `wolfhouse-prod-db-password`
+- `wolfhouse-prod-database-url`
+- `luna-bot-internal-token`
+- `wolfhouse-staff-session-secret`
+- `wolfhouse-whatsapp-phone-number-id`
+- `wolfhouse-whatsapp-access-token`
+- `wolfhouse-meta-app-secret`
+- `wolfhouse-meta-verify-token`
+- `wolfhouse-stripe-secret-key`
+- `wolfhouse-stripe-webhook-secret`
 
 ## 7. DNS / hostname requirements
 

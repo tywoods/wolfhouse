@@ -17,6 +17,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'provision-wolfhouse-prod-infra.js');
 const DOC = path.join(ROOT, 'docs', 'clients', 'wolfhouse', 'PROD-INFRA-PLAN.md');
+const INVENTORY = path.join(ROOT, 'docs', 'clients', 'wolfhouse', 'LIVE-ENV-INVENTORY.md');
 
 let pass = 0;
 let fail = 0;
@@ -83,6 +84,68 @@ const FORBIDDEN = [
 const hits = FORBIDDEN.filter((p) => s.includes(p));
 ok('script contains no obvious secret-looking values',
   hits.length === 0, hits.length ? hits.join(', ') : null);
+
+// --- post-apply fix checks ---
+const inventory = readSafe(INVENTORY) || '';
+const docPlusInv = `${doc || ''}\n${inventory}`;
+
+// (a) Hyphenated Key Vault secret names present (script + docs).
+const HYPHEN_SECRET_NAMES = [
+  'wolfhouse-prod-db-user',
+  'wolfhouse-prod-db-password',
+  'wolfhouse-prod-database-url',
+  'luna-bot-internal-token',
+  'wolfhouse-staff-session-secret',
+  'wolfhouse-whatsapp-phone-number-id',
+  'wolfhouse-whatsapp-access-token',
+  'wolfhouse-meta-app-secret',
+  'wolfhouse-meta-verify-token',
+  'wolfhouse-stripe-secret-key',
+  'wolfhouse-stripe-webhook-secret',
+];
+const missingHyphen = HYPHEN_SECRET_NAMES.filter((nm) => !s.includes(nm) || !docPlusInv.includes(nm));
+ok('hyphenated Key Vault secret names present in script and docs',
+  missingHyphen.length === 0, missingHyphen.length ? `missing: ${missingHyphen.join(', ')}` : null);
+
+// (b) No underscore Key Vault secret names left in script/docs secret lists.
+const OLD_UNDERSCORE_KV = [
+  'WOLFHOUSE_PROD_DB_USER',
+  'WOLFHOUSE_PROD_DB_PASSWORD',
+  'WOLFHOUSE_PROD_DATABASE_URL',
+  'LUNA_BOT_INTERNAL_TOKEN',
+  'WOLFHOUSE_STAFF_SESSION_SECRET',
+  'WOLFHOUSE_WHATSAPP_PHONE_NUMBER_ID',
+  'WOLFHOUSE_WHATSAPP_ACCESS_TOKEN',
+  'WOLFHOUSE_META_APP_SECRET',
+  'WOLFHOUSE_META_VERIFY_TOKEN',
+  'WOLFHOUSE_STRIPE_SECRET_KEY',
+  'WOLFHOUSE_STRIPE_WEBHOOK_SECRET',
+];
+const underscoreHits = OLD_UNDERSCORE_KV.filter((nm) => s.includes(nm) || docPlusInv.includes(nm));
+ok('no underscore Key Vault secret names remain (Key Vault rejects underscores)',
+  underscoreHits.length === 0, underscoreHits.length ? `found: ${underscoreHits.join(', ')}` : null);
+
+// (c) az group exists existence decided from stdout "true", not exit code.
+ok('script decides "az group exists" from stdout == "true"',
+  s.includes('group') && s.includes('exists') && s.includes('stdout-true')
+  && s.includes("=== 'true'"));
+
+// (d) Key Vault Secrets Officer / RBAC documented.
+ok('Key Vault Secrets Officer / RBAC documented',
+  (s.includes('Key Vault Secrets Officer') || docPlusInv.includes('Key Vault Secrets Officer'))
+  && (sLow.includes('rbac') || docPlusInv.toLowerCase().includes('rbac')));
+
+// (e) Postgres DB create uses --name (not --database-name).
+const dbCreateIdx = s.indexOf("'db', 'create'");
+const dbCreateOk = dbCreateIdx !== -1
+  && s.slice(dbCreateIdx, dbCreateIdx + 200).includes("'--name'")
+  && (docPlusInv.includes('db create --name') || docPlusInv.includes('flexible-server db create --name'));
+ok('Postgres DB create uses --name (script + docs)', dbCreateOk);
+
+// (f) Secret-risk command output captured/redacted (not echoed raw).
+ok('script captures + suppresses/redacts secret-risk Azure output',
+  s.includes('captureSecret') && s.includes('redactText')
+  && (sLow.includes('suppress') || sLow.includes('withheld')));
 
 // doc documents dry-run default + --apply danger gate
 const d = doc || '';

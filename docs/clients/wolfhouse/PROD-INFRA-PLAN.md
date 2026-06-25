@@ -35,12 +35,24 @@ radius and lifecycle separation from staging. The planner script defaults to
 
 ### Secret names (names only — no values, ever)
 
-Stored in `wh-prod-kv`; values are operator-provided at provisioning, never committed:
-`WOLFHOUSE_PROD_DB_USER`, `WOLFHOUSE_PROD_DB_PASSWORD`, `WOLFHOUSE_PROD_DATABASE_URL`,
-`LUNA_BOT_INTERNAL_TOKEN`, `WOLFHOUSE_STAFF_SESSION_SECRET`,
-`WOLFHOUSE_WHATSAPP_PHONE_NUMBER_ID`, `WOLFHOUSE_WHATSAPP_ACCESS_TOKEN`,
-`WOLFHOUSE_META_APP_SECRET`, `WOLFHOUSE_META_VERIFY_TOKEN`,
-`WOLFHOUSE_STRIPE_SECRET_KEY`, `WOLFHOUSE_STRIPE_WEBHOOK_SECRET`.
+Stored in `wh-prod-kv`; values are operator-provided at provisioning, never committed.
+**Key Vault rejects underscores in secret names — these use hyphens:**
+`wolfhouse-prod-db-user`, `wolfhouse-prod-db-password`, `wolfhouse-prod-database-url`,
+`luna-bot-internal-token`, `wolfhouse-staff-session-secret`,
+`wolfhouse-whatsapp-phone-number-id`, `wolfhouse-whatsapp-access-token`,
+`wolfhouse-meta-app-secret`, `wolfhouse-meta-verify-token`,
+`wolfhouse-stripe-secret-key`, `wolfhouse-stripe-webhook-secret`.
+
+**RBAC:** `wh-prod-kv` is created with RBAC authorization enabled. Before setting any
+secret, the operator must hold the **Key Vault Secrets Officer** role on the vault:
+
+```
+az role assignment create --role "Key Vault Secrets Officer" \
+  --assignee <operator-object-id> \
+  --scope /subscriptions/<AZURE_SUBSCRIPTION_ID>/resourceGroups/wh-prod-rg/providers/Microsoft.KeyVault/vaults/wh-prod-kv
+# then per secret (value operator-provided, never committed):
+az keyvault secret set --vault-name wh-prod-kv --name <hyphenated-secret-name> --value <operator-provided>
+```
 
 ## Isolation rationale (why per-client prod)
 
@@ -110,6 +122,39 @@ What apply does and does **not** do:
 
 > This task added the script in **dry-run only**; `--apply` has not been run and no
 > Azure resource has been created.
+
+## Post-apply fixes (lessons from the real shell apply)
+
+The first approved shell apply (from `master` `e44c10d`) created the RG, ACR, Key
+Vault, Log Analytics, Container Apps env, Postgres server, and `wolfhouse_prod` DB
+(no app deploys / migrations / Meta / WhatsApp / Stripe / SOUL changes). It exposed
+issues now fixed in the script + docs:
+
+1. **`az group exists` is ambiguous by exit code** — it returns exit 0 for both
+   true and false and writes `true`/`false` to stdout. The script now decides
+   existence from **stdout being exactly `"true"`**, not the exit code, so RG
+   creation is no longer skipped incorrectly.
+2. **Key Vault secret names cannot contain underscores** — all secret names are now
+   **hyphenated** (see Secret names above).
+3. **Key Vault is RBAC-enabled** — the operator needs **Key Vault Secrets Officer**
+   on `wh-prod-kv` before setting secrets (role command documented above).
+4. **Container Apps env workspace** — the env create now passes the `wh-prod-logs`
+   workspace (`--logs-destination log-analytics --logs-workspace-id/--logs-workspace-key`)
+   so Azure does not auto-create one. **Known issue:** the already-deployed
+   `wh-prod-env` is attached to an auto-generated workspace (created before this
+   fix). **Correction note:** either accept the attached workspace, or recreate/adjust
+   the env deliberately in a **separate approved infra-correction** step — this
+   branch does **not** change any Azure resource.
+5. **Azure CLI can print secrets** — Postgres create/update output may include a
+   `connectionString`/password. In apply mode the script **captures** that output
+   and **suppresses/redacts** it (raw JSON is never echoed); dry-run prints
+   placeholders only.
+6. **Postgres DB create flag** — the database is created with
+   `az postgres flexible-server db create --name wolfhouse_prod` (not
+   `--database-name`).
+
+> This branch is **script/docs/verifier only**: no `--apply`, and no Azure
+> resource was created, updated, or deleted.
 
 ## Rollback / no-op statement
 
