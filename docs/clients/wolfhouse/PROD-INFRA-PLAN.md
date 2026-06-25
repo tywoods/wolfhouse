@@ -71,6 +71,31 @@ guests. Locations within Wolfhouse share this runtime/DB and are separated by
 - [ ] **Flip `live_enabled=true`** for `wolfhouse` only after the go-live checklist
       passes (`GO-LIVE-CHECKLIST.md`).
 
+## Provision script usage (`scripts/provision-wolfhouse-prod-infra.js`)
+
+A gated provision script turns this plan into ensure-steps. **It defaults to
+dry-run and creates nothing** unless explicitly and safely applied.
+
+- **Dry-run (default):** `node scripts/provision-wolfhouse-prod-infra.js [--dry-run]`
+  — prints the existence-check + idempotent-create `az` commands; executes nothing.
+- **Apply (DANGER gate):** `WOLFHOUSE_PROD_INFRA_APPLY=1 node scripts/provision-wolfhouse-prod-infra.js --apply`
+  — prints a **DANGER** confirmation and refuses unless **all** guards pass:
+  1. `--apply` flag present, 2. env `WOLFHOUSE_PROD_INFRA_APPLY=1`, 3. clean git
+  working tree, 4. branch is `master`, 5. local `HEAD == origin/master`.
+
+What apply does and does **not** do:
+- **Does:** ensure infrastructure *shells* only — RG, ACR, Key Vault, Log
+  Analytics, Container Apps env, Postgres server — idempotently (existence checked
+  first; create skipped if present).
+- **Does NOT:** write any secret value (Key Vault gets secret **names** only, with
+  an operator instruction to set values manually), deploy app containers
+  (`wh-prod-staff-api` / `wh-prod-hermes` are named for context only), change the
+  Meta webhook, touch Stripe live, or run DB migrations — all separate,
+  approval-gated, operator-driven steps.
+
+> This task added the script in **dry-run only**; `--apply` has not been run and no
+> Azure resource has been created.
+
 ## Rollback / no-op statement
 
 This plan is a **no-op**: running `scripts/plan-wolfhouse-prod-infra.js` changes
