@@ -87,6 +87,26 @@ const hasMetaApproval = liveDocs.some(([, t]) => {
 });
 ok('live docs require explicit approval for live Meta webhook changes', hasMetaApproval);
 
+// --- inventory is concrete enough (not just generic placeholders) ---
+const envLow = (envText || '').toLowerCase();
+
+const STATUS_VOCAB = ['existing', 'proposed', 'required-before-live', 'operator-provided'];
+const missingStatus = STATUS_VOCAB.filter((s) => !envLow.includes(s));
+ok('inventory defines a status column (existing/proposed/required-before-live/operator-provided)',
+  missingStatus.length === 0, missingStatus.length ? `missing: ${missingStatus.join(', ')}` : null);
+
+const CONCRETE_NAMES = [
+  'northeurope',
+  'wh-prod-rg',
+  'wh-prod-staff-api',
+  'wh-prod-hermes',
+  'wh-prod-kv',
+  'wolfhouse_prod',
+];
+const missingNames = CONCRETE_NAMES.filter((n) => !envLow.includes(n.toLowerCase()));
+ok('inventory uses concrete planned names (region, RG, apps, KV, DB)',
+  missingNames.length === 0, missingNames.length ? `missing: ${missingNames.join(', ')}` : null);
+
 // --- secret-looking value scan (must NOT appear) ---
 const FORBIDDEN = [
   'sk_live_',
