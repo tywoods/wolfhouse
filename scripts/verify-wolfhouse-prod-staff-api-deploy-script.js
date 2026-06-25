@@ -14,6 +14,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const SCRIPT = path.join(ROOT, 'scripts', 'deploy-wolfhouse-prod-staff-api.js');
@@ -87,10 +88,48 @@ ok('script runs no migrations',
   (sLow.includes('no migrations') || sLow.includes('not run migrations') || sLow.includes('does not run migrations'))
   && !sLow.includes('migrate'));
 
+// --- rendered dry-run output: verify the ACTUAL emitted commands wire secrets ---
+const rendered = (spawnSync('node', [SCRIPT, '--dry-run'], { encoding: 'utf8' }).stdout) || '';
+const createLine = rendered.split('\n').find((l) => l.includes('az containerapp create')) || '';
+const updateLine = rendered.split('\n').find((l) => l.includes('az containerapp update')) || '';
+const secretSetLine = rendered.split('\n').find((l) => l.includes('az containerapp secret set')) || '';
+
+ok('create command includes --secrets with keyvaultref',
+  createLine.includes('--secrets') && createLine.includes('keyvaultref'));
+ok('create command maps DATABASE_URL to secretref:wolfhouse-prod-database-url',
+  createLine.includes('DATABASE_URL=secretref:wolfhouse-prod-database-url'));
+
+const ENV_MAPPINGS = [
+  'DATABASE_URL=secretref:wolfhouse-prod-database-url',
+  'LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token',
+  'WOLFHOUSE_STAFF_SESSION_SECRET=secretref:wolfhouse-staff-session-secret',
+];
+const missingCreateEnv = ENV_MAPPINGS.filter((m) => !createLine.includes(m));
+ok('create command includes all required env mappings',
+  missingCreateEnv.length === 0, missingCreateEnv.length ? `missing: ${missingCreateEnv.join(', ')}` : null);
+
+const missingUpdateEnv = ENV_MAPPINGS.filter((m) => !updateLine.includes(m));
+ok('update command includes required env mappings (not image-only)',
+  updateLine.includes('--set-env-vars') && missingUpdateEnv.length === 0,
+  missingUpdateEnv.length ? `missing: ${missingUpdateEnv.join(', ')}` : null);
+
+ok('update path refreshes Key Vault secret refs (containerapp secret set)',
+  secretSetLine.includes('--secrets') && secretSetLine.includes('keyvaultref'));
+
+ok('script assigns a managed identity for Key Vault access',
+  s.includes('--system-assigned') && (s.includes('identity') && s.includes('assign')));
+
+ok('apply is gated on managed-identity readiness',
+  s.includes('WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY'));
+
 // no secret-looking values
 const FORBIDDEN = ['sk_live_', 'xoxb-', 'DISCORD_BOT_TOKEN=', 'WHATSAPP_ACCESS_TOKEN=', 'STRIPE_SECRET_KEY=', 'password='];
 const hits = FORBIDDEN.filter((p) => s.includes(p));
 ok('script contains no obvious secret-looking values', hits.length === 0, hits.length ? hits.join(', ') : null);
+// also scan rendered output for leaked secret-looking values
+const renderedHits = FORBIDDEN.filter((p) => rendered.includes(p));
+ok('rendered dry-run output contains no secret-looking values',
+  renderedHits.length === 0, renderedHits.length ? renderedHits.join(', ') : null);
 
 // min replicas + health + custom-domain note
 ok('script sets min/max replicas 1', s.includes('--min-replicas') && s.includes('--max-replicas'));
