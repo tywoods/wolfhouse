@@ -167,6 +167,7 @@ write_seadog_env() {
     printf 'API_SERVER_PORT=8644\n'
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+    true
   } > "$HERMES_HOME/.env"
 }
 
