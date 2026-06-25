@@ -280,6 +280,7 @@
     "verify:sunset-portal-v1": "node scripts/verify-sunset-portal-v1.js",
     "verify:tenant-business-config": "node scripts/verify-tenant-business-config.js",
     "verify:wolfhouse-live-readiness": "node scripts/verify-wolfhouse-live-readiness-static.js",
+    "verify:owner-insight-agent": "node scripts/verify-owner-insight-agent.js",
     "verify:portal-tenant-isolation": "node scripts/verify-portal-tenant-isolation.js",
     "verify:sunset-all": "node scripts/verify-sunset-all.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",
