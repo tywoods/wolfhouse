@@ -9,6 +9,9 @@ Client: `wolfhouse` · Location: `wolfhouse-somo` · Region: **northeurope**
 >
 > **Deployed:** see `PROD-APP-DEPLOY-RECORD.md` for the as-deployed Staff API record
 > (revision, image SHA, FQDN, port 3036, verified health).
+> **Custom domain:** the chosen prod hostname is `wolfhouse.lunafrontdesk.com`
+> (superseding the `staff.lunafrontdesk.com` placeholder); binding plan in
+> `PROD-CUSTOM-DOMAIN-PLAN.md` (not yet executed).
 >
 > Builds on the existing infra shells (`PROD-INFRA-PLAN.md`): RG `wh-prod-rg`, ACR
 > `whprodacr`, Key Vault `wh-prod-kv`, Log Analytics `wh-prod-logs`, Container Apps

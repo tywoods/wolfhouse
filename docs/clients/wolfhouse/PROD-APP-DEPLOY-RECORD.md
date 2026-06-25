@@ -31,9 +31,11 @@ is not bound yet — see below).
 
 ## Scope / what was NOT done
 
-- **Custom domain `staff.lunafrontdesk.com` is NOT bound yet** — DNS/cert binding is
-  a later, separate, approval-gated step. The app is reachable only on its generated
-  Azure FQDN for now.
+- **Custom domain not bound yet** — the app is reachable only on its generated
+  Azure FQDN for now. The chosen prod hostname is **`wolfhouse.lunafrontdesk.com`**
+  (superseding the earlier `staff.lunafrontdesk.com` placeholder); it is not bound
+  yet — binding it is a later, separate, approval-gated step planned in
+  `PROD-CUSTOM-DOMAIN-PLAN.md`.
 - **No database migrations were run** during this deploy.
 - **No Hermes/Luna agent app was deployed** (`wh-prod-hermes` does not exist yet).
 - **No Meta / WhatsApp changes** (no webhook pointed at prod).
