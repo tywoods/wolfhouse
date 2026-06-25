@@ -48,6 +48,24 @@ ok('script checks current branch is master',
 ok('script checks HEAD == origin/master',
   s.includes('origin/master') && s.includes('rev-parse'));
 
+// --- apply-hardening guards ---
+ok('script requires Postgres admin env vars in apply (user + password)',
+  s.includes('WOLFHOUSE_PROD_PG_ADMIN_USER') && s.includes('WOLFHOUSE_PROD_PG_ADMIN_PASSWORD'));
+
+ok('script requires AZURE_SUBSCRIPTION_ID in apply',
+  s.includes('AZURE_SUBSCRIPTION_ID'));
+
+ok('script checks az CLI installed and logged in',
+  s.includes('account') && s.includes('show')
+  && (sLow.includes('not installed') || sLow.includes('enoent'))
+  && (sLow.includes('logged in') || sLow.includes('az login')));
+
+ok('script uses non-interactive flag(s) for Azure (e.g. --yes)', s.includes('--yes'));
+
+ok('script redacts secrets / never prints the Postgres password',
+  s.includes('REDACTED') && s.includes('--admin-password')
+  && sLow.includes('never print'));
+
 // all planned resource names present
 const REQUIRED_NAMES = [
   'wh-prod-rg', 'northeurope', 'whprodacr', 'wh-prod-kv', 'wh-prod-logs',

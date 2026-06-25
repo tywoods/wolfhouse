@@ -78,10 +78,25 @@ dry-run and creates nothing** unless explicitly and safely applied.
 
 - **Dry-run (default):** `node scripts/provision-wolfhouse-prod-infra.js [--dry-run]`
   — prints the existence-check + idempotent-create `az` commands; executes nothing.
-- **Apply (DANGER gate):** `WOLFHOUSE_PROD_INFRA_APPLY=1 node scripts/provision-wolfhouse-prod-infra.js --apply`
-  — prints a **DANGER** confirmation and refuses unless **all** guards pass:
+- **Apply (DANGER gate, non-interactive):**
+  ```
+  WOLFHOUSE_PROD_INFRA_APPLY=1 AZURE_SUBSCRIPTION_ID=<id> \
+  WOLFHOUSE_PROD_PG_ADMIN_USER=<user> WOLFHOUSE_PROD_PG_ADMIN_PASSWORD=<password> \
+    node scripts/provision-wolfhouse-prod-infra.js --apply
+  ```
+  Prints a **DANGER** confirmation and refuses unless **all** guards pass:
   1. `--apply` flag present, 2. env `WOLFHOUSE_PROD_INFRA_APPLY=1`, 3. clean git
-  working tree, 4. branch is `master`, 5. local `HEAD == origin/master`.
+  working tree, 4. branch is `master`, 5. local `HEAD == origin/master`,
+  6. env `AZURE_SUBSCRIPTION_ID` set (explicit subscription, passed as
+  `--subscription` on every command), 7. env `WOLFHOUSE_PROD_PG_ADMIN_USER` set,
+  8. env `WOLFHOUSE_PROD_PG_ADMIN_PASSWORD` set, 9. az CLI installed **and**
+  logged in (`az account show` succeeds).
+
+**Non-interactive + secret-safe:** every `az` command is non-interactive (e.g.
+Postgres uses `--yes` so it cannot hang on a prompt). The Postgres admin user and
+password are read from env **only in apply mode** and are **redacted** in all
+output — the password is never printed. Dry-run requires no env vars and shows only
+placeholders/redacted values.
 
 What apply does and does **not** do:
 - **Does:** ensure infrastructure *shells* only — RG, ACR, Key Vault, Log
