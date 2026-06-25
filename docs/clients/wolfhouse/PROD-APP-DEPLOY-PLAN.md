@@ -57,6 +57,15 @@ Non-secret env: `DEFAULT_CLIENT=wolfhouse-somo` (target DB `wolfhouse_prod`).
 - Secret env via the step-2 secretref mappings (database-url, bot token, session
   secret). Custom domain `staff.lunafrontdesk.com` bound after cert.
 
+**Gated deploy script:** `scripts/deploy-wolfhouse-prod-staff-api.js` implements this
+Staff-API deploy. It is **dry-run by default**; `--apply` builds via `az acr build`
+(immutable git-SHA tag, no floating latest) and creates/updates `wh-prod-staff-api`,
+refusing unless `WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1`, `AZURE_SUBSCRIPTION_ID`,
+a clean tree, branch `master`, `HEAD == origin/master`, and az logged in. It runs
+**no migrations**, sets **no** Meta/WhatsApp/Stripe env, and sources the three Staff
+API secrets via Key Vault references only. The custom domain is a later
+approval-gated DNS/cert step.
+
 ## 4. Deploy Hermes/Luna (`wh-prod-hermes`)
 
 - `az containerapp create/update` into `wh-prod-env` with image
