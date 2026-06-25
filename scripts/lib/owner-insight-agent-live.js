@@ -102,6 +102,9 @@ async function runOwnerInsightAgentLive(pg, opts = {}) {
   const question = trimStr(opts.question);
   const aiCaller = typeof opts.aiCaller === 'function' ? opts.aiCaller : callLunaAiJsonChat;
   const maxSteps = Number(opts.maxSteps) > 0 ? Number(opts.maxSteps) : resolveMaxSteps(env);
+  // Per-path model override: lets the owner SQL agent run on a stronger model than
+  // the runtime-wide LUNA_AI_MODEL, without affecting other staff AI. Empty = inherit.
+  const modelOverride = trimStr((env || process.env).OWNER_INSIGHT_AGENT_MODEL) || undefined;
 
   const system = buildOwnerInsightSystemPrompt({ clientSlug });
 
@@ -117,6 +120,7 @@ async function runOwnerInsightAgentLive(pg, opts = {}) {
         temperature: 0,
         maxTokens: 900,
         call_label: 'owner_insight_agent',
+        ...(modelOverride ? { model: modelOverride } : {}),
       });
     } catch (err) {
       // Model/transport error — surface as a clarify rather than crashing the turn.

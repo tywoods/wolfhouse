@@ -108,6 +108,27 @@ async function main() {
   const eRes = await runOwnerInsightAgentLive(e.pg, { client_slug: CLIENT, question: 'how much money?', env: {}, aiCaller: aiNoQuery });
   ok('G1 ungrounded answer blocked', eRes.success === false && eRes.answer === BLOCKED_ANSWER && !/999,999/.test(eRes.answer));
 
+  // Per-path model override: OWNER_INSIGHT_AGENT_MODEL is passed to the model call
+  const seen = [];
+  const capturingAi = async (callOpts) => { seen.push(callOpts.model); return JSON.stringify({ action: 'query', sql: JULY_SQL }); };
+  const f = makePg();
+  await runOwnerInsightAgentLive(f.pg, {
+    client_slug: CLIENT, question: 'July revenue?',
+    env: { OWNER_INSIGHT_AGENT_ENABLED: '1', OWNER_INSIGHT_AGENT_MODEL: 'gpt-5.5', OWNER_INSIGHT_AGENT_MAX_STEPS: '1' },
+    aiCaller: capturingAi,
+  });
+  ok('MO1 model override passed to the model call', seen.length >= 1 && seen[0] === 'gpt-5.5', `seen=${JSON.stringify(seen)}`);
+
+  const seen2 = [];
+  const capturingAi2 = async (callOpts) => { seen2.push(callOpts.model); return JSON.stringify({ action: 'query', sql: JULY_SQL }); };
+  const g = makePg();
+  await runOwnerInsightAgentLive(g.pg, {
+    client_slug: CLIENT, question: 'July revenue?',
+    env: { OWNER_INSIGHT_AGENT_ENABLED: '1', OWNER_INSIGHT_AGENT_MAX_STEPS: '1' },
+    aiCaller: capturingAi2,
+  });
+  ok('MO2 no override => inherits runtime model (undefined passed)', seen2.length >= 1 && seen2[0] === undefined);
+
   // Unit: mapAgentResultToResponse for an error status
   const mapped = mapAgentResultToResponse({ status: 'exhausted', error: 'max_steps_reached', steps: [] }, { clientSlug: CLIENT, question: 'q' });
   ok('M1 error status maps to blocked answer', mapped.success === false && mapped.answer === BLOCKED_ANSWER);

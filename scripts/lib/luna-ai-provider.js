@@ -342,10 +342,13 @@ async function callLunaAiJsonChat(opts = {}) {
   const system = String(opts.system || '');
   const user = String(opts.user || '');
   const callLabel = opts.call_label ? String(opts.call_label) : null;
+  // Optional per-call model override (e.g. a stronger model for owner NL->SQL)
+  // without changing the runtime-wide LUNA_AI_MODEL. Falls back to the configured model.
+  const model = opts.model ? String(opts.model).trim() : cfg.model;
 
   if (cfg.provider === 'openai') {
     const body = {
-      model: cfg.model,
+      model,
       temperature,
       messages: [
         { role: 'system', content: system },
@@ -381,7 +384,7 @@ async function callLunaAiJsonChat(opts = {}) {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: cfg.model,
+        model,
         max_tokens: maxTokens,
         temperature,
         system,

@@ -81,13 +81,23 @@ The agent path is controlled by an environment flag — **no code change to swit
 
 ```
 OWNER_INSIGHT_AGENT_ENABLED=1            # turn the agent path on (default: off)
+OWNER_INSIGHT_AGENT_MODEL=gpt-5.5        # optional: per-path model for the SQL agent
 OWNER_INSIGHT_AGENT_MAX_STEPS=5          # optional: max queries per question
 ```
 
-It uses whatever model the runtime's `LUNA_AI_PROVIDER` / `LUNA_AI_MODEL` is set to.
-**Recommended:** point the owner runtime at a capable model for SQL accuracy (the
-guest stack runs `gpt-4o-mini`; NL→SQL with self-correction is where a stronger model
-clearly pays off).
+**Model:** by default the agent inherits the Staff API's `LUNA_AI_MODEL` (staging:
+`gpt-4o-mini`). `OWNER_INSIGHT_AGENT_MODEL` overrides **only this path** (a strong
+model for SQL accuracy) without changing the rest of the staff AI — owner insights
+are low-volume, so cost is minor.
+
+> **Caveat:** the Staff API authenticates to the **OpenAI API** via an API key. The
+> model id must be one that key can call. `gpt-5.5` is Hermes's **Codex/OAuth** brain
+> and may not be a valid OpenAI-API model id — if the live eval returns a model error,
+> change `OWNER_INSIGHT_AGENT_MODEL` to a valid id the key supports (no code change),
+> or point this path at Anthropic (`LUNA_AI_PROVIDER`/key) instead.
+
+Note: this is the **Staff API** runtime (`wh-staging-staff-api`), where the owner SQL
+agent runs — distinct from the guest-facing Hermes/Luna agent (lunabox VM, gpt-5.5).
 
 **Rollout order (do NOT flip prod first):**
 1. Set the flag (and a strong model) on **staging**, deploy via the gated scripts.
