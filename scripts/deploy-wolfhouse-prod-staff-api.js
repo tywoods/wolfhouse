@@ -16,17 +16,22 @@
  * created. This script handles it with a two-phase flow and SELF-CHECKS state (it
  * does not rely on a blind human "identity ready" flag):
  *
- *   PHASE 1 — bootstrap identity ( --bootstrap-identity --apply ):
- *     - ensure image exists in ACR (build only if missing)
- *     - create wh-prod-staff-api with --system-assigned + minimal NON-secret env
- *       (no secretrefs yet)
+ *   PHASE 1 — bootstrap identity + ACR access ( --bootstrap-identity --apply ):
+ *     - create wh-prod-staff-api from a PUBLIC placeholder image
+ *       (mcr.microsoft.com/azuredocs/containerapps-helloworld:latest, port 80) with
+ *       --system-assigned + minimal NON-secret env — NOT the private ACR image, so
+ *       the first create cannot fail with ACR UNAUTHORIZED; no secretrefs yet
  *     - fetch the app identity principalId (az containerapp identity show)
- *     - assign "Key Vault Secrets User" to that principalId on wh-prod-kv
+ *     - assign "AcrPull" on whprodacr to that identity (so it can pull the image)
+ *     - assign "Key Vault Secrets User" on wh-prod-kv to that identity
+ *     - az containerapp registry set --server whprodacr.azurecr.io --identity system
  *
- *   PHASE 2 — secret wiring (full --apply ):
- *     - self-check: app + system identity + role present (auto-runs PHASE 1 if not)
+ *   PHASE 2 — image + secret wiring (full --apply ):
+ *     - self-check: app + identity + AcrPull + KV role + registry (auto-runs PHASE 1)
+ *     - ensure the private ACR image exists (build only if missing)
  *     - verify required Key Vault secrets EXIST by name (no values printed)
- *     - set/refresh secrets via keyvaultref, then update image + env secretrefs
+ *     - set/refresh secrets via keyvaultref, update to the whprodacr image + env
+ *       secretrefs, then switch ingress target port to 3036 (placeholder was 80)
  *
  * Roles: the APP identity needs only "Key Vault Secrets User" (read). The HUMAN
  * operator who sets the secret VALUES needs "Key Vault Secrets Officer" (write) —
@@ -56,9 +61,16 @@ const N = {
   database: 'wolfhouse_prod',
   dockerfile: 'Dockerfile', // root Dockerfile = Staff API (CMD npm run staff:api)
   imageRepo: 'wh-staff-api',
-  targetPort: '8080',
+  // The Staff API process listens on 3036 — the final ingress target port (the
+  // helloworld placeholder serves on 80; ingress is switched to 3036 after swap).
+  targetPort: '3036',
+  placeholderPort: '80',
+  // Public placeholder image used ONLY to bootstrap the app + its identity before
+  // the app can pull from the private ACR (avoids the first-create ACR UNAUTHORIZED).
+  placeholderImage: 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest',
   staffHostname: 'staff.lunafrontdesk.com',
   appIdentityRole: 'Key Vault Secrets User', // READ — app identity. (Operator uses Secrets Officer to WRITE.)
+  acrPullRole: 'AcrPull', // app identity needs AcrPull on whprodacr to pull the private image
 };
 
 const ENV_APPLY_FLAG = 'WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY';
@@ -96,6 +108,9 @@ function withSub(cmd, sub) { return [...cmd, '--subscription', sub]; }
 function kvScope(sub) {
   return `/subscriptions/${sub}/resourceGroups/${N.resourceGroup}/providers/Microsoft.KeyVault/vaults/${N.keyVault}`;
 }
+function acrScope(sub) {
+  return `/subscriptions/${sub}/resourceGroups/${N.resourceGroup}/providers/Microsoft.ContainerRegistry/registries/${N.acr}`;
+}
 function secretRefValues(identity) {
   return STAFF_SECRET_NAMES.map(
     (s) => `${s}=keyvaultref:https://${N.keyVault}.vault.azure.net/secrets/${s},identityref:${identity}`,
@@ -115,28 +130,39 @@ function buildCommands(sha, sub, principalId) {
     imageShow: withSub(['az', 'acr', 'repository', 'show', '--name', N.acr, '--image', tag], sub),
     build: withSub(['az', 'acr', 'build', '--registry', N.acr, '--image', tag, '--file', N.dockerfile, '.'], sub),
     appShow: withSub(['az', 'containerapp', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup], sub),
-    // PHASE 1: minimal create (system identity, NON-secret env only, NO secretrefs)
+    // PHASE 1: minimal create with a PUBLIC PLACEHOLDER image (NOT the private ACR
+    // image) so the first create can't hit ACR UNAUTHORIZED; system identity; NO
+    // secretrefs; placeholder serves on port 80 (ingress switched to 3036 later).
     bootstrapCreate: withSub([
       'az', 'containerapp', 'create',
       '--resource-group', N.resourceGroup,
       '--name', N.staffApiApp,
       '--environment', N.containerAppsEnv,
-      '--image', fullImage,
+      '--image', N.placeholderImage,
       '--system-assigned',
       '--min-replicas', '1', '--max-replicas', '1',
-      '--ingress', 'external', '--target-port', N.targetPort,
+      '--ingress', 'external', '--target-port', N.placeholderPort,
       '--env-vars', NON_SECRET_ENV,
     ], sub),
     identityAssign: withSub(['az', 'containerapp', 'identity', 'assign', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--system-assigned'], sub),
     identityShow: withSub(['az', 'containerapp', 'identity', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--query', 'principalId', '-o', 'tsv'], sub),
+    // app identity needs AcrPull on whprodacr to pull the private image
+    acrPullList: withSub(['az', 'role', 'assignment', 'list', '--assignee', principalId, '--role', N.acrPullRole, '--scope', acrScope(sub), '-o', 'tsv'], sub),
+    acrPullCreate: withSub(['az', 'role', 'assignment', 'create', '--assignee', principalId, '--role', N.acrPullRole, '--scope', acrScope(sub)], sub),
     roleList: withSub(['az', 'role', 'assignment', 'list', '--assignee', principalId, '--role', N.appIdentityRole, '--scope', kvScope(sub), '-o', 'tsv'], sub),
     roleCreate: withSub(['az', 'role', 'assignment', 'create', '--assignee', principalId, '--role', N.appIdentityRole, '--scope', kvScope(sub)], sub),
+    // wire the app to pull from whprodacr using its managed identity
+    registrySet: withSub(['az', 'containerapp', 'registry', 'set', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--server', N.acrLoginServer, '--identity', 'system'], sub),
     // PHASE 2: verify secrets exist (by name; --query id => no value printed)
     secretShow: STAFF_SECRET_NAMES.map((s) => withSub(['az', 'keyvault', 'secret', 'show', '--vault-name', N.keyVault, '--name', s, '--query', 'id', '-o', 'tsv'], sub)),
-    // PHASE 2: set/refresh secretrefs, then update image + env mappings
+    // PHASE 2: set/refresh secretrefs, swap to the private ACR image + env mappings
     secretSet: withSub(['az', 'containerapp', 'secret', 'set', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--secrets', ...secretValues], sub),
     update: withSub(['az', 'containerapp', 'update', '--resource-group', N.resourceGroup, '--name', N.staffApiApp, '--image', fullImage, '--set-env-vars', NON_SECRET_ENV, ...envMappings], sub),
-    health: `curl -fsS https://${N.staffHostname}/ >/dev/null && echo "staff api healthy"`,
+    // switch ingress to the real Staff API port (placeholder was 80)
+    ingressSet: withSub(['az', 'containerapp', 'ingress', 'update', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--target-port', N.targetPort], sub),
+    // health prefers the generated Container Apps FQDN until staff.lunafrontdesk.com is bound
+    fqdnShow: withSub(['az', 'containerapp', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--query', 'properties.configuration.ingress.fqdn', '-o', 'tsv'], sub),
+    health: `FQDN=$(az containerapp show --name ${N.staffApiApp} --resource-group ${N.resourceGroup} --query properties.configuration.ingress.fqdn -o tsv); curl -fsS "https://$FQDN/staff/ui" >/dev/null && echo "staff api healthy ($FQDN) — expect HTTP 200, x-powered-by: wolfhouse-staff-api"`,
   };
 }
 
@@ -206,28 +232,35 @@ function header(mode, sha) {
 }
 
 function describe(cmds) {
-  log('\nPHASE 1 — BOOTSTRAP IDENTITY ( --bootstrap-identity --apply ):');
-  log(`    ensure image : $ ${cmds.imageShow.join(' ')}`);
-  log(`       (build only if missing) $ ${cmds.build.join(' ')}`);
-  log(`    bootstrap create: $ ${cmds.bootstrapCreate.join(' ')}`);
+  log('\nPHASE 1 — BOOTSTRAP IDENTITY + ACR ACCESS ( --bootstrap-identity --apply ):');
+  log(`    bootstrap create (PUBLIC placeholder image, port ${N.placeholderPort}, NO ACR, NO secrets):`);
+  log(`       $ ${cmds.bootstrapCreate.join(' ')}`);
   log(`       (if app exists) identity assign: $ ${cmds.identityAssign.join(' ')}`);
-  log(`    principalId  : $ ${cmds.identityShow.join(' ')}`);
-  log(`    role check   : $ ${cmds.roleList.join(' ')}`);
-  log(`    role assign  : $ ${cmds.roleCreate.join(' ')}`);
+  log(`    principalId   : $ ${cmds.identityShow.join(' ')}`);
+  log(`    AcrPull check : $ ${cmds.acrPullList.join(' ')}`);
+  log(`    AcrPull assign: $ ${cmds.acrPullCreate.join(' ')}`);
+  log(`    KV role check : $ ${cmds.roleList.join(' ')}`);
+  log(`    KV role assign: $ ${cmds.roleCreate.join(' ')}`);
+  log(`    registry set  : $ ${cmds.registrySet.join(' ')}`);
 
   rolesNote();
 
-  log('\nPHASE 2 — SECRET WIRING ( --apply, auto-bootstraps if needed ):');
+  log('\nPHASE 2 — IMAGE + SECRET WIRING ( --apply, auto-bootstraps if needed ):');
+  log(`    ensure image  : $ ${cmds.imageShow.join(' ')}`);
+  log(`       (build only if missing) $ ${cmds.build.join(' ')}`);
   log('    verify Key Vault secrets exist (by name; no values printed):');
   cmds.secretShow.forEach((c) => log(`      secret check: $ ${c.join(' ')}`));
-  log(`    secret set   : $ ${cmds.secretSet.join(' ')}`);
-  log(`    update app   : $ ${cmds.update.join(' ')}`);
+  log(`    secret set    : $ ${cmds.secretSet.join(' ')}`);
+  log(`    update app    : $ ${cmds.update.join(' ')}`);
+  log(`    ingress port  : $ ${cmds.ingressSet.join(' ')}   # switch placeholder ${N.placeholderPort} -> ${N.targetPort}`);
   log('    #   NO migrations. NO live Meta/WhatsApp/Stripe env. NO custom domain here.');
 
-  log('\nPOST-DEPLOY HEALTH (not executed in dry-run):');
-  log(`    $ ${cmds.health}`);
+  log('\nPOST-DEPLOY HEALTH (not executed in dry-run; prefers generated FQDN):');
+  log(`    fqdn : $ ${cmds.fqdnShow.join(' ')}`);
+  log(`    check: ${cmds.health}`);
 
-  log(`\nCUSTOM DOMAIN: ${N.staffHostname} is a LATER approval-gated DNS/cert step — not done here.`);
+  log(`\nCUSTOM DOMAIN: ${N.staffHostname} is a LATER approval-gated DNS/cert step — not`);
+  log('    done here; health uses the generated Container Apps FQDN until it is bound.');
 }
 
 function dryRun() {
@@ -247,23 +280,17 @@ function dryRun() {
   process.exit(0);
 }
 
-// Ensure image, app+identity, and role. Returns principalId. Used by both phases.
+// Ensure app+identity, AcrPull, Key Vault role, and registry wiring. Returns
+// principalId. Used by both phases. Uses a PUBLIC placeholder for first create.
 function ensureIdentityAndRole(sub) {
   const sha = currentSha();
   let cmds = buildCommands(sha, sub, '<principalId>');
 
-  log('PHASE 1) ensure image exists (build only if missing):');
-  if (cap(cmds.imageShow).status !== 0) {
-    log('   image missing -> build');
-    if (run(cmds.build) !== 0) { log('   build FAILED. Stopping.'); process.exit(1); }
-  } else {
-    log('   image already in ACR -> skip build');
-  }
-
-  log('\nPHASE 1) ensure app + system identity:');
+  log('PHASE 1) ensure app + system identity:');
   const exists = cap(cmds.appShow).status === 0;
   if (!exists) {
-    log('   app missing -> bootstrap create (system identity, non-secret env, NO secretrefs)');
+    log(`   app missing -> bootstrap create with PUBLIC placeholder image (${N.placeholderImage})`);
+    log('   (avoids first-create ACR UNAUTHORIZED; no ACR image, no secretrefs yet)');
     if (run(cmds.bootstrapCreate) !== 0) { log('   create FAILED. Stopping.'); process.exit(1); }
   } else {
     log('   app exists -> ensure system identity');
@@ -277,13 +304,20 @@ function ensureIdentityAndRole(sub) {
 
   // rebuild commands with the real principalId for role steps
   cmds = buildCommands(sha, sub, principalId);
-  log('\nPHASE 1) ensure role assignment (Key Vault Secrets User on wh-prod-kv):');
-  const roleExists = cap(cmds.roleList).out !== '';
-  if (roleExists) {
+
+  log('\nPHASE 1) ensure AcrPull on whprodacr for the app identity:');
+  if (cap(cmds.acrPullList).out !== '') {
+    log(`   "${N.acrPullRole}" already assigned -> skip`);
+  } else if (run(cmds.acrPullCreate) !== 0) { log('   AcrPull assignment FAILED. Stopping.'); process.exit(1); }
+
+  log('\nPHASE 1) ensure Key Vault Secrets User on wh-prod-kv for the app identity:');
+  if (cap(cmds.roleList).out !== '') {
     log(`   "${N.appIdentityRole}" already assigned -> skip`);
-  } else {
-    if (run(cmds.roleCreate) !== 0) { log('   role assignment FAILED. Stopping.'); process.exit(1); }
-  }
+  } else if (run(cmds.roleCreate) !== 0) { log('   role assignment FAILED. Stopping.'); process.exit(1); }
+
+  log('\nPHASE 1) wire app to pull from whprodacr via managed identity:');
+  if (run(cmds.registrySet) !== 0) { log('   registry set FAILED. Stopping.'); process.exit(1); }
+
   return { sha, principalId };
 }
 
@@ -319,6 +353,14 @@ function apply() {
 
   const cmds = buildCommands(sha, sub, principalId);
 
+  log('\nPHASE 2) ensure private ACR image exists (build only if missing):');
+  if (cap(cmds.imageShow).status !== 0) {
+    log('   image missing -> build');
+    if (run(cmds.build) !== 0) { log('   build FAILED. Stopping.'); process.exit(1); }
+  } else {
+    log('   image already in ACR -> skip build');
+  }
+
   log('\nPHASE 2) verify required Key Vault secrets exist (by name; no values printed):');
   for (const showCmd of cmds.secretShow) {
     if (cap(showCmd).status !== 0) {
@@ -330,16 +372,19 @@ function apply() {
   log('\nPHASE 2) set/refresh secret refs:');
   if (run(cmds.secretSet) !== 0) { log('   secret set FAILED. Stopping.'); process.exit(1); }
 
-  log('\nPHASE 2) update app (image + env secretref mappings):');
+  log('\nPHASE 2) update app to the private ACR image (+ env secretref mappings):');
   if (run(cmds.update) !== 0) { log('   update FAILED. Stopping.'); process.exit(1); }
 
-  log('\nPOST-DEPLOY HEALTH:');
+  log(`\nPHASE 2) switch ingress target port to ${N.targetPort} (placeholder was ${N.placeholderPort}):`);
+  if (run(cmds.ingressSet) !== 0) { log('   ingress update FAILED. Stopping.'); process.exit(1); }
+
+  log('\nPOST-DEPLOY HEALTH (prefers generated FQDN until staff.lunafrontdesk.com bound):');
   log(`    (run manually) ${cmds.health}`);
 
   hr();
-  log('  APPLY COMPLETE — Staff API built + deployed by immutable SHA tag, identity +');
-  log('  Key Vault secret refs + env wired. Custom domain / Meta / WhatsApp / Stripe');
-  log('  remain separate gated steps.');
+  log('  APPLY COMPLETE — Staff API deployed by immutable SHA tag from whprodacr, with');
+  log(`  managed-identity ACR pull + Key Vault secret refs + env wired, ingress port ${N.targetPort}.`);
+  log('  Custom domain / Meta / WhatsApp / Stripe remain separate gated steps.');
   hr();
   process.exit(0);
 }

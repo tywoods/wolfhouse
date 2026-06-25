@@ -66,32 +66,48 @@ a clean tree, branch `master`, `HEAD == origin/master`, and az logged in. It run
 API secrets via Key Vault references only. The custom domain is a later
 approval-gated DNS/cert step.
 
-**Two-phase identity bootstrap (chicken-and-egg).** A Key Vault secretref needs the
-app's system-assigned identity to hold a read role on `wh-prod-kv`, but that
-identity's `principalId` does not exist until the app is created. The script handles
-this with two phases and **self-checks state** (no blind "identity ready" flag):
+**Two-phase identity + ACR bootstrap (chicken-and-egg).** A new Container App cannot
+pull from the private ACR (first create fails `UNAUTHORIZED: wh-staff-api:pull`) and
+a Key Vault secretref needs the app's system-assigned identity to hold a read role —
+but that identity's `principalId` does not exist until the app is created. The script
+handles this with two phases and **self-checks state** (no blind "identity ready"
+flag):
 
-- **Phase 1 — `--bootstrap-identity --apply`:** ensure the image exists in ACR
-  (build only if missing) → create `wh-prod-staff-api` with `--system-assigned` and
-  **minimal non-secret env only (no secretrefs)** → fetch the identity `principalId`
-  (`az containerapp identity show`) → assign **Key Vault Secrets User** to it on
-  `wh-prod-kv`.
-- **Phase 2 — `--apply`:** self-checks app + identity + role (auto-runs Phase 1 if
-  missing) → **verifies the required Key Vault secrets exist by name** (no values
-  printed) → `containerapp secret set` (Key Vault refs) → `containerapp update
-  --image … --set-env-vars …` (image + env mappings).
+- **Phase 1 — `--bootstrap-identity --apply`:** create `wh-prod-staff-api` from a
+  **public placeholder image** (`mcr.microsoft.com/azuredocs/containerapps-helloworld:latest`,
+  port 80) with `--system-assigned` and **minimal non-secret env only (no
+  secretrefs, NOT the private ACR image)** → fetch the identity `principalId`
+  (`az containerapp identity show`) → assign **AcrPull** on `whprodacr` → assign
+  **Key Vault Secrets User** on `wh-prod-kv` → `az containerapp registry set --server
+  whprodacr.azurecr.io --identity system`.
+- **Phase 2 — `--apply`:** self-checks app + identity + AcrPull + KV role + registry
+  (auto-runs Phase 1 if missing) → ensure the private ACR image exists (build only if
+  missing) → **verify the required Key Vault secrets exist by name** (no values
+  printed) → `containerapp secret set` (Key Vault refs) → `containerapp update --image
+  whprodacr.azurecr.io/wh-staff-api:<sha> --set-env-vars …` → **`containerapp ingress
+  update --target-port 3036`** (the Staff API listens on 3036; the placeholder was 80,
+  which otherwise leaves the FQDN serving the Azure welcome page).
 
 ```
-# Phase 1 role assignment (app identity = READ only):
+# Phase 1 — app identity roles (READ only):
+az role assignment create --role "AcrPull" \
+  --assignee <app-system-identity-principal-id> \
+  --scope /subscriptions/<AZURE_SUBSCRIPTION_ID>/resourceGroups/wh-prod-rg/providers/Microsoft.ContainerRegistry/registries/whprodacr
 az role assignment create --role "Key Vault Secrets User" \
   --assignee <app-system-identity-principal-id> \
   --scope /subscriptions/<AZURE_SUBSCRIPTION_ID>/resourceGroups/wh-prod-rg/providers/Microsoft.KeyVault/vaults/wh-prod-kv
+az containerapp registry set --name wh-prod-staff-api --resource-group wh-prod-rg --server whprodacr.azurecr.io --identity system
 
-# Phase 2 env mappings (secretref, never raw values):
+# Phase 2 env mappings (secretref, never raw values) + ingress port:
 DATABASE_URL=secretref:wolfhouse-prod-database-url
 LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token
 WOLFHOUSE_STAFF_SESSION_SECRET=secretref:wolfhouse-staff-session-secret
+az containerapp ingress update --name wh-prod-staff-api --resource-group wh-prod-rg --target-port 3036
 ```
+
+**Health check** prefers the generated Container Apps FQDN until
+`staff.lunafrontdesk.com` is bound: `GET https://<fqdn>/staff/ui` should return
+HTTP 200 with `x-powered-by: wolfhouse-staff-api`.
 
 **Role split (least privilege).** The **app identity** needs only **Key Vault
 Secrets User** (read) to resolve secretrefs. The **human operator** who sets the

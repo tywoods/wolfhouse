@@ -56,7 +56,7 @@ ok('script checks az CLI installed and logged in',
 ok('script builds via "az acr build"', s.includes("'acr', 'build'") || s.includes('acr build'));
 ok('script tags image by immutable git SHA',
   s.includes('rev-parse') && s.includes('imageRepo') && s.includes('sha'));
-ok('script does not use a floating :latest tag', !s.includes(':latest'));
+ok('prod Staff API image is not a floating :latest tag', !s.includes('wh-staff-api:latest'));
 
 // targets
 const REQUIRED_NAMES = ['wh-prod-staff-api', 'wh-prod-env', 'whprodacr', 'wh-prod-rg', 'wolfhouse_prod'];
@@ -90,16 +90,27 @@ ok('script runs no migrations',
 
 // --- rendered dry-run output: verify the ACTUAL emitted two-phase commands ---
 const rendered = (spawnSync('node', [SCRIPT, '--dry-run'], { encoding: 'utf8' }).stdout) || '';
-const updateLine = rendered.split('\n').find((l) => l.includes('az containerapp update')) || '';
-const secretSetLine = rendered.split('\n').find((l) => l.includes('az containerapp secret set')) || '';
-const bootstrapCreateLine = rendered.split('\n').find((l) => l.includes('az containerapp create')) || '';
-const identityShowLine = rendered.split('\n').find((l) => l.includes('az containerapp identity show')) || '';
-const roleCreateLine = rendered.split('\n').find((l) => l.includes('az role assignment create')) || '';
-const secretShowLines = rendered.split('\n').filter((l) => l.includes('az keyvault secret show'));
+const lines = rendered.split('\n');
+const updateLine = lines.find((l) => l.includes('az containerapp update')) || '';
+const secretSetLine = lines.find((l) => l.includes('az containerapp secret set')) || '';
+const bootstrapCreateLine = lines.find((l) => l.includes('az containerapp create')) || '';
+const identityShowLine = lines.find((l) => l.includes('az containerapp identity show')) || '';
+const roleCreateLines = lines.filter((l) => l.includes('az role assignment create'));
+const kvRoleCreateLine = roleCreateLines.find((l) => l.includes('Key Vault Secrets User')) || '';
+const acrPullCreateLine = roleCreateLines.find((l) => l.includes('AcrPull')) || '';
+const registrySetLine = lines.find((l) => l.includes('az containerapp registry set')) || '';
+const ingressLine = lines.find((l) => l.includes('az containerapp ingress update')) || '';
+const secretShowLines = lines.filter((l) => l.includes('az keyvault secret show'));
 
 // two-phase bootstrap mode
 ok('script supports a two-phase identity bootstrap mode (--bootstrap-identity)',
   s.includes('--bootstrap-identity') && s.includes('BOOTSTRAP'));
+
+// bootstrap create uses a PUBLIC placeholder image, not the private ACR image
+ok('missing-app bootstrap uses the public placeholder image',
+  bootstrapCreateLine.includes('mcr.microsoft.com/azuredocs/containerapps-helloworld'));
+ok('missing-app bootstrap does NOT use the private whprodacr image',
+  !bootstrapCreateLine.includes('whprodacr.azurecr.io'));
 
 // bootstrap create is minimal (system identity, no secretrefs)
 ok('bootstrap create uses --system-assigned without secretrefs',
@@ -109,11 +120,29 @@ ok('bootstrap create uses --system-assigned without secretrefs',
 ok('script fetches app identity principalId (containerapp identity show)',
   identityShowLine.includes('identity show') && identityShowLine.includes('principalId'));
 
+// AcrPull assignment for the app identity
+ok('script assigns AcrPull on whprodacr to the app identity',
+  acrPullCreateLine.includes('AcrPull') && acrPullCreateLine.includes('--assignee')
+  && acrPullCreateLine.includes('Microsoft.ContainerRegistry'));
+
+// registry wired to managed identity
+ok('script runs containerapp registry set --identity system',
+  registrySetLine.includes('registry set') && registrySetLine.includes('--identity') && registrySetLine.includes('system')
+  && registrySetLine.includes('whprodacr.azurecr.io'));
+
+// final ingress target port 3036
+ok('script sets final ingress target port 3036',
+  ingressLine.includes('ingress update') && ingressLine.includes('--target-port') && ingressLine.includes('3036'));
+
+// generated FQDN health documented
+ok('health prefers the generated Container Apps FQDN',
+  rendered.includes('ingress.fqdn') && rendered.toLowerCase().includes('fqdn'));
+
 // assigns Key Vault Secrets User (not Officer) to the app identity
 ok('script assigns "Key Vault Secrets User" to the app identity',
-  roleCreateLine.includes('Key Vault Secrets User') && roleCreateLine.includes('--assignee'));
-ok('app identity role is Secrets User, not Secrets Officer',
-  !roleCreateLine.includes('Key Vault Secrets Officer'));
+  kvRoleCreateLine.includes('Key Vault Secrets User') && kvRoleCreateLine.includes('--assignee'));
+ok('app identity KV role is Secrets User, not Secrets Officer',
+  kvRoleCreateLine !== '' && !roleCreateLines.some((l) => l.includes('Key Vault Secrets Officer')));
 
 // verifies required Key Vault secrets exist by name, without printing values
 const REQUIRED_SECRET_CHECKS = ['wolfhouse-prod-database-url', 'luna-bot-internal-token', 'wolfhouse-staff-session-secret'];
