@@ -61,40 +61,44 @@ Non-secret env: `DEFAULT_CLIENT=wolfhouse-somo` (target DB `wolfhouse_prod`).
 Staff-API deploy. It is **dry-run by default**; `--apply` builds via `az acr build`
 (immutable git-SHA tag, no floating latest) and creates/updates `wh-prod-staff-api`,
 refusing unless `WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1`, `AZURE_SUBSCRIPTION_ID`,
-`WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY=1`, a clean tree, branch `master`,
-`HEAD == origin/master`, and az logged in. It runs **no migrations**, sets **no**
-Meta/WhatsApp/Stripe env, and sources the three Staff API secrets via Key Vault
-references only. The custom domain is a later approval-gated DNS/cert step.
+a clean tree, branch `master`, `HEAD == origin/master`, and az logged in. It runs
+**no migrations**, sets **no** Meta/WhatsApp/Stripe env, and sources the three Staff
+API secrets via Key Vault references only. The custom domain is a later
+approval-gated DNS/cert step.
 
-**Secret wiring (create AND update):** both deploy paths wire the Key Vault secret
-references *and* the env-var mappings into the `az containerapp` command, so the
-Staff API never deploys without its config:
+**Two-phase identity bootstrap (chicken-and-egg).** A Key Vault secretref needs the
+app's system-assigned identity to hold a read role on `wh-prod-kv`, but that
+identity's `principalId` does not exist until the app is created. The script handles
+this with two phases and **self-checks state** (no blind "identity ready" flag):
 
-```
---secrets wolfhouse-prod-database-url=keyvaultref:https://wh-prod-kv.vault.azure.net/secrets/wolfhouse-prod-database-url,identityref:<identity> (×3)
---env-vars DEFAULT_CLIENT=wolfhouse-somo \
-  DATABASE_URL=secretref:wolfhouse-prod-database-url \
-  LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token \
-  WOLFHOUSE_STAFF_SESSION_SECRET=secretref:wolfhouse-staff-session-secret
-```
-
-The update path is **not image-only**: it runs `containerapp identity assign
---system-assigned`, then `containerapp secret set` (refresh secret refs), then
-`containerapp update --image … --set-env-vars …`.
-
-**Identity bootstrap (required before secretrefs resolve):** the app uses a
-**system-assigned managed identity**, which must hold **Key Vault Secrets User** (or
-equivalent get-secret) on `wh-prod-kv` before the secretrefs resolve:
+- **Phase 1 — `--bootstrap-identity --apply`:** ensure the image exists in ACR
+  (build only if missing) → create `wh-prod-staff-api` with `--system-assigned` and
+  **minimal non-secret env only (no secretrefs)** → fetch the identity `principalId`
+  (`az containerapp identity show`) → assign **Key Vault Secrets User** to it on
+  `wh-prod-kv`.
+- **Phase 2 — `--apply`:** self-checks app + identity + role (auto-runs Phase 1 if
+  missing) → **verifies the required Key Vault secrets exist by name** (no values
+  printed) → `containerapp secret set` (Key Vault refs) → `containerapp update
+  --image … --set-env-vars …` (image + env mappings).
 
 ```
+# Phase 1 role assignment (app identity = READ only):
 az role assignment create --role "Key Vault Secrets User" \
   --assignee <app-system-identity-principal-id> \
   --scope /subscriptions/<AZURE_SUBSCRIPTION_ID>/resourceGroups/wh-prod-rg/providers/Microsoft.KeyVault/vaults/wh-prod-kv
+
+# Phase 2 env mappings (secretref, never raw values):
+DATABASE_URL=secretref:wolfhouse-prod-database-url
+LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token
+WOLFHOUSE_STAFF_SESSION_SECRET=secretref:wolfhouse-staff-session-secret
 ```
 
-Because of this prerequisite, `--apply` refuses unless the operator confirms it with
-`WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY=1` (the script is **not apply-ready** until
-the identity + role exist).
+**Role split (least privilege).** The **app identity** needs only **Key Vault
+Secrets User** (read) to resolve secretrefs. The **human operator** who sets the
+secret VALUES needs **Key Vault Secrets Officer** (write) — that is a separate
+operator step; the deploy script never sets or prints secret values. The Staff API
+deploy includes **no** Meta/WhatsApp/Stripe, **no** migrations, and **no** custom
+domain (all later gated steps).
 
 ## 4. Deploy Hermes/Luna (`wh-prod-hermes`)
 

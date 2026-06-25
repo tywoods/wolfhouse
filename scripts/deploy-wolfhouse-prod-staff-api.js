@@ -1,35 +1,46 @@
 'use strict';
 
 /**
- * Wolfhouse prod Staff API — gated deploy script (Staff API ONLY).
+ * Wolfhouse prod Staff API — gated deploy script with two-phase identity bootstrap.
  *
- * DEFAULT IS DRY-RUN. Nothing is built/pushed/deployed unless ALL of the
- * following are true (apply guards):
- *   1. invoked with  --apply
- *   2. env  WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1
- *   3. env  AZURE_SUBSCRIPTION_ID  is set (explicit subscription)
- *   4. env  WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY=1  (operator confirms the app's
- *      managed identity exists AND has Key Vault get-secret on wh-prod-kv — required
- *      before Key Vault secretrefs can resolve; see "Identity bootstrap" in docs)
- *   5. git working tree is clean
- *   6. current branch is  master
- *   7. local HEAD == origin/master
- *   8. az CLI is installed AND logged in (`az account show` succeeds)
+ * DEFAULT IS DRY-RUN. Nothing is built/pushed/deployed unless invoked with --apply
+ * AND all guards pass:
+ *   1. env  WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1
+ *   2. env  AZURE_SUBSCRIPTION_ID  is set (explicit subscription)
+ *   3. git working tree clean, branch master, HEAD == origin/master
+ *   4. az CLI installed AND logged in (`az account show`)
  *
- * Build uses `az acr build` (no local docker required). Deploy is by IMMUTABLE
- * git-SHA tag only (no floating "latest" tag for prod). Secrets come from Key Vault
- * references only — never raw values, never printed. The create AND update paths
- * wire the Key Vault secret references AND the env-var mappings (DATABASE_URL,
- * LUNA_BOT_INTERNAL_TOKEN, WOLFHOUSE_STAFF_SESSION_SECRET) so the Staff API never
- * deploys without its config. This script does NOT run migrations and does NOT set
- * live Meta/WhatsApp/Stripe env (Staff API scope only).
+ * Key Vault secretrefs are a chicken-and-egg for a NEW Container App: the secretref
+ * needs the app's system-assigned identity to hold "Key Vault Secrets User" on
+ * wh-prod-kv, but that identity's principalId does not exist until the app is
+ * created. This script handles it with a two-phase flow and SELF-CHECKS state (it
+ * does not rely on a blind human "identity ready" flag):
+ *
+ *   PHASE 1 — bootstrap identity ( --bootstrap-identity --apply ):
+ *     - ensure image exists in ACR (build only if missing)
+ *     - create wh-prod-staff-api with --system-assigned + minimal NON-secret env
+ *       (no secretrefs yet)
+ *     - fetch the app identity principalId (az containerapp identity show)
+ *     - assign "Key Vault Secrets User" to that principalId on wh-prod-kv
+ *
+ *   PHASE 2 — secret wiring (full --apply ):
+ *     - self-check: app + system identity + role present (auto-runs PHASE 1 if not)
+ *     - verify required Key Vault secrets EXIST by name (no values printed)
+ *     - set/refresh secrets via keyvaultref, then update image + env secretrefs
+ *
+ * Roles: the APP identity needs only "Key Vault Secrets User" (read). The HUMAN
+ * operator who sets the secret VALUES needs "Key Vault Secrets Officer" (write) —
+ * that is an operator step, not done by this script. Build uses `az acr build`;
+ * deploy is by IMMUTABLE git-SHA tag (no floating "latest"). No raw secrets are
+ * printed. This script runs NO migrations and sets NO Meta/WhatsApp/Stripe env.
  *
  * Usage:
- *   node scripts/deploy-wolfhouse-prod-staff-api.js              # dry-run (default)
- *   node scripts/deploy-wolfhouse-prod-staff-api.js --dry-run    # explicit dry-run
+ *   node scripts/deploy-wolfhouse-prod-staff-api.js                       # dry-run (default)
+ *   node scripts/deploy-wolfhouse-prod-staff-api.js --dry-run             # explicit dry-run
  *   WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1 AZURE_SUBSCRIPTION_ID=... \
- *   WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY=1 \
- *     node scripts/deploy-wolfhouse-prod-staff-api.js --apply
+ *     node scripts/deploy-wolfhouse-prod-staff-api.js --bootstrap-identity --apply   # phase 1
+ *   WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY=1 AZURE_SUBSCRIPTION_ID=... \
+ *     node scripts/deploy-wolfhouse-prod-staff-api.js --apply                        # phase 2 (auto-bootstraps)
  */
 
 const { spawnSync } = require('child_process');
@@ -47,12 +58,11 @@ const N = {
   imageRepo: 'wh-staff-api',
   targetPort: '8080',
   staffHostname: 'staff.lunafrontdesk.com',
+  appIdentityRole: 'Key Vault Secrets User', // READ — app identity. (Operator uses Secrets Officer to WRITE.)
 };
 
 const ENV_APPLY_FLAG = 'WOLFHOUSE_PROD_STAFF_API_DEPLOY_APPLY';
 const ENV_SUBSCRIPTION = 'AZURE_SUBSCRIPTION_ID';
-const ENV_IDENTITY_READY = 'WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY';
-const ENV_IDENTITY = 'WOLFHOUSE_PROD_STAFF_API_IDENTITY'; // optional user-assigned identity resource id; default system
 
 // Staff API secrets ONLY (hyphenated Key Vault names). No Meta/WhatsApp/Stripe here.
 const STAFF_SECRET_NAMES = [
@@ -60,16 +70,16 @@ const STAFF_SECRET_NAMES = [
   'luna-bot-internal-token',
   'wolfhouse-staff-session-secret',
 ];
-
-// env var name -> secret name mapping (Staff API scope only).
 const ENV_TO_SECRET = [
   ['DATABASE_URL', 'wolfhouse-prod-database-url'],
   ['LUNA_BOT_INTERNAL_TOKEN', 'luna-bot-internal-token'],
   ['WOLFHOUSE_STAFF_SESSION_SECRET', 'wolfhouse-staff-session-secret'],
 ];
+const NON_SECRET_ENV = 'DEFAULT_CLIENT=wolfhouse-somo';
 
 const argv = process.argv.slice(2);
 const APPLY = argv.includes('--apply');
+const BOOTSTRAP = argv.includes('--bootstrap-identity');
 const DRY_RUN = !APPLY;
 
 function log(s) { console.log(s); }
@@ -80,38 +90,33 @@ function git(args) {
   const r = spawnSync('git', args, { encoding: 'utf8' });
   return { code: r.status, out: (r.stdout || '').trim() };
 }
-function currentSha() {
-  const r = git(['rev-parse', 'HEAD']);
-  return r.out || '<git-sha>';
-}
+function currentSha() { return git(['rev-parse', 'HEAD']).out || '<git-sha>'; }
 function withSub(cmd, sub) { return [...cmd, '--subscription', sub]; }
 
-// Key Vault secretref values (one per secret): name=keyvaultref:<uri>,identityref:<identity>
+function kvScope(sub) {
+  return `/subscriptions/${sub}/resourceGroups/${N.resourceGroup}/providers/Microsoft.KeyVault/vaults/${N.keyVault}`;
+}
 function secretRefValues(identity) {
   return STAFF_SECRET_NAMES.map(
     (s) => `${s}=keyvaultref:https://${N.keyVault}.vault.azure.net/secrets/${s},identityref:${identity}`,
   );
 }
-// env mappings: NAME=secretref:<secret-name>
 function envSecretMappings() {
-  return ENV_TO_SECRET.map(([envName, secretName]) => `${envName}=secretref:${secretName}`);
+  return ENV_TO_SECRET.map(([e, s]) => `${e}=secretref:${s}`);
 }
 
-// Build the command list for a given SHA + subscription + identity.
-function buildCommands(sha, sub, identity) {
+// Structured command list (identity 'system' for secretrefs; principalId for role).
+function buildCommands(sha, sub, principalId) {
   const tag = `${N.imageRepo}:${sha}`;
   const fullImage = `${N.acrLoginServer}/${tag}`;
-  const secretValues = secretRefValues(identity);
+  const secretValues = secretRefValues('system');
   const envMappings = envSecretMappings();
-  const nonSecretEnv = 'DEFAULT_CLIENT=wolfhouse-somo';
-
   return {
+    imageShow: withSub(['az', 'acr', 'repository', 'show', '--name', N.acr, '--image', tag], sub),
     build: withSub(['az', 'acr', 'build', '--registry', N.acr, '--image', tag, '--file', N.dockerfile, '.'], sub),
-    show: withSub(['az', 'containerapp', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup], sub),
-    // ensure system-assigned identity on an existing app before refreshing secrets
-    identityAssign: withSub(['az', 'containerapp', 'identity', 'assign', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--system-assigned'], sub),
-    // CREATE: identity + secretrefs + env mappings all wired in one shot
-    create: withSub([
+    appShow: withSub(['az', 'containerapp', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup], sub),
+    // PHASE 1: minimal create (system identity, NON-secret env only, NO secretrefs)
+    bootstrapCreate: withSub([
       'az', 'containerapp', 'create',
       '--resource-group', N.resourceGroup,
       '--name', N.staffApiApp,
@@ -120,28 +125,27 @@ function buildCommands(sha, sub, identity) {
       '--system-assigned',
       '--min-replicas', '1', '--max-replicas', '1',
       '--ingress', 'external', '--target-port', N.targetPort,
-      '--secrets', ...secretValues,
-      '--env-vars', nonSecretEnv, ...envMappings,
+      '--env-vars', NON_SECRET_ENV,
     ], sub),
-    // UPDATE path step 1: refresh Key Vault secret references
-    updateSecrets: withSub(['az', 'containerapp', 'secret', 'set', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--secrets', ...secretValues], sub),
-    // UPDATE path step 2: update image AND env mappings (not image-only)
-    update: withSub(['az', 'containerapp', 'update', '--resource-group', N.resourceGroup, '--name', N.staffApiApp, '--image', fullImage, '--set-env-vars', nonSecretEnv, ...envMappings], sub),
+    identityAssign: withSub(['az', 'containerapp', 'identity', 'assign', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--system-assigned'], sub),
+    identityShow: withSub(['az', 'containerapp', 'identity', 'show', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--query', 'principalId', '-o', 'tsv'], sub),
+    roleList: withSub(['az', 'role', 'assignment', 'list', '--assignee', principalId, '--role', N.appIdentityRole, '--scope', kvScope(sub), '-o', 'tsv'], sub),
+    roleCreate: withSub(['az', 'role', 'assignment', 'create', '--assignee', principalId, '--role', N.appIdentityRole, '--scope', kvScope(sub)], sub),
+    // PHASE 2: verify secrets exist (by name; --query id => no value printed)
+    secretShow: STAFF_SECRET_NAMES.map((s) => withSub(['az', 'keyvault', 'secret', 'show', '--vault-name', N.keyVault, '--name', s, '--query', 'id', '-o', 'tsv'], sub)),
+    // PHASE 2: set/refresh secretrefs, then update image + env mappings
+    secretSet: withSub(['az', 'containerapp', 'secret', 'set', '--name', N.staffApiApp, '--resource-group', N.resourceGroup, '--secrets', ...secretValues], sub),
+    update: withSub(['az', 'containerapp', 'update', '--resource-group', N.resourceGroup, '--name', N.staffApiApp, '--image', fullImage, '--set-env-vars', NON_SECRET_ENV, ...envMappings], sub),
     health: `curl -fsS https://${N.staffHostname}/ >/dev/null && echo "staff api healthy"`,
-    fullImage,
   };
 }
 
-function identityNote() {
-  log('\n  Identity + Key Vault access (required for secretrefs to resolve):');
-  log('    # The app uses a system-assigned managed identity (--system-assigned).');
-  log(`    # That identity MUST have Key Vault "get secret" (e.g. "Key Vault Secrets User")`);
-  log(`    # on ${N.keyVault} BEFORE the secretrefs resolve. Operator bootstrap:`);
-  log(`    #   az role assignment create --role "Key Vault Secrets User" \\`);
-  log(`    #     --assignee <app-system-identity-principal-id> \\`);
-  log(`    #     --scope /subscriptions/<${ENV_SUBSCRIPTION}>/resourceGroups/${N.resourceGroup}/providers/Microsoft.KeyVault/vaults/${N.keyVault}`);
-  log(`    # Apply refuses unless ${ENV_IDENTITY_READY}=1 confirms this is done.`);
-  log('    # (Meta / WhatsApp / Stripe secrets are NOT set by this Staff API deploy.)');
+function rolesNote() {
+  log('\n  Roles (least privilege):');
+  log(`    - APP system-assigned identity needs "${N.appIdentityRole}" (READ) on ${N.keyVault}.`);
+  log('    - HUMAN operator needs "Key Vault Secrets Officer" (WRITE) to SET secret VALUES');
+  log('      (operator step; this script never sets or prints secret values).');
+  log('    - Meta / WhatsApp / Stripe secrets are NOT set by this Staff API deploy.');
 }
 
 // ----------------------------------------------------------------------------
@@ -156,9 +160,6 @@ function applyGuardFailures() {
   const failures = [];
   if (process.env[ENV_APPLY_FLAG] !== '1') failures.push(`env ${ENV_APPLY_FLAG}=1 is not set`);
   if (!process.env[ENV_SUBSCRIPTION]) failures.push(`env ${ENV_SUBSCRIPTION} is not set (explicit subscription required)`);
-  if (process.env[ENV_IDENTITY_READY] !== '1') {
-    failures.push(`env ${ENV_IDENTITY_READY}=1 is not set (managed identity must exist AND have Key Vault get-secret on ${N.keyVault} first — see docs)`);
-  }
 
   const status = git(['status', '--porcelain']);
   if (status.code !== 0) failures.push('could not read git status');
@@ -183,6 +184,11 @@ function run(cmd) {
   const r = spawnSync(cmd[0], cmd.slice(1), { stdio: 'inherit' });
   return r.status;
 }
+function cap(cmd) {
+  log(`    $ ${cmd.join(' ')}`);
+  const r = spawnSync(cmd[0], cmd.slice(1), { encoding: 'utf8' });
+  return { status: r.status, out: (r.stdout || '').trim() };
+}
 
 // ----------------------------------------------------------------------------
 function header(mode, sha) {
@@ -200,31 +206,33 @@ function header(mode, sha) {
 }
 
 function describe(cmds) {
-  log('\n1) BUILD IMAGE with az acr build (no local docker needed; immutable SHA tag):');
-  log(`    $ ${cmds.build.join(' ')}`);
-  log('    #   (no floating latest tag for prod; do NOT use --no-cache)');
+  log('\nPHASE 1 — BOOTSTRAP IDENTITY ( --bootstrap-identity --apply ):');
+  log(`    ensure image : $ ${cmds.imageShow.join(' ')}`);
+  log(`       (build only if missing) $ ${cmds.build.join(' ')}`);
+  log(`    bootstrap create: $ ${cmds.bootstrapCreate.join(' ')}`);
+  log(`       (if app exists) identity assign: $ ${cmds.identityAssign.join(' ')}`);
+  log(`    principalId  : $ ${cmds.identityShow.join(' ')}`);
+  log(`    role check   : $ ${cmds.roleList.join(' ')}`);
+  log(`    role assign  : $ ${cmds.roleCreate.join(' ')}`);
 
-  identityNote();
+  rolesNote();
 
-  log('\n2) DEPLOY container app (create if missing, else update — both wire secrets + env):');
-  log(`    check        : $ ${cmds.show.join(' ')}`);
-  log(`    create       : $ ${cmds.create.join(' ')}`);
-  log('    -- if the app already exists, instead run the update path: --');
-  log(`    identity     : $ ${cmds.identityAssign.join(' ')}`);
-  log(`    update secrets: $ ${cmds.updateSecrets.join(' ')}`);
+  log('\nPHASE 2 — SECRET WIRING ( --apply, auto-bootstraps if needed ):');
+  log('    verify Key Vault secrets exist (by name; no values printed):');
+  cmds.secretShow.forEach((c) => log(`      secret check: $ ${c.join(' ')}`));
+  log(`    secret set   : $ ${cmds.secretSet.join(' ')}`);
   log(`    update app   : $ ${cmds.update.join(' ')}`);
-  log('    #   NO migrations run here. NO live Meta/WhatsApp/Stripe env set here.');
+  log('    #   NO migrations. NO live Meta/WhatsApp/Stripe env. NO custom domain here.');
 
-  log('\n3) POST-DEPLOY HEALTH (not executed in dry-run):');
+  log('\nPOST-DEPLOY HEALTH (not executed in dry-run):');
   log(`    $ ${cmds.health}`);
 
-  log(`\n4) CUSTOM DOMAIN: ${N.staffHostname} is a LATER approval-gated DNS/cert step`);
-  log('    (bind hostname + managed cert) unless already configured — not done here.');
+  log(`\nCUSTOM DOMAIN: ${N.staffHostname} is a LATER approval-gated DNS/cert step — not done here.`);
 }
 
 function dryRun() {
   const sha = '<git-sha>';
-  const cmds = buildCommands(sha, `<${ENV_SUBSCRIPTION}>`, '<identity>');
+  const cmds = buildCommands(sha, `<${ENV_SUBSCRIPTION}>`, '<principalId>');
   header('DRY-RUN (default — nothing executed, no env vars required)', sha);
   log('\nThis is DRY-RUN. No az command is executed; nothing is built, pushed, or');
   log('deployed. No migrations run. No live Meta/WhatsApp/Stripe env set. Secret');
@@ -232,22 +240,60 @@ function dryRun() {
   describe(cmds);
   hr();
   log('  DRY-RUN COMPLETE — no changes made.');
-  log(`  To apply later: ${ENV_APPLY_FLAG}=1 ${ENV_SUBSCRIPTION}=<id> ${ENV_IDENTITY_READY}=1 \\`);
-  log('    node scripts/deploy-wolfhouse-prod-staff-api.js --apply');
-  log('  (also requires: clean tree, branch master, HEAD == origin/master, az logged in)');
+  log(`  Phase 1: ${ENV_APPLY_FLAG}=1 ${ENV_SUBSCRIPTION}=<id> node scripts/deploy-wolfhouse-prod-staff-api.js --bootstrap-identity --apply`);
+  log(`  Phase 2: ${ENV_APPLY_FLAG}=1 ${ENV_SUBSCRIPTION}=<id> node scripts/deploy-wolfhouse-prod-staff-api.js --apply`);
+  log('  (both also require: clean tree, branch master, HEAD == origin/master, az logged in)');
   hr();
   process.exit(0);
 }
 
-function apply() {
+// Ensure image, app+identity, and role. Returns principalId. Used by both phases.
+function ensureIdentityAndRole(sub) {
   const sha = currentSha();
+  let cmds = buildCommands(sha, sub, '<principalId>');
+
+  log('PHASE 1) ensure image exists (build only if missing):');
+  if (cap(cmds.imageShow).status !== 0) {
+    log('   image missing -> build');
+    if (run(cmds.build) !== 0) { log('   build FAILED. Stopping.'); process.exit(1); }
+  } else {
+    log('   image already in ACR -> skip build');
+  }
+
+  log('\nPHASE 1) ensure app + system identity:');
+  const exists = cap(cmds.appShow).status === 0;
+  if (!exists) {
+    log('   app missing -> bootstrap create (system identity, non-secret env, NO secretrefs)');
+    if (run(cmds.bootstrapCreate) !== 0) { log('   create FAILED. Stopping.'); process.exit(1); }
+  } else {
+    log('   app exists -> ensure system identity');
+    if (run(cmds.identityAssign) !== 0) { log('   identity assign FAILED. Stopping.'); process.exit(1); }
+  }
+
+  log('\nPHASE 1) fetch app identity principalId:');
+  const pid = cap(cmds.identityShow);
+  if (pid.status !== 0 || !pid.out) { log('   could not read principalId. Stopping.'); process.exit(1); }
+  const principalId = pid.out;
+
+  // rebuild commands with the real principalId for role steps
+  cmds = buildCommands(sha, sub, principalId);
+  log('\nPHASE 1) ensure role assignment (Key Vault Secrets User on wh-prod-kv):');
+  const roleExists = cap(cmds.roleList).out !== '';
+  if (roleExists) {
+    log(`   "${N.appIdentityRole}" already assigned -> skip`);
+  } else {
+    if (run(cmds.roleCreate) !== 0) { log('   role assignment FAILED. Stopping.'); process.exit(1); }
+  }
+  return { sha, principalId };
+}
+
+function apply() {
   const sub = process.env[ENV_SUBSCRIPTION] || '';
-  const identity = process.env[ENV_IDENTITY] || 'system';
-  const cmds = buildCommands(sha, sub, identity);
-  header('APPLY (DANGER)', sha);
+  const sha = currentSha();
+  header(BOOTSTRAP ? 'APPLY — bootstrap identity only (DANGER)' : 'APPLY — full deploy (DANGER)', sha);
   log('');
-  log('  ███  DANGER: --apply will BUILD and DEPLOY the Wolfhouse PROD Staff API.  ███');
-  log('  No migrations, no live Meta/WhatsApp/Stripe env, no floating latest. Review below.\n');
+  log('  ███  DANGER: --apply will create/modify Wolfhouse PROD resources.  ███');
+  log('  No migrations, no live Meta/WhatsApp/Stripe env, no floating latest.\n');
 
   const failures = applyGuardFailures();
   if (failures.length) {
@@ -257,31 +303,41 @@ function apply() {
     hr();
     process.exit(1);
   }
+  log('  All guard checks passed.\n');
 
-  log('  All guard checks passed. Executing sequentially...\n');
+  const { principalId } = ensureIdentityAndRole(sub);
+  rolesNote();
 
-  log('1) BUILD IMAGE (az acr build):');
-  if (run(cmds.build) !== 0) { log('   build FAILED. Stopping.'); process.exit(1); }
-
-  identityNote();
-
-  log('\n2) DEPLOY container app:');
-  const exists = run(cmds.show) === 0;
-  if (!exists) {
-    log('   app missing -> create (identity + secrets + env wired in create)');
-    if (run(cmds.create) !== 0) { log('   create FAILED. Stopping.'); process.exit(1); }
-  } else {
-    log('   app exists -> update (identity, then secrets, then image + env)');
-    if (run(cmds.identityAssign) !== 0) { log('   identity assign FAILED. Stopping.'); process.exit(1); }
-    if (run(cmds.updateSecrets) !== 0) { log('   secret set FAILED. Stopping.'); process.exit(1); }
-    if (run(cmds.update) !== 0) { log('   update FAILED. Stopping.'); process.exit(1); }
+  if (BOOTSTRAP) {
+    hr();
+    log('  PHASE 1 COMPLETE — app + identity + role ready.');
+    log('  Next: operator (Key Vault Secrets Officer) sets the secret VALUES, then run');
+    log(`  full apply: ${ENV_APPLY_FLAG}=1 ${ENV_SUBSCRIPTION}=<id> node scripts/deploy-wolfhouse-prod-staff-api.js --apply`);
+    hr();
+    process.exit(0);
   }
 
-  log('\n3) POST-DEPLOY HEALTH:');
+  const cmds = buildCommands(sha, sub, principalId);
+
+  log('\nPHASE 2) verify required Key Vault secrets exist (by name; no values printed):');
+  for (const showCmd of cmds.secretShow) {
+    if (cap(showCmd).status !== 0) {
+      log('   a required Key Vault secret is missing. Operator must set values first. Stopping.');
+      process.exit(1);
+    }
+  }
+
+  log('\nPHASE 2) set/refresh secret refs:');
+  if (run(cmds.secretSet) !== 0) { log('   secret set FAILED. Stopping.'); process.exit(1); }
+
+  log('\nPHASE 2) update app (image + env secretref mappings):');
+  if (run(cmds.update) !== 0) { log('   update FAILED. Stopping.'); process.exit(1); }
+
+  log('\nPOST-DEPLOY HEALTH:');
   log(`    (run manually) ${cmds.health}`);
 
   hr();
-  log('  APPLY COMPLETE — Staff API built + deployed by immutable SHA tag, with');
+  log('  APPLY COMPLETE — Staff API built + deployed by immutable SHA tag, identity +');
   log('  Key Vault secret refs + env wired. Custom domain / Meta / WhatsApp / Stripe');
   log('  remain separate gated steps.');
   hr();

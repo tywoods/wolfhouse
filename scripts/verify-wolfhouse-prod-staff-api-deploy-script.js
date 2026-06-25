@@ -88,39 +88,61 @@ ok('script runs no migrations',
   (sLow.includes('no migrations') || sLow.includes('not run migrations') || sLow.includes('does not run migrations'))
   && !sLow.includes('migrate'));
 
-// --- rendered dry-run output: verify the ACTUAL emitted commands wire secrets ---
+// --- rendered dry-run output: verify the ACTUAL emitted two-phase commands ---
 const rendered = (spawnSync('node', [SCRIPT, '--dry-run'], { encoding: 'utf8' }).stdout) || '';
-const createLine = rendered.split('\n').find((l) => l.includes('az containerapp create')) || '';
 const updateLine = rendered.split('\n').find((l) => l.includes('az containerapp update')) || '';
 const secretSetLine = rendered.split('\n').find((l) => l.includes('az containerapp secret set')) || '';
+const bootstrapCreateLine = rendered.split('\n').find((l) => l.includes('az containerapp create')) || '';
+const identityShowLine = rendered.split('\n').find((l) => l.includes('az containerapp identity show')) || '';
+const roleCreateLine = rendered.split('\n').find((l) => l.includes('az role assignment create')) || '';
+const secretShowLines = rendered.split('\n').filter((l) => l.includes('az keyvault secret show'));
 
-ok('create command includes --secrets with keyvaultref',
-  createLine.includes('--secrets') && createLine.includes('keyvaultref'));
-ok('create command maps DATABASE_URL to secretref:wolfhouse-prod-database-url',
-  createLine.includes('DATABASE_URL=secretref:wolfhouse-prod-database-url'));
+// two-phase bootstrap mode
+ok('script supports a two-phase identity bootstrap mode (--bootstrap-identity)',
+  s.includes('--bootstrap-identity') && s.includes('BOOTSTRAP'));
+
+// bootstrap create is minimal (system identity, no secretrefs)
+ok('bootstrap create uses --system-assigned without secretrefs',
+  bootstrapCreateLine.includes('--system-assigned') && !bootstrapCreateLine.includes('keyvaultref'));
+
+// fetches principalId
+ok('script fetches app identity principalId (containerapp identity show)',
+  identityShowLine.includes('identity show') && identityShowLine.includes('principalId'));
+
+// assigns Key Vault Secrets User (not Officer) to the app identity
+ok('script assigns "Key Vault Secrets User" to the app identity',
+  roleCreateLine.includes('Key Vault Secrets User') && roleCreateLine.includes('--assignee'));
+ok('app identity role is Secrets User, not Secrets Officer',
+  !roleCreateLine.includes('Key Vault Secrets Officer'));
+
+// verifies required Key Vault secrets exist by name, without printing values
+const REQUIRED_SECRET_CHECKS = ['wolfhouse-prod-database-url', 'luna-bot-internal-token', 'wolfhouse-staff-session-secret'];
+const checkedSecrets = REQUIRED_SECRET_CHECKS.filter((n) => secretShowLines.some((l) => l.includes(n)));
+ok('script verifies required Key Vault secrets exist by name',
+  checkedSecrets.length === REQUIRED_SECRET_CHECKS.length
+  && secretShowLines.every((l) => !l.includes('--query value')));
+
+// secret refresh + env wiring (phase 2)
+ok('phase 2 refreshes Key Vault secret refs (containerapp secret set + keyvaultref)',
+  secretSetLine.includes('--secrets') && secretSetLine.includes('keyvaultref'));
 
 const ENV_MAPPINGS = [
   'DATABASE_URL=secretref:wolfhouse-prod-database-url',
   'LUNA_BOT_INTERNAL_TOKEN=secretref:luna-bot-internal-token',
   'WOLFHOUSE_STAFF_SESSION_SECRET=secretref:wolfhouse-staff-session-secret',
 ];
-const missingCreateEnv = ENV_MAPPINGS.filter((m) => !createLine.includes(m));
-ok('create command includes all required env mappings',
-  missingCreateEnv.length === 0, missingCreateEnv.length ? `missing: ${missingCreateEnv.join(', ')}` : null);
-
 const missingUpdateEnv = ENV_MAPPINGS.filter((m) => !updateLine.includes(m));
 ok('update command includes required env mappings (not image-only)',
-  updateLine.includes('--set-env-vars') && missingUpdateEnv.length === 0,
+  updateLine.includes('--set-env-vars') && updateLine.includes('--image') && missingUpdateEnv.length === 0,
   missingUpdateEnv.length ? `missing: ${missingUpdateEnv.join(', ')}` : null);
 
-ok('update path refreshes Key Vault secret refs (containerapp secret set)',
-  secretSetLine.includes('--secrets') && secretSetLine.includes('keyvaultref'));
-
 ok('script assigns a managed identity for Key Vault access',
-  s.includes('--system-assigned') && (s.includes('identity') && s.includes('assign')));
+  s.includes('--system-assigned') && s.includes('identity') && s.includes('assign'));
 
-ok('apply is gated on managed-identity readiness',
-  s.includes('WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY'));
+// no longer relies on a blind human readiness flag — uses real az self-checks
+ok('apply self-checks identity/role/secret state (not a blind ready flag)',
+  s.includes('roleList') && s.includes('identityShow') && s.includes('secretShow')
+  && !s.includes('WOLFHOUSE_PROD_STAFF_API_IDENTITY_READY'));
 
 // no secret-looking values
 const FORBIDDEN = ['sk_live_', 'xoxb-', 'DISCORD_BOT_TOKEN=', 'WHATSAPP_ACCESS_TOKEN=', 'STRIPE_SECRET_KEY=', 'password='];
