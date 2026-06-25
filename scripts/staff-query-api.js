@@ -18488,6 +18488,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
+  <div class="card cc-section" id="cc-house-notes" style="display:none">
+    <div class="cc-section-hdr">General Notes for Luna</div>
+    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
+    <div id="hn-error"></div>
+    <div id="hn-status"></div>
+    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
+    <div class="al-form-row" style="margin-top:8px">
+      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
+    </div>
+  </div>
+
   <div class="card cc-section luna-global-pause-card" id="cc-luna-global-pause">
     <div class="cc-section-hdr" data-i18n="lunaStaff.pause.section">Luna guest automation</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.pause.sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
@@ -18589,17 +18600,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <input id="swn-add-active" type="checkbox" checked> Active
       </label>
       <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()">Add</button>
-    </div>
-  </div>
-
-  <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <div class="cc-section-hdr">General Notes for Luna</div>
-    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
-    <div id="hn-error"></div>
-    <div id="hn-status"></div>
-    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
-    <div class="al-form-row" style="margin-top:8px">
-      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
     </div>
   </div>
 
