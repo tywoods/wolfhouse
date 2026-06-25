@@ -12,6 +12,7 @@
 const { planOwnerSqlQuestion } = require('./owner-sql-planner');
 const { executeOwnerReadOnlySql } = require('./owner-readonly-sql');
 const { formatOwnerCommandCenterAnswer } = require('./owner-command-center-answer');
+const { isOwnerInsightAgentEnabled, runOwnerInsightAgentLive } = require('./owner-insight-agent-live');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -80,6 +81,23 @@ async function attachOwnerAnswer(result, env, aiCaller) {
  * @param {{ client_slug: string, question: string, role?: string, maxRows?: number, maxLimit?: number, timeoutMs?: number, env?: object, aiCaller?: Function }} opts
  */
 async function planAndExecuteOwnerSqlQuestion(pg, opts = {}) {
+  const env = opts.env || process.env;
+
+  // Phase 2: when the agent flag is on, route through the NL->SQL reasoning loop
+  // (Luna writes her own scoped read-only queries). Default OFF — legacy template
+  // path below is used unchanged when the flag is unset.
+  if (isOwnerInsightAgentEnabled(env)) {
+    return runOwnerInsightAgentLive(pg, {
+      client_slug: opts.client_slug,
+      question: opts.question,
+      env,
+      aiCaller: opts.aiCaller,
+      maxRows: opts.maxRows,
+      maxLimit: opts.maxLimit,
+      timeoutMs: opts.timeoutMs,
+    });
+  }
+
   const clientSlug = trimStr(opts.client_slug);
   const question = trimStr(opts.question);
   const maxRows = Number(opts.maxRows) > 0 ? Number(opts.maxRows) : undefined;

@@ -334,31 +334,52 @@ function buildLunaAiHttpError(providerLabel, status, cfg, callLabel, errText) {
 async function callLunaAiJsonChat(opts = {}) {
   const env = opts.env || process.env;
   const cfg = resolveLunaAiProvider(env);
-  if (!cfg.enabled || !cfg.apiKey) return null;
+
+  // Optional per-call PROVIDER override (e.g. route just the owner agent to Anthropic
+  // Opus without flipping the runtime-wide LUNA_AI_PROVIDER). When set, resolve that
+  // provider's key from env (or opts.apiKey). Falls back to the configured provider.
+  const provider = opts.provider ? String(opts.provider).trim().toLowerCase() : cfg.provider;
+  let apiKey = opts.apiKey ? String(opts.apiKey) : null;
+  if (!apiKey) {
+    if (opts.provider) {
+      if (provider === 'anthropic') apiKey = resolveAnthropicApiKey(env).value;
+      else if (provider === 'openai') apiKey = resolveOpenAiApiKey(env).value;
+    } else {
+      apiKey = cfg.apiKey;
+    }
+  }
+  const enabled = opts.provider ? Boolean(apiKey) : (cfg.enabled && Boolean(cfg.apiKey));
+  if (!enabled || !apiKey) return null;
 
   const fetchImpl = opts.fetchImpl || fetch;
+  // temperature: pass a number to set it; pass null to OMIT it entirely (some models,
+  // e.g. GPT-5.x, only accept the default temperature and 400 on an explicit 0).
+  const includeTemperature = opts.temperature !== null;
   const temperature = opts.temperature != null ? opts.temperature : 0;
   const maxTokens = opts.maxTokens != null ? opts.maxTokens : 256;
   const system = String(opts.system || '');
   const user = String(opts.user || '');
   const callLabel = opts.call_label ? String(opts.call_label) : null;
+  // Optional per-call model override (e.g. a stronger model for owner NL->SQL)
+  // without changing the runtime-wide LUNA_AI_MODEL. Falls back to the configured model.
+  const model = opts.model ? String(opts.model).trim() : cfg.model;
 
-  if (cfg.provider === 'openai') {
+  if (provider === 'openai') {
     const body = {
-      model: cfg.model,
-      temperature,
+      model,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: user },
       ],
     };
+    if (includeTemperature) body.temperature = temperature;
     if (opts.jsonObject) {
       body.response_format = { type: 'json_object' };
     }
     const res = await fetchImpl(OPENAI_CHAT_URL, {
       method: 'POST',
       headers: {
-        Authorization: `Bearer ${cfg.apiKey}`,
+        Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -372,18 +393,18 @@ async function callLunaAiJsonChat(opts = {}) {
     return content != null ? String(content) : '';
   }
 
-  if (cfg.provider === 'anthropic') {
+  if (provider === 'anthropic') {
     const res = await fetchImpl(ANTHROPIC_MESSAGES_URL, {
       method: 'POST',
       headers: {
-        'x-api-key': cfg.apiKey,
+        'x-api-key': apiKey,
         'anthropic-version': '2023-06-01',
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: cfg.model,
+        model,
         max_tokens: maxTokens,
-        temperature,
+        ...(includeTemperature ? { temperature } : {}),
         system,
         messages: [{ role: 'user', content: user }],
       }),
