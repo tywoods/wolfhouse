@@ -12,6 +12,7 @@ RUN npm ci --omit=dev
 COPY scripts ./scripts
 COPY database ./database
 COPY config ./config
+COPY public ./public
 
 EXPOSE 3036
 

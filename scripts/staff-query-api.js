@@ -332,6 +332,7 @@ const {
   getLunaGuestNotesFromMetadata,
 } = require('./lib/luna-guest-booking-notes');
 const { getStaffPortalI18nBootstrapScript, getStaffPortalThemeEarlyScript } = require('./lib/staff-portal-i18n');
+const { buildStaffLoginHtml } = require('./lib/staff-portal-login-page');
 const { getSunsetAdminBrowserHelperSource } = require('./lib/sunset-admin-ui-helpers');
 const { getSunsetAdminUiBrowserSource } = require('./lib/sunset-admin-browser-source');
 const { getWolfhouseServicesAdminSource } = require('./lib/wolfhouse-services-browser-source');
@@ -627,6 +628,7 @@ const LOG_DIR            = path.join(__dirname, '..', 'logs');
 const LOG_FILE           = path.join(LOG_DIR, 'staff-query-log.jsonl');
 const STAFF_PORTAL_LOGO_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-front-desk-logo.png');
 const STAFF_PORTAL_LOGIN_BTN_PATH = path.join(__dirname, '..', 'config', 'staff-portal', 'luna-login-signin-btn.png');
+const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images', 'luna-login-bg.jpg');
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
@@ -16013,7 +16015,7 @@ function buildUiHtml(port) {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
 ${getStaffPortalThemeEarlyScript()}
 <style>
@@ -16646,6 +16648,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .pill-green{background:#DCEAD2;color:#5C7350;border-color:#CADCBE}     /* confirmed — sage */
 .pill-grey{background:#E8E5DE;color:#83897F;border-color:#DDD8CE}      /* cancelled — pale warm gray */
 .pill-luna{background:#D5E5EF;color:#3F6070;border-color:#7AAABB}       /* Luna — calendar blue */
+.pill-luna-paused{background:#F8E8E8;color:#9C3D3D;border:1px solid #E8B4B4;font-size:10px;padding:2px 8px;line-height:1.3;white-space:nowrap}
 .pill-staff-source{background:#DCEAD2;color:#5C7350;border:1px solid #CADCBE;border-left:3px solid #B5D3AD} /* Staff — soft sage green */
 .pill-purple{background:#E8DEEF;color:#6B5080;border-color:#D4C4E0} /* transfer scheduled — soft purple */
 .pill-clear-conv{background:#E8DFD0;color:#6B5E4A;border-color:#D4C4AE;cursor:pointer;font-family:inherit}
@@ -16735,7 +16738,24 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .conv-skeleton-line{min-height:14px;background:var(--surface-soft);border-radius:4px}
 .conv-skeleton-line.short{max-width:160px;margin-top:6px}
 /* .visible no longer toggles display — kept for JS compat, no visual effect */
-.detail-header{display:flex;align-items:flex-start;gap:12px;margin-bottom:16px;flex-shrink:0}
+.detail-header{display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-shrink:0;flex-wrap:nowrap}
+.detail-header-main{flex:1;min-width:0;overflow:hidden}
+.detail-header-right{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
+.detail-header-main .detail-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-header-main .detail-meta{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.detail-header-switches{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.inbox-header-switch{width:34px;height:20px;flex-shrink:0}
+.inbox-header-switch .inbox-switch-slider:before{height:14px;width:14px;left:2px;bottom:3px}
+.inbox-header-switch input:checked + .inbox-switch-slider:before{transform:translateX(14px)}
+.detail-header-switches .luna-pause-action-status{display:none!important}
+.inbox-thread-shell{display:flex;flex-direction:column;flex:0 0 auto;width:100%;flex-shrink:0;position:relative;z-index:2}
+.inbox-thread-wrap{position:relative;overflow:hidden;border:1px solid var(--border-soft);border-radius:12px 12px 0 0;background:var(--surface);display:flex;flex-direction:column;flex:0 0 auto;min-height:200px;width:100%}
+.inbox-thread-resize-handle{height:28px;min-height:28px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none;flex-shrink:0;width:100%;padding:8px 0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+.inbox-thread-resize-handle::after{content:'';width:56px;height:5px;border-radius:3px;background:#8A7A6C;opacity:.9;box-shadow:0 5px 0 0 #B8A99A,0 10px 0 0 #8A7A6C}
+.inbox-thread-resize-handle:hover::after,.inbox-thread-resize-handle:active::after{background:#6B5E52;box-shadow:0 5px 0 0 #9A8B7C,0 10px 0 0 #6B5E52}
+[data-theme="dark"] .inbox-thread-wrap{border-color:var(--border-soft);background:var(--surface)}
+[data-theme="dark"] .inbox-thread-resize-handle{background:linear-gradient(180deg,#333 0%,#3c3c3c 100%);border-color:var(--border-soft)}
+[data-theme="dark"] .inbox-thread-resize-handle::after{background:#6e6e6e}
 .detail-name{font-size:18px;font-weight:700;color:var(--text);letter-spacing:.01em}
 .detail-meta{font-size:12px;color:var(--text-2);margin-top:4px}
 .detail-section{margin-top:18px;padding-top:18px;border-top:1px solid var(--border-soft)}
@@ -16747,15 +16767,16 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .kv.kv-balance-due .v{font-weight:700;color:#9C5742}
 /* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
-.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:stretch;margin-top:0;overflow:visible}
+.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:flex-start;margin-top:0;overflow:hidden}
 .detail-main .detail-conv-toolbar{position:absolute;right:0;bottom:100%;margin-bottom:6px;display:flex;justify-content:flex-end;padding:0;z-index:1}
-.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
-.detail-sidebar{width:280px;flex-shrink:0;align-self:stretch;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-@media(max-width:860px){.detail-layout{flex-direction:column}.detail-sidebar{width:100%;max-height:240px}}
+.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
+@media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
 /* ── Message thread ──────────────────────────────────────────────────────── */
-.thread-section{flex:1;min-height:0;display:flex;flex-direction:column;overflow:visible}
+.thread-section{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .thread-section h3{font-size:11px;font-weight:700;color:var(--text-2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:10px;flex-shrink:0}
-.thread{position:relative;flex:1;min-height:0;display:flex;flex-direction:column;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px}
+.thread{position:relative;flex:0 0 auto;min-height:0;display:flex;flex-direction:column;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 14px 10px}
+.thread .inbox-thread-shell{border-radius:0;background:transparent;border:none;padding:0}
 .thread-messages{flex:1;min-height:0;display:flex;flex-direction:column;gap:12px;overflow-y:auto;-webkit-overflow-scrolling:touch}
 .msg{display:flex;flex-direction:column;max-width:78%}
 .msg.inbound{align-self:flex-start}
@@ -16776,7 +16797,7 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
 .draft-not-sent{background:#EFD9D0;color:#9C5742;font-size:9.5px;font-weight:700;letter-spacing:.06em;padding:3px 9px;border-radius:var(--radius-pill);white-space:nowrap}
 #draft-textarea{width:100%;min-height:104px;border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px;font-size:13px;line-height:1.55;font-family:inherit;resize:vertical;background:var(--surface);color:var(--text);transition:border-color .15s,box-shadow .15s}
 #draft-textarea:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0 3px rgba(149,180,199,.18)}
-.draft-actions{display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap}
+.draft-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:10px;flex-wrap:wrap}
 .draft-warning{font-size:11px;color:#A2743D;flex:1;min-width:180px}
 .btn-copy{background:var(--ocean);color:#fff;border:none;border-radius:var(--radius-sm);padding:9px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:background .18s}
 .btn-copy:hover{background:#7FA3B8}
@@ -16821,17 +16842,17 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
   .inbox-mobile-back{display:flex;align-items:center;gap:6px;flex-shrink:0;width:100%;min-height:44px;padding:10px 14px;margin:0;border:none;border-bottom:1px solid var(--border-soft);background:var(--surface-soft);color:var(--text);font-size:14px;font-weight:600;cursor:pointer;text-align:left;box-sizing:border-box}
   .inbox-mobile-back:hover{background:var(--surface)}
   #detail-content{padding:12px 14px 16px;flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column;box-sizing:border-box}
-  .detail-header{flex-wrap:wrap;gap:8px;margin-bottom:12px}
-  .detail-layout{flex:1;min-height:0;overflow:hidden;flex-direction:column;gap:12px}
-  .detail-main{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
-  .thread-section{flex:1;min-height:0;overflow:hidden;display:flex;flex-direction:column}
-  .thread{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+  .detail-header{flex-wrap:nowrap;gap:6px;margin-bottom:12px}
+  .detail-layout{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;flex-direction:column;gap:8px;align-items:stretch}
+  .detail-main{flex:0 0 auto;min-height:0;overflow:visible;display:flex;flex-direction:column}
+  .thread-section{flex:0 0 auto;min-height:0;overflow:visible;display:flex;flex-direction:column;width:100%}
+  .thread{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible;width:100%;padding:8px 8px 4px}
   .thread-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
-  .detail-sidebar{width:100%;max-height:200px;flex-shrink:0}
+  .detail-sidebar{width:100%;max-height:none;flex-shrink:0;overflow:visible;padding-top:4px}
   .draft-panel{flex-shrink:0}
   #draft-textarea{width:100%;box-sizing:border-box;min-height:80px;font-size:16px}
   .draft-actions{width:100%}
-  .btn-send-reply,.btn-copy{min-height:44px;padding:10px 18px;font-size:13px}
+  .btn-send-reply{min-height:44px;padding:10px 18px;font-size:13px;margin-left:auto}
   .draft-warning{min-width:0;flex:1 1 100%}
   .inbox-filter-btn{min-height:40px;padding:8px 12px}
   .inbox-refresh-btn{min-width:44px;min-height:44px;padding:8px 12px}
@@ -16842,6 +16863,25 @@ body.portal-profile-pending #portal-profile-gate{display:flex}
   .detail-conv-toolbar .pill{min-height:40px;padding:8px 12px}
   .msg{max-width:92%}
   .detail-header-pills{width:100%;margin-left:0!important}
+  /* Mobile thread view — maximize message area */
+  .inbox-two-col.show-thread #conv-detail{height:calc(100dvh - 112px);max-height:calc(100dvh - 112px)}
+  .inbox-two-col.show-thread #detail-content{flex:1;min-height:0;height:100%;display:flex;flex-direction:column;padding:6px 10px 8px;overflow:hidden}
+  .inbox-two-col.show-thread .detail-header{flex-shrink:0;margin-bottom:4px;padding:0}
+  .inbox-two-col.show-thread .detail-layout{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;gap:6px}
+  .inbox-two-col.show-thread .detail-main{flex:0 0 auto;min-height:0;display:flex;flex-direction:column;overflow:visible}
+  .inbox-two-col.show-thread .thread-section{flex:0 0 auto;width:100%}
+  .inbox-two-col.show-thread .thread{flex:0 0 auto;width:100%;padding:6px 6px 2px}
+  .inbox-two-col.show-thread .detail-conv-toolbar{display:none}
+  .inbox-two-col.show-thread .inbox-thread-shell{flex:0 0 auto;width:100%}
+  .inbox-two-col.show-thread .inbox-thread-wrap{flex:0 0 auto;width:100%}
+  .inbox-two-col.show-thread .thread-messages{flex:1;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .inbox-two-col.show-thread .detail-header{align-items:center;margin-bottom:6px;flex-wrap:nowrap}
+  .inbox-two-col.show-thread .detail-name{font-size:15px;line-height:1.2}
+  .inbox-two-col.show-thread .detail-meta{font-size:11px;margin-top:2px}
+  .inbox-two-col.show-thread .detail-header-right{gap:4px}
+  .inbox-two-col.show-thread .detail-sidebar{max-height:none;flex-shrink:0;overflow:visible;margin-top:8px;padding-bottom:24px}
+  .inbox-two-col.show-thread .draft-panel{flex-shrink:0;margin-top:0;padding-top:6px;border-top:1px solid var(--border-soft)}
+  .inbox-two-col.show-thread #draft-textarea{min-height:48px;max-height:64px;font-size:16px}
 }
 .since{font-size:11px;color:#A2743D;font-weight:600}
 .since.stale{color:#9C5742}
@@ -17004,17 +17044,20 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-legend-sw-manual{background:#DCEAD2;border-left-color:#B5D3AD}
 .bc-legend-sw-blocked{background:#E4E2DE;border-left-color:#B0AEA8}
 .bc-legend-sw-balance{background:#F5E0D0;border-left-color:#E8C4A8}
-@media (max-width:720px){.bc-controls-row{flex-direction:column;align-items:stretch}.bc-legend-row{align-self:flex-end}
-/* Mobile calendar polish: bigger tap targets on date presets, tighter sticky bed column + day columns so more days fit on a phone. */
-.bc-chips{gap:6px}
-.bc-chip{padding:8px 14px;font-size:12px;min-height:38px;display:inline-flex;align-items:center}
+@media (max-width:720px){
+.bc-controls-row{flex-direction:column;align-items:stretch}
+.bc-legend-row{align-self:flex-end}
+/* staff-portal-mobile:calendar-toolbar — compact chips + tappable date inputs on phone */
+.bc-chips{gap:6px;flex-wrap:wrap}
+.bc-chip{padding:8px 12px;font-size:12px;min-height:36px;display:inline-flex;align-items:center}
 .bc-bed-cell{min-width:calc(92px * var(--bc-zoom,1));padding:calc(6px * var(--bc-zoom,1)) calc(7px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-bed-head{min-width:calc(100px * var(--bc-zoom,1))}
 .bc-grid thead th.bc-day-head{min-width:calc(40px * var(--bc-zoom,1))}
-.bc-zoom-bar{align-self:flex-start}
-/* Tappable, zoom-safe toolbar on mobile (16px font avoids iOS focus-zoom). */
-#bc-start,#bc-end{height:38px;font-size:16px;min-width:128px;max-width:none}
-#bc-load{min-height:40px;font-size:14px;padding:8px 16px}}
+.bc-zoom-bar{align-self:flex-start;height:auto;min-height:32px;padding:4px 6px}
+.bc-zoom-btn{width:28px;height:28px;font-size:15px}
+#bc-start,#bc-end{height:30px;font-size:13px;min-width:0;max-width:102px;width:102px;padding:2px 4px;box-sizing:border-box}
+#bc-load{min-height:30px;height:30px;padding:4px 8px;font-size:11px}
+}
 /* ── Date picker styling (Stage 8.3a) ─────────────────────────────────────── */
 input[type="date"].bc-date-input,input[type="text"].bc-date-input{font-size:11px;padding:4px 6px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);cursor:pointer;min-width:108px;max-width:118px;height:28px;box-sizing:border-box}
 input[type="date"].bc-date-input:focus,input[type="text"].bc-date-input:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px rgba(175,195,163,.25)}
@@ -17551,6 +17594,55 @@ textarea.bk-input{resize:vertical;min-height:60px}
 [data-theme="dark"] .bc-svc-schedule-day{background:#2d2d2d;border-color:#3c3c3c}
 [data-theme="dark"] .bc-add-ons-sched-link{color:#9ec8e8}
 [data-theme="dark"] .bc-add-ons-sched-link.is-active{color:#cccccc}
+/* staff-portal-mobile:shell — full viewport width on phones (≤768px) */
+@media(max-width:768px){
+html{width:100%;max-width:100vw;overflow-x:hidden;-webkit-text-size-adjust:100%}
+body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:100dvh;padding-left:env(safe-area-inset-left);padding-right:env(safe-area-inset-right);box-sizing:border-box}
+#banner{width:100%;max-width:100vw;height:auto;min-height:52px;padding:8px 12px;padding-top:max(8px,env(safe-area-inset-top));flex-wrap:wrap;gap:8px;box-sizing:border-box}
+#banner .brand{align-self:center}
+#banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
+#banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
+#tabs{width:100%;max-width:100vw;padding:0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
+.tab-btn{flex:0 0 auto;padding:12px 14px;font-size:12px;scroll-snap-align:start;white-space:nowrap;min-width:0}
+#wrap,#wrap-bc,.customers-wrap,.portal-admin-wrap,.portal-home-wrap,#al-wrap{width:100%!important;max-width:100vw!important;padding:8px 12px!important;margin:0 auto;box-sizing:border-box;height:auto!important;min-height:calc(100dvh - 120px)}
+#tab-conversations.active{display:flex;flex-direction:column;width:100%!important;max-width:100vw!important;height:calc(100dvh - 112px)!important;min-height:0;overflow:hidden;box-sizing:border-box}
+#tab-conversations.active #wrap{padding:0!important;width:100%!important;max-width:100vw!important;height:100%!important;flex:1;min-height:0;overflow:hidden}
+.tab-panel.active{width:100%;max-width:100vw;box-sizing:border-box}
+input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box}
+.card{width:100%;max-width:100%;box-sizing:border-box;padding:14px 12px;margin:8px auto}
+/* staff-portal-mobile:calendar-card — near full-width grid with inner horizontal scroll */
+#tab-bed-calendar .card{width:calc(100vw - 16px);max-width:none;margin:8px auto;padding:12px 10px;box-sizing:border-box}
+#wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
+#tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
+#tab-bed-calendar .bc-grid{min-width:1020px}
+#tab-bed-calendar .toolbar{flex-wrap:nowrap;gap:4px 6px;align-items:center;margin-bottom:10px}
+#tab-bed-calendar .toolbar h2{flex:1 1 auto;font-size:13px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
+#tab-bed-calendar .toolbar label{flex:0 0 auto;flex-direction:row;align-items:center;gap:2px;font-size:10px;font-weight:600;margin:0;padding:0;min-width:0!important}
+#tab-bed-calendar .toolbar label span{font-size:10px}
+#tab-bed-calendar #bc-start,#tab-bed-calendar #bc-end{height:30px;font-size:13px;min-width:0;max-width:102px;width:102px;padding:2px 4px;box-sizing:border-box}
+#tab-bed-calendar #bc-load{flex:0 0 auto;min-height:30px;height:30px;padding:4px 8px;font-size:11px;line-height:1.2}
+#tab-bed-calendar .bc-controls-row{gap:8px}
+#tab-bed-calendar .bc-chips{flex-wrap:wrap;gap:6px}
+#tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{height:auto;min-height:32px;max-width:100%}
+/* staff-portal-mobile:inbox — dense full-width conversation cards + sticky filter bar */
+.inbox-left-toolbar{position:sticky;top:0;z-index:5;background:var(--surface-soft);border-bottom:1px solid var(--border-soft)}
+.inbox-toolbar-top{width:100%;gap:8px}
+.inbox-filters{width:100%;gap:6px}
+.inbox-filter-btn{flex:1 1 auto;min-width:0;text-align:center;font-size:12px}
+.conv-card{padding:12px 14px;border-bottom:1px solid var(--border-soft);width:100%;box-sizing:border-box;border-radius:0}
+.conv-card.conv-card-mobile-dense .conv-card-preview{-webkit-line-clamp:2;line-clamp:2}
+.conv-card-header-row .inbox-channel-badge{flex-shrink:0}
+.inbox-mobile-back{display:flex}
+/* staff-portal-mobile:staff-numbers — stacked cards on phone, desktop table unchanged */
+#swn-table thead{display:none}
+#swn-tbody tr{display:block;border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:12px;margin-bottom:10px;background:var(--surface);box-shadow:var(--shadow-soft)}
+#swn-tbody td{display:flex;justify-content:space-between;align-items:center;padding:5px 0;border:none;font-size:13px;gap:12px}
+#swn-tbody td::before{content:attr(data-label);font-weight:700;color:var(--text-2);font-size:11px;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0}
+#swn-tbody td:last-child{justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)}
+#cc-staff-whatsapp-numbers .al-form-row{flex-direction:column;align-items:stretch;gap:10px}
+#cc-staff-whatsapp-numbers .al-form-row input,#cc-staff-whatsapp-numbers .al-form-row select,#cc-staff-whatsapp-numbers .al-form-row button{width:100%;min-width:0;box-sizing:border-box}
+#cc-staff-whatsapp-numbers .al-form-row label{width:100%}
+}
 </style>
 </head>
 <body class="portal-profile-pending">
@@ -18440,6 +18532,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
+  <div class="card cc-section" id="cc-house-notes" style="display:none">
+    <div class="cc-section-hdr">General Notes for Luna</div>
+    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
+    <div id="hn-error"></div>
+    <div id="hn-status"></div>
+    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
+    <div class="al-form-row" style="margin-top:8px">
+      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
+    </div>
+  </div>
+
   <div class="card cc-section luna-global-pause-card" id="cc-luna-global-pause">
     <div class="cc-section-hdr" data-i18n="lunaStaff.pause.section">Luna guest automation</div>
     <div class="cc-section-sub" data-i18n="lunaStaff.pause.sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
@@ -18541,17 +18644,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <input id="swn-add-active" type="checkbox" checked> Active
       </label>
       <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()">Add</button>
-    </div>
-  </div>
-
-  <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <div class="cc-section-hdr">General Notes for Luna</div>
-    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
-    <div id="hn-error"></div>
-    <div id="hn-status"></div>
-    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
-    <div class="al-form-row" style="margin-top:8px">
-      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
     </div>
   </div>
 
@@ -19012,6 +19104,10 @@ var BC_GRID_HEIGHT_KEY = 'staff_bc_grid_height';
 var BC_GRID_HEIGHT_MIN = 280;
 var BC_GRID_HEIGHT_MAX = 4000;
 var BC_GRID_HEIGHT_DEFAULT = 620;
+var INBOX_THREAD_HEIGHT_KEY = 'staff_inbox_thread_height';
+var INBOX_THREAD_HEIGHT_MIN = 200;
+var INBOX_THREAD_HEIGHT_MAX = 1200;
+var INBOX_THREAD_HEIGHT_DEFAULT = 480;
 var bcCalendarResizeWired = false;
 var bcGridContentHeight = 0;
 
@@ -19127,8 +19223,130 @@ function bcInitCalendarResize(){
   handle.addEventListener('pointerdown', onDown);
 }
 
+function inboxGetThreadHeightMax(){
+  var vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+  var cap = Math.round(vh * 0.9);
+  return Math.min(INBOX_THREAD_HEIGHT_MAX, Math.max(INBOX_THREAD_HEIGHT_MIN, cap));
+}
+
+function inboxDefaultThreadHeight(){
+  var vh = (typeof window !== 'undefined' && window.innerHeight) ? window.innerHeight : 800;
+  if (typeof isPortalMobile === 'function' && isPortalMobile()){
+    return Math.round(Math.min(inboxGetThreadHeightMax(), Math.max(INBOX_THREAD_HEIGHT_MIN, vh * 0.58)));
+  }
+  return Math.min(inboxGetThreadHeightMax(), INBOX_THREAD_HEIGHT_DEFAULT);
+}
+
+function inboxClampThreadHeight(px){
+  var n = Number(px);
+  if (!Number.isFinite(n)) return inboxDefaultThreadHeight();
+  return Math.max(INBOX_THREAD_HEIGHT_MIN, Math.min(inboxGetThreadHeightMax(), Math.round(n)));
+}
+
+function inboxApplyThreadHeight(px){
+  var wrap = el('inbox-thread-wrap');
+  if (!wrap) return;
+  var h = inboxClampThreadHeight(px);
+  wrap.style.height = h + 'px';
+  wrap.style.minHeight = h + 'px';
+  wrap.style.maxHeight = h + 'px';
+  wrap.style.flex = '0 0 auto';
+}
+
+function inboxLoadSavedThreadHeight(){
+  try {
+    var raw = localStorage.getItem(INBOX_THREAD_HEIGHT_KEY);
+    if (raw != null && raw !== '') return inboxClampThreadHeight(parseInt(raw, 10));
+  } catch (_) { /* ignore */ }
+  return inboxDefaultThreadHeight();
+}
+
+function inboxSaveThreadHeight(px){
+  try { localStorage.setItem(INBOX_THREAD_HEIGHT_KEY, String(inboxClampThreadHeight(px))); } catch (_) { /* ignore */ }
+}
+
+function inboxScrollThreadToBottom(targetEl){
+  var root = targetEl || el('detail-content');
+  if (!root) return;
+  var threadEl = root.querySelector('#thread-container');
+  if (!threadEl) return;
+  function doScroll(){
+    threadEl.scrollTop = threadEl.scrollHeight;
+  }
+  doScroll();
+  requestAnimationFrame(function(){
+    doScroll();
+    requestAnimationFrame(doScroll);
+  });
+}
+
+function inboxInitThreadResize(){
+  var handle = el('inbox-thread-resize-handle');
+  var wrap = el('inbox-thread-wrap');
+  if (!handle || !wrap) return;
+  if (handle.parentNode) {
+    var fresh = handle.cloneNode(true);
+    handle.parentNode.replaceChild(fresh, handle);
+    handle = fresh;
+  }
+  inboxApplyThreadHeight(inboxLoadSavedThreadHeight());
+  var dragging = false;
+  var startY = 0;
+  var startH = 0;
+  function pointerY(ev){
+    if (ev.touches && ev.touches.length) return ev.touches[0].clientY;
+    return ev.clientY;
+  }
+  function onMove(ev){
+    if (!dragging) return;
+    ev.preventDefault();
+    inboxApplyThreadHeight(startH + (pointerY(ev) - startY));
+  }
+  function onUp(ev){
+    if (!dragging) return;
+    dragging = false;
+    if (ev && handle.releasePointerCapture && handle.hasPointerCapture && handle.hasPointerCapture(ev.pointerId)) {
+      try { handle.releasePointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+    }
+    document.body.style.cursor = '';
+    document.body.style.userSelect = '';
+    var h = parseInt(wrap.style.height, 10);
+    if (!isNaN(h)) inboxSaveThreadHeight(h);
+    window.removeEventListener('mousemove', onMove);
+    window.removeEventListener('mouseup', onUp);
+    window.removeEventListener('touchmove', onMove);
+    window.removeEventListener('touchend', onUp);
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+    window.removeEventListener('pointercancel', onUp);
+  }
+  function onDown(ev){
+    ev.preventDefault();
+    dragging = true;
+    startY = pointerY(ev);
+    startH = wrap.getBoundingClientRect().height;
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    if (handle.setPointerCapture && ev.pointerId != null) {
+      try { handle.setPointerCapture(ev.pointerId); } catch (_) { /* ignore */ }
+    }
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    window.addEventListener('touchmove', onMove, { passive: false });
+    window.addEventListener('touchend', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
+  }
+  handle.addEventListener('mousedown', onDown);
+  handle.addEventListener('touchstart', onDown, { passive: false });
+  handle.addEventListener('pointerdown', onDown);
+}
+
 var BC_ZOOM_DEFAULT = 100;
+var BC_ZOOM_MOBILE_DEFAULT = 70;
 var BC_ZOOM_MIN = 60;
+var BC_ZOOM_MOBILE_MIN = 50;
 var BC_ZOOM_MAX = 200;
 var BC_ZOOM_STEP = 10;
 var BC_ZOOM_LEVEL_KEY = 'staff_bc_zoom_level';
@@ -19138,8 +19356,10 @@ var bcCalendarZoomWired = false;
 
 function bcClampZoomLevel(pct){
   var n = Number(pct);
-  if (!Number.isFinite(n)) return BC_ZOOM_DEFAULT;
-  return Math.max(BC_ZOOM_MIN, Math.min(BC_ZOOM_MAX, Math.round(n)));
+  var def = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT;
+  var min = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_MIN : BC_ZOOM_MIN;
+  if (!Number.isFinite(n)) return def;
+  return Math.max(min, Math.min(BC_ZOOM_MAX, Math.round(n)));
 }
 
 function bcLoadZoomLock(){
@@ -19175,7 +19395,7 @@ function bcSyncZoomUi(){
   var lockEl = el('bc-zoom-lock');
   var level = bcZoomState.level;
   if (pctEl) pctEl.textContent = level + '%';
-  if (outBtn) outBtn.disabled = level <= BC_ZOOM_MIN;
+  if (outBtn) outBtn.disabled = level <= ((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_MIN : BC_ZOOM_MIN);
   if (inBtn) inBtn.disabled = level >= BC_ZOOM_MAX;
   if (lockEl) lockEl.checked = bcZoomState.locked;
 }
@@ -19191,7 +19411,7 @@ function bcApplyCalendarZoom(level){
 
 function bcPrepareCalendarZoomForRangeChange(){
   if (bcZoomState.locked) return;
-  bcZoomState.level = BC_ZOOM_DEFAULT;
+  bcZoomState.level = (typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT;
 }
 
 function bcInitCalendarZoom(){
@@ -19214,12 +19434,13 @@ function bcInitCalendarZoom(){
         bcSaveZoomLevel(bcZoomState.level);
       } else {
         try { localStorage.removeItem(BC_ZOOM_LEVEL_KEY); } catch (_) { /* ignore */ }
-        bcApplyCalendarZoom(BC_ZOOM_DEFAULT);
+        bcApplyCalendarZoom((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : BC_ZOOM_DEFAULT);
       }
     });
   }
   bcZoomState.locked = bcLoadZoomLock();
-  bcApplyCalendarZoom(bcResolveCalendarZoom());
+  var initial = bcZoomState.locked ? bcLoadSavedZoomLevel() : ((typeof isPortalMobile === 'function' && isPortalMobile()) ? BC_ZOOM_MOBILE_DEFAULT : bcLoadSavedZoomLevel());
+  bcApplyCalendarZoom(initial);
 }
 
 function bcNaturalCodeSort(a, b){
@@ -22517,12 +22738,12 @@ function staffWhatsappNumbersRender(numbers){
   }
   tbody.innerHTML = numbers.map(function(n){
     var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
-    return '<tr>'
-      + '<td>' + escHtml(n.display_name || '') + '</td>'
-      + '<td>' + escHtml(n.phone) + '</td>'
-      + '<td>' + escHtml(grp) + '</td>'
-      + '<td>' + (n.active ? 'Yes' : 'No') + '</td>'
-      + '<td><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
+    return '<tr class="swn-mobile-card">'
+      + '<td data-label="Name">' + escHtml(n.display_name || '') + '</td>'
+      + '<td data-label="Phone">' + escHtml(n.phone) + '</td>'
+      + '<td data-label="Group">' + escHtml(grp) + '</td>'
+      + '<td data-label="Active">' + (n.active ? 'Yes' : 'No') + '</td>'
+      + '<td data-label=""><button type="button" class="btn swn-remove-btn" data-swn-id="' + escHtml(n.id) + '">Remove</button></td>'
       + '</tr>';
   }).join('');
   // Delegated handler (avoids inline onclick quote-escaping inside the served script).
@@ -23035,7 +23256,26 @@ function convHeaderStatusPillsHtml(conv, lunaPaused){
   return html;
 }
 
+function detailHeaderSwitchesHtml(c, lunaGuestPaused){
+  return (lunaGuestPaused ? inboxLunaPausedPillHtml(true) : '') +
+    '<div class="detail-header-switches">' +
+    '<label class="inbox-switch inbox-switch-orange inbox-header-switch" title="' + escHtml(t('inbox.detail.switch.needsHuman')) + '">' +
+      '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>' +
+      '<span class="inbox-switch-slider"></span>' +
+    '</label>' +
+    '<label class="inbox-switch inbox-switch-red inbox-header-switch" title="' + escHtml(t('inbox.detail.switch.pauseLuna')) + '">' +
+      '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>' +
+      '<span class="inbox-switch-slider"></span>' +
+    '</label>' +
+  '</div>';
+}
+
 /* Inbox header — Luna active vs Staff (pause Luna) source pebble */
+function inboxLunaPausedPillHtml(paused){
+  if (!paused) return '';
+  return '<span class="pill pill-luna-paused" id="conv-luna-paused-pill">' + escHtml(t('inbox.detail.pill.lunaPaused')) + '</span>';
+}
+
 function inboxLunaStaffPill(paused){
   if (paused){
     return '<span class="pill pill-staff-source" id="conv-luna-staff-pill">' + escHtml(t('inbox.detail.pill.staff')) + '</span>';
@@ -23125,6 +23365,26 @@ function updateLunaPauseUiInPlace(targetEl, paused){
   var hdrPills = targetEl.querySelector('.detail-header-pills');
   if (hdrPills){
     hdrPills.innerHTML = convHeaderStatusPillsHtml({ needs_human: needsHuman }, paused);
+  }
+  updateLunaPausedPillInPlace(targetEl, paused);
+}
+
+function updateLunaPausedPillInPlace(targetEl, paused){
+  var right = targetEl.querySelector('.detail-header-right');
+  if (!right) return;
+  var existing = right.querySelector('#conv-luna-paused-pill');
+  if (paused){
+    if (!existing){
+      var switches = right.querySelector('.detail-header-switches');
+      var pill = document.createElement('span');
+      pill.className = 'pill pill-luna-paused';
+      pill.id = 'conv-luna-paused-pill';
+      pill.textContent = t('inbox.detail.pill.lunaPaused');
+      if (switches) right.insertBefore(pill, switches);
+      else right.appendChild(pill);
+    }
+  } else if (existing) {
+    existing.remove();
   }
 }
 
@@ -23517,12 +23777,17 @@ function renderInboxConvCardHtml(c, profile){
       timeLine +
     '</div>';
   }
-  return '<div class="conv-card' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
+  return '<div class="conv-card conv-card-mobile-dense' + demoClass + '" data-id="' + escHtml(c.conversation_id) + '">' +
     delBtn +
-    '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
-    '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' +
+    '<div class="conv-card-header-row">' +
+      '<div class="conv-card-name">' + escHtml(c.guest_name || '—') + '</div>' +
+      inboxChannelBadgeHtml('whatsapp') +
+    '</div>' +
+    (c.phone ? '<div class="conv-card-phone">' + escHtml(c.phone) + '</div>' : '') +
+    (c.last_message_preview ? '<div class="conv-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '') +
     '<div class="conv-card-pills">' + convListPill(c) + '</div>' +
     handoffLine +
+    (c.last_activity_label ? '<div class="conv-card-time">' + escHtml(c.last_activity_label) + '</div>' : '') +
   '</div>';
 }
 
@@ -23921,15 +24186,16 @@ function loadConvDetail(convId, targetEl){
 
     /* ── Header ── */
     var html = '<div class="detail-header">';
-    html +=   '<div>';
+    html +=   '<div class="detail-header-main">';
     html +=     '<div class="detail-name">' + escHtml(c.guest_name || c.phone) + '</div>';
     html +=     '<div class="detail-meta">' + escHtml(c.phone);
     if (conversationHasOpenHandoff(c) && c.handoff_reason)     html += ' &bull; ' + escHtml(handoffLabel(c.handoff_reason));
     else if (c.needs_human) html += ' &bull; ' + escHtml(t('inbox.detail.meta.needsStaffReply'));
     html +=     '</div>';
     html +=   '</div>';
-    html +=   '<div class="detail-header-pills" style="margin-left:auto;display:flex;gap:6px;align-items:flex-start;flex-wrap:wrap">';
-    html +=     convHeaderStatusPillsHtml(c, lunaGuestPaused);
+    html +=   '<div class="detail-header-right">';
+    html +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
+    html +=     detailHeaderSwitchesHtml(c, lunaGuestPaused);
     html +=   '</div>';
     html += '</div>';
 
@@ -23946,6 +24212,8 @@ function loadConvDetail(convId, targetEl){
     html += '<button type="button" class="pill pill-agent-session-reset" id="btn-agent-session-reset" title="Delete Hermes state.db session + messages for this guest. Portal thread and bookings unchanged. Use after SOUL edits.">Reset Luna session</button>';
     html += '<button type="button" class="pill pill-guest-context-reset" id="btn-guest-context-reset" title="Full wipe for testing: Hermes memory + all message history/logs + cached context. Bookings cancelled.">Full Wipe (testing)</button>';
     html += '</div>';
+    html +=   '<div class="inbox-thread-shell" id="inbox-thread-shell">';
+    html +=   '<div class="inbox-thread-wrap" id="inbox-thread-wrap">';
     html +=   '<div class="thread-messages" id="thread-container">';
     if (msgs.length === 0){
       html += '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
@@ -23965,6 +24233,10 @@ function loadConvDetail(convId, targetEl){
       });
     }
     html +=   '</div>'; /* /thread-messages */
+    html +=   '</div>'; /* /inbox-thread-wrap */
+    html +=   '<div id="inbox-thread-resize-handle" class="inbox-thread-resize-handle" title="Drag to resize message area" role="separator" aria-orientation="horizontal" aria-label="Resize message area"></div>';
+    html +=   '</div>'; /* /inbox-thread-shell */
+    html += '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
     html += '</div>'; /* /thread */
     html += '</div>'; /* /thread-section */
 
@@ -23979,8 +24251,6 @@ function loadConvDetail(convId, targetEl){
             escHtml(draftText) + '</textarea>';
     html += '<div class="draft-actions">';
     html +=   '<button type="button" class="btn-send-reply" id="btn-send-reply">' + escHtml(t('inbox.detail.reply.send')) + '</button>';
-    html +=   '<button type="button" class="btn-copy" id="btn-copy-draft">' + escHtml(t('inbox.detail.reply.copy')) + '</button>';
-    html +=   '<span class="copy-confirm" id="copy-confirm" style="display:none">' + escHtml(t('inbox.detail.reply.copied')) + '</span>';
     html += '</div>';
     html += '<div id="draft-send-status" class="draft-send-status"></div>';
     html += '</div>'; /* /draft-panel */
@@ -23990,47 +24260,7 @@ function loadConvDetail(convId, targetEl){
     /* ═══ RIGHT — context sidebar ═══ */
     html += '<div class="detail-sidebar">';
 
-    /* ── 1. Bot / staff state card ── */
-    var ss = state || {};
-    html += '<div class="sidebar-card">';
-    html +=   '<h3>' + escHtml(t('inbox.detail.botState.title')) + '</h3>';
-    html +=   '<div class="luna-auto-status' + (lunaGuestPaused ? ' luna-auto-status-paused' : '') + '">';
-    html +=     '<div class="luna-auto-status-label">' + escHtml(lunaGuestPaused ? t('inbox.detail.botState.paused') : t('inbox.detail.botState.active')) + '</div>';
-    html +=     '<div class="luna-auto-status-help">' + escHtml(lunaGuestPaused
-      ? t('inbox.detail.botState.helpPaused')
-      : t('inbox.detail.botState.helpActive')) + '</div>';
-    html +=   '</div>';
-    html +=   '<div class="bot-state-switches">';
-    html +=     '<div class="inbox-switch-row">';
-    html +=       '<span class="inbox-switch-label">' + escHtml(t('inbox.detail.switch.needsHuman')) + '</span>';
-    html +=       '<label class="inbox-switch inbox-switch-orange">';
-    html +=         '<input type="checkbox" id="conv-needs-human-toggle"' + (c.needs_human ? ' checked' : '') + '>';
-    html +=         '<span class="inbox-switch-slider"></span>';
-    html +=       '</label>';
-    html +=     '</div>';
-    html +=     '<div class="inbox-switch-row">';
-    html +=       '<span class="inbox-switch-label">' + escHtml(t('inbox.detail.switch.pauseLuna')) + '</span>';
-    html +=       '<label class="inbox-switch inbox-switch-red">';
-    html +=         '<input type="checkbox" id="luna-pause-switch"' + (lunaGuestPaused ? ' checked' : '') + '>';
-    html +=         '<span class="inbox-switch-slider"></span>';
-    html +=       '</label>';
-    html +=     '</div>';
-    html +=   '</div>';
-    html +=   '<div class="luna-pause-action-status" id="luna-pause-action-status" style="display:none"></div>';
-    if (ss.handoff_id){
-      html += '<div style="margin-top:10px;padding-top:10px;border-top:1px solid #eef0f3">';
-      html +=   '<div style="font-size:11px;font-weight:700;color:#e67e22;margin-bottom:6px">' + escHtml(t('inbox.detail.handoff.open')) + '</div>';
-      html +=   '<div class="kv2">';
-      html +=     kv(t('inbox.detail.handoff.reason'),   ss.handoff_reason) +
-                  kv(t('inbox.detail.handoff.priority'), ss.handoff_priority) +
-                  kv(t('inbox.detail.handoff.assigned'), ss.assigned_staff || '\u2014') +
-                  kv(t('inbox.detail.handoff.opened'),   fmtTs(ss.handoff_opened_at));
-      html +=   '</div>';
-      html += '</div>';
-    }
-    html += '</div>'; /* /sidebar-card */
-
-    /* ── 2. Guest bookings (stacked) ── */
+    /* ── Guest bookings (stacked) ── */
     html += '<div class="sidebar-card">';
     html +=   '<h3>' + escHtml(t('inbox.detail.bookings.title')) + '</h3>';
     if (!bookingRows.length){
@@ -24059,26 +24289,6 @@ function loadConvDetail(convId, targetEl){
     targetEl.innerHTML = html;
     targetEl.classList.remove('is-loading-detail');
 
-    /* Wire copy button after DOM update */
-    var copyBtn   = targetEl.querySelector('#btn-copy-draft');
-    var confirmEl = targetEl.querySelector('#copy-confirm');
-    var textaEl   = targetEl.querySelector('#draft-textarea');
-    if (copyBtn && textaEl){
-      copyBtn.addEventListener('click', function(){
-        var text = textaEl.value;
-        var doConfirm = function(){
-          if (confirmEl){ confirmEl.style.display='inline'; setTimeout(function(){ confirmEl.style.display='none'; }, 2500); }
-        };
-        if (navigator.clipboard && navigator.clipboard.writeText){
-          navigator.clipboard.writeText(text).then(doConfirm).catch(function(){
-            textaEl.select(); document.execCommand('copy'); doConfirm();
-          });
-        } else {
-          textaEl.select(); document.execCommand('copy'); doConfirm();
-        }
-      });
-    }
-
     wireInboxSendReply(convId, c.phone, targetEl);
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
@@ -24097,10 +24307,24 @@ function loadConvDetail(convId, targetEl){
         });
       });
     });
+    targetEl.querySelectorAll('.inbox-booking-stack-item').forEach(function(item){
+      item.addEventListener('dblclick', function(e){
+        if (e.target.closest('.inbox-open-booking-cal')) return;
+        var link = item.querySelector('.inbox-open-booking-cal');
+        if (!link) return;
+        e.preventDefault();
+        openBookingInCalendar({
+          booking_id: link.dataset.bookingId || null,
+          booking_code: link.dataset.bookingCode || null,
+          check_in: link.dataset.checkIn || null,
+          check_out: link.dataset.checkOut || null,
+          guest_name: link.dataset.guestName || c.guest_name,
+        });
+      });
+    });
 
-    /* Scroll thread to bottom */
-    var threadEl = targetEl.querySelector('#thread-container');
-    if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+    inboxInitThreadResize();
+    inboxScrollThreadToBottom(targetEl);
   })
   .catch(function(err){
     if (convDetailHasLayout(targetEl)){
@@ -26443,9 +26667,10 @@ function renderBedCalendar(data){
 
   /* Wire block clicks (primary bars + turnover checkout markers) */
   wrap.querySelectorAll('.bc-block, .bc-block-checkout-marker').forEach(function(bEl){
-    bEl.addEventListener('click', function(){
+    bEl.addEventListener('click', function(e){
+      e.stopPropagation();
       var idx = parseInt(this.dataset.bidx, 10);
-      showBlockDetail(blocks[idx]);
+      bcOpenBookingDrawerOverview(blocks[idx]);
     });
   });
 
@@ -27069,6 +27294,21 @@ function bcRenderBlockSummaryPreviewHtml(blk){
   return html;
 }
 
+function bcOpenBookingDrawerOverview(blk){
+  if (!blk) return;
+  bcActiveDrawerTab = 'overview';
+  bcPendingScrollToOverview = true;
+  var sameBooking = bcLastBookingContext && bcLastBookingContext.booking && blk.booking_code &&
+    String(bcLastBookingContext.booking.booking_code) === String(blk.booking_code);
+  if (sameBooking) {
+    bcPendingScrollToOverview = false;
+    bcScrollToBookingOverview();
+    return;
+  }
+  showBlockDetail(blk);
+  bcScrollToBookingOverview();
+}
+
 function showBlockDetail(blk){
   if (!blk) return;
   bcInitDetailCopyDelegation();
@@ -27094,6 +27334,22 @@ function showBlockDetail(blk){
 
 /* Load enriched booking context from API */
 var bcActiveDrawerTab = 'overview';
+var bcPendingScrollToOverview = false;
+
+function bcScrollToBookingOverview(){
+  bcRestoreActiveDrawerTab('overview');
+  var detailEl = el('bc-detail');
+  if (!detailEl || detailEl.style.display === 'none') return;
+  requestAnimationFrame(function(){
+    var topEl = detailEl.querySelector('.toolbar') || detailEl;
+    topEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    var rect = detailEl.getBoundingClientRect();
+    var y = window.scrollY + rect.top - 12;
+    if (typeof window.scrollTo === 'function') {
+      window.scrollTo({ top: Math.max(0, y), behavior: 'smooth' });
+    }
+  });
+}
 
 function bcRestoreActiveDrawerTab(tabId){
   tabId = tabId || bcActiveDrawerTab || 'overview';
@@ -27131,6 +27387,10 @@ function loadBlockDetail(bookingCode, opts){
       updateBcDetailHeader(res.data);
       bcInitDrawerTabs();
       bcRestoreActiveDrawerTab(tabToRestore);
+      if (bcPendingScrollToOverview) {
+        bcPendingScrollToOverview = false;
+        bcScrollToBookingOverview();
+      }
       bcInitFieldEditShell(res.data);
       bcInitServicesScheduleShell(res.data);
       bcInitTransferShell(res.data);
@@ -32902,221 +33162,7 @@ function buildLoginHtml() {
   const loginDefaultClient = (process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim())
     ? String(process.env.DEFAULT_CLIENT_SLUG).trim()
     : 'wolfhouse-somo';
-  return `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Luna Front Desk — Sign in</title>
-${getStaffPortalThemeEarlyScript()}
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --cream:#F7F3EC;
-  --surface:#FFFDFA;
-  --sand:#E9DDCF;
-  --tan:#DCC8B7;
-  --sage:#AFC3A3;
-  --olive:#8FA58E;
-  --dusty-blue:#B7CAD6;
-  --ocean:#95B4C7;
-  --text:#44504A;
-  --text-2:#7A8C82;
-  --text-3:#A8B5AE;
-  --border:#D8CEBF;
-  --radius:14px;
-  --radius-sm:8px;
-}
-body{
-  background:linear-gradient(135deg,var(--cream) 0%,#EBF0ED 60%,#E8EFF5 100%);
-  min-height:100vh;
-  display:flex;
-  align-items:center;
-  justify-content:center;
-  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
-  color:var(--text);
-}
-.card{
-  background:var(--surface);
-  border:1px solid var(--sand);
-  border-radius:var(--radius);
-  box-shadow:0 4px 32px rgba(68,80,74,.10),0 1px 4px rgba(68,80,74,.06);
-  padding:40px 40px 36px;
-  width:100%;
-  max-width:400px;
-}
-.logo{
-  text-align:center;
-  margin-bottom:24px;
-}
-.logo-img{
-  display:block;
-  width:auto;
-  max-width:100%;
-  height:auto;
-  max-height:112px;
-  margin:0 auto;
-}
-.logo .sub{
-  font-size:12px;color:var(--text-2);margin-top:12px;letter-spacing:.04em;text-transform:uppercase;
-}
-.field{margin-bottom:16px;}
-.field label{
-  display:block;font-size:12px;font-weight:600;color:var(--text-2);
-  margin-bottom:5px;letter-spacing:.04em;text-transform:uppercase;
-}
-.field input{
-  width:100%;padding:10px 13px;
-  border:1px solid var(--border);
-  border-radius:var(--radius-sm);
-  background:var(--cream);
-  font-size:14px;color:var(--text);
-  transition:border-color .18s,box-shadow .18s;
-  outline:none;
-}
-.field input:focus{
-  border-color:var(--olive);
-  box-shadow:0 0 0 3px rgba(143,165,142,.18);
-}
-.luna-login-btn{
-  display:block;margin:10px auto 0;padding:0;border:none;background:transparent;
-  cursor:pointer;line-height:0;transition:transform 120ms ease,filter 120ms ease,opacity 120ms ease;
-}
-.luna-login-btn-img{display:block;height:32px;width:auto;max-width:min(100%,220px);object-fit:contain}
-.luna-login-btn:hover{filter:brightness(1.06) saturate(1.05)}
-.luna-login-btn:active{transform:translateY(1px);filter:brightness(.96)}
-.luna-login-btn:focus-visible{outline:2px solid rgba(36,157,147,.55);outline-offset:3px;border-radius:6px}
-.luna-login-btn:disabled{opacity:.5;cursor:default;filter:none;transform:none}
-.msg{
-  margin-top:14px;padding:10px 13px;border-radius:var(--radius-sm);
-  font-size:13px;display:none;
-}
-.msg.error{background:#FEF1EC;border:1px solid #F2C4AC;color:#9B4020;}
-.msg.ok{background:#EFF5EE;border:1px solid #BACEA4;color:#3A6035;}
-.staff-lang-switch-login{display:flex;align-items:center;justify-content:center;gap:0;margin:0;font-size:11px;font-weight:600;letter-spacing:.1em}
-.staff-lang-btn-login{background:none;border:none;color:var(--text-3);cursor:pointer;padding:4px 7px;font:inherit;transition:color .15s}
-.staff-lang-btn-login:hover{color:var(--text)}
-.staff-lang-btn-login.is-active{color:var(--text);text-decoration:underline;text-underline-offset:3px}
-.staff-lang-sep-login{color:var(--text-3);opacity:.45;user-select:none;font-size:10px}
-.login-topbar{display:flex;align-items:center;justify-content:center;gap:12px;margin:0 0 18px;position:relative}
-.staff-theme-toggle{margin:0;width:30px;height:30px;padding:0;border:1px solid var(--border);border-radius:50%;background:var(--surface);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;transition:background .18s,border-color .18s,box-shadow .18s,transform .12s;flex-shrink:0;color:var(--text-2)}
-.staff-theme-toggle:hover{border-color:var(--olive);color:var(--text);box-shadow:0 0 12px rgba(143,165,142,.18)}
-.staff-theme-toggle:active{transform:scale(.96)}
-.staff-theme-toggle:focus-visible{outline:2px solid var(--olive);outline-offset:2px}
-.staff-theme-icon{width:15px;height:15px;display:block;flex-shrink:0}
-.staff-theme-icon-sun{display:none}
-.staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
-.staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
-[data-theme="dark"]{
-  --cream:#181818;--surface:#252526;--sand:#3c3c3c;--tan:#454545;
-  --text:#cccccc;--text-2:#9d9d9d;--text-3:#6e6e6e;--border:#3c3c3c;
-}
-[data-theme="dark"] body{background:linear-gradient(135deg,#1e1e1e 0%,#252526 60%,#2a2a2a 100%);color:var(--text)}
-[data-theme="dark"] .card{background:var(--surface);border-color:var(--border);box-shadow:0 4px 32px rgba(0,0,0,.35)}
-[data-theme="dark"] .field input{background:#1e1e1e;border-color:var(--border);color:var(--text)}
-[data-theme="dark"] .field input:focus{border-color:#569cd6;box-shadow:0 0 0 3px rgba(86,156,214,.22)}
-[data-theme="dark"] .msg.error{background:#3a2020;border-color:#6a4040;color:#f0c0bc}
-[data-theme="dark"] .msg.ok{background:#1e2a22;border-color:#3a5a48;color:#a8c8a8}
-[data-theme="dark"] .staff-theme-toggle{background:#2d2d2d;border-color:#454545;color:#cccccc}
-[data-theme="dark"] .staff-theme-toggle:hover{border-color:#569cd6;color:#fff}
-</style>
-</head>
-<body>
-${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
-<div class="card">
-  <div class="login-topbar">
-    <div class="staff-lang-switch-login" id="staff-lang-switch" aria-label="Language">
-      ${renderStaffLangSwitchButtons(true)}
-    </div>
-    <button type="button" class="staff-theme-toggle" id="staff-theme-toggle" aria-pressed="false" data-i18n-aria="app.theme.switchToDark" title="Switch to dark mode">
-      <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
-      <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
-    </button>
-  </div>
-  <div class="logo">
-    <img src="/staff/assets/luna-front-desk-logo.png?v=2" alt="Luna Front Desk" class="logo-img">
-    <div class="sub" data-i18n="login.sub">Staff sign in</div>
-  </div>
-
-  <form id="login-form" autocomplete="on">
-    <div class="field">
-      <label for="client" data-i18n="login.company">Company</label>
-      <input id="client" name="client" type="text" value="${loginDefaultClient}" autocomplete="organization" spellcheck="false">
-    </div>
-    <div class="field">
-      <label for="email" data-i18n="login.email">Email</label>
-      <input id="email" name="email" type="email" placeholder="staff@example.com" autocomplete="username" required>
-    </div>
-    <div class="field">
-      <label for="password" data-i18n="login.password">Password</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-    </div>
-    <button class="luna-login-btn" id="btn-signin" type="button" data-i18n-aria="login.signIn" aria-label="Sign in">
-      <img src="/staff/assets/luna-login-signin-btn.png?v=1" alt="" class="luna-login-btn-img" aria-hidden="true">
-    </button>
-    <div class="msg" id="msg"></div>
-  </form>
-</div>
-
-<script>
-(function(){
-  'use strict';
-  var btn   = document.getElementById('btn-signin');
-  var msg   = document.getElementById('msg');
-
-  function showMsg(text, isError){
-    msg.className = 'msg ' + (isError ? 'error' : 'ok');
-    msg.textContent = text;
-    msg.style.display = 'block';
-  }
-
-  function doSignIn(){
-    btn.disabled = true;
-    msg.style.display = 'none';
-
-    var client   = document.getElementById('client').value.trim();
-    var email    = document.getElementById('email').value.trim();
-    var password = document.getElementById('password').value;
-
-    if (!client || !email || !password){
-      showMsg(window.t('login.allFieldsRequired'), true);
-      btn.disabled = false;
-      return;
-    }
-
-    var xhr = new XMLHttpRequest();
-    xhr.open('POST', '/staff/auth/login', true);
-    xhr.withCredentials = true;
-    xhr.setRequestHeader('Content-Type', 'application/json');
-    xhr.onload = function(){
-      var d = {};
-      try { d = JSON.parse(xhr.responseText); } catch(_){}
-      if (xhr.status === 200 && d.success){
-        showMsg(window.t('login.success'), false);
-        window.location.href = '/staff/ui';
-      } else {
-        showMsg(d.error || window.t('login.failed'), true);
-        btn.disabled = false;
-      }
-    };
-    xhr.onerror = function(){
-      showMsg(window.t('login.networkError'), true);
-      btn.disabled = false;
-    };
-    xhr.send(JSON.stringify({ client: client, email: email, password: password }));
-  }
-
-  btn.addEventListener('click', doSignIn);
-  document.getElementById('password').addEventListener('keydown', function(e){
-    if (e.key === 'Enter') doSignIn();
-  });
-  document.getElementById('email').addEventListener('keydown', function(e){
-    if (e.key === 'Enter') doSignIn();
-  });
-})();
-</script>
-</body>
-</html>`;
+  return buildStaffLoginHtml(loginDefaultClient, STAFF_PORTAL_LOCALES, renderStaffLangSwitchButtons(true));
 }
 
 function handleStaffPortalLogo(res) {
@@ -33141,6 +33187,20 @@ function handleStaffPortalLoginBtn(res) {
     }
     res.writeHead(200, {
       'Content-Type': 'image/png',
+      'Cache-Control': 'public, max-age=86400',
+    });
+    res.end(data);
+  });
+}
+
+function handleStaffPortalLoginBg(res) {
+  fs.readFile(STAFF_PORTAL_LOGIN_BG_PATH, (err, data) => {
+    if (err) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      return res.end('Not found');
+    }
+    res.writeHead(200, {
+      'Content-Type': 'image/jpeg',
       'Cache-Control': 'public, max-age=86400',
     });
     res.end(data);
@@ -39657,6 +39717,15 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleStaffPortalLoginBtn(res);
+  }
+
+  // ── GET /images/luna-login-bg.jpg — login page background (public) ─────────
+  if (pathname === '/images/luna-login-bg.jpg') {
+    if (method !== 'GET') {
+      res.writeHead(405, { Allow: 'GET' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
+    }
+    return handleStaffPortalLoginBg(res);
   }
 
   // ── GET /staff/login  (Stage 7.3e — Luna Front Desk login page) ─────────────
