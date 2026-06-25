@@ -1,0 +1,41 @@
+{
+  "clients": [
+    {
+      "client_slug": "wolfhouse",
+      "display_name": "Wolfhouse",
+      "live_enabled": false,
+      "locations": [
+        {
+          "location_id": "wolfhouse-somo",
+          "display_name": "Wolfhouse Somo"
+        }
+      ]
+    },
+    {
+      "client_slug": "sunset",
+      "display_name": "Sunset Surf School",
+      "live_enabled": false,
+      "locations": [
+        {
+          "location_id": "sunset-somo",
+          "display_name": "Sunset"
+        },
+        {
+          "location_id": "sunset-sardinero",
+          "display_name": "elSardi"
+        }
+      ]
+    },
+    {
+      "client_slug": "mirleft",
+      "display_name": "Mirleft",
+      "live_enabled": false,
+      "locations": [
+        {
+          "location_id": "mirleft-main",
+          "display_name": "Mirleft"
+        }
+      ]
+    }
+  ]
+}
