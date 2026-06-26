@@ -16780,9 +16780,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .kv.kv-balance-due .v{font-weight:700;color:#9C5742}
 /* .back-btn removed — inbox is persistent two-column (no back navigation needed) */
 /* ── Detail two-column layout ────────────────────────────────────────────── */
-.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:flex-start;margin-top:0;overflow:hidden}
+.detail-layout{flex:1;min-height:0;display:flex;gap:16px;align-items:flex-start;margin-top:0;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;scrollbar-gutter:stable}
 .detail-main .detail-conv-toolbar{position:absolute;right:0;bottom:100%;margin-bottom:6px;display:flex;justify-content:flex-end;padding:0;z-index:1}
-.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+.detail-main{flex:1;min-width:0;min-height:0;display:flex;flex-direction:column;overflow:visible}
 .detail-sidebar{width:280px;flex-shrink:0;align-self:flex-start;max-height:calc(100vh - 280px);overflow-y:auto;-webkit-overflow-scrolling:touch}
 @media(max-width:860px){.detail-layout{flex-direction:column;overflow-y:auto;-webkit-overflow-scrolling:touch;align-items:stretch}.detail-sidebar{width:100%;max-height:none;overflow:visible;flex-shrink:0}}
 /* ── Message thread ──────────────────────────────────────────────────────── */
@@ -19251,7 +19251,9 @@ function inboxDefaultThreadHeight(){
   if (typeof isPortalMobile === 'function' && isPortalMobile()){
     return Math.round(Math.min(inboxGetThreadHeightMax(), Math.max(INBOX_THREAD_HEIGHT_MIN, vh * 0.58)));
   }
-  return Math.min(inboxGetThreadHeightMax(), INBOX_THREAD_HEIGHT_DEFAULT);
+  /* Leave room for reply composer + header on desktop without forcing window resize */
+  var shellCap = Math.max(INBOX_THREAD_HEIGHT_MIN, vh - 104 - 280);
+  return Math.min(inboxGetThreadHeightMax(), INBOX_THREAD_HEIGHT_DEFAULT, shellCap);
 }
 
 function inboxClampThreadHeight(px){
