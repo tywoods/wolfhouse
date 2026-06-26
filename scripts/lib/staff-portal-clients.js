@@ -21,6 +21,25 @@ const SURF_VERTICALS = new Set([
 
 const DEFAULT_LODGING_VERTICAL = 'lodging_surf_house';
 
+/** Staff Portal dev-only tabs (staging/local). Hidden when NODE_ENV=production unless STAFF_PORTAL_DEV_TABS=true. */
+const STAFF_PORTAL_DEV_TAB_IDS = ['query-tools', 'luna-guest-simulator'];
+
+function staffPortalDevTabsEnabled() {
+  const flag = String(process.env.STAFF_PORTAL_DEV_TABS || '').trim().toLowerCase();
+  if (flag === 'true' || flag === '1' || flag === 'yes') return true;
+  if (flag === 'false' || flag === '0' || flag === 'no') return false;
+  return String(process.env.NODE_ENV || '').toLowerCase() !== 'production';
+}
+
+function appendHiddenDevTabs(hidden) {
+  const out = Array.isArray(hidden) ? hidden.slice() : [];
+  if (staffPortalDevTabsEnabled()) return out;
+  for (const tab of STAFF_PORTAL_DEV_TAB_IDS) {
+    if (out.indexOf(tab) < 0) out.push(tab);
+  }
+  return out;
+}
+
 function readAccessConfig() {
   try {
     return JSON.parse(fs.readFileSync(ACCESS_FILE, 'utf8'));
@@ -108,7 +127,7 @@ function loadClientPortalProfile(clientSlug) {
     vertical,
     is_surf_vertical: surf,
     default_tab: surf ? 'portal-home' : 'bed-calendar',
-    hidden_tabs: surf ? ['bed-calendar', 'tour-operator'] : [],
+    hidden_tabs: appendHiddenDevTabs(surf ? ['bed-calendar', 'tour-operator'] : []),
     hidden_drawer_tabs: surf ? ['transfers'] : [],
     lesson_slots_demo: surf ? loadLessonSlotsDemo(cfg) : [],
     inbox_threads_demo: surf ? loadInboxThreadsDemo(cfg) : [],
@@ -239,6 +258,8 @@ module.exports = {
   loadClientPortalProfile,
   buildClientProfilesMap,
   buildSessionClientProfilesMap,
+  staffPortalDevTabsEnabled,
+  STAFF_PORTAL_DEV_TAB_IDS,
   isSurfVertical,
   SURF_VERTICALS,
 };
