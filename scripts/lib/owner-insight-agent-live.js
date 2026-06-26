@@ -39,7 +39,9 @@ function isOwnerInsightAgentEnabled(env = process.env) {
 
 function resolveMaxSteps(env) {
   const n = Number(trimStr((env || process.env).OWNER_INSIGHT_AGENT_MAX_STEPS));
-  return Number.isFinite(n) && n > 0 ? n : 5;
+  // Default 3: enough for query -> (one correction) -> answer, but bounded so the
+  // multi-step loop stays within the live chat HTTP time budget (Hermes waits ~25s).
+  return Number.isFinite(n) && n > 0 ? n : 3;
 }
 
 /**
