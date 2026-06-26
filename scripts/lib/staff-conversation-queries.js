@@ -106,7 +106,7 @@ LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
 LEFT JOIN LATERAL (
   SELECT bk.guest_name
   FROM bookings bk
-  WHERE bk.hostel_id = conv.hostel_id
+  WHERE bk.client_id = conv.client_id
     AND bk.phone = conv.phone
     AND NULLIF(btrim(bk.guest_name), '') IS NOT NULL
   ORDER BY bk.created_at DESC
@@ -178,7 +178,7 @@ LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
 LEFT JOIN LATERAL (
   SELECT bk.guest_name
   FROM bookings bk
-  WHERE bk.hostel_id = conv.hostel_id
+  WHERE bk.client_id = conv.client_id
     AND bk.phone = conv.phone
     AND NULLIF(btrim(bk.guest_name), '') IS NOT NULL
   ORDER BY bk.created_at DESC
