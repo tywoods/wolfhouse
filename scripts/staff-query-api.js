@@ -7469,9 +7469,10 @@ async function handleBookingCreateConversation(req, res, user) {
         await pg.query(
           `UPDATE conversations
               SET current_hold_booking_id = COALESCE(current_hold_booking_id, $2::uuid),
+                  display_name = COALESCE(NULLIF(btrim($3::text), ''), display_name),
                   updated_at = NOW()
             WHERE id = $1::uuid`,
-          [convId, bk.booking_id],
+          [convId, bk.booking_id, bk.guest_name || null],
         );
         return { booking: bk, existingConvId: convId };
       }
@@ -23794,12 +23795,18 @@ function openBookingInCalendar(booking){
   var checkOut = booking.check_out ? String(booking.check_out).slice(0, 10) : '';
   if (!code && !id) return;
 
+  function openBlockAndScroll(block){
+    bcPendingScrollToOverview = true;
+    bcOpenBookingDrawerOverview(block);
+    bcScrollToBookingOverview();
+  }
+
   function tryOpenBlock(blocks){
     if (!blocks || !blocks.length) return false;
     for (var i = 0; i < blocks.length; i++){
       var b = blocks[i];
-      if (id && b.booking_id === id){ showBlockDetail(b); return true; }
-      if (code && b.booking_code === code){ showBlockDetail(b); return true; }
+      if (id && b.booking_id === id){ openBlockAndScroll(b); return true; }
+      if (code && b.booking_code === code){ openBlockAndScroll(b); return true; }
     }
     return false;
   }
@@ -23809,7 +23816,7 @@ function openBookingInCalendar(booking){
     bcSetDateField(el('bc-end'), end);
     loadBedCalendar(function(data){
       if (!tryOpenBlock(data.blocks) && code){
-        showBlockDetail({
+        openBlockAndScroll({
           booking_code: code,
           booking_id: id || undefined,
           start_date: checkIn,
@@ -23834,7 +23841,7 @@ function openBookingInCalendar(booking){
   if (bcReadDateField(sEl) && bcReadDateField(eEl)){
     loadBedCalendar(function(data){
       if (!tryOpenBlock(data.blocks) && code){
-        showBlockDetail({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
+        openBlockAndScroll({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
       }
     });
   } else {
@@ -23842,7 +23849,7 @@ function openBookingInCalendar(booking){
     setTimeout(function(){
       loadBedCalendar(function(data){
         if (!tryOpenBlock(data.blocks) && code){
-          showBlockDetail({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
+          openBlockAndScroll({ booking_code: code, booking_id: id || undefined, guest_name: booking.guest_name || '' });
         }
       });
     }, 0);
