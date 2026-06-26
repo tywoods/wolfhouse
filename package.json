@@ -280,6 +280,7 @@
     "verify:sunset-portal-v1": "node scripts/verify-sunset-portal-v1.js",
     "verify:tenant-business-config": "node scripts/verify-tenant-business-config.js",
     "verify:wolfhouse-live-readiness": "node scripts/verify-wolfhouse-live-readiness-static.js",
+    "deploy:preflight": "node scripts/assert-deploy-from-master.js",
     "verify:owner-insight-agent": "node scripts/verify-owner-insight-agent.js",
     "verify:owner-insight-agent-live": "node scripts/verify-owner-insight-agent-live.js",
     "eval:owner-insight-live": "node scripts/eval-owner-insight-live.js",

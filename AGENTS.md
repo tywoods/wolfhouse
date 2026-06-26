@@ -62,6 +62,7 @@ node scripts/run-local-hermes.js chat             # local Hermes (this repo)
 
 - **Git (mandatory):** GitHub is source of truth — `docs/GITHUB-REPO-SETUP.md`.
   - **Before `git push` or any Hermes/Staff API deploy:** run `node scripts/assert-repo-sync.js` (also runs automatically via `.githooks/pre-push` after `node scripts/setup-git-hooks.js`).
+  - **Before ANY staff-api image build (`az acr build`) for staging or prod:** run `node scripts/assert-deploy-from-master.js` (`npm run deploy:preflight`) and **tag the image with the master SHA**. It refuses to build unless the tree is clean **and** `HEAD == origin/master`. This prevents two machines/agents building images from divergent local tips and silently overwriting each other's merged work (which has happened — a parallel deploy reverted the owner-agent fix on staging).
   - **After merging Captain's work:** `git pull` on laptop, then tell Captain to `git pull` on Lunabox (or they run `captain-git-start.sh`).
 - Node.js tooling; run scripts with `node scripts/...` (PowerShell may block `npm` scripts that shell out to npm.ps1).
 - Minimize parallel layers — one owner file per Luna rule (see behavior spec).
