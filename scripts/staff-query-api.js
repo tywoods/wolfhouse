@@ -34424,7 +34424,7 @@ async function handleSunsetScheduleBookingDetailGet(query, res, user) {
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
-    console.error('[schedule drawer]', err && err.message);
+    console.error('[schedule drawer]', err && err.message, err && err.stack);
     return sendJSON(res, 500, { success: false, error: 'read failed' });
   }
 }

@@ -389,38 +389,39 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const timeHasCapacity = await adminConfigTableHasColumn(client, 'tenant_lesson_time_rules', 'capacity');
   const timeCapacitySelect = timeHasCapacity ? ', capacity' : ', NULL::integer AS capacity';
 
-  const [priceRes, capacityRes, timeRes, auditRes] = await Promise.all([
-    client.query(
+  const [priceRes, capacityRes, timeRes, auditRes] = await (async () => {
+    const priceRes = await client.query(
       `SELECT id, item_type, item_code, display_name, currency, amount_cents, unit, active,
               effective_from, effective_to
          FROM tenant_price_rules
         WHERE ${priceWhere}
         ORDER BY item_type, item_code, unit`,
       priceParams,
-    ),
-    client.query(
+    );
+    const capacityRes = await client.query(
       `SELECT scope, weekday, service_date, capacity
          FROM tenant_lesson_capacity_rules
         WHERE ${capWhere}
         ORDER BY scope, weekday NULLS FIRST, service_date NULLS FIRST`,
       capParams,
-    ),
-    client.query(
+    );
+    const timeRes = await client.query(
       `SELECT id, time_local, time_local_end, label, lesson_type, weekdays_active, service_date${timeCapacitySelect}
          FROM tenant_lesson_time_rules
         WHERE ${timeWhere}
         ORDER BY service_date NULLS FIRST, time_local`,
       timeParams,
-    ),
-    client.query(
+    );
+    const auditRes = await client.query(
       `SELECT id, action, entity_type, entity_id, actor_email, before_json, after_json, created_at
          FROM tenant_config_audit_log
         WHERE client_slug = $1
         ORDER BY created_at DESC
         LIMIT 50`,
       auditParams,
-    ),
-  ]);
+    );
+    return [priceRes, capacityRes, timeRes, auditRes];
+  })();
 
   const prices = mapPriceRows(priceRes.rows);
   const lessonCapacityRaw = mapCapacityRows(capacityRes.rows);

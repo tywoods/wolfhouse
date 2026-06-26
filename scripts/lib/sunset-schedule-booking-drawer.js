@@ -12,7 +12,7 @@ const {
   attachLocationToMetadata,
 } = require('./sunset-school-locations');
 
-const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+const { resolveTenantBusinessConfigAsync, resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
   SUNSET_CLIENT_SLUG,
   METADATA_SOURCE_TAG,
@@ -220,7 +220,13 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
   }
 
-  const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { locationId: activeLocationId });
+  let adminCfg;
+  try {
+    adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { locationId: activeLocationId });
+  } catch (err) {
+    console.error('[schedule drawer] config load failed:', err && err.message);
+    adminCfg = resolveTenantBusinessConfig(clientSlug, activeLocationId);
+  }
   const prices = adminCfg.ok ? (adminCfg.prices || []) : [];
   const agg = aggregateComponentsFromServices(bundle.services);
   const payment = buildPaymentSummary(prices, bundle.booking, bundle.services, adminCfg.source);
