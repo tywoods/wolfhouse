@@ -93,6 +93,31 @@ function normalizeOwnerSql(sql) {
   return stripSqlComments(sql).replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * Owner SQL may read ONLY these JSON fields from booking_service_records.metadata —
+ * the signup -> experience/camp link (service_name + service_id). Raw `metadata` and
+ * every other field (created_by, prices, etc.) stay blocked.
+ *
+ * For VALIDATION ONLY, rewrite each allowed accessor to a virtual column name that is
+ * allowlisted in the catalog, so the existing column/sensitive scans pass it while a
+ * bare `metadata` (or any other field) still trips the sensitive-column block. The
+ * EXECUTED SQL is unchanged (it keeps the real `metadata->>'...'` accessor).
+ */
+const ALLOWED_METADATA_ACCESSORS = Object.freeze([
+  { field: 'service_name', virtual: 'service_name_json' },
+  { field: 'service_id', virtual: 'service_id_json' },
+]);
+
+function aliasAllowedJsonAccessorsForValidation(normalizedSql) {
+  let out = normalizedSql;
+  for (const a of ALLOWED_METADATA_ACCESSORS) {
+    // optional `alias.` prefix, then  metadata ->> 'field'  =>  alias.virtual
+    const re = new RegExp(`((?:[a-z_][a-z0-9_]*\\s*\\.\\s*)?)metadata\\s*->>\\s*'${a.field}'`, 'gi');
+    out = out.replace(re, (_m, prefix) => `${prefix}${a.virtual}`);
+  }
+  return out;
+}
+
 function extractCteNames(normalizedSql) {
   const names = new Set();
   if (!/^WITH\b/i.test(normalizedSql)) return names;
@@ -478,13 +503,18 @@ function validateOwnerReadOnlySql(opts = {}) {
     return { ...withCheck, ok: false, reasons, normalized_sql: normalized };
   }
 
-  const tableCheck = validateAllowedTables(normalized, opts.allowedTables);
+  // Validation-only rewrite of the allowlisted metadata JSON accessors to virtual
+  // columns; the executed SQL keeps the real accessor. Lets `metadata->>'service_name'`
+  // / `'service_id'` pass while bare `metadata` and all other fields stay blocked.
+  const validationSql = aliasAllowedJsonAccessorsForValidation(normalized);
+
+  const tableCheck = validateAllowedTables(validationSql, opts.allowedTables);
   if (!tableCheck.ok) {
     reasons.push(tableCheck.error);
     return { ...tableCheck, ok: false, reasons, normalized_sql: normalized };
   }
 
-  const columnCheck = validateOwnerColumnPolicy(normalized, tableCheck.referenced_tables);
+  const columnCheck = validateOwnerColumnPolicy(validationSql, tableCheck.referenced_tables);
   if (!columnCheck.ok) {
     reasons.push(columnCheck.error);
     return { ...columnCheck, ok: false, reasons, normalized_sql: normalized };

@@ -191,9 +191,41 @@ const TABLE_CATALOG = Object.freeze({
       'id', 'client_slug', 'booking_id', 'booking_code', 'guest_name', 'service_type',
       'service_date', 'quantity', 'status', 'amount_due_cents', 'amount_paid_cents',
       'payment_status', 'source', 'notes', 'created_at', 'updated_at',
+      // Virtual: ONLY these two JSON fields of metadata are readable (the signup ->
+      // experience/camp link). Use as metadata->>'service_name' / metadata->>'service_id'.
+      'service_name_json', 'service_id_json',
     ],
     sensitive_columns: ['metadata'],
-    notes: 'Preferred anchor for scoping bookings/payments when client_slug filter required in SQL text.',
+    notes: 'Preferred anchor for scoping bookings/payments. A SIGNUP for an experience/camp '
+      + 'is a row here (service_type=\'addon_service\') linked to tenant_services via '
+      + "metadata->>'service_id' (= tenant_services.id) and metadata->>'service_name'. "
+      + "To count signups for a named camp, filter metadata->>'service_name' ILIKE '%name%' "
+      + "(those two metadata fields are readable; raw metadata is blocked).",
+  },
+
+  tenant_services: {
+    table: 'tenant_services',
+    label: 'Experiences / camps catalog',
+    purpose: 'Owner-defined experiences, camps, and rentals (name, category, keywords, run dates, price). '
+      + 'Signups for one live in booking_service_records (match metadata->>\'service_name\' or '
+      + 'metadata->>\'service_id\' = tenant_services.id).',
+    client_scope_mode: 'direct_client_slug',
+    client_scope_expression: 'client_slug = $1',
+    client_scope_notes: 'Has client_slug column; direct filter.',
+    recommended_joins: [
+      {
+        table: 'booking_service_records',
+        on: "booking_service_records.metadata->>'service_id' = tenant_services.id::text AND booking_service_records.client_slug = $1",
+        purpose: 'Signups/bookings of this experience.',
+      },
+    ],
+    allowed_columns: [
+      'id', 'client_slug', 'name', 'category', 'keywords', 'price_cents', 'price_unit',
+      'per_guest', 'span_booking', 'start_date', 'end_date', 'active', 'luna_visible',
+      'created_at', 'updated_at',
+    ],
+    sensitive_columns: ['notes_for_luna', 'tenant_id', 'updated_by'],
+    notes: 'List experiences/camps and resolve a name/keyword to count its signups in booking_service_records.',
   },
 
   rooms: {
@@ -403,6 +435,24 @@ LIMIT 100`,
     allowed_role: 'owner',
     validation_status: 'approved',
     notes: 'Aggregation safe; LIMIT caps month buckets returned.',
+  },
+  {
+    id: 'signups_by_experience',
+    description: "Count signups for a named experience/camp (e.g. 'Chokes and Barrels'). Replace the ILIKE pattern with the camp the owner names.",
+    required_params: ['client_slug'],
+    param_types: { client_slug: 'text' },
+    sql: `SELECT bsr.metadata->>'service_name' AS service_name, COUNT(*) AS signup_count
+FROM booking_service_records bsr
+WHERE bsr.client_slug = $1
+  AND bsr.metadata->>'service_name' ILIKE '%chokes%'
+  AND bsr.status NOT IN ('cancelled')
+GROUP BY 1
+ORDER BY signup_count DESC
+LIMIT 100`,
+    expected_row_shape: { service_name: 'text', signup_count: 'integer' },
+    allowed_role: 'owner',
+    validation_status: 'approved',
+    notes: "Signups for experiences/camps live in booking_service_records; metadata->>'service_name' and ->>'service_id' are the ONLY readable metadata fields.",
   },
   {
     id: 'arrivals_on_date',

@@ -49,7 +49,14 @@ async function main() {
   const gLo = Math.min(Number(gtActive.g), Number(gtAll.g));
   const gHi = Math.max(Number(gtActive.g), Number(gtAll.g));
   const inBand = (nums, lo, hi) => nums.some((n) => n >= lo && n <= hi);
-  console.log(`GROUND TRUTH Sept 2026: bookings all=${gtAll.c} active=${gtActive.c}; guests all=${gtAll.g} active=${gtActive.g}\n`);
+  console.log(`GROUND TRUTH Sept 2026: bookings all=${gtAll.c} active=${gtActive.c}; guests all=${gtAll.g} active=${gtActive.g}`);
+
+  // Camp signups ground truth (via the signup->camp link in metadata).
+  const campAll = Number((await pg.query("select count(*) c from booking_service_records where client_slug=$1 and metadata->>'service_name' ilike '%chokes%'", [CLIENT])).rows[0].c);
+  const campActive = Number((await pg.query("select count(*) c from booking_service_records where client_slug=$1 and metadata->>'service_name' ilike '%chokes%' and status not in ('cancelled')", [CLIENT])).rows[0].c);
+  const campLo = Math.min(campAll, campActive);
+  const campHi = Math.max(campAll, campActive);
+  console.log(`GROUND TRUTH Chokes&Barrels signups: all=${campAll} active=${campActive}\n`);
 
   async function run(q) {
     const r = await runOwnerInsightAgentLive(pg, { client_slug: CLIENT, question: q, env: Object.assign({}, process.env, { OWNER_INSIGHT_AGENT_ENABLED: '1' }) });
@@ -68,6 +75,11 @@ async function main() {
     ok('September guest count is real (in [active..all] band, not 0)',
       rGuests.success && gHi > 0 && inBand(numbersIn(rGuests.answer), gLo, gHi),
       `expected ${gLo}-${gHi}, got "${rGuests.answer}"`);
+
+    const rCamp = await run('How many people signed up for the Chokes and Barrels camp?');
+    ok('Chokes & Barrels signup count is real (matches DB, not 0)',
+      rCamp.success && campHi > 0 && inBand(numbersIn(rCamp.answer), campLo, campHi),
+      `expected ${campLo}-${campHi}, got "${rCamp.answer}"`);
   } finally {
     await pg.end().catch(() => {});
   }
