@@ -46,7 +46,8 @@ function normalizeUiPayment(ps) {
 }
 
 function lineItemLabel(dbType, qty, dateIso, slotTime) {
-  const ui = DB_TO_UI_SERVICE_TYPE[dbType] || dbType;
+  const map = DB_TO_UI_SERVICE_TYPE || {};
+  const ui = map[dbType] || dbType;
   const q = Number(qty) || 1;
   const d = String(dateIso || '').slice(0, 10);
   if (ui === 'lesson' || dbType === 'surf_lesson') {

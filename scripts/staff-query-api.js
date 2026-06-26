@@ -20676,6 +20676,8 @@ function scheduleFormatSlotTimeRange(raw){
   if (!t) return '';
   var packMatch = t.match(/^(\d{2})(\d{2})_(\d{2})(\d{2})$/);
   if (packMatch) return packMatch[1] + ':' + packMatch[2] + ' – ' + packMatch[3] + ':' + packMatch[4];
+  var partialPackMatch = t.match(/^(\d{2}):(\d{2})_(\d{2})(\d{2})$/);
+  if (partialPackMatch) return partialPackMatch[1] + ':' + partialPackMatch[2] + ' – ' + partialPackMatch[3] + ':' + partialPackMatch[4];
   var parts = t.split('-').map(function(p){ return scheduleNormalizeSlotTime(p); }).filter(Boolean);
   if (parts.length >= 2) return parts[0] + ' – ' + parts[1];
   return parts[0] || scheduleNormalizeSlotTime(t);
@@ -20953,12 +20955,12 @@ function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
   if (!sub) return;
   var slots = scheduleSlotsForDate(lessonTimes, todayIso);
   if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
-  var todayLessons = (rows || []).filter(function(r){
-    return String(r.service_date || '').slice(0, 10) === todayIso && scheduleRowType(r) === 'lesson';
+  var todayRows = (rows || []).filter(function(r){
+    return String(r.service_date || '').slice(0, 10) === todayIso;
   });
   var subHtml = '';
   slots.forEach(function(slot){
-    var stats = scheduleSlotAggregates(rows, slot);
+    var stats = scheduleSlotAggregates(todayRows, slot);
     var label = slot.label || slot.offering_label || slot.session_type || portalT('schedule.type.lesson');
     subHtml += '<div class="portal-schedule-lesson-time-row">' +
       '<div class="portal-schedule-lesson-slot-main">' +
