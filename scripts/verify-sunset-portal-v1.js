@@ -1253,7 +1253,7 @@ console.log('\n[37] Sunset Schedule — courses card + warm light polish');
 
 if (apiSrc) {
   assert('courses card renderer', apiSrc.includes('function scheduleRenderCoursesTodayBreakdown('));
-  assert('courses from admin prices helper', apiSrc.includes('function scheduleCoursesFromPrices('));
+  assert('courses from surf packs helper', apiSrc.includes('function scheduleCoursesFromConfig(') && apiSrc.includes('data.surf_packs'));
   assert('course payload in create flow', apiSrc.includes('components.course'));
   assert('lesson slot label layout', apiSrc.includes('portal-schedule-lesson-slot-time'));
   assert('wider lesson groups metric card', apiSrc.includes('portal-schedule-metric-card-lessons'));

@@ -707,6 +707,8 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.col.payment': 'Payment',
     'schedule.col.action': 'Needs action',
     'schedule.type.lesson': 'Lesson',
+    'schedule.type.course': 'Courses',
+    'schedule.create.courseSelect': 'Course',
     'schedule.type.rental': 'Rental',
     'schedule.action.unpaid': 'Unpaid',
     'schedule.drawer.close': 'Close',

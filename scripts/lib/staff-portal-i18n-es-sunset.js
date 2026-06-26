@@ -377,6 +377,8 @@ module.exports = {
   'schedule.summary.wetsuits': 'neoprenos',
   'schedule.type.boardRental': 'Alquiler de tabla',
   'schedule.type.lesson': 'Clase de surf',
+  'schedule.type.course': 'Cursos',
+  'schedule.create.courseSelect': 'Curso',
   'schedule.type.rental': 'Alquiler',
   'schedule.type.wetsuitRental': 'Alquiler de neopreno',
   'schedule.view.day': 'Día',

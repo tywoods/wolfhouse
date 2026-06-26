@@ -79,7 +79,9 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
             amount_due_cents, amount_paid_cents, payment_status::text AS payment_status,
             metadata->>'slot_time' AS slot_time, metadata->>'notes' AS notes,
             metadata->>'staff_ui_service_type' AS staff_ui_service_type,
-            metadata->>'components' AS metadata_components
+            metadata->>'component' AS metadata_component,
+            metadata->>'components' AS metadata_components,
+            metadata->>'location_id' AS location_id
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid
       ORDER BY service_date, id`,
@@ -104,7 +106,8 @@ function aggregateComponentsFromServices(services) {
     dates.add(String(sr.service_date || '').slice(0, 10));
     const dbType = String(sr.service_type || '').toLowerCase();
     const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || dbType;
-    const key = ui === 'board_rental' ? 'surfboard' : (ui === 'wetsuit_rental' ? 'wetsuit' : ui);
+    const key = ui === 'board_rental' ? 'surfboard'
+      : (ui === 'wetsuit_rental' ? 'wetsuit' : (ui === 'course' ? 'course' : ui));
     if (!components[key]) {
       components[key] = {
         quantity: Number(sr.quantity) || 1,
@@ -160,6 +163,20 @@ function buildPaymentSummary(prices, booking, services, adminSource) {
   };
 }
 
+function resolveBundleLocationId(bundle) {
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  let recordLocationId = normalizeSunsetLocationId(meta.location_id || null);
+  (bundle && bundle.services || []).some((sr) => {
+    const srLoc = sr && sr.location_id;
+    if (srLoc) {
+      recordLocationId = normalizeSunsetLocationId(srLoc);
+      return true;
+    }
+    return false;
+  });
+  return recordLocationId;
+}
+
 async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -180,10 +197,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   }
   const meta = parseMeta(bundle.booking.metadata);
   const activeLocationId = normalizeSunsetLocationId(opts.locationId);
-  const recordLocationId = resolveRecordLocationId(
-    parseMeta((bundle.services[0] && bundle.services[0].metadata) || {}),
-    meta,
-  );
+  const recordLocationId = resolveBundleLocationId(bundle);
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
@@ -245,10 +259,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
   }
   const meta = parseMeta(bundle.booking.metadata);
   const activeLocationId = normalizeSunsetLocationId(opts.locationId);
-  const recordLocationId = resolveRecordLocationId(
-    parseMeta((bundle.services[0] && bundle.services[0].metadata) || {}),
-    meta,
-  );
+  const recordLocationId = resolveBundleLocationId(bundle);
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }

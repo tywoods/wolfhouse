@@ -19708,6 +19708,9 @@ function syncSunsetSchoolSwitcher(){
 function setSunsetLocation(locationId){
   var next = (locationId === 'sunset-sardinero') ? 'sunset-sardinero' : 'sunset-somo';
   try { localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY, next); } catch (_) { /* ignore */ }
+  scheduleLessonTimesLoaded = false;
+  scheduleLessonTimesCache = [];
+  scheduleCoursesCache = [];
   refreshSunsetSchoolContextLabels();
   if (getPortalProfile(getClient()).is_surf_vertical) {
     if (el('tab-portal-home') && el('tab-portal-home').classList.contains('active')) loadSchedulePage();
@@ -20005,14 +20008,13 @@ function scheduleEquipmentPrepLabel(group){
 function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded, wetsuitsNeeded){
   stats = stats || {};
   var time = scheduleNormalizeSlotTime(slotTime || '');
-  var title = String(groupLabel || '').trim() || time || portalT('schedule.type.lesson');
-  var timeHtml = time ? '<div class="portal-schedule-ops-lesson-hdr-time">' + escHtml(time) + '</div>' : '';
+  var label = String(groupLabel || '').trim() || time || portalT('schedule.type.lesson');
+  var titleLine = time ? (label + ' — ' + time) : label;
   var prepLine = String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked') + ' · ' +
     portalT('schedule.ops.prepare') + ': ' + String(boardsNeeded || 0) + ' ' + portalT('schedule.summary.boards') + ' · ' +
     String(wetsuitsNeeded || 0) + ' ' + portalT('schedule.summary.wetsuits');
   return '<header class="portal-schedule-ops-lesson-hdr">' +
-    '<div class="portal-schedule-ops-lesson-hdr-title">' + escHtml(title) + '</div>' +
-    timeHtml +
+    '<div class="portal-schedule-ops-lesson-hdr-title">' + escHtml(titleLine) + '</div>' +
     '<div class="portal-schedule-ops-lesson-hdr-prep">' + escHtml(prepLine) + '</div>' +
     '</header>';
 }
@@ -20163,7 +20165,7 @@ function scheduleNormalizeApiRow(r){
   if (r.needs_reply === true || r.needs_reply === 't') r._needsReply = true;
   if (r.record_source === 'staff_manual' && (meta.source === 'staff_manual_schedule' || meta.staff_manual_schedule)) r._isDbManual = true;
   if (r.record_source === 'luna_guest' || r.record_source === 'stripe') r._isLuna = true;
-  if (meta.components && !r.components) r.components = meta.components;
+  if (meta.component) r.component = meta.component;
   if (meta.lesson_category) r.lesson_category = meta.lesson_category;
   if (meta.course_id) r.course_id = meta.course_id;
   if (meta.course_label) r.course_label = meta.course_label;
@@ -20234,15 +20236,25 @@ function scheduleRowMeta(row){
   return meta;
 }
 
-function scheduleRowComponents(row){
+function scheduleRowComponentKey(row){
   var meta = scheduleRowMeta(row);
-  if (meta.components && Array.isArray(meta.components)) return meta.components.slice();
-  if (meta.component) return [String(meta.component)];
+  if (meta.component) return String(meta.component);
+  if (row.staff_ui_service_type){
+    var ui = String(row.staff_ui_service_type).toLowerCase();
+    if (ui === 'board_rental') return 'surfboard';
+    if (ui === 'wetsuit_rental') return 'wetsuit';
+    if (ui === 'course') return 'course';
+    if (ui === 'lesson') return 'lesson';
+  }
   var st = String(row.service_type || '').toLowerCase();
-  if (/lesson/.test(st)) return ['lesson'];
-  if (/surfboard|board/.test(st)) return ['surfboard'];
-  if (/wetsuit/.test(st)) return ['wetsuit'];
-  return [scheduleRowType(row) === 'lesson' ? 'lesson' : 'surfboard'];
+  if (st === 'surf_lesson') return scheduleRowIsCourse(row) ? 'course' : 'lesson';
+  if (/surfboard|board/.test(st)) return 'surfboard';
+  if (/wetsuit/.test(st)) return 'wetsuit';
+  return scheduleRowType(row) === 'lesson' ? 'lesson' : 'surfboard';
+}
+
+function scheduleRowComponents(row){
+  return [scheduleRowComponentKey(row)];
 }
 
 function scheduleRowSourceKind(row){
@@ -20415,7 +20427,7 @@ function scheduleBuildDisplayGroups(rows){
     }
     var g = map[key];
     g.records.push(r);
-    scheduleRowComponents(r).forEach(function(c){ g.components[c] = true; });
+    g.components[scheduleRowComponentKey(r)] = true;
     if (scheduleRowType(r) === 'lesson'){
       g.quantity = r.quantity != null ? Number(r.quantity) : 1;
       g.slot_time = r.slot_time || r.service_time || g.slot_time;
@@ -20555,6 +20567,30 @@ function scheduleFetchNext30(client, startDate){
   return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
 }
 
+function scheduleOnCreateComponentChange(changedId){
+  var lesson = el('ps-create-comp-lesson');
+  var course = el('ps-create-comp-course');
+  if (changedId === 'ps-create-comp-lesson' && lesson && lesson.checked && course) course.checked = false;
+  if (changedId === 'ps-create-comp-course' && course && course.checked && lesson) lesson.checked = false;
+  schedulePopulateCreateComponentFields();
+}
+
+function scheduleRowBookingRef(row, group){
+  group = group || scheduleFindGroupForRow(row) || row;
+  var bookingId = (group && group.booking_id) || (row && row.booking_id) || null;
+  var bookingCode = (group && group.booking_code) || (row && row.booking_code) || null;
+  if (!bookingId && group && group.records){
+    for (var i = 0; i < group.records.length; i++){
+      if (group.records[i].booking_id){
+        bookingId = group.records[i].booking_id;
+        if (!bookingCode) bookingCode = group.records[i].booking_code;
+        break;
+      }
+    }
+  }
+  return { booking_id: bookingId, booking_code: bookingCode };
+}
+
 function schedulePopulateCreateComponentFields(){
   var lessonOn = !!(el('ps-create-comp-lesson') && el('ps-create-comp-lesson').checked);
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
@@ -20618,13 +20654,6 @@ function scheduleNormalizeSlotTime(raw){
 
 function scheduleFetchLessonTimesConfig(client){
   if (scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
-  if (adminConfigCache && adminConfigCache.lesson_times && adminConfigCache.lesson_times.length){
-    scheduleLessonTimesCache = adminConfigCache.lesson_times.slice();
-    scheduleCoursesCache = scheduleCoursesFromPrices(adminConfigCache.prices || []);
-    scheduleLessonTimesFallback = adminConfigCache.source !== 'db';
-    scheduleLessonTimesLoaded = true;
-    return Promise.resolve(scheduleLessonTimesCache);
-  }
   var cfgUrl = '/staff/admin/config?client=' + encodeURIComponent(client) + (client === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
@@ -20637,13 +20666,14 @@ function scheduleFetchLessonTimesConfig(client){
         scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
         scheduleLessonTimesFallback = true;
       }
-      scheduleCoursesCache = scheduleCoursesFromPrices((data && data.prices) || []);
+      scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
     })
     .catch(function(){
       var profile = getPortalProfile(client);
       scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
+      scheduleCoursesCache = [];
       scheduleLessonTimesFallback = true;
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
@@ -20778,14 +20808,37 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
 }
 
 function scheduleCoursesFromPrices(prices){
+  return scheduleCoursesFromConfig(prices, []);
+}
+
+function scheduleFormatPackScheduleKey(raw){
+  var s = String(raw || '').trim();
+  var m = s.match(/^(\d{2})(\d{2})_(\d{2})(\d{2})$/);
+  if (!m) return scheduleNormalizeSlotTime(s);
+  return m[1] + ':' + m[2];
+}
+
+function scheduleCoursesFromConfig(prices, surfPacks){
   var seen = {};
   var out = [];
-  (prices || []).forEach(function(p){
-    if (String((p && p.category) || '').toLowerCase() !== 'course') return;
-    var id = String((p && (p.offering_key || p.price_id || p.item_code)) || '').trim();
+  (surfPacks || []).forEach(function(pack){
+    var id = String(pack.pack_id || '').trim();
     if (!id || seen[id]) return;
     seen[id] = true;
-    out.push({ course_id: id, label: (p && p.label) || id });
+    var time = '';
+    if (pack.schedules && pack.schedules.length){
+      time = scheduleFormatPackScheduleKey(pack.schedules[0]);
+    }
+    out.push({ course_id: id, label: pack.label || id, slot_time: time });
+  });
+  (prices || []).forEach(function(p){
+    var cat = String((p && p.category) || '').toLowerCase();
+    if (cat !== 'course' && cat !== 'package') return;
+    var id = String((p && (p.offering_key || p.price_id || p.item_code)) || '').trim();
+    if (!id || seen[id]) return;
+    if (String(id).indexOf('surf_pack_') === 0) return;
+    seen[id] = true;
+    out.push({ course_id: id, label: (p && p.label) || id, slot_time: '' });
   });
   out.sort(function(a,b){ return String(a.label || '').localeCompare(String(b.label || '')); });
   return out;
@@ -20809,7 +20862,7 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
     configured.forEach(function(c){
       var cid = String(c.course_id || '');
       var n = counts[cid] != null ? Number(counts[cid]) : 0;
-      var time = scheduleCourseDisplayTime(rows, cid, todayIso);
+      var time = scheduleCourseDisplayTime(rows, cid, todayIso) || scheduleNormalizeSlotTime(c.slot_time || '');
       html += '<div class="portal-schedule-lesson-time-row">' +
         '<div class="portal-schedule-lesson-slot-main">' +
         '<span class="portal-schedule-lesson-slot-label">' + escHtml(c.label || portalT('schedule.courses.unnamed')) + '</span>' +
@@ -21286,13 +21339,10 @@ function scheduleGroupComponentQty(group, key){
   if (key === 'lesson' || key === 'course') return group.quantity || 0;
   var sum = 0;
   (group.records || []).forEach(function(r){
-    scheduleRowComponents(r).forEach(function(c){
-      if (c === key) sum += (r.quantity != null ? Number(r.quantity) : 1);
-    });
+    if (scheduleRowComponentKey(r) === key) {
+      sum += (r.quantity != null ? Number(r.quantity) : 1);
+    }
   });
-  if (!sum && group.components && group.components[key]){
-    sum = group.quantity != null ? Number(group.quantity) : 1;
-  }
   return sum;
 }
 
@@ -21715,8 +21765,16 @@ var scheduleDrawerState = { row: null, ctx: null, editing: false };
 
 function scheduleDrawerEditableEnabled(row){
   if (!row || row._isDemo) return false;
-  if (!(row._isDbManual || row.record_source === 'staff_manual')) return false;
-  return !!(row.booking_id || row.booking_code);
+  var group = scheduleFindGroupForRow(row);
+  var manual = !!(row._isDbManual || row.record_source === 'staff_manual');
+  if (group && group.records){
+    manual = manual || group.records.some(function(r){
+      return !!(r._isDbManual || r.record_source === 'staff_manual');
+    });
+  }
+  if (!manual) return false;
+  var ref = scheduleRowBookingRef(row, group);
+  return !!(ref.booking_id || ref.booking_code);
 }
 
 function scheduleCloneDrawerCtx(ctx){
@@ -22218,7 +22276,8 @@ function openScheduleDetailDrawer(row){
     body.innerHTML = '<div class="state-msg">' + escHtml(portalT('schedule.drawer.loading')) + '</div>';
     drawer.style.display = 'block';
     if (backdrop) backdrop.style.display = 'block';
-    scheduleFetchDrawerContext(row).then(function(data){
+    var fetchRow = Object.assign({}, row, scheduleRowBookingRef(row, group));
+    scheduleFetchDrawerContext(fetchRow).then(function(data){
       if (!data || !data.success){
         body.innerHTML = '<div class="state-msg error">' + escHtml(portalT('schedule.drawer.loadFailed')) + '</div>';
         return;
@@ -22468,7 +22527,7 @@ function wireScheduleControls(){
     var node = el(id);
     if (node && !node.dataset.wired){
       node.dataset.wired = '1';
-      node.addEventListener('change', schedulePopulateCreateComponentFields);
+      node.addEventListener('change', function(){ scheduleOnCreateComponentChange(id); });
     }
   });
 }
