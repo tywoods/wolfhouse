@@ -51,17 +51,31 @@ const BLOCKED_TABLES = Object.freeze([
 const BSR_SCOPE_SUBQUERY =
   'booking_id IN (SELECT DISTINCT booking_id FROM booking_service_records WHERE client_slug = $1 AND booking_id IS NOT NULL)';
 
+/**
+ * Tenant scope for `bookings` by the booking's OWN client_id. The old scope
+ * (b.id IN booking_service_records) silently DROPPED every booking without an
+ * add-on/service record (e.g. only 6 of 21 Sept bookings had one), producing wrong
+ * counts. client_id is derived from the tenant via the BSR anchor (the only table
+ * carrying client_slug), then ALL bookings for that client_id match — add-on or not.
+ */
+const BOOKINGS_TENANT_SCOPE =
+  'client_id IN (SELECT b2.client_id FROM bookings b2 WHERE b2.id IN '
+  + '(SELECT booking_id FROM booking_service_records WHERE client_slug = $1 AND booking_id IS NOT NULL))';
+
 const TABLE_CATALOG = Object.freeze({
   bookings: {
     table: 'bookings',
     label: 'Bookings',
     purpose: 'Guest reservations, dates, package, payment summary, and assignment status.',
     client_scope_mode: 'join_required',
-    client_scope_expression: BSR_SCOPE_SUBQUERY,
+    client_scope_expression: BOOKINGS_TENANT_SCOPE,
     client_scope_notes:
       'Staging/production Postgres uses client_id (FK to clients), not client_slug. '
-      + 'Owner SQL must scope via booking_service_records.client_slug = $1 or equivalent approved subquery. '
-      + 'Do not filter bookings.client_slug — column absent on staging.',
+      + 'Scope bookings by their OWN client_id (derived from the tenant via the BSR '
+      + 'anchor): client_id IN (SELECT b2.client_id FROM bookings b2 WHERE b2.id IN '
+      + '(SELECT booking_id FROM booking_service_records WHERE client_slug = $1 AND booking_id IS NOT NULL)). '
+      + 'Do NOT scope bookings as b.id IN (booking_service_records ...) — that drops every '
+      + 'booking without an add-on record and undercounts. Do not filter bookings.client_slug (column absent).',
     recommended_joins: [
       {
         table: 'booking_service_records',
@@ -348,9 +362,11 @@ const APPROVED_QUERY_TEMPLATES = Object.freeze([
     sql: `SELECT b.booking_code, b.guest_name, b.phone, b.check_in, b.check_out,
        b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents, b.payment_status, b.status
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.status NOT IN ('cancelled', 'expired', 'hold')
 AND COALESCE(b.balance_due_cents, 0) > 0
@@ -396,9 +412,11 @@ LIMIT 100`,
     sql: `SELECT b.booking_code, b.guest_name, b.check_in, b.check_out, b.package_code,
        b.guest_count, b.status, b.primary_room_code
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.check_in = $2::date
 AND b.status NOT IN ('cancelled', 'expired')
@@ -420,9 +438,11 @@ LIMIT 100`,
     sql: `SELECT b.booking_code, b.guest_name, b.check_in, b.check_out, b.package_code,
        b.guest_count, b.status
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.check_in = CURRENT_DATE + INTERVAL '1 day'
 AND b.status NOT IN ('cancelled', 'expired')
@@ -443,9 +463,11 @@ LIMIT 100`,
     param_types: { client_slug: 'text', checkout_date: 'date' },
     sql: `SELECT b.booking_code, b.guest_name, b.check_in, b.check_out, b.status
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.check_out = $2::date
 AND b.status NOT IN ('cancelled', 'expired')
@@ -491,9 +513,11 @@ LIMIT 100`,
     param_types: { client_slug: 'text' },
     sql: `SELECT b.package_code, COUNT(*) AS booking_count
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.status NOT IN ('cancelled', 'expired', 'hold')
 AND b.package_code IS NOT NULL
@@ -534,9 +558,11 @@ LIMIT 100`,
     param_types: { client_slug: 'text' },
     sql: `SELECT b.booking_source, COUNT(*) AS booking_count
 FROM bookings b
-WHERE b.id IN (
-  SELECT DISTINCT booking_id FROM booking_service_records
-  WHERE client_slug = $1 AND booking_id IS NOT NULL
+WHERE b.client_id IN (
+  SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (
+    SELECT booking_id FROM booking_service_records
+    WHERE client_slug = $1 AND booking_id IS NOT NULL
+  )
 )
 AND b.status NOT IN ('cancelled', 'expired', 'hold')
 GROUP BY b.booking_source
