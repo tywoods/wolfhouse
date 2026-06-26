@@ -16406,6 +16406,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-price-card-edit-actions{display:flex;gap:4px;flex-wrap:wrap;margin-top:2px}
 .portal-admin-price-card-edit-actions .btn{font-size:10px;padding:3px 8px}
 .portal-admin-pack-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:8px}
+.portal-admin-room-checklist{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:6px 12px;max-height:180px;overflow:auto;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft)}
+.portal-admin-room-checklist label{display:flex;align-items:center;gap:6px;font-size:13px;margin:0}
 .portal-admin-pack-card{border:1px solid var(--border-soft);border-radius:10px;background:var(--surface-soft);padding:12px 14px;display:flex;flex-direction:column;gap:8px}
 .portal-admin-pack-title{font-size:14px;font-weight:800;color:var(--text)}
 .portal-admin-pack-sub{font-size:11px;color:var(--text-3)}
@@ -17699,7 +17701,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
   <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
-  <button class="tab-btn" data-tab="services" style="display:none">Services</button>
+  <button class="tab-btn" data-tab="services" style="display:none">Camps and Services</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -17891,10 +17893,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="tab-services" class="tab-panel">
 <div class="portal-admin-wrap">
   <div class="portal-admin-header-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-    <h2 class="portal-admin-title">Services</h2>
-    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create service</button>
+    <h2 class="portal-admin-title">Camps and Services</h2>
+    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / service</button>
   </div>
-  <p class="portal-admin-muted">Add-on services Luna can offer and (later) book. The name is the booking line item; price is per guest.</p>
+  <p class="portal-admin-muted">Camps and add-on services Luna can offer. Set camp dates and optionally block rooms for the whole period.</p>
   <div id="svc-list-body"><p class="portal-admin-muted">Loading…</p></div>
   <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
@@ -17903,17 +17905,23 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="svc-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
   <div class="portal-schedule-create-backdrop" id="svc-modal-backdrop"></div>
   <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="svc-modal-title">
-    <h3 id="svc-modal-title">Create service</h3>
+    <h3 id="svc-modal-title">Create camp / service</h3>
     <input type="hidden" id="svc-f-id">
     <div class="portal-schedule-create-field"><label for="svc-f-name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-category">Category</label>
       <select id="svc-f-category"><option value="">—</option><option value="experience">Experience</option><option value="meal">Meal</option><option value="transfer">Transfer</option><option value="rental">Rental</option><option value="lesson">Lesson</option><option value="other">Other</option></select></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-start">Start date (optional)</label><input type="date" id="svc-f-start"></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-end">End date (optional)</label><input type="date" id="svc-f-end"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-start">Start date (required for room block)</label><input type="date" id="svc-f-start"></div>
+    <div class="portal-schedule-create-field"><label for="svc-f-end">End date (required for room block)</label><input type="date" id="svc-f-end"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
       <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option></select></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
+    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
+    <div class="portal-schedule-create-field" id="svc-f-rooms-wrap" style="display:none">
+      <label>Rooms to block</label>
+      <div id="svc-f-rooms-list" class="portal-admin-room-checklist"><p class="portal-admin-muted">Loading rooms…</p></div>
+      <p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Selected rooms are blocked for the camp start/end dates on the booking calendar.</p>
+    </div>
     <div class="portal-schedule-create-field"><label for="svc-f-keywords">Keywords (comma-separated)</label><input type="text" id="svc-f-keywords" placeholder="motocross, moto"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-notes">Notes for Luna</label><textarea id="svc-f-notes" rows="3" placeholder="What Luna may tell guests about this service"></textarea></div>
     <div class="portal-schedule-create-actions">

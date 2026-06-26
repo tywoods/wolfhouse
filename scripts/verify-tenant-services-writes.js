@@ -39,6 +39,16 @@ ok('non-integer price rejected', validateServiceBody({ name: 'x', price_cents: 9
 ok('bad date rejected', validateServiceBody({ name: 'x', start_date: '2026-13-40' }, { requireName: true }).ok === false);
 ok('end before start rejected', validateServiceBody({ name: 'x', start_date: '2026-09-01', end_date: '2026-06-01' }, { requireName: true }).ok === false);
 ok('non-boolean span rejected', validateServiceBody({ name: 'x', span_booking: 'yes' }, { requireName: true }).ok === false);
+ok('block rooms requires dates on create', validateServiceBody({
+  name: 'Surf camp', block_rooms_enabled: true, blocked_room_codes: ['A1'],
+}, { requireName: true }).ok === false);
+ok('block rooms create accepted with dates', (() => {
+  const r = validateServiceBody({
+    name: 'Surf camp', block_rooms_enabled: true, blocked_room_codes: ['a1', 'A1'],
+    start_date: '2026-07-01', end_date: '2026-07-07',
+  }, { requireName: true });
+  return r.ok && r.patch.blocked_room_codes.join(',') === 'A1';
+})());
 
 // ── validation: patch ────────────────────────────────────────────────
 ok('patch allows partial (no name)', validateServiceBody({ price_cents: 1500 }).ok === true);

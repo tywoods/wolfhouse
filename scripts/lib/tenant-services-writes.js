@@ -6,6 +6,12 @@
  * DB helpers mirror the Sunset admin pattern (idempotent ensure, withPgClient-driven).
  */
 
+const {
+  normalizeRoomCodes,
+  ensureServiceBlockColumns,
+  syncServiceRoomBlocks,
+} = require('./tenant-service-room-blocks');
+
 const SERVICE_CATEGORIES = new Set(['experience', 'meal', 'transfer', 'rental', 'lesson', 'other']);
 // Two booking-mappable units only. per_day spreads across every night of the stay;
 // per_stay is one flat charge. Legacy values (per_week/one_off) are tolerated by
@@ -18,6 +24,7 @@ const KEYWORD_MAX = 60;
 const SERVICE_FIELDS = new Set([
   'name', 'category', 'notes_for_luna', 'keywords', 'start_date', 'end_date',
   'price_cents', 'price_unit', 'per_guest', 'span_booking', 'luna_visible', 'active',
+  'block_rooms_enabled', 'blocked_room_codes',
 ]);
 
 function isValidDate(s) {
@@ -95,11 +102,19 @@ function validateServiceBody(body, { requireName = false } = {}) {
     if (!PRICE_UNITS.has(u)) return { ok: false, error: 'invalid price_unit' };
     out.price_unit = u;
   }
-  for (const key of ['per_guest', 'span_booking', 'luna_visible', 'active']) {
+  for (const key of ['per_guest', 'span_booking', 'luna_visible', 'active', 'block_rooms_enabled']) {
     if (body[key] != null) {
       if (typeof body[key] !== 'boolean') return { ok: false, error: `${key} must be boolean` };
       out[key] = body[key];
     }
+  }
+  if (body.blocked_room_codes != null) {
+    if (!Array.isArray(body.blocked_room_codes)) return { ok: false, error: 'blocked_room_codes must be array' };
+    out.blocked_room_codes = normalizeRoomCodes(body.blocked_room_codes);
+  }
+  if (out.block_rooms_enabled && requireName) {
+    if (!out.start_date || !out.end_date) return { ok: false, error: 'block_rooms_requires_start_and_end_date' };
+    if (!(out.blocked_room_codes || []).length) return { ok: false, error: 'blocked_room_codes required when block_rooms_enabled' };
   }
   if (!Object.keys(out).length) return { ok: false, error: 'empty body' };
   return { ok: true, patch: out };
@@ -146,6 +161,17 @@ async function ensureServicesTable(client) {
     )`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_tenant_services_client_active
     ON tenant_services (client_slug, active)`);
+  await ensureServiceBlockColumns(client);
+}
+
+function validateMergedBlockSettings(service) {
+  if (!service || !service.block_rooms_enabled) return { ok: true };
+  const rooms = normalizeRoomCodes(service.blocked_room_codes);
+  const start = service.start_date ? String(service.start_date).slice(0, 10) : null;
+  const end = service.end_date ? String(service.end_date).slice(0, 10) : null;
+  if (!start || !end) return { ok: false, error: 'block_rooms_requires_start_and_end_date' };
+  if (!rooms.length) return { ok: false, error: 'blocked_room_codes required when block_rooms_enabled' };
+  return { ok: true };
 }
 
 // v3 booking integration — runtime twin of migration 029.
@@ -206,28 +232,66 @@ async function createService(client, { clientSlug, body, actor }) {
   if (!v.ok) return { ok: false, status: 400, body: { success: false, error: v.error } };
   await ensureServicesTable(client);
   const p = v.patch;
-  const res = await client.query(
-    `INSERT INTO tenant_services
-       (tenant_id, client_slug, name, category, notes_for_luna, keywords,
-        start_date, end_date, price_cents, price_unit, per_guest, span_booking,
-        luna_visible, active, updated_by)
-     VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14::uuid)
-     RETURNING *`,
-    [
-      clientSlug, p.name, p.category || null, p.notes_for_luna || null, p.keywords || [],
-      p.start_date || null, p.end_date || null, p.price_cents || 0, p.price_unit || 'per_day',
-      p.per_guest != null ? p.per_guest : true, p.span_booking === true,
-      p.luna_visible != null ? p.luna_visible : true, p.active != null ? p.active : true,
-      (actor && actor.staff_user_id) || null,
-    ],
-  );
-  return { ok: true, status: 201, body: { success: true, service: res.rows[0] } };
+  const blockCheck = validateMergedBlockSettings(p);
+  if (!blockCheck.ok) return { ok: false, status: 400, body: { success: false, error: blockCheck.error } };
+
+  await client.query('BEGIN');
+  try {
+    const res = await client.query(
+      `INSERT INTO tenant_services
+         (tenant_id, client_slug, name, category, notes_for_luna, keywords,
+          start_date, end_date, price_cents, price_unit, per_guest, span_booking,
+          luna_visible, active, block_rooms_enabled, blocked_room_codes, updated_by)
+       VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::uuid)
+       RETURNING *`,
+      [
+        clientSlug, p.name, p.category || null, p.notes_for_luna || null, p.keywords || [],
+        p.start_date || null, p.end_date || null, p.price_cents || 0, p.price_unit || 'per_day',
+        p.per_guest != null ? p.per_guest : true, p.span_booking === true,
+        p.luna_visible != null ? p.luna_visible : true, p.active != null ? p.active : true,
+        p.block_rooms_enabled === true, p.blocked_room_codes || [],
+        (actor && actor.staff_user_id) || null,
+      ],
+    );
+    const service = res.rows[0];
+    const sync = await syncServiceRoomBlocks(client, { clientSlug, service, actor });
+    if (!sync.ok) {
+      const status = sync.error === 'bed_conflicts' ? 409 : (String(sync.error || '').startsWith('room_not_found') ? 404 : 400);
+      throw Object.assign(new Error(sync.error || 'room_block_sync_failed'), {
+        status,
+        conflicts: sync.conflicts,
+        room_code: sync.room_code,
+      });
+    }
+    await client.query('COMMIT');
+    const fresh = await client.query(`SELECT * FROM tenant_services WHERE id = $1::uuid`, [service.id]);
+    return { ok: true, status: 201, body: { success: true, service: fresh.rows[0] } };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.message === 'bed_conflicts') {
+      return { ok: false, status: 409, body: { success: false, error: 'bed_conflicts', room_code: err.room_code, conflicts: err.conflicts || [] } };
+    }
+    if (err.status === 404 && err.message && err.message.startsWith('room_not_found')) {
+      return { ok: false, status: 404, body: { success: false, error: err.message } };
+    }
+    if (err.status) return { ok: false, status: err.status, body: { success: false, error: err.message } };
+    throw err;
+  }
 }
 
 async function patchService(client, { id, clientSlug, patch, actor }) {
   const v = validateServiceBody(patch, { requireName: false });
   if (!v.ok) return { ok: false, status: 400, body: { success: false, error: v.error } };
   await ensureServicesTable(client);
+  const existingRes = await client.query(
+    `SELECT * FROM tenant_services WHERE id = $1::uuid AND client_slug = $2`,
+    [id, clientSlug],
+  );
+  if (!existingRes.rows[0]) return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
+  const merged = { ...existingRes.rows[0], ...v.patch };
+  const blockCheck = validateMergedBlockSettings(merged);
+  if (!blockCheck.ok) return { ok: false, status: 400, body: { success: false, error: blockCheck.error } };
+
   const sets = [];
   const params = [];
   let i = 3;
@@ -240,24 +304,64 @@ async function patchService(client, { id, clientSlug, patch, actor }) {
   sets.push('updated_at = NOW()');
   sets.push(`updated_by = $${i}::uuid`);
   params.push((actor && actor.staff_user_id) || null);
-  const res = await client.query(
-    `UPDATE tenant_services SET ${sets.join(', ')}
-       WHERE id = $1::uuid AND client_slug = $2 RETURNING *`,
-    [id, clientSlug, ...params],
-  );
-  if (!res.rows[0]) return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
-  return { ok: true, status: 200, body: { success: true, service: res.rows[0] } };
+
+  await client.query('BEGIN');
+  try {
+    const res = await client.query(
+      `UPDATE tenant_services SET ${sets.join(', ')}
+         WHERE id = $1::uuid AND client_slug = $2 RETURNING *`,
+      [id, clientSlug, ...params],
+    );
+    const service = res.rows[0];
+    const sync = await syncServiceRoomBlocks(client, { clientSlug, service, actor });
+    if (!sync.ok) {
+      const status = sync.error === 'bed_conflicts' ? 409 : (String(sync.error || '').startsWith('room_not_found') ? 404 : 400);
+      throw Object.assign(new Error(sync.error || 'room_block_sync_failed'), {
+        status,
+        conflicts: sync.conflicts,
+        room_code: sync.room_code,
+      });
+    }
+    await client.query('COMMIT');
+    const fresh = await client.query(`SELECT * FROM tenant_services WHERE id = $1::uuid`, [service.id]);
+    return { ok: true, status: 200, body: { success: true, service: fresh.rows[0] } };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    if (err.message === 'bed_conflicts') {
+      return { ok: false, status: 409, body: { success: false, error: 'bed_conflicts', room_code: err.room_code, conflicts: err.conflicts || [] } };
+    }
+    if (err.status === 404 && err.message && err.message.startsWith('room_not_found')) {
+      return { ok: false, status: 404, body: { success: false, error: err.message } };
+    }
+    if (err.status) return { ok: false, status: err.status, body: { success: false, error: err.message } };
+    throw err;
+  }
 }
 
 async function deactivateService(client, { id, clientSlug, actor }) {
   await ensureServicesTable(client);
-  const res = await client.query(
-    `UPDATE tenant_services SET active = false, updated_at = NOW(), updated_by = $3::uuid
-       WHERE id = $1::uuid AND client_slug = $2 RETURNING id`,
-    [id, clientSlug, (actor && actor.staff_user_id) || null],
+  const existingRes = await client.query(
+    `SELECT * FROM tenant_services WHERE id = $1::uuid AND client_slug = $2`,
+    [id, clientSlug],
   );
-  if (!res.rows[0]) return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
-  return { ok: true, status: 200, body: { success: true, id: res.rows[0].id, active: false } };
+  if (!existingRes.rows[0]) return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
+
+  await client.query('BEGIN');
+  try {
+    const res = await client.query(
+      `UPDATE tenant_services SET active = false, block_rooms_enabled = false, blocked_room_codes = '{}',
+              updated_at = NOW(), updated_by = $3::uuid
+         WHERE id = $1::uuid AND client_slug = $2 RETURNING *`,
+      [id, clientSlug, (actor && actor.staff_user_id) || null],
+    );
+    const service = { ...res.rows[0], block_rooms_enabled: false, blocked_room_codes: [] };
+    await syncServiceRoomBlocks(client, { clientSlug, service, actor });
+    await client.query('COMMIT');
+    return { ok: true, status: 200, body: { success: true, id: res.rows[0].id, active: false } };
+  } catch (err) {
+    await client.query('ROLLBACK');
+    throw err;
+  }
 }
 
 module.exports = {
