@@ -38425,6 +38425,13 @@ async function router(req, res) {
     if (payShortMatch) {
       return handleGuestPaymentShortLinkRedirect(payShortMatch[1], payShortMatch[2], parsed.query, req, res);
     }
+    if (pathname === '/') {
+      const accept = req.headers['accept'] || '';
+      if (!accept.includes('application/json')) {
+        res.writeHead(302, { Location: '/staff/login', 'Cache-Control': 'no-store' });
+        return res.end();
+      }
+    }
   }
 
   // ── POST /staff/auth/login  (Stage 7.2c — session auth) ──────────────────
