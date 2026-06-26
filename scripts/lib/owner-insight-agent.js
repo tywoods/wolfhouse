@@ -157,7 +157,11 @@ async function runOwnerInsightAgent(opts = {}) {
  */
 function buildOwnerInsightSystemPrompt(opts = {}) {
   const clientSlug = trimStr(opts.clientSlug) || '<client_slug>';
-  const fewShotLimit = Number(opts.fewShotLimit) > 0 ? Number(opts.fewShotLimit) : 3;
+  // Include enough approved templates that the agent sees a VALID pattern for the
+  // common question shapes (incl. occupancy_by_date / bed occupancy, which is ~#6) —
+  // so it copies a validator-passing query in ONE step instead of reinventing a
+  // complex join that gets rejected and burns the time budget.
+  const fewShotLimit = Number(opts.fewShotLimit) > 0 ? Number(opts.fewShotLimit) : 7;
   const catalog = describeOwnerCatalogForAi({ client_slug: clientSlug });
   const examples = getOwnerApprovedQueryTemplates()
     .filter((t) => t.validation_status === 'approved')
