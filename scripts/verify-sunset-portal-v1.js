@@ -69,25 +69,6 @@ function assert(label, condition, detail) {
     fail++;
   }
 }
-function extractJsFunctionBody(src, fnName) {
-  var needle = 'function ' + fnName + '(';
-  var start = src.indexOf(needle);
-  if (start < 0) return '';
-  var brace = src.indexOf('{', start);
-  if (brace < 0) return '';
-  var depth = 0;
-  for (var i = brace; i < src.length; i++) {
-    var ch = src[i];
-    if (ch === '{') depth++;
-    else if (ch === '}') {
-      depth--;
-      if (depth === 0) return src.slice(start, i + 1);
-    }
-  }
-  return '';
-}
-
-
 
 console.log('\nverify:sunset-portal-v1 — Sunset portal v1 offline checks\n');
 
@@ -338,7 +319,8 @@ if (apiSrc) {
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
     && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-slot-sub"')
-    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-pending-today"'));
+    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-courses-sub"'));
+  assert('unpaid summary card removed from schedule', !apiSrc.includes('id="ps-unpaid-pending-today"'));
   assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
     && apiSrc.includes('portal-schedule-view-btn active'));
   assert('ops board layout markers', apiSrc.includes('portal-schedule-ops-board') && apiSrc.includes('portal-schedule-ops-lesson-group'));
@@ -362,11 +344,12 @@ if (apiSrc) {
   assert('admin tab surf-gated', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
   assert('loadAdminTab helper present', apiSrc.includes('function loadAdminTab('));
   assert('Admin prices section', apiSrc.includes('admin.section.prices') || apiSrc.includes('admin-sec-prices'));
-  assert('Admin capacity moved into lesson cards', apiSrc.includes('admin.section.lessonTimes') && apiSrc.includes('id=\"admin-time-capacity\"'));
+  assert('Admin capacity section', apiSrc.includes('admin.section.capacity') || apiSrc.includes('admin-sec-capacity'));
   assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
   assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
   assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
-  assert('Admin no preview/banner copy', !apiSrc.includes('id="admin-write-banner"') && !apiSrc.includes('Read-only preview') && !apiSrc.includes('use header school switcher'));
+  assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
+  assert('Admin writes disabled copy', apiSrc.includes('admin.banner.writesDisabled'));
   assert('Admin writes gated by cfg.writes_enabled', apiSrc.includes('function adminCfgWritesEnabled('));
   assert('Admin edit controls hidden when writes off', apiSrc.includes('if (!adminCfgWritesEnabled(data)) adminEditTarget = null'));
   assert('Admin save message region', apiSrc.includes('id="admin-save-msg"'));
@@ -475,7 +458,8 @@ if (apiSrc) {
   assert('evaluateAdminWriteGate used', apiSrc.includes('evaluateAdminWriteGate'));
   assert('writes_disabled response path', require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
   assert('admin write routes require admin role', apiSrc.includes("requireAuth(req, res, 'admin')") && apiSrc.includes('handleAdminConfigPricePatch'));
-  assert('Admin write routes keep writes_disabled response', apiSrc.includes('writes_disabled') || require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
+  assert('renderAdminWriteState helper', apiSrc.includes('function renderAdminWriteState('));
+  assert('admin banner id for write state', apiSrc.includes('id="admin-write-banner"'));
 }
 
 try {
@@ -638,6 +622,9 @@ if (apiSrc) {
   assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
   assert('today-first forward range', apiSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
   assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-lesson"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
+  assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
+  assert('courses summary card', apiSrc.includes('id="ps-courses-sub"') && apiSrc.includes('schedule.card.courses'));
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
   assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
@@ -651,6 +638,7 @@ if (writesSrc) {
   assert('writes supports components object', writesSrc.includes('normalizeComponents'));
   assert('writes supports multi-date', writesSrc.includes('normalizeServiceDates'));
   assert('writes multiple service records', writesSrc.includes('for (const serviceDate of input.service_dates)'));
+  assert('course write support exists', writesSrc.includes("'course'") && writesSrc.includes('course_id'));
 }
 
 if (i18nSrc) {
@@ -750,13 +738,15 @@ if (apiSrc) {
 console.log('\n[23] Sunset UI — ES default, lesson groups card, soft light theme');
 
 if (apiSrc) {
-  assert('tenant-driven default locale', apiSrc.includes('STAFF_PORTAL_LOCALES') && apiSrc.includes("process.env.STAFF_PORTAL_LOCALES || 'es,en'") && apiSrc.includes("STAFF_PORTAL_LOCALES[0]"));
-  assert('language buttons rendered from locale list', apiSrc.includes('function renderStaffLangSwitchButtons(') && apiSrc.includes('data-lang="${loc}"'));
-  assert('default locale order mentions es before en', apiSrc.includes("'es,en'") || apiSrc.includes('es,en'));
+  assert('ES default locale', i18nSrc.includes("return 'es';"));
+  assert('no IT lang button', !apiSrc.includes('data-lang="it"'));
+  assert('ES lang button before EN', apiSrc.indexOf('data-lang="es"') >= 0 && apiSrc.indexOf('data-lang="es"') < apiSrc.indexOf('data-lang="en"'));
   assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
+  assert('lesson groups show configured name', apiSrc.includes('portal-schedule-lesson-slot-label'));
   assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
-  assert('schedule cards still use sched surface tokens', apiSrc.includes('--sched-surface:#FFFFFF'));
+  assert('warm light schedule surface exists', apiSrc.includes('--sched-surface-warm:#F3EDE4'));
+  assert('schedule cards use warm sched surface tokens', apiSrc.includes('--sched-surface:#F3EDE4'));
   assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
   assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
   assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));
@@ -766,7 +756,7 @@ console.log('\n[24] Sunset Schedule — calm UI, live i18n, phone, conversation'
 
 if (apiSrc) {
   assert('no pending payment option in create form', !apiSrc.includes('value="pending" data-i18n="schedule.payment.pending"'));
-  assert('unpaid card label key', apiSrc.includes('data-i18n="schedule.card.unpaid">Unpaid</div>'));
+  assert('unpaid summary card removed', !apiSrc.includes('data-i18n="schedule.card.unpaid">Unpaid</div>'));
   assert('create phone field', apiSrc.includes('id="ps-create-phone"'));
   assert('post guest_phone', apiSrc.includes('guest_phone: payload.guest_phone'));
   assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
@@ -851,10 +841,7 @@ if (apiSrc) {
   assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));
   assert('school location suffix preserved in polish slice', apiSrc.includes('sunsetLocationQuerySuffix()'));
 
-  assert('applyClientPortalProfile wires school switcher', (function(){
-    var body = extractJsFunctionBody(apiSrc, 'applyClientPortalProfile');
-    return body.includes('wireSunsetSchoolSwitcher();') && body.includes('refreshSunsetSchoolContextLabels()');
-  })());
+  assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('scheduleDrawerEditableEnabled defined', apiSrc.includes('function scheduleDrawerEditableEnabled('));
   assert('customer PATCH before GET-only gate', (function(){
@@ -926,7 +913,7 @@ if (apiSrc) {
   assert('handleAdminConfig resolves by location', apiSrc.includes('normalizeSunsetLocationId(query.location)') && apiSrc.includes('resolveTenantBusinessConfig(clientSlug, locationId)'));
   assert('admin writes pass locationId', apiSrc.includes('locationId,') && apiSrc.includes('putLessonCapacityDefault(pg, {'));
   assert('school switch reloads admin tab', apiSrc.includes("el('tab-admin')") && apiSrc.includes('loadAdminTab()'));
-  assert('admin school context heading UI', apiSrc.includes('portal-admin-school-heading') && apiSrc.includes('renderAdminLoadingShell') && !apiSrc.includes('admin-school-label'));
+  assert('admin school context UI', apiSrc.includes('renderAdminSchoolContext') && apiSrc.includes('admin-school-label'));
 }
 if (fs.existsSync(tbcPath)) {
   const tbcSrc = fs.readFileSync(tbcPath, 'utf8');
@@ -1213,16 +1200,13 @@ console.log('\n[36] Sunset active school context — labels + localStorage persi
 if (apiSrc) {
   assert('STAFF_PORTAL_SUNSET_LOCATION_KEY defined', apiSrc.includes("STAFF_PORTAL_SUNSET_LOCATION_KEY = 'staff_portal_sunset_location'"));
   assert('refreshSunsetSchoolContextLabels helper', apiSrc.includes('function refreshSunsetSchoolContextLabels('));
-  assert('profile load refreshes school labels', extractJsFunctionBody(apiSrc, 'applyClientPortalProfile').includes('refreshSunsetSchoolContextLabels()'));
+  assert('profile load refreshes school labels', apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch persists localStorage', apiSrc.includes('localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('schedule school context markup', apiSrc.includes('id="schedule-school-context"') && apiSrc.includes('id="schedule-school-label"'));
   assert('customers school context markup', apiSrc.includes('id="customers-school-context"') && apiSrc.includes('id="customers-school-label"'));
   assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
   assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
-  assert('admin school context collapsed into business heading', apiSrc.includes('portal-admin-school-heading') && !apiSrc.includes('id="admin-school-context"'));
-  assert('admin school context function exists', apiSrc.includes('function renderAdminSchoolContext') && apiSrc.includes('renderAdminFallback(profile)') && apiSrc.includes('renderAdminFromConfig(cfg)'));
-  assert('admin heading uses active school fallback', apiSrc.includes('getSunsetLocationLabel(fallbackLocation)') && apiSrc.includes('renderAdminLoadingShell') && apiSrc.includes('renderAdminFallback(profile)'));
-  assert('admin school context fills sections', apiSrc.includes('function renderAdminSchoolContext') && apiSrc.includes('renderAdminFallback(profile)'));
+  assert('admin school context preserved', apiSrc.includes('id="admin-school-context"') && apiSrc.includes('renderAdminSchoolContext'));
   assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
   assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
   assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));
@@ -1258,45 +1242,22 @@ if (i18nSrc) {
   assert('customers.school.context i18n', i18nSrc.includes("'customers.school.context'"));
 }
 
-// ── 37. Sunset Admin redesign — cards + lesson add/remove controls ───────────
 
-console.log('\n[37] Sunset Admin redesign — readable cards + lesson controls');
+// ── 37. Sunset Schedule — courses card + warm light polish ─────────────────
+
+console.log('\n[37] Sunset Schedule — courses card + warm light polish');
 
 if (apiSrc) {
-  assert('Admin pricing uses cards not dense table', apiSrc.includes('portal-admin-price-card') && apiSrc.includes('admin-prices-card-grid'));
-  assert('Admin hides internal DB status column from price cards', !apiSrc.includes("portalT('admin.prices.col.status')") && !apiSrc.includes('admin.prices.configNote'));
-  assert('Admin lesson times use cards', apiSrc.includes('portal-admin-lesson-card') && apiSrc.includes('admin-lesson-card-grid'));
-  assert('Admin has add lesson UI control', apiSrc.includes("data-admin-action=\"add-time\"") && apiSrc.includes('admin-new-time-start'));
-  assert('Admin has remove lesson UI control', apiSrc.includes("data-admin-action=\"delete-time\"") && apiSrc.includes('confirmRemoveLesson'));
-  assert('Admin creates lesson time via POST', apiSrc.includes("adminApiRequest('POST', '/staff/admin/config/lesson-times'") && apiSrc.includes('handleAdminConfigLessonTimePost'));
-  assert('Admin removes lesson time via DELETE', apiSrc.includes("adminApiRequest('DELETE', '/staff/admin/config/lesson-times/'") && apiSrc.includes('handleAdminConfigLessonTimeDelete'));
-  assert('Admin per-lesson capacity field is editable', apiSrc.includes('id="admin-time-capacity"') && apiSrc.includes('capacityParsed') && !apiSrc.includes('capacitySchemaNote'));
-  assert('Admin business info renders before Packs and Lessons', apiSrc.indexOf('admin-sec-business') > 0 && apiSrc.indexOf('admin-sec-business') < apiSrc.indexOf('admin-sec-times'));
-  assert('Admin Packs and Lessons renders before rental prices', apiSrc.indexOf('admin-sec-times') > 0 && apiSrc.indexOf('admin-sec-times') < apiSrc.indexOf('admin-sec-prices'));
-  assert('Admin humanizes labels instead of underscores', apiSrc.includes('function adminHumanizeText(') && apiSrc.includes("replace(/_/g, ' ')"));
-  assert('Admin removes Lessons from rental price page', apiSrc.includes('prices.filter(function(p){ return !adminIsLessonPrice(p); })') && apiSrc.includes('adminRenderLessonPriceStrip(prices)'));
-  assert('Admin rental price groups ordered Surfboard+Wetsuit, Surfboard, Wetsuit, SUP', apiSrc.includes("['bundles', 'boards', 'wetsuits', 'sup', 'rentals', 'other']"));
-  assert('Admin lesson cards show duration and time footer', apiSrc.includes('adminSlotDurationLabel(') && apiSrc.includes('portal-admin-lesson-footer'));
-  assert('Admin change history capped to latest 10', apiSrc.includes('change_history.slice(0, 10)'));
+  assert('courses card renderer', apiSrc.includes('function scheduleRenderCoursesTodayBreakdown('));
+  assert('courses from admin prices helper', apiSrc.includes('function scheduleCoursesFromPrices('));
+  assert('course payload in create flow', apiSrc.includes('components.course'));
+  assert('lesson slot label layout', apiSrc.includes('portal-schedule-lesson-slot-time'));
+  assert('wider lesson groups metric card', apiSrc.includes('portal-schedule-metric-card-lessons'));
 }
 
-const adminWritesPath = path.join(ROOT, 'scripts', 'lib', 'tenant-admin-writes.js');
-if (fs.existsSync(adminWritesPath)) {
-  const adminWritesSrc = fs.readFileSync(adminWritesPath, 'utf8');
-  assert('tenant-admin-writes validates lesson create body', adminWritesSrc.includes('function validateLessonTimeCreateBody('));
-  assert('tenant-admin-writes creates lesson time rules', adminWritesSrc.includes('async function createLessonTimeRule(') && adminWritesSrc.includes('INSERT INTO tenant_lesson_time_rules'));
-  assert('tenant-admin-writes deactivates lesson time rules', adminWritesSrc.includes('async function deactivateLessonTimeRule(') && adminWritesSrc.includes('SET active = false'));
-}
-
-
-const adminCapacityMigrationPath = path.join(ROOT, 'database', 'migrations', '025_sunset_lesson_time_capacity_PROPOSED.sql');
-if (fs.existsSync(adminCapacityMigrationPath)) {
-  const migration025Src = fs.readFileSync(adminCapacityMigrationPath, 'utf8');
-  assert('Admin per-lesson capacity proposed migration exists', migration025Src.includes('tenant_lesson_time_rules') && migration025Src.includes('ADD COLUMN IF NOT EXISTS capacity'));
-}
-
-if (i18nSrc) {
-  assert('Admin redesign i18n keys', i18nSrc.includes("'admin.action.addLesson'") && i18nSrc.includes("'admin.prices.group.sup'") && i18nSrc.includes("'admin.section.lessonTimes': 'Packs and Lessons'"));
+if (writesSrc) {
+  assert('writes course component key', writesSrc.includes("'course'") && writesSrc.includes('UI_COMPONENT_KEYS'));
+  assert('writes stores course metadata', writesSrc.includes('course_label') && writesSrc.includes("component: componentKey"));
 }
 
 

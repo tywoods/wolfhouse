@@ -2,26 +2,23 @@
 
 /**
  * Sunset Schedule — manual booking writes (bookings + booking_service_records).
- * Supports component combos and multi-date via one booking header + many service records.
+ * Supports component combos, courses, and multi-date via one booking header + many service records.
  */
 
 const crypto = require('crypto');
-const {
-  normalizeSunsetLocationId,
-  attachLocationToMetadata,
-} = require('./sunset-school-locations');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 const METADATA_SOURCE_TAG = 'staff_manual_schedule';
 const DB_SOURCE = 'staff_manual';
 const DEFAULT_LESSON_CATEGORY = 'Adult (Over 12)';
 
-const UI_COMPONENT_KEYS = new Set(['lesson', 'surfboard', 'wetsuit']);
+const UI_COMPONENT_KEYS = new Set(['lesson', 'course', 'surfboard', 'wetsuit']);
 const LEGACY_UI_SERVICE_TYPES = new Set(['lesson', 'board_rental', 'wetsuit_rental']);
 const UI_PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'pending']);
 
 const UI_TO_DB_SERVICE_TYPE = {
   lesson: 'surf_lesson',
+  course: 'surf_lesson',
   surfboard: 'surfboard',
   wetsuit: 'wetsuit',
   board_rental: 'surfboard',
@@ -76,9 +73,17 @@ function normalizeComponents(body) {
         entry.slot_time = slot || null;
         entry.category = String(part.category || b.lesson_category || DEFAULT_LESSON_CATEGORY).trim() || DEFAULT_LESSON_CATEGORY;
       }
+      if (key === 'course') {
+        const courseId = String(part.course_id || part.offering_key || '').trim();
+        if (!courseId) return { ok: false, error: 'components.course.course_id is required' };
+        entry.course_id = courseId;
+        entry.course_label = String(part.course_label || part.label || '').trim() || courseId;
+      }
       out[key] = entry;
     }
-    if (!Object.keys(out).length) return { ok: false, error: 'components must include at least one of lesson, surfboard, wetsuit' };
+    if (!Object.keys(out).length) {
+      return { ok: false, error: 'components must include at least one of lesson, course, surfboard, wetsuit' };
+    }
     return { ok: true, value: out };
   }
 
@@ -137,19 +142,18 @@ function validateScheduleBookingBody(body) {
   if (!guest_name || guest_name.length > 200) {
     return { ok: false, error: 'guest_name is required (max 200 chars)' };
   }
+  const guest_phone = b.guest_phone != null ? String(b.guest_phone).trim().slice(0, 40) : '';
   const components = normalizeComponents(b);
   if (!components.ok) return components;
   const serviceDates = normalizeServiceDates(b);
   if (!serviceDates.ok) return serviceDates;
   const payment_status = String(b.payment_status || 'unpaid').trim().toLowerCase();
   if (!UI_PAYMENT_STATUSES.has(payment_status)) {
-    return { ok: false, error: 'payment_status must be unpaid or paid' };
+    return { ok: false, error: 'payment_status must be unpaid, paid, or pending' };
   }
   const notes = b.notes != null ? String(b.notes).trim().slice(0, 2000) : '';
   const needs_reply = b.needs_reply === true || b.needs_reply === 'true' || b.needs_reply === 1;
   const idempotency_key = b.idempotency_key != null ? String(b.idempotency_key).trim().slice(0, 120) : '';
-  const phoneRaw = b.phone_number != null ? b.phone_number : (b.guest_phone != null ? b.guest_phone : b.phone);
-  const guest_phone = phoneRaw != null ? String(phoneRaw).trim().slice(0, 40) : '';
 
   return {
     ok: true,
@@ -162,7 +166,6 @@ function validateScheduleBookingBody(body) {
       notes,
       needs_reply,
       idempotency_key: idempotency_key || null,
-      location_id: normalizeSunsetLocationId(b.location_id || b.location),
     },
   };
 }
@@ -183,10 +186,19 @@ function componentList(components) {
   return Object.keys(components || {});
 }
 
+function staffUiServiceType(componentKey) {
+  if (componentKey === 'lesson') return 'lesson';
+  if (componentKey === 'course') return 'course';
+  if (componentKey === 'surfboard') return 'board_rental';
+  return 'wetsuit_rental';
+}
+
 function scheduleRowFromDb(row) {
   const dbType = String(row.service_type || '').toLowerCase();
   const uiType = row.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || dbType;
-  const isLesson = dbType === 'surf_lesson' || uiType === 'lesson';
+  const isCourse = String(row.metadata_component || row.component || '').toLowerCase() === 'course'
+    || String(row.staff_ui_service_type || '').toLowerCase() === 'course';
+  const isLesson = !isCourse && (dbType === 'surf_lesson' || uiType === 'lesson');
   let payment = String(row.payment_status || '').toLowerCase();
   if (payment === 'pending' || payment === 'not_requested') payment = 'unpaid';
   const metaComponents = row.metadata_components ? String(row.metadata_components).split(',').filter(Boolean) : null;
@@ -198,8 +210,7 @@ function scheduleRowFromDb(row) {
     _isLuna: row.record_source === 'luna_guest' || row.record_source === 'stripe',
     record_source: row.record_source || null,
     guest_name: row.guest_name || null,
-    phone: row.phone || null,
-    service_type: uiType,
+    service_type: isCourse ? 'course' : uiType,
     service_date: row.service_date,
     slot_time: row.slot_time || null,
     quantity: row.quantity != null ? Number(row.quantity) : 1,
@@ -208,11 +219,12 @@ function scheduleRowFromDb(row) {
     booking_id: row.booking_id || null,
     notes: row.notes || null,
     lesson_category: row.lesson_category || null,
+    course_id: row.course_id || null,
+    course_label: row.course_label || null,
     components: metaComponents,
     bundle_id: row.bundle_id || null,
-    location_id: row.location_id || null,
     _needsReply: row.needs_reply === true || row.needs_reply === 't',
-    _scheduleType: isLesson ? 'lesson' : 'rental',
+    _scheduleType: isCourse ? 'course' : (isLesson ? 'lesson' : 'rental'),
     service_record_id: row.service_record_id || row.id || null,
   };
 }
@@ -224,7 +236,6 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.booking_id::text AS booking_id,
             sr.booking_code,
             sr.guest_name,
-            b.phone AS phone,
             sr.service_type::text AS service_type,
             sr.service_date::text AS service_date,
             sr.quantity,
@@ -236,10 +247,12 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.metadata->>'staff_ui_service_type' AS staff_ui_service_type,
             sr.metadata->>'source' AS metadata_source,
             sr.metadata->>'lesson_category' AS lesson_category,
+            sr.metadata->>'course_id' AS course_id,
+            sr.metadata->>'course_label' AS course_label,
+            sr.metadata->>'component' AS metadata_component,
             sr.metadata->>'bundle_id' AS bundle_id,
             sr.metadata->>'components' AS metadata_components
        FROM booking_service_records sr
-      INNER JOIN bookings b ON b.id = sr.booking_id
       WHERE sr.client_slug = $1
         AND sr.metadata->>'idempotency_key' = $2
       ORDER BY sr.service_date, sr.id
@@ -273,6 +286,9 @@ async function insertServiceRecord(pg, params) {
                metadata->>'staff_ui_service_type' AS staff_ui_service_type,
                metadata->>'source' AS metadata_source,
                metadata->>'lesson_category' AS lesson_category,
+               metadata->>'course_id' AS course_id,
+               metadata->>'course_label' AS course_label,
+               metadata->>'component' AS metadata_component,
                metadata->>'bundle_id' AS bundle_id,
                metadata->>'components' AS metadata_components`,
     params,
@@ -282,9 +298,6 @@ async function insertServiceRecord(pg, params) {
 
 async function createSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
-  const requestedLocationId = normalizeSunsetLocationId(
-    (opts.body && (opts.body.location_id || opts.body.location)) || opts.locationId,
-  );
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client', client_slug: clientSlug } };
   }
@@ -294,7 +307,7 @@ async function createSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
-  const writeLocationId = normalizeSunsetLocationId(input.location_id || requestedLocationId);
+  const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
 
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
@@ -326,7 +339,11 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bookingCode = generateSunsetManualBookingCode();
   const bundleId = crypto.randomBytes(8).toString('hex');
   const componentKeys = componentList(input.components);
-  const guestCount = input.components.lesson ? input.components.lesson.quantity : Math.max(...componentKeys.map((k) => input.components[k].quantity));
+  const guestCount = input.components.lesson
+    ? input.components.lesson.quantity
+    : (input.components.course
+      ? input.components.course.quantity
+      : Math.max(...componentKeys.map((k) => input.components[k].quantity)));
 
   await pg.query('BEGIN');
   try {
@@ -336,7 +353,7 @@ async function createSunsetScheduleBooking(pg, opts) {
          client_id, booking_code, guest_name, phone, status, payment_status,
          check_in, check_out, guest_count, metadata
        ) VALUES (
-         $1::uuid, $2, $3, NULLIF($4, ''), $5::booking_status, $6::payment_status,
+         $1::uuid, $2, $3, $4, $5::booking_status, $6::payment_status,
          $7::date, ($7::date + INTERVAL '1 day')::date, $8, $9::jsonb
        )
        RETURNING id::text AS id, booking_code`,
@@ -344,18 +361,19 @@ async function createSunsetScheduleBooking(pg, opts) {
         clientId,
         bookingCode,
         input.guest_name,
-        input.guest_phone || '',
+        input.guest_phone,
         bookingStatus,
         bookingPayment,
         firstDate,
         guestCount,
-        JSON.stringify(attachLocationToMetadata({
+        JSON.stringify({
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
           bundle_id: bundleId,
           components: componentKeys,
-          guest_phone: input.guest_phone || null,
-        }, writeLocationId)),
+          guest_phone: input.guest_phone,
+          location_id: locationId || null,
+        }),
       ],
     );
     const bookingId = bookingIns.rows[0].id;
@@ -365,20 +383,24 @@ async function createSunsetScheduleBooking(pg, opts) {
       for (const componentKey of componentKeys) {
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
-        const metadata = attachLocationToMetadata({
+        const metadata = {
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
-          staff_ui_service_type: componentKey === 'lesson' ? 'lesson' : (componentKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental'),
+          staff_ui_service_type: staffUiServiceType(componentKey),
           component: componentKey,
           components: componentKeys,
           bundle_id: bundleId,
           slot_time: componentKey === 'lesson' ? part.slot_time : null,
           lesson_category: componentKey === 'lesson' ? part.category : null,
+          course_id: componentKey === 'course' ? part.course_id : null,
+          course_label: componentKey === 'course' ? part.course_label : null,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
+          guest_phone: input.guest_phone,
+          location_id: locationId || null,
           created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
           idempotency_key: input.idempotency_key,
-        }, writeLocationId);
+        };
         const row = await insertServiceRecord(pg, [
           clientSlug,
           bookingId,
@@ -420,14 +442,7 @@ module.exports = {
   DEFAULT_LESSON_CATEGORY,
   UI_COMPONENT_KEYS,
   LEGACY_UI_SERVICE_TYPES,
-  UI_TO_DB_SERVICE_TYPE,
-  DB_TO_UI_SERVICE_TYPE,
-  UI_TO_SR_PAYMENT,
-  UI_TO_BOOKING_PAYMENT,
   validateScheduleBookingBody,
-  bookingStatusFromPayment,
-  componentList,
-  insertServiceRecord,
   generateSunsetManualBookingCode,
   scheduleRowFromDb,
   createSunsetScheduleBooking,
