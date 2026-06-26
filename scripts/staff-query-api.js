@@ -16528,10 +16528,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
 .portal-schedule-create-field input,.portal-schedule-create-field select,.portal-schedule-create-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
 .portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
-.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.35fr) repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
-@media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.4fr) repeat(3,minmax(0,0.82fr));gap:12px;margin-bottom:18px}
+@media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
-@media(max-width:1100px){.portal-schedule-ops-metrics .portal-schedule-metric-card-lessons{grid-column:auto}}
+@media(max-width:1100px){.portal-schedule-ops-metrics .portal-schedule-metric-card-lessons,.portal-schedule-ops-metrics .portal-schedule-metric-card-courses{grid-column:auto}}
 .portal-schedule-metric-card .portal-schedule-card-stat-lg{font-size:36px;font-weight:800;line-height:1.05}
 .portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
 .portal-schedule-ops-lesson-group{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);overflow:hidden;box-shadow:none}
@@ -16572,6 +16572,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-metric-card-lessons{min-width:0}
 .portal-schedule-metric-card-courses .portal-schedule-card-label{margin-bottom:4px}
 .portal-schedule-metric-card-courses{min-width:0}
+.portal-schedule-metric-card-compact{padding:14px 12px}
+.portal-schedule-metric-card-compact .portal-schedule-card-stat-lg{font-size:32px}
+.portal-schedule-metric-card-compact .portal-schedule-card-sub{font-size:10px;line-height:1.35}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-label{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-lesson-slot-time{color:var(--sched-text-2)}
 .portal-schedule-lesson-times-empty{font-size:13px;color:var(--text-3);line-height:1.4;padding-top:4px}
@@ -17761,9 +17764,9 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="portal-schedule-summary portal-schedule-ops-metrics">
     <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-lessons"><div class="portal-schedule-card-label" data-i18n="schedule.card.lessons">Lessons</div><div class="portal-schedule-lesson-times" id="ps-lessons-slot-sub">…</div></div>
     <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-courses"><div class="portal-schedule-card-label" data-i18n="schedule.card.courses">Courses</div><div class="portal-schedule-lesson-times" id="ps-courses-sub">…</div></div>
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div><div class="portal-schedule-card-stat-lg" id="ps-wetsuits-today">…</div><div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div></div>
-    <div class="portal-schedule-card portal-schedule-metric-card"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat-lg" id="ps-need-reply-today">…</div><div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-compact"><div class="portal-schedule-card-label" data-i18n="schedule.card.surfboardsToday">Surfboards</div><div class="portal-schedule-card-stat-lg" id="ps-surfboards-today">…</div><div class="portal-schedule-card-sub" id="ps-surfboards-sub">…</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-compact"><div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div><div class="portal-schedule-card-stat-lg" id="ps-wetsuits-today">…</div><div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div></div>
+    <div class="portal-schedule-card portal-schedule-metric-card portal-schedule-metric-card-compact"><div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div><div class="portal-schedule-card-stat-lg" id="ps-need-reply-today">…</div><div class="portal-schedule-card-sub" id="ps-need-reply-sub">…</div></div>
   </div>
   <div class="portal-schedule-toolbar">
     <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
@@ -19950,8 +19953,9 @@ function scheduleRowCourseMeta(row){
 
 function scheduleRowIsCourse(row){
   if (!row) return false;
-  var meta = scheduleRowCourseMeta(row);
+  var meta = scheduleRowMeta(row);
   if (String(meta.component || '').toLowerCase() === 'course') return true;
+  if (String(meta.staff_ui_service_type || '').toLowerCase() === 'course') return true;
   var ui = String(row.staff_ui_service_type || meta.staff_ui_service_type || row.service_type || '').toLowerCase();
   return ui === 'course' || row._scheduleType === 'course';
 }
@@ -20166,6 +20170,11 @@ function scheduleNormalizeApiRow(r){
   if (r.record_source === 'staff_manual') r._isDbManual = true;
   if (r.record_source === 'luna_guest' || r.record_source === 'stripe') r._isLuna = true;
   if (meta.component) r.component = meta.component;
+  if (String(meta.component || '').toLowerCase() === 'course' || String(meta.staff_ui_service_type || '').toLowerCase() === 'course') {
+    r._scheduleType = 'course';
+  } else if (String(meta.component || '').toLowerCase() === 'lesson' || String(meta.staff_ui_service_type || '').toLowerCase() === 'lesson') {
+    r._scheduleType = 'lesson';
+  }
   if (meta.lesson_category) r.lesson_category = meta.lesson_category;
   if (meta.course_id) r.course_id = meta.course_id;
   if (meta.course_label) r.course_label = meta.course_label;
@@ -20186,10 +20195,13 @@ function scheduleFetchDay(client, dateIso){
       .then(function(data){
         var rows = (data && data.rows) || [];
         rows.forEach(function(r){
-          if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
-          else if (!r._scheduleType) r._scheduleType = /lesson|surf_lesson/.test(String(r.service_type || '')) ? 'lesson' : 'rental';
-          r.service_date = r.service_date || dateIso;
           scheduleNormalizeApiRow(r);
+          if (!r._scheduleType) {
+            if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
+            else if (/lesson|surf_lesson/.test(String(r.service_type || ''))) r._scheduleType = 'lesson';
+            else r._scheduleType = 'rental';
+          }
+          r.service_date = r.service_date || dateIso;
         });
         var lessons = rows.filter(function(r){ return r._scheduleType === 'lesson'; });
         var gear = rows.filter(function(r){ return r._scheduleType === 'rental'; });
@@ -20892,7 +20904,7 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
     configured.forEach(function(c){
       var cid = String(c.course_id || '');
       var n = counts[cid] != null ? Number(counts[cid]) : 0;
-      var time = scheduleCourseDisplayTime(rows, cid, todayIso) || scheduleFormatSlotTimeRange(c.slot_time || '');
+      var time = scheduleFormatSlotTimeRange(c.slot_time || '') || scheduleCourseDisplayTime(rows, cid, todayIso);
       html += '<div class="portal-schedule-lesson-time-row">' +
         '<div class="portal-schedule-lesson-slot-main">' +
         '<span class="portal-schedule-lesson-slot-label">' + escHtml(c.label || portalT('schedule.courses.unnamed')) + '</span>' +
@@ -34412,6 +34424,7 @@ async function handleSunsetScheduleBookingDetailGet(query, res, user) {
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
+    console.error('[schedule drawer]', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'read failed' });
   }
 }
