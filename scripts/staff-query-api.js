@@ -20671,12 +20671,16 @@ function scheduleNormalizeSlotTime(raw){
   return t.slice(0, 5);
 }
 
+var SCHEDULE_PACK_TIME_RE = new RegExp('^(\\\\d{2})(\\\\d{2})_(\\\\d{2})(\\\\d{2})$');
+var SCHEDULE_PARTIAL_PACK_TIME_RE = new RegExp('^(\\\\d{2}):(\\\\d{2})_(\\\\d{2})(\\\\d{2})$');
+var SCHEDULE_OPS_TIME_PREFIX_RE = new RegExp('^(\\\\d{1,2}:\\\\d{2})');
+
 function scheduleFormatSlotTimeRange(raw){
   var t = String(raw || '').trim();
   if (!t) return '';
-  var packMatch = t.match(/^(\d{2})(\d{2})_(\d{2})(\d{2})$/);
+  var packMatch = t.match(SCHEDULE_PACK_TIME_RE);
   if (packMatch) return packMatch[1] + ':' + packMatch[2] + ' – ' + packMatch[3] + ':' + packMatch[4];
-  var partialPackMatch = t.match(/^(\d{2}):(\d{2})_(\d{2})(\d{2})$/);
+  var partialPackMatch = t.match(SCHEDULE_PARTIAL_PACK_TIME_RE);
   if (partialPackMatch) return partialPackMatch[1] + ':' + partialPackMatch[2] + ' – ' + partialPackMatch[3] + ':' + partialPackMatch[4];
   var parts = t.split('-').map(function(p){ return scheduleNormalizeSlotTime(p); }).filter(Boolean);
   if (parts.length >= 2) return parts[0] + ' – ' + parts[1];
@@ -21055,7 +21059,7 @@ function scheduleMergeRowsIntoWeekData(weekData, extraRows){
 function scheduleOpsNormalizeSlotTime(raw){
   var s = String(raw || '').trim();
   if (!s) return '';
-  var m = s.match(/^(\d{1,2}:\d{2})/);
+  var m = s.match(SCHEDULE_OPS_TIME_PREFIX_RE);
   if (!m) return s;
   var parts = m[1].split(':');
   return String(parts[0]).padStart(2, '0') + ':' + parts[1];
