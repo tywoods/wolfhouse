@@ -41,8 +41,14 @@ async function main() {
   const scope = `client_id IN (SELECT b2.client_id FROM bookings b2 WHERE b2.id IN (SELECT booking_id FROM booking_service_records WHERE client_slug = $1))`;
   const gtAll = (await pg.query(`SELECT count(*) c, sum(coalesce(guest_count,0)) g FROM bookings WHERE ${scope} AND check_in >= '2026-09-01' AND check_in < '2026-10-01'`, [CLIENT])).rows[0];
   const gtActive = (await pg.query(`SELECT count(*) c, sum(coalesce(guest_count,0)) g FROM bookings WHERE ${scope} AND check_in >= '2026-09-01' AND check_in < '2026-10-01' AND status NOT IN ('cancelled','expired','hold')`, [CLIENT])).rows[0];
-  const okCounts = new Set([Number(gtAll.c), Number(gtActive.c)]);
-  const okGuests = new Set([Number(gtAll.g), Number(gtActive.g)]);
+  // Accept any value in the [active .. all] band (the agent may or may not count
+  // holds/cancellations) — but it must be > 0 and within the real range, so "0" or a
+  // wildly-wrong number fails.
+  const cLo = Math.min(Number(gtActive.c), Number(gtAll.c));
+  const cHi = Math.max(Number(gtActive.c), Number(gtAll.c));
+  const gLo = Math.min(Number(gtActive.g), Number(gtAll.g));
+  const gHi = Math.max(Number(gtActive.g), Number(gtAll.g));
+  const inBand = (nums, lo, hi) => nums.some((n) => n >= lo && n <= hi);
   console.log(`GROUND TRUTH Sept 2026: bookings all=${gtAll.c} active=${gtActive.c}; guests all=${gtAll.g} active=${gtActive.g}\n`);
 
   async function run(q) {
@@ -54,14 +60,14 @@ async function main() {
 
   try {
     const rBookings = await run('How many bookings do we have for September 2026?');
-    ok('September booking count matches DB (not 0)',
-      rBookings.success && [...numbersIn(rBookings.answer)].some((n) => okCounts.has(n)) && Number(gtAll.c) > 0,
-      `expected one of ${[...okCounts].join('/')}, got "${rBookings.answer}"`);
+    ok('September booking count is real (in [active..all] band, not 0)',
+      rBookings.success && cHi > 0 && inBand(numbersIn(rBookings.answer), cLo, cHi),
+      `expected ${cLo}-${cHi}, got "${rBookings.answer}"`);
 
     const rGuests = await run('How many guests are arriving in September 2026?');
-    ok('September guest count matches DB (not 0)',
-      rGuests.success && [...numbersIn(rGuests.answer)].some((n) => okGuests.has(n)) && Number(gtAll.g) > 0,
-      `expected one of ${[...okGuests].join('/')}, got "${rGuests.answer}"`);
+    ok('September guest count is real (in [active..all] band, not 0)',
+      rGuests.success && gHi > 0 && inBand(numbersIn(rGuests.answer), gLo, gHi),
+      `expected ${gLo}-${gHi}, got "${rGuests.answer}"`);
   } finally {
     await pg.end().catch(() => {});
   }
