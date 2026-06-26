@@ -61,7 +61,7 @@ function getConversationInboxQuery(opts = {}) {
 SELECT
   conv.id::text              AS conversation_id,
   conv.phone,
-  COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), '')) AS guest_name,
+  COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.language,
   conv.bot_mode::text,
   conv.needs_human,
@@ -103,6 +103,15 @@ LEFT JOIN LATERAL (
   LIMIT 1
 ) pause ON TRUE
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
+LEFT JOIN LATERAL (
+  SELECT bk.guest_name
+  FROM bookings bk
+  WHERE bk.hostel_id = conv.hostel_id
+    AND bk.phone = conv.phone
+    AND NULLIF(btrim(bk.guest_name), '') IS NOT NULL
+  ORDER BY bk.created_at DESC
+  LIMIT 1
+) bphone ON TRUE
 WHERE c.slug = $1
   AND conv.status IN ('open', 'on_hold')${inboxLocationWhereClause(scoped)}
 ORDER BY
@@ -130,7 +139,7 @@ function getConversationDetailQuery(opts = {}) {
 SELECT
   conv.id::text              AS conversation_id,
   conv.phone,
-  COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), '')) AS guest_name,
+  COALESCE(NULLIF(btrim(conv.display_name), ''), NULLIF(btrim(b.guest_name), ''), bphone.guest_name) AS guest_name,
   conv.email,
   conv.language,
   conv.bot_mode::text,
@@ -166,6 +175,15 @@ SELECT
 FROM conversations conv
 INNER JOIN clients c ON c.id = conv.client_id
 LEFT JOIN bookings b ON b.id = conv.current_hold_booking_id
+LEFT JOIN LATERAL (
+  SELECT bk.guest_name
+  FROM bookings bk
+  WHERE bk.hostel_id = conv.hostel_id
+    AND bk.phone = conv.phone
+    AND NULLIF(btrim(bk.guest_name), '') IS NOT NULL
+  ORDER BY bk.created_at DESC
+  LIMIT 1
+) bphone ON TRUE
 LEFT JOIN LATERAL (
   SELECT id, reason_code, priority, status, summary, assigned_staff, opened_at
   FROM staff_handoffs
