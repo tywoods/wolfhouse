@@ -20007,7 +20007,7 @@ function scheduleEquipmentPrepLabel(group){
 
 function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded, wetsuitsNeeded){
   stats = stats || {};
-  var time = scheduleNormalizeSlotTime(slotTime || '');
+  var time = scheduleFormatSlotTimeRange(slotTime || '');
   var label = String(groupLabel || '').trim() || time || portalT('schedule.type.lesson');
   var titleLine = time ? (label + ' — ' + time) : label;
   var prepLine = String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked') + ' · ' +
@@ -20163,7 +20163,7 @@ function scheduleNormalizeApiRow(r){
   if (!r.slot_time) r.slot_time = meta.slot_time || null;
   if (!r.notes) r.notes = r.notes || meta.notes || null;
   if (r.needs_reply === true || r.needs_reply === 't') r._needsReply = true;
-  if (r.record_source === 'staff_manual' && (meta.source === 'staff_manual_schedule' || meta.staff_manual_schedule)) r._isDbManual = true;
+  if (r.record_source === 'staff_manual') r._isDbManual = true;
   if (r.record_source === 'luna_guest' || r.record_source === 'stripe') r._isLuna = true;
   if (meta.component) r.component = meta.component;
   if (meta.lesson_category) r.lesson_category = meta.lesson_category;
@@ -20532,21 +20532,22 @@ function scheduleCourseDisplayTime(rows, courseId, todayIso){
     if (String(r.service_date || '').slice(0, 10) !== todayIso) return;
     if (scheduleRowType(r) !== 'course') return;
     if (scheduleCourseKey(r) !== String(courseId || '')) return;
-    var slot = scheduleNormalizeSlotTime(r.slot_time || r.service_time);
+    var slot = scheduleFormatSlotTimeRange(r.slot_time || r.service_time);
     if (slot) time = slot;
   });
   return time;
 }
 
-function scheduleCourseAggregates(rows, course, dateIso){
+function scheduleCourseAggregates(allRows, course, dateIso){
   var cid = String(course.course_id || '');
-  var filtered = (rows || []).filter(function(r){
+  var filtered = (allRows || []).filter(function(r){
     if (String(r.service_date || '').slice(0, 10) !== dateIso) return false;
     if (scheduleRowType(r) !== 'course') return false;
     return scheduleCourseKey(r) === cid;
   });
-  var groups = scheduleBuildDisplayGroups(filtered).filter(scheduleGroupHasCourse);
-  var surfers = filtered.reduce(function(a, r){ return a + (r.quantity != null ? Number(r.quantity) : 1); }, 0);
+  var relatedRows = scheduleRowsForSameBookings(allRows, filtered);
+  var groups = scheduleBuildDisplayGroups(relatedRows).filter(scheduleGroupHasCourse);
+  var surfers = groups.reduce(function(a, g){ return a + (g.quantity || 0); }, 0);
   var boardsNeeded = 0;
   var wetsuitsNeeded = 0;
   groups.forEach(function(g){
@@ -20558,7 +20559,13 @@ function scheduleCourseAggregates(rows, course, dateIso){
 }
 
 function scheduleGroupHasOnlyGear(group){
-  return group && group.components && !group.components.lesson && (group.components.surfboard || group.components.wetsuit);
+  return scheduleGroupIsStandaloneRental(group);
+}
+
+function scheduleGroupIsStandaloneRental(group){
+  if (!group || !group.components) return false;
+  if (group.components.lesson || group.components.course) return false;
+  return !!(group.components.surfboard || group.components.wetsuit);
 }
 
 function scheduleFetchNext30(client, startDate){
@@ -20652,6 +20659,27 @@ function scheduleNormalizeSlotTime(raw){
   return t.slice(0, 5);
 }
 
+function scheduleFormatSlotTimeRange(raw){
+  var t = String(raw || '').trim();
+  if (!t) return '';
+  var packMatch = t.match(/^(\d{2})(\d{2})_(\d{2})(\d{2})$/);
+  if (packMatch) return packMatch[1] + ':' + packMatch[2] + ' – ' + packMatch[3] + ':' + packMatch[4];
+  var parts = t.split('-').map(function(p){ return scheduleNormalizeSlotTime(p); }).filter(Boolean);
+  if (parts.length >= 2) return parts[0] + ' – ' + parts[1];
+  return parts[0] || scheduleNormalizeSlotTime(t);
+}
+
+function scheduleBookingDayKey(row){
+  var dateIso = String(row.service_date || '').slice(0, 10);
+  return row.booking_id ? ('b:' + row.booking_id + ':' + dateIso) : ('r:' + row._scheduleId);
+}
+
+function scheduleRowsForSameBookings(allRows, seedRows){
+  var keys = {};
+  (seedRows || []).forEach(function(r){ keys[scheduleBookingDayKey(r)] = true; });
+  return (allRows || []).filter(function(r){ return !!keys[scheduleBookingDayKey(r)]; });
+}
+
 function scheduleFetchLessonTimesConfig(client){
   if (scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
   var cfgUrl = '/staff/admin/config?client=' + encodeURIComponent(client) + (client === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
@@ -20719,14 +20747,16 @@ function scheduleSlotsForDate(lessonTimes, dateIso){
   }));
 }
 
-function scheduleSlotAggregates(lessons, slot){
+function scheduleSlotAggregates(allRows, slot){
   var key = scheduleNormalizeSlotTime(slot.slot_time);
-  var rows = (lessons || []).filter(function(l){
+  var lessonRows = (allRows || []).filter(function(l){
     return scheduleRowType(l) === 'lesson' && scheduleNormalizeSlotTime(l.slot_time || l.service_time) === key;
   });
-  var groups = scheduleBuildDisplayGroups(rows).filter(scheduleGroupHasLesson);
+  if (!lessonRows.length) return { bookings: 0, surfers: 0, rows: [], groups: [] };
+  var relatedRows = scheduleRowsForSameBookings(allRows, lessonRows);
+  var groups = scheduleBuildDisplayGroups(relatedRows).filter(scheduleGroupHasLesson);
   var surfers = groups.reduce(function(a, g){ return a + (g.quantity || 0); }, 0);
-  return { bookings: groups.length, surfers: surfers, rows: rows, groups: groups };
+  return { bookings: groups.length, surfers: surfers, rows: lessonRows, groups: groups };
 }
 
 function scheduleSlotCountLabel(stats){
@@ -20767,14 +20797,15 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
   var html = '';
   var slots = scheduleSlotsForDate(lessonTimes, dateIso);
   if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
+  var dayRows = pack.rows || [];
   if (scheduleLessonTimesFallback && slots.length) {
     html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
   }
   if (slots.length){
     slots.forEach(function(slot){
-      var stats = scheduleSlotAggregates(pack.lessons, slot);
+      var stats = scheduleSlotAggregates(dayRows, slot);
       html += '<div class="portal-schedule-slot-group">' +
-        '<div class="portal-schedule-slot-hdr"><span>' + escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + '</span>' +
+        '<div class="portal-schedule-slot-hdr"><span>' + escHtml(scheduleFormatSlotTimeRange(slot.slot_time)) + '</span>' +
         '<span class="portal-schedule-slot-count">' + escHtml(scheduleSlotCountLabel(stats)) + '</span></div>' +
         '<div class="portal-schedule-slot-bookings">';
       if (stats.groups && stats.groups.length){
@@ -20787,21 +20818,23 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
   } else {
     html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.noConfiguredTimes')) + '</div>';
   }
-  var rentals = (pack.gear || []).slice();
-  if (rentals.length){
+  var rentalGroups = scheduleBuildDisplayGroups(dayRows).filter(scheduleGroupIsStandaloneRental);
+  if (rentalGroups.length){
     html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.rentals.section')) + '</div>';
-    scheduleBuildDisplayGroups(rentals).filter(scheduleGroupHasOnlyGear).forEach(function(g){ html += scheduleRenderGearChipHtml(g); });
+    rentalGroups.forEach(function(g){ html += scheduleRenderGearChipHtml(g); });
   }
-  var unmatched = (pack.lessons || []).filter(function(l){
+  var unmatchedLessonRows = dayRows.filter(function(l){
+    if (scheduleRowType(l) !== 'lesson') return false;
     if (!slots.length) return false;
     var key = scheduleNormalizeSlotTime(l.slot_time || l.service_time);
     return !slots.some(function(s){ return scheduleNormalizeSlotTime(s.slot_time) === key; });
   });
-  if (unmatched.length){
+  if (unmatchedLessonRows.length){
+    var otherRelatedRows = scheduleRowsForSameBookings(dayRows, unmatchedLessonRows);
     html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.slot.otherLessons')) + '</div>';
-    scheduleBuildDisplayGroups(unmatched).filter(scheduleGroupHasLesson).forEach(function(g){ html += scheduleRenderBookingChipHtml(g); });
+    scheduleBuildDisplayGroups(otherRelatedRows).filter(scheduleGroupHasLesson).forEach(function(g){ html += scheduleRenderBookingChipHtml(g); });
   }
-  if (!slots.length && !rentals.length && !(pack.lessons || []).length) {
+  if (!slots.length && !rentalGroups.length && !dayRows.some(function(r){ return scheduleRowType(r) === 'lesson'; })) {
     html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
   }
   return html;
@@ -20812,10 +20845,7 @@ function scheduleCoursesFromPrices(prices){
 }
 
 function scheduleFormatPackScheduleKey(raw){
-  var s = String(raw || '').trim();
-  var m = s.match(/^(\d{2})(\d{2})_(\d{2})(\d{2})$/);
-  if (!m) return scheduleNormalizeSlotTime(s);
-  return m[1] + ':' + m[2];
+  return scheduleFormatSlotTimeRange(raw);
 }
 
 function scheduleCoursesFromConfig(prices, surfPacks){
@@ -20862,7 +20892,7 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
     configured.forEach(function(c){
       var cid = String(c.course_id || '');
       var n = counts[cid] != null ? Number(counts[cid]) : 0;
-      var time = scheduleCourseDisplayTime(rows, cid, todayIso) || scheduleNormalizeSlotTime(c.slot_time || '');
+      var time = scheduleCourseDisplayTime(rows, cid, todayIso) || scheduleFormatSlotTimeRange(c.slot_time || '');
       html += '<div class="portal-schedule-lesson-time-row">' +
         '<div class="portal-schedule-lesson-slot-main">' +
         '<span class="portal-schedule-lesson-slot-label">' + escHtml(c.label || portalT('schedule.courses.unnamed')) + '</span>' +
@@ -20876,7 +20906,7 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
       var label = String(r.course_label || scheduleRowCourseMeta(r).course_label || r.guest_name || portalT('schedule.courses.unnamed'));
       if (!grouped[label]) grouped[label] = { count: 0, time: '' };
       grouped[label].count += (r.quantity != null ? Number(r.quantity) : 1);
-      var slot = scheduleNormalizeSlotTime(r.slot_time || r.service_time);
+      var slot = scheduleFormatSlotTimeRange(r.slot_time || r.service_time);
       if (slot) grouped[label].time = slot;
     });
     Object.keys(grouped).sort().forEach(function(label){
@@ -20916,12 +20946,12 @@ function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
   });
   var subHtml = '';
   slots.forEach(function(slot){
-    var stats = scheduleSlotAggregates(todayLessons, slot);
+    var stats = scheduleSlotAggregates(rows, slot);
     var label = slot.label || slot.offering_label || slot.session_type || portalT('schedule.type.lesson');
     subHtml += '<div class="portal-schedule-lesson-time-row">' +
       '<div class="portal-schedule-lesson-slot-main">' +
       '<span class="portal-schedule-lesson-slot-label">' + escHtml(label) + '</span>' +
-      '<span class="portal-schedule-lesson-slot-time">' + escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + '</span>' +
+      '<span class="portal-schedule-lesson-slot-time">' + escHtml(scheduleFormatSlotTimeRange(slot.slot_time)) + '</span>' +
       '</div>' +
       '<span class="portal-schedule-lesson-time-count">' + escHtml(String(stats.surfers || 0)) + '</span>' +
       '</div>';
@@ -21365,12 +21395,12 @@ function scheduleDayEquipmentTotals(rows, dateIso){
     var w = scheduleGroupWetsuitsNeeded(g);
     if (b){
       boards.total += b;
-      if (scheduleGroupHasLesson(g)) boards.lesson += b;
+      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g)) boards.lesson += b;
       else boards.rental += b;
     }
     if (w){
       wetsuits.total += w;
-      if (scheduleGroupHasLesson(g)) wetsuits.lesson += w;
+      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g)) wetsuits.lesson += w;
       else wetsuits.rental += w;
     }
   });
@@ -21444,14 +21474,13 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
   var html = '';
   var slots = scheduleSlotsForDate(lessonTimes, dateIso);
   if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
-  var todayLessons = pack.lessons || [];
   var dayRows = pack.rows || [];
   if (scheduleLessonTimesFallback && slots.length){
     html += '<div class="portal-schedule-ops-fallback">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
   }
   if (slots.length){
     slots.forEach(function(slot){
-      var stats = scheduleSlotAggregates(todayLessons, slot);
+      var stats = scheduleSlotAggregates(dayRows, slot);
       if (!stats.surfers) return;
       var boardsNeeded = 0;
       var wetsuitsNeeded = 0;
@@ -21502,13 +21531,15 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
       html += '</div></section>';
     });
   }
-  var unmatched = todayLessons.filter(function(l){
+  var unmatchedLessonRows = dayRows.filter(function(l){
+    if (scheduleRowType(l) !== 'lesson') return false;
     if (!slots.length) return true;
     var key = scheduleNormalizeSlotTime(l.slot_time || l.service_time);
     return !slots.some(function(s){ return scheduleNormalizeSlotTime(s.slot_time) === key; });
   });
-  if (unmatched.length){
-    var otherGroups = scheduleBuildDisplayGroups(unmatched).filter(scheduleGroupHasLesson);
+  if (unmatchedLessonRows.length){
+    var otherRelatedRows = scheduleRowsForSameBookings(dayRows, unmatchedLessonRows);
+    var otherGroups = scheduleBuildDisplayGroups(otherRelatedRows).filter(scheduleGroupHasLesson);
     if (otherGroups.length){
       var otherSurfers = otherGroups.reduce(function(a, g){ return a + (g.quantity || 0); }, 0);
       var otherBoards = otherGroups.reduce(function(a, g){ return a + scheduleGroupBoardsNeeded(g); }, 0);
@@ -21521,7 +21552,7 @@ function scheduleRenderOpsBoard(pack, dateIso, lessonTimes){
       html += '</div></section>';
     }
   }
-  var gearGroups = scheduleBuildDisplayGroups(pack.gear || []).filter(scheduleGroupHasOnlyGear);
+  var gearGroups = scheduleBuildDisplayGroups(dayRows).filter(scheduleGroupIsStandaloneRental);
   var bothRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'both'; });
   var boardOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'board'; });
   var wetsuitOnlyRentals = gearGroups.filter(function(g){ return scheduleRentalPickupKind(g) === 'wetsuit'; });
@@ -21551,10 +21582,10 @@ function scheduleRenderWeekForecastCard(pack, iso, lessonTimes, profile){
   if (!slots.length) slots = scheduleUniqueConfiguredSlots(lessonTimes);
   var slotHtml = '';
   slots.forEach(function(slot){
-    var stats = scheduleSlotAggregates(pack.lessons, slot);
+    var stats = scheduleSlotAggregates(pack.rows || [], slot);
     if (stats.surfers > 0){
       slotHtml += '<div class="portal-schedule-week-forecast-slot">' +
-        escHtml(scheduleNormalizeSlotTime(slot.slot_time)) + ' — ' +
+        escHtml(scheduleFormatSlotTimeRange(slot.slot_time)) + ' — ' +
         escHtml(String(stats.surfers) + ' ' + portalT('schedule.slot.surfers')) + '</div>';
     }
   });

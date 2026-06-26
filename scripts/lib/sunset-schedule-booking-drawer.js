@@ -81,7 +81,9 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
             metadata->>'staff_ui_service_type' AS staff_ui_service_type,
             metadata->>'component' AS metadata_component,
             metadata->>'components' AS metadata_components,
-            metadata->>'location_id' AS location_id
+            metadata->>'location_id' AS location_id,
+            metadata->>'source' AS metadata_source,
+            metadata->>'staff_manual_schedule' AS staff_manual_schedule
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid
       ORDER BY service_date, id`,
@@ -177,6 +179,19 @@ function resolveBundleLocationId(bundle) {
   return recordLocationId;
 }
 
+function serviceRecordIsStaffManual(sr) {
+  if (!sr) return false;
+  if (sr.metadata_source === METADATA_SOURCE_TAG) return true;
+  const flag = sr.staff_manual_schedule;
+  return flag === true || flag === 'true' || flag === 't';
+}
+
+function bundleIsStaffManualSchedule(bundle) {
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  if (meta.source === METADATA_SOURCE_TAG || meta.staff_manual_schedule) return true;
+  return (bundle && bundle.services || []).some(serviceRecordIsStaffManual);
+}
+
 async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -201,7 +216,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (meta.source !== METADATA_SOURCE_TAG && !meta.staff_manual_schedule) {
+  if (!bundleIsStaffManualSchedule(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
   }
 
@@ -263,7 +278,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (meta.source !== METADATA_SOURCE_TAG && !meta.staff_manual_schedule) {
+  if (!bundleIsStaffManualSchedule(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'updates_limited_to_staff_manual_schedule' } };
   }
 
