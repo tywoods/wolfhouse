@@ -52,3 +52,61 @@ if [ -f "$HERMES_HOME/.auth-shared/auth.json" ]; then
   ln -sf ".auth-shared/auth.json" "$HERMES_HOME/auth.json"
   chown -h hermes:hermes "$HERMES_HOME/auth.json" 2>/dev/null || true
 fi
+
+if [ "$HERMES_ROLE" = "seadog" ]; then
+  # Seadog is a light Discord chat persona (no guest booking tools). Run it fully
+  # on Anthropic (covered by the Claude usage credits), no OpenAI: Sonnet primary,
+  # cheap Haiku as error fallback. Replaces the image-baked gpt-5.5/Codex.
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: anthropic/claude-sonnet-4-6
+  provider: anthropic
+agent:
+  reasoning_effort: low
+fallback_providers:
+  - provider: anthropic
+    model: anthropic/claude-haiku-4-5
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/wolfhouse/WH
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+  chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
+  chmod 640 "$HERMES_HOME/config.yaml" 2>/dev/null || true
+fi
+
+if [ "$HERMES_ROLE" = "deckhand" ]; then
+  cat > "$HERMES_HOME/config.yaml" <<'EOF'
+model:
+  default: anthropic/claude-sonnet-4-6
+  provider: anthropic
+agent:
+  reasoning_effort: medium
+compression:
+  codex_gpt55_autoraise: false
+fallback_providers:
+  - provider: openai-codex
+    model: gpt-5.5
+curator:
+  enabled: false
+terminal:
+  cwd: /opt/data/workspace/sandbox-repos/WH-deckhand
+gateway:
+  platforms:
+    discord:
+      require_mention: false
+EOF
+  if [ -f "$HERMES_HOME/deckhand-SOUL.md" ]; then
+    cp "$HERMES_HOME/deckhand-SOUL.md" "$HERMES_HOME/SOUL.md"
+    chown hermes:hermes "$HERMES_HOME/SOUL.md" 2>/dev/null || true
+    chmod 640 "$HERMES_HOME/SOUL.md" 2>/dev/null || true
+  fi
+  mkdir -p "$HERMES_HOME/workspace/sandbox-repos" "$HERMES_HOME/workspace/patches" "$HERMES_HOME/workspace/notes"
+  chown -R hermes:hermes "$HERMES_HOME/workspace" 2>/dev/null || true
+  chown hermes:hermes "$HERMES_HOME/config.yaml" 2>/dev/null || true
+fi
+
