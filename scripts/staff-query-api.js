@@ -28540,6 +28540,19 @@ function bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines){
 }
 
 function bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines){
+  // Authoritative source: when the booking carries a stored quote snapshot, the
+  // invoice total must come from it (package/proration + room_supplement) — the
+  // SAME figure the server uses for the balance and the Stripe payment link
+  // (bookingLedgerAccommodationCents). The per-guest guestAccLines are a live
+  // re-quote for the per-guest breakdown display and can diverge from the booked
+  // total when guest_packages metadata is stale/inconsistent, so they must NOT
+  // drive the total — otherwise the drawer balance disagrees with the link and
+  // every freshly generated link is flagged "outdated". See MB-WOLFHO booking
+  // where guest_packages said [malibu, uluwatu] but the booking was priced 2x malibu.
+  if (quoteSnap && Array.isArray(quoteSnap.line_items) && quoteSnap.line_items.length) {
+    var authoritative = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+    if (authoritative != null) return authoritative;
+  }
   var accCents = null;
   if (guestAccLines && guestAccLines.length) {
     var guestSum = 0;
