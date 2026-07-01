@@ -95,11 +95,10 @@
 
   function svcSlotRowHtml(slot, idx, removable) {
     slot = slot || {};
-    return '<div class="svc-slot-row" data-slot-idx="' + idx + '" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:end;margin-top:6px">'
+    return '<div class="svc-slot-row" data-slot-idx="' + idx + '" style="display:grid;grid-template-columns:1fr 1fr auto;gap:6px;align-items:end;margin-top:6px">'
       + '<input type="hidden" class="svc-slot-id" value="' + esc(slot.slot_id || '') + '">'
       + '<label style="font-size:12px">Start<input type="time" class="svc-slot-start" value="' + esc(slot.time_local || '09:00') + '"></label>'
       + '<label style="font-size:12px">End<input type="time" class="svc-slot-end" value="' + esc(slot.time_local_end || '') + '"></label>'
-      + '<label style="font-size:12px">Capacity<input type="number" min="1" max="20" class="svc-slot-cap" value="' + esc(slot.capacity || 1) + '"></label>'
       + '<button type="button" class="btn btn-ghost portal-admin-icon-btn svc-slot-remove" ' + (removable ? '' : 'disabled') + '>×</button>'
       + '<label style="font-size:12px;grid-column:1 / -1">Label<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
       + '</div>';
@@ -158,11 +157,10 @@
     document.querySelectorAll('.svc-slot-row').forEach(function (row) {
       var start = row.querySelector('.svc-slot-start');
       var end = row.querySelector('.svc-slot-end');
-      var cap = row.querySelector('.svc-slot-cap');
       var id = row.querySelector('.svc-slot-id');
       var label = row.querySelector('.svc-slot-label');
       if (!start || !start.value) return;
-      rows.push({ slot_id: id && id.value || undefined, label: label && label.value || '', time_local: start.value, time_local_end: end && end.value || '', capacity: parseInt(cap && cap.value || '1', 10), active: true });
+      rows.push({ slot_id: id && id.value || undefined, label: label && label.value || '', time_local: start.value, time_local_end: end && end.value || '', capacity: 1, active: true });
     });
     return rows;
   }
