@@ -263,6 +263,8 @@ async function runAsyncTests() {
   const staffApi = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
   ok('staff API exposes notification settings route', staffApi.includes('/staff/notification-settings'));
   ok('staff API exposes Luna Staff notification UI card', staffApi.includes('cc-staff-notification-settings'));
+  ok('notification remove button uses safe quote concat', staffApi.includes("' + \"'\" + type + \"'\" +"));
+  ok('notification remove button avoids broken template quotes', !staffApi.includes("RecipientRemove(\\'' + type"));
 
   const forbiddenPatterns = [
     /WHATSAPP_ACCESS_TOKEN\s*=\s*['"][^'"]+['"]/,

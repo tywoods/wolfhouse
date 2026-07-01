@@ -19189,7 +19189,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
       ensureInboxLoadedForTab();
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
-    if (target === 'ask-luna') lunaGlobalPauseLoad();
+    if (target === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); staffNotificationSettingsLoad(); }
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
     if (target === 'admin') loadAdminTab();
@@ -20049,6 +20049,7 @@ function staffInboxDeepLinkBootstrap(){
     var conv = (params.get('conversation') || '').trim();
     var client = (params.get('client') || '').trim();
     var location = (params.get('location') || '').trim();
+    if (!conv && !client && !location) return;
     if (client && el('c-client')) {
       el('c-client').value = client;
       syncBcClientFromInbox();
@@ -23212,7 +23213,7 @@ function applyOwnerInsightsGate(){
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   var snsCard = el('cc-staff-notification-settings');
-  if (snsCard) snsCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+  if (snsCard) snsCard.style.display = 'none';
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   // Populate the cards now that the session + client selector are ready (this runs post
@@ -23221,7 +23222,6 @@ function applyOwnerInsightsGate(){
   if (canUseOwnerInsightsPortal()) {
     staffWhatsappNumbersLoad();
     houseNotesLoad();
-    staffNotificationSettingsLoad();
   }
 }
 
@@ -23427,7 +23427,7 @@ function staffNotificationRecipientRender(type){
       '<input type="text" id="' + id + '-name" placeholder="Name (optional)" value="' + escHtml(r.name || '') + '">' +
       '<input type="text" id="' + id + '-phone" placeholder="+346..." value="' + escHtml(r.phone || '') + '">' +
       '<label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '> Enabled</label>' +
-      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(\'' + type + '\',' + idx + ')">Remove</button>' +
+      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(' + "'" + type + "'" + ',' + idx + ')">Remove</button>' +
       '</div>';
   }).join('');
 }
@@ -23486,10 +23486,15 @@ function staffNotificationSettingsLoad(){
   var card = el('cc-staff-notification-settings');
   if (!card) return;
   if (!canUseOwnerInsightsPortal()){ card.style.display = 'none'; return; }
+  var askPanel = el('tab-ask-luna');
+  if (!askPanel || !askPanel.classList.contains('active')) {
+    card.style.display = 'none';
+    return;
+  }
   card.style.display = '';
   staffNotificationShowMsg(null, null);
   fetch('/staff/notification-settings' + staffNotificationSettingsQuery(), { credentials: 'same-origin' })
-    .then(function(r){ return r.json(); })
+    .then(function(r){ return r.json().catch(function(){ return { success: false, error: 'invalid response' }; }); })
     .then(function(data){
       if (!data || data.success !== true){
         staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to load notification settings.');

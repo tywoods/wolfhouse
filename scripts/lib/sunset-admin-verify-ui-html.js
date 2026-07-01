@@ -21,6 +21,10 @@ function loadSunsetAdminBrowserUi() {
   return require('./sunset-admin-browser-source');
 }
 
+function loadWolfhouseServicesAdmin() {
+  return require('./wolfhouse-services-browser-source');
+}
+
 function buildVerifyStaffUiHtml() {
   const {
     getStaffPortalThemeEarlyScript,
@@ -28,6 +32,7 @@ function buildVerifyStaffUiHtml() {
   } = loadStaffPortalI18n();
   const { getSunsetAdminBrowserHelperSource } = loadSunsetAdminBrowserHelpers();
   const { getSunsetAdminUiBrowserSource } = loadSunsetAdminBrowserUi();
+  const { getWolfhouseServicesAdminSource } = loadWolfhouseServicesAdmin();
   const apiPath = path.join(__dirname, '..', 'staff-query-api.js');
   const apiSrc = fs.readFileSync(apiPath, 'utf8');
   const fnStart = apiSrc.indexOf('function buildUiHtml(port)');
@@ -49,6 +54,9 @@ function buildVerifyStaffUiHtml() {
     ['${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}', getStaffPortalI18nBootstrapScript(locales)],
     ['${getSunsetAdminBrowserHelperSource()}', getSunsetAdminBrowserHelperSource()],
     ['${getSunsetAdminUiBrowserSource()}', getSunsetAdminUiBrowserSource()],
+    ['${getWolfhouseServicesAdminSource()}', getWolfhouseServicesAdminSource()],
+    ["portal-profile-pending${portalDevTabsEnabled ? '' : ' portal-no-dev-tabs'}", 'portal-profile-pending portal-no-dev-tabs'],
+    ['${portalDevTabsEnabled ? \'true\' : \'false\'}', 'false'],
     ['${renderStaffLangSwitchButtons(false)}', ''],
     ['${renderStaffLangSwitchButtons(true)}', ''],
     ['${STAFF_ACTIONS_ENABLED}', 'false'],
