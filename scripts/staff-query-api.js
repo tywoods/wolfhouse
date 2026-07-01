@@ -23427,7 +23427,7 @@ function staffNotificationRecipientRender(type){
       '<input type="text" id="' + id + '-name" placeholder="Name (optional)" value="' + escHtml(r.name || '') + '">' +
       '<input type="text" id="' + id + '-phone" placeholder="+346..." value="' + escHtml(r.phone || '') + '">' +
       '<label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '> Enabled</label>' +
-      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(\'' + type + '\',' + idx + ')">Remove</button>' +
+      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(\\'' + type + '\\',' + idx + ')">Remove</button>' +
       '</div>';
   }).join('');
 }
