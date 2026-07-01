@@ -240,7 +240,10 @@ async function processMetaWhatsAppWebhookInbound(input) {
   const body = input.body || {};
   const signatureMeta = input.signatureMeta || {};
 
-  const normalized = input.normalized || normalizeMetaWhatsAppWebhook(body);
+  const normalized = input.normalized || normalizeMetaWhatsAppWebhook(body, {
+    env,
+    client_slug: input.client_slug,
+  });
 
   if (!normalized.wa_message_id || !normalized.client_slug) {
     const response = buildMetaWhatsAppWebhookPostResponse(normalized, signatureMeta, {

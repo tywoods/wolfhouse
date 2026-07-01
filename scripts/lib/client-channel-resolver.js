@@ -179,6 +179,8 @@ function buildChannelResolver(registry, channelConfig) {
 
 /**
  * @param {object} [options]
+ * @param {object} [options.env]
+ * @param {boolean} [options.allowSampleFallback] - test/verifier only
  * @param {string} [options.channelConfigPath]
  * @returns {object}
  */
@@ -189,6 +191,131 @@ function loadChannelRoutingConfig(options = {}) {
   } catch (err) {
     throw new Error(`loadChannelRoutingConfig: cannot read ${filePath}: ${err.message}`);
   }
+}
+
+/**
+ * Runtime-safe channel routing loader.
+ *
+ * Priority:
+ * 1. CLIENT_CHANNEL_ROUTING_JSON (env JSON string)
+ * 2. CLIENT_CHANNEL_ROUTING_FILE (env file path)
+ * 3. channel-routing.sample.json only when options.allowSampleFallback === true
+ *
+ * When absent, returns { enabled: false } — callers keep legacy behavior.
+ *
+ * @param {object} [options]
+ * @param {object} [options.env]
+ * @param {boolean} [options.allowSampleFallback]
+ * @returns {{ enabled: boolean, config: object|null, source: string, error?: string }}
+ */
+function loadRuntimeChannelRoutingConfig(options = {}) {
+  const env = options.env && typeof options.env === 'object' ? options.env : process.env;
+
+  const jsonRaw = trimStr(env.CLIENT_CHANNEL_ROUTING_JSON);
+  if (jsonRaw) {
+    try {
+      const parsed = JSON.parse(jsonRaw);
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('must be a JSON object');
+      }
+      return { enabled: true, config: parsed, source: 'env_json' };
+    } catch (err) {
+      throw new Error(`CLIENT_CHANNEL_ROUTING_JSON invalid: ${err.message}`);
+    }
+  }
+
+  const filePath = trimStr(env.CLIENT_CHANNEL_ROUTING_FILE);
+  if (filePath) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (!parsed || typeof parsed !== 'object') {
+        throw new Error('must be a JSON object');
+      }
+      return { enabled: true, config: parsed, source: 'env_file', file_path: filePath };
+    } catch (err) {
+      throw new Error(`CLIENT_CHANNEL_ROUTING_FILE invalid: ${err.message}`);
+    }
+  }
+
+  if (options.allowSampleFallback === true) {
+    return {
+      enabled: true,
+      config: loadChannelRoutingConfig(options),
+      source: 'sample_fallback',
+    };
+  }
+
+  return { enabled: false, config: null, source: 'none' };
+}
+
+/**
+ * Shadow WhatsApp tenant resolution for Meta ingress (non-blocking).
+ * Never defaults unknown identities to Wolfhouse.
+ *
+ * @param {{ phone_number_id?: string }} input
+ * @param {object} [options]
+ * @returns {object}
+ */
+function resolveWhatsAppTenantShadow(input, options = {}) {
+  const phoneNumberId = trimStr(input && input.phone_number_id);
+  const routingLoad = options.routingLoad != null
+    ? options.routingLoad
+    : (options.channelConfig != null
+      ? { enabled: true, config: options.channelConfig, source: 'inline_config' }
+      : loadRuntimeChannelRoutingConfig(options));
+
+  const base = {
+    channel: 'whatsapp',
+    channel_identity_source: 'phone_number_id',
+    phone_number_id: phoneNumberId || null,
+    routing_config_enabled: routingLoad.enabled === true,
+    routing_config_source: routingLoad.source,
+    routing_shadow_mode: true,
+  };
+
+  if (!routingLoad.enabled) {
+    return {
+      ...base,
+      client_slug: null,
+      location_id: null,
+      channel_resolution_blocked: false,
+      channel_resolution_reason: 'routing_config_absent',
+    };
+  }
+
+  if (!phoneNumberId) {
+    return {
+      ...base,
+      client_slug: null,
+      location_id: null,
+      channel_resolution_blocked: true,
+      channel_resolution_reason: 'missing_phone_number_id',
+    };
+  }
+
+  const registry = options.registry || loadClientRegistry(options);
+  const resolver = options.resolver || buildChannelResolver(registry, routingLoad.config);
+  const hit = resolver.resolve({ channel: 'whatsapp', phone_number_id: phoneNumberId });
+
+  if (!hit) {
+    return {
+      ...base,
+      client_slug: null,
+      location_id: null,
+      channel_resolution_blocked: true,
+      channel_resolution_reason: BLOCKED_UNKNOWN.reason,
+    };
+  }
+
+  return {
+    ...base,
+    client_slug: hit.client_slug,
+    location_id: hit.location_id,
+    channel_resolution_blocked: false,
+    channel_resolution_reason: null,
+    resolver_source: hit.source,
+    confidence: 'exact',
+  };
 }
 
 /**
@@ -235,8 +362,10 @@ module.exports = {
   BLOCKED_UNKNOWN,
   loadClientRegistry,
   loadChannelRoutingConfig,
+  loadRuntimeChannelRoutingConfig,
   normalizeChannelIdentity,
   validateRouteAgainstRegistry,
   buildChannelResolver,
   resolveInboundTenant,
+  resolveWhatsAppTenantShadow,
 };
