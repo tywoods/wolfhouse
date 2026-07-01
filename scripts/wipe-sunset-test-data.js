@@ -6,8 +6,9 @@
  * deletes NOTHING. Set env WIPE_EXECUTE=true to actually delete (inside a single
  * transaction; rolls back on any error).
  *
- * Scope is strictly the 'sunset' client. Wolfhouse (and any other client) is never
- * touched. Admin catalog/config (tenant_* tables) is intentionally preserved.
+ * Scope is strictly the 'sunset' client. Any other client is never touched. Admin
+ * catalog/config (tenant_* tables) is intentionally preserved. Tables that do not
+ * exist in this DB are skipped.
  *
  * Cascades (from schema): deleting bookings -> payments, booking_guests,
  * booking_transfers; deleting conversations -> messages. booking_service_records
@@ -24,6 +25,11 @@ const { withPgClient } = require(path.join(__dirname, 'lib', 'pg-connect'));
 const SLUG = 'sunset';
 const EXECUTE = String(process.env.WIPE_EXECUTE || '').trim().toLowerCase() === 'true';
 
+async function tableExists(pg, table) {
+  const r = await pg.query('SELECT to_regclass($1) AS reg', [table]);
+  return r.rows[0].reg !== null;
+}
+
 async function main() {
   await withPgClient(async (pg) => {
     const clients = await pg.query('SELECT id, slug FROM clients ORDER BY slug');
@@ -35,45 +41,42 @@ async function main() {
     const cid = target[0].id;
     console.log(`TARGET client: slug=${SLUG} id=${cid}`);
 
-    // Diagnostics: reveal the actual denormalized slug values in child tables so we
-    // can confirm scoping before deleting.
-    const bsrSlugs = await pg.query('SELECT DISTINCT client_slug FROM booking_service_records ORDER BY 1');
-    const bpsSlugs = await pg.query('SELECT DISTINCT client_slug FROM bot_pause_states ORDER BY 1');
-    console.log('booking_service_records client_slug values:', JSON.stringify(bsrSlugs.rows.map((r) => r.client_slug)));
-    console.log('bot_pause_states client_slug values:', JSON.stringify(bpsSlugs.rows.map((r) => r.client_slug)));
+    // Ordered ops: children/companions first, then parents (cascades handle the rest).
+    const ops = [
+      { label: 'booking_service_records', table: 'booking_service_records', where: 'client_slug=$1', params: [SLUG] },
+      { label: 'bot_pause_states', table: 'bot_pause_states', where: 'client_slug=$1', params: [SLUG] },
+      { label: 'booking_guests (cascade w/ bookings)', table: 'booking_guests', where: 'booking_id IN (SELECT id FROM bookings WHERE client_id=$1)', params: [cid] },
+      { label: 'payments (cascade w/ bookings)', table: 'payments', where: 'booking_id IN (SELECT id FROM bookings WHERE client_id=$1)', params: [cid] },
+      { label: 'messages (cascade w/ conversations)', table: 'messages', where: 'conversation_id IN (SELECT id FROM conversations WHERE client_id=$1)', params: [cid] },
+      { label: 'bookings', table: 'bookings', where: 'client_id=$1', params: [cid] },
+      { label: 'conversations', table: 'conversations', where: 'client_id=$1', params: [cid] },
+      { label: 'guests', table: 'guests', where: 'client_id=$1', params: [cid] },
+    ];
 
-    const counts = {};
-    const count = async (label, sql, params) => {
-      const r = await pg.query(sql, params);
-      counts[label] = Number(r.rows[0].n);
-    };
-    await count('booking_service_records', 'SELECT count(*) n FROM booking_service_records WHERE client_slug=$1', [SLUG]);
-    await count('bot_pause_states', 'SELECT count(*) n FROM bot_pause_states WHERE client_slug=$1', [SLUG]);
-    await count('bookings', 'SELECT count(*) n FROM bookings WHERE client_id=$1', [cid]);
-    await count('payments (cascade)', 'SELECT count(*) n FROM payments WHERE booking_id IN (SELECT id FROM bookings WHERE client_id=$1)', [cid]);
-    await count('booking_guests (cascade)', 'SELECT count(*) n FROM booking_guests WHERE booking_id IN (SELECT id FROM bookings WHERE client_id=$1)', [cid]);
-    await count('conversations', 'SELECT count(*) n FROM conversations WHERE client_id=$1', [cid]);
-    await count('messages (cascade)', 'SELECT count(*) n FROM messages WHERE conversation_id IN (SELECT id FROM conversations WHERE client_id=$1)', [cid]);
-    await count('guests', 'SELECT count(*) n FROM guests WHERE client_id=$1', [cid]);
-    console.log('SUNSET-SCOPED COUNTS:', JSON.stringify(counts, null, 2));
+    console.log('--- SUNSET-SCOPED COUNTS ---');
+    for (const op of ops) {
+      if (!(await tableExists(pg, op.table))) { console.log(`  ${op.label}: (no table — skip)`); op.skip = true; continue; }
+      const r = await pg.query(`SELECT count(*) n FROM ${op.table} WHERE ${op.where}`, op.params);
+      console.log(`  ${op.label}: ${r.rows[0].n}`);
+    }
 
     if (!EXECUTE) {
       console.log('DRY RUN — nothing deleted. Set WIPE_EXECUTE=true to delete.');
       return;
     }
 
-    console.log('EXECUTE mode — deleting inside a transaction...');
+    console.log('--- EXECUTE: deleting inside a transaction ---');
     await pg.query('BEGIN');
     try {
-      const del = async (label, sql, params) => {
-        const r = await pg.query(sql, params);
-        console.log(`  deleted ${label}: ${r.rowCount}`);
-      };
-      await del('booking_service_records', 'DELETE FROM booking_service_records WHERE client_slug=$1', [SLUG]);
-      await del('bot_pause_states', 'DELETE FROM bot_pause_states WHERE client_slug=$1', [SLUG]);
-      await del('bookings (cascades payments/booking_guests/transfers)', 'DELETE FROM bookings WHERE client_id=$1', [cid]);
-      await del('conversations (cascades messages)', 'DELETE FROM conversations WHERE client_id=$1', [cid]);
-      await del('guests', 'DELETE FROM guests WHERE client_id=$1', [cid]);
+      // Delete companions/children explicitly, then parents. Parent deletes cascade
+      // the FK-CASCADE children (messages, payments, booking_guests, transfers).
+      const delOrder = ['booking_service_records', 'bot_pause_states', 'bookings', 'conversations', 'guests'];
+      for (const table of delOrder) {
+        const op = ops.find((o) => o.table === table);
+        if (op.skip) { console.log(`  ${table}: (no table — skip)`); continue; }
+        const r = await pg.query(`DELETE FROM ${table} WHERE ${op.where}`, op.params);
+        console.log(`  deleted ${table}: ${r.rowCount}`);
+      }
       await pg.query('COMMIT');
       console.log('COMMIT OK — Sunset test data wiped clean.');
     } catch (e) {
