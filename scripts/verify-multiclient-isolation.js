@@ -17,8 +17,14 @@ const path = require('path');
 
 const CLIENTS_FILE = path.join(__dirname, '..', 'config', 'clients', 'clients.json');
 
-const REQUIRED_CLIENTS = ['wolfhouse', 'sunset', 'mirleft'];
-const REQUIRED_LOCATIONS = ['wolfhouse-somo', 'sunset-somo', 'sunset-sardinero', 'mirleft-main'];
+const REQUIRED_CLIENTS = ['wolfhouse', 'sunset', 'mirleft', 'lawave'];
+const REQUIRED_LOCATIONS = [
+  'wolfhouse-somo',
+  'sunset-somo',
+  'sunset-sardinero',
+  'mirleft-main',
+  'lawave-main',
+];
 
 let pass = 0;
 let fail = 0;

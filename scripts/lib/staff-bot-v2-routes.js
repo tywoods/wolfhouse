@@ -871,7 +871,8 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
                checkout_url                = $2,
                expires_at                  = $3,
                metadata                    = metadata || $4::jsonb
-         WHERE id = $5`,
+         WHERE id = $5
+           AND client_id = $6`,
         [
           session.id, session.url, expiresAt,
           JSON.stringify({
@@ -882,6 +883,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
             source:                'bot_stage855',
           }),
           paymentId,
+          pm.client_id,
         ]
       );
     });
@@ -1167,6 +1169,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
   };
 
   let newPaymentId;
+  let balanceLinkClientId;
   try {
     const insResult = await withPgClient(async (pg) => {
       const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
@@ -1183,9 +1186,10 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
          RETURNING id::text AS payment_id`,
         [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
       );
-      return ins.rows[0].payment_id;
+      return { payment_id: ins.rows[0].payment_id, client_id: clientId };
     });
-    newPaymentId = insResult;
+    newPaymentId = insResult.payment_id;
+    balanceLinkClientId = insResult.client_id;
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'payment draft insert failed', detail: err.message });
   }
@@ -1239,7 +1243,8 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
                 checkout_url               = $2,
                 expires_at                 = $3,
                 metadata                   = metadata || $4::jsonb
-          WHERE id = $5::uuid`,
+          WHERE id = $5::uuid
+            AND client_id = $6`,
         [
           session.id,
           session.url,
@@ -1252,6 +1257,7 @@ async function handleBotCreateBalancePaymentLink(req, res, user, authMode, ctx) 
             source: 'luna_bot_balance_payment_link',
           }),
           newPaymentId,
+          balanceLinkClientId,
         ],
       );
     });

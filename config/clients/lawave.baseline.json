@@ -1,0 +1,106 @@
+{
+  "_meta": {
+    "status": "config_skeleton",
+    "version": "0.1",
+    "created": "2026-07-01",
+    "purpose": "La Wave — tenant deploy config skeleton. Follows config/clients/_deploy-config.template.json. NOT live; deployment.enabled=false. All prices and operational facts are provisional/TODO until the owner confirms. See docs/MULTICLIENT-ARCHITECTURE.md.",
+    "client_slug": "lawave",
+    "client_name": "La Wave",
+    "tenant_id": "lawave",
+    "vertical": "surf_school_rentals",
+    "_vertical_note": "TODO: confirm business vertical with owner (surf school, rentals, lodging, or mix). Default follows surf_school_rentals until confirmed.",
+    "timezone": "Europe/Madrid",
+    "languages": [
+      "en",
+      "es"
+    ],
+    "_languages_note": "TODO: confirm guest languages with owner.",
+    "currency": "EUR",
+    "based_on_schema": "config/clients/_deploy-config.template.json",
+    "related_docs": [
+      "docs/MULTICLIENT-ARCHITECTURE.md",
+      "docs/DEPLOYMENT-CONFIG.md"
+    ]
+  },
+  "deployment": {
+    "enabled": false,
+    "deploy_target": null,
+    "whatsapp_phone_number_id": null,
+    "_whatsapp_note": "Set at deploy time. Used by the channel adapter for tenant_id resolution.",
+    "email_inbox": null,
+    "_email_note": "TODO: confirm whether La Wave needs email ingress.",
+    "staff_api_tenant_scope": "lawave",
+    "_staff_api_note": "Every Staff-API call must carry tenant_id=lawave. Engine reads this field; never hardcode in code.",
+    "stripe_context_ref": "secret:stripe_publishable_key",
+    "_stripe_note": "La Wave gets its own Stripe context (keys in secret file). Never shares another client's Stripe.",
+    "notes": "Config skeleton only. Fill TODO fields, have owner verify pricing_status, and set enabled=true only after go-live checklist."
+  },
+  "secrets": {
+    "_note": "Real credentials live in config/clients/lawave.secrets.json (gitignored). Reference by 'secret:<key>'.",
+    "secret_file": "config/clients/lawave.secrets.json",
+    "example_file": "config/clients/lawave.secrets.example.json",
+    "keys": [
+      "handoff_whatsapp_phone",
+      "handoff_email_address",
+      "master_admin_numbers",
+      "staff_admin_password",
+      "stripe_publishable_key",
+      "stripe_secret_key",
+      "stripe_webhook_secret"
+    ]
+  },
+  "persona": {
+    "assistant_name": "Luna",
+    "brand_name": "La Wave",
+    "role": "front-desk booking and inquiry assistant for La Wave",
+    "voice_summary": "TODO: owner to confirm brand voice. Warm, helpful, one clear question at a time on WhatsApp.",
+    "no_ai_mention": true,
+    "one_clear_next_step": true,
+    "emoji_level": "moderate"
+  },
+  "channels": {
+    "whatsapp": {
+      "status": "planned",
+      "enabled": false,
+      "reply_style": "short_one_question_per_reply",
+      "max_reply_chars": 900
+    },
+    "email": {
+      "status": "planned",
+      "enabled": false,
+      "reply_style": "structured_sections_allowed"
+    }
+  },
+  "pricing_policy": {
+    "_note": "All priced items must carry pricing_status. provisional/TODO values may not be used for live autonomous charge.",
+    "currency": "EUR",
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_unverified_seed_in_live": "block_do_not_quote",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm"
+  },
+  "catalog": {
+    "_note": "TODO: owner to supply offerings, prices, and inventory models. No invented prices.",
+    "offering_type": "multi",
+    "price_quote_safe_default": "no_price_quote_without_pricing_status_confirmed_config_row",
+    "offerings": {}
+  },
+  "inventory": {
+    "_note": "TODO: map inventory model(s) once offerings are defined."
+  },
+  "locations": [
+    {
+      "location_id": "lawave-main",
+      "display_name": "La Wave",
+      "_note": "Canonical location from config/clients/clients.json."
+    }
+  ],
+  "portal": {
+    "vertical": "surf_school_rentals",
+    "_note": "TODO: align portal vertical with confirmed business type."
+  },
+  "portal_demo": {
+    "demo_mode": false,
+    "_note": "No demo seed data until owner approves preview content."
+  }
+}

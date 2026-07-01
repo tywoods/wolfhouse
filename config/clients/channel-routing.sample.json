@@ -1,0 +1,51 @@
+{
+  "_meta": {
+    "purpose": "Sample channel routing map for tenant resolution tests and local plumbing. Fake IDs only — never use real Meta phone_number_id values or live inbox addresses in git.",
+    "registry": "config/clients/clients.json",
+    "resolver": "scripts/lib/client-channel-resolver.js"
+  },
+  "whatsapp_phone_number_ids": {
+    "WHATSAPP_PHONE_NUMBER_ID_WOLFHOUSE_SAMPLE": {
+      "client_slug": "wolfhouse",
+      "location_id": "wolfhouse-somo"
+    },
+    "WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE": {
+      "client_slug": "sunset",
+      "location_id": "sunset-somo"
+    },
+    "WHATSAPP_PHONE_NUMBER_ID_SUNSET_SARDINERO_SAMPLE": {
+      "client_slug": "sunset",
+      "location_id": "sunset-sardinero"
+    },
+    "WHATSAPP_PHONE_NUMBER_ID_MIRLEFT_SAMPLE": {
+      "client_slug": "mirleft",
+      "location_id": "mirleft-main"
+    },
+    "WHATSAPP_PHONE_NUMBER_ID_LAWAVE_SAMPLE": {
+      "client_slug": "lawave",
+      "location_id": "lawave-main"
+    }
+  },
+  "email_to": {
+    "wolfhouse@example.invalid": {
+      "client_slug": "wolfhouse",
+      "location_id": "wolfhouse-somo"
+    },
+    "sunset-somo@example.invalid": {
+      "client_slug": "sunset",
+      "location_id": "sunset-somo"
+    },
+    "elsardi@example.invalid": {
+      "client_slug": "sunset",
+      "location_id": "sunset-sardinero"
+    },
+    "mirleft@example.invalid": {
+      "client_slug": "mirleft",
+      "location_id": "mirleft-main"
+    },
+    "lawave@example.invalid": {
+      "client_slug": "lawave",
+      "location_id": "lawave-main"
+    }
+  }
+}

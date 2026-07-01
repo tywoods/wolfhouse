@@ -1,0 +1,347 @@
+{
+  "schema_version": 1,
+  "generated_from": "scripts/fixtures/staff-tenant-scope-debt-hotspots.json",
+  "slice": "multiclient-sql-scope-debt-classification",
+  "summary": {
+    "total": 33,
+    "by_status": {
+      "ok": 33
+    },
+    "by_risk": {
+      "false_positive": 32,
+      "ok_session_or_indirect_scope": 1
+    }
+  },
+  "entries": [
+    {
+      "file": "scripts/lib/tenant-services-writes.js",
+      "line": 251,
+      "table": "booking_service_records",
+      "snippet": "`SELECT to_regclass('public.booking_service_records') AS t`,",
+      "id": "lib-tenant-services-writes-251",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Postgres catalog/schema introspection for lazy CHECK migration twin; not tenant data access."
+    },
+    {
+      "file": "scripts/lib/tenant-services-writes.js",
+      "line": 257,
+      "table": "booking_service_records",
+      "snippet": "WHERE c.conrelid = 'booking_service_records'::regclass",
+      "id": "lib-tenant-services-writes-257",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Postgres catalog/schema introspection for lazy CHECK migration twin; not tenant data access."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 1211,
+      "table": "auth_sessions",
+      "snippet": "`UPDATE auth_sessions SET revoked_at = NOW()",
+      "id": "staff-query-api-1211",
+      "status": "ok",
+      "risk": "ok_session_or_indirect_scope",
+      "reason": "Logout revokes the caller session by unique session_token_hash; no cross-tenant row selection."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14043,
+      "table": "payments",
+      "snippet": "error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe lin",
+      "id": "staff-query-api-14043",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "User-facing error string or comment referencing payments; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14593,
+      "table": "payments",
+      "snippet": "//   - Amount from payments.amount_due_cents — never from request body.",
+      "id": "staff-query-api-14593",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "User-facing error string or comment referencing payments; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 18017,
+      "table": "customers",
+      "snippet": "<div class=\"customers-detail-empty\" data-i18n=\"customers.detail.select\">Select a customer to view hi",
+      "id": "staff-query-api-18017",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Staff portal HTML/i18n template string; not a customers table query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 22805,
+      "table": "customers",
+      "snippet": "'<div class=\"customers-card-contact\">' + escHtml(contact.join(' · ') || t('customers.contact.unknown",
+      "id": "staff-query-api-22805",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Staff portal HTML/i18n template string; not a customers table query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 24727,
+      "table": "bookings",
+      "snippet": "html += '<button type=\"button\" class=\"pill pill-agent-session-reset\" id=\"btn-agent-session-reset\" ti",
+      "id": "staff-query-api-24727",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Agent session UI HTML button label; not a bookings query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 38400,
+      "table": "bookings",
+      "snippet": "`^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',",
+      "id": "staff-query-api-38400",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Express route path regex; not SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 38767,
+      "table": "payments",
+      "snippet": "// Payments aggregate — paid truth from paid payment rows only (10.6b)",
+      "id": "staff-query-api-38767",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Comment only; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39200,
+      "table": "bookings",
+      "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST or DELETE for ",
+      "id": "staff-query-api-39200",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or HTTP error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39230,
+      "table": "payments",
+      "snippet": "// ── Phase 10.6b — Record cash payment (payments INSERT only) ─────────────",
+      "id": "staff-query-api-39230",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Phase/route section comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39739,
+      "table": "bookings",
+      "snippet": "if (pathname === '/staff/bot/bookings/update-contact') {",
+      "id": "staff-query-api-39739",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or HTTP error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39742,
+      "table": "bookings",
+      "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookin",
+      "id": "staff-query-api-39742",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or HTTP error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40401,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only pre",
+      "id": "staff-query-api-40401",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40402,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move t",
+      "id": "staff-query-api-40402",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40403,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move",
+      "id": "staff-query-api-40403",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40404,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-chan",
+      "id": "staff-query-api-40404",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40405,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edi",
+      "id": "staff-query-api-40405",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40406,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c conta",
+      "id": "staff-query-api-40406",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40407,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel rese",
+      "id": "staff-query-api-40407",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40408,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-",
+      "id": "staff-query-api-40408",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40409,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove o",
+      "id": "staff-query-api-40409",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40410,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record ca",
+      "id": "staff-query-api-40410",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40411,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe ",
+      "id": "staff-query-api-40411",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40412,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking mov",
+      "id": "staff-query-api-40412",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40413,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL st",
+      "id": "staff-query-api-40413",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40432,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna c",
+      "id": "staff-query-api-40432",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40433,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna book",
+      "id": "staff-query-api-40433",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40445,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot book",
+      "id": "staff-query-api-40445",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40446,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: ca",
+      "id": "staff-query-api-40446",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40447,
+      "table": "payments",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot ba",
+      "id": "staff-query-api-40447",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40448,
+      "table": "payments",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Lu",
+      "id": "staff-query-api-40448",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    }
+  ]
+}

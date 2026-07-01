@@ -9,6 +9,8 @@
 
 const crypto = require('crypto');
 
+const { resolveWhatsAppTenantShadow } = require('./client-channel-resolver');
+
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
 const DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
 
@@ -161,17 +163,50 @@ function findFirstInboundMessage(body) {
 }
 
 /**
+ * Shadow tenant resolution from Meta phone_number_id (non-blocking).
+ * @param {string|null} phoneNumberId
+ * @param {object} [options] - passed to resolveWhatsAppTenantShadow (env, routingLoad, …)
+ */
+function resolveMetaWhatsAppTenantShadow(phoneNumberId, options = {}) {
+  return resolveWhatsAppTenantShadow(
+    { phone_number_id: phoneNumberId },
+    options,
+  );
+}
+
+function attachTenantChannelShadow(normalized, options = {}) {
+  if (!normalized || typeof normalized !== 'object') return normalized;
+  const shadow = resolveMetaWhatsAppTenantShadow(normalized.phone_number_id, {
+    env: options.env,
+    allowSampleFallback: options.allowSampleFallback === true,
+    routingLoad: options.routingLoad,
+    channelConfig: options.channelConfig,
+    registry: options.registry,
+    resolver: options.resolver,
+  });
+  return { ...normalized, tenant_channel_shadow: shadow };
+}
+
+/**
  * Normalize Meta WhatsApp webhook POST body.
  * @param {object} body - parsed JSON webhook payload
- * @param {{ client_slug?: string }} [options]
+ * @param {{ client_slug?: string, env?: object, allowSampleFallback?: boolean, routingLoad?: object, channelConfig?: object }} [options]
  */
 function normalizeMetaWhatsAppWebhook(body, options = {}) {
   const clientSlug = trimStr(options.client_slug) || DEFAULT_CLIENT_SLUG;
+  const shadowOptions = {
+    env: options.env,
+    allowSampleFallback: options.allowSampleFallback === true,
+    routingLoad: options.routingLoad,
+    channelConfig: options.channelConfig,
+    registry: options.registry,
+    resolver: options.resolver,
+  };
   const rawSummary = buildRawSummary(body || {});
   const inbound = findFirstInboundMessage(body || {});
 
   if (!inbound) {
-    return {
+    return attachTenantChannelShadow({
       client_slug: clientSlug,
       channel: 'whatsapp',
       phone_number_id: null,
@@ -186,7 +221,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
       supported: false,
       unsupported_reason: 'no_inbound_message',
       raw_summary: rawSummary,
-    };
+    }, shadowOptions);
   }
 
   const supported = SUPPORTED_MESSAGE_TYPES.has(inbound.message_type);
@@ -197,7 +232,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
     unsupportedReason = 'missing_text_body';
   }
 
-  return {
+  return attachTenantChannelShadow({
     client_slug: clientSlug,
     channel: 'whatsapp',
     phone_number_id: inbound.phone_number_id,
@@ -212,7 +247,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
     supported,
     unsupported_reason: unsupportedReason,
     raw_summary: rawSummary,
-  };
+  }, shadowOptions);
 }
 
 /**
@@ -367,4 +402,6 @@ module.exports = {
   META_WEBHOOK_SEND_KIND_BY_ACTION,
   buildRawSummary,
   findFirstInboundMessage,
+  resolveMetaWhatsAppTenantShadow,
+  attachTenantChannelShadow,
 };
