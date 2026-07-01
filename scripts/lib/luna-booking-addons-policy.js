@@ -393,6 +393,11 @@ function buildManualAddonsNote(lang, pendingManual) {
   return `No problem — I'll note that you're interested in ${label}. The team can confirm the exact details, but we can still hold the stay now.`;
 }
 
+function packageIncludesLessons(fields) {
+  const pkg = trimStr(fields && (fields.package_interest || fields.package_code || fields.package)).toLowerCase();
+  return !!(PACKAGE_INCLUDED_SERVICE_CODES[pkg] && PACKAGE_INCLUDED_SERVICE_CODES[pkg].has('surf_lesson'));
+}
+
 function buildMidFlowAddonsReturnTail(fields, lang, quote) {
   const range = formatStayRange(fields.check_in, fields.check_out);
   const guestPhrase = formatGuestPhrase(lang || 'en', fields.guest_count);
@@ -400,9 +405,12 @@ function buildMidFlowAddonsReturnTail(fields, lang, quote) {
 
   if (quoteAwaitingAddonsDecision(quote)) {
     if (ctx) {
-      return `For your booking, I have ${ctx}. Are you going to need a board, wetsuit, lessons, or just the stay?`;
+      var offer = packageIncludesLessons(fields) ? 'a board, wetsuit, or just the stay' : 'a board, wetsuit, private lesson, or just the stay';
+      return `For your booking, I have ${ctx}. Are you going to need ${offer}?`;
     }
-    return 'Are you going to need a wetsuit, surfboard, and/or lessons, or just the stay?';
+    return packageIncludesLessons(fields)
+      ? 'Are you going to need a wetsuit, surfboard, or just the stay?'
+      : 'Are you going to need a wetsuit, surfboard, private lesson, or just the stay?';
   }
   return 'Want me to keep going with your booking?';
 }
@@ -439,6 +447,7 @@ module.exports = {
   normalizeServiceInterestCodes,
   serviceInterestSignature,
   quoteAwaitingAddonsDecision,
+  packageIncludesLessons,
   addonsResolvedFromFields,
   addonsAnsweredThisTurn,
   classifyServiceInterestPricing,

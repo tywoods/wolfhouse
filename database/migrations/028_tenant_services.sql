@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS tenant_services (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by      UUID,
+  schedule_slots  JSONB NOT NULL DEFAULT '[]'::jsonb,
   CONSTRAINT tenant_services_date_window
     CHECK (end_date IS NULL OR start_date IS NULL OR end_date >= start_date),
   CONSTRAINT tenant_services_price_unit

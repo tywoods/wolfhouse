@@ -8491,6 +8491,49 @@ function staffAddonResolvePricing(uiServiceType, quantity, clientSlug) {
   return { ok: false, error: 'unsupported service_type' };
 }
 
+async function ensureBookingServiceSlotColumns(client) {
+  const reg = await client.query(`SELECT to_regclass('public.booking_service_records') AS t`);
+  if (!reg.rows[0] || !reg.rows[0].t) return;
+  await client.query(`ALTER TABLE booking_service_records ADD COLUMN IF NOT EXISTS service_slot_id TEXT`);
+  await client.query(`ALTER TABLE booking_service_records ADD COLUMN IF NOT EXISTS service_time_local TEXT`);
+  await client.query(`ALTER TABLE booking_service_records ADD COLUMN IF NOT EXISTS service_time_local_end TEXT`);
+  await client.query(`CREATE INDEX IF NOT EXISTS idx_booking_service_records_service_slot
+    ON booking_service_records (client_slug, service_date, service_slot_id)
+    WHERE service_slot_id IS NOT NULL AND status NOT IN ('cancelled')`);
+}
+
+function resolveCatalogLessonSlot(svcRow, body) {
+  const slots = Array.isArray(svcRow.schedule_slots) ? svcRow.schedule_slots : [];
+  const active = slots.filter((slot) => slot && slot.active !== false);
+  if (!active.length) return { ok: true, slot: null };
+  const requested = String(body.service_slot_id || body.slot_id || '').trim();
+  if (!requested) return { ok: false, status: 400, error: 'service_slot_id is required for lesson services' };
+  const slot = active.find((x) => String(x.slot_id) === requested);
+  if (!slot) return { ok: false, status: 400, error: 'lesson slot not found or inactive' };
+  return { ok: true, slot };
+}
+
+async function lockAndAssertLessonSlotCapacity(pg, { clientSlug, serviceId, serviceDate, slot }) {
+  if (!slot || !serviceDate) return { ok: true };
+  const slotId = String(slot.slot_id || '').trim();
+  const lockKey = `${clientSlug}:${serviceId}:${serviceDate}:${slotId}`;
+  await pg.query(`SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))`, [clientSlug, lockKey]);
+  const used = await pg.query(
+    `SELECT COUNT(*)::int AS n
+       FROM booking_service_records
+      WHERE client_slug = $1
+        AND service_date = $2::date
+        AND service_slot_id = $3
+        AND COALESCE(status, '') NOT IN ('cancelled')
+        AND metadata->>'service_id' = $4`,
+    [clientSlug, serviceDate, slotId, serviceId]
+  );
+  const capacity = Math.max(1, Number(slot.capacity) || 1);
+  const usedCount = (used.rows[0] && used.rows[0].n) || 0;
+  if (usedCount >= capacity) return { ok: false, error: 'slot_full', capacity, used: usedCount };
+  return { ok: true, capacity, used: usedCount };
+}
+
 async function handleBookingAddService(req, res, user) {
   const started = Date.now();
 
@@ -8596,8 +8639,8 @@ async function handleBookingAddService(req, res, user) {
     try {
       svcRow = await withPgClient(async (pg) => {
         const r = await pg.query(
-          `SELECT id::text AS id, name, price_cents, price_unit, per_guest,
-                  start_date::text AS start_date, end_date::text AS end_date
+          `SELECT id::text AS id, name, category, price_cents, price_unit, per_guest,
+                  start_date::text AS start_date, end_date::text AS end_date, schedule_slots
              FROM tenant_services
             WHERE id = $1::uuid AND client_slug = $2 AND active = true`,
           [catalogServiceId, clientSlug]
@@ -8609,6 +8652,12 @@ async function handleBookingAddService(req, res, user) {
       return sendJSON(res, 500, { success: false, error: 'catalog service lookup failed', detail: err.message });
     }
     if (!svcRow) return send400(res, 'catalog service not found or inactive');
+    const lessonSlot = String(svcRow.category || '').toLowerCase() === 'lesson'
+      ? resolveCatalogLessonSlot(svcRow, body)
+      : { ok: true, slot: null };
+    if (!lessonSlot.ok) {
+      return sendJSON(res, lessonSlot.status || 400, { success: false, error: lessonSlot.error, created: false });
+    }
 
     // Quantity = number of guests taking the service (defaults to the whole party,
     // staff can lower it). per_guest=false services are flat (quantity ignored for math).
@@ -8669,6 +8718,11 @@ async function handleBookingAddService(req, res, user) {
         quantity: guests,
         apply_from: svcRow.price_unit === 'per_day' ? applyFrom : null,
         apply_to: svcRow.price_unit === 'per_day' ? applyTo : null,
+        slot_id: lessonSlot.slot ? lessonSlot.slot.slot_id : null,
+        slot_label: lessonSlot.slot ? lessonSlot.slot.label : null,
+        slot_capacity: lessonSlot.slot ? (lessonSlot.slot.capacity || 1) : null,
+        slot_time_local: lessonSlot.slot ? lessonSlot.slot.time_local : null,
+        slot_time_local_end: lessonSlot.slot ? lessonSlot.slot.time_local_end : null,
       },
       warnings: [],
     };
@@ -8679,7 +8733,7 @@ async function handleBookingAddService(req, res, user) {
 
   if (isCatalog) {
     // One consolidated record dated at the first applied night.
-    unitDates = [ (pricing.metadata_extra && pricing.metadata_extra.apply_from) || bookingRow.check_in || null ];
+    unitDates = [ serviceDateIn || (pricing.metadata_extra && pricing.metadata_extra.apply_from) || bookingRow.check_in || null ];
   } else if (scheduleMode === 'schedule_later') {
     unitDates = Array(unitQty).fill(null);
   } else if (scheduleMode === 'span_across_booking') {
@@ -8742,6 +8796,7 @@ async function handleBookingAddService(req, res, user) {
 
       await pg.query('BEGIN');
       try {
+        await ensureBookingServiceSlotColumns(pg);
         const insertedRows = [];
         for (let u = 0; u < unitQty; u++) {
           const unitKey = unitQty === 1 ? idempotencyKey : `${idempotencyKey}-unit-${u + 1}`;
@@ -8752,17 +8807,34 @@ async function handleBookingAddService(req, res, user) {
             unit_total: unitQty,
           };
           const unitServiceDate = unitDates[u];
+          if (isCatalog && pricing.metadata_extra && pricing.metadata_extra.slot_id) {
+            const cap = await lockAndAssertLessonSlotCapacity(pg, {
+              clientSlug,
+              serviceId: pricing.metadata_extra.service_id,
+              serviceDate: unitServiceDate,
+              slot: { slot_id: pricing.metadata_extra.slot_id, capacity: pricing.metadata_extra.slot_capacity },
+            });
+            if (!cap.ok) {
+              const e = new Error('slot_full');
+              e.code = 'SLOT_FULL';
+              e.capacity = cap.capacity;
+              e.used = cap.used;
+              throw e;
+            }
+          }
           const ins = await pg.query(
             `INSERT INTO booking_service_records (
                client_slug, booking_id, booking_code, guest_name,
                service_type, service_date, quantity, status,
                amount_due_cents, amount_paid_cents, payment_status,
-               source, notes, metadata
+               source, notes, metadata,
+               service_slot_id, service_time_local, service_time_local_end
              ) VALUES (
                $1, $2::uuid, $3, $4,
                $5, $6::date, 1, 'requested',
                $7, 0, 'not_requested',
-               'staff_manual', $8, $9::jsonb
+               'staff_manual', $8, $9::jsonb,
+               $10, $11, $12
              )
              RETURNING
                id::text AS service_record_id,
@@ -8774,7 +8846,10 @@ async function handleBookingAddService(req, res, user) {
                amount_due_cents,
                amount_paid_cents,
                notes,
-               metadata`,
+               metadata,
+               service_slot_id,
+               service_time_local,
+               service_time_local_end`,
             [
               clientSlug,
               bookingRow.booking_id,
@@ -8785,6 +8860,9 @@ async function handleBookingAddService(req, res, user) {
               unitCents,
               note,
               JSON.stringify(unitMeta),
+              unitMeta.slot_id || null,
+              unitMeta.slot_time_local || null,
+              unitMeta.slot_time_local_end || null,
             ]
           );
           insertedRows.push(ins.rows[0]);
@@ -8850,6 +8928,16 @@ async function handleBookingAddService(req, res, user) {
       elapsed_ms: elapsed,
     });
   } catch (err) {
+    if (err && err.code === 'SLOT_FULL') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: 'slot_full',
+        message: 'That lesson slot is already full. Please choose another time.',
+        created: false,
+        capacity: err.capacity,
+        used: err.used,
+      });
+    }
     if (isMissingBookingServiceRecordsTable(err)) {
       return sendJSON(res, 503, {
         success: false,
@@ -17702,7 +17790,7 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="day-schedule" data-i18n="nav.tab.daySchedule" style="display:none">Day Schedule</button>
   <button class="tab-btn" data-tab="customers" data-i18n="nav.tab.customers" style="display:none">Customers</button>
   <button class="tab-btn" data-tab="admin" data-i18n="nav.tab.admin" style="display:none">Admin</button>
-  <button class="tab-btn" data-tab="services" style="display:none">Camps and Services</button>
+  <button class="tab-btn" data-tab="services" style="display:none">Camps, Lessons and Services</button>
   <button class="tab-btn" data-tab="ask-luna" data-i18n="nav.tab.lunaStaff">Luna Staff</button>
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
@@ -17894,10 +17982,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="tab-services" class="tab-panel">
 <div class="portal-admin-wrap">
   <div class="portal-admin-header-row" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
-    <h2 class="portal-admin-title">Camps and Services</h2>
-    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / service</button>
+    <h2 class="portal-admin-title">Camps, Lessons and Services</h2>
+    <button type="button" class="btn btn-primary" id="svc-create-open">+ Create camp / lesson / service</button>
   </div>
-  <p class="portal-admin-muted">Camps and add-on services Luna can offer. Set camp dates and optionally block rooms for the whole period.</p>
+  <p class="portal-admin-muted">Camps, private lessons, and add-on services Luna can offer. Set camp dates, lesson times, and optional room blocks.</p>
   <div id="svc-list-body"><p class="portal-admin-muted">Loading…</p></div>
   <div id="svc-save-msg" class="state-msg" style="display:none;margin-top:12px" aria-live="polite"></div>
 </div>
@@ -17906,7 +17994,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div id="svc-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
   <div class="portal-schedule-create-backdrop" id="svc-modal-backdrop"></div>
   <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="svc-modal-title">
-    <h3 id="svc-modal-title">Create camp / service</h3>
+    <h3 id="svc-modal-title">Create camp / lesson / service</h3>
     <input type="hidden" id="svc-f-id">
     <div class="portal-schedule-create-field"><label for="svc-f-name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-category">Category</label>
@@ -17917,6 +18005,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
       <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option></select></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
+    <div class="portal-schedule-create-field" id="svc-f-slots-wrap" style="display:none"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><label>Lesson time slots</label><button type="button" class="btn btn-ghost portal-admin-icon-btn" id="svc-slot-add" aria-label="Add lesson time slot">+</button></div><div id="svc-f-slots-list"></div><p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Private lessons use capacity 1. Luna only offers slots with space left.</p></div>
     <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
     <div class="portal-schedule-create-field" id="svc-f-rooms-wrap" style="display:none">
       <label>Rooms to block</label>
@@ -34056,6 +34145,8 @@ async function handleBookingServiceCatalogGet(query, req, res, user) {
       price_cents: s.price_cents,
       price_unit: s.price_unit,
       per_guest: s.per_guest,
+      category: s.category,
+      schedule_slots: s.schedule_slots || [],
     }));
     return sendJSON(res, 200, { success: true, services });
   } catch (err) {

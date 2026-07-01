@@ -92,6 +92,55 @@
     }
   }
 
+
+  function svcSlotRowHtml(slot, idx, removable) {
+    slot = slot || {};
+    return '<div class="svc-slot-row" data-slot-idx="' + idx + '" style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:6px;align-items:end;margin-top:6px">'
+      + '<input type="hidden" class="svc-slot-id" value="' + esc(slot.slot_id || '') + '">'
+      + '<label style="font-size:12px">Start<input type="time" class="svc-slot-start" value="' + esc(slot.time_local || '09:00') + '"></label>'
+      + '<label style="font-size:12px">End<input type="time" class="svc-slot-end" value="' + esc(slot.time_local_end || '') + '"></label>'
+      + '<label style="font-size:12px">Capacity<input type="number" min="1" max="20" class="svc-slot-cap" value="' + esc(slot.capacity || 1) + '"></label>'
+      + '<button type="button" class="btn btn-ghost portal-admin-icon-btn svc-slot-remove" ' + (removable ? '' : 'disabled') + '>×</button>'
+      + '<label style="font-size:12px;grid-column:1 / -1">Label<input type="text" class="svc-slot-label" value="' + esc(slot.label || '') + '" placeholder="Morning private lesson"></label>'
+      + '</div>';
+  }
+
+  function svcRenderSlots(slots) {
+    var list = svcEl('svc-f-slots-list');
+    if (!list) return;
+    slots = (slots && slots.length) ? slots : [{ time_local: '09:00', capacity: 1, active: true }];
+    list.innerHTML = slots.map(function (slot, idx) { return svcSlotRowHtml(slot, idx, slots.length > 1); }).join('');
+    list.querySelectorAll('.svc-slot-remove').forEach(function (btn) {
+      btn.addEventListener('click', function () { btn.closest('.svc-slot-row').remove(); svcUpdateSlotRemoveState(); });
+    });
+  }
+
+  function svcUpdateSlotRemoveState() {
+    var rows = document.querySelectorAll('.svc-slot-row');
+    rows.forEach(function (row) { var b = row.querySelector('.svc-slot-remove'); if (b) b.disabled = rows.length <= 1; });
+  }
+
+  function svcUpdateCategoryUi() {
+    var isLesson = svcEl('svc-f-category') && svcEl('svc-f-category').value === 'lesson';
+    var wrap = svcEl('svc-f-slots-wrap');
+    if (wrap) wrap.style.display = isLesson ? '' : 'none';
+    if (isLesson && svcEl('svc-f-slots-list') && !svcEl('svc-f-slots-list').children.length) svcRenderSlots([]);
+  }
+
+  function svcReadSlots() {
+    var rows = [];
+    document.querySelectorAll('.svc-slot-row').forEach(function (row) {
+      var start = row.querySelector('.svc-slot-start');
+      var end = row.querySelector('.svc-slot-end');
+      var cap = row.querySelector('.svc-slot-cap');
+      var id = row.querySelector('.svc-slot-id');
+      var label = row.querySelector('.svc-slot-label');
+      if (!start || !start.value) return;
+      rows.push({ slot_id: id && id.value || undefined, label: label && label.value || '', time_local: start.value, time_local_end: end && end.value || '', capacity: parseInt(cap && cap.value || '1', 10), active: true });
+    });
+    return rows;
+  }
+
   window.loadServicesTab = function loadServicesTab() {
     wireServicesTab();
     var body = svcEl('svc-list-body'); if (body) body.innerHTML = '<p class="portal-admin-muted">Loading…</p>';
@@ -107,7 +156,7 @@
   function renderServices(list) {
     var body = svcEl('svc-list-body'); if (!body) return;
     window.__svcCache = list;
-    if (!list.length) { body.innerHTML = '<p class="portal-admin-muted">Nothing yet. Click “+ Create camp / service”.</p>'; return; }
+    if (!list.length) { body.innerHTML = '<p class="portal-admin-muted">Nothing yet. Click “+ Create camp / lesson / service”.</p>'; return; }
     var html = '<div class="portal-admin-pack-grid" id="svc-grid">';
     list.forEach(function (s) {
       var dates = (s.start_date || s.end_date) ? (esc(svcDateOnly(s.start_date) || '…') + ' → ' + esc(svcDateOnly(s.end_date) || '…')) : 'Always';
@@ -144,7 +193,7 @@
 
   function fillForm(s) {
     s = s || {};
-    svcEl('svc-modal-title').textContent = s.id ? 'Edit camp / service' : 'Create camp / service';
+    svcEl('svc-modal-title').textContent = s.id ? 'Edit camp / lesson / service' : 'Create camp / lesson / service';
     svcEl('svc-f-id').value = s.id || '';
     svcEl('svc-f-name').value = s.name || '';
     svcEl('svc-f-category').value = s.category || '';
@@ -156,6 +205,8 @@
     svcEl('svc-f-keywords').value = (s.keywords || []).join(', ');
     svcEl('svc-f-notes').value = s.notes_for_luna || '';
     if (svcEl('svc-f-block-rooms')) svcEl('svc-f-block-rooms').checked = s.block_rooms_enabled === true;
+    svcRenderSlots(s.schedule_slots || []);
+    svcUpdateCategoryUi();
     svcLoadRooms(function () {
       svcRenderRoomChecklist(s.blocked_room_codes || []);
       svcUpdateBlockRoomsUi();
@@ -190,6 +241,7 @@
       block_rooms_enabled: blockEnabled,
       blocked_room_codes: blockEnabled ? svcReadSelectedRooms() : [],
     };
+    if (body.category === 'lesson') body.schedule_slots = svcReadSlots();
     if (!body.category) delete body.category;
     if (Number.isNaN(body.price_cents)) body.price_cents = 0;
     return body;
@@ -223,7 +275,7 @@
     var path = '/staff/admin/services' + (id ? ('/' + encodeURIComponent(id)) : '') + svcQuery();
     servicesApi(method, path, body).then(function (res) {
       if ((res.status === 200 || res.status === 201) && res.data && res.data.success) {
-        closeSvcModal(); svcMsg('ok', id ? 'Camp / service updated.' : 'Camp / service created.'); loadServicesTab();
+        closeSvcModal(); svcMsg('ok', id ? 'Camp / lesson / service updated.' : 'Camp / lesson / service created.'); loadServicesTab();
       } else {
         svcMsg('error', svcFormatError(res));
       }
@@ -242,6 +294,13 @@
     var pairs = [['svc-create-open', function () { openSvcModal(null); }], ['svc-modal-cancel', closeSvcModal], ['svc-modal-submit', submitSvc]];
     pairs.forEach(function (p) { var n = svcEl(p[0]); if (n && !n.dataset.wired) { n.dataset.wired = '1'; n.addEventListener('click', p[1]); } });
     var bd = svcEl('svc-modal-backdrop'); if (bd && !bd.dataset.wired) { bd.dataset.wired = '1'; bd.addEventListener('click', closeSvcModal); }
+    var cat = svcEl('svc-f-category');
+    if (cat && !cat.dataset.svcWired) { cat.dataset.svcWired = '1'; cat.addEventListener('change', svcUpdateCategoryUi); }
+    var addSlot = svcEl('svc-slot-add');
+    if (addSlot && !addSlot.dataset.svcWired) {
+      addSlot.dataset.svcWired = '1';
+      addSlot.addEventListener('click', function () { var current = svcReadSlots(); current.push({ time_local: '09:00', capacity: 1, active: true }); svcRenderSlots(current); });
+    }
     var blockCb = svcEl('svc-f-block-rooms');
     if (blockCb && !blockCb.dataset.wired) {
       blockCb.dataset.wired = '1';

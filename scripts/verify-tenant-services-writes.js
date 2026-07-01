@@ -50,6 +50,17 @@ ok('block rooms create accepted with dates', (() => {
   return r.ok && r.patch.blocked_room_codes.join(',') === 'A1';
 })());
 
+
+// ── validation: lesson schedule slots ─────────────────────────────────
+ok('lesson schedule_slots accepted with defaults', (() => {
+  const r = validateServiceBody({ name: 'Private surf lesson', category: 'lesson', schedule_slots: [{ time_local: '09:00' }] }, { requireName: true });
+  return r.ok && r.patch.schedule_slots[0].time_local === '09:00' && r.patch.schedule_slots[0].capacity === 1 && r.patch.schedule_slots[0].slot_id;
+})());
+ok('non-lesson schedule_slots rejected', validateServiceBody({ name: 'Breakfast', category: 'meal', schedule_slots: [{ time_local: '09:00' }] }, { requireName: true }).ok === false);
+ok('bad lesson slot time rejected', validateServiceBody({ name: 'Private surf lesson', category: 'lesson', schedule_slots: [{ time_local: '25:00' }] }, { requireName: true }).ok === false);
+ok('lesson slot end must be after start', validateServiceBody({ name: 'Private surf lesson', category: 'lesson', schedule_slots: [{ time_local: '10:00', time_local_end: '09:00' }] }, { requireName: true }).ok === false);
+ok('lesson slot capacity range enforced', validateServiceBody({ name: 'Private surf lesson', category: 'lesson', schedule_slots: [{ time_local: '09:00', capacity: 0 }] }, { requireName: true }).ok === false);
+
 // ── validation: patch ────────────────────────────────────────────────
 ok('patch allows partial (no name)', validateServiceBody({ price_cents: 1500 }).ok === true);
 ok('patch empty rejected', validateServiceBody({}).ok === false);
