@@ -4139,6 +4139,12 @@ function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
   for (const pr of rows || []) {
     const st = String(pr.payment_status || '').toLowerCase();
     if (paymentLedgerIsCancelledLinkStatus(st)) continue;
+    // A balance link covers the whole outstanding balance and is never tied to a
+    // single guest. Per-guest deposit links (booking_guest_id set) must NOT be
+    // treated as the balance link — otherwise the balance generator sees a €X
+    // per-guest deposit link, thinks "balance link already exists", and returns
+    // it instead of creating the real balance link (so nothing new shows up).
+    if (pr.booking_guest_id) continue;
     if (paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
     const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
     if ((st === 'checkout_created' || st === 'draft' || st === 'pending')
