@@ -4148,11 +4148,13 @@ function ledgerActivePaymentLinkRow(rows, ledgerCtxOrBalance, bookingRow) {
     // it instead of creating the real balance link (so nothing new shows up).
     if (pr.booking_guest_id) continue;
     if (paymentLedgerIsStaleUnpaidLinkRow(pr, ledgerCtx)) continue;
-    const intended = paymentLinkIntendedAmountCents(pr, ledgerCtx);
+    // Must cover the FULL outstanding balance. Matching each row against its own
+    // intended amount let partial deposit links (e.g. a €400 deposit link on a
+    // €598 balance) masquerade as the balance link, so the generator returned
+    // that partial link instead of creating the balance link.
     if ((st === 'checkout_created' || st === 'draft' || st === 'pending')
         && pr.checkout_url
-        && intended != null
-        && Number(pr.amount_due_cents) === Number(intended)
+        && Number(pr.amount_due_cents) === Number(balanceDue)
         && Number(pr.amount_paid_cents || 0) === 0) {
       return pr;
     }
