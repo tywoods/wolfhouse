@@ -95,6 +95,8 @@ const {
   putNotificationSettings,
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
+  isStaffNotificationsEnabled,
+  isStaffNotificationsDryRun,
 } = require('./lib/staff-whatsapp-notifications');
 const {
   upsertStaffPhoneAccess,
@@ -17670,6 +17672,28 @@ textarea.bk-input{resize:vertical;min-height:60px}
 .cc-section-hdr{font-size:14px;font-weight:700;color:var(--text);margin:0 0 4px}
 .cc-section-sub{font-size:11.5px;color:var(--text-2);margin:0 0 14px;line-height:1.45;max-width:640px}
 .cc-role-note{font-size:10.5px;color:var(--text-3);font-style:italic;margin:-6px 0 10px}
+#cc-staff-notification-settings .sns-card-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:4px}
+#cc-staff-notification-settings .sns-card-sub{margin-bottom:0}
+#cc-staff-notification-settings .sns-server-pill{flex-shrink:0;margin-top:2px;font-size:10px}
+#cc-staff-notification-settings #sns-error,#cc-staff-notification-settings #sns-status{margin:8px 0 0}
+#cc-staff-notification-settings .sns-global-row{margin:14px 0 16px;padding:12px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
+#cc-staff-notification-settings .sns-toggle-row{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0;cursor:pointer;font-weight:600;color:var(--text);font-size:13px}
+#cc-staff-notification-settings .sns-toggle-row input[type=checkbox]{width:16px;height:16px;min-width:16px!important;flex-shrink:0;margin:0;accent-color:var(--primary)}
+#cc-staff-notification-settings .sns-toggle-label{line-height:1.35}
+#cc-staff-notification-settings .sns-global-hint{margin:6px 0 0 24px}
+#cc-staff-notification-settings .sns-section{margin-bottom:14px;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
+#cc-staff-notification-settings .sns-section-hdr{margin-bottom:10px}
+#cc-staff-notification-settings .sns-section-toggle{margin-bottom:4px}
+#cc-staff-notification-settings .sns-section-hint{margin:0 0 0 24px}
+#cc-staff-notification-settings .sns-recipient-row{display:grid;grid-template-columns:minmax(100px,1fr) minmax(140px,1.2fr) auto auto;gap:8px;align-items:center;margin-bottom:8px}
+#cc-staff-notification-settings .sns-recipient-row input[type=text]{min-width:0!important;width:100%;height:34px;padding:6px 10px;font-size:13px}
+#cc-staff-notification-settings .sns-recipient-enabled{display:flex!important;flex-direction:row!important;align-items:center;gap:6px;margin:0;white-space:nowrap;font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer}
+#cc-staff-notification-settings .sns-recipient-enabled input[type=checkbox]{width:16px;height:16px;min-width:16px!important;margin:0;accent-color:var(--primary)}
+#cc-staff-notification-settings .sns-recipient-remove{padding:6px 10px;font-size:11px;line-height:1.2;white-space:nowrap}
+#cc-staff-notification-settings .sns-empty{padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;color:var(--text-3);line-height:1.45;margin-bottom:8px}
+#cc-staff-notification-settings .sns-add-btn{padding:6px 12px;font-size:11px;margin-top:4px}
+#cc-staff-notification-settings .sns-phone-hint{margin:4px 0 14px}
+#cc-staff-notification-settings .sns-actions{margin-top:4px}
 .oi-form-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
 #oi-input{flex:1;font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
 #oi-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
@@ -17828,6 +17852,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-staff-whatsapp-numbers .al-form-row{flex-direction:column;align-items:stretch;gap:10px}
 #cc-staff-whatsapp-numbers .al-form-row input,#cc-staff-whatsapp-numbers .al-form-row select,#cc-staff-whatsapp-numbers .al-form-row button{width:100%;min-width:0;box-sizing:border-box}
 #cc-staff-whatsapp-numbers .al-form-row label{width:100%}
+#cc-staff-notification-settings .sns-recipient-row{grid-template-columns:1fr;gap:8px}
+#cc-staff-notification-settings .sns-recipient-enabled{justify-content:flex-start}
+#cc-staff-notification-settings .sns-recipient-remove{width:100%}
 }
 </style>
 </head>
@@ -18846,30 +18873,50 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </div>
 
   <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
-    <div class="cc-section-hdr">Staff WhatsApp Alerts</div>
-    <div class="cc-section-sub">Notify staff on WhatsApp when a new guest conversation starts or Luna needs human help. Use international format, e.g. +346&hellip; No alerts are sent unless notifications are enabled in the server environment.</div>
+    <div class="sns-card-hdr">
+      <div>
+        <div class="cc-section-hdr">Staff WhatsApp Alerts</div>
+        <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts to staff when Luna starts a new guest conversation or needs human help.</div>
+      </div>
+      <span class="pill pill-grey sns-server-pill" id="sns-server-pill" style="display:none"></span>
+    </div>
     <div id="sns-error"></div>
     <div id="sns-status"></div>
 
-    <div class="sns-type-block" style="margin-top:14px">
-      <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600">
-        <input type="checkbox" id="sns-new-enabled"> New Conversation Notifications
+    <div class="sns-global-row">
+      <label class="sns-toggle-row">
+        <input type="checkbox" id="sns-global-enabled" onchange="staffNotificationGlobalApplyToSections(this.checked)">
+        <span class="sns-toggle-label">Enable staff WhatsApp alerts</span>
       </label>
-      <div class="al-hint" style="margin:6px 0 8px">Alert when a new Luna/WhatsApp conversation is created.</div>
-      <div id="sns-new-recipients"></div>
-      <button type="button" class="btn" style="margin-top:6px" onclick="staffNotificationRecipientAdd('new_conversation')">Add recipient</button>
+      <div class="al-hint sns-global-hint">When disabled, Luna will not send staff alert messages.</div>
     </div>
 
-    <div class="sns-type-block" style="margin-top:18px">
-      <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600">
-        <input type="checkbox" id="sns-human-enabled"> Human Needed Notifications
-      </label>
-      <div class="al-hint" style="margin:6px 0 8px">Alert when a conversation is marked needs human / Luna hands off to staff.</div>
-      <div id="sns-human-recipients"></div>
-      <button type="button" class="btn" style="margin-top:6px" onclick="staffNotificationRecipientAdd('human_needed')">Add recipient</button>
+    <div class="sns-section">
+      <div class="sns-section-hdr">
+        <label class="sns-toggle-row sns-section-toggle">
+          <input type="checkbox" id="sns-new-enabled" onchange="staffNotificationGlobalSyncFromSections()">
+          <span class="sns-toggle-label">New conversation alerts</span>
+        </label>
+        <div class="al-hint sns-section-hint">Notify staff when a guest starts a new Luna conversation.</div>
+      </div>
+      <div class="sns-recipients" id="sns-new-recipients"></div>
+      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('new_conversation')">Add recipient</button>
     </div>
 
-    <div class="al-form-row" style="margin-top:12px">
+    <div class="sns-section">
+      <div class="sns-section-hdr">
+        <label class="sns-toggle-row sns-section-toggle">
+          <input type="checkbox" id="sns-human-enabled" onchange="staffNotificationGlobalSyncFromSections()">
+          <span class="sns-toggle-label">Human needed alerts</span>
+        </label>
+        <div class="al-hint sns-section-hint">Notify staff when Luna hands a conversation to the team.</div>
+      </div>
+      <div class="sns-recipients" id="sns-human-recipients"></div>
+      <button type="button" class="btn btn-ghost sns-add-btn" onclick="staffNotificationRecipientAdd('human_needed')">Add recipient</button>
+    </div>
+
+    <div class="al-hint sns-phone-hint">Use international phone format, e.g. +34600000000.</div>
+    <div class="sns-actions">
       <button class="btn btn-primary" id="sns-save-btn" onclick="staffNotificationSettingsSave()">Save notification settings</button>
     </div>
   </div>
@@ -23448,18 +23495,53 @@ function staffNotificationRecipientRender(type){
   if (!host) return;
   var rows = Array.isArray(cfg.recipients) ? cfg.recipients : [];
   if (!rows.length){
-    host.innerHTML = '<div class="al-hint">No recipients yet.</div>';
+    host.innerHTML = '<div class="sns-empty">No recipients yet. Add one staff member to receive these alerts.</div>';
     return;
   }
   host.innerHTML = rows.map(function(r, idx){
     var id = staffNotificationRecipientDomId(type, idx);
-    return '<div class="al-form-row" style="flex-wrap:wrap;gap:8px;margin-bottom:6px" data-sns-type="' + escHtml(type) + '" data-sns-idx="' + idx + '">' +
-      '<input type="text" id="' + id + '-name" placeholder="Name (optional)" value="' + escHtml(r.name || '') + '">' +
-      '<input type="text" id="' + id + '-phone" placeholder="+346..." value="' + escHtml(r.phone || '') + '">' +
-      '<label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '> Enabled</label>' +
-      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(' + "'" + type + "'" + ',' + idx + ')">Remove</button>' +
+    return '<div class="sns-recipient-row" data-sns-type="' + escHtml(type) + '" data-sns-idx="' + idx + '">' +
+      '<input type="text" id="' + id + '-name" placeholder="Name" value="' + escHtml(r.name || '') + '">' +
+      '<input type="text" id="' + id + '-phone" placeholder="+34600000000" value="' + escHtml(r.phone || '') + '">' +
+      '<label class="sns-recipient-enabled"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '><span>Enabled</span></label>' +
+      '<button type="button" class="btn btn-ghost sns-recipient-remove" onclick="staffNotificationRecipientRemove(' + "'" + type + "'" + ',' + idx + ')">Remove</button>' +
       '</div>';
   }).join('');
+}
+
+function staffNotificationGlobalSyncFromSections(){
+  var globalEl = el('sns-global-enabled');
+  if (!globalEl) return;
+  var ncOn = !!(el('sns-new-enabled') && el('sns-new-enabled').checked);
+  var hnOn = !!(el('sns-human-enabled') && el('sns-human-enabled').checked);
+  globalEl.checked = ncOn || hnOn;
+}
+
+function staffNotificationGlobalApplyToSections(checked){
+  if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!checked;
+  if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!checked;
+}
+
+function staffNotificationServerPillApply(meta){
+  var pill = el('sns-server-pill');
+  if (!pill) return;
+  var enabled = !!(meta && meta.server_notifications_enabled);
+  var dryRun = meta && meta.server_notifications_dry_run !== false;
+  if (!enabled){
+    pill.textContent = 'Disabled on server';
+    pill.className = 'pill pill-grey sns-server-pill';
+    pill.style.display = '';
+    return;
+  }
+  if (dryRun){
+    pill.textContent = 'Dry run';
+    pill.className = 'pill pill-orange sns-server-pill';
+    pill.style.display = '';
+    return;
+  }
+  pill.textContent = 'Live enabled';
+  pill.className = 'pill pill-green sns-server-pill';
+  pill.style.display = '';
 }
 
 function staffNotificationSettingsApplyToForm(){
@@ -23467,11 +23549,15 @@ function staffNotificationSettingsApplyToForm(){
   var hn = staffNotificationSettingsCache.human_needed || { enabled: false, recipients: [] };
   if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!nc.enabled;
   if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!hn.enabled;
+  staffNotificationGlobalSyncFromSections();
   staffNotificationRecipientRender('new_conversation');
   staffNotificationRecipientRender('human_needed');
 }
 
 function staffNotificationSettingsCollectFromForm(){
+  if (el('sns-global-enabled') && !el('sns-global-enabled').checked){
+    staffNotificationGlobalApplyToSections(false);
+  }
   function collectType(type, enabledElId){
     var enabled = !!(el(enabledElId) && el(enabledElId).checked);
     var hostId = type === 'human_needed' ? 'sns-human-recipients' : 'sns-new-recipients';
@@ -23530,6 +23616,7 @@ function maybeLoadStaffNotificationSettings(){
         new_conversation: data.new_conversation || { enabled: false, recipients: [] },
         human_needed: data.human_needed || { enabled: false, recipients: [] },
       };
+      staffNotificationServerPillApply(data);
       staffNotificationSettingsApplyToForm();
     })
     .catch(function(){
@@ -25679,6 +25766,8 @@ window.staffWhatsappNumberAdd = staffWhatsappNumberAdd;
 window.staffNotificationRecipientAdd = staffNotificationRecipientAdd;
 window.staffNotificationRecipientRemove = staffNotificationRecipientRemove;
 window.staffNotificationSettingsSave = staffNotificationSettingsSave;
+window.staffNotificationGlobalApplyToSections = staffNotificationGlobalApplyToSections;
+window.staffNotificationGlobalSyncFromSections = staffNotificationGlobalSyncFromSections;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)
@@ -34279,7 +34368,13 @@ async function handleNotificationSettingsGet(query, req, res, user) {
       staff_user_id: user ? user.staff_user_id : null,
       elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, { success: true, ...settings, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 200, {
+      success: true,
+      ...settings,
+      server_notifications_enabled: isStaffNotificationsEnabled(process.env),
+      server_notifications_dry_run: isStaffNotificationsDryRun(process.env),
+      elapsed_ms: Date.now() - started,
+    });
   } catch (err) {
     console.error('[notification-settings.get] failed:', err && err.code, '|', err && err.message);
     return sendJSON(res, 500, { success: false, error: 'read failed' });

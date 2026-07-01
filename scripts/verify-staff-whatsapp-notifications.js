@@ -275,6 +275,16 @@ async function runAsyncTests() {
   ok('notification fetch soft-fail re-applies visibility', /staffNotificationSettingsApplyVisibility\(\);[\s\S]*staffNotificationShowMsg\('error'/.test(staffApi));
   ok('notification remove button uses safe quote concat', staffApi.includes("' + \"'\" + type + \"'\" +"));
   ok('notification remove button avoids broken template quotes', !staffApi.includes("RecipientRemove(\\'' + type"));
+  ok('notification card has labeled global enable row', staffApi.includes('Enable staff WhatsApp alerts'));
+  ok('notification card has sns-global-enabled id', staffApi.includes('id="sns-global-enabled"'));
+  ok('notification recipient row uses compact grid layout', staffApi.includes('sns-recipient-row'));
+  ok('notification recipient row includes name placeholder', staffApi.includes('placeholder="Name"'));
+  ok('notification recipient row includes phone placeholder', staffApi.includes('placeholder="+34600000000"'));
+  ok('notification recipient row includes enabled label block', staffApi.includes('sns-recipient-enabled'));
+  ok('notification recipient row includes remove button', /sns-recipient-remove[\s\S]*Remove/.test(staffApi));
+  ok('notification empty state copy exists', staffApi.includes('No recipients yet. Add one staff member to receive these alerts.'));
+  ok('notification section titles use new copy', staffApi.includes('New conversation alerts') && staffApi.includes('Human needed alerts'));
+  ok('notification server status pill hook exists', staffApi.includes('sns-server-pill') && staffApi.includes('staffNotificationServerPillApply'));
 
   const forbiddenPatterns = [
     /WHATSAPP_ACCESS_TOKEN\s*=\s*['"][^'"]+['"]/,
