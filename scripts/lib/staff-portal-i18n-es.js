@@ -428,6 +428,7 @@ module.exports = {
   "drawer.payments.notePlaceholder": "Pagado en efectivo en recepción",
   "drawer.payments.savePayment": "Guardar pago",
   "drawer.payments.generateLink": "Generar enlace de pago",
+  "drawer.payments.generateBalanceLink": "Generar enlace",
   "drawer.payments.refundReviewBlock": "Requiere revisión de reembolso/crédito antes de crear un enlace de pago.",
   "drawer.payments.linkReady": "Enlace de pago listo en el historial.",
   "drawer.payments.linkFailed": "Error al crear el enlace de pago",
