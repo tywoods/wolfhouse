@@ -9832,9 +9832,10 @@ async function loadBotAddonExistingServiceRecords(clientSlug, bookingId) {
   });
 }
 
-async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
+async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId, clientSlug) {
+  if (!pg || !serviceRecordId) return null;
   const svc = await pg.query(
-        `SELECT id, payment_id, amount_due_cents, amount_paid_cents, payment_status
+        `SELECT id, payment_id, amount_due_cents, amount_paid_cents, payment_status, client_slug
            FROM booking_service_records
           WHERE id = $1
           FOR UPDATE`,
@@ -9843,6 +9844,9 @@ async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
   const row = svc.rows[0];
   if (!row || Number(row.amount_due_cents || 0) <= 0) return null;
   if (String(row.payment_status || '').toLowerCase() === 'paid') return null;
+  const scopedClientSlug = String(clientSlug || row.client_slug || '').trim();
+  if (!scopedClientSlug) return null;
+  if (row.client_slug && clientSlug && row.client_slug !== clientSlug) return null;
 
   await pg.query(
     `UPDATE booking_service_records
@@ -9860,16 +9864,20 @@ async function zeroOutUnpaidAddonServiceRecord(pg, serviceRecordId) {
 
   if (row.payment_id) {
     await pg.query(
-      `UPDATE payments
+      `UPDATE payments p
           SET status = 'cancelled'::payment_record_status,
               amount_due_cents = 0,
               checkout_url = NULL,
-              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-        WHERE id = $1
-          AND status <> 'paid'::payment_record_status`,
+              metadata = COALESCE(p.metadata, '{}'::jsonb) || $2::jsonb
+        FROM clients c
+       WHERE p.id = $1
+         AND c.id = p.client_id
+         AND c.slug = $3
+         AND p.status <> 'paid'::payment_record_status`,
       [
         row.payment_id,
         JSON.stringify({ cancelled_reason: 'combo_wetsuit_waived', source: 'luna_guest_addon_combo' }),
+        scopedClientSlug,
       ],
     );
   }
@@ -10253,7 +10261,7 @@ async function handleBotAddonRequestCreate(req, res, user, authMode) {
       await pg.query('BEGIN');
       try {
         if (comboPricing.free_wetsuit_record_id) {
-          await zeroOutUnpaidAddonServiceRecord(pg, comboPricing.free_wetsuit_record_id);
+          await zeroOutUnpaidAddonServiceRecord(pg, comboPricing.free_wetsuit_record_id, ctx.clientSlug);
         }
 
         const ins = await pg.query(

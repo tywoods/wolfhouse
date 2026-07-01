@@ -354,6 +354,14 @@ ok('E5 stripe webhook payment UPDATE includes client_id predicate',
 ok('E6 staff payment link UPDATE includes client_id predicate',
   /staff_portal_stage849[\s\S]*WHERE id = \$5[\s\S]*AND client_id = \$6/.test(staffApiSource));
 
+// ── F. Final payment-scope blocker (Slice 8) ─────────────────────────────────
+console.log('\n── Combo-waive payment scope ──');
+
+ok('F1 zeroOutUnpaidAddonServiceRecord payment cancel is client-scoped',
+  /async function zeroOutUnpaidAddonServiceRecord\(pg, serviceRecordId, clientSlug\)[\s\S]*UPDATE payments p[\s\S]*FROM clients c[\s\S]*AND c\.slug = \$3/.test(staffApiSource));
+ok('F2 zeroOutUnpaidAddonServiceRecord caller passes clientSlug',
+  /zeroOutUnpaidAddonServiceRecord\(pg, comboPricing\.free_wetsuit_record_id, ctx\.clientSlug\)/.test(staffApiSource));
+
 // ── A. SQL scope debt scan + registry classification ─────────────────────────
 console.log('\n── SQL tenant scope scan (debt registry) ──');
 

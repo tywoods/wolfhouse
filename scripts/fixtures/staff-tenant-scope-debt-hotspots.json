@@ -37,235 +37,229 @@
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 9863,
-    "table": "payments",
-    "snippet": "`UPDATE payments"
-  },
-  {
-    "rel": "scripts/staff-query-api.js",
-    "line": 13558,
+    "line": 13566,
     "table": "booking_service_records",
     "snippet": "`SELECT COUNT(*)::int AS n FROM booking_service_records"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 13681,
+    "line": 13689,
     "table": "booking_service_records",
     "snippet": "`UPDATE booking_service_records"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 14028,
+    "line": 14036,
     "table": "payments",
     "snippet": "error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe lin"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 14578,
+    "line": 14586,
     "table": "payments",
     "snippet": "//   - Amount from payments.amount_due_cents — never from request body."
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 14923,
+    "line": 14931,
     "table": "bookings",
     "snippet": "`UPDATE bookings"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 15404,
+    "line": 15412,
     "table": "bookings",
     "snippet": "`UPDATE bookings"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 15553,
+    "line": 15561,
     "table": "bookings",
     "snippet": "`UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 15850,
+    "line": 15858,
     "table": "bookings",
     "snippet": "`UPDATE bookings"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 15960,
+    "line": 15968,
     "table": "bookings",
     "snippet": "`UPDATE bookings"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 17990,
+    "line": 17998,
     "table": "customers",
     "snippet": "<div class=\"customers-detail-empty\" data-i18n=\"customers.detail.select\">Select a customer to view hi"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 22778,
+    "line": 22786,
     "table": "customers",
     "snippet": "'<div class=\"customers-card-contact\">' + escHtml(contact.join(' · ') || t('customers.contact.unknown"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 24700,
+    "line": 24708,
     "table": "bookings",
     "snippet": "html += '<button type=\"button\" class=\"pill pill-agent-session-reset\" id=\"btn-agent-session-reset\" ti"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 36506,
+    "line": 36514,
     "table": "bookings",
     "snippet": "`UPDATE bookings"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 38371,
+    "line": 38379,
     "table": "bookings",
     "snippet": "`^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 38738,
+    "line": 38746,
     "table": "payments",
     "snippet": "// Payments aggregate — paid truth from paid payment rows only (10.6b)"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 39171,
+    "line": 39179,
     "table": "bookings",
     "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST or DELETE for "
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 39201,
+    "line": 39209,
     "table": "payments",
     "snippet": "// ── Phase 10.6b — Record cash payment (payments INSERT only) ─────────────"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 39710,
+    "line": 39718,
     "table": "bookings",
     "snippet": "if (pathname === '/staff/bot/bookings/update-contact') {"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 39713,
+    "line": 39721,
     "table": "bookings",
     "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookin"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40372,
+    "line": 40380,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only pre"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40373,
+    "line": 40381,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move t"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40374,
+    "line": 40382,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40375,
+    "line": 40383,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-chan"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40376,
+    "line": 40384,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edi"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40377,
+    "line": 40385,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c conta"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40378,
+    "line": 40386,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel rese"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40379,
+    "line": 40387,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40380,
+    "line": 40388,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove o"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40381,
+    "line": 40389,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record ca"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40382,
+    "line": 40390,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe "
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40383,
+    "line": 40391,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking mov"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40384,
+    "line": 40392,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL st"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40403,
+    "line": 40411,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna c"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40404,
+    "line": 40412,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna book"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40416,
+    "line": 40424,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot book"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40417,
+    "line": 40425,
     "table": "bookings",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: ca"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40418,
+    "line": 40426,
     "table": "payments",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot ba"
   },
   {
     "rel": "scripts/staff-query-api.js",
-    "line": 40419,
+    "line": 40427,
     "table": "payments",
     "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Lu"
   }
