@@ -7,6 +7,7 @@
  * Exit 0 on pass, nonzero on failure.
  */
 
+const fs = require('fs');
 const path = require('path');
 const {
   loadChannelRoutingConfig,
@@ -141,13 +142,28 @@ for (const [label, phoneId, clientSlug, locationId] of cases) {
   ok('8 shadow not wolfhouse tenant on unknown', shadow.client_slug !== 'wolfhouse');
 }
 
+function assertCommittedRoutingConfigSafe(filePath, label) {
+  const raw = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  const ids = Object.keys(raw.whatsapp_phone_number_ids || {});
+  const numericOnly = ids.filter((id) => /^\d{10,}$/.test(id));
+  ok(`${label} uses non-numeric fake IDs only`, numericOnly.length === 0, numericOnly.join(', '));
+  return ids;
+}
+
 // 9 sample IDs only (no numeric Meta IDs in test fixtures)
 {
   const samplePath = path.join(__dirname, '..', 'config', 'clients', 'channel-routing.sample.json');
-  const raw = require(samplePath);
-  const ids = Object.keys(raw.whatsapp_phone_number_ids || {});
-  const numericOnly = ids.filter((id) => /^\d{10,}$/.test(id));
-  ok('9 routing sample uses non-numeric fake IDs only', numericOnly.length === 0, numericOnly.join(', '));
+  const ids = assertCommittedRoutingConfigSafe(samplePath, '9 routing sample');
+  const sampleLike = ids.filter((id) => /_SAMPLE$/i.test(id));
+  ok('9 routing sample keys end with _SAMPLE', sampleLike.length === ids.length, ids.join(', '));
+}
+
+// 11 staging example template — REPLACE_WITH placeholders only
+{
+  const stagingExamplePath = path.join(__dirname, '..', 'config', 'clients', 'channel-routing.staging.example.json');
+  const ids = assertCommittedRoutingConfigSafe(stagingExamplePath, '11 staging example');
+  const placeholderKeys = ids.filter((id) => id.startsWith('REPLACE_WITH_'));
+  ok('11 staging example keys are REPLACE_WITH placeholders', placeholderKeys.length === ids.length, ids.join(', '));
 }
 
 // 10 backward-compatible webhook API shape
