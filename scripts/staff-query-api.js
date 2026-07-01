@@ -1991,13 +1991,22 @@ async function handleOwnerSqlPlanAndExecute(req, res, user) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function readBody(req) {
+  // Cache the parsed body on the request. The stream can only be consumed once —
+  // a second readBody(req) would attach fresh data/end listeners to an already-
+  // ended stream and hang forever. This bit the per-guest payment link, where a
+  // wrapper read the body to validate the guest id and the shared handler then
+  // read it again (=> request never responded, button "did nothing").
+  if (req._cachedBody !== undefined) return Promise.resolve(req._cachedBody);
   return new Promise((resolve, reject) => {
     const chunks = [];
     req.on('data', (chunk) => {
       chunks.push(chunk);
       if (Buffer.concat(chunks).length > 10240) req.destroy(new Error('body too large'));
     });
-    req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')));
+    req.on('end', () => {
+      req._cachedBody = Buffer.concat(chunks).toString('utf8');
+      resolve(req._cachedBody);
+    });
     req.on('error', reject);
   });
 }
@@ -28670,6 +28679,19 @@ function bcAccommodationDisplayCents(accCents, quoteSnap, guestAccLines){
 }
 
 function bcInvoiceAccCentsWithSupplement(bk, svcRows, quoteSnap, guestAccLines){
+  // Authoritative source: when the booking carries a stored quote snapshot, the
+  // invoice total must come from it (package/proration + room_supplement) — the
+  // SAME figure the server uses for the balance and the Stripe payment link
+  // (bookingLedgerAccommodationCents). The per-guest guestAccLines are a live
+  // re-quote for the per-guest breakdown display and can diverge from the booked
+  // total when guest_packages metadata is stale/inconsistent, so they must NOT
+  // drive the total — otherwise the drawer balance disagrees with the link and
+  // every freshly generated link is flagged "outdated". See MB-WOLFHO booking
+  // where guest_packages said [malibu, uluwatu] but the booking was priced 2x malibu.
+  if (quoteSnap && Array.isArray(quoteSnap.line_items) && quoteSnap.line_items.length) {
+    var authoritative = bcRunningInvoiceAccommodationCents(bk, svcRows, quoteSnap);
+    if (authoritative != null) return authoritative;
+  }
   var accCents = null;
   if (guestAccLines && guestAccLines.length) {
     var guestSum = 0;
@@ -29193,7 +29215,7 @@ function bcRenderGuestPaymentLinkControlsHtml(bookingGuests){
   html += '<select id="bc-guest-pay-select" class="bk-input-sm">';
   bookingGuests.forEach(function(g){
     html += '<option value="' + escHtml(String(g.booking_guest_id || '')) + '">' +
-      escHtml((g.guest_name || ('Guest ' + g.guest_number)) + ' (G' + g.guest_number + ')') + '</option>';
+      escHtml(g.guest_name || ('Guest ' + g.guest_number)) + '</option>';
   });
   html += '</select>';
   html += '<button type="button" class="btn btn-ghost" id="bc-generate-guest-payment-link-btn">' +
@@ -29326,7 +29348,17 @@ function bcRenderRunningInvoiceHtml(bk, svcRows, pmt, transferRows, guestAccLine
   }
   if (invoiceTotal != null && paidCents != null){
     if (invoiceTotal > paidCents){
-      html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span><span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span></div>';
+      var canGenBalLink = !bcBookingStatusIsCancelled(bk.status);
+      html += '<div class="ctx-inv-total-row" style="align-items:center">' +
+        '<span class="ctx-inv-total-label">' + escHtml(t('drawer.invoice.balanceDue')) + '</span>' +
+        '<span style="display:inline-flex;align-items:center;gap:8px">' +
+          '<span class="ctx-inv-total-amount owing">' + escHtml(eur(invoiceTotal - paidCents)) + '</span>' +
+          (canGenBalLink ? '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn" style="padding:2px 9px;font-size:11px;line-height:1.5;white-space:nowrap" title="' + escHtml(t('drawer.payments.generateBalanceLink')) + '">' + escHtml(t('drawer.payments.generateBalanceLink')) + '</button>' : '') +
+        '</span>' +
+        '</div>';
+      if (canGenBalLink) {
+        html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite" style="text-align:right;margin-top:2px;font-size:11px"></div>';
+      }
     } else if (invoiceTotal === paidCents){
       html += '<div class="ctx-inv-total-row ctx-inv-status-msg paid-in-full"><span>' + escHtml(t('drawer.invoice.paidInFull')) + '</span></div>';
     } else if (invoiceTotal < paidCents){
@@ -29469,14 +29501,10 @@ function bcRenderPaymentLinkSectionHtml(bk, invoiceTotal, paidCents, balanceDue,
     return '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border-soft)">' +
       '<div class="state-msg error" style="font-size:12px;margin:0">' + escHtml(t('drawer.payments.refundReviewBlock')) + '</div></div>';
   }
-  var paidInFull = invoiceTotal != null && paidCents != null && invoiceTotal > 0 && paidCents >= invoiceTotal;
-  if (paidInFull || balanceDue == null || balanceDue <= 0) return '';
-
-  var html = '<div class="ctx-payment-link" id="bc-payment-link" style="margin-top:8px">';
-  html += '<button type="button" class="btn btn-ghost" id="bc-generate-payment-link-btn">' + escHtml(t('drawer.payments.generateLink')) + '</button>';
-  html += '<div class="ctx-field-preview-result" id="bc-payment-link-result" aria-live="polite"></div>';
-  html += '</div>';
-  return html;
+  // The balance payment-link button now lives inline next to "Balance due" in the
+  // totals block (bc-generate-payment-link-btn / bc-payment-link-result there), so
+  // it's obvious it's for the outstanding balance. Nothing extra to render here.
+  return '';
 }
 
 function bcCopyPaymentLinkIcon(btn){

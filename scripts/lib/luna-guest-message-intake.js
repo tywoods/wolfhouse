@@ -758,6 +758,29 @@ function extractAddOns(text) {
   return [...found];
 }
 
+/**
+ * Detect the priced room type the guest asked for. Feeds the quote calculator's
+ * room_supplements lookup (shared = €0, double/private = flat per-room supplement).
+ * Returns null when the guest didn't specify — callers default to 'shared'.
+ * Multilingual: en/es/it/fr/de.
+ */
+function extractRoomType(text) {
+  const t = String(text || '').toLowerCase();
+  // "double" (twin/couple) — matrimoniale/doppia (it), doble (es), doppelzimmer (de)
+  if (/\b(?:double(?:\s+room)?|twin(?:\s+room)?|matrimoniale|doppia|doble|chambre\s+double|doppelzimmer)\b/.test(t)) {
+    return 'double';
+  }
+  // "private" room — privada (es), privata/privato (it), privée/privé (fr), privat/privatzimmer (de)
+  if (/\b(?:private(?:\s+room)?|privada?|privat[ao]|priv[eé]e?|privat(?:zimmer)?)\b/.test(t)) {
+    return 'private';
+  }
+  // Explicit "shared"/dorm — compartida (es), condivisa (it), partagée (fr), schlafsaal (de)
+  if (/\b(?:shared(?:\s+room)?|dorm(?:itory)?|shared\s+dorm|compartida?|condivisa?|partag[eé]e?|geteilt|schlafsaal|mehrbettzimmer)\b/.test(t)) {
+    return 'shared';
+  }
+  return null;
+}
+
 function detectLanguage(text, inputLang) {
   if (inputLang) return String(inputLang).trim().slice(0, 10) || 'en';
   const t = String(text || '').toLowerCase();
@@ -853,6 +876,7 @@ function extractLunaGuestMessageIntake(input, context = {}) {
   const packageCode    = extractPackageCode(messageText) || inferPackageFromGearSignals(messageText);
   const paymentChoice  = extractPaymentChoice(messageText);
   const addOns         = extractAddOns(messageText);
+  const roomType       = extractRoomType(messageText);
   const handoffMatch   = HANDOFF_RE.test(messageText);
 
   const draft = {
@@ -867,6 +891,7 @@ function extractLunaGuestMessageIntake(input, context = {}) {
     nights: computeNights(checkIn, checkOut),
     guests,
     package_code: packageCode,
+    room_type: roomType,
     room_preference: null,
     payment_choice: paymentChoice,
     add_ons: addOns,
@@ -1033,7 +1058,7 @@ function buildDryRunInputFromIntake(extraction, input = {}) {
     check_out:      ex.check_out || '',
     guest_count:    ex.guests,
     package_code:   ex.package_code,
-    room_type:      'shared',
+    room_type:      ex.room_type || src.room_type || 'shared',
     payment_choice: ex.payment_choice || '',
     phone:          ex.phone || src.from || '',
     from:           ex.phone || src.from || '',
@@ -1058,6 +1083,7 @@ module.exports = {
   detectPackageMutationIntent,
   inferPackageFromGearSignals,
   extractPackageCode,
+  extractRoomType,
   parseGuestNameAnswer,
   isSoloAccommodationStayPhrase,
   isSoloTravellerGuestCountPhrase,
