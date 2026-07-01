@@ -91,6 +91,12 @@ const {
   setHouseNotes: setTenantHouseNotes,
 } = require('./lib/tenant-house-notes');
 const {
+  getNotificationSettings,
+  putNotificationSettings,
+  maybeNotifyHumanNeeded,
+  extractLocationFromMetadata,
+} = require('./lib/staff-whatsapp-notifications');
+const {
   upsertStaffPhoneAccess,
   deactivateStaffPhoneAccess,
   lookupStaffPhoneAccess: lookupStaffPhoneAccessRecognition,
@@ -18839,6 +18845,35 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
+  <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
+    <div class="cc-section-hdr">Staff WhatsApp Alerts</div>
+    <div class="cc-section-sub">Notify staff on WhatsApp when a new guest conversation starts or Luna needs human help. Use international format, e.g. +346&hellip; No alerts are sent unless notifications are enabled in the server environment.</div>
+    <div id="sns-error"></div>
+    <div id="sns-status"></div>
+
+    <div class="sns-type-block" style="margin-top:14px">
+      <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600">
+        <input type="checkbox" id="sns-new-enabled"> New Conversation Notifications
+      </label>
+      <div class="al-hint" style="margin:6px 0 8px">Alert when a new Luna/WhatsApp conversation is created.</div>
+      <div id="sns-new-recipients"></div>
+      <button type="button" class="btn" style="margin-top:6px" onclick="staffNotificationRecipientAdd('new_conversation')">Add recipient</button>
+    </div>
+
+    <div class="sns-type-block" style="margin-top:18px">
+      <label style="display:inline-flex;align-items:center;gap:8px;font-weight:600">
+        <input type="checkbox" id="sns-human-enabled"> Human Needed Notifications
+      </label>
+      <div class="al-hint" style="margin:6px 0 8px">Alert when a conversation is marked needs human / Luna hands off to staff.</div>
+      <div id="sns-human-recipients"></div>
+      <button type="button" class="btn" style="margin-top:6px" onclick="staffNotificationRecipientAdd('human_needed')">Add recipient</button>
+    </div>
+
+    <div class="al-form-row" style="margin-top:12px">
+      <button class="btn btn-primary" id="sns-save-btn" onclick="staffNotificationSettingsSave()">Save notification settings</button>
+    </div>
+  </div>
+
 </div>
 </div><!-- /tab-ask-luna -->
 
@@ -19119,7 +19154,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
-  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); }
+  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); staffNotificationSettingsLoad(); }
   if (tab === 'conversations') {
     wireInboxLeftListWheel();
     if (!subtab) ensureInboxLoadedForTab();
@@ -20008,12 +20043,33 @@ function setPortalProfilePending(isPending){
   if (gate) gate.setAttribute('aria-busy', isPending ? 'true' : 'false');
 }
 
+function staffInboxDeepLinkBootstrap(){
+  try {
+    var params = new URLSearchParams(window.location.search || '');
+    var conv = (params.get('conversation') || '').trim();
+    var client = (params.get('client') || '').trim();
+    var location = (params.get('location') || '').trim();
+    if (client && el('c-client')) {
+      el('c-client').value = client;
+      syncBcClientFromInbox();
+      applyClientPortalProfile(client);
+    }
+    if (location && client === 'sunset' && typeof setSunsetLocation === 'function') {
+      setSunsetLocation(location);
+    }
+    if (conv) {
+      setTimeout(function(){ openInboxToConversation(conv); }, 300);
+    }
+  } catch (_) { /* non-fatal */ }
+}
+
 function finishPortalProfileStartup(){
   if (window.__portalProfileGateFailsafe) {
     clearTimeout(window.__portalProfileGateFailsafe);
     window.__portalProfileGateFailsafe = null;
   }
   setPortalProfilePending(false);
+  staffInboxDeepLinkBootstrap();
 }
 
 function applyClientPortalProfile(clientSlug){
@@ -23155,12 +23211,18 @@ function applyOwnerInsightsGate(){
   }
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+  var snsCard = el('cc-staff-notification-settings');
+  if (snsCard) snsCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   // Populate the cards now that the session + client selector are ready (this runs post
   // session-init). Fixes a refresh on Sunset where an earlier load raced the session and
   // fetched the wrong client (getClient() fallback) before clients=[sunset] was set.
-  if (canUseOwnerInsightsPortal()) { staffWhatsappNumbersLoad(); houseNotesLoad(); }
+  if (canUseOwnerInsightsPortal()) {
+    staffWhatsappNumbersLoad();
+    houseNotesLoad();
+    staffNotificationSettingsLoad();
+  }
 }
 
 /* ── General Notes for Luna (owner-only, client-facing info) ────────────────── */
@@ -23325,6 +23387,152 @@ function staffWhatsappNumberRemove(id){
       staffWhatsappNumbersLoad();
     })
     .catch(function(){ staffWhatsappShowMsg('error', 'Failed to remove number.'); });
+}
+
+var staffNotificationSettingsCache = { new_conversation: { enabled: false, recipients: [] }, human_needed: { enabled: false, recipients: [] } };
+
+function staffNotificationSettingsQuery(){
+  return staffWhatsappNumberQuery();
+}
+
+function staffNotificationShowMsg(kind, text){
+  var box = el('sns-status');
+  var err = el('sns-error');
+  if (box){ box.textContent = ''; box.style.display = 'none'; }
+  if (err){ err.textContent = ''; err.style.display = 'none'; }
+  if (!text) return;
+  var target = kind === 'error' ? err : box;
+  if (!target) return;
+  target.textContent = text;
+  target.style.display = 'block';
+}
+
+function staffNotificationRecipientDomId(type, idx){
+  return 'sns-' + (type === 'human_needed' ? 'human' : 'new') + '-r-' + idx;
+}
+
+function staffNotificationRecipientRender(type){
+  var cfg = staffNotificationSettingsCache[type] || { enabled: false, recipients: [] };
+  var hostId = type === 'human_needed' ? 'sns-human-recipients' : 'sns-new-recipients';
+  var host = el(hostId);
+  if (!host) return;
+  var rows = Array.isArray(cfg.recipients) ? cfg.recipients : [];
+  if (!rows.length){
+    host.innerHTML = '<div class="al-hint">No recipients yet.</div>';
+    return;
+  }
+  host.innerHTML = rows.map(function(r, idx){
+    var id = staffNotificationRecipientDomId(type, idx);
+    return '<div class="al-form-row" style="flex-wrap:wrap;gap:8px;margin-bottom:6px" data-sns-type="' + escHtml(type) + '" data-sns-idx="' + idx + '">' +
+      '<input type="text" id="' + id + '-name" placeholder="Name (optional)" value="' + escHtml(r.name || '') + '">' +
+      '<input type="text" id="' + id + '-phone" placeholder="+346..." value="' + escHtml(r.phone || '') + '">' +
+      '<label style="display:inline-flex;align-items:center;gap:4px"><input type="checkbox" id="' + id + '-enabled"' + (r.enabled !== false ? ' checked' : '') + '> Enabled</label>' +
+      '<button type="button" class="btn" onclick="staffNotificationRecipientRemove(\'' + type + '\',' + idx + ')">Remove</button>' +
+      '</div>';
+  }).join('');
+}
+
+function staffNotificationSettingsApplyToForm(){
+  var nc = staffNotificationSettingsCache.new_conversation || { enabled: false, recipients: [] };
+  var hn = staffNotificationSettingsCache.human_needed || { enabled: false, recipients: [] };
+  if (el('sns-new-enabled')) el('sns-new-enabled').checked = !!nc.enabled;
+  if (el('sns-human-enabled')) el('sns-human-enabled').checked = !!hn.enabled;
+  staffNotificationRecipientRender('new_conversation');
+  staffNotificationRecipientRender('human_needed');
+}
+
+function staffNotificationSettingsCollectFromForm(){
+  function collectType(type, enabledElId){
+    var enabled = !!(el(enabledElId) && el(enabledElId).checked);
+    var hostId = type === 'human_needed' ? 'sns-human-recipients' : 'sns-new-recipients';
+    var host = el(hostId);
+    var recipients = [];
+    if (host){
+      var blocks = host.querySelectorAll('[data-sns-type="' + type + '"]');
+      blocks.forEach(function(block){
+        var idx = block.getAttribute('data-sns-idx');
+        var id = staffNotificationRecipientDomId(type, idx);
+        recipients.push({
+          name: (el(id + '-name') && el(id + '-name').value || '').trim() || null,
+          phone: (el(id + '-phone') && el(id + '-phone').value || '').trim(),
+          enabled: !!(el(id + '-enabled') && el(id + '-enabled').checked),
+        });
+      });
+    }
+    return { enabled: enabled, recipients: recipients };
+  }
+  return {
+    new_conversation: collectType('new_conversation', 'sns-new-enabled'),
+    human_needed: collectType('human_needed', 'sns-human-enabled'),
+  };
+}
+
+function staffNotificationRecipientAdd(type){
+  var cfg = staffNotificationSettingsCache[type] || { enabled: false, recipients: [] };
+  cfg.recipients = Array.isArray(cfg.recipients) ? cfg.recipients.slice() : [];
+  cfg.recipients.push({ name: '', phone: '', enabled: true });
+  staffNotificationSettingsCache[type] = cfg;
+  staffNotificationRecipientRender(type);
+}
+
+function staffNotificationRecipientRemove(type, idx){
+  var cfg = staffNotificationSettingsCache[type] || { enabled: false, recipients: [] };
+  cfg.recipients = (Array.isArray(cfg.recipients) ? cfg.recipients : []).filter(function(_, i){ return i !== idx; });
+  staffNotificationSettingsCache[type] = cfg;
+  staffNotificationRecipientRender(type);
+}
+
+function staffNotificationSettingsLoad(){
+  var card = el('cc-staff-notification-settings');
+  if (!card) return;
+  if (!canUseOwnerInsightsPortal()){ card.style.display = 'none'; return; }
+  card.style.display = '';
+  staffNotificationShowMsg(null, null);
+  fetch('/staff/notification-settings' + staffNotificationSettingsQuery(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to load notification settings.');
+        return;
+      }
+      staffNotificationSettingsCache = {
+        new_conversation: data.new_conversation || { enabled: false, recipients: [] },
+        human_needed: data.human_needed || { enabled: false, recipients: [] },
+      };
+      staffNotificationSettingsApplyToForm();
+    })
+    .catch(function(){ staffNotificationShowMsg('error', 'Failed to load notification settings.'); });
+}
+
+function staffNotificationSettingsSave(){
+  staffNotificationShowMsg(null, null);
+  var btn = el('sns-save-btn');
+  if (btn) btn.disabled = true;
+  var payload = staffNotificationSettingsCollectFromForm();
+  fetch('/staff/notification-settings' + staffNotificationSettingsQuery(), {
+    method: 'PUT',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (btn) btn.disabled = false;
+      if (!data || data.success !== true){
+        staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to save notification settings.');
+        return;
+      }
+      staffNotificationSettingsCache = {
+        new_conversation: data.new_conversation || payload.new_conversation,
+        human_needed: data.human_needed || payload.human_needed,
+      };
+      staffNotificationSettingsApplyToForm();
+      staffNotificationShowMsg('ok', 'Notification settings saved.');
+    })
+    .catch(function(){
+      if (btn) btn.disabled = false;
+      staffNotificationShowMsg('error', 'Failed to save notification settings.');
+    });
 }
 
 function populateClientSelect(clients, preferredSlug){
@@ -25427,6 +25635,9 @@ window.oiAsk = oiAsk;
 // IIFE, so functions aren't global unless attached to window).
 window.houseNotesSave = houseNotesSave;
 window.staffWhatsappNumberAdd = staffWhatsappNumberAdd;
+window.staffNotificationRecipientAdd = staffNotificationRecipientAdd;
+window.staffNotificationRecipientRemove = staffNotificationRecipientRemove;
+window.staffNotificationSettingsSave = staffNotificationSettingsSave;
 
 /* ═══════════════════════════════════════════════════════════════════════════
    QUERY TOOLS TAB — existing staff query interface (unchanged)
@@ -34002,6 +34213,74 @@ async function handleHouseNotesPost(query, req, res, user) {
   }
 }
 
+function resolveNotificationSettingsLocationId(query, body) {
+  const fromBody = body && (body.location_id || body.location);
+  const raw = fromBody != null && String(fromBody).trim() !== '' ? fromBody : query.location;
+  if (raw == null || String(raw).trim() === '') return null;
+  return normalizeSunsetLocationId(raw);
+}
+
+async function handleNotificationSettingsGet(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const locationId = resolveNotificationSettingsLocationId(query, null);
+  try {
+    const settings = await withPgClient((pg) => getNotificationSettings(pg, { clientSlug, locationId }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.notification_settings.get',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: true,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, { success: true, ...settings, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[notification-settings.get] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
+async function handleNotificationSettingsPut(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const locationId = resolveNotificationSettingsLocationId(query, body);
+  try {
+    const r = await withPgClient((pg) => putNotificationSettings(pg, {
+      clientSlug,
+      locationId,
+      settings: {
+        new_conversation: body.new_conversation,
+        human_needed: body.human_needed,
+      },
+      actor: user,
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.notification_settings.put',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: r.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
+    return sendJSON(res, 200, { success: true, ...r.settings, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[notification-settings.put] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
 // Bot read: the guest agent (Hermes) fetches house notes on demand to answer guest
 // questions about house info/policies. Read-only.
 async function handleBotHouseInfo(req, res, user) {
@@ -35643,20 +35922,58 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
   };
 
   try {
-    const row = await withPgClient(async (pg) => {
+    const outcome = await withPgClient(async (pg) => {
+      const prior = await pg.query(
+        `SELECT conv.needs_human, conv.phone, conv.display_name, conv.metadata
+           FROM conversations conv
+           JOIN clients c ON c.id = conv.client_id
+          WHERE c.slug = $1 AND conv.id = $2::uuid
+          LIMIT 1`,
+        [clientSlug, convId],
+      );
+      const priorRow = prior.rows[0];
+      if (!priorRow) return { row: null };
+
+      const wasNeedsHuman = priorRow.needs_human === true;
       const r = await pg.query(
         `UPDATE conversations conv
-            SET needs_human = $3, updated_at = NOW()
+            SET needs_human = $3,
+                updated_at = NOW(),
+                metadata = CASE
+                  WHEN $3 = TRUE AND conv.needs_human IS DISTINCT FROM TRUE THEN
+                    COALESCE(conv.metadata, '{}'::jsonb)
+                      || jsonb_build_object(
+                        'needs_human_reason', to_jsonb('staff_manual_toggle'::text),
+                        'luna_handoff_at', to_jsonb($4::text)
+                      )
+                  ELSE conv.metadata
+                END
            FROM clients c
           WHERE conv.client_id = c.id
             AND c.slug = $1
             AND conv.id = $2::uuid
           RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-        [clientSlug, convId, body.needs_human],
+        [clientSlug, convId, body.needs_human, new Date().toISOString()],
       );
-      return r.rows[0] || null;
+      const row = r.rows[0] || null;
+      let staff_notification = null;
+      if (row && body.needs_human === true && !wasNeedsHuman) {
+        const handoffAt = new Date().toISOString();
+        staff_notification = await maybeNotifyHumanNeeded(pg, process.env, {
+          transitioned: true,
+          handoff_event_key: handoffAt,
+          client_slug: clientSlug,
+          location_id: extractLocationFromMetadata(priorRow.metadata),
+          conversation_id: row.conversation_id,
+          guest_phone: priorRow.phone,
+          guest_name: priorRow.display_name,
+          reason: 'staff_manual_toggle',
+        });
+      }
+      return { row, staff_notification };
     });
 
+    const row = outcome.row;
     const elapsed = Date.now() - started;
     if (!row) {
       appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
@@ -35668,6 +35985,7 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
       success: true,
       conversation_id: row.conversation_id,
       needs_human: row.needs_human,
+      staff_notification: outcome.staff_notification || null,
       elapsed_ms: elapsed,
     });
   } catch (err) {
@@ -40057,6 +40375,18 @@ async function router(req, res) {
     return handleHouseNotesPost(parsed.query, req, res, auth.user);
   }
 
+  // ── Staff WhatsApp notification settings (admin+owner) ─────────────────────
+  if (pathname === '/staff/notification-settings' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleNotificationSettingsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/notification-settings' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleNotificationSettingsPut(parsed.query, req, res, auth.user);
+  }
+
   const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([^/?]+)$/i.exec(pathname);
   if (adminPricePatchMatch && method === 'PATCH') {
     const auth = await requireAuth(req, res, 'admin');
@@ -40274,6 +40604,13 @@ async function router(req, res) {
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
     return handleLoginPage(res);
+  }
+
+  // Deep-link entry for staff inbox notifications → portal UI with query params preserved.
+  if (pathname === '/staff/inbox' && method === 'GET') {
+    const qs = parsed.search || '';
+    res.writeHead(302, { Location: `/staff/ui${qs}` });
+    return res.end();
   }
 
   if (pathname === '/staff/ui') {

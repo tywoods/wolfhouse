@@ -4,6 +4,11 @@
  * Stage 56i — Persist Luna handoff state (needs_human) when staff handoff reply is sent.
  */
 
+const {
+  maybeNotifyHumanNeeded,
+  extractLocationFromMetadata,
+} = require('./staff-whatsapp-notifications');
+
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
 }
@@ -50,7 +55,7 @@ function detectHandoffResumeMessage(messageText) {
  * @param {import('pg').Client} pg
  * @param {{ conversation_id?: string, client_slug: string, phone?: string, guest_phone?: string, reason?: string, handoff_reasons?: string[] }} input
  */
-async function markConversationNeedsHumanByPhone(pg, input) {
+async function markConversationNeedsHumanByPhone(pg, input, opts = {}) {
   const inp = input || {};
   const clientSlug = trimStr(inp.client_slug) || 'wolfhouse-somo';
   const phone = trimStr(inp.phone || inp.guest_phone);
@@ -63,41 +68,28 @@ async function markConversationNeedsHumanByPhone(pg, input) {
   const reasonCode = trimStr(inp.reason)
     || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
 
-  const r = await pg.query(
-    `UPDATE conversations conv
-        SET needs_human = TRUE,
-            updated_at = NOW(),
-            metadata = COALESCE(conv.metadata, '{}'::jsonb)
-              || jsonb_build_object('luna_handoff_at', to_jsonb(NOW()),
-                                    'luna_handoff_reason', to_jsonb($3::text))
-       FROM clients c
-      WHERE conv.client_id = c.id
-        AND c.slug = $1
-        AND conv.id = (
-          SELECT conv2.id
-            FROM conversations conv2
-           INNER JOIN clients c2 ON c2.id = conv2.client_id
-           WHERE c2.slug = $1
-             AND (
-               regexp_replace(conv2.phone, '\\D', '', 'g') = $4
-               OR regexp_replace(conv2.phone, '\\D', '', 'g') LIKE $2
-             )
-           ORDER BY conv2.updated_at DESC
-           LIMIT 1
+  const find = await pg.query(
+    `SELECT conv.id::text AS conversation_id
+       FROM conversations conv
+      INNER JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1
+        AND (
+          regexp_replace(conv.phone, '\\D', '', 'g') = $3
+          OR regexp_replace(conv.phone, '\\D', '', 'g') LIKE $2
         )
-      RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-    [clientSlug, `%${suffix}`, reasonCode.slice(0, 200), digits],
+      ORDER BY conv.updated_at DESC
+      LIMIT 1`,
+    [clientSlug, `%${suffix}`, digits],
   );
-
-  if (!r.rows[0]) {
+  if (!find.rows[0]) {
     return { ok: false, needs_human: false, reason: 'conversation_not_found_for_phone' };
   }
-  return {
-    ok: true,
-    needs_human: r.rows[0].needs_human === true,
-    conversation_id: r.rows[0].conversation_id,
-    handoff_reason: reasonCode,
-  };
+  return markConversationNeedsHuman(pg, {
+    conversation_id: find.rows[0].conversation_id,
+    client_slug: clientSlug,
+    reason: reasonCode,
+    handoff_reasons: inp.handoff_reasons,
+  }, opts);
 }
 
 /**
@@ -125,10 +117,12 @@ async function resolveAndMarkConversationNeedsHuman(pg, input) {
  * @param {import('pg').Client} pg
  * @param {{ conversation_id: string, client_slug: string, reason?: string, handoff_reasons?: string[] }} input
  */
-async function markConversationNeedsHuman(pg, input) {
+async function markConversationNeedsHuman(pg, input, opts = {}) {
   const inp = input || {};
   const conversationId = trimStr(inp.conversation_id);
   const clientSlug = trimStr(inp.client_slug) || 'wolfhouse-somo';
+  const env = (opts && opts.env) || process.env;
+  const notifyContext = (opts && opts.notify_context) || {};
   if (!pg || !conversationId) {
     return { ok: false, needs_human: false, reason: 'missing_pg_or_conversation_id' };
   }
@@ -137,13 +131,28 @@ async function markConversationNeedsHuman(pg, input) {
   const reasonCode = trimStr(inp.reason)
     || (reasons.length ? String(reasons[0]) : 'luna_safe_handoff');
 
+  const prior = await pg.query(
+    `SELECT conv.needs_human, conv.phone, conv.display_name, conv.metadata
+       FROM conversations conv
+       JOIN clients c ON c.id = conv.client_id
+      WHERE c.slug = $1 AND conv.id = $2::uuid
+      LIMIT 1`,
+    [clientSlug, conversationId],
+  );
+  const priorRow = prior.rows[0];
+  if (!priorRow) {
+    return { ok: false, needs_human: false, reason: 'conversation_not_found' };
+  }
+  const wasNeedsHuman = priorRow.needs_human === true;
+  const handoffAt = new Date().toISOString();
+
   const res = await pg.query(
     `UPDATE conversations conv
         SET needs_human = TRUE,
             updated_at = NOW(),
             metadata = COALESCE(conv.metadata, '{}'::jsonb)
               || jsonb_build_object(
-                'luna_handoff_at', to_jsonb(NOW()),
+                'luna_handoff_at', to_jsonb($4::text),
                 'luna_handoff_reason', to_jsonb($3::text)
               )
        FROM clients c
@@ -151,7 +160,7 @@ async function markConversationNeedsHuman(pg, input) {
         AND c.slug = $1
         AND conv.id = $2::uuid
       RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-    [clientSlug, conversationId, reasonCode.slice(0, 200)],
+    [clientSlug, conversationId, reasonCode.slice(0, 200), handoffAt],
   );
 
   const row = res.rows[0];
@@ -159,11 +168,27 @@ async function markConversationNeedsHuman(pg, input) {
     return { ok: false, needs_human: false, reason: 'conversation_not_found' };
   }
 
+  let staff_notification = null;
+  if (!wasNeedsHuman) {
+    const locationId = extractLocationFromMetadata(priorRow.metadata);
+    staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+      transitioned: true,
+      handoff_event_key: handoffAt,
+      client_slug: clientSlug,
+      location_id: locationId,
+      conversation_id: row.conversation_id,
+      guest_phone: priorRow.phone,
+      guest_name: priorRow.display_name,
+      reason: reasonCode,
+    }, notifyContext);
+  }
+
   return {
     ok: true,
     needs_human: row.needs_human === true,
     conversation_id: row.conversation_id,
     handoff_reason: reasonCode,
+    staff_notification,
   };
 }
 
