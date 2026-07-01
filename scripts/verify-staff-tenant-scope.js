@@ -314,6 +314,22 @@ ok('C3 authenticated session does not use buildClientProfilesMap(user)', !/build
 ok('C4 authenticated session does not use getAccessibleClients(user)', !/getAccessibleClients\(user\)/.test(authBlock));
 ok('C5 dev no-auth bypass uses broad getAccessibleClients(null) (legacy local)', /getAccessibleClients\(null\)/.test(devBlock));
 
+// ── D. Bed calendar ledger SQL client scope (Slice 6) ───────────────────────
+console.log('\n── Bed calendar ledger SQL scope ──');
+
+const ledgerSqlMatch = staffApiSource.match(/const BED_CALENDAR_BOOKING_LEDGER_SQL = `([\s\S]*?)`;/);
+const unpaidLinkSqlMatch = staffApiSource.match(/const BED_CALENDAR_UNPAID_LINK_SQL = `([\s\S]*?)`;/);
+const ledgerSql = ledgerSqlMatch ? ledgerSqlMatch[1] : '';
+const unpaidLinkSql = unpaidLinkSqlMatch ? unpaidLinkSqlMatch[1] : '';
+
+ok('D1 bed calendar handler enforces assertStaffClientAccess', /async function handleBedCalendar[\s\S]*?assertStaffClientAccess\(user, clientSlug, res\)/.test(staffApiSource));
+ok('D2 ledger SQL outer bookings scoped by clients.slug', /FROM bookings b[\s\S]*INNER JOIN clients c ON c\.id = b\.client_id[\s\S]*c\.slug = \$2/.test(ledgerSql));
+ok('D3 ledger SQL payments subquery scoped by clients.slug', /FROM payments p[\s\S]*INNER JOIN clients pc[\s\S]*pc\.slug = \$2/.test(ledgerSql));
+ok('D4 ledger SQL service_records subquery scoped by clients.slug', /FROM booking_service_records bsr[\s\S]*INNER JOIN clients sc[\s\S]*sc\.slug = \$2/.test(ledgerSql));
+ok('D5 unpaid link SQL scoped by clients.slug', /FROM payments p[\s\S]*INNER JOIN clients c[\s\S]*c\.slug = \$2/.test(unpaidLinkSql));
+ok('D6 bed calendar ledger queries pass clientSlug param', /BED_CALENDAR_BOOKING_LEDGER_SQL, \[bookingIds, clientSlug\]/.test(staffApiSource)
+  && /BED_CALENDAR_UNPAID_LINK_SQL, \[bookingIds, clientSlug\]/.test(staffApiSource));
+
 // ── A. SQL scope debt scan + registry classification ─────────────────────────
 console.log('\n── SQL tenant scope scan (debt registry) ──');
 

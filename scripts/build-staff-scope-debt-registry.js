@@ -11,12 +11,7 @@ const path = require('path');
 const HOTSPOTS_PATH = path.join(__dirname, 'fixtures', 'staff-tenant-scope-debt-hotspots.json');
 const OUT_PATH = path.join(__dirname, 'fixtures', 'staff-tenant-scope-debt-registry.json');
 
-const CONSOLE_LOG_ROUTE_LINES = new Set([
-  40323, 40324, 40325, 40326, 40327, 40328, 40329, 40330, 40331, 40332, 40333, 40334, 40335,
-  40354, 40355, 40367, 40368, 40369, 40370,
-]);
-
-const SHARED_ROUTER_LINES = new Set([36725, 36728, 36735, 36754]);
+const CONSOLE_LOG_ROUTE_LINES = new Set();
 
 function slugFromRel(rel) {
   return rel.replace(/^scripts\//, '').replace(/\.js$/, '').replace(/\//g, '-');
@@ -41,6 +36,46 @@ function classify(hit) {
     };
   }
 
+  if (/Method not allowed/.test(snippet) || /pathname\s*===/.test(snippet)) {
+    return {
+      ...base,
+      id: `${slugFromRel(rel)}-${line}`,
+      status: 'ok',
+      risk: 'false_positive',
+      reason: 'Route handler string or HTTP error copy; not executable SQL.',
+    };
+  }
+
+  if (/staff\/bookings.*luna-notes/.test(snippet) || /BOOKING_LUNA_NOTES_RE/.test(snippet)) {
+    return {
+      ...base,
+      id: `${slugFromRel(rel)}-${line}`,
+      status: 'ok',
+      risk: 'false_positive',
+      reason: 'Express route path regex; not SQL.',
+    };
+  }
+
+  if (rel.endsWith('staff-query-api.js') && /^\s*\/\//.test(snippet) && /[Pp]ayments aggregate/.test(snippet)) {
+    return {
+      ...base,
+      id: `${slugFromRel(rel)}-${line}`,
+      status: 'ok',
+      risk: 'false_positive',
+      reason: 'Comment only; not executable SQL.',
+    };
+  }
+
+  if (rel.endsWith('staff-query-api.js') && /^\s*\/\/\s*──/.test(snippet)) {
+    return {
+      ...base,
+      id: `${slugFromRel(rel)}-${line}`,
+      status: 'ok',
+      risk: 'false_positive',
+      reason: 'Phase/route section comment; not executable SQL.',
+    };
+  }
+
   if (rel.endsWith('staff-query-api.js') && (line === 17953 || line === 22741)) {
     return {
       ...base,
@@ -58,26 +93,6 @@ function classify(hit) {
       status: 'ok',
       risk: 'false_positive',
       reason: 'Agent session UI HTML button label; not a bookings query.',
-    };
-  }
-
-  if (rel.endsWith('staff-query-api.js') && line === 38322) {
-    return {
-      ...base,
-      id: `${slugFromRel(rel)}-${line}`,
-      status: 'ok',
-      risk: 'false_positive',
-      reason: 'Express route path regex; not SQL.',
-    };
-  }
-
-  if (rel.endsWith('staff-query-api.js') && [38689, 39122, 39152, 39661, 39664].includes(line)) {
-    return {
-      ...base,
-      id: `${slugFromRel(rel)}-${line}`,
-      status: 'ok',
-      risk: 'false_positive',
-      reason: 'Route handler string or phase comment; not executable SQL.',
     };
   }
 
@@ -108,23 +123,6 @@ function classify(hit) {
       status: 'ok',
       risk: 'ok_session_or_indirect_scope',
       reason: 'Logout revokes the caller session by unique session_token_hash; no cross-tenant row selection.',
-    };
-  }
-
-  if (rel.endsWith('staff-query-api.js') && SHARED_ROUTER_LINES.has(line)) {
-    const labels = {
-      36725: 'BED_CALENDAR_BOOKING_LEDGER_SQL bookings leg',
-      36728: 'BED_CALENDAR_BOOKING_LEDGER_SQL payments aggregate',
-      36735: 'BED_CALENDAR_BOOKING_LEDGER_SQL booking_service_records aggregate',
-      36754: 'BED_CALENDAR_UNPAID_LINK_SQL payments leg',
-    };
-    return {
-      ...base,
-      id: `${slugFromRel(rel)}-${line}`,
-      status: 'todo',
-      risk: 'must_fix_before_shared_staging_router',
-      reason: `${labels[line]} loads ledger rows for booking_id batches without an explicit client_id/client_slug predicate on the outer query.`,
-      suggested_fix: 'Thread session client_slug into calendar booking-id discovery and add JOIN clients / WHERE b.client_id = $n (or equivalent) on outer SELECT.',
     };
   }
 

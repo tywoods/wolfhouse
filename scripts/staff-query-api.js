@@ -36723,20 +36723,28 @@ SELECT b.id::text AS booking_id,
        COALESCE(paid.paid_cents, 0)::bigint AS ledger_paid_cents,
        COALESCE(svc.svc_due_cents, 0)::bigint AS svc_due_cents
   FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
   LEFT JOIN (
-    SELECT booking_id, SUM(amount_paid_cents)::bigint AS paid_cents
-      FROM payments
-     WHERE booking_id = ANY($1::uuid[])
-       AND status = 'paid'::payment_record_status
-     GROUP BY booking_id
+    SELECT p.booking_id, SUM(p.amount_paid_cents)::bigint AS paid_cents
+      FROM payments p
+      INNER JOIN bookings pb ON pb.id = p.booking_id
+      INNER JOIN clients pc ON pc.id = pb.client_id
+     WHERE p.booking_id = ANY($1::uuid[])
+       AND pc.slug = $2
+       AND p.status = 'paid'::payment_record_status
+     GROUP BY p.booking_id
   ) paid ON paid.booking_id = b.id
   LEFT JOIN (
-    SELECT booking_id, SUM(amount_due_cents)::bigint AS svc_due_cents
-      FROM booking_service_records
-     WHERE booking_id = ANY($1::uuid[])
-     GROUP BY booking_id
+    SELECT bsr.booking_id, SUM(bsr.amount_due_cents)::bigint AS svc_due_cents
+      FROM booking_service_records bsr
+      INNER JOIN bookings sb ON sb.id = bsr.booking_id
+      INNER JOIN clients sc ON sc.id = sb.client_id
+     WHERE bsr.booking_id = ANY($1::uuid[])
+       AND sc.slug = $2
+     GROUP BY bsr.booking_id
   ) svc ON svc.booking_id = b.id
  WHERE b.id = ANY($1::uuid[])
+   AND c.slug = $2
 `;
 
 const BED_CALENDAR_UNPAID_LINK_SQL = `
@@ -36752,8 +36760,11 @@ SELECT p.booking_id::text AS booking_id,
        bg.deposit_amount_cents AS guest_deposit_amount_cents,
        bg.metadata AS guest_metadata
   FROM payments p
+  INNER JOIN bookings b ON b.id = p.booking_id
+  INNER JOIN clients c ON c.id = b.client_id
   LEFT JOIN booking_guests bg ON bg.id = p.booking_guest_id
  WHERE p.booking_id = ANY($1::uuid[])
+   AND c.slug = $2
    AND p.status IN ('checkout_created'::payment_record_status, 'draft'::payment_record_status, 'pending'::payment_record_status)
    AND COALESCE(p.amount_paid_cents, 0) = 0
    AND p.checkout_url IS NOT NULL
@@ -36888,6 +36899,7 @@ async function handleBedCalendar(query, res, user) {
   const started    = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   const startDate = parseCalendarDate(query.start);
   const endDate   = parseCalendarDate(query.end);
@@ -36930,8 +36942,8 @@ async function handleBedCalendar(query, res, user) {
       const bookingIds = [...new Set(rows.map((r) => r.booking_id).filter(Boolean))];
       if (bookingIds.length > 0) {
         const [ledgerSnap, linkRows, transferSnap] = await Promise.all([
-          pg.query(BED_CALENDAR_BOOKING_LEDGER_SQL, [bookingIds]),
-          pg.query(BED_CALENDAR_UNPAID_LINK_SQL, [bookingIds]),
+          pg.query(BED_CALENDAR_BOOKING_LEDGER_SQL, [bookingIds, clientSlug]),
+          pg.query(BED_CALENDAR_UNPAID_LINK_SQL, [bookingIds, clientSlug]),
           pg.query(BED_CALENDAR_TRANSFER_CHARGES_SQL, [bookingIds]),
         ]);
         mergeBedCalendarPaymentSnapshots(rows, ledgerSnap.rows, linkRows.rows, transferSnap.rows);
