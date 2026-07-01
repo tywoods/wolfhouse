@@ -18,14 +18,59 @@ const SERVICE_CATEGORIES = new Set(['experience', 'meal', 'transfer', 'rental', 
 // computeServiceChargeCents (treated as flat) but can no longer be written.
 const PRICE_UNITS = new Set(['per_day', 'per_stay']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const NAME_MAX = 120;
 const NOTES_MAX = 2000;
 const KEYWORD_MAX = 60;
 const SERVICE_FIELDS = new Set([
   'name', 'category', 'notes_for_luna', 'keywords', 'start_date', 'end_date',
   'price_cents', 'price_unit', 'per_guest', 'span_booking', 'luna_visible', 'active',
-  'block_rooms_enabled', 'blocked_room_codes',
+  'block_rooms_enabled', 'blocked_room_codes', 'schedule_slots',
 ]);
+
+
+function slugifySlotId(label, timeLocal, idx) {
+  const base = String(label || timeLocal || `slot-${idx + 1}`)
+    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48);
+  return base || `slot-${idx + 1}`;
+}
+
+function validateScheduleSlots(raw, category) {
+  if (raw == null) return { ok: true, slots: [] };
+  if (category !== 'lesson') return { ok: false, error: 'schedule_slots only allowed for lesson category' };
+  if (!Array.isArray(raw)) return { ok: false, error: 'schedule_slots must be array' };
+  if (raw.length > 12) return { ok: false, error: 'too many schedule_slots' };
+  const slots = [];
+  const seen = new Set();
+  for (let idx = 0; idx < raw.length; idx += 1) {
+    const src = raw[idx] || {};
+    const timeLocal = String(src.time_local || '').trim();
+    if (!TIME_RE.test(timeLocal)) return { ok: false, error: 'schedule slot time_local must be HH:MM' };
+    let timeEnd = null;
+    if (src.time_local_end != null && String(src.time_local_end).trim() !== '') {
+      timeEnd = String(src.time_local_end).trim();
+      if (!TIME_RE.test(timeEnd)) return { ok: false, error: 'schedule slot time_local_end must be HH:MM' };
+      if (timeEnd <= timeLocal) return { ok: false, error: 'schedule slot end must be after start' };
+    }
+    const capacity = src.capacity == null || src.capacity === '' ? 1 : Number(src.capacity);
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 20) return { ok: false, error: 'schedule slot capacity must be integer 1-20' };
+    let slotId = String(src.slot_id || '').trim().toLowerCase().replace(/[^a-z0-9_-]+/g, '-').slice(0, 64);
+    if (!slotId) slotId = slugifySlotId(src.label, timeLocal, idx);
+    let unique = slotId;
+    let n = 2;
+    while (seen.has(unique)) { unique = `${slotId}-${n}`; n += 1; }
+    seen.add(unique);
+    slots.push({
+      slot_id: unique,
+      label: String(src.label || '').trim(),
+      time_local: timeLocal,
+      time_local_end: timeEnd,
+      capacity,
+      active: src.active !== false,
+    });
+  }
+  return { ok: true, slots };
+}
 
 function isValidDate(s) {
   if (!DATE_RE.test(s)) return false;
@@ -112,6 +157,12 @@ function validateServiceBody(body, { requireName = false } = {}) {
     if (!Array.isArray(body.blocked_room_codes)) return { ok: false, error: 'blocked_room_codes must be array' };
     out.blocked_room_codes = normalizeRoomCodes(body.blocked_room_codes);
   }
+  if (body.schedule_slots != null) {
+    const category = out.category || body.category;
+    const slots = validateScheduleSlots(body.schedule_slots, category);
+    if (!slots.ok) return { ok: false, error: slots.error };
+    out.schedule_slots = slots.slots;
+  }
   if (out.block_rooms_enabled && requireName) {
     if (!out.start_date || !out.end_date) return { ok: false, error: 'block_rooms_requires_start_and_end_date' };
     if (!(out.blocked_room_codes || []).length) return { ok: false, error: 'blocked_room_codes required when block_rooms_enabled' };
@@ -159,6 +210,7 @@ async function ensureServicesTable(client) {
       updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_by      UUID
     )`);
+  await client.query(`ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS schedule_slots JSONB NOT NULL DEFAULT '[]'::jsonb`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_tenant_services_client_active
     ON tenant_services (client_slug, active)`);
   await ensureServiceBlockColumns(client);
@@ -241,15 +293,15 @@ async function createService(client, { clientSlug, body, actor }) {
       `INSERT INTO tenant_services
          (tenant_id, client_slug, name, category, notes_for_luna, keywords,
           start_date, end_date, price_cents, price_unit, per_guest, span_booking,
-          luna_visible, active, block_rooms_enabled, blocked_room_codes, updated_by)
-       VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::uuid)
+          luna_visible, active, block_rooms_enabled, blocked_room_codes, schedule_slots, updated_by)
+       VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::uuid)
        RETURNING *`,
       [
         clientSlug, p.name, p.category || null, p.notes_for_luna || null, p.keywords || [],
         p.start_date || null, p.end_date || null, p.price_cents || 0, p.price_unit || 'per_day',
         p.per_guest != null ? p.per_guest : true, p.span_booking === true,
         p.luna_visible != null ? p.luna_visible : true, p.active != null ? p.active : true,
-        p.block_rooms_enabled === true, p.blocked_room_codes || [],
+        p.block_rooms_enabled === true, p.blocked_room_codes || [], JSON.stringify(p.schedule_slots || []),
         (actor && actor.staff_user_id) || null,
       ],
     );
@@ -368,6 +420,7 @@ module.exports = {
   SERVICE_CATEGORIES,
   PRICE_UNITS,
   validateServiceBody,
+  validateScheduleSlots,
   computeServiceChargeCents,
   ensureServicesTable,
   ensureBookingServiceGenericType,
