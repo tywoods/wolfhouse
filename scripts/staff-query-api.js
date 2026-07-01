@@ -4900,7 +4900,8 @@ async function staffPortalCreatePrivateRoomCompanionBlock(pg, {
     `UPDATE bookings
        SET assignment_status = 'assigned',
            metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-     WHERE id = $2::uuid`,
+     WHERE id = $2::uuid
+       AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)`,
     [
       JSON.stringify({
         staff_calendar_block: true,
@@ -4910,6 +4911,7 @@ async function staffPortalCreatePrivateRoomCompanionBlock(pg, {
         private_room_parent_booking_code: parentBookingCode || null,
       }),
       result.booking_id,
+      clientSlug,
     ],
   );
   await pg.query(
@@ -8338,7 +8340,7 @@ async function handleBookingCancelPaymentLink(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Phase 10.6a — Staff add service record (booking_service_records INSERT only)
+// Phase 10.6a — Staff add service record write path (booking_service_records)
 //
 // POST /staff/bookings/add-service
 //
@@ -8801,10 +8803,11 @@ async function handleBookingAddService(req, res, user) {
         `SELECT id::text AS id, service_type, quantity, amount_due_cents, service_date::text AS service_date
          FROM booking_service_records
          WHERE booking_id = $1::uuid
+           AND client_slug = $4
            AND (metadata->>'idempotency_key' = $2
                 OR metadata->>'idempotency_key' LIKE $3)
          ORDER BY metadata->>'idempotency_key'`,
-        [bookingRow.booking_id, idempotencyKey, `${idempotencyKey}-unit-%`]
+        [bookingRow.booking_id, idempotencyKey, `${idempotencyKey}-unit-%`, clientSlug]
       );
       if (idem.rows.length > 0) {
         return { idempotent: true, row: idem.rows[0], rows: idem.rows };
@@ -13564,8 +13567,10 @@ async function handleStripeWebhook(req, res) {
         svcPaidCount = await withPgClient(async (pg) => {
           const r = await pg.query(
             `SELECT COUNT(*)::int AS n FROM booking_service_records
-              WHERE payment_id = $1 AND payment_status = 'paid'`,
-            [pm.payment_id],
+              WHERE payment_id = $1
+                AND client_slug = $2
+                AND payment_status = 'paid'`,
+            [pm.payment_id, pm.client_slug],
           );
           return r.rows[0].n;
         });
@@ -13668,8 +13673,9 @@ async function handleStripeWebhook(req, res) {
           const linked = await pg.query(
             `SELECT id, amount_due_cents, payment_status
                FROM booking_service_records
-              WHERE payment_id = $1`,
-            [pm.payment_id],
+              WHERE payment_id = $1
+                AND client_slug = $2`,
+            [pm.payment_id, pm.client_slug],
           );
 
           for (const row of linked.rows) {
@@ -13693,8 +13699,9 @@ async function handleStripeWebhook(req, res) {
                       updated_at        = NOW()
                 WHERE id = $2
                   AND payment_id = $3
+                  AND client_slug = $4
                   AND payment_status IS DISTINCT FROM 'paid'`,
-              [paidCents, row.id, pm.payment_id],
+              [paidCents, row.id, pm.payment_id, pm.client_slug],
             );
             if (upd.rowCount > 0) serviceRecordsPaidCount++;
           }
@@ -14934,7 +14941,8 @@ async function handleBotBookingCreate(req, res, user, authMode) {
                  balance_due_cents      = $3,
                  requested_room_type    = $4,
                  metadata               = metadata || $5::jsonb
-           WHERE id = $6`,
+           WHERE id = $6
+             AND client_id = (SELECT id FROM clients WHERE slug = $7 LIMIT 1)`,
           [
             totalCents, depositCents, quote.balance_due_cents, roomPreference || roomType,
             JSON.stringify({
@@ -14952,6 +14960,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
               ...(genderPreference ? { gender_preference: genderPreference } : {}),
             }),
             result.booking_id,
+            clientSlug,
           ],
         );
 
@@ -15411,8 +15420,9 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     await pg.query(
       `UPDATE bookings
           SET amount_paid_cents = $1, balance_due_cents = $2, payment_status = $3::payment_status
-        WHERE id = $4::uuid`,
-      [newBkPaid, newBalance, newBkPayStatus, bookingId],
+        WHERE id = $4::uuid
+          AND client_id = (SELECT id FROM clients WHERE slug = $5 LIMIT 1)`,
+      [newBkPaid, newBalance, newBkPayStatus, bookingId, clientSlug],
     );
 
     outcome.payment_id = paymentId;
@@ -15470,8 +15480,11 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
 
   if (!stripeConfigured) {
     await pg.query(
-      `UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,
-      [bookingId],
+      `UPDATE bookings
+          SET payment_status = 'waiting_payment'::payment_status
+        WHERE id = $1::uuid
+          AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
+      [bookingId, clientSlug],
     );
     outcome.payment_id = paymentId;
     outcome.amount_due_cents = amountDueCents;
@@ -15558,8 +15571,11 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
   );
 
   await pg.query(
-    `UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,
-    [bookingId],
+    `UPDATE bookings
+        SET payment_status = 'waiting_payment'::payment_status
+      WHERE id = $1::uuid
+        AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
+    [bookingId, clientSlug],
   );
 
   outcome.payment_id = paymentId;
@@ -15861,7 +15877,8 @@ async function handleManualBookingCreate(req, res, user) {
                  balance_due_cents       = $3,
                  requested_room_type     = $4,
                  metadata                = metadata || $5::jsonb
-           WHERE id = $6`,
+           WHERE id = $6
+             AND client_id = (SELECT id FROM clients WHERE slug = $7 LIMIT 1)`,
           [
             totalCents,
             depositCents,
@@ -15878,6 +15895,7 @@ async function handleManualBookingCreate(req, res, user) {
               booking_guests:    usesPerGuestModel ? guestsNorm.guests : undefined,
             }),
             result.booking_id,
+            clientSlug,
           ]
         );
 
@@ -15968,8 +15986,9 @@ async function handleManualBookingCreate(req, res, user) {
             `UPDATE bookings
                SET room_preference = 'couple_private',
                    requested_room_type = 'double'
-             WHERE id = $1`,
-            [result.booking_id]
+             WHERE id = $1
+               AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
+            [result.booking_id, clientSlug]
           );
           const bedSync = await editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, {
             booking_id: String(result.booking_id),
@@ -36514,7 +36533,8 @@ async function handleCalendarBedBlockCreate(req, res, user) {
           `UPDATE bookings
              SET assignment_status = 'assigned',
                  metadata = metadata || $1::jsonb
-           WHERE id = $2::uuid`,
+           WHERE id = $2::uuid
+             AND client_id = (SELECT id FROM clients WHERE slug = $3 LIMIT 1)`,
           [
             JSON.stringify({
               staff_calendar_block: true,
@@ -36522,6 +36542,7 @@ async function handleCalendarBedBlockCreate(req, res, user) {
               source: 'staff_calendar_block',
             }),
             result.booking_id,
+            clientSlug,
           ],
         );
         await pg.query(
