@@ -263,6 +263,16 @@ async function runAsyncTests() {
   const staffApi = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
   ok('staff API exposes notification settings route', staffApi.includes('/staff/notification-settings'));
   ok('staff API exposes Luna Staff notification UI card', staffApi.includes('cc-staff-notification-settings'));
+  ok('notification card markup includes new conversation block', staffApi.includes('sns-new-enabled'));
+  ok('notification card markup includes human needed block', staffApi.includes('sns-human-enabled'));
+  ok('maybeLoadStaffNotificationSettings helper exists', staffApi.includes('function maybeLoadStaffNotificationSettings'));
+  ok('staffNotificationSettingsApplyVisibility helper exists', staffApi.includes('function staffNotificationSettingsApplyVisibility'));
+  ok('wireLunaStaffTabCards wires notification maybe-load', /function wireLunaStaffTabCards[\s\S]*maybeLoadStaffNotificationSettings/.test(staffApi));
+  ok('Luna Staff tab switch uses wireLunaStaffTabCards', staffApi.includes("if (tab === 'ask-luna') wireLunaStaffTabCards();"));
+  ok('Luna Staff tab click uses wireLunaStaffTabCards', staffApi.includes("if (target === 'ask-luna') wireLunaStaffTabCards();"));
+  ok('applyOwnerInsightsGate does not hard-hide notification card', !/snsCard\) snsCard\.style\.display = 'none'/.test(staffApi));
+  ok('applyOwnerInsightsGate defers notification load via maybeLoad', /applyOwnerInsightsGate[\s\S]*maybeLoadStaffNotificationSettings/.test(staffApi));
+  ok('notification fetch soft-fail re-applies visibility', /staffNotificationSettingsApplyVisibility\(\);[\s\S]*staffNotificationShowMsg\('error'/.test(staffApi));
   ok('notification remove button uses safe quote concat', staffApi.includes("' + \"'\" + type + \"'\" +"));
   ok('notification remove button avoids broken template quotes', !staffApi.includes("RecipientRemove(\\'' + type"));
 

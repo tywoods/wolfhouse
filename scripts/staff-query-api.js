@@ -19154,7 +19154,7 @@ function switchToTab(tab, subtab){
     loadMessageEvents();
   }
   if (tab === 'bed-calendar') bcOnBedCalendarTabOpen();
-  if (tab === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); staffNotificationSettingsLoad(); }
+  if (tab === 'ask-luna') wireLunaStaffTabCards();
   if (tab === 'conversations') {
     wireInboxLeftListWheel();
     if (!subtab) ensureInboxLoadedForTab();
@@ -19166,6 +19166,7 @@ function switchToTab(tab, subtab){
   if (tab === 'day-schedule') loadDaySchedule();
   if (tab === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
   if (tab !== 'conversations') hideInboxMobileThread();
+  staffNotificationSettingsApplyVisibility();
 }
 function switchToTabOnly(tab){ switchToTab(tab, null); }
 
@@ -19189,7 +19190,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
       ensureInboxLoadedForTab();
     }
     if (target === 'bed-calendar') bcOnBedCalendarTabOpen();
-    if (target === 'ask-luna') { lunaGlobalPauseLoad(); staffWhatsappNumbersLoad(); houseNotesLoad(); staffNotificationSettingsLoad(); }
+    if (target === 'ask-luna') wireLunaStaffTabCards();
     if (target === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
     if (target === 'customers') loadCustomersTab();
     if (target === 'admin') loadAdminTab();
@@ -19197,6 +19198,7 @@ document.querySelectorAll('.tab-btn').forEach(function(btn){
     if (target === 'day-schedule') loadDaySchedule();
     if (target === 'tour-operator' && typeof toOnTourOperatorTabOpen === 'function') toOnTourOperatorTabOpen();
     if (target !== 'conversations') hideInboxMobileThread();
+    staffNotificationSettingsApplyVisibility();
   });
 });
 
@@ -23212,8 +23214,7 @@ function applyOwnerInsightsGate(){
   }
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
-  var snsCard = el('cc-staff-notification-settings');
-  if (snsCard) snsCard.style.display = 'none';
+  staffNotificationSettingsApplyVisibility();
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   // Populate the cards now that the session + client selector are ready (this runs post
@@ -23222,6 +23223,7 @@ function applyOwnerInsightsGate(){
   if (canUseOwnerInsightsPortal()) {
     staffWhatsappNumbersLoad();
     houseNotesLoad();
+    maybeLoadStaffNotificationSettings();
   }
 }
 
@@ -23390,6 +23392,34 @@ function staffWhatsappNumberRemove(id){
 }
 
 var staffNotificationSettingsCache = { new_conversation: { enabled: false, recipients: [] }, human_needed: { enabled: false, recipients: [] } };
+var staffNotificationSettingsFetchInFlight = false;
+
+function isLunaStaffTabActive(){
+  var panel = el('tab-ask-luna');
+  return !!(panel && panel.classList.contains('active'));
+}
+
+function wireLunaStaffTabCards(){
+  lunaGlobalPauseLoad();
+  staffWhatsappNumbersLoad();
+  houseNotesLoad();
+  maybeLoadStaffNotificationSettings();
+}
+
+function staffNotificationSettingsApplyVisibility(){
+  var card = el('cc-staff-notification-settings');
+  if (!card) return false;
+  if (!canUseOwnerInsightsPortal()){
+    card.style.display = 'none';
+    return false;
+  }
+  if (!isLunaStaffTabActive()){
+    card.style.display = 'none';
+    return false;
+  }
+  card.style.display = '';
+  return true;
+}
 
 function staffNotificationSettingsQuery(){
   return staffWhatsappNumberQuery();
@@ -23482,20 +23512,16 @@ function staffNotificationRecipientRemove(type, idx){
   staffNotificationRecipientRender(type);
 }
 
-function staffNotificationSettingsLoad(){
-  var card = el('cc-staff-notification-settings');
-  if (!card) return;
-  if (!canUseOwnerInsightsPortal()){ card.style.display = 'none'; return; }
-  var askPanel = el('tab-ask-luna');
-  if (!askPanel || !askPanel.classList.contains('active')) {
-    card.style.display = 'none';
-    return;
-  }
-  card.style.display = '';
+function maybeLoadStaffNotificationSettings(){
+  if (!staffNotificationSettingsApplyVisibility()) return;
+  if (staffNotificationSettingsFetchInFlight) return;
+  staffNotificationSettingsFetchInFlight = true;
   staffNotificationShowMsg(null, null);
   fetch('/staff/notification-settings' + staffNotificationSettingsQuery(), { credentials: 'same-origin' })
     .then(function(r){ return r.json().catch(function(){ return { success: false, error: 'invalid response' }; }); })
     .then(function(data){
+      staffNotificationSettingsFetchInFlight = false;
+      staffNotificationSettingsApplyVisibility();
       if (!data || data.success !== true){
         staffNotificationShowMsg('error', (data && data.error) ? data.error : 'Failed to load notification settings.');
         return;
@@ -23506,7 +23532,15 @@ function staffNotificationSettingsLoad(){
       };
       staffNotificationSettingsApplyToForm();
     })
-    .catch(function(){ staffNotificationShowMsg('error', 'Failed to load notification settings.'); });
+    .catch(function(){
+      staffNotificationSettingsFetchInFlight = false;
+      staffNotificationSettingsApplyVisibility();
+      staffNotificationShowMsg('error', 'Failed to load notification settings.');
+    });
+}
+
+function staffNotificationSettingsLoad(){
+  maybeLoadStaffNotificationSettings();
 }
 
 function staffNotificationSettingsSave(){
@@ -25234,6 +25268,8 @@ if (clientSelectEl){
     var activeTab = activePanel && activePanel.id ? activePanel.id.replace('tab-', '') : null;
     if (!activeTab || isTabHiddenForClient(activeTab, getClient())) {
       switchToTab(profile.default_tab || 'bed-calendar', null);
+    } else if (activeTab === 'ask-luna') {
+      wireLunaStaffTabCards();
     }
     if (getPortalProfile(getClient()).is_surf_vertical) loadDaySchedule(dsTodayIso());
     loadInbox(null, { silent: true, preserveDetail: false });

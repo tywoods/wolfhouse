@@ -75,7 +75,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 22862,
+      "line": 22864,
       "table": "customers",
       "snippet": "'<div class=\"customers-card-contact\">' + escHtml(contact.join(' · ') || t('customers.contact.unknown",
       "id": "staff-query-api-22861",
@@ -85,7 +85,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 24940,
+      "line": 24974,
       "table": "bookings",
       "snippet": "html += '<button type=\"button\" class=\"pill pill-agent-session-reset\" id=\"btn-agent-session-reset\" ti",
       "id": "staff-query-api-24935",
@@ -95,7 +95,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 38723,
+      "line": 38759,
       "table": "bookings",
       "snippet": "`^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',",
       "id": "staff-query-api-38718",
@@ -105,7 +105,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 39090,
+      "line": 39126,
       "table": "payments",
       "snippet": "// Payments aggregate — paid truth from paid payment rows only (10.6b)",
       "id": "staff-query-api-39085",
@@ -115,7 +115,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 39523,
+      "line": 39559,
       "table": "bookings",
       "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST or DELETE for ",
       "id": "staff-query-api-39518",
@@ -125,7 +125,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 39553,
+      "line": 39589,
       "table": "payments",
       "snippet": "// ── Phase 10.6b — Record cash payment (payments INSERT only) ─────────────",
       "id": "staff-query-api-39548",
@@ -135,7 +135,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40062,
+      "line": 40098,
       "table": "bookings",
       "snippet": "if (pathname === '/staff/bot/bookings/update-contact') {",
       "id": "staff-query-api-40057",
@@ -145,7 +145,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40065,
+      "line": 40101,
       "table": "bookings",
       "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/bookin",
       "id": "staff-query-api-40060",
@@ -155,7 +155,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40743,
+      "line": 40779,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only pre",
       "id": "staff-query-api-40738",
@@ -165,7 +165,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40744,
+      "line": 40780,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move t",
       "id": "staff-query-api-40739",
@@ -175,7 +175,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40745,
+      "line": 40781,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move",
       "id": "staff-query-api-40740",
@@ -185,7 +185,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40746,
+      "line": 40782,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-chan",
       "id": "staff-query-api-40741",
@@ -195,7 +195,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40747,
+      "line": 40783,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edi",
       "id": "staff-query-api-40742",
@@ -205,7 +205,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40748,
+      "line": 40784,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c conta",
       "id": "staff-query-api-40743",
@@ -215,7 +215,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40749,
+      "line": 40785,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel rese",
       "id": "staff-query-api-40744",
@@ -225,7 +225,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40750,
+      "line": 40786,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-",
       "id": "staff-query-api-40745",
@@ -235,7 +235,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40751,
+      "line": 40787,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove o",
       "id": "staff-query-api-40746",
@@ -245,7 +245,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40752,
+      "line": 40788,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record ca",
       "id": "staff-query-api-40747",
@@ -255,7 +255,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40753,
+      "line": 40789,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe ",
       "id": "staff-query-api-40748",
@@ -265,7 +265,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40754,
+      "line": 40790,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking mov",
       "id": "staff-query-api-40749",
@@ -275,7 +275,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40755,
+      "line": 40791,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL st",
       "id": "staff-query-api-40750",
@@ -285,7 +285,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40774,
+      "line": 40810,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna c",
       "id": "staff-query-api-40769",
@@ -295,7 +295,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40775,
+      "line": 40811,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna book",
       "id": "staff-query-api-40770",
@@ -305,7 +305,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40787,
+      "line": 40823,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot book",
       "id": "staff-query-api-40782",
@@ -315,7 +315,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40788,
+      "line": 40824,
       "table": "bookings",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: ca",
       "id": "staff-query-api-40783",
@@ -325,7 +325,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40789,
+      "line": 40825,
       "table": "payments",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot ba",
       "id": "staff-query-api-40784",
@@ -335,7 +335,7 @@
     },
     {
       "file": "scripts/staff-query-api.js",
-      "line": 40790,
+      "line": 40826,
       "table": "payments",
       "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Lu",
       "id": "staff-query-api-40785",
