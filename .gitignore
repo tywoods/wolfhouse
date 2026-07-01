@@ -16,6 +16,9 @@ logs/*.jsonl
 # Client secrets (real phone numbers, passwords) — never commit; keep .example versions
 config/clients/*.secrets.json
 
+# Staging channel routing with real Meta phone_number_id values — copy from channel-routing.staging.example.json outside git
+config/clients/channel-routing.staging.json
+
 # Private / raw WhatsApp exports (never commit)
 data/private/
 data/raw-whatsapp/

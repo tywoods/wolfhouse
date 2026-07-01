@@ -113,6 +113,8 @@ guessing from message content:
 
 Each live client owns its own number/inbox; routing is a lookup, not inference.
 
+Staging shadow-only enablement (env + runbook, not live switch): [`MULTICLIENT-STAGING-ROUTING.md`](MULTICLIENT-STAGING-ROUTING.md).
+
 ---
 
 ## 6. Payment / Stripe isolation

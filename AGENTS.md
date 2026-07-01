@@ -38,6 +38,7 @@ Guest WhatsApp  →  Hermes Agent (staging: wh-staging-hermes on Azure Container
 | Hermes local | `docs/HERMES-LOCAL.md` | Talk to Hermes about this repo |
 | DB migrations | `database/migrations/` | Postgres schema |
 | Infra | `infra/` | Env examples, deployment notes |
+| Multiclient staging routing (shadow) | `docs/MULTICLIENT-STAGING-ROUTING.md` | Operator runbook; not enabled in Azure yet |
 
 ## Luna behavior (summary)
 

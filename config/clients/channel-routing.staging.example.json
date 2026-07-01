@@ -1,0 +1,53 @@
+{
+  "_meta": {
+    "purpose": "Operator template for staging channel routing (shadow-only). Copy to a path OUTSIDE git, replace REPLACE_WITH_* keys with real Meta phone_number_id values from Key Vault / Meta Developer console. Never commit the filled copy.",
+    "template_for": "CLIENT_CHANNEL_ROUTING_FILE on staging Staff API and/or Hermes Luna",
+    "registry": "config/clients/clients.json",
+    "resolver": "scripts/lib/client-channel-resolver.js",
+    "runbook": "docs/MULTICLIENT-STAGING-ROUTING.md"
+  },
+  "whatsapp_phone_number_ids": {
+    "REPLACE_WITH_WOLFHOUSE_META_PHONE_NUMBER_ID": {
+      "client_slug": "wolfhouse",
+      "location_id": "wolfhouse-somo"
+    },
+    "REPLACE_WITH_SUNSET_SOMO_META_PHONE_NUMBER_ID": {
+      "client_slug": "sunset",
+      "location_id": "sunset-somo"
+    },
+    "REPLACE_WITH_ELSARDI_META_PHONE_NUMBER_ID": {
+      "client_slug": "sunset",
+      "location_id": "sunset-sardinero"
+    },
+    "REPLACE_WITH_MIRLEFT_META_PHONE_NUMBER_ID": {
+      "client_slug": "mirleft",
+      "location_id": "mirleft-main"
+    },
+    "REPLACE_WITH_LAWAVE_META_PHONE_NUMBER_ID": {
+      "client_slug": "lawave",
+      "location_id": "lawave-main"
+    }
+  },
+  "email_to": {
+    "wolfhouse@example.invalid": {
+      "client_slug": "wolfhouse",
+      "location_id": "wolfhouse-somo"
+    },
+    "sunset-somo@example.invalid": {
+      "client_slug": "sunset",
+      "location_id": "sunset-somo"
+    },
+    "elsardi@example.invalid": {
+      "client_slug": "sunset",
+      "location_id": "sunset-sardinero"
+    },
+    "mirleft@example.invalid": {
+      "client_slug": "mirleft",
+      "location_id": "mirleft-main"
+    },
+    "lawave@example.invalid": {
+      "client_slug": "lawave",
+      "location_id": "lawave-main"
+    }
+  }
+}
