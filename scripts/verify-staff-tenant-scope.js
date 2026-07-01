@@ -4,11 +4,11 @@
  * Staff API tenant/session scope guard (read-only).
  *
  * 1) Static SQL scan for tenant-sensitive tables without obvious client scope.
- * 2) Staff portal session-scoped client helpers.
- * 3) /staff/auth/session handler uses session-scoped helpers when auth required.
+ * 2) Match every hotspot against scripts/fixtures/staff-tenant-scope-debt-registry.json.
+ * 3) Staff portal session-scoped client helpers.
+ * 4) /staff/auth/session handler uses session-scoped helpers when auth required.
  *
- * Debt hotspots are reported; strict fail on mirleft/lawave scope mistakes only.
- * Exit 0 on pass, nonzero on failure.
+ * Exit 0 when all hotspots are classified and strict mirleft/lawave scope is clean.
  */
 
 const fs = require('fs');
@@ -25,6 +25,7 @@ const {
 const REPO_ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(__dirname, 'staff-query-api.js');
 const SUNSET_ACCESS_PATH = path.join(REPO_ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
+const REGISTRY_PATH = path.join(__dirname, 'fixtures', 'staff-tenant-scope-debt-registry.json');
 
 const SENSITIVE_TABLES = [
   'bookings',
@@ -63,6 +64,7 @@ const MIRLEFT_LAWAVE = /\b(mirleft|lawave)\b/i;
 
 const WINDOW_RADIUS = 22;
 const DEBT_SHOW_MAX = 40;
+const TOP_LIVE_FIX_MAX = 10;
 
 let pass = 0;
 let fail = 0;
@@ -80,6 +82,25 @@ function ok(name, cond, detail) {
 
 function relPath(abs) {
   return path.relative(REPO_ROOT, abs).split(path.sep).join('/');
+}
+
+function hotspotKey(rel, line) {
+  return `${rel}:${line}`;
+}
+
+function loadScopeDebtRegistry() {
+  const raw = fs.readFileSync(REGISTRY_PATH, 'utf8').replace(/^\uFEFF/, '');
+  const parsed = JSON.parse(raw);
+  const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
+  const byKey = new Map();
+  for (const entry of entries) {
+    const key = hotspotKey(entry.file, entry.line);
+    if (byKey.has(key)) {
+      throw new Error(`duplicate registry key ${key}`);
+    }
+    byKey.set(key, entry);
+  }
+  return { meta: parsed, entries, byKey };
 }
 
 function collectScanFiles() {
@@ -171,6 +192,57 @@ function scanSqlScopeDebt() {
   return { debt, todos, strict };
 }
 
+function classifyDebtHotspots(debt, registryByKey) {
+  const unclassified = [];
+  const classified = [];
+  const matchedKeys = new Set();
+
+  for (const hit of debt) {
+    const key = hotspotKey(hit.rel, hit.line);
+    const entry = registryByKey.get(key);
+    if (!entry) {
+      unclassified.push(hit);
+      continue;
+    }
+    matchedKeys.add(key);
+    classified.push({ hit, entry });
+  }
+
+  const stale = [];
+  for (const entry of registryByKey.values()) {
+    const key = hotspotKey(entry.file, entry.line);
+    if (!matchedKeys.has(key)) {
+      stale.push(entry);
+    }
+  }
+
+  return { unclassified, classified, stale };
+}
+
+function summarizeClassification(classified) {
+  const byStatus = { ok: 0, todo: 0 };
+  const byRisk = {
+    false_positive: 0,
+    ok_session_or_indirect_scope: 0,
+    must_fix_before_shared_staging_router: 0,
+    must_fix_before_live_multiclient: 0,
+  };
+  const todoItems = [];
+
+  for (const { hit, entry } of classified) {
+    if (entry.status === 'ok') byStatus.ok += 1;
+    else if (entry.status === 'todo') {
+      byStatus.todo += 1;
+      todoItems.push({ hit, entry });
+    }
+    if (entry.risk && Object.prototype.hasOwnProperty.call(byRisk, entry.risk)) {
+      byRisk[entry.risk] += 1;
+    }
+  }
+
+  return { byStatus, byRisk, todoItems };
+}
+
 function extractHandleAuthSessionSource(source) {
   const start = source.indexOf('async function handleAuthSession');
   if (start < 0) return '';
@@ -184,6 +256,14 @@ function extractHandleAuthSessionSource(source) {
 }
 
 console.log('verify:staff-tenant-scope — Staff API tenant/session guardrails\n');
+
+let registry;
+try {
+  registry = loadScopeDebtRegistry();
+} catch (err) {
+  console.error(`  FAIL  could not load debt registry: ${err.message}`);
+  process.exit(1);
+}
 
 // ── B. Portal session client scoping ────────────────────────────────────────
 console.log('── Portal session client scoping ──');
@@ -234,29 +314,60 @@ ok('C3 authenticated session does not use buildClientProfilesMap(user)', !/build
 ok('C4 authenticated session does not use getAccessibleClients(user)', !/getAccessibleClients\(user\)/.test(authBlock));
 ok('C5 dev no-auth bypass uses broad getAccessibleClients(null) (legacy local)', /getAccessibleClients\(null\)/.test(devBlock));
 
-// ── A. SQL scope debt scan ──────────────────────────────────────────────────
-console.log('\n── SQL tenant scope scan (debt report) ──');
+// ── A. SQL scope debt scan + registry classification ─────────────────────────
+console.log('\n── SQL tenant scope scan (debt registry) ──');
 
 const { debt, todos, strict } = scanSqlScopeDebt();
+const { unclassified, classified, stale } = classifyDebtHotspots(debt, registry.byKey);
+const { byStatus, byRisk, todoItems } = summarizeClassification(classified);
 
-if (debt.length === 0) {
-  ok('A no unscoped tenant-sensitive SQL hotspots', true);
-} else {
-  console.log(`  INFO  ${debt.length} unscoped hotspot(s) (historical debt — add scope or MULTICLIENT_SCOPE_OK/TODO):\n`);
-  const shown = debt.slice(0, DEBT_SHOW_MAX);
-  for (const h of shown) {
-    console.log(`    ${h.rel}:${h.line}  [${h.table}]`);
+ok('A1 every scanned hotspot is classified in debt registry', unclassified.length === 0, unclassified.length
+  ? unclassified.map((h) => `${h.rel}:${h.line} [${h.table}]`).join('; ')
+  : null);
+
+ok('A2 registry has no stale entries (removed hotspots)', stale.length === 0, stale.length
+  ? stale.map((e) => `${e.file}:${e.line}`).join('; ')
+  : null);
+
+const openTodo = todoItems.filter(({ entry }) => entry.status === 'todo');
+if (openTodo.length > 0) {
+  console.log(`\n  INFO  ${openTodo.length} classified todo hotspot(s):`);
+  const shown = openTodo.slice(0, DEBT_SHOW_MAX);
+  for (const { hit, entry } of shown) {
+    console.log(`    ${hit.rel}:${hit.line}  [${hit.table}]  risk=${entry.risk}`);
   }
-  if (debt.length > DEBT_SHOW_MAX) {
-    console.log(`    ... and ${debt.length - DEBT_SHOW_MAX} more`);
+  if (openTodo.length > DEBT_SHOW_MAX) {
+    console.log(`    ... and ${openTodo.length - DEBT_SHOW_MAX} more`);
   }
-  ok('A debt scan completed (report-only for legacy unscoped SQL)', true);
 }
 
 if (todos.length > 0) {
-  console.log(`\n  INFO  ${todos.length} MULTICLIENT_SCOPE_TODO marker(s):`);
+  console.log(`\n  INFO  ${todos.length} inline MULTICLIENT_SCOPE_TODO marker(s):`);
   for (const t of todos.slice(0, 15)) {
     console.log(`    ${t.rel}:${t.line}  [${t.table}]`);
+  }
+}
+
+const liveFixTop = todoItems
+  .filter(({ entry }) => entry.risk === 'must_fix_before_live_multiclient')
+  .slice(0, TOP_LIVE_FIX_MAX);
+
+console.log('\n── Debt classification summary ──');
+console.log(`  hotspots_scanned: ${debt.length}`);
+console.log(`  classified: ${classified.length}`);
+console.log(`  status ok: ${byStatus.ok}`);
+console.log(`  status todo: ${byStatus.todo}`);
+console.log(`  risk false_positive: ${byRisk.false_positive}`);
+console.log(`  risk ok_session_or_indirect_scope: ${byRisk.ok_session_or_indirect_scope}`);
+console.log(`  risk must_fix_before_shared_staging_router: ${byRisk.must_fix_before_shared_staging_router}`);
+console.log(`  risk must_fix_before_live_multiclient: ${byRisk.must_fix_before_live_multiclient}`);
+
+if (liveFixTop.length > 0) {
+  console.log(`\n── Top ${liveFixTop.length} must_fix_before_live_multiclient ──`);
+  for (const { hit, entry } of liveFixTop) {
+    console.log(`  ${entry.id}`);
+    console.log(`    ${hit.rel}:${hit.line} [${hit.table}]`);
+    console.log(`    ${entry.reason}`);
   }
 }
 
@@ -264,10 +375,10 @@ ok('A strict mirleft/lawave scope violations', strict.length === 0, strict.lengt
   ? strict.map((h) => `${h.rel}:${h.line}`).join(', ')
   : null);
 
-console.log(`\n── staff-tenant-scope summary: debt=${debt.length}, todo_markers=${todos.length}, strict=${strict.length} ──`);
+console.log(`\n── staff-tenant-scope summary: scanned=${debt.length}, classified=${classified.length}, unclassified=${unclassified.length}, inline_todo_markers=${todos.length}, strict=${strict.length} ──`);
 console.log(`── staff-tenant-scope: ${pass} passed, ${fail} failed ──`);
 
 if (fail === 0) {
-  console.log('verify:staff-tenant-scope — PASSED (debt reported; strict mirleft/lawave clean)');
+  console.log('verify:staff-tenant-scope — PASSED (all hotspots classified; strict mirleft/lawave clean)');
 }
 process.exit(fail ? 1 : 0);

@@ -1,0 +1,416 @@
+﻿[
+  {
+    "rel": "scripts/lib/luna-guest-booking-write-bridge.js",
+    "line": 175,
+    "table": "payments",
+    "snippet": "FROM payments p"
+  },
+  {
+    "rel": "scripts/lib/luna-guest-hold-payment-draft-write.js",
+    "line": 152,
+    "table": "payments",
+    "snippet": "FROM payments"
+  },
+  {
+    "rel": "scripts/lib/staff-bot-v2-routes.js",
+    "line": 868,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/lib/staff-bot-v2-routes.js",
+    "line": 1236,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/lib/tenant-services-writes.js",
+    "line": 251,
+    "table": "booking_service_records",
+    "snippet": "`SELECT to_regclass('public.booking_service_records') AS t`,"
+  },
+  {
+    "rel": "scripts/lib/tenant-services-writes.js",
+    "line": 257,
+    "table": "booking_service_records",
+    "snippet": "WHERE c.conrelid = 'booking_service_records'::regclass"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 1211,
+    "table": "auth_sessions",
+    "snippet": "`UPDATE auth_sessions SET revoked_at = NOW()"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 4900,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 7680,
+    "table": "payments",
+    "snippet": "FROM payments p"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 7742,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 8085,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 8258,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 8322,
+    "table": "booking_service_records",
+    "snippet": "// Phase 10.6a ΓÇö Staff add service record (booking_service_records INSERT only)"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 8783,
+    "table": "booking_service_records",
+    "snippet": "FROM booking_service_records"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 9844,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 10389,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13537,
+    "table": "booking_service_records",
+    "snippet": "`SELECT COUNT(*)::int AS n FROM booking_service_records"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13615,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13639,
+    "table": "booking_service_records",
+    "snippet": "FROM booking_service_records"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13658,
+    "table": "booking_service_records",
+    "snippet": "`UPDATE booking_service_records"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13748,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13773,
+    "table": "bookings",
+    "snippet": "? `UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 13781,
+    "table": "bookings",
+    "snippet": ": `UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14003,
+    "table": "payments",
+    "snippet": "error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe lin"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14061,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14305,
+    "table": "payments",
+    "snippet": "FROM payments WHERE id = $1`,"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14450,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14547,
+    "table": "payments",
+    "snippet": "//   - Amount from payments.amount_due_cents ΓÇö never from request body."
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14892,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 14975,
+    "table": "payments",
+    "snippet": "`UPDATE payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15371,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15432,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15445,
+    "table": "payments",
+    "snippet": "`SELECT checkout_url, status::text AS payment_status FROM payments WHERE id = $1::uuid`,"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15516,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15813,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 15923,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 17953,
+    "table": "customers",
+    "snippet": "<div class=\"customers-detail-empty\" data-i18n=\"customers.detail.select\">Select a customer to view hi"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 22741,
+    "table": "customers",
+    "snippet": "'<div class=\"customers-card-contact\">' + escHtml(contact.join(' ┬╖ ') || t('customers.contact.unknown"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 24663,
+    "table": "bookings",
+    "snippet": "html += '<button type=\"button\" class=\"pill pill-agent-session-reset\" id=\"btn-agent-session-reset\" ti"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 36469,
+    "table": "bookings",
+    "snippet": "`UPDATE bookings"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 36725,
+    "table": "bookings",
+    "snippet": "FROM bookings b"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 36728,
+    "table": "payments",
+    "snippet": "FROM payments"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 36735,
+    "table": "booking_service_records",
+    "snippet": "FROM booking_service_records"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 36754,
+    "table": "payments",
+    "snippet": "FROM payments p"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 38322,
+    "table": "bookings",
+    "snippet": "`^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 38689,
+    "table": "payments",
+    "snippet": "// Payments aggregate ΓÇö paid truth from paid payment rows only (10.6b)"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 39122,
+    "table": "bookings",
+    "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed ΓÇö use POST or DELETE for "
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 39152,
+    "table": "payments",
+    "snippet": "// ΓöÇΓöÇ Phase 10.6b ΓÇö Record cash payment (payments INSERT only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 39661,
+    "table": "bookings",
+    "snippet": "if (pathname === '/staff/bot/bookings/update-contact') {"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 39664,
+    "table": "bookings",
+    "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed ΓÇö use POST for bot/bookin"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40323,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only pre"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40324,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move t"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40325,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40326,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-chan"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40327,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edi"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40328,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c conta"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40329,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel rese"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40330,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40331,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove o"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40332,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record ca"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40333,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe "
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40334,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking mov"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40335,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL st"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40354,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna c"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40355,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna book"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40367,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot book"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40368,
+    "table": "bookings",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: ca"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40369,
+    "table": "payments",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot ba"
+  },
+  {
+    "rel": "scripts/staff-query-api.js",
+    "line": 40370,
+    "table": "payments",
+    "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Lu"
+  }
+]

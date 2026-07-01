@@ -1,0 +1,745 @@
+{
+  "schema_version": 1,
+  "generated_from": "scripts/fixtures/staff-tenant-scope-debt-hotspots.json",
+  "slice": "multiclient-sql-scope-debt-classification",
+  "summary": {
+    "total": 69,
+    "by_status": {
+      "todo": 35,
+      "ok": 34
+    },
+    "by_risk": {
+      "must_fix_before_live_multiclient": 31,
+      "false_positive": 33,
+      "ok_session_or_indirect_scope": 1,
+      "must_fix_before_shared_staging_router": 4
+    }
+  },
+  "entries": [
+    {
+      "file": "scripts/lib/luna-guest-booking-write-bridge.js",
+      "line": 175,
+      "table": "payments",
+      "snippet": "FROM payments p",
+      "id": "lib-luna-guest-booking-write-bridge-175",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Guest idempotency replay lists payments by booking_id only; multiclient runtime must bind client_id from inbound channel.",
+      "suggested_fix": "Pass resolved client_id from guest channel context and add WHERE p.client_id = $n."
+    },
+    {
+      "file": "scripts/lib/luna-guest-hold-payment-draft-write.js",
+      "line": 152,
+      "table": "payments",
+      "snippet": "FROM payments",
+      "id": "lib-luna-guest-hold-payment-draft-write-152",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment draft lookup by booking_id only; INSERT path sets client_id but SELECT does not filter by tenant.",
+      "suggested_fix": "Add client_id parameter to loadPaymentDraftForBooking and WHERE client_id = $n."
+    },
+    {
+      "file": "scripts/lib/staff-bot-v2-routes.js",
+      "line": 868,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "lib-staff-bot-v2-routes-868",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Bot Stripe checkout path updates payment row by payment id only; bot token is per-deploy today but not client-scoped in SQL.",
+      "suggested_fix": "Resolve bot client_slug to client_id and add WHERE id = $n AND client_id = $m on UPDATE payments."
+    },
+    {
+      "file": "scripts/lib/staff-bot-v2-routes.js",
+      "line": 1236,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "lib-staff-bot-v2-routes-1236",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Bot Stripe checkout path updates payment row by payment id only; bot token is per-deploy today but not client-scoped in SQL.",
+      "suggested_fix": "Resolve bot client_slug to client_id and add WHERE id = $n AND client_id = $m on UPDATE payments."
+    },
+    {
+      "file": "scripts/lib/tenant-services-writes.js",
+      "line": 251,
+      "table": "booking_service_records",
+      "snippet": "`SELECT to_regclass('public.booking_service_records') AS t`,",
+      "id": "lib-tenant-services-writes-251",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Postgres catalog/schema introspection for lazy CHECK migration twin; not tenant data access."
+    },
+    {
+      "file": "scripts/lib/tenant-services-writes.js",
+      "line": 257,
+      "table": "booking_service_records",
+      "snippet": "WHERE c.conrelid = 'booking_service_records'::regclass",
+      "id": "lib-tenant-services-writes-257",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Postgres catalog/schema introspection for lazy CHECK migration twin; not tenant data access."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 1211,
+      "table": "auth_sessions",
+      "snippet": "`UPDATE auth_sessions SET revoked_at = NOW()",
+      "id": "staff-query-api-1211",
+      "status": "ok",
+      "risk": "ok_session_or_indirect_scope",
+      "reason": "Logout revokes the caller session by unique session_token_hash; no cross-tenant row selection."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 4900,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-4900",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 7680,
+      "table": "payments",
+      "snippet": "FROM payments p",
+      "id": "staff-query-api-7680",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 7742,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-7742",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 8085,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-8085",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 8258,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-8258",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 8322,
+      "table": "booking_service_records",
+      "snippet": "// Phase 10.6a ΓÇö Staff add service record (booking_service_records INSERT only)",
+      "id": "staff-query-api-8322",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Comment or user-facing error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 8783,
+      "table": "booking_service_records",
+      "snippet": "FROM booking_service_records",
+      "id": "staff-query-api-8783",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "JOIN bookings b ON b.id = booking_service_records.booking_id AND b.client_id = $session_client_id, or add client_id if column exists."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 9844,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-9844",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 10389,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-10389",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13537,
+      "table": "booking_service_records",
+      "snippet": "`SELECT COUNT(*)::int AS n FROM booking_service_records",
+      "id": "staff-query-api-13537",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "JOIN bookings b ON b.id = booking_service_records.booking_id AND b.client_id = $session_client_id, or add client_id if column exists."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13615,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-13615",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13639,
+      "table": "booking_service_records",
+      "snippet": "FROM booking_service_records",
+      "id": "staff-query-api-13639",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "JOIN bookings b ON b.id = booking_service_records.booking_id AND b.client_id = $session_client_id, or add client_id if column exists."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13658,
+      "table": "booking_service_records",
+      "snippet": "`UPDATE booking_service_records",
+      "id": "staff-query-api-13658",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "JOIN bookings b ON b.id = booking_service_records.booking_id AND b.client_id = $session_client_id, or add client_id if column exists."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13748,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-13748",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13773,
+      "table": "bookings",
+      "snippet": "? `UPDATE bookings",
+      "id": "staff-query-api-13773",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 13781,
+      "table": "bookings",
+      "snippet": ": `UPDATE bookings",
+      "id": "staff-query-api-13781",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14003,
+      "table": "payments",
+      "snippet": "error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe lin",
+      "id": "staff-query-api-14003",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Comment or user-facing error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14061,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-14061",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14305,
+      "table": "payments",
+      "snippet": "FROM payments WHERE id = $1`,",
+      "id": "staff-query-api-14305",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14450,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-14450",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14547,
+      "table": "payments",
+      "snippet": "//   - Amount from payments.amount_due_cents ΓÇö never from request body.",
+      "id": "staff-query-api-14547",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Comment or user-facing error copy; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14892,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-14892",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 14975,
+      "table": "payments",
+      "snippet": "`UPDATE payments",
+      "id": "staff-query-api-14975",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15371,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-15371",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15432,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,",
+      "id": "staff-query-api-15432",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15445,
+      "table": "payments",
+      "snippet": "`SELECT checkout_url, status::text AS payment_status FROM payments WHERE id = $1::uuid`,",
+      "id": "staff-query-api-15445",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Payment row read/update by payment id or booking_id without client_id in this SQL window; Stripe webhook and staff flows assume single-tenant DB isolation today.",
+      "suggested_fix": "JOIN bookings b ON b.id = payments.booking_id AND b.client_id = $session_client_id, or add payments.client_id = $n to WHERE."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15516,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = $1::uuid`,",
+      "id": "staff-query-api-15516",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15813,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-15813",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 15923,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-15923",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 17953,
+      "table": "customers",
+      "snippet": "<div class=\"customers-detail-empty\" data-i18n=\"customers.detail.select\">Select a customer to view hi",
+      "id": "staff-query-api-17953",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Staff portal HTML/i18n template string; not a customers table query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 22741,
+      "table": "customers",
+      "snippet": "'<div class=\"customers-card-contact\">' + escHtml(contact.join(' ┬╖ ') || t('customers.contact.unknown",
+      "id": "staff-query-api-22741",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Staff portal HTML/i18n template string; not a customers table query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 24663,
+      "table": "bookings",
+      "snippet": "html += '<button type=\"button\" class=\"pill pill-agent-session-reset\" id=\"btn-agent-session-reset\" ti",
+      "id": "staff-query-api-24663",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Agent session UI HTML button label; not a bookings query."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 36469,
+      "table": "bookings",
+      "snippet": "`UPDATE bookings",
+      "id": "staff-query-api-36469",
+      "status": "todo",
+      "risk": "must_fix_before_live_multiclient",
+      "reason": "Handler resolves booking_id/payment_id after a client_slug-scoped booking fetch in the same flow; safe on isolated Wolfhouse/Sunset staging DBs but lacks defense-in-depth client_id predicate on this statement.",
+      "suggested_fix": "Add AND client_id = $n (from session or JOIN bookings.client_id) to the WHERE clause on bookings UPDATE/SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 36725,
+      "table": "bookings",
+      "snippet": "FROM bookings b",
+      "id": "staff-query-api-36725",
+      "status": "todo",
+      "risk": "must_fix_before_shared_staging_router",
+      "reason": "BED_CALENDAR_BOOKING_LEDGER_SQL bookings leg loads ledger rows for booking_id batches without an explicit client_id/client_slug predicate on the outer query.",
+      "suggested_fix": "Thread session client_slug into calendar booking-id discovery and add JOIN clients / WHERE b.client_id = $n (or equivalent) on outer SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 36728,
+      "table": "payments",
+      "snippet": "FROM payments",
+      "id": "staff-query-api-36728",
+      "status": "todo",
+      "risk": "must_fix_before_shared_staging_router",
+      "reason": "BED_CALENDAR_BOOKING_LEDGER_SQL payments aggregate loads ledger rows for booking_id batches without an explicit client_id/client_slug predicate on the outer query.",
+      "suggested_fix": "Thread session client_slug into calendar booking-id discovery and add JOIN clients / WHERE b.client_id = $n (or equivalent) on outer SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 36735,
+      "table": "booking_service_records",
+      "snippet": "FROM booking_service_records",
+      "id": "staff-query-api-36735",
+      "status": "todo",
+      "risk": "must_fix_before_shared_staging_router",
+      "reason": "BED_CALENDAR_BOOKING_LEDGER_SQL booking_service_records aggregate loads ledger rows for booking_id batches without an explicit client_id/client_slug predicate on the outer query.",
+      "suggested_fix": "Thread session client_slug into calendar booking-id discovery and add JOIN clients / WHERE b.client_id = $n (or equivalent) on outer SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 36754,
+      "table": "payments",
+      "snippet": "FROM payments p",
+      "id": "staff-query-api-36754",
+      "status": "todo",
+      "risk": "must_fix_before_shared_staging_router",
+      "reason": "BED_CALENDAR_UNPAID_LINK_SQL payments leg loads ledger rows for booking_id batches without an explicit client_id/client_slug predicate on the outer query.",
+      "suggested_fix": "Thread session client_slug into calendar booking-id discovery and add JOIN clients / WHERE b.client_id = $n (or equivalent) on outer SELECT."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 38322,
+      "table": "bookings",
+      "snippet": "`^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',",
+      "id": "staff-query-api-38322",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Express route path regex; not SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 38689,
+      "table": "payments",
+      "snippet": "// Payments aggregate ΓÇö paid truth from paid payment rows only (10.6b)",
+      "id": "staff-query-api-38689",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or phase comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39122,
+      "table": "bookings",
+      "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed ΓÇö use POST or DELETE for ",
+      "id": "staff-query-api-39122",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or phase comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39152,
+      "table": "payments",
+      "snippet": "// ΓöÇΓöÇ Phase 10.6b ΓÇö Record cash payment (payments INSERT only) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ",
+      "id": "staff-query-api-39152",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or phase comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39661,
+      "table": "bookings",
+      "snippet": "if (pathname === '/staff/bot/bookings/update-contact') {",
+      "id": "staff-query-api-39661",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or phase comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 39664,
+      "table": "bookings",
+      "snippet": "return res.end(JSON.stringify({ success: false, error: 'Method not allowed ΓÇö use POST for bot/bookin",
+      "id": "staff-query-api-39664",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Route handler string or phase comment; not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40323,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/preview   <- 8.3h read-only pre",
+      "id": "staff-query-api-40323",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40324,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-targets         <- 10.3h.4 move t",
+      "id": "staff-query-api-40324",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40325,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move-preview      <- 10.2 booking move",
+      "id": "staff-query-api-40325",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40326,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/date-change-preview <- 10.4b date-chan",
+      "id": "staff-query-api-40326",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40327,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit-preview      <- 10.4f booking edi",
+      "id": "staff-query-api-40327",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40328,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/edit              <- 10.5b/10.5c conta",
+      "id": "staff-query-api-40328",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40329,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/cancel            <- 10.5f cancel rese",
+      "id": "staff-query-api-40329",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40330,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/add-service        <- 10.6a staff add-",
+      "id": "staff-query-api-40330",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40331,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/remove-service     <- 10.6a.2 remove o",
+      "id": "staff-query-api-40331",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40332,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/record-cash-payment <- 10.6b record ca",
+      "id": "staff-query-api-40332",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40333,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/generate-payment-link <- 10.6c Stripe ",
+      "id": "staff-query-api-40333",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40334,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bookings/move              <- 10.3b booking mov",
+      "id": "staff-query-api-40334",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40335,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/manual-bookings/create    <- 8.4 PROVISIONAL st",
+      "id": "staff-query-api-40335",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40354,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/confirmation-preview <- 14b Luna c",
+      "id": "staff-query-api-40354",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40355,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/send-confirmation <- 20j Luna book",
+      "id": "staff-query-api-40355",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40367,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/create      <- 8.5.4 Luna bot book",
+      "id": "staff-query-api-40367",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40368,
+      "table": "bookings",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/bookings/cancel      <- golden teardown: ca",
+      "id": "staff-query-api-40368",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40369,
+      "table": "payments",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/create-balance-link <- Luna bot ba",
+      "id": "staff-query-api-40369",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    },
+    {
+      "file": "scripts/staff-query-api.js",
+      "line": 40370,
+      "table": "payments",
+      "snippet": "console.log(`    POST http://127.0.0.1:${PORT}/staff/bot/payments/:id/create-stripe-link <- 8.5.5 Lu",
+      "id": "staff-query-api-40370",
+      "status": "ok",
+      "risk": "false_positive",
+      "reason": "Startup route listing log line; table name appears in URL string only, not executable SQL."
+    }
+  ]
+}
