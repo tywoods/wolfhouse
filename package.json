@@ -284,6 +284,7 @@
     "verify:owner-insight-agent": "node scripts/verify-owner-insight-agent.js",
     "verify:owner-insight-agent-live": "node scripts/verify-owner-insight-agent-live.js",
     "eval:owner-insight-live": "node scripts/eval-owner-insight-live.js",
+    "verify:multiclient": "node scripts/verify-multiclient-isolation.js && node scripts/verify-no-client-hardcoding.js",
     "verify:portal-tenant-isolation": "node scripts/verify-portal-tenant-isolation.js",
     "verify:sunset-all": "node scripts/verify-sunset-all.js",
     "luna:nightly": "node scripts/run-luna-nightly-suite.js",

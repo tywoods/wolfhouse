@@ -36,6 +36,17 @@
           "display_name": "Mirleft"
         }
       ]
+    },
+    {
+      "client_slug": "lawave",
+      "display_name": "La Wave",
+      "live_enabled": false,
+      "locations": [
+        {
+          "location_id": "lawave-main",
+          "display_name": "La Wave"
+        }
+      ]
     }
   ]
 }
