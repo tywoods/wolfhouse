@@ -258,6 +258,7 @@
     "test:luna-conversations": "node scripts/run-luna-conversation-state-machine-tests.js",
     "verify:luna-golden": "node scripts/verify-luna-golden.js",
     "verify:guest-addon-pricing": "node scripts/verify-guest-addon-pricing.js",
+    "verify:guest-room-type-supplement": "node scripts/verify-guest-room-type-supplement.js",
     "verify:short-stay-booking-create": "node scripts/verify-short-stay-booking-create.js",
     "verify:guest-agent-session-reset": "node scripts/verify-guest-agent-session-reset.js",
     "verify:luna-coach": "node scripts/verify-luna-coach.js",

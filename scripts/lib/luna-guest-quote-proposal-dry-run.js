@@ -24,6 +24,23 @@ const {
 const { isShortStayAccommodationQuote } = require('./wolfhouse-short-stay-pricing');
 const { normalizeAddOnsForQuote } = require('./luna-booking-addons-policy');
 const { quoteNeedsPaymentChoice } = require('./luna-quote-payment-choice');
+const { extractRoomType } = require('./luna-guest-message-intake');
+
+/**
+ * Resolve the priced room_type for a quote. The planner captures the guest's
+ * choice as room_preference (free text: 'private', 'couple_private', 'shared',
+ * 'girls', 'mixed', …); the quote engine keys supplements off room_type
+ * (shared | double | private). Gender-only prefs stay shared-priced.
+ */
+function resolveQuoteRoomType(extracted, ctx) {
+  const explicit = String((extracted && extracted.room_type) || (ctx && ctx.room_type) || '').trim();
+  if (explicit) return explicit;
+  // room_preference tokens are often snake/kebab-cased ('couple_private'); split
+  // on _/- so the word-boundary matcher can see 'private'/'double'.
+  const pref = String((extracted && extracted.room_preference) || '').replace(/[_-]+/g, ' ');
+  const fromPref = extractRoomType(pref);
+  return fromPref || 'shared';
+}
 
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
@@ -135,7 +152,7 @@ function mapRouterToQuoteFields(routerResult, context) {
     check_out: extracted.check_out || null,
     guest_count: extracted.guest_count != null ? Number(extracted.guest_count) : null,
     package_code: mapPackageInterest(extracted.package_interest),
-    room_type: String(extracted.room_type || ctx.room_type || 'shared').trim(),
+    room_type: resolveQuoteRoomType(extracted, ctx),
     payment_choice: 'deposit',
     add_ons: normalizeAddOns(extracted.service_interest, nights),
     transfer_interest: extracted.transfer_interest || null,
