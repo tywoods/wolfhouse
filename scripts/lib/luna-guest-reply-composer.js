@@ -20,6 +20,7 @@ const {
 } = require('./luna-guest-package-explainer');
 const {
   detectServiceSideQuestionIntent,
+  detectLessonQualifier,
   detectTransferSideQuestionIntent,
   buildServiceSideQuestionReply,
   buildTransferSideQuestionReply,
@@ -414,15 +415,21 @@ function buildExplainPackagesReply(lang, pkgIntent, fields) {
   return tail ? `${body}\n\n${tail}` : body;
 }
 
-function buildComposerServiceReply(lang, intent, fields, quote) {
+function buildComposerServiceReply(lang, intent, fields, quote, messageText) {
   if (intent === 'yoga' || intent === 'meals') {
     const reactive = buildReactiveServiceComposerReply(lang, intent, fields, quote);
     if (reactive) return reactive;
   }
-  const raw = buildServiceSideQuestionReply(lang, intent, '');
+  const msg = trimStr(messageText);
+  const raw = buildServiceSideQuestionReply(lang, intent, msg);
   const facts = stripLegacyActionDisclaimers(raw);
-  const tail = buildMidFlowAddonsReturnTail(fields, lang, quote);
   if (!facts) return null;
+  // Bare "lesson" already ends in its own private-or-group question — don't stack the
+  // add-ons return tail on top of it (one clear question per message, spec §1.4).
+  if (intent === 'surf_lessons' && detectLessonQualifier(msg) === null) {
+    return facts;
+  }
+  const tail = buildMidFlowAddonsReturnTail(fields, lang, quote);
   return tail ? `${facts} ${tail}` : facts;
 }
 
@@ -1215,7 +1222,7 @@ function buildReplyForState(state, ctx) {
     case 'explain_packages':
       return buildExplainPackagesReply(lang, pkgIntent, fields);
     case 'explain_service_addon':
-      return buildComposerServiceReply(lang, ctx.serviceIntent, fields, quote);
+      return buildComposerServiceReply(lang, ctx.serviceIntent, fields, quote, messageText);
     case 'explain_transfer':
       return buildComposerTransferReply(lang, messageText, fields, pc);
     case 'explain_house_knowledge': {

@@ -175,9 +175,9 @@ function buildServiceConfirmationLine(service, lang, fields) {
 
   if (code === 'surf_lesson') {
     if (L === 'de') {
-      return 'Yesss — die Surf-Stunde ist für dich notiert 🙌 Wir bestätigen die genaue Gruppe näher am Tag.';
+      return 'Yesss — der Gruppenkurs ist für dich notiert 🙌 Wir bestätigen die genaue Gruppe näher am Tag.';
     }
-    return 'Yesss — I\'ve added the surf lesson for you 🙌 We\'ll confirm the exact lesson group closer to the day.';
+    return 'Yesss — I\'ve added the group lesson for you 🙌 We\'ll confirm the exact lesson group closer to the day.';
   }
 
   if (code === 'yoga') {

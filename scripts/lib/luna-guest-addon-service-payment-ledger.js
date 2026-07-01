@@ -15,7 +15,7 @@ const LEDGER_STAGE = '38b_guest_addon_service_ledger';
 const SERVICE_TYPE_LABELS = Object.freeze({
   wetsuit: 'Wetsuit rental',
   surfboard: 'Surfboard rental',
-  surf_lesson: 'Surf lesson',
+  surf_lesson: 'Group lesson',
   yoga: 'Yoga',
   meal: 'Dinner',
 });

@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 
 const { detectPaymentChoiceFromMessage } = require('./luna-guest-payment-choice-dry-run');
+const { detectLessonQualifier } = require('./luna-guest-service-transfer-explainer');
 
 const { computeStayNights, formatStayRange, formatGuestPhrase } = require('./wolfhouse-package-night-rules');
 
@@ -80,6 +81,13 @@ function extractAddOnSelectionsRaw(messageText) {
   }
   if (/\b(?:board\s+rental|rent(?:al)?\s+board)\b/i.test(text)) {
     found.add('surfboard');
+  }
+
+  // Private/group lesson split: only a GROUP-qualified lesson is the €35 System A add-on.
+  // Private → catalog "Private Lesson" card; bare "lesson" → Luna asks private-or-group.
+  // Either way it's not an auto-selected surf_lesson here (see explain_service_addon path).
+  if (found.has('surf_lesson') && detectLessonQualifier(text) !== 'group') {
+    found.delete('surf_lesson');
   }
 
   return [...found].filter((code) => IN_SCOPE_ADDONS.has(code));

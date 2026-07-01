@@ -1,0 +1,12 @@
+{
+  "id": "golden-17-group-lesson-relabeled",
+  "label": "Group lesson request → System A group lesson (€35), relabeled",
+  "spec_refs": ["7.1"],
+  "contact_name": "Casey",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "July 5 to 10 for 3 guests", "expect": { "expected_dates": { "check_in": "2026-07-05", "check_out": "2026-07-10" }, "expected_guest_count": 3, "no_internal_language": true } },
+    { "message": "can we add a group lesson?", "expect": { "reply_contains": ["group lesson"], "reply_not_contains": ["surf lesson"], "expected_no_handoff": true, "no_internal_language": true, "allow_partial": true } }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

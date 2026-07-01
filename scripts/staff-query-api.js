@@ -28917,7 +28917,7 @@ function bcAddonServiceTypeStaffLabel(serviceType, meta){
     return ui.charAt(0).toUpperCase() + ui.slice(1);
   }
   var t = String(serviceType || '').toLowerCase();
-  var labels = { wetsuit: 'Wetsuit rental', surfboard: 'Surfboard rental', surf_lesson: 'Surf lesson', yoga: 'Yoga', meal: 'Dinner' };
+  var labels = { wetsuit: 'Wetsuit rental', surfboard: 'Surfboard rental', surf_lesson: 'Group lesson', yoga: 'Yoga', meal: 'Dinner' };
   if (t === 'meal' && meta.meal_type === 'dinner') return 'Dinner';
   return labels[t] || t.replace(/_/g, ' ');
 }

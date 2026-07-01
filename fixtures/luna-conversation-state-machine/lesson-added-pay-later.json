@@ -1,6 +1,6 @@
 {
   "id": "lesson-added-pay-later",
-  "label": "Surf lesson added with optional checkout payment",
+  "label": "Bare lesson asks private-or-group; group lesson then added with optional checkout payment",
   "contact_name": "Marco",
   "reference_date": "2026-06-10",
   "hygiene_window": {
@@ -18,10 +18,20 @@
     {
       "message": "one surf lesson please",
       "expect": {
+        "expected_composer_state": "explain_service_addon",
+        "expected_no_handoff": true,
+        "expected_reply_source": "luna_reply_composer",
+        "reply_contains": ["private", "group"],
+        "reply_not_contains": ["already paid", "payment received", "08:30", "exact lesson group at"]
+      }
+    },
+    {
+      "message": "a group lesson please",
+      "expect": {
         "expected_composer_state": "ask_payment_choice",
         "expected_no_handoff": true,
         "expected_reply_source": "luna_reply_composer",
-        "reply_contains": ["lesson", "checkout", "deposit"],
+        "reply_contains": ["group lesson", "checkout", "deposit"],
         "reply_not_contains": ["already paid", "payment received", "08:30", "exact lesson group at"]
       }
     }

@@ -232,7 +232,7 @@
     },
     "surf_lesson_single": {
       "code": "surf_lesson_single",
-      "name": "Surf lesson (single)",
+      "name": "Group lesson (single)",
       "pricing_unit": "per_lesson",
       "applies_when": "lesson_count == 1",
       "price_cents": 3500,
@@ -241,7 +241,7 @@
     },
     "surf_lesson_multi": {
       "code": "surf_lesson_multi",
-      "name": "Surf lesson (2+ bundle rate)",
+      "name": "Group lesson (2+ bundle rate)",
       "pricing_unit": "per_lesson",
       "applies_when": "lesson_count >= 2",
       "price_cents_each": 3000,

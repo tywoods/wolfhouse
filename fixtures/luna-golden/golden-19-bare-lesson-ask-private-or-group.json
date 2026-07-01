@@ -1,0 +1,12 @@
+{
+  "id": "golden-19-bare-lesson-ask-private-or-group",
+  "label": "Bare lesson request → Luna asks private or group, adds nothing yet",
+  "spec_refs": ["1.4", "7.1"],
+  "contact_name": "Casey",
+  "reference_date": "2026-06-10",
+  "turns": [
+    { "message": "July 5 to 10 for 3 guests", "expect": { "expected_dates": { "check_in": "2026-07-05", "check_out": "2026-07-10" }, "expected_guest_count": 3, "no_internal_language": true } },
+    { "message": "can we add a lesson?", "expect": { "reply_contains": ["private", "group"], "reply_not_contains": ["€35"], "expected_no_handoff": true, "no_internal_language": true, "allow_partial": true } }
+  ],
+  "final_expect": { "no_handoff": true, "no_internal_language": true }
+}

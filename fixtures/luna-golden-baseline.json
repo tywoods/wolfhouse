@@ -18,7 +18,10 @@
     "golden-13-greeting-welcome": "PASS",
     "golden-14-post-booking-yoga-each": "PASS",
     "golden-15-transfer-both-directions": "PASS",
-    "golden-16-addon-no-false-link-error": "PASS"
+    "golden-16-addon-no-false-link-error": "PASS",
+    "golden-17-group-lesson-relabeled": "PASS",
+    "golden-18-private-lesson-catalog": "PASS",
+    "golden-19-bare-lesson-ask-private-or-group": "PASS"
   },
-  "recorded_at": "2026-06-15T11:02:17.895Z"
+  "recorded_at": "2026-07-01T13:15:28.346Z"
 }

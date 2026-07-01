@@ -10,11 +10,33 @@ function normalizeLang(lang) {
   return ['en', 'it', 'es', 'de', 'fr'].includes(l) ? l : 'en';
 }
 
+/**
+ * Private vs group lesson qualifier. Private → System B catalog "Private Lesson" card;
+ * group (or no qualifier once split) → System A group add-on. Bare "lesson" is handled by
+ * the caller (ask private-or-group). See docs/LUNA-GUEST-BEHAVIOR-SPEC.md §7.
+ */
+const LESSON_PRIVATE_RE = /\b(?:private|privad[ao]|priv[ée]e?|privat[ao]?|1[\s-]?on[\s-]?1|one[\s-]?on[\s-]?one|1\s*:\s*1|individual)(?![a-z])/i;
+const LESSON_GROUP_RE = /\b(?:group|grupo|gruppo|groupe|gruppe)(?![a-z])/i;
+
+/** @returns {'private'|'group'|null} */
+function detectLessonQualifier(text) {
+  const t = String(text || '');
+  if (LESSON_PRIVATE_RE.test(t)) return 'private';
+  if (LESSON_GROUP_RE.test(t)) return 'group';
+  return null;
+}
+
+/** Any lesson word — surf lesson, bare "lesson", private/group lesson, multilingual. */
+function isLessonInquiry(text) {
+  const t = String(text || '');
+  return /\b(?:surf\s+lesson|surf\s+lessons|surf\s+school|lesson|lessons|lezione|lezioni|clase(?:s)?(?:\s+[\wàáéíóúñ]+)?\s+de\s+surf|clase(?:s)?\b|cours(?:\s+[\wàâéèêëïîôûüç]+)?\s+de\s+surf|surfschule|surfstunde|surfunterricht|surfkurs(?:e|en)?)\b/i.test(t);
+}
+
 function detectServiceSideQuestionIntent(text) {
   const t = String(text || '');
   if (!t.trim()) return null;
 
-  if (/\b(?:surf\s+lesson|surf\s+lessons|surf\s+school|lezione(?:\s+di\s+surf)?|lezioni(?:\s+di\s+surf)?|clase(?:s)?\s+de\s+surf|cours\s+de\s+surf|surfschule|surfunterricht)\b/i.test(t)) {
+  if (isLessonInquiry(t)) {
     return 'surf_lessons';
   }
   if (/\b(?:meal|meals|dinner|dinners|breakfast|lunch|food|cena|comida|repas)\b/i.test(t)) return 'meals';
@@ -76,11 +98,44 @@ function isPackageBooking(packageInterest) {
 function buildSurfLessonsReply(lang) {
   const L = normalizeLang(lang);
   const map = {
-    en: 'Yes — we can add surf lessons to your stay 😊 One lesson is €35, or €30 each if you book more than one. I am not adding services to your booking yet.',
-    it: 'Sì — possiamo aggiungere lezioni di surf 😊 Una lezione €35, o €30 ciascuna se ne prenoti più di una. Non sto ancora aggiungendo servizi alla prenotazione.',
-    es: 'Sí — podemos añadir clases de surf 😊 Una clase €35, o €30 cada una si reservas más de una. Aún no añado servicios a tu reserva.',
-    de: 'Ja — wir können Surfkurse hinzufügen 😊 Ein Kurs €35, oder €30 pro Stück bei mehr als einem. Ich buche noch keine Services in deine Buchung ein.',
-    fr: 'Oui — on peut ajouter des cours de surf 😊 Un cours €35, ou €30 chacun si vous en réservez plusieurs. Je n’ajoute pas encore de services à la réservation.',
+    en: 'Yes — we can add group lessons to your stay 😊 One group lesson is €35, or €30 each if you book more than one. I am not adding services to your booking yet.',
+    it: 'Sì — possiamo aggiungere lezioni di gruppo 😊 Una lezione di gruppo €35, o €30 ciascuna se ne prenoti più di una. Non sto ancora aggiungendo servizi alla prenotazione.',
+    es: 'Sí — podemos añadir clases de grupo 😊 Una clase de grupo €35, o €30 cada una si reservas más de una. Aún no añado servicios a tu reserva.',
+    de: 'Ja — wir können Gruppenkurse hinzufügen 😊 Ein Gruppenkurs €35, oder €30 pro Stück bei mehr als einem. Ich buche noch keine Services in deine Buchung ein.',
+    fr: 'Oui — on peut ajouter des cours en groupe 😊 Un cours en groupe €35, ou €30 chacun si vous en réservez plusieurs. Je n’ajoute pas encore de services à la réservation.',
+  };
+  return map[L] || map.en;
+}
+
+/**
+ * Bare "lesson" (no private/group qualifier) — ask which one, add nothing yet.
+ * One clear question per WhatsApp message (spec §1.4).
+ */
+function buildLessonClarifyReply(lang) {
+  const L = normalizeLang(lang);
+  const map = {
+    en: 'Love that you want to get in the water 🌊 Would you like a private lesson (just you/your group with an instructor) or a group lesson? I am not adding anything to your booking yet.',
+    it: 'Che bello che tu voglia entrare in acqua 🌊 Preferisci una lezione privata (solo tu/il tuo gruppo con un istruttore) o una lezione di gruppo? Non aggiungo ancora nulla alla prenotazione.',
+    es: 'Me encanta que quieras meterte al agua 🌊 ¿Prefieres una clase privada (solo tú/tu grupo con un instructor) o una clase de grupo? Aún no añado nada a tu reserva.',
+    de: 'Schön, dass du ins Wasser willst 🌊 Möchtest du lieber einen Privatkurs (nur du/deine Gruppe mit einem Lehrer) oder einen Gruppenkurs? Ich buche noch nichts in deine Buchung ein.',
+    fr: 'Super que tu veuilles aller à l’eau 🌊 Tu préfères un cours privé (juste toi/ton groupe avec un moniteur) ou un cours en groupe ? Je n’ajoute rien à la réservation pour l’instant.',
+  };
+  return map[L] || map.en;
+}
+
+/**
+ * Private lesson request → System B catalog "Private Lesson" card path. The live pipeline
+ * resolves the card's name/price/slots from the DB (handleBotCatalogServiceLookup). This copy
+ * never quotes the €35 group add-on; it hands off to the catalog card.
+ */
+function buildPrivateLessonReply(lang) {
+  const L = normalizeLang(lang);
+  const map = {
+    en: 'Yes — we offer private lessons, just you (or your group) with your own instructor. Let me pull up the private lesson details for you. I am not adding anything to your booking yet.',
+    it: 'Sì — offriamo lezioni private, solo tu (o il tuo gruppo) con il tuo istruttore. Ti recupero i dettagli della lezione privata. Non aggiungo ancora nulla alla prenotazione.',
+    es: 'Sí — ofrecemos clases privadas, solo tú (o tu grupo) con tu propio instructor. Te busco los detalles de la clase privada. Aún no añado nada a tu reserva.',
+    de: 'Ja — wir bieten Privatkurse an, nur du (oder deine Gruppe) mit deinem eigenen Lehrer. Ich hole dir die Details zum Privatkurs. Ich buche noch nichts in deine Buchung ein.',
+    fr: 'Oui — on propose des cours privés, juste toi (ou ton groupe) avec ton propre moniteur. Je te récupère les détails du cours privé. Je n’ajoute rien à la réservation pour l’instant.',
   };
   return map[L] || map.en;
 }
@@ -124,11 +179,11 @@ function buildWetsuitReply(lang) {
 function buildServicesGeneralReply(lang) {
   const L = normalizeLang(lang);
   const map = {
-    en: 'We can add extras like surf lessons (€35 one / €30 each for more), wetsuit €5/day, boards from €15–20/day, and yoga €15/class on site. I am not adding anything to your booking yet.',
-    it: 'Possiamo aggiungere extra come lezioni surf (€35 una / €30 cad.), muta €5/giorno, tavole da €15–20/giorno e yoga €15/lezione in loco. Non aggiungo ancora nulla alla prenotazione.',
-    es: 'Podemos añadir extras como clases de surf (€35 una / €30 c/u), neopreno €5/día, tablas €15–20/día y yoga €15/clase en el sitio. Aún no añado nada a tu reserva.',
-    de: 'Extras wie Surfkurse (€35 einzeln / €30 pro Stück), Neopren €5/Tag, Boards €15–20/Tag und Yoga €15/Klasse vor Ort sind möglich. Ich buche noch nichts in deine Buchung ein.',
-    fr: 'On peut ajouter des extras : cours de surf (35 € / 30 € chacun), combinaison 5 €/jour, planches 15–20 €/jour, yoga 15 €/cours sur place. Je n’ajoute rien à la réservation pour l’instant.',
+    en: 'We can add extras like group lessons (€35 one / €30 each for more), wetsuit €5/day, boards from €15–20/day, and yoga €15/class on site. I am not adding anything to your booking yet.',
+    it: 'Possiamo aggiungere extra come lezioni di gruppo (€35 una / €30 cad.), muta €5/giorno, tavole da €15–20/giorno e yoga €15/lezione in loco. Non aggiungo ancora nulla alla prenotazione.',
+    es: 'Podemos añadir extras como clases de grupo (€35 una / €30 c/u), neopreno €5/día, tablas €15–20/día y yoga €15/clase en el sitio. Aún no añado nada a tu reserva.',
+    de: 'Extras wie Gruppenkurse (€35 einzeln / €30 pro Stück), Neopren €5/Tag, Boards €15–20/Tag und Yoga €15/Klasse vor Ort sind möglich. Ich buche noch nichts in deine Buchung ein.',
+    fr: 'On peut ajouter des extras : cours en groupe (35 € / 30 € chacun), combinaison 5 €/jour, planches 15–20 €/jour, yoga 15 €/cours sur place. Je n’ajoute rien à la réservation pour l’instant.',
   };
   return map[L] || map.en;
 }
@@ -136,8 +191,13 @@ function buildServicesGeneralReply(lang) {
 function buildServiceSideQuestionReply(lang, intent, messageText) {
   const kind = intent || detectServiceSideQuestionIntent(messageText) || 'services_general';
   switch (kind) {
-    case 'surf_lessons':
-      return buildSurfLessonsReply(lang);
+    case 'surf_lessons': {
+      const qualifier = detectLessonQualifier(messageText);
+      if (qualifier === 'private') return buildPrivateLessonReply(lang);
+      if (qualifier === 'group') return buildSurfLessonsReply(lang);
+      // Bare "lesson" with no qualifier → ask private-or-group, add nothing.
+      return buildLessonClarifyReply(lang);
+    }
     case 'yoga':
       return buildYogaReply(lang);
     case 'meals':
@@ -262,9 +322,14 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
 
 module.exports = {
   detectServiceSideQuestionIntent,
+  detectLessonQualifier,
+  isLessonInquiry,
   detectTransferSideQuestionIntent,
   isPaymentMethodTransferQuestion,
   buildServiceSideQuestionReply,
+  buildSurfLessonsReply,
+  buildPrivateLessonReply,
+  buildLessonClarifyReply,
   buildTransferSideQuestionReply,
   isPackageBooking,
 };
