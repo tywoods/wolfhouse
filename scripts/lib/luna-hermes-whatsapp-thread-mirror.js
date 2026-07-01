@@ -13,6 +13,11 @@ const {
   mergeSunsetInboundLocationMetadata,
   extractSunsetChannelHintsFromNormalized,
 } = require('./sunset-inbox-channel-config');
+const {
+  maybeNotifyNewConversation,
+  maybeNotifyHumanNeeded,
+  extractLocationFromMetadata,
+} = require('./staff-whatsapp-notifications');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -103,6 +108,11 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
     }),
     clientSlug,
   );
+  const existing = await pg.query(
+    `SELECT id::text AS conversation_id FROM conversations WHERE client_id = $1 AND phone = $2 LIMIT 1`,
+    [clientId, phone],
+  );
+  const created = existing.rows.length === 0;
   const ins = await pg.query(
     `INSERT INTO conversations (
        client_id, phone, status, bot_mode, conversation_stage, metadata, last_message_preview
@@ -117,12 +127,23 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
      RETURNING id::text AS conversation_id`,
     [clientId, phone, JSON.stringify(metadata), preview.slice(0, 500)],
   );
-  return ins.rows[0] && ins.rows[0].conversation_id;
+  const conversationId = ins.rows[0] && ins.rows[0].conversation_id;
+  if (!conversationId) return null;
+  return {
+    conversation_id: conversationId,
+    created,
+    metadata,
+    guest_phone: phone,
+    guest_name: trimStr(contactName) || null,
+    location_id: extractLocationFromMetadata(metadata),
+  };
 }
 
-async function mirrorHermesWhatsAppThreadMessage(pg, input) {
+async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
   const i = input || {};
-  const conversationId = await ensureConversationForGuestPhone(
+  const env = (opts && opts.env) || process.env;
+  const notifyContext = (opts && opts.notify_context) || {};
+  const ensured = await ensureConversationForGuestPhone(
     pg,
     i.client_slug,
     i.guest_phone,
@@ -133,9 +154,10 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input) {
       phone_number_id: i.phone_number_id,
     },
   );
-  if (!conversationId) {
+  if (!ensured || !ensured.conversation_id) {
     return { ok: false, persisted: false, reason: 'conversation_not_found' };
   }
+  const conversationId = ensured.conversation_id;
 
   const base = {
     client_slug: i.client_slug,
@@ -145,9 +167,25 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input) {
     idempotency_key: i.idempotency_key,
   };
 
+  let staff_notification = null;
+
   if (i.direction === 'inbound') {
     const thread = await persistHermesLunaInboundThreadMessage(pg, base);
-    return { ok: true, conversation_id: conversationId, direction: 'inbound', thread };
+    staff_notification = await maybeNotifyNewConversation(pg, env, {
+      created: ensured.created === true,
+      client_slug: i.client_slug,
+      location_id: ensured.location_id,
+      conversation_id: conversationId,
+      guest_phone: ensured.guest_phone,
+      guest_name: ensured.guest_name,
+    }, notifyContext);
+    return {
+      ok: true,
+      conversation_id: conversationId,
+      direction: 'inbound',
+      thread,
+      staff_notification,
+    };
   }
 
   const thread = await persistHermesLunaOutboundThreadMessage(pg, base, {
@@ -155,16 +193,41 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input) {
   });
   if (i.needs_human === true) {
     const reason = trimStr(i.handoff_reason) || 'luna_team_review_reply';
+    const handoffAt = new Date().toISOString();
+    const prior = await pg.query(
+      `SELECT needs_human FROM conversations WHERE id = $1::uuid LIMIT 1`,
+      [conversationId],
+    );
+    const wasNeedsHuman = prior.rows[0] && prior.rows[0].needs_human === true;
     await pg.query(
       `UPDATE conversations
           SET needs_human = TRUE,
-              metadata = COALESCE(metadata, '{}'::jsonb) || jsonb_build_object('needs_human_reason', $2::text),
+              metadata = COALESCE(metadata, '{}'::jsonb)
+                || jsonb_build_object('needs_human_reason', $2::text, 'luna_handoff_at', to_jsonb($3::text)),
               updated_at = NOW()
         WHERE id = $1`,
-      [conversationId, reason],
+      [conversationId, reason, handoffAt],
     );
+    if (!wasNeedsHuman) {
+      staff_notification = await maybeNotifyHumanNeeded(pg, env, {
+        transitioned: true,
+        handoff_event_key: handoffAt,
+        client_slug: i.client_slug,
+        location_id: ensured.location_id,
+        conversation_id: conversationId,
+        guest_phone: ensured.guest_phone,
+        guest_name: ensured.guest_name,
+        reason,
+      }, notifyContext);
+    }
   }
-  return { ok: true, conversation_id: conversationId, direction: 'outbound', thread };
+  return {
+    ok: true,
+    conversation_id: conversationId,
+    direction: 'outbound',
+    thread,
+    staff_notification,
+  };
 }
 
 module.exports = {
