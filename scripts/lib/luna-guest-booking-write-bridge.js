@@ -173,9 +173,12 @@ async function lookupIdempotentBookingReplay(input, pg) {
             p.checkout_url,
             p.stripe_checkout_session_id
      FROM payments p
+     INNER JOIN bookings b ON b.id = p.booking_id
+     INNER JOIN clients c ON c.id = b.client_id
      WHERE p.booking_id = $1::uuid
+       AND c.slug = $2
      ORDER BY p.created_at ASC`,
-    [booking.booking_id],
+    [booking.booking_id, clientSlug],
   );
 
   return {

@@ -76,7 +76,7 @@ function classify(hit) {
     };
   }
 
-  if (rel.endsWith('staff-query-api.js') && (line === 17953 || line === 22741)) {
+  if (rel.endsWith('staff-query-api.js') && (line === 17953 || line === 22741 || /data-i18n="customers/.test(snippet) || /customers-card-/.test(snippet))) {
     return {
       ...base,
       id: `${slugFromRel(rel)}-${line}`,
@@ -86,7 +86,7 @@ function classify(hit) {
     };
   }
 
-  if (rel.endsWith('staff-query-api.js') && line === 24663) {
+  if (rel.endsWith('staff-query-api.js') && (line === 24663 || /btn-agent-session-reset/.test(snippet))) {
     return {
       ...base,
       id: `${slugFromRel(rel)}-${line}`,
@@ -103,6 +103,17 @@ function classify(hit) {
       status: 'ok',
       risk: 'false_positive',
       reason: 'Comment or user-facing error copy; not executable SQL.',
+    };
+  }
+
+  if (rel.endsWith('staff-query-api.js') && (/only 'draft' payments can create/.test(snippet)
+    || /Amount from payments\.amount_due_cents/.test(snippet))) {
+    return {
+      ...base,
+      id: `${slugFromRel(rel)}-${line}`,
+      status: 'ok',
+      risk: 'false_positive',
+      reason: 'User-facing error string or comment referencing payments; not executable SQL.',
     };
   }
 

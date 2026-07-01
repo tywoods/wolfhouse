@@ -140,8 +140,8 @@ function syntheticGuestEmailFromPhone(phone) {
   return `open-demo+${digits}@example.test`;
 }
 
-async function loadPaymentDraftForBooking(pg, bookingId) {
-  if (!pg || !bookingId) return null;
+async function loadPaymentDraftForBooking(pg, bookingId, clientId) {
+  if (!pg || !bookingId || !clientId) return null;
   const payRes = await pg.query(
     `SELECT id::text AS payment_draft_id,
             status::text AS status,
@@ -151,10 +151,11 @@ async function loadPaymentDraftForBooking(pg, bookingId) {
             stripe_checkout_session_id
        FROM payments
       WHERE booking_id = $1::uuid
+        AND client_id = $2
         AND status IN ('draft', 'checkout_created', 'pending')
       ORDER BY created_at DESC
       LIMIT 1`,
-    [bookingId],
+    [bookingId, clientId],
   );
   return payRes.rows[0] || null;
 }
@@ -166,7 +167,7 @@ async function ensurePaymentDraftOnBooking(pg, {
   paymentIdemKey,
   idempotencyKey,
 }) {
-  const existing = await loadPaymentDraftForBooking(pg, bookingId);
+  const existing = await loadPaymentDraftForBooking(pg, bookingId, clientId);
   if (existing) return existing;
   const payKind = mapPaymentKind(planner.payment_kind);
   const pmMeta = {
@@ -469,7 +470,7 @@ async function executeHoldPaymentDraftWrite(pg, chainResult, planner, context) {
       && trimStr(reuseHold.check_out).slice(0, 10) === trimStr(fields.check_out).slice(0, 10)
       && Number(reuseHold.guest_count) === Number(fields.guest_count);
     if (reuseHold && reuseHold.booking_id && datesMatch) {
-      let payment = await loadPaymentDraftForBooking(pg, reuseHold.booking_id);
+      let payment = await loadPaymentDraftForBooking(pg, reuseHold.booking_id, clientRes.client_id);
       if (!payment) {
         payment = await ensurePaymentDraftOnBooking(pg, {
           clientId: clientRes.client_id,

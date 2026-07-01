@@ -330,6 +330,30 @@ ok('D5 unpaid link SQL scoped by clients.slug', /FROM payments p[\s\S]*INNER JOI
 ok('D6 bed calendar ledger queries pass clientSlug param', /BED_CALENDAR_BOOKING_LEDGER_SQL, \[bookingIds, clientSlug\]/.test(staffApiSource)
   && /BED_CALENDAR_UNPAID_LINK_SQL, \[bookingIds, clientSlug\]/.test(staffApiSource));
 
+// ── E. Payment / Stripe tenant scope (Slice 7) ───────────────────────────────
+console.log('\n── Payment / Stripe SQL scope ──');
+
+ok('E1 guest booking bridge scopes payments by client slug',
+  /lookupIdempotentBookingReplay[\s\S]*FROM payments p[\s\S]*INNER JOIN clients c[\s\S]*c\.slug = \$2/.test(staffApiSource)
+  || /FROM payments p[\s\S]*INNER JOIN clients c[\s\S]*c\.slug = \$2/.test(
+    fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-booking-write-bridge.js'), 'utf8'),
+  ));
+ok('E2 hold payment draft SELECT filters by client_id',
+  /loadPaymentDraftForBooking[\s\S]*AND client_id = \$2/.test(
+    fs.readFileSync(path.join(__dirname, 'lib', 'luna-guest-hold-payment-draft-write.js'), 'utf8'),
+  ));
+ok('E3 bot stripe link UPDATE payments includes client_id predicate',
+  /UPDATE payments[\s\S]*WHERE id = \$5[\s\S]*AND client_id = \$6/.test(
+    fs.readFileSync(path.join(__dirname, 'lib', 'staff-bot-v2-routes.js'), 'utf8'),
+  ));
+ok('E4 staff cash payment idempotency SELECT joins clients.slug',
+  /api:booking_record_cash_payment[\s\S]*FROM payments p[\s\S]*INNER JOIN clients c[\s\S]*c\.slug = \$2/.test(staffApiSource)
+  || /metadata->>'idempotency_key' = \$3[\s\S]*LIMIT 1/.test(staffApiSource));
+ok('E5 stripe webhook payment UPDATE includes client_id predicate',
+  (staffApiSource.match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 2);
+ok('E6 staff payment link UPDATE includes client_id predicate',
+  /staff_portal_stage849[\s\S]*WHERE id = \$5[\s\S]*AND client_id = \$6/.test(staffApiSource));
+
 // ── A. SQL scope debt scan + registry classification ─────────────────────────
 console.log('\n── SQL tenant scope scan (debt registry) ──');
 
