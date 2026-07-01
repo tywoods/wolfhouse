@@ -170,12 +170,14 @@ function validateScheduleBookingBody(body) {
   };
 }
 
-function generateSunsetManualBookingCode() {
+function generateSunsetManualBookingCode(locationId) {
   const d = new Date();
   const pad = (n) => String(n).padStart(2, '0');
   const stamp = `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`;
   const suffix = crypto.randomBytes(3).toString('hex').toUpperCase();
-  return `SUNSET-MAN-${stamp}-${suffix}`;
+  // Location-prefixed booking codes: El Sardinero -> ELSARDI, Somo (default) -> SUNSET.
+  const prefix = String(locationId || '').trim() === 'sunset-sardinero' ? 'ELSARDI' : 'SUNSET';
+  return `${prefix}-${stamp}-${suffix}`;
 }
 
 function bookingStatusFromPayment(paymentStatus) {
@@ -336,7 +338,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
-  const bookingCode = generateSunsetManualBookingCode();
+  const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
   const componentKeys = componentList(input.components);
   const guestCount = input.components.lesson

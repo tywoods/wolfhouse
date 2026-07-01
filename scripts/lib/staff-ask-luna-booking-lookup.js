@@ -10,7 +10,7 @@
 
 const LOOKUP_KEY = 'bookings.lookup';
 
-const BOOKING_CODE_RE = /\b((?:WH|MB)-[A-Z0-9][A-Z0-9-]*)\b/i;
+const BOOKING_CODE_RE = /\b((?:WH|MB|SUNSET|ELSARDI)-[A-Z0-9][A-Z0-9-]*)\b/i;
 const ROOM_BED_CODE_RE = /^([A-Za-z0-9]+)-([A-Za-z0-9]+)$/;
 
 function askLunaIsoDateUTC(d) {

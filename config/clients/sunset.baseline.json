@@ -506,7 +506,7 @@
   ],
   "portal_demo": {
     "_note": "Staging/demo data only. No real bookings, no real Stripe links. All records scoped to tenant_id=sunset. Remove or gate behind demo_mode=false before go-live.",
-    "demo_mode": true,
+    "demo_mode": false,
     "tenant_id": "sunset",
     "client_slug": "sunset",
     "lesson_slots": [

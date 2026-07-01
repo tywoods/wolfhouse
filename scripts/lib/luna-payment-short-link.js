@@ -14,7 +14,7 @@ const { parseGuestPaymentShortLinkToken } = require('./booking-guests');
 const ROOT = path.join(__dirname, '..', '..');
 const DEFAULT_CLIENT = 'wolfhouse-somo';
 
-const BOOKING_CODE_RE = /^(?:WH-[A-Z0-9]+(?:-[A-Z0-9-]+)?|MB-[A-Z0-9]+-\d{8}-[A-Z0-9]+)$/i;
+const BOOKING_CODE_RE = /^(?:WH-[A-Z0-9]+(?:-[A-Z0-9-]+)?|MB-[A-Z0-9]+-\d{8}-[A-Z0-9]+|(?:SUNSET|ELSARDI)(?:-MAN)?-\d{8}-[A-Z0-9]+)$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const ACTIVE_LINK_STATUSES = new Set(['checkout_created', 'draft', 'pending']);
