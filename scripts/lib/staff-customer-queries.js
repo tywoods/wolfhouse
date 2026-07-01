@@ -69,9 +69,9 @@ function getCustomerListQuery(opts) {
 
   const searchClause = hasSearch
     ? `AND (
-      COALESCE(lc.display_name, '') ILIKE $${searchParam}
-      OR COALESCE(lc.email, '') ILIKE $${searchParam}
-      OR lc.phone ILIKE $${searchParam}
+      COALESCE(lc.display_name, cu.full_name, '') ILIKE $${searchParam}
+      OR COALESCE(lc.email, cu.email, '') ILIKE $${searchParam}
+      OR cu.phone ILIKE $${searchParam}
     )`
     : '';
 
@@ -81,23 +81,18 @@ function getCustomerListQuery(opts) {
     ? `\n    AND COALESCE(b.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}`
     : '';
   const serviceLocClause = locationScoped ? `\n    AND ${sqlLocationMatch('bsr', 'b', locParam)}` : '';
+  const custLocClause = locationScoped
+    ? `\n    AND COALESCE(cu.location_id, '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}`
+    : '';
 
   return `
-WITH phone_universe AS (
-  SELECT DISTINCT conv.phone AS phone
-  FROM conversations conv
-  INNER JOIN clients c ON c.id = conv.client_id
+WITH customer_base AS (
+  SELECT cu.phone, cu.full_name, cu.email, cu.language, cu.notes, cu.location_id
+  FROM customers cu
+  INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1
-    AND conv.phone IS NOT NULL
-    AND TRIM(conv.phone) <> ''${convLocClause}
-  UNION
-  SELECT DISTINCT b.phone AS phone
-  FROM bookings b
-  INNER JOIN clients c ON c.id = b.client_id
-  WHERE c.slug = $1
-    AND b.phone IS NOT NULL
-    AND TRIM(b.phone) <> ''
-    AND b.status NOT IN ('cancelled', 'expired')${bookingLocClause}
+    AND cu.phone IS NOT NULL
+    AND TRIM(cu.phone) <> ''${custLocClause}
 ),
 latest_conv AS (
   SELECT DISTINCT ON (conv.phone)
@@ -161,11 +156,11 @@ last_service AS (
   ORDER BY b.phone, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
 )
 SELECT
-  pu.phone,
+  cu.phone,
   lc.conversation_id,
-  lc.display_name,
-  lc.email,
-  lc.language,
+  COALESCE(lc.display_name, cu.full_name) AS display_name,
+  COALESCE(lc.email, cu.email) AS email,
+  COALESCE(lc.language, cu.language) AS language,
   COALESCE(lc.needs_human, FALSE) AS needs_human,
   lc.conversation_stage,
   lc.last_message_preview,
@@ -179,19 +174,19 @@ SELECT
   ls.service_date AS last_service_date_detail,
   COALESCE(ho.has_open_handoff, FALSE) AS has_open_handoff,
   (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) AS is_booked
-FROM phone_universe pu
-LEFT JOIN latest_conv lc ON lc.phone = pu.phone
-LEFT JOIN booking_agg ba ON ba.phone = pu.phone
-LEFT JOIN service_agg sa ON sa.phone = pu.phone
-LEFT JOIN handoff_open ho ON ho.phone = pu.phone
-LEFT JOIN last_service ls ON ls.phone = pu.phone
+FROM customer_base cu
+LEFT JOIN latest_conv lc ON lc.phone = cu.phone
+LEFT JOIN booking_agg ba ON ba.phone = cu.phone
+LEFT JOIN service_agg sa ON sa.phone = cu.phone
+LEFT JOIN handoff_open ho ON ho.phone = cu.phone
+LEFT JOIN last_service ls ON ls.phone = cu.phone
 WHERE 1=1
 ${searchClause}
 ${filterClause}
 ORDER BY
   (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) DESC,
   lc.last_contact_at DESC NULLS LAST,
-  pu.phone ASC
+  cu.phone ASC
 LIMIT $${limitParam} OFFSET $${offsetParam}
 `;
 }
@@ -202,7 +197,14 @@ LIMIT $${limitParam} OFFSET $${offsetParam}
  */
 function getCustomerContextQuery() {
   return `
-WITH conv AS (
+WITH cust AS (
+  SELECT cu.*
+  FROM customers cu
+  INNER JOIN clients c ON c.id = cu.client_id
+  WHERE c.slug = $1 AND cu.phone = $2
+  LIMIT 1
+),
+conv AS (
   SELECT conv.*
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
@@ -212,18 +214,19 @@ WITH conv AS (
 )
 SELECT
   conv.id::text AS conversation_id,
-  conv.phone,
-  conv.display_name,
-  conv.email,
-  conv.language,
+  cust.phone,
+  COALESCE(conv.display_name, cust.full_name) AS display_name,
+  COALESCE(conv.email, cust.email) AS email,
+  COALESCE(conv.language, cust.language) AS language,
   conv.needs_human,
   conv.conversation_stage,
   conv.last_message_preview,
-  conv.updated_at AS last_contact_at,
+  GREATEST(cust.last_seen, conv.updated_at) AS last_contact_at,
   conv.human_notes,
-  conv.internal_staff_notes,
+  COALESCE(cust.notes, conv.internal_staff_notes) AS internal_staff_notes,
   conv.metadata
-FROM conv
+FROM cust
+LEFT JOIN conv ON TRUE
 `;
 }
 

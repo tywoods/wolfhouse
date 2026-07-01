@@ -48,6 +48,25 @@ async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts 
 
   await pg.query('BEGIN');
   try {
+    // Canonical customer record (source of truth for the Customers list/detail).
+    const custUpd = await pg.query(
+      `UPDATE customers SET
+         full_name = $3, email = $4, notes = $5,
+         phone = $6, updated_at = NOW()
+       WHERE client_id = $1::uuid AND phone = $2`,
+      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.phone],
+    );
+    if (custUpd.rowCount === 0) {
+      await pg.query(
+        `INSERT INTO customers (client_id, phone, full_name, email, notes)
+         VALUES ($1::uuid, $2, $3, $4, $5)
+         ON CONFLICT (client_id, phone) DO UPDATE SET
+           full_name = EXCLUDED.full_name, email = EXCLUDED.email,
+           notes = EXCLUDED.notes, updated_at = NOW()`,
+        [clientId, input.phone, input.display_name, input.email, input.notes || null],
+      );
+    }
+
     const convRes = await pg.query(
       `UPDATE conversations SET
          display_name = $3,
