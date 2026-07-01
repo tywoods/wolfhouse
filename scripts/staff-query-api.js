@@ -16618,6 +16618,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-field{margin-bottom:12px}
 .portal-schedule-create-field label{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
 .portal-schedule-create-field input,.portal-schedule-create-field select,.portal-schedule-create-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.portal-schedule-create-field.svc-check label{display:flex;align-items:center;gap:10px;text-transform:none;font-size:13px;font-weight:600;color:var(--text);margin-bottom:0;cursor:pointer}
+.portal-schedule-create-field.svc-check input[type=checkbox]{width:18px;height:18px;flex:0 0 auto;accent-color:var(--primary);margin:0}
+.svc-weekday-row{display:flex;flex-wrap:wrap;gap:8px}
+.svc-weekday-row label{display:flex;align-items:center;gap:6px;text-transform:none;font-size:13px;font-weight:600;color:var(--text);margin:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer}
+.svc-weekday-row input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--primary);margin:0}
 .portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 .portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(0,1.4fr) repeat(3,minmax(0,0.82fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -17999,14 +18004,15 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="svc-f-name">Name *</label><input type="text" id="svc-f-name" maxlength="120" placeholder="e.g. Breakfast"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-category">Category</label>
       <select id="svc-f-category"><option value="">—</option><option value="experience">Experience</option><option value="meal">Meal</option><option value="transfer">Transfer</option><option value="rental">Rental</option><option value="lesson">Lesson</option><option value="other">Other</option></select></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-start">Start date (required for room block)</label><input type="date" id="svc-f-start"></div>
-    <div class="portal-schedule-create-field"><label for="svc-f-end">End date (required for room block)</label><input type="date" id="svc-f-end"></div>
+    <div class="portal-schedule-create-field" id="svc-f-start-wrap"><label for="svc-f-start">Start date (required for room block)</label><input type="date" id="svc-f-start"></div>
+    <div class="portal-schedule-create-field" id="svc-f-end-wrap"><label for="svc-f-end">End date (required for room block)</label><input type="date" id="svc-f-end"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-price">Price (€, per guest)</label><input type="number" id="svc-f-price" min="0" step="0.01" placeholder="0.00"></div>
     <div class="portal-schedule-create-field"><label for="svc-f-unit">Price unit</label>
-      <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option></select></div>
-    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
+      <select id="svc-f-unit"><option value="per_day">Per day (spreads across every booking night)</option><option value="per_stay">Per stay (one flat charge)</option><option value="per_lesson">Per lesson (one charge)</option></select></div>
+    <div class="portal-schedule-create-field svc-check"><label><input type="checkbox" id="svc-f-luna" checked> Luna can offer this to guests</label></div>
     <div class="portal-schedule-create-field" id="svc-f-slots-wrap" style="display:none"><div style="display:flex;align-items:center;justify-content:space-between;gap:8px"><label>Lesson time slots</label><button type="button" class="btn btn-ghost portal-admin-icon-btn" id="svc-slot-add" aria-label="Add lesson time slot">+</button></div><div id="svc-f-slots-list"></div><p class="portal-admin-muted" style="margin-top:6px;font-size:12px">Private lessons use capacity 1. Luna only offers slots with space left.</p></div>
-    <div class="portal-schedule-create-field"><label><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
+    <div class="portal-schedule-create-field" id="svc-f-weekdays-wrap" style="display:none"><label>Lesson days</label><div id="svc-f-weekdays" class="svc-weekday-row"><label><input type="checkbox" class="svc-weekday" value="1"> Mon</label><label><input type="checkbox" class="svc-weekday" value="2"> Tue</label><label><input type="checkbox" class="svc-weekday" value="3"> Wed</label><label><input type="checkbox" class="svc-weekday" value="4"> Thu</label><label><input type="checkbox" class="svc-weekday" value="5"> Fri</label><label><input type="checkbox" class="svc-weekday" value="6"> Sat</label><label><input type="checkbox" class="svc-weekday" value="0"> Sun</label></div></div>
+    <div class="portal-schedule-create-field svc-check" id="svc-f-block-wrap"><label><input type="checkbox" id="svc-f-block-rooms"> Block out rooms for this camp</label></div>
     <div class="portal-schedule-create-field" id="svc-f-rooms-wrap" style="display:none">
       <label>Rooms to block</label>
       <div id="svc-f-rooms-list" class="portal-admin-room-checklist"><p class="portal-admin-muted">Loading rooms…</p></div>

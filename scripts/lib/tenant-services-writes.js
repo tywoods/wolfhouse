@@ -16,7 +16,7 @@ const SERVICE_CATEGORIES = new Set(['experience', 'meal', 'transfer', 'rental', 
 // Two booking-mappable units only. per_day spreads across every night of the stay;
 // per_stay is one flat charge. Legacy values (per_week/one_off) are tolerated by
 // computeServiceChargeCents (treated as flat) but can no longer be written.
-const PRICE_UNITS = new Set(['per_day', 'per_stay']);
+const PRICE_UNITS = new Set(['per_day', 'per_stay', 'per_lesson']);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const NAME_MAX = 120;
@@ -25,7 +25,7 @@ const KEYWORD_MAX = 60;
 const SERVICE_FIELDS = new Set([
   'name', 'category', 'notes_for_luna', 'keywords', 'start_date', 'end_date',
   'price_cents', 'price_unit', 'per_guest', 'span_booking', 'luna_visible', 'active',
-  'block_rooms_enabled', 'blocked_room_codes', 'schedule_slots',
+  'block_rooms_enabled', 'blocked_room_codes', 'schedule_slots', 'weekdays',
 ]);
 
 
@@ -163,6 +163,17 @@ function validateServiceBody(body, { requireName = false } = {}) {
     if (!slots.ok) return { ok: false, error: slots.error };
     out.schedule_slots = slots.slots;
   }
+  if (body.weekdays != null) {
+    if (!Array.isArray(body.weekdays)) return { ok: false, error: 'weekdays must be array' };
+    const days = [];
+    for (const raw of body.weekdays) {
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0 || n > 6) return { ok: false, error: 'weekdays must be integers 0-6' };
+      if (!days.includes(n)) days.push(n);
+    }
+    days.sort((a, b) => a - b);
+    out.weekdays = days;
+  }
   if (out.block_rooms_enabled && requireName) {
     if (!out.start_date || !out.end_date) return { ok: false, error: 'block_rooms_requires_start_and_end_date' };
     if (!(out.blocked_room_codes || []).length) return { ok: false, error: 'blocked_room_codes required when block_rooms_enabled' };
@@ -211,6 +222,7 @@ async function ensureServicesTable(client) {
       updated_by      UUID
     )`);
   await client.query(`ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS schedule_slots JSONB NOT NULL DEFAULT '[]'::jsonb`);
+  await client.query(`ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS weekdays SMALLINT[] NOT NULL DEFAULT '{}'`);
   await client.query(`CREATE INDEX IF NOT EXISTS idx_tenant_services_client_active
     ON tenant_services (client_slug, active)`);
   await ensureServiceBlockColumns(client);
@@ -293,8 +305,8 @@ async function createService(client, { clientSlug, body, actor }) {
       `INSERT INTO tenant_services
          (tenant_id, client_slug, name, category, notes_for_luna, keywords,
           start_date, end_date, price_cents, price_unit, per_guest, span_booking,
-          luna_visible, active, block_rooms_enabled, blocked_room_codes, schedule_slots, updated_by)
-       VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17::uuid)
+          luna_visible, active, block_rooms_enabled, blocked_room_codes, schedule_slots, weekdays, updated_by)
+       VALUES ('wolfhouse', $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16::jsonb, $17, $18::uuid)
        RETURNING *`,
       [
         clientSlug, p.name, p.category || null, p.notes_for_luna || null, p.keywords || [],
@@ -302,6 +314,7 @@ async function createService(client, { clientSlug, body, actor }) {
         p.per_guest != null ? p.per_guest : true, p.span_booking === true,
         p.luna_visible != null ? p.luna_visible : true, p.active != null ? p.active : true,
         p.block_rooms_enabled === true, p.blocked_room_codes || [], JSON.stringify(p.schedule_slots || []),
+        p.weekdays || [],
         (actor && actor.staff_user_id) || null,
       ],
     );

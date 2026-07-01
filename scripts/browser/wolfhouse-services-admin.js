@@ -120,11 +120,37 @@
     rows.forEach(function (row) { var b = row.querySelector('.svc-slot-remove'); if (b) b.disabled = rows.length <= 1; });
   }
 
+  function svcShow(id, on) { var n = svcEl(id); if (n) n.style.display = on ? '' : 'none'; }
+
   function svcUpdateCategoryUi() {
     var isLesson = svcEl('svc-f-category') && svcEl('svc-f-category').value === 'lesson';
-    var wrap = svcEl('svc-f-slots-wrap');
-    if (wrap) wrap.style.display = isLesson ? '' : 'none';
-    if (isLesson && svcEl('svc-f-slots-list') && !svcEl('svc-f-slots-list').children.length) svcRenderSlots([]);
+    // Lessons: time slots + weekday recurrence, no date range, no room block.
+    svcShow('svc-f-slots-wrap', isLesson);
+    svcShow('svc-f-weekdays-wrap', isLesson);
+    svcShow('svc-f-start-wrap', !isLesson);
+    svcShow('svc-f-end-wrap', !isLesson);
+    svcShow('svc-f-block-wrap', !isLesson);
+    var unit = svcEl('svc-f-unit');
+    if (isLesson) {
+      if (unit) unit.value = 'per_lesson';
+      if (svcEl('svc-f-block-rooms')) svcEl('svc-f-block-rooms').checked = false;
+      svcUpdateBlockRoomsUi();
+      if (svcEl('svc-f-slots-list') && !svcEl('svc-f-slots-list').children.length) svcRenderSlots([]);
+    } else if (unit && unit.value === 'per_lesson') {
+      unit.value = 'per_day';
+    }
+  }
+
+  function svcReadWeekdays() {
+    var out = [];
+    document.querySelectorAll('.svc-weekday:checked').forEach(function (n) { out.push(parseInt(n.value, 10)); });
+    return out;
+  }
+
+  function svcFillWeekdays(days) {
+    var set = {};
+    (days || []).forEach(function (d) { set[String(d)] = true; });
+    document.querySelectorAll('.svc-weekday').forEach(function (n) { n.checked = !!set[n.value]; });
   }
 
   function svcReadSlots() {
@@ -206,6 +232,7 @@
     svcEl('svc-f-notes').value = s.notes_for_luna || '';
     if (svcEl('svc-f-block-rooms')) svcEl('svc-f-block-rooms').checked = s.block_rooms_enabled === true;
     svcRenderSlots(s.schedule_slots || []);
+    svcFillWeekdays(s.weekdays || []);
     svcUpdateCategoryUi();
     svcLoadRooms(function () {
       svcRenderRoomChecklist(s.blocked_room_codes || []);
@@ -241,7 +268,7 @@
       block_rooms_enabled: blockEnabled,
       blocked_room_codes: blockEnabled ? svcReadSelectedRooms() : [],
     };
-    if (body.category === 'lesson') body.schedule_slots = svcReadSlots();
+    if (body.category === 'lesson') { body.schedule_slots = svcReadSlots(); body.weekdays = svcReadWeekdays(); }
     if (!body.category) delete body.category;
     if (Number.isNaN(body.price_cents)) body.price_cents = 0;
     return body;
