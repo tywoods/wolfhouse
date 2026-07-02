@@ -185,7 +185,7 @@ if (apiSrc) {
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
   assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
   assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('Schedule lesson groups summary card', apiSrc.includes('schedule.card.lessons') && apiSrc.includes('portal-schedule-lesson-times') && apiSrc.includes('id="ps-lessons-slot-sub"'));
+  assert('Schedule glance strip (surfers + capacity bar)', apiSrc.includes('id="ps-surfers-today"') && apiSrc.includes('id="ps-surfers-bar"') && apiSrc.includes('portal-schedule-glance'));
   assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
@@ -318,8 +318,8 @@ if (apiSrc) {
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
-    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-lessons-slot-sub"')
-    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-courses-sub"'));
+    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-surfers-today"')
+    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-glance"'));
   assert('unpaid summary card removed from schedule', !apiSrc.includes('id="ps-unpaid-pending-today"'));
   assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
     && apiSrc.includes('portal-schedule-view-btn active'));
@@ -625,9 +625,9 @@ if (apiSrc) {
   assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-lesson"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
   assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
-  assert('courses summary card', apiSrc.includes('id="ps-courses-sub"') && apiSrc.includes('schedule.card.courses'));
+  assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('schedule.badge.course'));
   assert('ops group header uses group name', apiSrc.includes('function scheduleRenderOpsGroupHeader(') && apiSrc.includes('portal-schedule-ops-lesson-hdr-time'));
-  assert('ops board hides empty lesson slots', apiSrc.includes('if (!stats.surfers) return'));
+  assert('ops board collapses empty lesson slots', apiSrc.includes('function scheduleRenderTimelineEmptySlot(') && apiSrc.includes('data-ps-add-slot'));
   assert('ops board course groups', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('portal-schedule-ops-course-group'));
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
   assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
@@ -760,7 +760,7 @@ console.log('\n[24] Sunset Schedule — calm UI, live i18n, phone, conversation'
 
 if (apiSrc) {
   assert('no pending payment option in create form', !apiSrc.includes('value="pending" data-i18n="schedule.payment.pending"'));
-  assert('unpaid summary card removed', !apiSrc.includes('data-i18n="schedule.card.unpaid">Unpaid</div>'));
+  assert('unpaid glance cell fed by pending count', apiSrc.includes('id="ps-unpaid-glance"') && apiSrc.includes('scheduleUnpaidPendingCount(rows, activeIso)'));
   assert('create phone field', apiSrc.includes('id="ps-create-phone"'));
   assert('post guest_phone', apiSrc.includes('guest_phone: payload.guest_phone'));
   assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
@@ -1256,7 +1256,7 @@ if (apiSrc) {
   assert('courses from surf packs helper', apiSrc.includes('function scheduleCoursesFromConfig(') && apiSrc.includes('data.surf_packs'));
   assert('course payload in create flow', apiSrc.includes('components.course'));
   assert('lesson slot label layout', apiSrc.includes('portal-schedule-lesson-slot-time'));
-  assert('wider lesson groups metric card', apiSrc.includes('portal-schedule-metric-card-lessons'));
+  assert('glance surfers cell is widest', apiSrc.includes('portal-schedule-glance-cell-surfers'));
 }
 
 if (writesSrc) {
