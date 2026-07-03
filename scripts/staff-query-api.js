@@ -24805,9 +24805,17 @@ function openBookingInCalendar(booking){
     return false;
   }
 
-  function loadAndOpen(start, end){
+  function loadAndOpen(start, end, chipKey){
     bcSetDateField(el('bc-start'), start);
     bcSetDateField(el('bc-end'), end);
+    bcUpdateCalendarTitle();
+    /* Select the season pebble that contains this booking so the calendar lands
+       in the right window (not just an unlabelled custom range). */
+    document.querySelectorAll('.bc-chip').forEach(function(c){ c.classList.remove('bc-chip-active'); });
+    if (chipKey){
+      var activeChip = document.querySelector('.bc-chip[data-chip="' + chipKey + '"]');
+      if (activeChip) activeChip.classList.add('bc-chip-active');
+    }
     loadBedCalendar(function(data){
       if (!tryOpenBlock(data.blocks) && code){
         openBlockAndScroll({
@@ -24824,9 +24832,14 @@ function openBookingInCalendar(booking){
   switchToTabOnly('bed-calendar');
 
   if (checkIn){
-    var rangeStart = bcAddDaysISO(checkIn, -3);
-    var rangeEnd = checkOut ? bcAddDaysISO(checkOut, 3) : bcAddDaysISO(checkIn, 30);
-    loadAndOpen(rangeStart, rangeEnd);
+    var win = bcTwoMonthWindowForCheckIn(checkIn);
+    if (win){
+      loadAndOpen(win.start, win.end, bcChipKeyForCheckIn(checkIn));
+    } else {
+      var rangeStart = bcAddDaysISO(checkIn, -3);
+      var rangeEnd = checkOut ? bcAddDaysISO(checkOut, 3) : bcAddDaysISO(checkIn, 30);
+      loadAndOpen(rangeStart, rangeEnd, null);
+    }
     return;
   }
 
@@ -34026,6 +34039,22 @@ function bcAddDaysISO(iso, delta){
   var d = new Date(iso + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + delta);
   return bcIso(d);
+}
+/* Two-month calendar window (first of check-in month .. last of following month),
+   matching the .bc-chip season pebbles (e.g. Jul booking -> Jul 1 .. Aug 31). */
+function bcTwoMonthWindowForCheckIn(iso){
+  var d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  var y = d.getUTCFullYear(), m = d.getUTCMonth();
+  return { start: bcIso(new Date(Date.UTC(y, m, 1))), end: bcIso(new Date(Date.UTC(y, m + 2, 0))) };
+}
+/* Map a check-in date to its season pebble key (data-chip), or null if outside
+   the Apr–Nov pebble range. getUTCMonth() is 0-based (Apr = 3). */
+function bcChipKeyForCheckIn(iso){
+  var d = new Date(String(iso).slice(0, 10) + 'T00:00:00Z');
+  if (isNaN(d.getTime())) return null;
+  var keys = { 3: 'apr-may', 4: 'may-jun', 5: 'jun-jul', 6: 'jul-aug', 7: 'aug-sept', 8: 'sep-oct', 9: 'oct-nov' };
+  return keys[d.getUTCMonth()] || null;
 }
 
 var bcInitialLoadDone = false;
