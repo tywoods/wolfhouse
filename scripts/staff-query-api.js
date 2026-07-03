@@ -14767,7 +14767,10 @@ async function handleBotBookingCreate(req, res, user, authMode) {
   const usesPerGuestModel = guestsNorm.uses_per_guest_model === true;
   const paymentNorm   = normalizeBotBookingPaymentChoice(body.payment_choice);
   const paymentChoice = paymentNorm.payment_choice;
-  const perGuestPaymentLinks = paymentNorm.per_guest_payment_links === true || usesPerGuestModel;
+  // Deposit-link scope (group vs per-guest) is independent of the per-guest
+  // booking model. Every booking now uses the per-guest model, but a group
+  // deposit link stays a single link unless per-guest links are explicitly asked.
+  const perGuestPaymentLinks = paymentNorm.per_guest_payment_links === true;
   const resolvedGuestCount = guestsNorm.guest_count || guestCount;
   const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
   const packageCodeRaw  = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
@@ -15269,12 +15272,19 @@ async function tryInsertManualBookingServiceRecords(pg, rows) {
 
 // Phase 10.6d — staff payment choices at manual booking create
 const MANUAL_BOOKING_STAFF_PAYMENT_CHOICES = new Set([
-  'stripe_deposit',
+  'stripe_deposit',            // group deposit link (one link for the full deposit)
+  'stripe_deposit_per_guest',  // one deposit link per guest
   'stripe_full',
   'paid_cash',
   'paid_bank_transfer',
   'no_payment_yet',
 ]);
+
+// Both deposit choices behave identically for amount/kind/status — they differ
+// only in link scope (one group link vs one link per guest).
+function isManualBookingDepositChoice(c) {
+  return c === 'stripe_deposit' || c === 'stripe_deposit_per_guest';
+}
 
 const MANUAL_BOOKING_LEGACY_PAYMENT_MAP = Object.freeze({
   deposit: 'stripe_deposit',
@@ -15303,7 +15313,7 @@ function normalizeManualBookingStaffPaymentChoice(raw) {
 }
 
 function manualBookingQuotePaymentChoice(staffChoice) {
-  if (staffChoice === 'stripe_deposit') return 'deposit';
+  if (isManualBookingDepositChoice(staffChoice)) return 'deposit';
   if (staffChoice === 'stripe_full') return 'full';
   return 'pay_on_arrival';
 }
@@ -15314,7 +15324,7 @@ function manualBookingPaymentKindForStaffChoice(staffChoice) {
 
 function manualBookingAmountDueForStaffChoice(staffChoice, depositCents, totalCents) {
   if (staffChoice === 'stripe_full') return totalCents;
-  if (staffChoice === 'stripe_deposit') return depositCents;
+  if (isManualBookingDepositChoice(staffChoice)) return depositCents;
   return 0;
 }
 
@@ -15337,7 +15347,7 @@ function manualBookingBookingPaymentStatusForCreate(staffChoice, paidCents, tota
     if (paid > 0) return 'deposit_paid';
     return 'not_requested';
   }
-  if (staffChoice === 'stripe_deposit' || staffChoice === 'stripe_full') return 'waiting_payment';
+  if (isManualBookingDepositChoice(staffChoice) || staffChoice === 'stripe_full') return 'waiting_payment';
   return 'not_requested';
 }
 
@@ -15349,6 +15359,130 @@ const MANUAL_BOOKING_PAYMENT_STATUS_MAP = Object.freeze({
   deposit_paid:    'deposit_paid',
   paid:            'paid',
 });
+
+// Create one deposit Stripe link per guest (€200/€100 each) from the inserted
+// booking_guests rows. Each link is its own payment row tagged with the guest's
+// booking_guest_id, so it renders in the drawer's per-guest section and is never
+// mistaken for the group balance link. All-or-nothing inside the create txn.
+async function manualBookingCreatePerGuestDepositLinks(pg, opts) {
+  const { bookingGuests, bookingId, bookingCode, clientSlug, checkIn, checkOut, idempotencyKey, outcome } = opts;
+  const guests = (bookingGuests || []).filter((g) => g && g.booking_guest_id);
+
+  if (guests.length === 0) {
+    // No per-guest rows (e.g. booking_guests table not migrated). Nothing to do —
+    // staff can still generate links from the drawer.
+    outcome.payment_status = 'waiting_payment';
+    outcome.per_guest_links = [];
+    outcome.message = 'Booking created. No per-guest rows available — generate deposit links from the booking drawer.';
+    return outcome;
+  }
+
+  const totalDepositCents = guests.reduce((s, g) => s + Number(g.deposit_amount_cents || 0), 0);
+  const stripeConfigured = STRIPE_LINKS_ENABLED && STRIPE_SECRET_KEY && stripeCheckoutRedirectUrlsConfigured();
+
+  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+  const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+  if (!clientId) throw new Error('client not found');
+
+  let stripe = null;
+  if (stripeConfigured) {
+    try {
+      stripe = require('stripe')(STRIPE_SECRET_KEY);
+    } catch (e) {
+      throw new Error('STRIPE_SDK_LOAD_FAILED: ' + e.message);
+    }
+  }
+
+  const perGuestLinks = [];
+  for (const g of guests) {
+    const amountDueCents = Number(g.deposit_amount_cents || 0);
+    const idemKey = `mb-guest-deposit-${idempotencyKey}-${g.guest_number}`;
+    const ins = await pg.query(
+      `INSERT INTO payments (
+         client_id, booking_id, booking_guest_id, status, payment_kind, currency,
+         amount_due_cents, amount_paid_cents, metadata
+       ) VALUES (
+         $1, $2::uuid, $3::uuid, 'draft'::payment_record_status, 'deposit_only'::payment_kind, 'EUR',
+         $4, 0, $5::jsonb
+       ) RETURNING id::text AS payment_id`,
+      [clientId, bookingId, g.booking_guest_id, amountDueCents, JSON.stringify({
+        source: 'staff_manual_per_guest_deposit',
+        method: 'payment_link',
+        idempotency_key: idemKey,
+        booking_guest_id: g.booking_guest_id,
+        guest_number: g.guest_number,
+      })],
+    );
+    const paymentId = ins.rows[0].payment_id;
+
+    if (!stripe) {
+      perGuestLinks.push({ guest_number: g.guest_number, payment_id: paymentId, amount_due_cents: amountDueCents, payment_link_skipped: true });
+      continue;
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: 'eur',
+      line_items: [{
+        price_data: {
+          currency: 'eur',
+          product_data: {
+            name: `Deposit — ${g.guest_name || 'Guest ' + g.guest_number} (${bookingCode || bookingId})`,
+            description: `Deposit | ${checkIn} – ${checkOut} | ${clientSlug}`,
+          },
+          unit_amount: amountDueCents,
+        },
+        quantity: 1,
+      }],
+      metadata: {
+        client_slug: clientSlug,
+        booking_id: bookingId,
+        booking_code: bookingCode || '',
+        payment_id: paymentId,
+        booking_guest_id: g.booking_guest_id,
+        payment_kind: 'deposit_only',
+        source: 'staff_manual_per_guest_deposit',
+        idempotency_key: idemKey,
+        staff_payment_choice: 'stripe_deposit_per_guest',
+      },
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url: stripeCheckoutSessionCancelUrl(),
+    });
+    const expiresAt = session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null;
+    await pg.query(
+      `UPDATE payments
+          SET status = 'checkout_created'::payment_record_status,
+              stripe_checkout_session_id = $1, checkout_url = $2, expires_at = $3,
+              metadata = (metadata || $4::jsonb)
+        WHERE id = $5::uuid`,
+      [session.id, session.url, expiresAt, JSON.stringify({
+        stripe_session_id: session.id,
+        payment_link_url: session.url,
+      }), paymentId],
+    );
+    perGuestLinks.push({ guest_number: g.guest_number, payment_id: paymentId, amount_due_cents: amountDueCents, checkout_url: session.url });
+  }
+
+  await pg.query(
+    `UPDATE bookings
+        SET payment_status = 'waiting_payment'::payment_status
+      WHERE id = $1::uuid
+        AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
+    [bookingId, clientSlug],
+  );
+
+  outcome.payment_status = stripe ? 'payment_link_created' : 'waiting_payment';
+  outcome.amount_due_cents = totalDepositCents;
+  outcome.per_guest_links = perGuestLinks;
+  outcome.payment_link_url = perGuestLinks[0] ? perGuestLinks[0].checkout_url || null : null;
+  outcome.checkout_url = outcome.payment_link_url;
+  outcome.payment_id = perGuestLinks[0] ? perGuestLinks[0].payment_id : null;
+  outcome.payment_link_skipped = !stripe;
+  outcome.message = stripe
+    ? `Booking created. ${perGuestLinks.length} per-guest deposit link${perGuestLinks.length === 1 ? '' : 's'} created (€${(totalDepositCents / 100).toFixed(2)} total).`
+    : 'Booking created. Per-guest deposit rows created — links skipped (online payment links disabled).';
+  return outcome;
+}
 
 async function manualBookingApplyStaffPaymentChoice(pg, opts) {
   const staffPaymentChoice = opts.staffPaymentChoice;
@@ -15459,6 +15593,20 @@ async function manualBookingApplyStaffPaymentChoice(pg, opts) {
     outcome.payment_status = newBkPayStatus;
     outcome.message = `Booking created. ${isBank ? 'Bank transfer' : 'Cash'} payment of \u20ac${(paidCents / 100).toFixed(2)} recorded. No payment link was created or sent.`;
     return outcome;
+  }
+
+  // ── Per-guest deposit links: one deposit link per guest (€200/€100 each) ────
+  if (staffPaymentChoice === 'stripe_deposit_per_guest') {
+    return manualBookingCreatePerGuestDepositLinks(pg, {
+      bookingGuests: opts.bookingGuests || [],
+      bookingId,
+      bookingCode,
+      clientSlug,
+      checkIn,
+      checkOut,
+      idempotencyKey,
+      outcome,
+    });
   }
 
   const amountDueCents = manualBookingAmountDueForStaffChoice(
@@ -15656,7 +15804,9 @@ async function handleManualBookingCreate(req, res, user) {
   const guestName     = (String(body.guest_name || '').trim() || guestsNorm.primary_name || '').slice(0, 200);
   const resolvedGuestCount = guestsNorm.guest_count || guestCount;
   const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
-  const perGuestPaymentLinks = usesPerGuestModel;
+  // Group deposit link (one link) vs one deposit link per guest — chosen in the
+  // portal Payment-choice dropdown, independent of the per-guest booking model.
+  const perGuestPaymentLinks = normalizeManualBookingStaffPaymentChoice(body.payment_choice) === 'stripe_deposit_per_guest';
   const phone       = String(body.phone || '').trim().slice(0, 50);
   const email       = String(body.email || '').trim().slice(0, 200) || null;
   const language    = String(body.language || 'en').trim().slice(0, 10) || 'en';
@@ -15684,7 +15834,7 @@ async function handleManualBookingCreate(req, res, user) {
       : null);
   const staffPayChoice = normalizeManualBookingStaffPaymentChoice(body.payment_choice);
   if (!staffPayChoice) {
-    return send400(res, 'payment_choice must be one of: stripe_deposit, stripe_full, paid_cash, paid_bank_transfer, no_payment_yet');
+    return send400(res, 'payment_choice must be one of: stripe_deposit, stripe_deposit_per_guest, stripe_full, paid_cash, paid_bank_transfer, no_payment_yet');
   }
   const paidAmountType = String(body.paid_amount_type || 'deposit').trim().toLowerCase();
   const paidAmountCustomCents = body.paid_amount_cents != null
@@ -15794,7 +15944,7 @@ async function handleManualBookingCreate(req, res, user) {
     staffPayChoice === 'no_payment_yet'
     || staffPayChoice === 'paid_cash'
     || staffPayChoice === 'paid_bank_transfer'
-    || staffPayChoice === 'stripe_deposit'
+    || isManualBookingDepositChoice(staffPayChoice)
     || staffPayChoice === 'stripe_full'
   )
     ? 0
@@ -15984,6 +16134,7 @@ async function handleManualBookingCreate(req, res, user) {
             guestName,
             checkIn,
             checkOut,
+            bookingGuests: Array.isArray(result._booking_guests) ? result._booking_guests : [],
           });
           result._pay_outcome = payOutcome;
           result._payment_id = payOutcome.payment_id || null;
@@ -18733,7 +18884,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="bk-compact-row">
           <label class="bk-label" for="bk-payment-choice" data-i18n="calendar.create.paymentChoice">Payment choice</label>
           <select id="bk-payment-choice" class="bk-input bk-input-sm">
-            <option value="stripe_deposit" data-i18n="calendar.create.pay.depositLink">Deposit payment link</option>
+            <option value="stripe_deposit" data-i18n="calendar.create.pay.depositLink">Deposit link — group (one link)</option>
+            <option value="stripe_deposit_per_guest" data-i18n="calendar.create.pay.depositLinkPerGuest">Deposit link — per guest</option>
             <option value="stripe_full" data-i18n="calendar.create.pay.fullLink">Full secure payment link</option>
             <option value="paid_cash" data-i18n="calendar.create.pay.paidCash">Already paid cash</option>
             <option value="paid_bank_transfer" data-i18n="calendar.create.pay.paidBank">Already paid bank transfer</option>
@@ -26992,19 +27144,41 @@ function bcGuestCountForNameInputs(){
   return Math.max(1, Math.min(20, gc));
 }
 
+var BC_GUEST_PACKAGE_OPTIONS = [
+  { value: 'malibu', label: 'Malibu' },
+  { value: 'uluwatu', label: 'Uluwatu' },
+  { value: 'waimea', label: 'Waimea' },
+  { value: 'package_none', label: 'No package' },
+];
+
+/* Default per-guest package = the top "Package" selector, when it's a real
+   package. manual_override / empty falls back to No package. */
+function bcDefaultGuestPackage(){
+  var top = el('bk-package') ? String(el('bk-package').value || '') : '';
+  var known = ['malibu', 'uluwatu', 'waimea', 'package_none'];
+  return known.indexOf(top) >= 0 ? top : 'package_none';
+}
+
 function bcRenderGuestNameInputs(){
   var wrap = el('bk-guest-names-wrap');
   if (!wrap) return;
   var count = bcGuestCountForNameInputs();
   var existing = {};
+  var existingPkg = {};
   wrap.querySelectorAll('.bk-guest-name-input').forEach(function(inp){
     var n = inp.getAttribute('data-guest-num');
     if (n) existing[n] = inp.value;
   });
+  wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
+    var n = sel.getAttribute('data-guest-num');
+    if (n) existingPkg[n] = sel.value;
+  });
+  var defPkg = bcDefaultGuestPackage();
   var html = '';
   for (var i = 1; i <= count; i++){
     var bed = bcSelectedBeds[i - 1] || null;
     var val = existing[i] != null ? existing[i] : '';
+    var pkgVal = existingPkg[i] != null ? existingPkg[i] : defPkg;
     html += '<div class="bk-compact-row bk-guest-name-row">';
     html += '<label class="bk-label" for="bk-guest-name-' + i + '">Name (Guest ' + i + ')';
     if (bed) html += ' <span class="bk-guest-bed-hint">' + escHtml(bed.room_code + '/' + bed.bed_code) + '</span>';
@@ -27014,11 +27188,30 @@ function bcRenderGuestNameInputs(){
       html += ' data-bed-code="' + escHtml(bed.bed_code) + '" data-room-code="' + escHtml(bed.room_code) + '"';
     }
     html += ' placeholder="Full name" value="' + escHtml(val) + '">';
+    html += '<select id="bk-guest-package-' + i + '" class="bk-input bk-input-sm bk-guest-package-input" data-guest-num="' + i + '" aria-label="Package for guest ' + i + '" style="margin-top:4px">';
+    BC_GUEST_PACKAGE_OPTIONS.forEach(function(opt){
+      html += '<option value="' + opt.value + '"' + (opt.value === pkgVal ? ' selected' : '') + '>' + escHtml(opt.label) + '</option>';
+    });
+    html += '</select>';
     html += '</div>';
   }
   wrap.innerHTML = html;
   wrap.querySelectorAll('.bk-guest-name-input').forEach(function(inp){
     inp.oninput = function(){ bcUpdateCreateButton(); };
+  });
+  wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
+    sel.onchange = function(){ bcUpdateCreateButton(); };
+  });
+}
+
+/* When the top-level Package changes, default-fill every guest's package dropdown
+   (staff can still override each one individually afterwards). */
+function bcSyncGuestPackagesToTop(){
+  var defPkg = bcDefaultGuestPackage();
+  var wrap = el('bk-guest-names-wrap');
+  if (!wrap) return;
+  wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
+    sel.value = defPkg;
   });
 }
 
@@ -27033,6 +27226,22 @@ function bcCollectGuestPayload(){
     guests.push({ name: name, bed_code: bedCode || undefined });
   }
   return guests;
+}
+
+/* Per-guest packages for the create payload (guest_packages[]). Skipped when the
+   top selector is Manual Price Override (custom pricing handles the whole booking). */
+function bcCollectGuestPackages(){
+  var top = el('bk-package') ? String(el('bk-package').value || '') : '';
+  if (top === 'manual_override') return [];
+  var count = bcGuestCountForNameInputs();
+  var out = [];
+  for (var i = 1; i <= count; i++){
+    var sel = el('bk-guest-package-' + i);
+    var pkg = sel ? String(sel.value || '') : '';
+    if (!pkg) pkg = bcDefaultGuestPackage();
+    out.push({ guest_number: i, package_code: pkg });
+  }
+  return out;
 }
 
 function bcAllGuestNamesFilled(){
@@ -27462,6 +27671,7 @@ function runManualBookingCreate(){
     guest_count:        guestCount,
     guest_name:         guestName,
     guests:             guests,
+    guest_packages:     bcCollectGuestPackages(),
     phone:              phone,
     email:              email,
     package_code:       packageCode,
@@ -28402,6 +28612,7 @@ function renderBedCalendar(data){
       if (fId === 'bk-package') {
         bcPackageUserSelected = true;
         bcUpdateManualPriceOverrideVisibility();
+        bcSyncGuestPackagesToTop();
       }
       if (fId === 'bk-guest-count') bcRenderGuestNameInputs();
       bcUpdateQuoteButton();

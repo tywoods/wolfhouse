@@ -128,12 +128,15 @@ function normalizeBookingGuestsInput(body) {
   for (let i = 0; i < count; i++) {
     guests.push({ guest_number: i + 1, guest_name: count === 1 ? fallbackName : `${fallbackName} (${i + 1})` });
   }
+  // Every booking uses the per-guest model, even when only a single primary name
+  // + guest_count were supplied (placeholder per-guest names above). This keeps
+  // deposits per guest and lets per-guest deposit links be issued for any booking.
   return {
     ok: true,
     guests,
     primary_name: fallbackName,
     guest_count: count,
-    uses_per_guest_model: false,
+    uses_per_guest_model: true,
   };
 }
 

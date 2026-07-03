@@ -47,7 +47,8 @@ section('A. normalizeBookingGuestsInput');
   check('A3', named.primary_name === 'Alex', 'primary is first guest');
 
   const legacy = normalizeBookingGuestsInput({ guest_count: 3, guest_name: 'Group Lead' });
-  check('A4', legacy.ok && !legacy.uses_per_guest_model, 'legacy group without guests array');
+  check('A4', legacy.ok && legacy.uses_per_guest_model, 'every booking uses per-guest model, even without a guests array');
+  check('A4b', legacy.guests.length === 3, 'placeholder per-guest names generated from guest_count');
 }
 
 section('B. Deposit math — per guest vs whole booking');
@@ -85,7 +86,7 @@ section('B. Deposit math — per guest vs whole booking');
     payment_choice: 'deposit',
     uses_per_guest_deposits: false,
   });
-  check('B5', trioLegacy.deposit_required_cents === 20000, 'legacy whole-booking still €200 total deposit');
+  check('B5', trioLegacy.deposit_required_cents === 60000, 'deposit always scales per guest — 3 × €200 = €600 even without the per-guest flag');
 
   const shortPerGuest = calculateWolfhouseQuote({
     client_slug: 'wolfhouse-somo',

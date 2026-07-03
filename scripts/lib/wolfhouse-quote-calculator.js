@@ -576,8 +576,13 @@ function calculateWolfhouseQuote(input, config) {
     ? config.deposits.tiers.standard_package.amount_cents
     : config.deposits.tiers.custom_or_short_stay.amount_cents;
 
+  // Deposit is ALWAYS per guest: €200/guest for a named package (7+ nights),
+  // €100/guest for no-package / short stays. Every guest is priced individually
+  // so mixed per-guest packages and any headcount total correctly. (Previously a
+  // non-per-guest booking returned a single flat tier that ignored guest count,
+  // e.g. a 3-guest package deposit came out €200 instead of €600.)
   let per_guest_deposits = [];
-  if (uses_per_guest_deposits && guests > 0) {
+  if (guests > 0) {
     if (hasGuestPackages) {
       per_guest_deposits = normalizedGuestPackages.map((gp) => ({
         guest_number: gp.guest_number,
@@ -594,7 +599,7 @@ function calculateWolfhouseQuote(input, config) {
       }
     }
   }
-  const deposit_required_cents = (uses_per_guest_deposits && per_guest_deposits.length > 0)
+  const deposit_required_cents = per_guest_deposits.length > 0
     ? per_guest_deposits.reduce((sum, row) => sum + row.deposit_cents, 0)
     : singleTierDepositCents;
 
