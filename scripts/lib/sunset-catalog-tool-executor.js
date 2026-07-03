@@ -12,6 +12,11 @@
 
 const { lookupSunsetRentalPrice } = require('./sunset-rental-price-lookup');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
+const { resolveTenantBusinessConfig } = require('./tenant-business-config');
+const {
+  buildPrivateLessonCatalogItem,
+  findPrivateLessonCatalogService,
+} = require('./sunset-private-lesson-luna-catalog');
 
 const SUNSET_TENANT = 'sunset';
 
@@ -20,6 +25,11 @@ const SUNSET_CATALOG_READ_TOOLS = Object.freeze({
     description: 'Look up a Sunset rental price from school-scoped admin config.',
     params: ['item', 'duration'],
     optional_params: ['require_confirmed', 'location_id'],
+  },
+  get_sunset_private_lesson: {
+    description: 'Read Sunset private lesson unit product (no fixed slots; custom sessions per booking).',
+    params: [],
+    optional_params: ['location_id'],
   },
 });
 
@@ -114,6 +124,35 @@ function executeSunsetCatalogTool(toolId, ctx) {
       tool_id: id,
       location_id: locationId,
       result: lookup,
+    };
+  }
+
+  if (id === 'get_sunset_private_lesson') {
+    const adminCfg = resolveTenantBusinessConfig(SUNSET_TENANT, locationId);
+    if (!adminCfg || adminCfg.ok === false) {
+      return {
+        ok: false,
+        tool_id: id,
+        reason: 'config_unavailable',
+        location_id: locationId,
+      };
+    }
+    const catalogItem = findPrivateLessonCatalogService(adminCfg.catalog_services)
+      || buildPrivateLessonCatalogItem(adminCfg.private_lesson);
+    if (!catalogItem.enabled) {
+      return {
+        ok: false,
+        tool_id: id,
+        reason: 'private_lesson_disabled',
+        location_id: locationId,
+        result: catalogItem,
+      };
+    }
+    return {
+      ok: true,
+      tool_id: id,
+      location_id: locationId,
+      result: catalogItem,
     };
   }
 

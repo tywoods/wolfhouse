@@ -66,7 +66,7 @@ function executeGuestAgentReadTool(toolId, ctx) {
   const priorFields = collectPriorExtractedFields(prior);
   const lang = trimStr(execCtx.language) || 'en';
 
-  if (id === 'get_sunset_admin_config_snapshot' || id === 'get_sunset_rental_price') {
+  if (id === 'get_sunset_admin_config_snapshot' || id === 'get_sunset_rental_price' || id === 'get_sunset_private_lesson') {
     if (!isSunsetClientSlug(execCtx.client_slug)) {
       return { tool_id: id, status: 'rejected', error: 'sunset_only', result: null };
     }
@@ -82,7 +82,23 @@ function executeGuestAgentReadTool(toolId, ctx) {
           lesson_times: adminCfg && adminCfg.lesson_times,
           lesson_capacity: adminCfg && adminCfg.lesson_capacity,
           prices_count: adminCfg && Array.isArray(adminCfg.prices) ? adminCfg.prices.length : 0,
+          private_lesson: adminCfg && adminCfg.private_lesson,
+          private_lesson_catalog: adminCfg && adminCfg.private_lesson_catalog,
+          catalog_services: adminCfg && adminCfg.catalog_services,
         },
+      };
+    }
+    if (id === 'get_sunset_private_lesson') {
+      const out = executeSunsetCatalogTool('get_sunset_private_lesson', {
+        client_slug: 'sunset',
+        location_id: execCtx.location_id,
+        dry_run: true,
+        args: execCtx.tool_args || execCtx.args || {},
+      });
+      return {
+        tool_id: id,
+        status: out.ok ? 'ok' : 'error',
+        result: out.result || out,
       };
     }
     const args = execCtx.tool_args || execCtx.args || {};

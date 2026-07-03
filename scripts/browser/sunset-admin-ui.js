@@ -17,6 +17,9 @@ function adminPackSectionEditing(){
   var t = String(adminEditTarget);
   return t === 'pack:new' || t.indexOf('pack:') === 0;
 }
+function adminPrivateLessonSectionEditing(){
+  return adminEditTarget === 'private-lesson';
+}
 
 var adminSaveBusy = false;
 var adminLoadSeq = 0;
@@ -673,7 +676,7 @@ function renderAdminLessonCards(slots, cfg, writes, defaultCap){
   lessons.forEach(function(s){
     var sid = (s.id || s.slot_id) ? String(s.id || s.slot_id) : '';
     var editing = writes && adminEditTarget === ('time:' + sid);
-    var label = adminHumanizeText(s.offering_label || 'Lesson');
+    var label = adminHumanizeText(s.offering_label || portalT('schedule.type.lesson'));
     var fields = adminResolveLessonSlotFields(s);
     var capText = s.capacity != null ? String(s.capacity) : String(defaultCap);
     var duration = adminSlotDurationLabel(s.slot_time);
@@ -738,6 +741,57 @@ function renderAdminPackCards(packs, writes){
   });
   return html + '</div></div>';
 }
+function renderAdminPrivateLessonEditForm(pl){
+  var p = pl || {};
+  return '<div class="portal-admin-edit-form" data-admin-private-lesson-form="1">' +
+    '<div class="portal-admin-edit-field svc-check"><label><input type="checkbox" id="admin-private-enabled"' +
+    (p.enabled ? ' checked' : '') + '> ' + escHtml(portalT('admin.privateLessons.enabled')) + '</label></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.edit.displayName')) + '</label>' +
+    '<input type="text" id="admin-private-label" value="' + escHtml(p.label || '') + '" maxlength="120"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.price')) + '</label>' +
+    '<input type="text" id="admin-private-price" value="' + escHtml(adminEurosFromAmount((p.amount_cents || 0) / 100)) + '" inputmode="decimal" placeholder="0.00"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.duration')) + '</label>' +
+    '<input type="number" id="admin-private-duration" min="15" max="480" step="1" value="' +
+    escHtml(String(p.default_duration_minutes != null ? p.default_duration_minutes : 120)) + '"></div>' +
+    '<div class="portal-admin-edit-field"><label>' + escHtml(portalT('admin.privateLessons.notes')) + '</label>' +
+    '<textarea id="admin-private-notes" rows="3" maxlength="2000">' + escHtml(p.notes || '') + '</textarea></div>' +
+    '<div class="portal-admin-edit-actions">' +
+    '<button type="button" class="btn btn-primary" data-admin-action="save-private-lesson">' + escHtml(portalT('admin.action.save')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
+    '</div></div>';
+}
+function renderAdminPrivateLessonReadout(pl){
+  var p = pl || {};
+  var enabledText = p.enabled ? portalT('admin.privateLessons.enabledYes') : portalT('admin.privateLessons.enabledNo');
+  var priceText = adminEurosFromAmount((p.amount_cents || 0) / 100) + ' ' + (p.currency || 'EUR') +
+    ' · ' + portalT('admin.privateLessons.perSession');
+  var durationText = String(p.default_duration_minutes != null ? p.default_duration_minutes : 120) + ' ' + portalT('admin.privateLessons.minutes');
+  var html = '<div class="portal-admin-lesson-facts">' +
+    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.enabled')) + '<strong>' + escHtml(enabledText) + '</strong></div>' +
+    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.displayName')) + '<strong>' + escHtml(p.label || '—') + '</strong></div>' +
+    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.price')) + '<strong>' + escHtml(priceText) + '</strong></div>' +
+    '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.privateLessons.duration')) + '<strong>' + escHtml(durationText) + '</strong></div>';
+  if (p.notes) {
+    html += '<div class="portal-admin-lesson-fact" style="grid-column:1 / -1">' + escHtml(portalT('admin.privateLessons.notes')) +
+      '<strong>' + escHtml(p.notes) + '</strong></div>';
+  }
+  return html + '</div>';
+}
+function renderAdminPrivateLessonCard(cfg, writes){
+  var pl = (cfg && cfg.private_lesson) ? cfg.private_lesson : { enabled: false, label: portalT('admin.privateLessons.defaultName'), amount_cents: 0, currency: 'EUR', default_duration_minutes: 120, notes: '' };
+  var editing = writes && adminEditTarget === 'private-lesson';
+  var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.privateLessons.title')) + '</h3>';
+  if (writes && !editing && !adminLessonSectionEditing() && !adminPackSectionEditing()){
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-private-lesson" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
+  }
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.privateLessons.help')) + '</p>';
+  html += '<article class="portal-admin-lesson-card" data-admin-private-lesson-card="1">';
+  if (editing) html += renderAdminPrivateLessonEditForm(pl);
+  else html += renderAdminPrivateLessonReadout(pl);
+  html += '</article></div>';
+  return html;
+}
 function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
@@ -746,7 +800,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   var packs = (cfg && cfg.surf_packs) ? cfg.surf_packs : [];
   var defaultCap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
-  box.innerHTML = renderAdminLessonCards(slots, cfg, writes, defaultCap) + renderAdminPackCards(packs, writes);
+  box.innerHTML = renderAdminLessonCards(slots, cfg, writes, defaultCap) + renderAdminPackCards(packs, writes) + renderAdminPrivateLessonCard(cfg, writes);
 }
 
 function renderAdminSectionBusinessInfoFromConfig(cfg){
@@ -884,7 +938,7 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson'){
       if (!adminCfgWritesEnabled(cfg)){ adminShowMessage('error', portalT('admin.banner.writesDisabled')); return; }
     }
     if (action === 'edit-capacity'){
@@ -1142,6 +1196,54 @@ function wireAdminTab(){
       adminEditTarget = 'pack:' + String(btn.getAttribute('data-pack-id') || '');
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'edit-private-lesson'){
+      adminEditTarget = 'private-lesson';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'save-private-lesson'){
+      var enabledEl = el('admin-private-enabled');
+      var labelEl = el('admin-private-label');
+      var priceEl = el('admin-private-price');
+      var durationEl = el('admin-private-duration');
+      var notesEl = el('admin-private-notes');
+      var labelText = String((labelEl && labelEl.value) || '').trim();
+      if (!labelText){ adminShowMessage('error', portalT('admin.edit.nameRequired')); return; }
+      var priceParsed = adminParseEurosToCents(priceEl && priceEl.value);
+      if (!priceParsed.ok){ adminShowMessage('error', priceParsed.error || portalT('admin.edit.amountInvalid')); return; }
+      var durationVal = parseInt(String((durationEl && durationEl.value) || '120'), 10);
+      if (!Number.isInteger(durationVal) || durationVal < 15 || durationVal > 480){
+        adminShowMessage('error', portalT('admin.privateLessons.durationInvalid'));
+        return;
+      }
+      var payload = {
+        enabled: !!(enabledEl && enabledEl.checked),
+        label: labelText,
+        amount_cents: priceParsed.value,
+        currency: 'EUR',
+        price_basis: 'per_session',
+        default_duration_minutes: durationVal,
+        notes: String((notesEl && notesEl.value) || '').trim(),
+      };
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('PUT', '/staff/admin/config/private-lesson' + adminClientQuery(), payload)
+        .then(function(res){
+          adminSaveBusy = false;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminEditTarget = null;
+          adminShowMessage('success', portalT('admin.edit.savedPrivateLesson'));
+          adminReloadConfig();
+        }).catch(function(err){
+          adminSaveBusy = false;
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
       return;
     }
     if (action === 'delete-pack'){

@@ -13,6 +13,12 @@
 
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
 const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const {
+  defaultPrivateLessonApi,
+  defaultPrivateLessonFromConfig,
+  loadPrivateLessonFromDb,
+} = require('./sunset-admin-private-lesson-rules');
+const { attachSunsetCatalogServices } = require('./sunset-private-lesson-luna-catalog');
 const locationStore = require('./sunset-admin-location-store');
 const { priceIdFromParts } = require('./sunset-admin-location-store');
 
@@ -278,6 +284,7 @@ function resolveFromConfigFile(clientSlug) {
       lesson_capacity: { default_daily_cap: DEFAULT_DAILY_CAP, overrides: [] },
       lesson_times: [],
       surf_packs: defaultSurfPacksFromConfig(),
+      private_lesson: defaultPrivateLessonApi(),
       business_info: buildBusinessInfo(slug, null),
       change_history: [],
     };
@@ -308,6 +315,7 @@ function resolveFromConfigFile(clientSlug) {
     },
     lesson_times: loadLessonTimesFromConfig(baseline),
     surf_packs: [],
+    private_lesson: defaultPrivateLessonFromConfig(baseline),
     business_info: buildBusinessInfo(slug, baseline),
     change_history: [],
   };
@@ -428,6 +436,8 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const lesson_times = attachLessonPrices(mapLessonTimeRows(timeRes.rows), prices);
   const { loadSurfPacksFromDb } = require('./sunset-admin-pack-rules');
   const surf_packs = await loadSurfPacksFromDb(client, slug, loc);
+  const privateLessonLoad = await loadPrivateLessonFromDb(client, slug, loc);
+  const private_lesson = privateLessonLoad.api;
   const change_history = mapAuditRows(auditRes.rows);
 
   const lesson_capacity = {
@@ -439,7 +449,8 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const hasData = prices.length > 0
     || lessonCapacityRaw.fromDb
     || lesson_times.length > 0
-    || change_history.length > 0;
+    || change_history.length > 0
+    || (private_lesson && private_lesson.source === 'db');
 
   return {
     ok: true,
@@ -448,6 +459,7 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
     lesson_capacity,
     lesson_times,
     surf_packs,
+    private_lesson,
     change_history,
   };
 }
@@ -466,11 +478,15 @@ function mergeDbWithConfig(configBaseline, dbResult) {
   const surf_packs = dbResult.surf_packs && dbResult.surf_packs.length
     ? dbResult.surf_packs
     : (configBaseline.surf_packs || []);
+  const private_lesson = dbResult.private_lesson
+    ? dbResult.private_lesson
+    : (configBaseline.private_lesson || defaultPrivateLessonApi());
 
   const hasAnyDb = dbResult.prices.length > 0
     || dbResult.lesson_capacity.fromDb
     || dbResult.lesson_times.length > 0
     || (dbResult.surf_packs && dbResult.surf_packs.length > 0)
+    || (dbResult.private_lesson && dbResult.private_lesson.source === 'db')
     || dbResult.change_history.length > 0;
 
   return {
@@ -480,6 +496,7 @@ function mergeDbWithConfig(configBaseline, dbResult) {
     lesson_capacity,
     lesson_times,
     surf_packs,
+    private_lesson,
     change_history,
     read_only: true,
   };
@@ -506,8 +523,9 @@ function withLocationMeta(config, locationId) {
     location_id: loc,
     location_label: locationStore.resolveLocationLabel(loc),
   };
-  if (next.prices && Array.isArray(next.prices)) {
-    next.prices = next.prices.map((p) => {
+  const withCatalog = attachSunsetCatalogServices(next);
+  if (withCatalog.prices && Array.isArray(withCatalog.prices)) {
+    withCatalog.prices = withCatalog.prices.map((p) => {
       if (!p || p.id) return p;
       const category = p.category || 'rental';
       const offeringKey = p.offering_key || p.item_code || '';
@@ -516,7 +534,7 @@ function withLocationMeta(config, locationId) {
       return { ...p, id: priceIdFromParts(loc, category, offeringKey, unit) };
     });
   }
-  return next;
+  return withCatalog;
 }
 
 async function shouldApplyJsonLocationOverlay(clientSlug, locationId, pgClient) {
