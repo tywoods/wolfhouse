@@ -18075,11 +18075,16 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     if (gate) gate.setAttribute('aria-busy', 'false');
     var tabs = document.querySelectorAll('.tab-btn[data-tab]');
     var panels = document.querySelectorAll('.tab-panel');
-    var target = document.querySelector('.tab-btn[data-tab="portal-home"]') ? 'portal-home' : 'bed-calendar';
+    // Only land on the sunset Schedule (portal-home) if that tab is actually
+    // visible for this portal. It is display:none by default and only revealed
+    // for surf-shop verticals, so a surf-house portal (Wolfhouse) falls back to
+    // the booking calendar instead of flashing the sunset schedule.
+    var homeBtn = document.querySelector('.tab-btn[data-tab="portal-home"]');
+    var target = (homeBtn && homeBtn.style.display !== 'none') ? 'portal-home' : 'bed-calendar';
     tabs.forEach(function(btn){ btn.classList.toggle('active', btn.getAttribute('data-tab') === target); });
     panels.forEach(function(panel){ panel.classList.toggle('active', panel.id === 'tab-' + target); });
   } catch (_) { if (document.body) document.body.classList.remove('portal-profile-pending'); }
-}, 3500);
+}, 6000);
 </script>
 
 <!-- ── Today / Needs Attention tab (hidden — legacy tiles; switchToTab still works) ── -->
