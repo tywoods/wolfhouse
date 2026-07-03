@@ -124,10 +124,50 @@ function buildLessonClarifyReply(lang) {
 }
 
 /**
- * Private lesson request → System B catalog "Private Lesson" card path. The live pipeline
- * resolves the card's name/price/slots from the DB (handleBotCatalogServiceLookup). This copy
- * never quotes the €35 group add-on; it hands off to the catalog card.
+ * Private lesson request → catalog unit product (custom session times per booking).
+ * Never quote group-lesson tiers or package discounts here.
  */
+function detectPrivateLessonSessionCount(text) {
+  const t = String(text || '');
+  const patterns = [
+    /\b(\d{1,2})\s*(?:private\s+)?(?:lessons?|clases?\s+privadas?|lezioni\s+private)\b/i,
+    /\b(?:private\s+lessons?|clases?\s+privadas?|lezioni\s+private)\s*(?:x\s*)?(\d{1,2})\b/i,
+    /\b(\d{1,2})\s*x\s*private\s+lessons?\b/i,
+  ];
+  for (const re of patterns) {
+    const m = t.match(re);
+    if (!m) continue;
+    const n = parseInt(m[1], 10);
+    if (Number.isInteger(n) && n >= 1 && n <= 30) return n;
+  }
+  return null;
+}
+
+function buildPrivateLessonSessionTimesReply(lang, sessionCount, durationMinutes) {
+  const L = normalizeLang(lang);
+  const n = sessionCount != null ? Number(sessionCount) : 1;
+  const dur = durationMinutes != null ? Number(durationMinutes) : 120;
+  const durText = Number.isFinite(dur) ? String(dur) : '120';
+  const map = {
+    en: n > 1
+      ? `Great — ${n} private lessons 🌊 What date and start time would you like for each session? (Each is about ${durText} minutes.) I am not adding anything to your booking yet.`
+      : `Great — one private lesson 🌊 What date and start time works for you? (Usually about ${durText} minutes.) I am not adding anything to your booking yet.`,
+    es: n > 1
+      ? `Genial — ${n} clases privadas 🌊 ¿Qué fecha y hora de inicio quieres para cada sesión? (Cada una dura unos ${durText} minutos.) Aún no añado nada a tu reserva.`
+      : `Genial — una clase privada 🌊 ¿Qué fecha y hora de inicio te va bien? (Suelen ser unos ${durText} minutos.) Aún no añado nada a tu reserva.`,
+    it: n > 1
+      ? `Perfetto — ${n} lezioni private 🌊 Che data e orario di inizio preferisci per ogni sessione? (Circa ${durText} minuti ciascuna.) Non aggiungo ancora nulla alla prenotazione.`
+      : `Perfetto — una lezione privata 🌊 Che data e orario di inizio ti va bene? (Di solito circa ${durText} minuti.) Non aggiungo ancora nulla alla prenotazione.`,
+    de: n > 1
+      ? `Super — ${n} Privatstunden 🌊 Welches Datum und welche Startzeit wünschst du für jede Session? (Je etwa ${durText} Minuten.) Ich buche noch nichts ein.`
+      : `Super — eine Privatstunde 🌊 Welches Datum und welche Startzeit passen dir? (Meist etwa ${durText} Minuten.) Ich buche noch nichts ein.`,
+    fr: n > 1
+      ? `Parfait — ${n} cours privés 🌊 Quelle date et heure de début pour chaque session ? (Environ ${durText} minutes chacune.) Je n’ajoute rien à la réservation pour l’instant.`
+      : `Parfait — un cours privé 🌊 Quelle date et heure de début vous conviennent ? (Environ ${durText} minutes.) Je n’ajoute rien à la réservation pour l’instant.`,
+  };
+  return map[L] || map.en;
+}
+
 function buildPrivateLessonReply(lang) {
   const L = normalizeLang(lang);
   const map = {
@@ -188,12 +228,19 @@ function buildServicesGeneralReply(lang) {
   return map[L] || map.en;
 }
 
-function buildServiceSideQuestionReply(lang, intent, messageText) {
+function buildServiceSideQuestionReply(lang, intent, messageText, options) {
+  const opts = options || {};
   const kind = intent || detectServiceSideQuestionIntent(messageText) || 'services_general';
   switch (kind) {
     case 'surf_lessons': {
       const qualifier = detectLessonQualifier(messageText);
-      if (qualifier === 'private') return buildPrivateLessonReply(lang);
+      if (qualifier === 'private') {
+        const sessionCount = detectPrivateLessonSessionCount(messageText);
+        if (sessionCount != null) {
+          return buildPrivateLessonSessionTimesReply(lang, sessionCount, opts.default_duration_minutes);
+        }
+        return buildPrivateLessonReply(lang);
+      }
       if (qualifier === 'group') return buildSurfLessonsReply(lang);
       // Bare "lesson" with no qualifier → ask private-or-group, add nothing.
       return buildLessonClarifyReply(lang);
@@ -323,12 +370,14 @@ function buildTransferSideQuestionReply(lang, messageText, options) {
 module.exports = {
   detectServiceSideQuestionIntent,
   detectLessonQualifier,
+  detectPrivateLessonSessionCount,
   isLessonInquiry,
   detectTransferSideQuestionIntent,
   isPaymentMethodTransferQuestion,
   buildServiceSideQuestionReply,
   buildSurfLessonsReply,
   buildPrivateLessonReply,
+  buildPrivateLessonSessionTimesReply,
   buildLessonClarifyReply,
   buildTransferSideQuestionReply,
   isPackageBooking,

@@ -251,6 +251,10 @@ const {
   deactivateSurfPackRule,
 } = require('./lib/sunset-admin-pack-rules');
 const {
+  validatePrivateLessonBody,
+  putPrivateLessonRule,
+} = require('./lib/sunset-admin-private-lesson-rules');
+const {
   SUNSET_CLIENT_SLUG,
   validateScheduleBookingBody,
   createSunsetScheduleBooking,
@@ -16712,6 +16716,17 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .svc-weekday-row{display:flex;flex-wrap:wrap;gap:8px}
 .svc-weekday-row label{display:flex;align-items:center;gap:6px;text-transform:none;font-size:13px;font-weight:600;color:var(--text);margin:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);cursor:pointer}
 .svc-weekday-row input[type=checkbox]{width:16px;height:16px;flex:0 0 auto;accent-color:var(--primary);margin:0}
+.portal-schedule-private-sessions{display:flex;flex-direction:column;gap:10px;margin-top:8px}
+.portal-schedule-private-session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+@media(max-width:640px){.portal-schedule-private-session-grid{grid-template-columns:1fr}}
+.portal-schedule-private-session-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--text-2)}
+.portal-schedule-private-session-grid input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.portal-schedule-ops-lesson-group.portal-schedule-ops-private-group .portal-schedule-ops-lesson-hdr-title{color:var(--text)}
+.portal-schedule-hdr-badge.is-private{background:rgba(124,58,237,.14);color:#7c3aed}
+.portal-schedule-hdr-badge.is-requested{background:rgba(234,179,8,.16);color:#b45309}
+.portal-schedule-private-hdr{margin-top:14px}
+.portal-schedule-private-slot-group{border-left:3px solid #7c3aed}
+.portal-schedule-private-lesson-row .portal-schedule-lesson-slot-label{color:#7c3aed}
 .portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
 .portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
@@ -18187,13 +18202,21 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="portal-schedule-create-components">
         <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox"> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox"> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-lesson" type="checkbox" checked> <span data-i18n="schedule.type.lesson">Lesson</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox"> <span data-i18n="schedule.type.course">Course</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-lesson" type="checkbox" checked> <span data-i18n="schedule.type.lesson">Group lesson</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox"> <span data-i18n="schedule.type.course">Group course</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private lesson</span></label>
       </div>
     </div>
-    <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Course</label><select id="ps-create-course-select"></select></div>
+    <div id="ps-create-private-lesson-fields" style="display:none">
+      <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
+      <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
+      <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private lesson session.</span>
+        <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
+      </div>
+    </div>
+    <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
-    <div class="portal-schedule-create-field" id="ps-create-lesson-fields"><label for="ps-create-time-slot" data-i18n="schedule.create.lessonSlot">Lesson time slot</label><select id="ps-create-time-slot"></select>
+    <div class="portal-schedule-create-field" id="ps-create-lesson-fields"><label for="ps-create-time-slot" data-i18n="schedule.create.lessonSlot">Group lesson time slot</label><select id="ps-create-time-slot"></select>
       <p class="portal-schedule-card-sub" style="margin-top:6px" data-i18n="schedule.create.lessonCategory">Adult (Over 12)</p></div>
     <div class="portal-schedule-create-field" id="ps-create-lesson-qty-wrap"><label for="ps-create-lesson-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-lesson-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-board-qty-wrap" style="display:none"><label for="ps-create-board-qty" data-i18n="schedule.create.boardQty">Boards</label><input id="ps-create-board-qty" type="number" min="1" max="99" value="1"></div>
@@ -20361,6 +20384,7 @@ var scheduleConversationsCache = [];
 var scheduleLastDrawerRowId = null;
 var scheduleLessonTimesCache = [];
 var scheduleCoursesCache = [];
+var schedulePrivateLessonDurationCache = 120;
 var scheduleLessonTimesFallback = false;
 var scheduleLessonTimesLoaded = false;
 
@@ -20417,6 +20441,15 @@ function scheduleRowCourseMeta(row){
   return {};
 }
 
+function scheduleRowIsPrivateLesson(row){
+  if (!row) return false;
+  if (row._scheduleType === 'private_lesson') return true;
+  var meta = scheduleRowMeta(row);
+  if (String(meta.component || row.metadata_component || '').toLowerCase() === 'private_lesson') return true;
+  if (String(meta.staff_ui_service_type || row.staff_ui_service_type || '').toLowerCase() === 'private_lesson') return true;
+  return String(row.service_type || '').toLowerCase() === 'private_lesson';
+}
+
 function scheduleRowIsCourse(row){
   if (!row) return false;
   var meta = scheduleRowMeta(row);
@@ -20428,11 +20461,83 @@ function scheduleRowIsCourse(row){
 
 function scheduleRowType(row){
   if (scheduleRowIsCourse(row)) return 'course';
+  if (scheduleRowIsPrivateLesson(row)) return 'private_lesson';
   var st = String(row.service_type || '').toLowerCase();
+  if (st === 'private_lesson') return 'private_lesson';
   if (/lesson/.test(st)) return 'lesson';
   if (row && row._scheduleType === 'lesson') return 'lesson';
   if (row && row._scheduleType === 'rental') return 'rental';
   return 'rental';
+}
+
+function scheduleRowIsRequestedTime(row){
+  if (!row) return false;
+  var st = String(row.service_status || row.status || '').toLowerCase();
+  return st === 'requested' || st === 'request_pending' || st === 'pending_confirmation';
+}
+
+function schedulePrivateLessonTimeRange(row){
+  if (!row) return '';
+  var start = scheduleNormalizeSlotTime(row.service_time_local || scheduleRowMeta(row).slot_time || row.slot_time || '');
+  var end = scheduleNormalizeSlotTime(row.service_time_local_end || '');
+  if (start && end) return start + ' – ' + end;
+  return start || '';
+}
+
+function schedulePrivateLessonStartMinutes(row){
+  return scheduleSlotMinutesFromToken(row && (row.service_time_local || scheduleRowMeta(row).slot_time || row.slot_time));
+}
+
+function schedulePrivateLessonEndMinutes(row){
+  if (!row) return null;
+  var end = row.service_time_local_end;
+  if (end) return scheduleSlotMinutesFromToken(end);
+  var start = schedulePrivateLessonStartMinutes(row);
+  if (start == null) return null;
+  var meta = scheduleRowMeta(row);
+  var dur = meta.default_duration_minutes != null ? Number(meta.default_duration_minutes) : schedulePrivateLessonDurationCache;
+  return start + (Number.isFinite(dur) ? dur : 120);
+}
+
+function schedulePrivateLessonRows(dayRows, dateIso){
+  return (dayRows || []).filter(function(r){
+    return String(r.service_date || '').slice(0, 10) === dateIso && scheduleRowIsPrivateLesson(r);
+  });
+}
+
+function scheduleBuildPrivateLessonSessions(dayRows, dateIso){
+  var plRows = schedulePrivateLessonRows(dayRows, dateIso);
+  if (!plRows.length) return [];
+  plRows.sort(function(a, b){
+    var am = schedulePrivateLessonStartMinutes(a);
+    var bm = schedulePrivateLessonStartMinutes(b);
+    if (am == null && bm == null) return 0;
+    if (am == null) return 1;
+    if (bm == null) return -1;
+    return am - bm;
+  });
+  return plRows.map(function(r){
+    var group = scheduleBuildDisplayGroups([r])[0];
+    var gear = scheduleSessionGearTotals(group ? [group] : []);
+    var start = schedulePrivateLessonStartMinutes(r);
+    var end = schedulePrivateLessonEndMinutes(r);
+    return {
+      kind: 'private_lesson',
+      label: portalT('schedule.type.privateLesson'),
+      sectionLabel: portalT('schedule.section.privateLessons'),
+      slot_key: 'private_lesson::' + dateIso + '::' + (scheduleNormalizeSlotTime(r.service_time_local || '') || 'na') + '::' + String(r.service_record_id || r._scheduleId),
+      timeLabel: schedulePrivateLessonTimeRange(r),
+      start: start,
+      end: end,
+      capacity: null,
+      surfers: group ? (group.quantity || 1) : (r.quantity != null ? Number(r.quantity) : 1),
+      bookings: 1,
+      groups: group ? [group] : [],
+      boardsNeeded: gear.boards,
+      wetsuitsNeeded: gear.wetsuits,
+      isRequested: scheduleRowIsRequestedTime(r),
+    };
+  });
 }
 
 function scheduleFormatRange(start, end){
@@ -20478,10 +20583,13 @@ function scheduleEquipmentPrepLabel(group){
 function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded, wetsuitsNeeded, opts){
   stats = stats || {};
   opts = opts || {};
-  var time = scheduleFormatSlotTimeRange(slotTime || '');
+  var time = opts.isPrivateLesson
+    ? String(slotTime || '').trim()
+    : scheduleFormatSlotTimeRange(slotTime || '');
   var label = String(groupLabel || '').trim() || time || portalT('schedule.type.lesson');
   var badges = '';
   if (opts.isCourse) badges += ' <span class="portal-schedule-hdr-badge is-course">' + escHtml(portalT('schedule.badge.course')) + '</span>';
+  if (opts.isRequested) badges += ' <span class="portal-schedule-hdr-badge is-requested">' + escHtml(portalT('schedule.privateLesson.requestedTime')) + '</span>';
   if (opts.done) badges += ' <span class="portal-schedule-hdr-badge is-done">' + escHtml(portalT('schedule.timeline.done')) + '</span>';
   var timeLine = (time ? time + ' · ' : '') + String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked');
   var occHtml = opts.session ? scheduleRenderOccupancyHtml(opts.session) : '';
@@ -20649,6 +20757,8 @@ function scheduleNormalizeApiRow(r){
   if (meta.component) r.component = meta.component;
   if (String(meta.component || '').toLowerCase() === 'course' || String(meta.staff_ui_service_type || '').toLowerCase() === 'course') {
     r._scheduleType = 'course';
+  } else if (String(meta.component || '').toLowerCase() === 'private_lesson' || String(meta.staff_ui_service_type || '').toLowerCase() === 'private_lesson') {
+    r._scheduleType = 'private_lesson';
   } else if (String(meta.component || '').toLowerCase() === 'lesson' || String(meta.staff_ui_service_type || '').toLowerCase() === 'lesson') {
     r._scheduleType = 'lesson';
   }
@@ -20656,6 +20766,7 @@ function scheduleNormalizeApiRow(r){
   if (meta.course_id) r.course_id = meta.course_id;
   if (meta.course_label) r.course_label = meta.course_label;
   if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
+  if (scheduleRowIsPrivateLesson(r)) r._scheduleType = 'private_lesson';
   if (meta.bundle_id) r.bundle_id = meta.bundle_id;
   if (r.staff_ui_service_type) r.service_type = r.staff_ui_service_type;
   if (r._needsReply == null) r._needsReply = false;
@@ -20675,9 +20786,11 @@ function scheduleFetchDay(client, dateIso){
           scheduleNormalizeApiRow(r);
           if (!r._scheduleType) {
             if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
+            else if (scheduleRowIsPrivateLesson(r)) r._scheduleType = 'private_lesson';
             else if (/lesson|surf_lesson/.test(String(r.service_type || ''))) r._scheduleType = 'lesson';
             else r._scheduleType = 'rental';
           }
+          if (r.service_time_local && !r.service_time) r.service_time = r.service_time_local;
           r.service_date = r.service_date || dateIso;
         });
         var lessons = rows.filter(function(r){ return r._scheduleType === 'lesson'; });
@@ -20733,9 +20846,11 @@ function scheduleRowComponentKey(row){
     if (ui === 'board_rental') return 'surfboard';
     if (ui === 'wetsuit_rental') return 'wetsuit';
     if (ui === 'course') return 'course';
+    if (ui === 'private_lesson') return 'private_lesson';
     if (ui === 'lesson') return 'lesson';
   }
   var st = String(row.service_type || '').toLowerCase();
+  if (st === 'private_lesson' || scheduleRowIsPrivateLesson(row)) return 'private_lesson';
   if (st === 'surf_lesson') return scheduleRowIsCourse(row) ? 'course' : 'lesson';
   if (/surfboard|board/.test(st)) return 'surfboard';
   if (/wetsuit/.test(st)) return 'wetsuit';
@@ -20802,6 +20917,7 @@ function scheduleRowSourceLabel(row){
 
 function scheduleComponentLabel(key){
   if (key === 'lesson') return portalT('schedule.type.lesson');
+  if (key === 'private_lesson') return portalT('schedule.type.privateLesson');
   if (key === 'surfboard') return portalT('schedule.type.boardRental');
   if (key === 'wetsuit') return portalT('schedule.type.wetsuitRental');
   return key;
@@ -20810,6 +20926,12 @@ function scheduleComponentLabel(key){
 function scheduleServiceSummaryText(group){
   if (!group) return '';
   var comps = group.components ? Object.keys(group.components) : scheduleRowComponents(group);
+  if (scheduleGroupHasPrivateLesson(group) || comps.indexOf('private_lesson') >= 0){
+    var plSurfers = group.quantity || scheduleGroupComponentQty(group, 'private_lesson') || 1;
+    var plTime = group.slot_time || schedulePrivateLessonTimeRange((group.records && group.records[0]) || group);
+    var plHead = portalT('schedule.type.privateLesson') + (plTime ? ' · ' + plTime : '') + ' · ' + plSurfers + ' ' + portalT('schedule.slot.surfers');
+    return plHead;
+  }
   var hasLesson = scheduleGroupHasLesson(group) || comps.indexOf('lesson') >= 0;
   var slot = scheduleNormalizeSlotTime(group.slot_time || '');
   if (hasLesson){
@@ -20888,7 +21010,9 @@ function scheduleBuildDisplayGroups(rows){
     scheduleEnsureRowId(r);
     scheduleNormalizeApiRow(r);
     var dateIso = String(r.service_date || '').slice(0, 10);
-    var key = r.booking_id ? ('b:' + r.booking_id + ':' + dateIso) : ('r:' + r._scheduleId);
+    var key = scheduleRowIsPrivateLesson(r)
+      ? ('pl:' + String(r.service_record_id || r._scheduleId))
+      : (r.booking_id ? ('b:' + r.booking_id + ':' + dateIso) : ('r:' + r._scheduleId));
     if (!map[key]){
       map[key] = {
         _groupKey: key,
@@ -20920,6 +21044,14 @@ function scheduleBuildDisplayGroups(rows){
     if (scheduleRowType(r) === 'lesson'){
       g.quantity = r.quantity != null ? Number(r.quantity) : 1;
       g.slot_time = r.slot_time || r.service_time || g.slot_time;
+      g._scheduleId = r._scheduleId;
+    }
+    if (scheduleRowType(r) === 'private_lesson'){
+      g.quantity = r.quantity != null ? Number(r.quantity) : 1;
+      g.slot_time = schedulePrivateLessonTimeRange(r);
+      g.service_time_local = r.service_time_local || null;
+      g.service_time_local_end = r.service_time_local_end || null;
+      g._isPrivateLesson = true;
       g._scheduleId = r._scheduleId;
     }
     if (scheduleRowType(r) === 'course'){
@@ -21004,6 +21136,10 @@ function scheduleNeedReplyWhatsAppCount(convs){
 
 function scheduleGroupHasLesson(group){ return !!(group && group.components && group.components.lesson); }
 
+function scheduleGroupHasPrivateLesson(group){
+  return !!(group && (group._isPrivateLesson || (group.components && group.components.private_lesson)));
+}
+
 function scheduleGroupHasCourse(group){
   if (!group) return false;
   if (group.components && group.components.course) return true;
@@ -21066,9 +21202,101 @@ function scheduleFetchNext30(client, startDate){
 function scheduleOnCreateComponentChange(changedId){
   var lesson = el('ps-create-comp-lesson');
   var course = el('ps-create-comp-course');
-  if (changedId === 'ps-create-comp-lesson' && lesson && lesson.checked && course) course.checked = false;
-  if (changedId === 'ps-create-comp-course' && course && course.checked && lesson) lesson.checked = false;
+  var privateLesson = el('ps-create-comp-private-lesson');
+  if (changedId === 'ps-create-comp-lesson' && lesson && lesson.checked) {
+    if (course) course.checked = false;
+    if (privateLesson) privateLesson.checked = false;
+  }
+  if (changedId === 'ps-create-comp-course' && course && course.checked) {
+    if (lesson) lesson.checked = false;
+    if (privateLesson) privateLesson.checked = false;
+  }
+  if (changedId === 'ps-create-comp-private-lesson' && privateLesson && privateLesson.checked) {
+    if (lesson) lesson.checked = false;
+    if (course) course.checked = false;
+  }
   schedulePopulateCreateComponentFields();
+}
+
+function schedulePrivateLessonDefaultEnd(startHm, durationMin){
+  var startM = scheduleSlotMinutesFromToken(startHm);
+  if (startM == null) return '';
+  return scheduleMinutesLabel(startM + (durationMin || schedulePrivateLessonDurationCache || 120));
+}
+
+function scheduleReadPrivateLessonSessionsFromDom(){
+  var wrap = el('ps-create-private-lesson-sessions');
+  var sessions = [];
+  if (!wrap) return sessions;
+  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(function(row){
+    var dateEl = row.querySelector('.ps-pl-session-date');
+    var startEl = row.querySelector('.ps-pl-session-start');
+    var endEl = row.querySelector('.ps-pl-session-end');
+    sessions.push({
+      date: dateEl ? dateEl.value : '',
+      start: startEl ? startEl.value : '',
+      end: endEl ? endEl.value : '',
+    });
+  });
+  return sessions;
+}
+
+function scheduleWirePrivateLessonSessionRow(row){
+  if (!row || row.dataset.wired) return;
+  row.dataset.wired = '1';
+  var startEl = row.querySelector('.ps-pl-session-start');
+  var endEl = row.querySelector('.ps-pl-session-end');
+  if (startEl) {
+    startEl.addEventListener('change', function(){
+      if (!endEl) return;
+      var curEnd = endEl.value;
+      var defEnd = schedulePrivateLessonDefaultEnd(startEl.value);
+      if (!curEnd || curEnd === schedulePrivateLessonDefaultEnd(startEl.defaultValue || '10:00')) {
+        endEl.value = defEnd;
+      }
+      startEl.defaultValue = startEl.value;
+    });
+  }
+}
+
+function scheduleSyncPrivateLessonSessions(){
+  var wrap = el('ps-create-private-lesson-sessions');
+  var qtyEl = el('ps-create-private-lesson-qty');
+  if (!wrap || !qtyEl) return;
+  var qty = parseInt(qtyEl.value, 10) || 1;
+  if (qty < 1) qty = 1;
+  if (qty > 30) qty = 30;
+  qtyEl.value = String(qty);
+  var existing = scheduleReadPrivateLessonSessionsFromDom();
+  var dateFrom = (el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso();
+  var html = '';
+  for (var i = 0; i < qty; i++){
+    var prev = existing[i] || {};
+    var date = prev.date || dateFrom;
+    var start = prev.start || '10:00';
+    var end = prev.end || schedulePrivateLessonDefaultEnd(start);
+    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">' +
+      '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>' +
+      '<div class="portal-schedule-private-session-grid">' +
+      '<label><span data-i18n="schedule.create.privateLesson.date">Date</span><input class="ps-pl-session-date" type="date" value="' + escHtml(date) + '"></label>' +
+      '<label><span data-i18n="schedule.create.privateLesson.start">Start</span><input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>' +
+      '<label><span data-i18n="schedule.create.privateLesson.end">End</span><input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>' +
+      '</div></div>';
+  }
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(scheduleWirePrivateLessonSessionRow);
+  var modal = el('ps-create-modal');
+  if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
+}
+
+function scheduleUpdatePrivateLessonDateRangeFromSessions(){
+  var sessions = scheduleReadPrivateLessonSessionsFromDom().filter(function(s){ return s.date; });
+  if (!sessions.length) return;
+  var dates = sessions.map(function(s){ return s.date; }).sort();
+  var df = el('ps-create-date-from');
+  var dt = el('ps-create-date-to');
+  if (df) df.value = dates[0];
+  if (dt) dt.value = dates[dates.length - 1];
 }
 
 function scheduleRowBookingRef(row, group){
@@ -21090,22 +21318,28 @@ function scheduleRowBookingRef(row, group){
 function schedulePopulateCreateComponentFields(){
   var lessonOn = !!(el('ps-create-comp-lesson') && el('ps-create-comp-lesson').checked);
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
   var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
   var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
   var lf = el('ps-create-lesson-fields');
   var lq = el('ps-create-lesson-qty-wrap');
   var cf = el('ps-create-course-fields');
   var cq = el('ps-create-course-qty-wrap');
+  var pf = el('ps-create-private-lesson-fields');
   var bq = el('ps-create-board-qty-wrap');
   var wq = el('ps-create-wetsuit-qty-wrap');
   if (lf) lf.style.display = lessonOn ? '' : 'none';
   if (lq) lq.style.display = lessonOn ? '' : 'none';
   if (cf) cf.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
+  if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
   if (wq) wq.style.display = wetsuitOn ? '' : 'none';
   if (lessonOn) schedulePopulateCreateTimeFields('lesson');
   if (courseOn) schedulePopulateCreateCourseFields();
+  if (privateOn) {
+    scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
+  }
 }
 
 function scheduleReadCreatePayload(){
@@ -21137,6 +21371,26 @@ function scheduleReadCreatePayload(){
   }
   if (el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked){
     components.wetsuit = { quantity: parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value) || '1', 10) || 1 };
+  }
+  if (el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked){
+    var plQty = parseInt((el('ps-create-private-lesson-qty') && el('ps-create-private-lesson-qty').value) || '1', 10) || 1;
+    var plSurfers = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
+    var plSessions = scheduleReadPrivateLessonSessionsFromDom().map(function(s){
+      return { date: s.date, start: s.start, end: s.end };
+    });
+    if (plSessions.length) {
+      var plDates = plSessions.map(function(s){ return s.date; }).filter(Boolean).sort();
+      if (plDates.length) {
+        dateFrom = plDates[0];
+        dateTo = plDates[plDates.length - 1];
+      }
+    }
+    components.private_lesson = {
+      enabled: true,
+      quantity: plQty,
+      surfer_count: plSurfers,
+      sessions: plSessions,
+    };
   }
   return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
 }
@@ -21190,6 +21444,9 @@ function scheduleFetchLessonTimesConfig(client){
         scheduleLessonTimesFallback = true;
       }
       scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
+      if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
+        schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
+      }
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
     })
@@ -21256,7 +21513,8 @@ function scheduleSlotsForDate(lessonTimes, dateIso){
 function scheduleSlotAggregates(allRows, slot){
   var key = scheduleNormalizeSlotTime(slot.slot_time);
   var lessonRows = (allRows || []).filter(function(l){
-    return scheduleRowType(l) === 'lesson' && scheduleNormalizeSlotTime(l.slot_time || l.service_time) === key;
+    return scheduleRowType(l) === 'lesson' && !scheduleRowIsPrivateLesson(l)
+      && scheduleNormalizeSlotTime(l.slot_time || l.service_time) === key;
   });
   if (!lessonRows.length) return { bookings: 0, surfers: 0, rows: [], groups: [] };
   var relatedRows = scheduleRowsForSameBookings(allRows, lessonRows);
@@ -21392,7 +21650,11 @@ function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
       wetsuitsNeeded: stats.wetsuitsNeeded || 0,
     });
   });
+  scheduleBuildPrivateLessonSessions(dayRows, dateIso).forEach(function(plSession){
+    sessions.push(plSession);
+  });
   var unmatchedLessonRows = dayRows.filter(function(l){
+    if (scheduleRowIsPrivateLesson(l)) return false;
     if (scheduleRowType(l) !== 'lesson') return false;
     if (!slots.length) return true;
     var key = scheduleNormalizeSlotTime(l.slot_time || l.service_time);
@@ -21516,11 +21778,27 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
     html += '<div class="portal-schedule-slot-fallback">' + escHtml(portalT('schedule.slot.noConfiguredTimes')) + '</div>';
   }
   var rentalGroups = scheduleBuildDisplayGroups(dayRows).filter(scheduleGroupIsStandaloneRental);
+  var privateRows = schedulePrivateLessonRows(dayRows, dateIso);
+  if (privateRows.length){
+    html += '<div class="portal-schedule-rentals-hdr portal-schedule-private-hdr">' + escHtml(portalT('schedule.section.privateLessons')) + '</div>';
+    privateRows.forEach(function(r){
+      var g = scheduleBuildDisplayGroups([r])[0];
+      var time = schedulePrivateLessonTimeRange(r);
+      var reqBadge = scheduleRowIsRequestedTime(r)
+        ? (' <span class="portal-schedule-hdr-badge is-requested">' + escHtml(portalT('schedule.privateLesson.requestedTime')) + '</span>')
+        : '';
+      html += '<div class="portal-schedule-slot-group portal-schedule-private-slot-group">' +
+        '<div class="portal-schedule-slot-hdr"><span>' + escHtml(portalT('schedule.type.privateLesson')) + reqBadge + '</span>' +
+        '<span class="portal-schedule-slot-count">' + escHtml(time || '—') + '</span></div>' +
+        '<div class="portal-schedule-slot-bookings">' + scheduleRenderBookingChipHtml(g || r) + '</div></div>';
+    });
+  }
   if (rentalGroups.length){
     html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.rentals.section')) + '</div>';
     rentalGroups.forEach(function(g){ html += scheduleRenderGearChipHtml(g); });
   }
   var unmatchedLessonRows = dayRows.filter(function(l){
+    if (scheduleRowIsPrivateLesson(l)) return false;
     if (scheduleRowType(l) !== 'lesson') return false;
     if (!slots.length) return false;
     var key = scheduleNormalizeSlotTime(l.slot_time || l.service_time);
@@ -21531,7 +21809,7 @@ function scheduleRenderDayBodyHtml(pack, dateIso, lessonTimes){
     html += '<div class="portal-schedule-rentals-hdr">' + escHtml(portalT('schedule.slot.otherLessons')) + '</div>';
     scheduleBuildDisplayGroups(otherRelatedRows).filter(scheduleGroupHasLesson).forEach(function(g){ html += scheduleRenderBookingChipHtml(g); });
   }
-  if (!slots.length && !rentalGroups.length && !dayRows.some(function(r){ return scheduleRowType(r) === 'lesson'; })) {
+  if (!slots.length && !rentalGroups.length && !privateRows.length && !dayRows.some(function(r){ return scheduleRowType(r) === 'lesson'; })) {
     html += '<div style="font-size:11px;color:var(--text-3)">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
   }
   return html;
@@ -21653,6 +21931,26 @@ function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
       '<span class="portal-schedule-lesson-time-count">' + escHtml(String(stats.surfers || 0)) + '</span>' +
       '</div>';
   });
+  var privateToday = todayRows.filter(scheduleRowIsPrivateLesson);
+  privateToday.sort(function(a, b){
+    var am = schedulePrivateLessonStartMinutes(a);
+    var bm = schedulePrivateLessonStartMinutes(b);
+    if (am == null && bm == null) return 0;
+    if (am == null) return 1;
+    if (bm == null) return -1;
+    return am - bm;
+  });
+  privateToday.forEach(function(r){
+    var surfers = r.quantity != null ? Number(r.quantity) : 1;
+    var time = schedulePrivateLessonTimeRange(r);
+    subHtml += '<div class="portal-schedule-lesson-time-row portal-schedule-private-lesson-row">' +
+      '<div class="portal-schedule-lesson-slot-main">' +
+      '<span class="portal-schedule-lesson-slot-label">' + escHtml(portalT('schedule.type.privateLesson')) + '</span>' +
+      (time ? '<span class="portal-schedule-lesson-slot-time">' + escHtml(time) + '</span>' : '') +
+      '</div>' +
+      '<span class="portal-schedule-lesson-time-count">' + escHtml(String(surfers)) + '</span>' +
+      '</div>';
+  });
   if (scheduleLessonTimesFallback) subHtml += '<div class="portal-schedule-lesson-times-empty">' + escHtml(portalT('schedule.slot.fallbackNotice')) + '</div>';
   sub.className = 'portal-schedule-lesson-times';
   sub.innerHTML = subHtml || ('<div class="portal-schedule-lesson-times-empty">' + escHtml(portalT('schedule.lessons.noSlotsToday')) + '</div>');
@@ -21729,7 +22027,7 @@ function scheduleMergeRowsIntoWeekData(weekData, extraRows){
     }
     var pack = map[iso];
     pack.rows.push(r);
-    if (scheduleRowType(r) === 'lesson') pack.lessons.push(r);
+    if (scheduleRowType(r) === 'lesson' || scheduleRowType(r) === 'private_lesson') pack.lessons.push(r);
     else if (scheduleRowType(r) !== 'course') pack.gear.push(r);
   });
   return list;
@@ -22035,6 +22333,7 @@ function renderScheduleSummaryDayBlock(ops, paymentPending, needReply){
 }
 
 function scheduleRowTypeLabel(row){
+  if (scheduleRowIsPrivateLesson(row)) return portalT('schedule.type.privateLesson');
   var st = String(row.service_type || '').toLowerCase();
   if (/board/.test(st)) return portalT('schedule.type.boardRental');
   if (/wetsuit/.test(st)) return portalT('schedule.type.wetsuitRental');
@@ -22063,7 +22362,7 @@ function scheduleUnpaidCount(rows){
 
 function scheduleGroupComponentQty(group, key){
   if (!group) return 0;
-  if (key === 'lesson' || key === 'course') return group.quantity || 0;
+  if (key === 'lesson' || key === 'course' || key === 'private_lesson') return group.quantity || 0;
   var sum = 0;
   (group.records || []).forEach(function(r){
     if (scheduleRowComponentKey(r) === key) {
@@ -22092,12 +22391,12 @@ function scheduleDayEquipmentTotals(rows, dateIso){
     var w = scheduleGroupWetsuitsNeeded(g);
     if (b){
       boards.total += b;
-      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g)) boards.lesson += b;
+      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g) || scheduleGroupHasPrivateLesson(g)) boards.lesson += b;
       else boards.rental += b;
     }
     if (w){
       wetsuits.total += w;
-      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g)) wetsuits.lesson += w;
+      if (scheduleGroupHasLesson(g) || scheduleGroupHasCourse(g) || scheduleGroupHasPrivateLesson(g)) wetsuits.lesson += w;
       else wetsuits.rental += w;
     }
   });
@@ -22149,7 +22448,9 @@ function scheduleRenderOpsBookingRow(group){
   var rowSrcCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var railCls = src === 'staff' ? ' is-staff' : (src === 'luna' || src === 'demo' ? ' is-luna' : '');
   var ariaLabel = scheduleRowSourceAriaLabel(g);
-  var qty = scheduleGroupHasLesson(g)
+  var qty = scheduleGroupHasPrivateLesson(g)
+    ? (g.quantity || scheduleGroupComponentQty(g, 'private_lesson') || 1)
+    : scheduleGroupHasLesson(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'lesson') || 1)
     : scheduleGroupHasCourse(g)
     ? (g.quantity || scheduleGroupComponentQty(g, 'course') || 1)
@@ -22178,11 +22479,14 @@ function scheduleRenderTimelineNowLine(nowLabel){
 function scheduleRenderTimelineSession(session, done){
   var groupCls = 'portal-schedule-ops-lesson-group' +
     (session.kind === 'course' ? ' portal-schedule-ops-course-group' : '') +
+    (session.kind === 'private_lesson' ? ' portal-schedule-ops-private-group' : '') +
     (session.kind === 'other' ? ' portal-schedule-ops-lesson-other' : '');
   var stats = { surfers: session.surfers, bookings: session.bookings };
+  var hdrLabel = session.kind === 'private_lesson' ? (session.sectionLabel || session.label) : session.label;
+  var hdrTime = session.kind === 'private_lesson' ? session.timeLabel : session.timeLabel;
   var html = '<section class="' + groupCls + '">' +
-    scheduleRenderOpsGroupHeader(session.label, session.timeLabel, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
-      { isCourse: session.kind === 'course', done: done, session: session }) +
+    scheduleRenderOpsGroupHeader(hdrLabel, hdrTime, stats, session.boardsNeeded || 0, session.wetsuitsNeeded || 0,
+      { isCourse: session.kind === 'course', isPrivateLesson: session.kind === 'private_lesson', isRequested: !!session.isRequested, done: done, session: session }) +
     '<div class="portal-schedule-ops-lesson-rows">' +
     scheduleRenderOpsColumnHeader();
   (session.groups || []).forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
@@ -22572,7 +22876,7 @@ function renderScheduleBookingList(filter){
     var group = scheduleFindGroupForRow(r) || scheduleBuildDisplayGroups([r])[0];
     html += '<tr class="ps-booking-row" style="cursor:pointer" data-ps-booking-id="' + escHtml(r._scheduleId) + '">' +
       '<td>' + escHtml(String(r.service_date || '—').slice(0, 10)) + '</td>' +
-      '<td>' + escHtml(String((group && group.slot_time) || r.slot_time || r.service_time || '—')) + '</td>' +
+      '<td>' + escHtml(scheduleRowIsPrivateLesson(r) ? schedulePrivateLessonTimeRange(r) : String((group && group.slot_time) || r.slot_time || r.service_time_local || r.service_time || '—')) + '</td>' +
       '<td><span class="portal-schedule-ops-row-summary">' + escHtml(scheduleServiceSummaryText(group || r)) + '</span></td>' +
       '<td>' + escHtml(r.guest_name || '—') + (group && group.quantity ? ' · ' + group.quantity + ' ' + portalT('schedule.slot.surfers') : '') + '</td>' +
       '<td>' + escHtml(r.booking_code || '—') + '</td>' +
@@ -23185,6 +23489,20 @@ function submitScheduleManualBooking(){
     if (msg) { msg.textContent = portalT('schedule.create.componentsRequired'); msg.style.display = 'block'; }
     return;
   }
+  if (payload.components.private_lesson) {
+    var pl = payload.components.private_lesson;
+    if (!pl.sessions || pl.sessions.length !== pl.quantity) {
+      if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionsMismatch'); msg.style.display = 'block'; }
+      return;
+    }
+    for (var si = 0; si < pl.sessions.length; si++) {
+      var sess = pl.sessions[si];
+      if (!sess.date || !sess.start || !sess.end) {
+        if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionIncomplete'); msg.style.display = 'block'; }
+        return;
+      }
+    }
+  }
   if (submitBtn) submitBtn.disabled = true;
   if (msg) msg.style.display = 'none';
   fetch('/staff/schedule/bookings?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
@@ -23352,13 +23670,19 @@ function wireScheduleControls(){
     btn.dataset.wired = '1';
     btn.addEventListener('click', function(){ setScheduleFilter(btn.getAttribute('data-ps-filter')); });
   });
-  ['ps-create-comp-lesson','ps-create-comp-course','ps-create-comp-surfboard','ps-create-comp-wetsuit'].forEach(function(id){
+  ['ps-create-comp-lesson','ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-surfboard','ps-create-comp-wetsuit'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.wired){
       node.dataset.wired = '1';
       node.addEventListener('change', function(){ scheduleOnCreateComponentChange(id); });
     }
   });
+  var plQty = el('ps-create-private-lesson-qty');
+  if (plQty && !plQty.dataset.wired) {
+    plQty.dataset.wired = '1';
+    plQty.addEventListener('change', scheduleSyncPrivateLessonSessions);
+    plQty.addEventListener('input', scheduleSyncPrivateLessonSessions);
+  }
 }
 
 function loadPortalHome(){ loadSchedulePage(); }
@@ -35340,6 +35664,53 @@ async function handleAdminConfigLessonCapacityPut(query, req, res, user) {
   }
 }
 
+async function handleAdminConfigPrivateLessonPut(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  const validated = validatePrivateLessonBody(body);
+  if (!validated.ok) return send400(res, validated.error);
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const result = await withPgClient(async (pg) => putPrivateLessonRule(pg, {
+      clientSlug,
+      locationId,
+      body,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.private_lesson_put',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigLessonTimePost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -41093,6 +41464,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigLessonCapacityPut(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/private-lesson' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigPrivateLessonPut(parsed.query, req, res, auth.user);
   }
 
 

@@ -2,23 +2,26 @@
 
 /**
  * Sunset Schedule — manual booking writes (bookings + booking_service_records).
- * Supports component combos, courses, and multi-date via one booking header + many service records.
+ * Supports component combos, courses, private lessons, and multi-date via one booking header + many service records.
  */
 
 const crypto = require('crypto');
+const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 const METADATA_SOURCE_TAG = 'staff_manual_schedule';
 const DB_SOURCE = 'staff_manual';
 const DEFAULT_LESSON_CATEGORY = 'Adult (Over 12)';
+const PRIVATE_LESSON_MAX_SESSIONS = 30;
 
-const UI_COMPONENT_KEYS = new Set(['lesson', 'course', 'surfboard', 'wetsuit']);
+const UI_COMPONENT_KEYS = new Set(['lesson', 'course', 'surfboard', 'wetsuit', 'private_lesson']);
 const LEGACY_UI_SERVICE_TYPES = new Set(['lesson', 'board_rental', 'wetsuit_rental']);
 const UI_PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'pending']);
 
 const UI_TO_DB_SERVICE_TYPE = {
   lesson: 'surf_lesson',
   course: 'surf_lesson',
+  private_lesson: 'surf_lesson',
   surfboard: 'surfboard',
   wetsuit: 'wetsuit',
   board_rental: 'surfboard',
@@ -51,10 +54,85 @@ function isTimeHm(s) {
   return /^([01]\d|2[0-3]):[0-5]\d$/.test(String(s || '').trim());
 }
 
+function timeToMinutes(hm) {
+  const parts = String(hm || '').trim().split(':');
+  const h = parseInt(parts[0], 10);
+  const m = parseInt(parts[1], 10);
+  if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+  return h * 60 + m;
+}
+
 function parseQuantity(raw, fallback) {
   const quantity = parseInt(String(raw == null ? fallback : raw), 10);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) return null;
   return quantity;
+}
+
+function parsePrivateLessonQuantity(raw) {
+  const quantity = parseInt(String(raw == null ? 1 : raw), 10);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > PRIVATE_LESSON_MAX_SESSIONS) return null;
+  return quantity;
+}
+
+function isPrivateLessonEnabled(part) {
+  if (!part || typeof part !== 'object') return false;
+  return part.enabled === true || part.enabled === 'true' || part.enabled === 1;
+}
+
+function normalizePrivateLessonSessions(sessions, quantity) {
+  if (!Array.isArray(sessions)) {
+    return { ok: false, error: 'components.private_lesson.sessions must be an array' };
+  }
+  if (sessions.length !== quantity) {
+    return { ok: false, error: `components.private_lesson.sessions length must equal quantity (${quantity})` };
+  }
+  const normalized = [];
+  for (let i = 0; i < sessions.length; i += 1) {
+    const s = sessions[i] && typeof sessions[i] === 'object' ? sessions[i] : {};
+    const date = String(s.date || '').trim();
+    const start = String(s.start || '').trim();
+    const end = String(s.end || '').trim();
+    if (!isIsoDate(date)) {
+      return { ok: false, error: `components.private_lesson.sessions[${i}].date must be YYYY-MM-DD` };
+    }
+    if (!isTimeHm(start)) {
+      return { ok: false, error: `components.private_lesson.sessions[${i}].start must be HH:MM` };
+    }
+    if (!isTimeHm(end)) {
+      return { ok: false, error: `components.private_lesson.sessions[${i}].end must be HH:MM` };
+    }
+    const startM = timeToMinutes(start);
+    const endM = timeToMinutes(end);
+    if (endM <= startM) {
+      return { ok: false, error: `components.private_lesson.sessions[${i}].end must be after start` };
+    }
+    normalized.push({ date, start, end, index: i + 1 });
+  }
+  return { ok: true, value: normalized };
+}
+
+function normalizePrivateLessonPart(part) {
+  if (!isPrivateLessonEnabled(part)) return { ok: true, skip: true };
+  const quantity = parsePrivateLessonQuantity(part.quantity != null ? part.quantity : part.count);
+  if (!quantity) {
+    return { ok: false, error: `components.private_lesson.quantity must be 1–${PRIVATE_LESSON_MAX_SESSIONS}` };
+  }
+  const surfer_count = parseQuantity(part.surfer_count, 1);
+  if (!surfer_count) {
+    return { ok: false, error: 'components.private_lesson.surfer_count must be 1–99' };
+  }
+  const sessions = normalizePrivateLessonSessions(part.sessions, quantity);
+  if (!sessions.ok) return sessions;
+  return {
+    ok: true,
+    value: {
+      enabled: true,
+      quantity,
+      surfer_count,
+      sessions: sessions.value,
+      label: String(part.label || '').trim() || null,
+    },
+  };
 }
 
 function normalizeComponents(body) {
@@ -62,6 +140,7 @@ function normalizeComponents(body) {
   if (b.components && typeof b.components === 'object') {
     const out = {};
     for (const key of UI_COMPONENT_KEYS) {
+      if (key === 'private_lesson') continue;
       const part = b.components[key];
       if (!part) continue;
       const qty = parseQuantity(part.quantity != null ? part.quantity : part.count, 1);
@@ -81,8 +160,13 @@ function normalizeComponents(body) {
       }
       out[key] = entry;
     }
+    if (b.components.private_lesson) {
+      const pl = normalizePrivateLessonPart(b.components.private_lesson);
+      if (!pl.ok) return pl;
+      if (!pl.skip) out.private_lesson = pl.value;
+    }
     if (!Object.keys(out).length) {
-      return { ok: false, error: 'components must include at least one of lesson, course, surfboard, wetsuit' };
+      return { ok: false, error: 'components must include at least one of lesson, course, private_lesson, surfboard, wetsuit' };
     }
     return { ok: true, value: out };
   }
@@ -104,7 +188,7 @@ function normalizeComponents(body) {
   return { ok: true, value: out };
 }
 
-function normalizeServiceDates(body) {
+function normalizeServiceDates(body, components) {
   const b = body && typeof body === 'object' ? body : {};
   const dates = [];
   if (Array.isArray(b.service_dates)) {
@@ -122,10 +206,19 @@ function normalizeServiceDates(body) {
     for (let cur = new Date(start); cur <= end; cur.setDate(cur.getDate() + 1)) {
       dates.push(cur.toISOString().slice(0, 10));
     }
+  } else if (components && components.private_lesson && components.private_lesson.sessions) {
+    components.private_lesson.sessions.forEach((s) => {
+      if (s.date) dates.push(s.date);
+    });
   } else {
     const single = String(b.service_date || '').trim();
     if (!isIsoDate(single)) return { ok: false, error: 'service_date or service_dates is required' };
     dates.push(single);
+  }
+  if (components && components.private_lesson && components.private_lesson.sessions) {
+    components.private_lesson.sessions.forEach((s) => {
+      if (s.date) dates.push(s.date);
+    });
   }
   const unique = [...new Set(dates)];
   if (!unique.length) return { ok: false, error: 'at least one service date is required' };
@@ -145,7 +238,7 @@ function validateScheduleBookingBody(body) {
   const guest_phone = b.guest_phone != null ? String(b.guest_phone).trim().slice(0, 40) : '';
   const components = normalizeComponents(b);
   if (!components.ok) return components;
-  const serviceDates = normalizeServiceDates(b);
+  const serviceDates = normalizeServiceDates(b, components.value);
   if (!serviceDates.ok) return serviceDates;
   const payment_status = String(b.payment_status || 'unpaid').trim().toLowerCase();
   if (!UI_PAYMENT_STATUSES.has(payment_status)) {
@@ -191,6 +284,7 @@ function componentList(components) {
 function staffUiServiceType(componentKey) {
   if (componentKey === 'lesson') return 'lesson';
   if (componentKey === 'course') return 'course';
+  if (componentKey === 'private_lesson') return 'private_lesson';
   if (componentKey === 'surfboard') return 'board_rental';
   return 'wetsuit_rental';
 }
@@ -198,9 +292,12 @@ function staffUiServiceType(componentKey) {
 function scheduleRowFromDb(row) {
   const dbType = String(row.service_type || '').toLowerCase();
   const uiType = row.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || dbType;
-  const isCourse = String(row.metadata_component || row.component || '').toLowerCase() === 'course'
+  const component = String(row.metadata_component || row.component || '').toLowerCase();
+  const isPrivateLesson = component === 'private_lesson'
+    || String(row.staff_ui_service_type || '').toLowerCase() === 'private_lesson';
+  const isCourse = component === 'course'
     || String(row.staff_ui_service_type || '').toLowerCase() === 'course';
-  const isLesson = !isCourse && (dbType === 'surf_lesson' || uiType === 'lesson');
+  const isLesson = !isCourse && !isPrivateLesson && (dbType === 'surf_lesson' || uiType === 'lesson');
   let payment = String(row.payment_status || '').toLowerCase();
   if (payment === 'pending' || payment === 'not_requested') payment = 'unpaid';
   const metaComponents = row.metadata_components ? String(row.metadata_components).split(',').filter(Boolean) : null;
@@ -212,9 +309,11 @@ function scheduleRowFromDb(row) {
     _isLuna: row.record_source === 'luna_guest' || row.record_source === 'stripe',
     record_source: row.record_source || null,
     guest_name: row.guest_name || null,
-    service_type: isCourse ? 'course' : uiType,
+    service_type: isPrivateLesson ? 'private_lesson' : (isCourse ? 'course' : uiType),
     service_date: row.service_date,
-    slot_time: row.slot_time || null,
+    slot_time: row.slot_time || row.service_time_local || null,
+    service_time_local: row.service_time_local || null,
+    service_time_local_end: row.service_time_local_end || null,
     quantity: row.quantity != null ? Number(row.quantity) : 1,
     payment_status: payment,
     booking_code: row.booking_code || null,
@@ -226,9 +325,14 @@ function scheduleRowFromDb(row) {
     components: metaComponents,
     bundle_id: row.bundle_id || null,
     _needsReply: row.needs_reply === true || row.needs_reply === 't',
-    _scheduleType: isCourse ? 'course' : (isLesson ? 'lesson' : 'rental'),
+    _scheduleType: isPrivateLesson ? 'private_lesson' : (isCourse ? 'course' : (isLesson ? 'lesson' : 'rental')),
     service_record_id: row.service_record_id || row.id || null,
   };
+}
+
+async function ensureServiceRecordTimeColumns(pg) {
+  await pg.query(`ALTER TABLE booking_service_records ADD COLUMN IF NOT EXISTS service_time_local TEXT`);
+  await pg.query(`ALTER TABLE booking_service_records ADD COLUMN IF NOT EXISTS service_time_local_end TEXT`);
 }
 
 async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
@@ -243,6 +347,8 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
             sr.quantity,
             sr.payment_status::text AS payment_status,
             sr.source AS record_source,
+            sr.service_time_local,
+            sr.service_time_local_end,
             sr.metadata->>'slot_time' AS slot_time,
             sr.metadata->>'notes' AS notes,
             COALESCE((sr.metadata->>'needs_reply')::boolean, false) AS needs_reply,
@@ -264,38 +370,93 @@ async function findIdempotentBooking(pg, clientSlug, idempotencyKey) {
   return res.rows.length ? res.rows : null;
 }
 
-async function insertServiceRecord(pg, params) {
-  const svcIns = await pg.query(
-    `INSERT INTO booking_service_records (
-       client_slug, booking_id, booking_code, guest_name, service_type, service_date,
-       quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
-     ) VALUES (
-       $1, $2::uuid, $3, $4, $5, $6::date,
-       $7, 'confirmed', 0, 0, $8, $9, $10::jsonb
-     )
-     RETURNING id::text AS service_record_id,
-               booking_id::text AS booking_id,
-               booking_code,
-               guest_name,
-               service_type::text AS service_type,
-               service_date::text AS service_date,
-               quantity,
-               payment_status::text AS payment_status,
-               source AS record_source,
-               metadata->>'slot_time' AS slot_time,
-               metadata->>'notes' AS notes,
-               COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
-               metadata->>'staff_ui_service_type' AS staff_ui_service_type,
-               metadata->>'source' AS metadata_source,
-               metadata->>'lesson_category' AS lesson_category,
-               metadata->>'course_id' AS course_id,
-               metadata->>'course_label' AS course_label,
-               metadata->>'component' AS metadata_component,
-               metadata->>'bundle_id' AS bundle_id,
-               metadata->>'components' AS metadata_components`,
-    params,
-  );
+async function insertServiceRecord(pg, params, timeOpts) {
+  const hasTime = timeOpts && timeOpts.service_time_local;
+  if (hasTime) await ensureServiceRecordTimeColumns(pg);
+
+  const svcIns = hasTime
+    ? await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+         quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata,
+         service_time_local, service_time_local_end
+       ) VALUES (
+         $1, $2::uuid, $3, $4, $5, $6::date,
+         $7, 'confirmed', 0, 0, $8, $9, $10::jsonb,
+         $11, $12
+       )
+       RETURNING id::text AS service_record_id,
+                 booking_id::text AS booking_id,
+                 booking_code,
+                 guest_name,
+                 service_type::text AS service_type,
+                 service_date::text AS service_date,
+                 quantity,
+                 payment_status::text AS payment_status,
+                 source AS record_source,
+                 service_time_local,
+                 service_time_local_end,
+                 metadata->>'slot_time' AS slot_time,
+                 metadata->>'notes' AS notes,
+                 COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
+                 metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+                 metadata->>'source' AS metadata_source,
+                 metadata->>'lesson_category' AS lesson_category,
+                 metadata->>'course_id' AS course_id,
+                 metadata->>'course_label' AS course_label,
+                 metadata->>'component' AS metadata_component,
+                 metadata->>'bundle_id' AS bundle_id,
+                 metadata->>'components' AS metadata_components`,
+      [...params, timeOpts.service_time_local, timeOpts.service_time_local_end || null],
+    )
+    : await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+         quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
+       ) VALUES (
+         $1, $2::uuid, $3, $4, $5, $6::date,
+         $7, 'confirmed', 0, 0, $8, $9, $10::jsonb
+       )
+       RETURNING id::text AS service_record_id,
+                 booking_id::text AS booking_id,
+                 booking_code,
+                 guest_name,
+                 service_type::text AS service_type,
+                 service_date::text AS service_date,
+                 quantity,
+                 payment_status::text AS payment_status,
+                 source AS record_source,
+                 metadata->>'slot_time' AS slot_time,
+                 metadata->>'notes' AS notes,
+                 COALESCE((metadata->>'needs_reply')::boolean, false) AS needs_reply,
+                 metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+                 metadata->>'source' AS metadata_source,
+                 metadata->>'lesson_category' AS lesson_category,
+                 metadata->>'course_id' AS course_id,
+                 metadata->>'course_label' AS course_label,
+                 metadata->>'component' AS metadata_component,
+                 metadata->>'bundle_id' AS bundle_id,
+                 metadata->>'components' AS metadata_components`,
+      params,
+    );
   return svcIns.rows[0];
+}
+
+function bookingHeaderDates(input) {
+  const dates = input.service_dates.slice();
+  if (input.components.private_lesson) {
+    input.components.private_lesson.sessions.forEach((s) => dates.push(s.date));
+  }
+  const sorted = [...new Set(dates)].sort();
+  return { firstDate: sorted[0], lastDate: sorted[sorted.length - 1] };
+}
+
+function resolveGuestCount(components) {
+  if (components.private_lesson) return components.private_lesson.surfer_count;
+  if (components.lesson) return components.lesson.quantity;
+  if (components.course) return components.course.quantity;
+  const keys = componentList(components);
+  return Math.max(...keys.map((k) => components[k].quantity));
 }
 
 async function createSunsetScheduleBooking(pg, opts) {
@@ -335,21 +496,23 @@ async function createSunsetScheduleBooking(pg, opts) {
   }
   const clientId = clientRes.rows[0].id;
 
+  let privateLessonConfig = defaultPrivateLessonApi();
+  if (input.components.private_lesson) {
+    const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId });
+    privateLessonConfig = plLoad.api || privateLessonConfig;
+  }
+
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
   const componentKeys = componentList(input.components);
-  const guestCount = input.components.lesson
-    ? input.components.lesson.quantity
-    : (input.components.course
-      ? input.components.course.quantity
-      : Math.max(...componentKeys.map((k) => input.components[k].quantity)));
+  const guestCount = resolveGuestCount(input.components);
+  const { firstDate } = bookingHeaderDates(input);
 
   await pg.query('BEGIN');
   try {
-    const firstDate = input.service_dates[0];
     const bookingIns = await pg.query(
       `INSERT INTO bookings (
          client_id, booking_code, guest_name, phone, status, payment_status,
@@ -381,8 +544,53 @@ async function createSunsetScheduleBooking(pg, opts) {
     const bookingId = bookingIns.rows[0].id;
     const createdRows = [];
 
+    if (input.components.private_lesson) {
+      const pl = input.components.private_lesson;
+      const plLabel = pl.label || privateLessonConfig.label || 'Private lesson';
+      for (const session of pl.sessions) {
+        const metadata = {
+          source: METADATA_SOURCE_TAG,
+          staff_manual_schedule: true,
+          staff_ui_service_type: 'private_lesson',
+          component: 'private_lesson',
+          components: componentKeys,
+          bundle_id: bundleId,
+          slot_time: session.start,
+          private_lesson_label: plLabel,
+          private_lesson_session_index: session.index,
+          private_lesson_session_count: pl.quantity,
+          price_basis: privateLessonConfig.price_basis || 'per_session',
+          unit_amount_cents: privateLessonConfig.amount_cents || 0,
+          default_duration_minutes: privateLessonConfig.default_duration_minutes || 120,
+          notes: input.notes || null,
+          needs_reply: input.needs_reply,
+          guest_phone: input.guest_phone,
+          location_id: locationId || null,
+          created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+          idempotency_key: input.idempotency_key,
+        };
+        const row = await insertServiceRecord(pg, [
+          clientSlug,
+          bookingId,
+          bookingCode,
+          input.guest_name,
+          UI_TO_DB_SERVICE_TYPE.private_lesson,
+          session.date,
+          pl.surfer_count,
+          srPayment,
+          DB_SOURCE,
+          JSON.stringify(metadata),
+        ], {
+          service_time_local: session.start,
+          service_time_local_end: session.end,
+        });
+        createdRows.push(row);
+      }
+    }
+
     for (const serviceDate of input.service_dates) {
       for (const componentKey of componentKeys) {
+        if (componentKey === 'private_lesson') continue;
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const metadata = {
@@ -442,12 +650,19 @@ module.exports = {
   METADATA_SOURCE_TAG,
   DB_SOURCE,
   DEFAULT_LESSON_CATEGORY,
+  PRIVATE_LESSON_MAX_SESSIONS,
   UI_COMPONENT_KEYS,
   LEGACY_UI_SERVICE_TYPES,
   UI_TO_DB_SERVICE_TYPE,
   DB_TO_UI_SERVICE_TYPE,
   UI_TO_SR_PAYMENT,
   UI_TO_BOOKING_PAYMENT,
+  isIsoDate,
+  isTimeHm,
+  timeToMinutes,
+  isPrivateLessonEnabled,
+  normalizePrivateLessonPart,
+  normalizePrivateLessonSessions,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,

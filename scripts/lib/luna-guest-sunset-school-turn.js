@@ -6,6 +6,11 @@
  */
 
 const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
+const {
+  detectPrivateLessonSessionCount,
+  buildPrivateLessonSessionTimesReply,
+  buildPrivateLessonReply,
+} = require('./luna-guest-service-transfer-explainer');
 const { executeSunsetCatalogTool } = require('./sunset-catalog-tool-executor');
 const {
   isSunsetClientSlug,
@@ -21,6 +26,7 @@ function trimStr(v) {
 }
 
 const LESSON_TIMES_RE = /\b(?:lesson\s+times?|what\s+time\s+(?:are|is)\s+(?:the\s+)?(?:surf\s+)?lessons?|when\s+are\s+(?:the\s+)?(?:surf\s+)?lessons?|horario\s+(?:de\s+)?(?:clases|surf)|a\s+che\s+ora\s+(?:sono\s+)?(?:le\s+)?lezioni)\b/i;
+const PRIVATE_LESSON_RE = /\b(?:private\s+lessons?|clases?\s+privadas?|lezioni\s+private|privat(?:kurs|stunde|unterricht)|cours\s+priv[eé])\b/i;
 const PRICE_RE = /\b(?:how\s+much|price|cost|precio|prezzo|cuanto|cuesta|quanto\s+costa)\b/i;
 const RENTAL_RE = /\b(?:rent|rental|hire|alquil|nolegg|miet)\b/i;
 
@@ -140,6 +146,24 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
   if (LESSON_TIMES_RE.test(messageText)) {
     proposedReply = formatLessonTimesReply(lang, schoolName, adminCfg && adminCfg.lesson_times);
     toolPayloads.push({ kind: 'lesson_times', location_id: locationId });
+  } else if (PRIVATE_LESSON_RE.test(messageText)) {
+    const plCatalog = executeSunsetCatalogTool('get_sunset_private_lesson', {
+      client_slug: 'sunset',
+      location_id: locationId,
+      dry_run: true,
+      args: {},
+    });
+    catalogResult = plCatalog;
+    toolPayloads.push({ kind: 'get_sunset_private_lesson', location_id: locationId });
+    const sessionCount = detectPrivateLessonSessionCount(messageText);
+    const duration = plCatalog.ok && plCatalog.result
+      ? plCatalog.result.default_duration_minutes
+      : (adminCfg && adminCfg.private_lesson && adminCfg.private_lesson.default_duration_minutes);
+    if (sessionCount != null) {
+      proposedReply = buildPrivateLessonSessionTimesReply(lang, sessionCount, duration);
+    } else {
+      proposedReply = buildPrivateLessonReply(lang);
+    }
   } else if (PRICE_RE.test(messageText) && RENTAL_RE.test(messageText)) {
     const { item, duration } = inferRentalLookup(messageText);
     catalogResult = executeSunsetCatalogTool('get_sunset_rental_price', {
