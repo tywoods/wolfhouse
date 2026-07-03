@@ -15822,8 +15822,10 @@ async function handleManualBookingCreate(req, res, user) {
     : { guest_packages: [] };
   if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
   const guestPackages = normalizedGuestPackages.guest_packages || [];
+  // Majority storage code is null when everyone is no-package; fall back to the
+  // top package_code (or 'package_none') so an all-no-package booking is valid.
   const effectivePackageCode = guestPackages.length
-    ? guestPackagesMajorityStorageCode(guestPackages)
+    ? (guestPackagesMajorityStorageCode(guestPackages) || packageCode || 'package_none')
     : packageCode;
   const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
   const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
