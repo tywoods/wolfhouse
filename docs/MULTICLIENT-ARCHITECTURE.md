@@ -23,7 +23,7 @@ guarded by `scripts/verify-multiclient-isolation.js`.
 |--------|-----------|---------|
 | `wolfhouse` | `wolfhouse-somo` | Wolfhouse Somo |
 | `sunset` | `sunset-somo`, `sunset-sardinero` | Sunset, **elSardi** |
-| `mirleft` | `mirleft-main` | Mirleft |
+| `mirleft` | `mirleft-main` | Mirleft Surf Camp |
 
 Rule of thumb: **new business → new client**; **new site for an existing business → new location**.
 `location_id` is unique across the whole platform (never reused between clients).

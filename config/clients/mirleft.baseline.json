@@ -1,0 +1,428 @@
+{
+  "_meta": {
+    "status": "config_skeleton",
+    "discovery_status": "discovery",
+    "version": "0.1",
+    "created": "2026-07-03",
+    "purpose": "Mirleft Surf Camp — signed-client tenant discovery skeleton. Follows config/clients/_deploy-config.template.json and lawave/sunset conventions. NOT live; deployment.enabled=false. Website-seeded prices carry pricing_status=unverified_seed and must not be quoted to real guests until owner-confirmed. See docs/clients/mirleft/ONBOARDING.md.",
+    "client_slug": "mirleft",
+    "client_name": "Mirleft Surf Camp",
+    "tenant_id": "mirleft",
+    "vertical": "lodging_surf_camp",
+    "_vertical_note": "Accommodation + surf camp + surf school/rental/adventures. Portal target is hybrid (accommodation calendar separate from daily prep board) — not wired yet; portal code is still binary lodging vs surf.",
+    "timezone": "Africa/Casablanca",
+    "languages": [
+      "en",
+      "fr",
+      "es",
+      "ar"
+    ],
+    "_languages_note": "English, French, Spanish, Arabic per website / owner discovery.",
+    "currency": "EUR",
+    "_currency_note": "EUR primary; MAD accepted in cash (not for Stripe/payment links).",
+    "based_on_schema": "config/clients/_deploy-config.template.json",
+    "related_docs": [
+      "docs/clients/mirleft/ONBOARDING.md",
+      "docs/MULTICLIENT-ARCHITECTURE.md",
+      "docs/DEPLOYMENT-CONFIG.md"
+    ],
+    "public_site_seed_sources": [
+      "https://mirleftsurfcamp.wordpress.com/"
+    ],
+    "signed_client": true,
+    "_signed_client_note": "Real signed Luna Front Desk client. This file is config/discovery only — no runtime wiring."
+  },
+  "deployment": {
+    "enabled": false,
+    "deploy_target": null,
+    "whatsapp_phone_number_id": null,
+    "_whatsapp_note": "TODO: new Mirleft Luna WhatsApp number + Meta Cloud API phone_number_id. Public site phone +212 678-551932 is NOT the final Luna number and must not be used as deployment.whatsapp_phone_number_id.",
+    "email_inbox": null,
+    "_email_note": "TODO later: email ingress. Contact email mirleftsurfcamp@gmail.com is not wired as Luna inbox.",
+    "staff_api_tenant_scope": "mirleft",
+    "_staff_api_note": "Every Staff-API call must carry tenant_id=mirleft. Engine reads this field; never hardcode in code.",
+    "stripe_context_ref": "secret:stripe_publishable_key",
+    "_stripe_note": "TODO: Mirleft gets its own Stripe context (migrate later). Never shares Wolfhouse or other client Stripe.",
+    "isolated_staging_required": true,
+    "_staging_note": "Isolated Mirleft staging runtime required later; staging auto-reply deferred until then.",
+    "notes": "Config skeleton / discovery only. Fill TODO channel and Stripe fields, owner-verify pricing_status, and set enabled=true only after go-live checklist."
+  },
+  "secrets": {
+    "_note": "Real credentials live in config/clients/mirleft.secrets.json (gitignored). Reference by 'secret:<key>'. Do not commit secrets. No secrets file in this discovery slice.",
+    "secret_file": "config/clients/mirleft.secrets.json",
+    "example_file": "config/clients/mirleft.secrets.example.json",
+    "keys": [
+      "handoff_whatsapp_phone",
+      "handoff_email_address",
+      "master_admin_numbers",
+      "staff_admin_password",
+      "stripe_publishable_key",
+      "stripe_secret_key",
+      "stripe_webhook_secret"
+    ]
+  },
+  "property": {
+    "address": "Ctre De Santé Mirleft, Mirleft, Morocco",
+    "location_label": "Mirleft, Morocco",
+    "property_name": "Inna Guest House",
+    "_property_note": "Website: riad / guest house, en-suite accommodation, shared lounge, kitchen, terraces, BBQ, courtyard, 24h front desk, free parking, free WiFi; self-catering / B&B / full board possible; ~5 min walk to Atlantic.",
+    "founders": [
+      "Bohcin",
+      "Abdel"
+    ],
+    "founded_year": 2017,
+    "gate_code": null
+  },
+  "persona": {
+    "assistant_name": "Luna",
+    "brand_name": "Mirleft Surf Camp",
+    "role": "front-desk booking and inquiry assistant for Mirleft Surf Camp",
+    "voice_summary": "TODO: Mirleft-branded Luna identity/config later, separate from Wolfhouse Luna. Warm, helpful, one clear question at a time on WhatsApp. No SOUL edit in this discovery slice.",
+    "no_ai_mention": true,
+    "one_clear_next_step": true,
+    "emoji_level": "moderate",
+    "_persona_note": "Tenant-specific Luna identity/SOUL is a later slice. Do not reuse Wolfhouse SOUL as Mirleft identity."
+  },
+  "channels": {
+    "whatsapp": {
+      "status": "planned",
+      "enabled": false,
+      "reply_style": "short_one_question_per_reply",
+      "max_reply_chars": 900,
+      "_note": "New WhatsApp number coming later. Meta Cloud API not provisioned. Public phone +212 678-551932 is not Luna."
+    },
+    "email": {
+      "status": "planned",
+      "enabled": false,
+      "reply_style": "structured_sections_allowed",
+      "_note": "Email ingress later. Contact: mirleftsurfcamp@gmail.com."
+    }
+  },
+  "pricing_policy": {
+    "_note": "All website-derived prices are unverified_seed. Must not be used for live autonomous charge or real-guest quotes until owner confirms.",
+    "currency": "EUR",
+    "cash_currency_accepted": [
+      "MAD"
+    ],
+    "live_autonomous_charge_requires": "pricing_status_confirmed",
+    "on_unverified_seed_in_live": "block_do_not_quote",
+    "on_provisional_in_live": "handoff_or_block_do_not_autocharge",
+    "payment_claim_behavior": "check_stripe_payment_events_not_llm"
+  },
+  "payment": {
+    "_note": "Payment links desired; Stripe account TODO (migrate later). Guest must not be forced to pay before booking confirmation.",
+    "payment_links_desired": true,
+    "payment_required_before_confirmation": false,
+    "payment_link_options": [
+      "deposit",
+      "full"
+    ],
+    "balance_payment_methods": [
+      "cash",
+      "stripe"
+    ],
+    "deposit_rule": {
+      "type": null,
+      "pricing_status": "todo",
+      "_note": "TODO: deposit amounts and cancellation policy not yet collected."
+    },
+    "stripe_account": null,
+    "_stripe_account_note": "TODO: final Mirleft Stripe account."
+  },
+  "catalog": {
+    "_note": "Website-seeded catalog. Every priced item is pricing_status=unverified_seed. Packages may be 6-day fixed or custom stays.",
+    "offering_type": "multi",
+    "price_quote_safe_default": "no_price_quote_without_pricing_status_confirmed_config_row",
+    "seed_source": "public_site",
+    "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+    "seed_source_urls": [
+      "https://mirleftsurfcamp.wordpress.com/"
+    ],
+    "packages": {
+      "inventory_model": "capacity_limited",
+      "_inventory_model_note": "Tied to accommodation inventory once real rooms are collected.",
+      "base_duration": "6_days",
+      "custom_stays_allowed": true,
+      "offerings": {
+        "lets_do_this": {
+          "label": "Let's Do This Package",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": 750,
+          "duration_days": 6,
+          "includes": [
+            "6_full_surf_days",
+            "minimum_24h_lessons",
+            "2_sessions_per_day",
+            "accommodation",
+            "agadir_airport_transfer",
+            "beach_transport",
+            "board_and_wetsuit",
+            "instructor",
+            "3_meals_per_day",
+            "extras_tourist_visits_sandboarding",
+            "towel_wifi_water_tea_coffee_surf_wax"
+          ],
+          "excludes": [
+            "travel_insurance"
+          ]
+        },
+        "surf_guiding": {
+          "label": "Surf Guiding Package",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": 750,
+          "duration_days": 6,
+          "includes": [
+            "6_full_surf_days",
+            "independent_surfers",
+            "private_en_suite_room",
+            "agadir_airport_transfer",
+            "beach_transport",
+            "board_and_wetsuit_if_needed",
+            "guide",
+            "up_to_3_sessions_per_day",
+            "3_meals_per_day",
+            "extras"
+          ],
+          "excludes": [
+            "travel_insurance"
+          ]
+        },
+        "no_airport_transfer_surf": {
+          "label": "No Airport Transfer Surf Package",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": 650,
+          "duration_days": 6,
+          "includes": [
+            "en_suite_private_room",
+            "surf_spot_transport",
+            "full_board",
+            "equipment",
+            "private_instructor_or_guide",
+            "one_no_surf_day_activity"
+          ]
+        },
+        "family_surf": {
+          "label": "Family Surf Package",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": null,
+          "price_model": "bespoke_quote",
+          "duration_days": 6,
+          "includes": [
+            "airport_transfers",
+            "one_double_and_one_twin_en_suite_room",
+            "full_board",
+            "5_days_equipment_hire",
+            "daily_transport",
+            "2_private_instructors_or_guides",
+            "one_no_surf_day_activity"
+          ]
+        }
+      }
+    },
+    "lessons": {
+      "inventory_model": "capacity_limited",
+      "offerings": {
+        "first_steps": {
+          "label": "First Steps",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": 20,
+          "duration": "2_hours",
+          "water_time_approx": "1.5_hours",
+          "includes": [
+            "board",
+            "wetsuit"
+          ]
+        },
+        "daily_package": {
+          "label": "Daily Package",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur_per_person": 50,
+          "duration": "4_hours",
+          "includes": [
+            "board",
+            "wetsuit",
+            "lunch"
+          ]
+        }
+      }
+    },
+    "transfers": {
+      "inventory_model": "unlimited",
+      "offerings": {
+        "agadir_airport_one_way": {
+          "label": "Agadir airport one way",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur": 70
+        },
+        "agadir_pickup_and_dropoff": {
+          "label": "Agadir airport pickup + dropoff",
+          "pricing_status": "unverified_seed",
+          "seed_source": "public_site",
+          "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+          "price_eur": 125
+        }
+      }
+    },
+    "extras_adventures": {
+      "_note": "Website list; individual prices mostly TBD. pricing_status=unverified_seed for catalog presence only.",
+      "pricing_status": "unverified_seed",
+      "seed_source": "public_site",
+      "seed_url": "https://mirleftsurfcamp.wordpress.com/",
+      "offerings": [
+        "fishing",
+        "motorbike_mobylette",
+        "quad_biking",
+        "horse_riding",
+        "paragliding",
+        "beach_parties",
+        "private_dinners",
+        "yoga",
+        "dune_surfing_sandboarding",
+        "cooking_experience_3_hours",
+        "city_trips"
+      ]
+    },
+    "equipment_info": {
+      "_note": "Informational only. Equipment sizes are NOT required booking fields.",
+      "items": [
+        "soft_boards",
+        "nsp_mini_mals",
+        "shortboards",
+        "longboards",
+        "bodyboards",
+        "swimfins",
+        "wetsuits",
+        "ponchos",
+        "zinc",
+        "parasols",
+        "wax",
+        "leash",
+        "roof_straps"
+      ]
+    }
+  },
+  "inventory": {
+    "_note": "Real inventory TODO. Rooming uses Wolfhouse-style placeholder only."
+  },
+  "rooming": {
+    "_status": "TODO_provisional_placeholder_until_real_inventory",
+    "_note": "Wolfhouse-style accommodation assumptions as provisional placeholder only. NOT Mirleft real inventory. Do not use for live assignment or quotes until real Inna Guest House room map is collected.",
+    "rooms": {
+      "_note": "Placeholder map shaped like wolfhouse-somo.baseline.json rooming.rooms. Every room is TODO until real inventory.",
+      "R1": {
+        "capacity": 5,
+        "type": "mixed",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R2": {
+        "capacity": 5,
+        "type": "male_only",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R3": {
+        "capacity": 4,
+        "type": "matrimonial_or_mixed",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R4": {
+        "capacity": 9,
+        "type": "male_only",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R5": {
+        "capacity": 6,
+        "type": "female_only",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R6": {
+        "capacity": 2,
+        "type": "matrimonial_private_couple",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R7": {
+        "capacity": 4,
+        "type": "operator_surfweek",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R8": {
+        "capacity": 5,
+        "type": "female_only",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R9": {
+        "capacity": 6,
+        "type": "operator_surfweek",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      },
+      "R10": {
+        "capacity": 6,
+        "type": "operator_surfweek",
+        "status": "TODO_provisional_placeholder_until_real_inventory",
+        "guest_assignable": false
+      }
+    },
+    "safe_default": "do_not_auto_assign_until_real_inventory_collected"
+  },
+  "booking_fields": {
+    "_note": "Mirleft does not collect equipment sizes as required booking fields.",
+    "required": [],
+    "optional": [],
+    "collect_equipment_sizes": false,
+    "equipment_size_fields": [],
+    "_equipment_size_note": "Board/wetsuit size collection removed from required booking fields."
+  },
+  "operations": {
+    "open_365_days": true,
+    "closed_dates": [],
+    "closed_months": [],
+    "arrivals_all_days": true,
+    "check_ins_all_days": true,
+    "minimum_stay_nights": null,
+    "minimum_stay": "none",
+    "_note": "Open year-round; arrivals/check-ins all days; no minimum stay; no closed dates."
+  },
+  "locations": [
+    {
+      "location_id": "mirleft-main",
+      "display_name": "Mirleft",
+      "_note": "Canonical location from config/clients/clients.json."
+    }
+  ],
+  "portal": {
+    "target": "hybrid",
+    "views": [
+      "accommodation_calendar",
+      "daily_prep_board"
+    ],
+    "_note": "Hybrid portal: accommodation calendar separate from daily prep board. Not wired yet — portal runtime is still binary lodging vs surf.",
+    "wired": false,
+    "vertical": "lodging_surf_camp"
+  },
+  "portal_demo": {
+    "demo_mode": false,
+    "_note": "No demo seed data until owner approves preview content."
+  }
+}
