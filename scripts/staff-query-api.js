@@ -99,6 +99,13 @@ const {
   isStaffNotificationsDryRun,
 } = require('./lib/staff-whatsapp-notifications');
 const {
+  listStaffAutomatedNotifications,
+  createStaffAutomatedNotification,
+  updateStaffAutomatedNotification,
+  deleteStaffAutomatedNotification,
+  ensureStaffAutomatedNotificationsTables,
+} = require('./lib/staff-automated-notifications');
+const {
   upsertStaffPhoneAccess,
   deactivateStaffPhoneAccess,
   lookupStaffPhoneAccess: lookupStaffPhoneAccessRecognition,
@@ -18026,6 +18033,40 @@ textarea.bk-input{resize:vertical;min-height:60px}
 #cc-staff-notification-settings .sns-add-btn{padding:6px 12px;font-size:11px;margin-top:4px}
 #cc-staff-notification-settings .sns-phone-hint{margin:4px 0 14px}
 #cc-staff-notification-settings .sns-actions{margin-top:4px}
+#cc-automated-staff-notifications .asn-field{margin-bottom:14px}
+#cc-automated-staff-notifications .asn-label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin:0 0 6px}
+#cc-automated-staff-notifications .asn-input,#cc-automated-staff-notifications .asn-textarea{width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
+#cc-automated-staff-notifications .asn-textarea{resize:vertical;min-height:90px}
+#cc-automated-staff-notifications .asn-recipients{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);padding:8px;max-height:220px;overflow-y:auto}
+#cc-automated-staff-notifications .asn-recipient-row{display:grid;grid-template-columns:minmax(16px,auto) minmax(80px,1fr) minmax(100px,1.1fr) auto;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border-soft);font-size:12.5px;cursor:pointer;margin:0}
+#cc-automated-staff-notifications .asn-recipient-row:last-child{border-bottom:none}
+#cc-automated-staff-notifications .asn-recipient-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--primary)}
+#cc-automated-staff-notifications .asn-recipient-label{font-weight:600;color:var(--text)}
+#cc-automated-staff-notifications .asn-recipient-phone{color:var(--text-2);font-size:12px}
+#cc-automated-staff-notifications .asn-recipient-group{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface-soft);color:var(--text-2);justify-self:end}
+#cc-automated-staff-notifications .asn-empty{padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;color:var(--text-3);line-height:1.45}
+#cc-automated-staff-notifications .asn-days{display:flex;flex-wrap:wrap;gap:8px}
+#cc-automated-staff-notifications .asn-day-check{display:flex!important;flex-direction:row!important;align-items:center;gap:5px;margin:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer}
+#cc-automated-staff-notifications .asn-day-check input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--primary)}
+#cc-automated-staff-notifications .asn-time-field{max-width:200px}
+#cc-automated-staff-notifications .asn-time-input{width:100%;height:36px;padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);box-sizing:border-box}
+#cc-automated-staff-notifications .asn-actions{margin-top:4px}
+#cc-automated-staff-notifications #asn-error{font-size:12.5px;color:#A0392A;background:#FDF4F2;border:1px solid #F0C9C1;border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0;display:none}
+#cc-automated-staff-notifications #asn-status{font-size:12px;color:var(--text-2);padding:4px 0;min-height:20px;display:none}
+#cc-automated-staff-notifications .asn-toggle-row{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0;cursor:pointer;font-weight:600;color:var(--text);font-size:13px}
+#cc-automated-staff-notifications .asn-toggle-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--primary)}
+#cc-automated-staff-notifications .asn-list-field{margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
+#cc-automated-staff-notifications .asn-list-hdr{font-size:13px;font-weight:700;color:var(--text);margin:0 0 10px}
+#cc-automated-staff-notifications .asn-item{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);padding:12px 14px;margin-bottom:10px}
+#cc-automated-staff-notifications .asn-item-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+#cc-automated-staff-notifications .asn-item-title{font-size:13px;font-weight:700;color:var(--text);line-height:1.35;min-width:0}
+#cc-automated-staff-notifications .asn-item-pill{font-size:10px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}
+#cc-automated-staff-notifications .asn-item-pill.is-on{background:#EBF1E5;color:#3D5A34;border:1px solid #C9D9BE}
+#cc-automated-staff-notifications .asn-item-pill.is-off{background:var(--surface-soft);color:var(--text-3);border:1px solid var(--border-soft)}
+#cc-automated-staff-notifications .asn-item-meta{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:8px}
+#cc-automated-staff-notifications .asn-item-actions{display:flex;flex-wrap:wrap;gap:8px}
+#cc-automated-staff-notifications .asn-item-actions .btn{font-size:11px;padding:6px 10px;line-height:1.2}
+#cc-automated-staff-notifications .asn-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .oi-form-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
 #oi-input{flex:1;font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
 #oi-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
@@ -18187,6 +18228,15 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-staff-notification-settings .sns-recipient-row{grid-template-columns:1fr;gap:8px}
 #cc-staff-notification-settings .sns-recipient-enabled{justify-content:flex-start}
 #cc-staff-notification-settings .sns-recipient-remove{width:100%}
+#cc-automated-staff-notifications .asn-recipient-row{grid-template-columns:16px 1fr;gap:6px 10px}
+#cc-automated-staff-notifications .asn-recipient-phone{grid-column:2}
+#cc-automated-staff-notifications .asn-recipient-group{grid-column:2;justify-self:start;margin-top:2px}
+#cc-automated-staff-notifications .asn-days{gap:6px}
+#cc-automated-staff-notifications .asn-day-check{flex:1 1 calc(33.33% - 6px);min-width:0;justify-content:center;padding:8px 6px;font-size:11px}
+#cc-automated-staff-notifications .asn-time-field{max-width:100%}
+#cc-automated-staff-notifications .asn-actions{flex-direction:column;align-items:stretch}
+#cc-automated-staff-notifications .asn-actions .btn{width:100%}
+#cc-automated-staff-notifications .asn-item-actions .btn{flex:1 1 calc(50% - 4px);min-width:0}
 }
 </style>
 </head>
@@ -19187,30 +19237,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div id="al-result"></div>
   </div>
 
-  <div class="card cc-section" id="cc-owner-insights">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.owner.section">Owner Insights</div>
-    <div class="cc-section-sub" data-i18n="lunaStaff.owner.sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
-    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none" data-i18n="lunaStaff.owner.denied">Owner Insights requires owner access.</div>
-    <div id="cc-owner-insights-active">
-    <div class="oi-form-row">
-      <input id="oi-input" type="text" data-i18n-placeholder="lunaStaff.owner.placeholder" placeholder="How much revenue this month?"
-             autocomplete="off" spellcheck="false"
-             onkeydown="if(event.key==='Enter')oiAsk()">
-      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()" data-i18n="lunaStaff.owner.ask">Ask Owner Insights</button>
-    </div>
-    <div class="al-hint" data-i18n="lunaStaff.owner.examplesHint">Example owner questions:</div>
-    <div class="oi-examples" id="oi-examples">
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Which package is most popular?">Which package is most popular?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="List recent guest messages for Wolfhouse">List recent guest messages</button>
-    </div>
-    <div id="oi-error"></div>
-    <div id="oi-status"></div>
-    <div id="oi-result"></div>
-    </div>
-  </div>
-
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr">Staff &amp; Owner Numbers</div>
     <div class="cc-section-sub">WhatsApp numbers recognized by Luna Staff. Staff numbers get operations access; Owner numbers also get owner insights.</div>
@@ -19239,6 +19265,79 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <input id="swn-add-active" type="checkbox" checked> Active
       </label>
       <button class="btn btn-primary" id="swn-add-btn" onclick="staffWhatsappNumberAdd()">Add</button>
+    </div>
+  </div>
+
+  <div class="card cc-section" id="cc-automated-staff-notifications" style="display:none">
+    <div class="cc-section-hdr">Automated Staff Notifications</div>
+    <div class="cc-section-sub">Schedule Luna to answer a saved prompt and WhatsApp selected staff on selected days/times.</div>
+    <div id="asn-error"></div>
+    <div id="asn-status"></div>
+    <div class="asn-field">
+      <label class="asn-label" for="asn-prompt-title">Prompt title</label>
+      <input id="asn-prompt-title" type="text" class="asn-input" placeholder="e.g. Morning arrivals summary" autocomplete="off" spellcheck="false">
+    </div>
+    <div class="asn-field">
+      <label class="asn-label">Recipients</label>
+      <div id="asn-recipients" class="asn-recipients"></div>
+    </div>
+    <div class="asn-field">
+      <label class="asn-label" for="asn-prompt-text">Prompt</label>
+      <textarea id="asn-prompt-text" rows="5" class="asn-textarea" placeholder="What should Luna look up and send to staff?"></textarea>
+    </div>
+    <div class="asn-field">
+      <label class="asn-label">Days</label>
+      <div class="asn-days" id="asn-days">
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-mon" value="0"><span>Mon</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-tue" value="1"><span>Tue</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-wed" value="2"><span>Wed</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-thu" value="3"><span>Thu</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-fri" value="4"><span>Fri</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-sat" value="5"><span>Sat</span></label>
+        <label class="asn-day-check"><input type="checkbox" id="asn-day-sun" value="6"><span>Sun</span></label>
+      </div>
+    </div>
+    <div class="asn-field asn-time-field">
+      <label class="asn-label" for="asn-time">Time</label>
+      <input id="asn-time" type="time" class="asn-time-input">
+    </div>
+    <div class="asn-field">
+      <label class="asn-toggle-row" for="asn-enabled">
+        <input type="checkbox" id="asn-enabled" checked>
+        <span>Enabled</span>
+      </label>
+    </div>
+    <div class="al-form-row asn-actions">
+      <button class="btn btn-primary" id="asn-save-btn" type="button" onclick="automatedStaffNotificationsSave()">Save automation</button>
+      <button class="btn btn-ghost" id="asn-reset-btn" type="button" onclick="automatedStaffNotificationsResetForm()">Clear form</button>
+    </div>
+    <div class="asn-field asn-list-field">
+      <div class="asn-list-hdr">Saved automations</div>
+      <div id="asn-list"></div>
+    </div>
+  </div>
+
+  <div class="card cc-section" id="cc-owner-insights">
+    <div class="cc-section-hdr" data-i18n="lunaStaff.owner.section">Owner Insights</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.owner.sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
+    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none" data-i18n="lunaStaff.owner.denied">Owner Insights requires owner access.</div>
+    <div id="cc-owner-insights-active">
+    <div class="oi-form-row">
+      <input id="oi-input" type="text" data-i18n-placeholder="lunaStaff.owner.placeholder" placeholder="How much revenue this month?"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')oiAsk()">
+      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()" data-i18n="lunaStaff.owner.ask">Ask Owner Insights</button>
+    </div>
+    <div class="al-hint" data-i18n="lunaStaff.owner.examplesHint">Example owner questions:</div>
+    <div class="oi-examples" id="oi-examples">
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Which package is most popular?">Which package is most popular?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="List recent guest messages for Wolfhouse">List recent guest messages</button>
+    </div>
+    <div id="oi-error"></div>
+    <div id="oi-status"></div>
+    <div id="oi-result"></div>
     </div>
   </div>
 
@@ -24246,6 +24345,8 @@ function applyOwnerInsightsGate(){
   }
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
+  var asnCard = el('cc-automated-staff-notifications');
+  if (asnCard) asnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   staffNotificationSettingsApplyVisibility();
   var hnCard = el('cc-house-notes');
   if (hnCard) hnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
@@ -24256,6 +24357,7 @@ function applyOwnerInsightsGate(){
     staffWhatsappNumbersLoad();
     houseNotesLoad();
     maybeLoadStaffNotificationSettings();
+    automatedStaffNotificationsLoad();
   }
 }
 
@@ -24334,13 +24436,315 @@ function staffWhatsappShowMsg(kind, text){
   target.style.display = 'block';
 }
 
+var staffWhatsappNumbersCache = [];
+
+function staffWhatsappNumbersCacheActive(){
+  return (staffWhatsappNumbersCache || []).filter(function(n){ return n && n.active; });
+}
+
+function automatedStaffNotificationsRecipientsRender(selectedIds){
+  var host = el('asn-recipients');
+  if (!host) return;
+  if (selectedIds == null) {
+    selectedIds = [];
+    host.querySelectorAll('.asn-recipient-check:checked').forEach(function(cb){
+      if (cb.value) selectedIds.push(cb.value);
+    });
+  }
+  var active = staffWhatsappNumbersCacheActive();
+  if (!active.length){
+    host.innerHTML = '<div class="asn-empty">Add staff numbers first.</div>';
+    return;
+  }
+  host.innerHTML = active.map(function(n){
+    var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
+    var checked = selectedIds.indexOf(String(n.id)) >= 0;
+    return '<label class="asn-recipient-row">' +
+      '<input type="checkbox" class="asn-recipient-check" value="' + escHtml(n.id) + '"' + (checked ? ' checked' : '') + '>' +
+      '<span class="asn-recipient-label">' + escHtml(n.display_name || 'Unnamed') + '</span>' +
+      '<span class="asn-recipient-phone">' + escHtml(n.phone) + '</span>' +
+      '<span class="asn-recipient-group">' + escHtml(grp) + '</span>' +
+      '</label>';
+  }).join('');
+}
+
+var staffAutomatedNotificationsCache = [];
+var staffAutomatedNotificationsEditingId = null;
+var ASN_DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+var ASN_DAY_INPUT_IDS = ['asn-day-mon', 'asn-day-tue', 'asn-day-wed', 'asn-day-thu', 'asn-day-fri', 'asn-day-sat', 'asn-day-sun'];
+
+function automatedStaffNotificationsQuery(){
+  return staffWhatsappNumberQuery();
+}
+
+function automatedStaffNotificationsShowMsg(kind, text){
+  var box = el('asn-status');
+  var err = el('asn-error');
+  if (box){ box.textContent = ''; box.style.display = 'none'; }
+  if (err){ err.textContent = ''; err.style.display = 'none'; }
+  if (!text) return;
+  var target = kind === 'error' ? err : box;
+  if (!target) return;
+  target.textContent = text;
+  target.style.display = 'block';
+}
+
+function automatedStaffNotificationsFormatDays(days){
+  if (!days || !days.length) return '\u2014';
+  return days.slice().sort(function(a, b){ return a - b; }).map(function(d){
+    return ASN_DAY_LABELS[d] || String(d);
+  }).join(', ');
+}
+
+function automatedStaffNotificationsFormatRecipients(recipients){
+  if (!recipients || !recipients.length) return '\u2014';
+  return recipients.map(function(r){
+    var name = (r && r.name) ? r.name : 'Unnamed';
+    var phone = (r && r.phone) ? r.phone : '';
+    return name + (phone ? ' (' + phone + ')' : '');
+  }).join('; ');
+}
+
+function automatedStaffNotificationsCollectRecipientIds(){
+  var host = el('asn-recipients');
+  if (!host) return [];
+  var ids = [];
+  host.querySelectorAll('.asn-recipient-check:checked').forEach(function(cb){
+    if (cb.value) ids.push(cb.value);
+  });
+  return ids;
+}
+
+function automatedStaffNotificationsCollectDays(){
+  var days = [];
+  ASN_DAY_INPUT_IDS.forEach(function(id){
+    var node = el(id);
+    if (node && node.checked) days.push(parseInt(node.value, 10));
+  });
+  return days;
+}
+
+function automatedStaffNotificationsValidateForm(){
+  var title = (el('asn-prompt-title') && el('asn-prompt-title').value || '').trim();
+  var prompt = (el('asn-prompt-text') && el('asn-prompt-text').value || '').trim();
+  var recipientIds = automatedStaffNotificationsCollectRecipientIds();
+  var days = automatedStaffNotificationsCollectDays();
+  var timeRaw = (el('asn-time') && el('asn-time').value || '').trim();
+  if (!title) return { ok: false, error: 'Title is required.' };
+  if (!prompt) return { ok: false, error: 'Prompt is required.' };
+  if (!recipientIds.length) return { ok: false, error: 'Select at least one recipient.' };
+  if (!days.length) return { ok: false, error: 'Select at least one day.' };
+  if (!timeRaw) return { ok: false, error: 'Time is required.' };
+  var enabled = !!(el('asn-enabled') && el('asn-enabled').checked);
+  return {
+    ok: true,
+    payload: {
+      title: title,
+      prompt: prompt,
+      enabled: enabled,
+      recipients: recipientIds.map(function(id){ return { staff_number_id: id }; }),
+      days_of_week: days,
+      local_time: timeRaw.slice(0, 5),
+      timezone: 'Europe/Madrid',
+    },
+  };
+}
+
+function automatedStaffNotificationsUpdateSaveLabel(){
+  var btn = el('asn-save-btn');
+  if (!btn) return;
+  btn.textContent = staffAutomatedNotificationsEditingId ? 'Save changes' : 'Save automation';
+}
+
+function automatedStaffNotificationsResetForm(keepMsg){
+  staffAutomatedNotificationsEditingId = null;
+  if (el('asn-prompt-title')) el('asn-prompt-title').value = '';
+  if (el('asn-prompt-text')) el('asn-prompt-text').value = '';
+  if (el('asn-time')) el('asn-time').value = '';
+  if (el('asn-enabled')) el('asn-enabled').checked = true;
+  ASN_DAY_INPUT_IDS.forEach(function(id){
+    var node = el(id);
+    if (node) node.checked = false;
+  });
+  automatedStaffNotificationsRecipientsRender([]);
+  automatedStaffNotificationsUpdateSaveLabel();
+  if (!keepMsg) automatedStaffNotificationsShowMsg(null, null);
+}
+
+function automatedStaffNotificationsListRender(){
+  var host = el('asn-list');
+  if (!host) return;
+  var rows = Array.isArray(staffAutomatedNotificationsCache) ? staffAutomatedNotificationsCache : [];
+  if (!rows.length){
+    host.innerHTML = '<div class="asn-empty">No automations yet. Create one above.</div>';
+    return;
+  }
+  host.innerHTML = rows.map(function(row){
+    var pillClass = row.enabled ? 'is-on' : 'is-off';
+    var pillText = row.enabled ? 'Enabled' : 'Disabled';
+    var meta = automatedStaffNotificationsFormatDays(row.days_of_week) + ' at ' + escHtml(row.local_time || '\u2014');
+    meta += '<br>Recipients: ' + escHtml(automatedStaffNotificationsFormatRecipients(row.recipients));
+    if (row.last_run_at || row.last_status) {
+      meta += '<br>Last run: ' + escHtml(row.last_run_at ? fmtTs(row.last_run_at) : '\u2014');
+      if (row.last_status) meta += ' (' + escHtml(row.last_status) + ')';
+    }
+    return '<div class="asn-item" data-asn-id="' + escHtml(row.id) + '">' +
+      '<div class="asn-item-hdr">' +
+        '<div class="asn-item-title">' + escHtml(row.title || 'Untitled') + '</div>' +
+        '<span class="asn-item-pill ' + pillClass + '">' + pillText + '</span>' +
+      '</div>' +
+      '<div class="asn-item-meta">' + meta + '</div>' +
+      '<div class="asn-item-actions">' +
+        '<button type="button" class="btn btn-ghost asn-item-edit" data-asn-id="' + escHtml(row.id) + '">Edit</button>' +
+        '<button type="button" class="btn btn-ghost asn-item-delete" data-asn-id="' + escHtml(row.id) + '">Delete</button>' +
+      '</div>' +
+    '</div>';
+  }).join('');
+}
+
+function automatedStaffNotificationsLoad(){
+  var card = el('cc-automated-staff-notifications');
+  if (!card) return;
+  if (!canUseOwnerInsightsPortal()){
+    card.style.display = 'none';
+    return;
+  }
+  card.style.display = '';
+  automatedStaffNotificationsShowMsg(null, null);
+  fetch('/staff/automated-notifications' + automatedStaffNotificationsQuery(), { credentials: 'same-origin' })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        automatedStaffNotificationsShowMsg('error', (data && data.error) ? data.error : 'Failed to load automations.');
+        staffAutomatedNotificationsCache = [];
+        automatedStaffNotificationsListRender();
+        return;
+      }
+      staffAutomatedNotificationsCache = data.notifications || [];
+      automatedStaffNotificationsListRender();
+    })
+    .catch(function(){
+      automatedStaffNotificationsShowMsg('error', 'Failed to load automations.');
+      staffAutomatedNotificationsCache = [];
+      automatedStaffNotificationsListRender();
+    });
+}
+
+function automatedStaffNotificationsEdit(id){
+  if (!id) return;
+  var row = (staffAutomatedNotificationsCache || []).find(function(n){ return String(n.id) === String(id); });
+  if (!row){
+    automatedStaffNotificationsShowMsg('error', 'Automation not found.');
+    return;
+  }
+  staffAutomatedNotificationsEditingId = row.id;
+  if (el('asn-prompt-title')) el('asn-prompt-title').value = row.title || '';
+  if (el('asn-prompt-text')) el('asn-prompt-text').value = row.prompt || '';
+  if (el('asn-enabled')) el('asn-enabled').checked = row.enabled !== false;
+  if (el('asn-time')) el('asn-time').value = row.local_time || '';
+  ASN_DAY_INPUT_IDS.forEach(function(inputId){
+    var node = el(inputId);
+    if (!node) return;
+    var dayVal = parseInt(node.value, 10);
+    node.checked = Array.isArray(row.days_of_week) && row.days_of_week.indexOf(dayVal) >= 0;
+  });
+  var selectedIds = Array.isArray(row.recipients)
+    ? row.recipients.map(function(r){ return r.staff_number_id; }).filter(Boolean)
+    : [];
+  automatedStaffNotificationsRecipientsRender(selectedIds);
+  automatedStaffNotificationsUpdateSaveLabel();
+  automatedStaffNotificationsShowMsg('ok', 'Editing "' + (row.title || 'automation') + '".');
+  var card = el('cc-automated-staff-notifications');
+  if (card && card.scrollIntoView) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function automatedStaffNotificationsDelete(id){
+  if (!id) return;
+  var row = (staffAutomatedNotificationsCache || []).find(function(n){ return String(n.id) === String(id); });
+  var label = row && row.title ? row.title : 'this automation';
+  if (!window.confirm('Delete "' + label + '"?')) return;
+  automatedStaffNotificationsShowMsg(null, null);
+  fetch('/staff/automated-notifications/' + encodeURIComponent(id) + automatedStaffNotificationsQuery(), {
+    method: 'DELETE',
+    credentials: 'same-origin',
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!data || data.success !== true){
+        automatedStaffNotificationsShowMsg('error', (data && data.error) ? data.error : 'Failed to delete automation.');
+        return;
+      }
+      if (staffAutomatedNotificationsEditingId && String(staffAutomatedNotificationsEditingId) === String(id)) {
+        automatedStaffNotificationsResetForm(true);
+      }
+      automatedStaffNotificationsShowMsg('ok', 'Automation deleted.');
+      automatedStaffNotificationsLoad();
+    })
+    .catch(function(){ automatedStaffNotificationsShowMsg('error', 'Failed to delete automation.'); });
+}
+
+function automatedStaffNotificationsSave(){
+  if (!canUseOwnerInsightsPortal()){
+    automatedStaffNotificationsShowMsg('error', 'Owner access required.');
+    return;
+  }
+  var v = automatedStaffNotificationsValidateForm();
+  if (!v.ok){
+    automatedStaffNotificationsShowMsg('error', v.error);
+    return;
+  }
+  automatedStaffNotificationsShowMsg(null, null);
+  var btn = el('asn-save-btn');
+  if (btn) btn.disabled = true;
+  var isEdit = !!staffAutomatedNotificationsEditingId;
+  var url = isEdit
+    ? '/staff/automated-notifications/' + encodeURIComponent(staffAutomatedNotificationsEditingId) + automatedStaffNotificationsQuery()
+    : '/staff/automated-notifications' + automatedStaffNotificationsQuery();
+  fetch(url, {
+    method: isEdit ? 'PUT' : 'POST',
+    credentials: 'same-origin',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(v.payload),
+  })
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (btn) btn.disabled = false;
+      if (!data || data.success !== true){
+        automatedStaffNotificationsShowMsg('error', (data && data.error) ? data.error : 'Failed to save automation.');
+        return;
+      }
+      automatedStaffNotificationsResetForm(true);
+      automatedStaffNotificationsShowMsg('ok', isEdit ? 'Automation updated.' : 'Automation saved.');
+      automatedStaffNotificationsLoad();
+    })
+    .catch(function(){
+      if (btn) btn.disabled = false;
+      automatedStaffNotificationsShowMsg('error', 'Failed to save automation.');
+    });
+}
+
+function wireAutomatedStaffNotificationsList(){
+  var host = el('asn-list');
+  if (!host || host._asnWired) return;
+  host._asnWired = true;
+  host.addEventListener('click', function(ev){
+    var editBtn = ev.target && ev.target.closest('.asn-item-edit');
+    if (editBtn){
+      automatedStaffNotificationsEdit(editBtn.getAttribute('data-asn-id'));
+      return;
+    }
+    var delBtn = ev.target && ev.target.closest('.asn-item-delete');
+    if (delBtn) automatedStaffNotificationsDelete(delBtn.getAttribute('data-asn-id'));
+  });
+}
+wireAutomatedStaffNotificationsList();
+
 function staffWhatsappNumbersRender(numbers){
   var tbody = el('swn-tbody');
   if (!tbody) return;
   if (!numbers || !numbers.length){
     tbody.innerHTML = '<tr><td colspan="5" style="opacity:.7">No numbers yet.</td></tr>';
-    return;
-  }
+  } else {
   tbody.innerHTML = numbers.map(function(n){
     var grp = n.permission_group === 'owner' ? 'Owner' : 'Staff';
     return '<tr class="swn-mobile-card">'
@@ -24355,6 +24759,13 @@ function staffWhatsappNumbersRender(numbers){
   tbody.querySelectorAll('.swn-remove-btn').forEach(function(b){
     b.addEventListener('click', function(){ staffWhatsappNumberRemove(b.getAttribute('data-swn-id')); });
   });
+  }
+  automatedStaffNotificationsRecipientsRender();
+}
+
+function staffWhatsappNumbersApplyCache(numbers){
+  staffWhatsappNumbersCache = Array.isArray(numbers) ? numbers : [];
+  staffWhatsappNumbersRender(staffWhatsappNumbersCache);
 }
 
 function staffWhatsappNumbersLoad(){
@@ -24362,21 +24773,28 @@ function staffWhatsappNumbersLoad(){
   if (!card) return;
   if (!canUseOwnerInsightsPortal()){
     card.style.display = 'none';
+    var asnCard = el('cc-automated-staff-notifications');
+    if (asnCard) asnCard.style.display = 'none';
     return;
   }
   card.style.display = '';
+  var asnCardShow = el('cc-automated-staff-notifications');
+  if (asnCardShow) asnCardShow.style.display = '';
   staffWhatsappShowMsg(null, null);
   fetch('/staff/whatsapp-numbers' + staffWhatsappNumberQuery(), { credentials: 'same-origin' })
     .then(function(r){ return r.json(); })
     .then(function(data){
       if (!data || data.success !== true){
         staffWhatsappShowMsg('error', (data && data.error) ? data.error : 'Failed to load numbers.');
-        staffWhatsappNumbersRender([]);
+        staffWhatsappNumbersApplyCache([]);
         return;
       }
-      staffWhatsappNumbersRender(data.numbers || []);
+      staffWhatsappNumbersApplyCache(data.numbers || []);
     })
-    .catch(function(){ staffWhatsappShowMsg('error', 'Failed to load numbers.'); });
+    .catch(function(){
+      staffWhatsappShowMsg('error', 'Failed to load numbers.');
+      staffWhatsappNumbersApplyCache([]);
+    });
 }
 
 function staffWhatsappNumberAdd(){
@@ -24436,6 +24854,7 @@ function wireLunaStaffTabCards(){
   staffWhatsappNumbersLoad();
   houseNotesLoad();
   maybeLoadStaffNotificationSettings();
+  automatedStaffNotificationsLoad();
 }
 
 function staffNotificationSettingsApplyVisibility(){
@@ -26761,6 +27180,8 @@ window.oiAsk = oiAsk;
 // IIFE, so functions aren't global unless attached to window).
 window.houseNotesSave = houseNotesSave;
 window.staffWhatsappNumberAdd = staffWhatsappNumberAdd;
+window.automatedStaffNotificationsSave = automatedStaffNotificationsSave;
+window.automatedStaffNotificationsResetForm = automatedStaffNotificationsResetForm;
 window.staffNotificationRecipientAdd = staffNotificationRecipientAdd;
 window.staffNotificationRecipientRemove = staffNotificationRecipientRemove;
 window.staffNotificationSettingsSave = staffNotificationSettingsSave;
@@ -35509,6 +35930,142 @@ async function handleNotificationSettingsPut(query, req, res, user) {
   }
 }
 
+function resolveAutomatedNotificationsLocationId(query, body) {
+  return resolveNotificationSettingsLocationId(query, body);
+}
+
+async function handleAutomatedNotificationsGet(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const locationId = resolveAutomatedNotificationsLocationId(query, null);
+  try {
+    const notifications = await withPgClient(async (pg) => {
+      await ensureStaffAutomatedNotificationsTables(pg);
+      return listStaffAutomatedNotifications(pg, { clientSlug, locationId });
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.automated_notifications.list',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: true,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      client_slug: clientSlug,
+      location_id: locationId,
+      notifications,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[automated-notifications.get] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
+async function handleAutomatedNotificationsPost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const locationId = resolveAutomatedNotificationsLocationId(query, body);
+  try {
+    const r = await withPgClient((pg) => createStaffAutomatedNotification(pg, {
+      clientSlug,
+      locationId,
+      input: body,
+      actor: user,
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.automated_notifications.create',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: r.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
+    return sendJSON(res, 200, { success: true, notification: r.notification, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[automated-notifications.post] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+async function handleAutomatedNotificationsPut(idRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const locationId = resolveAutomatedNotificationsLocationId(query, body);
+  try {
+    const r = await withPgClient((pg) => updateStaffAutomatedNotification(pg, {
+      clientSlug,
+      locationId,
+      id: idRaw,
+      input: body,
+      actor: user,
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.automated_notifications.update',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: r.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
+    return sendJSON(res, 200, { success: true, notification: r.notification, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[automated-notifications.put] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed' });
+  }
+}
+
+async function handleAutomatedNotificationsDelete(idRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || query.client_slug || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const locationId = resolveAutomatedNotificationsLocationId(query, null);
+  try {
+    const r = await withPgClient((pg) => deleteStaffAutomatedNotification(pg, {
+      clientSlug,
+      locationId,
+      id: idRaw,
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:staff.automated_notifications.delete',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      location_id: locationId,
+      success: r.ok && r.deleted,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!r.ok) return sendJSON(res, r.status || 400, { success: false, error: r.error });
+    if (!r.deleted) return sendJSON(res, 404, { success: false, error: 'not_found' });
+    return sendJSON(res, 200, { success: true, deleted: true, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[automated-notifications.delete] failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'delete failed' });
+  }
+}
+
 // Bot read: the guest agent (Hermes) fetches house notes on demand to answer guest
 // questions about house info/policies. Read-only.
 async function handleBotHouseInfo(req, res, user) {
@@ -41660,6 +42217,29 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleNotificationSettingsPut(parsed.query, req, res, auth.user);
+  }
+
+  // ── Automated staff notifications — scheduled prompt CRUD (admin+owner) ───────
+  if (pathname === '/staff/automated-notifications' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAutomatedNotificationsGet(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/automated-notifications' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAutomatedNotificationsPost(parsed.query, req, res, auth.user);
+  }
+  const automatedNotificationMatch = /^\/staff\/automated-notifications\/([0-9a-f-]{36})$/i.exec(pathname);
+  if (automatedNotificationMatch && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAutomatedNotificationsPut(automatedNotificationMatch[1], parsed.query, req, res, auth.user);
+  }
+  if (automatedNotificationMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAutomatedNotificationsDelete(automatedNotificationMatch[1], parsed.query, req, res, auth.user);
   }
 
   const adminPricePatchMatch = /^\/staff\/admin\/config\/prices\/([^/?]+)$/i.exec(pathname);
