@@ -1,8 +1,8 @@
 'use strict';
 
 /**
- * Staff automated notifications — CRUD, validation, dry-run runner + audit events.
- * No WhatsApp sends in this module (live send is a future slice).
+ * Staff automated notifications — CRUD, validation, dry-run + gated live runner + audit events.
+ * Live WhatsApp sends only via runDueStaffAutomatedNotificationsLive with injected sendMessage.
  *
  * Recipients must reference active rows in wolfhouse_staff_whatsapp_numbers for the
  * same client_slug. All reads/writes are scoped by client_slug + COALESCE(location_id,'').
@@ -20,7 +20,45 @@ const MAX_RECIPIENTS = 10;
 const TIMEZONE_MAX = 64;
 const LOCAL_TIME_RE = /^([01]?\d|2[0-3]):[0-5]\d$/;
 const ANSWER_PREVIEW_MAX = 500;
+const LIVE_FOOTER = 'Automated Luna Staff notification';
 const WEEKDAY_TO_CUSTOM = { Mon: 0, Tue: 1, Wed: 2, Thu: 3, Fri: 4, Sat: 5, Sun: 6 };
+
+function parseStaffAutomatedNotificationsAllowedPhones(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((item) => trimStr(item)).filter(Boolean);
+  }
+  const s = trimStr(raw);
+  if (!s) return [];
+  return s.split(',').map((part) => trimStr(part)).filter(Boolean);
+}
+
+function checkStaffAutomatedNotificationsLiveGates({ liveFlag, env = process.env } = {}) {
+  const reasons = [];
+  if (!liveFlag) reasons.push('cli_flag_--live_required');
+  if (String((env || {}).STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED || '').trim().toLowerCase() !== 'true') {
+    reasons.push('STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED_must_be_true');
+  }
+  if (String((env || {}).WHATSAPP_DRY_RUN ?? 'true').trim().toLowerCase() !== 'false') {
+    reasons.push('WHATSAPP_DRY_RUN_must_be_false');
+  }
+  const allowedPhones = parseStaffAutomatedNotificationsAllowedPhones(
+    (env || {}).STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES,
+  );
+  if (!allowedPhones.length) {
+    reasons.push('STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES_required');
+  }
+  return { ok: reasons.length === 0, reasons, allowedPhones };
+}
+
+function buildStaffAutomatedNotificationLiveMessage(title, answer) {
+  const titleLine = trimStr(title);
+  const body = trimStr(answer);
+  const parts = [];
+  if (titleLine) parts.push(titleLine);
+  if (body) parts.push(body);
+  parts.push(LIVE_FOOTER);
+  return parts.join('\n\n');
+}
 
 function trimStr(v) {
   if (v == null) return '';
@@ -398,6 +436,19 @@ async function listDueStaffAutomatedNotifications(pg, {
   return due;
 }
 
+async function listExistingAutomatedNotificationEventPhones(pg, dedupeKey) {
+  await ensureStaffAutomatedNotificationsTables(pg);
+  const key = trimStr(dedupeKey);
+  if (!key) return new Map();
+  const res = await pg.query(
+    `SELECT recipient_phone, status
+       FROM ${EVENTS_TABLE}
+      WHERE dedupe_key = $1`,
+    [key],
+  );
+  return new Map(res.rows.map((row) => [trimStr(row.recipient_phone), row.status]));
+}
+
 async function recordStaffAutomatedNotificationEvent(pg, row) {
   await ensureStaffAutomatedNotificationsTables(pg);
   const src = row || {};
@@ -530,6 +581,192 @@ async function runDueStaffAutomatedNotificationsDryRun(pg, {
         lastRunAt: now,
         lastStatus: automationStatus,
         lastError: questionError,
+      });
+    }
+  }
+
+  return summary;
+}
+
+async function runDueStaffAutomatedNotificationsLive(pg, {
+  now = new Date(),
+  clientSlug,
+  locationId,
+  windowMinutes = 0,
+  executeQuestion,
+  sendMessage,
+  allowedPhones,
+} = {}) {
+  if (typeof executeQuestion !== 'function') {
+    throw new Error('executeQuestion callback is required');
+  }
+  if (typeof sendMessage !== 'function') {
+    throw new Error('sendMessage callback is required');
+  }
+  const allowed = parseStaffAutomatedNotificationsAllowedPhones(allowedPhones);
+  if (!allowed.length) {
+    throw new Error('allowedPhones required');
+  }
+
+  const dueItems = await listDueStaffAutomatedNotifications(pg, {
+    now,
+    clientSlug,
+    locationId,
+    windowMinutes,
+  });
+  const summary = {
+    due_count: dueItems.length,
+    event_count: 0,
+    sent_count: 0,
+    failed_count: 0,
+    skipped_count: 0,
+    ask_luna_count: 0,
+  };
+
+  for (const item of dueItems) {
+    const { automation, due_local_date, due_local_time } = item;
+    const dedupeKey = buildStaffAutomatedNotificationDedupeKey(automation, due_local_date, due_local_time);
+    const recipients = Array.isArray(automation.recipients) ? automation.recipients : [];
+    if (!recipients.length) continue;
+
+    const existingPhones = await listExistingAutomatedNotificationEventPhones(pg, dedupeKey);
+    const eligible = [];
+    for (const recipient of recipients) {
+      const phone = trimStr(recipient && recipient.phone);
+      if (!phone) continue;
+      if (existingPhones.has(phone)) {
+        summary.skipped_count += 1;
+        continue;
+      }
+      if (!allowed.includes(phone)) {
+        summary.skipped_count += 1;
+        continue;
+      }
+      eligible.push(recipient);
+    }
+    if (!eligible.length) continue;
+
+    summary.ask_luna_count += 1;
+    let answer = null;
+    let questionError = null;
+    try {
+      const askResult = await executeQuestion({
+        client_slug: automation.client_slug,
+        location_id: automation.location_id,
+        question: automation.prompt,
+        source: 'staff_automated_notification_live',
+        staff_access: 'automated',
+      });
+      if (askResult && askResult.success !== false && askResult.answer) {
+        answer = String(askResult.answer).trim();
+      } else {
+        questionError = (askResult && (askResult.error || askResult.detail)) || 'ask_luna_failed';
+      }
+    } catch (err) {
+      questionError = (err && err.message) || 'ask_luna_error';
+    }
+
+    const messageBody = questionError
+      ? null
+      : buildStaffAutomatedNotificationLiveMessage(automation.title, answer);
+    let wroteEvent = false;
+    let automationStatus = questionError ? 'failed' : 'sent';
+    let automationError = questionError;
+    let runSent = 0;
+    let runFailed = 0;
+
+    for (const recipient of eligible) {
+      const phone = trimStr(recipient.phone);
+      if (!phone) continue;
+
+      if (questionError) {
+        const evt = await recordStaffAutomatedNotificationEvent(pg, {
+          automation_id: automation.id,
+          client_slug: automation.client_slug,
+          location_id: automation.location_id,
+          due_local_date,
+          due_local_time,
+          dedupe_key: dedupeKey,
+          recipient_phone: phone,
+          recipient_name: recipient.name || null,
+          status: 'failed',
+          question: automation.prompt,
+          answer_preview: null,
+          error: questionError,
+        });
+        if (evt.duplicate) {
+          summary.skipped_count += 1;
+          continue;
+        }
+        wroteEvent = true;
+        summary.event_count += 1;
+        summary.failed_count += 1;
+        runFailed += 1;
+        continue;
+      }
+
+      let sendError = null;
+      let sendSuccess = false;
+      try {
+        const sendOut = await sendMessage({
+          to: phone,
+          message: messageBody,
+          client_slug: automation.client_slug,
+          idempotency_key: `staff-auto-notify:${dedupeKey}:${phone}`,
+        });
+        sendSuccess = Boolean(
+          sendOut && (sendOut.send_performed === true || sendOut.success === true),
+        );
+        if (!sendSuccess) {
+          sendError = trimStr(sendOut && (sendOut.blocked_reason || sendOut.provider_error))
+            || 'send_failed';
+        }
+      } catch (err) {
+        sendError = (err && err.message) || 'send_error';
+      }
+
+      const evt = await recordStaffAutomatedNotificationEvent(pg, {
+        automation_id: automation.id,
+        client_slug: automation.client_slug,
+        location_id: automation.location_id,
+        due_local_date,
+        due_local_time,
+        dedupe_key: dedupeKey,
+        recipient_phone: phone,
+        recipient_name: recipient.name || null,
+        status: sendSuccess ? 'sent' : 'failed',
+        question: automation.prompt,
+        answer_preview: truncateAnswerPreview(answer),
+        error: sendError,
+      });
+      if (evt.duplicate) {
+        summary.skipped_count += 1;
+        continue;
+      }
+      wroteEvent = true;
+      summary.event_count += 1;
+      if (sendSuccess) {
+        summary.sent_count += 1;
+        runSent += 1;
+      } else {
+        summary.failed_count += 1;
+        runFailed += 1;
+        automationStatus = 'failed';
+        automationError = sendError;
+      }
+    }
+
+    if (wroteEvent) {
+      if (runFailed > 0) {
+        automationStatus = 'failed';
+      } else if (runSent > 0) {
+        automationStatus = 'sent';
+        automationError = null;
+      }
+      await updateStaffAutomatedNotificationLastRun(pg, automation.id, {
+        lastRunAt: now,
+        lastStatus: automationStatus,
+        lastError: automationError,
       });
     }
   }
@@ -733,6 +970,12 @@ module.exports = {
   isAutomationDueNow,
   buildStaffAutomatedNotificationDedupeKey,
   listDueStaffAutomatedNotifications,
+  listExistingAutomatedNotificationEventPhones,
   recordStaffAutomatedNotificationEvent,
   runDueStaffAutomatedNotificationsDryRun,
+  runDueStaffAutomatedNotificationsLive,
+  parseStaffAutomatedNotificationsAllowedPhones,
+  checkStaffAutomatedNotificationsLiveGates,
+  buildStaffAutomatedNotificationLiveMessage,
+  LIVE_FOOTER,
 };

@@ -130,10 +130,11 @@ ok('runner supports --now', runner.includes('--now='));
 ok('runner supports --client', runner.includes('--client='));
 ok('runner supports --location', runner.includes('--location='));
 ok('runner supports --window-minutes', runner.includes('--window-minutes='));
-ok('runner rejects --live', /opts\.live/.test(runner) && /Live sends not implemented/.test(runner));
-ok('runner calls dry-run helper', /runDueStaffAutomatedNotificationsDryRun/.test(runner));
+ok('runner supports --live flag', runner.includes('--live'));
+ok('runner checks live gates when --live', /checkStaffAutomatedNotificationsLiveGates/.test(runner));
+ok('runner calls dry-run helper by default', /runDueStaffAutomatedNotificationsDryRun/.test(runner));
 ok('runner wires Ask Luna in CLI only', /executeStaffAskLunaQuestion/.test(runner));
-ok('runner does not import WhatsApp sender', !/sendLunaWhatsAppMessage/.test(runner));
+ok('runner imports WhatsApp sender for gated live path', /sendLunaWhatsAppMessage/.test(runner));
 ok('runner prints summary JSON', /due_count/.test(runner) && /dry_run_count/.test(runner));
 ok('no cron/timer in runner', !/setInterval|cron|node-cron|scheduleJob/.test(runner));
 ok('no cron/timer in lib runner block', !/setInterval|node-cron|scheduleJob/.test(lib));
@@ -204,10 +205,10 @@ async function runAsyncTests() {
   ok('failed ask records failed event', failSummary.failed_count === 1);
   ok('failed event stores error', pgFail.events[0].status === 'failed');
 
-  console.log('\n── CLI live rejection ──');
+  console.log('\n── CLI live gate rejection ──');
   const liveRun = spawnSync(process.execPath, [runnerPath, '--live'], { encoding: 'utf8' });
-  ok('--live exits non-zero', liveRun.status !== 0);
-  ok('--live prints clear error', `${liveRun.stderr || ''}${liveRun.stdout || ''}`.includes('Live sends not implemented'));
+  ok('--live without env gates exits non-zero', liveRun.status !== 0);
+  ok('--live without env gates prints blocked reason', `${liveRun.stderr || ''}${liveRun.stdout || ''}`.includes('Live send blocked'));
 
   console.log('\n── regression verifiers ──');
   for (const script of [
