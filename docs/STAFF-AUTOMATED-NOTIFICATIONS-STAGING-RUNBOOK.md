@@ -2,7 +2,7 @@
 
 **Feature branch:** `cursor/automated-staff-notifications-slice-1` (slices 1–5) + live-send slice  
 **Staff Portal (staging):** https://staff-staging.lunafrontdesk.com  
-**Current state:** UI + CRUD API + dry-run CLI + **gated manual live CLI** — no cron, no automatic recurrence
+**Current state:** UI + CRUD API + dry-run CLI + gated manual live CLI + **staging job deploy script (operator-run)** — job not installed until deploy script runs with `--apply`
 
 ---
 
@@ -33,11 +33,13 @@ A **gated live CLI** (`--live`) can send WhatsApp to allowlisted test numbers on
 | Migration | `database/migrations/033_staff_automated_notifications.sql` |
 | CRUD + runner lib | `scripts/lib/staff-automated-notifications.js` |
 | Dry-run CLI | `scripts/run-staff-automated-notifications.js` |
+| Staging job deploy | `scripts/deploy-staff-automated-notifications-job.js` |
 | Staff Portal UI + API routes | `scripts/staff-query-api.js` |
 | Verifiers | `scripts/verify-staff-automated-notification-ui.js` |
 | | `scripts/verify-staff-automated-notifications-crud.js` |
 | | `scripts/verify-staff-automated-notifications-runner.js` |
 | | `scripts/verify-staff-automated-notifications-live.js` |
+| | `scripts/verify-staff-automated-notifications-scheduler.js` |
 | npm scripts | `package.json` (`verify:staff-automated-notification-*`) |
 
 ### API routes (admin auth + client access)
@@ -92,6 +94,7 @@ node scripts/verify-staff-automated-notification-ui.js
 node scripts/verify-staff-automated-notifications-crud.js
 node scripts/verify-staff-automated-notifications-runner.js
 node scripts/verify-staff-automated-notifications-live.js
+node scripts/verify-staff-automated-notifications-scheduler.js
 node scripts/verify-staff-whatsapp-notifications.js
 ```
 
@@ -192,7 +195,98 @@ Automated Luna Staff notification
 
 Re-running the same due slot **dedupes** before Ask Luna/send (increment `skipped_count` for existing `dedupe_key` + `recipient_phone`).
 
-**Cron / scheduler:** not installed in this slice — live runner remains manual CLI only (future slice).
+---
+
+## 6.5 Staging scheduler (Azure Container Apps Job — operator-run)
+
+**This slice adds the deploy script only.** Merging code does **not** create or enable the job. The operator must run the deploy script explicitly.
+
+### 6.5.1 Dry-run job first (recommended)
+
+Preview commands (no Azure changes):
+
+```bash
+node scripts/deploy-staff-automated-notifications-job.js
+```
+
+Apply dry-run scheduled job (Ask Luna + audit events only — **no WhatsApp sends**):
+
+```bash
+STAFF_AUTOMATED_NOTIFICATIONS_JOB_DEPLOY_APPLY=1 \
+  node scripts/deploy-staff-automated-notifications-job.js --apply
+```
+
+Creates/updates job `wh-staging-staff-automated-notifications` in `wh-staging-rg`:
+
+- **Schedule:** `*/5 * * * *` (UTC; every 5 minutes)
+- **Image:** current `wh-staging-staff-api` image (override with `--image=...`)
+- **Command:** `node scripts/run-staff-automated-notifications.js --client=wolfhouse-somo --window-minutes=5`
+- **Env defaults:** `WHATSAPP_DRY_RUN=true`, `STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED=false`
+
+Europe/Madrid due-time logic remains in the runner (`--window-minutes=5` matches the schedule cadence).
+
+### 6.5.2 Inspect job logs + audit events
+
+```bash
+az containerapp job execution list \
+  -g wh-staging-rg \
+  -n wh-staging-staff-automated-notifications \
+  -o table
+
+az containerapp job logs show \
+  -g wh-staging-rg \
+  -n wh-staging-staff-automated-notifications \
+  --execution <execution-name> \
+  --container wh-staging-staff-automated-notifications \
+  --tail 100
+```
+
+Then inspect `staff_automated_notification_events` (§6.3). Expect `mode: "dry_run"` summaries in logs until live gates are enabled.
+
+### 6.5.3 Live scheduled mode (approved test numbers only)
+
+Requires the **same gates** as manual `--live`:
+
+| Gate | Value |
+|------|--------|
+| Deploy flag | `--live` |
+| `STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED` | `true` (set on job) |
+| `WHATSAPP_DRY_RUN` | `false` (set on job) |
+| `STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES` | Comma-separated E.164 allowlist |
+
+```bash
+STAFF_AUTOMATED_NOTIFICATIONS_JOB_DEPLOY_APPLY=1 \
+  node scripts/deploy-staff-automated-notifications-job.js \
+  --live \
+  --allowed-phones=+34600000000 \
+  --apply
+```
+
+Keep allowlist to **approved staff/test numbers** only. Recipients not on the allowlist are skipped; runner never sends without allowlist match.
+
+### 6.5.4 Rollback / disable
+
+Stop scheduled runs (switch to Manual trigger):
+
+```bash
+STAFF_AUTOMATED_NOTIFICATIONS_JOB_DEPLOY_APPLY=1 \
+  node scripts/deploy-staff-automated-notifications-job.js --disable --apply
+```
+
+Delete job entirely:
+
+```bash
+STAFF_AUTOMATED_NOTIFICATIONS_JOB_DEPLOY_APPLY=1 \
+  node scripts/deploy-staff-automated-notifications-job.js --delete --apply
+```
+
+Or directly:
+
+```bash
+az containerapp job delete -g wh-staging-rg -n wh-staging-staff-automated-notifications --yes
+```
+
+**Production:** `--prod` is refused by the deploy script. Do not target prod or Sunset with this slice.
 
 ### 6.3 Inspect audit events (Postgres)
 
@@ -222,8 +316,8 @@ Re-running the same due slot should **dedupe** (increment `skipped_count`, no du
 
 | Gate | Rule |
 |------|------|
-| Live WhatsApp | **Manual CLI only** with all env gates + `--live`. Portal/API never send. Recipients must be on `STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES`. |
-| Cron / scheduler | **Do not install.** Runner is manual CLI only. |
+| Live WhatsApp | **Manual CLI or scheduled job** with all env gates + allowlist. Portal/API never send. |
+| Cron / scheduler | **Operator-run only** via `deploy-staff-automated-notifications-job.js --apply`. Not installed by merge alone. |
 | Test numbers | Use approved test recipients only — not production staff/guest numbers. |
 | Prod migration | Do not apply `033` to production until signed off. |
 | Prod / Sunset live | Do not run `--live` against prod or Sunset unless explicitly approved. |
@@ -252,7 +346,8 @@ Re-running the same due slot should **dedupe** (increment `skipped_count`, no du
 
 ## 9. Out of scope (future slices)
 
-- Cron / scheduled runner installation (automatic recurring execution).
+- Production scheduled job / prod enablement.
 - “Send test now” button in portal UI.
 - Production cutover sign-off.
 - Broad live rollout without per-recipient allowlist.
+- Sunset tenant scheduled notifications (unless explicitly approved).
