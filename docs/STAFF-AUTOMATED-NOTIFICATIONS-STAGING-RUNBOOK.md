@@ -1,8 +1,8 @@
 # Automated Staff Notifications — Staging Runbook
 
-**Feature branch:** `cursor/automated-staff-notifications-slice-1`  
+**Feature branch:** `cursor/automated-staff-notifications-slice-1` (slices 1–5) + live-send slice  
 **Staff Portal (staging):** https://staff-staging.lunafrontdesk.com  
-**Current state:** UI + CRUD API + dry-run CLI only — **live WhatsApp sends are not enabled**
+**Current state:** UI + CRUD API + dry-run CLI + **gated manual live CLI** — no cron, no automatic recurrence
 
 ---
 
@@ -20,7 +20,9 @@ A separate **dry-run CLI** (`scripts/run-staff-automated-notifications.js`) can 
 - Runs Ask Luna once per due automation.
 - Writes **audit rows** to `staff_automated_notification_events` with status `dry_run` or `failed`.
 - Updates automation `last_run_at`, `last_status`, `last_error`.
-- **Does not send WhatsApp messages.**
+- **Does not send WhatsApp messages** (default mode).
+
+A **gated live CLI** (`--live`) can send WhatsApp to allowlisted test numbers only when **all** env gates are set (see §6.4). Still **manual CLI only** — no cron.
 
 ---
 
@@ -35,6 +37,7 @@ A separate **dry-run CLI** (`scripts/run-staff-automated-notifications.js`) can 
 | Verifiers | `scripts/verify-staff-automated-notification-ui.js` |
 | | `scripts/verify-staff-automated-notifications-crud.js` |
 | | `scripts/verify-staff-automated-notifications-runner.js` |
+| | `scripts/verify-staff-automated-notifications-live.js` |
 | npm scripts | `package.json` (`verify:staff-automated-notification-*`) |
 
 ### API routes (admin auth + client access)
@@ -88,6 +91,7 @@ Feature-specific gates (all should pass):
 node scripts/verify-staff-automated-notification-ui.js
 node scripts/verify-staff-automated-notifications-crud.js
 node scripts/verify-staff-automated-notifications-runner.js
+node scripts/verify-staff-automated-notifications-live.js
 node scripts/verify-staff-whatsapp-notifications.js
 ```
 
@@ -138,12 +142,57 @@ node scripts/run-staff-automated-notifications.js \
 
 Expected JSON summary fields: `due_count`, `event_count`, `dry_run_count`, `failed_count`, `skipped_count`, `mode: "dry_run"`.
 
-**Hard reject live mode:**
+**Hard reject live mode without gates:**
 
 ```bash
 node scripts/run-staff-automated-notifications.js --live
-# Must exit non-zero: "Live sends not implemented in this slice."
+# Must exit non-zero: "Live send blocked — required gates not satisfied"
 ```
+
+### 6.4 Manual live test — approved recipient only
+
+**Operator-only.** Use a single approved test number — never real staff blast or production lines unless explicitly signed off.
+
+Live mode requires **all** of the following at once:
+
+| Gate | Value |
+|------|--------|
+| CLI | `--live` flag |
+| `STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED` | `true` |
+| `WHATSAPP_DRY_RUN` | `false` |
+| `STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES` | Comma-separated E.164 allowlist; each recipient phone must appear in this list |
+
+If any gate fails, the CLI exits non-zero, prints the reason, and **does not** call Ask Luna or send WhatsApp.
+
+Example (staging shell with DB + WhatsApp creds — replace phone with approved test line):
+
+```bash
+export STAFF_AUTOMATED_NOTIFICATIONS_LIVE_ENABLED=true
+export WHATSAPP_DRY_RUN=false
+export STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES=+34600000000
+
+node scripts/run-staff-automated-notifications.js \
+  --live \
+  --client=wolfhouse-somo \
+  --now=2026-07-07T09:30:00+02:00 \
+  --window-minutes=0
+```
+
+Expected JSON summary: `mode: "live"`, `sent_count`, `failed_count`, `skipped_count`, `ask_luna_count`.
+
+Message format per recipient:
+
+```
+{automation title}
+
+{Ask Luna answer}
+
+Automated Luna Staff notification
+```
+
+Re-running the same due slot **dedupes** before Ask Luna/send (increment `skipped_count` for existing `dedupe_key` + `recipient_phone`).
+
+**Cron / scheduler:** not installed in this slice — live runner remains manual CLI only (future slice).
 
 ### 6.3 Inspect audit events (Postgres)
 
@@ -173,11 +222,11 @@ Re-running the same due slot should **dedupe** (increment `skipped_count`, no du
 
 | Gate | Rule |
 |------|------|
-| Live WhatsApp | **Do not enable.** No `sendLunaWhatsAppMessage` in this feature; CLI rejects `--live`. |
+| Live WhatsApp | **Manual CLI only** with all env gates + `--live`. Portal/API never send. Recipients must be on `STAFF_AUTOMATED_NOTIFICATIONS_ALLOWED_PHONES`. |
 | Cron / scheduler | **Do not install.** Runner is manual CLI only. |
 | Test numbers | Use approved test recipients only — not production staff/guest numbers. |
 | Prod migration | Do not apply `033` to production until signed off. |
-| Prod env | Do not add live-send env flags for automated notifications. |
+| Prod / Sunset live | Do not run `--live` against prod or Sunset unless explicitly approved. |
 
 ---
 
@@ -203,7 +252,7 @@ Re-running the same due slot should **dedupe** (increment `skipped_count`, no du
 
 ## 9. Out of scope (future slices)
 
-- Live WhatsApp delivery to recipients after Ask Luna answer.
-- Cron / scheduled runner installation.
+- Cron / scheduled runner installation (automatic recurring execution).
 - “Send test now” button in portal UI.
 - Production cutover sign-off.
+- Broad live rollout without per-recipient allowlist.
