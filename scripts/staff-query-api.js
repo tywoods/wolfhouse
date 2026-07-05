@@ -18033,40 +18033,47 @@ textarea.bk-input{resize:vertical;min-height:60px}
 #cc-staff-notification-settings .sns-add-btn{padding:6px 12px;font-size:11px;margin-top:4px}
 #cc-staff-notification-settings .sns-phone-hint{margin:4px 0 14px}
 #cc-staff-notification-settings .sns-actions{margin-top:4px}
-#cc-automated-staff-notifications .asn-field{margin-bottom:14px}
+#cc-automated-staff-notifications .asn-block{margin-bottom:14px;padding:14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
+#cc-automated-staff-notifications .asn-field{margin-bottom:12px}
+#cc-automated-staff-notifications .asn-field:last-child{margin-bottom:0}
 #cc-automated-staff-notifications .asn-label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin:0 0 6px}
-#cc-automated-staff-notifications .asn-input,#cc-automated-staff-notifications .asn-textarea{width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
+#cc-automated-staff-notifications .asn-input,#cc-automated-staff-notifications .asn-textarea{width:100%;box-sizing:border-box;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);min-width:0}
 #cc-automated-staff-notifications .asn-textarea{resize:vertical;min-height:90px}
-#cc-automated-staff-notifications .asn-recipients{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);padding:8px;max-height:220px;overflow-y:auto}
-#cc-automated-staff-notifications .asn-recipient-row{display:grid;grid-template-columns:minmax(16px,auto) minmax(80px,1fr) minmax(100px,1.1fr) auto;gap:8px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border-soft);font-size:12.5px;cursor:pointer;margin:0}
+#cc-automated-staff-notifications .asn-recipients{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);padding:4px 6px;max-height:220px;overflow-y:auto}
+#cc-automated-staff-notifications .asn-recipient-row{display:grid;grid-template-columns:16px minmax(80px,1fr) minmax(100px,1.1fr) auto;gap:6px 10px;align-items:center;padding:8px 6px;border-bottom:1px solid var(--border-soft);font-size:12.5px;cursor:pointer;margin:0}
 #cc-automated-staff-notifications .asn-recipient-row:last-child{border-bottom:none}
-#cc-automated-staff-notifications .asn-recipient-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--primary)}
-#cc-automated-staff-notifications .asn-recipient-label{font-weight:600;color:var(--text)}
-#cc-automated-staff-notifications .asn-recipient-phone{color:var(--text-2);font-size:12px}
-#cc-automated-staff-notifications .asn-recipient-group{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface-soft);color:var(--text-2);justify-self:end}
+#cc-automated-staff-notifications .asn-recipient-row input[type=checkbox]{width:16px;height:16px;min-width:16px!important;margin:0;accent-color:var(--primary)}
+#cc-automated-staff-notifications .asn-recipient-label{font-weight:600;color:var(--text);line-height:1.3}
+#cc-automated-staff-notifications .asn-recipient-phone{color:var(--text-2);font-size:12px;line-height:1.3}
+#cc-automated-staff-notifications .asn-recipient-group{font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:999px;background:var(--surface);color:var(--text-2);border:1px solid var(--border-soft);justify-self:end;white-space:nowrap}
 #cc-automated-staff-notifications .asn-empty{padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;color:var(--text-3);line-height:1.45}
-#cc-automated-staff-notifications .asn-days{display:flex;flex-wrap:wrap;gap:8px}
-#cc-automated-staff-notifications .asn-day-check{display:flex!important;flex-direction:row!important;align-items:center;gap:5px;margin:0;padding:6px 10px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer}
-#cc-automated-staff-notifications .asn-day-check input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--primary)}
-#cc-automated-staff-notifications .asn-time-field{max-width:200px}
-#cc-automated-staff-notifications .asn-time-input{width:100%;height:36px;padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);box-sizing:border-box}
-#cc-automated-staff-notifications .asn-actions{margin-top:4px}
+#cc-automated-staff-notifications .asn-days{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
+#cc-automated-staff-notifications .asn-day-check{display:inline-flex!important;flex-direction:row!important;align-items:center;justify-content:flex-start;gap:5px;margin:0;padding:5px 9px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;font-weight:600;color:var(--text-2);cursor:pointer;min-width:0}
+#cc-automated-staff-notifications .asn-day-check input[type=checkbox]{width:15px;height:15px;min-width:15px!important;margin:0;accent-color:var(--primary);flex-shrink:0}
+#cc-automated-staff-notifications .asn-day-check span{line-height:1.2}
+#cc-automated-staff-notifications .asn-schedule-row{display:flex;flex-wrap:wrap;gap:12px 20px;align-items:flex-end}
+#cc-automated-staff-notifications .asn-schedule-row .asn-time-field{margin-bottom:0;flex:0 0 auto;max-width:200px}
+#cc-automated-staff-notifications .asn-schedule-row .asn-enabled-field{margin-bottom:0;flex:0 0 auto}
+#cc-automated-staff-notifications .asn-time-input{width:100%;height:36px;padding:6px 10px;font-size:13px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);box-sizing:border-box}
 #cc-automated-staff-notifications #asn-error{font-size:12.5px;color:#A0392A;background:#FDF4F2;border:1px solid #F0C9C1;border-radius:var(--radius-sm);padding:10px 14px;margin:8px 0;display:none}
 #cc-automated-staff-notifications #asn-status{font-size:12px;color:var(--text-2);padding:4px 0;min-height:20px;display:none}
 #cc-automated-staff-notifications .asn-toggle-row{display:flex!important;flex-direction:row!important;align-items:center;gap:8px;margin:0;cursor:pointer;font-weight:600;color:var(--text);font-size:13px}
-#cc-automated-staff-notifications .asn-toggle-row input[type=checkbox]{width:16px;height:16px;margin:0;accent-color:var(--primary)}
+#cc-automated-staff-notifications .asn-toggle-row input[type=checkbox]{width:16px;height:16px;min-width:16px!important;margin:0;accent-color:var(--primary)}
 #cc-automated-staff-notifications .asn-list-field{margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
 #cc-automated-staff-notifications .asn-list-hdr{font-size:13px;font-weight:700;color:var(--text);margin:0 0 10px}
-#cc-automated-staff-notifications .asn-item{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface);padding:12px 14px;margin-bottom:10px}
-#cc-automated-staff-notifications .asn-item-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:8px}
+#cc-automated-staff-notifications .asn-item{border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);padding:10px 12px;margin-bottom:8px}
+#cc-automated-staff-notifications .asn-item-hdr{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:6px}
 #cc-automated-staff-notifications .asn-item-title{font-size:13px;font-weight:700;color:var(--text);line-height:1.35;min-width:0}
 #cc-automated-staff-notifications .asn-item-pill{font-size:10px;font-weight:600;padding:3px 8px;border-radius:999px;white-space:nowrap;flex-shrink:0}
 #cc-automated-staff-notifications .asn-item-pill.is-on{background:#EBF1E5;color:#3D5A34;border:1px solid #C9D9BE}
-#cc-automated-staff-notifications .asn-item-pill.is-off{background:var(--surface-soft);color:var(--text-3);border:1px solid var(--border-soft)}
-#cc-automated-staff-notifications .asn-item-meta{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:8px}
-#cc-automated-staff-notifications .asn-item-actions{display:flex;flex-wrap:wrap;gap:8px}
+#cc-automated-staff-notifications .asn-item-pill.is-off{background:var(--surface);color:var(--text-3);border:1px solid var(--border-soft)}
+#cc-automated-staff-notifications .asn-item-row{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;font-size:12px;color:var(--text-2);line-height:1.45;margin-bottom:4px}
+#cc-automated-staff-notifications .asn-item-row:last-of-type{margin-bottom:6px}
+#cc-automated-staff-notifications .asn-item-row-label{font-weight:600;color:var(--text-3);flex-shrink:0}
+#cc-automated-staff-notifications .asn-item-row-value{min-width:0;color:var(--text-2)}
+#cc-automated-staff-notifications .asn-item-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:2px}
 #cc-automated-staff-notifications .asn-item-actions .btn{font-size:11px;padding:6px 10px;line-height:1.2}
-#cc-automated-staff-notifications .asn-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#cc-automated-staff-notifications .asn-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
 .oi-form-row{display:flex;gap:8px;align-items:flex-end;margin-bottom:4px}
 #oi-input{flex:1;font-size:13.5px;padding:10px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);min-width:0}
 #oi-input:focus{outline:2px solid #7AAB6E;outline-offset:1px}
@@ -18232,8 +18239,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-automated-staff-notifications .asn-recipient-phone{grid-column:2}
 #cc-automated-staff-notifications .asn-recipient-group{grid-column:2;justify-self:start;margin-top:2px}
 #cc-automated-staff-notifications .asn-days{gap:6px}
-#cc-automated-staff-notifications .asn-day-check{flex:1 1 calc(33.33% - 6px);min-width:0;justify-content:center;padding:8px 6px;font-size:11px}
-#cc-automated-staff-notifications .asn-time-field{max-width:100%}
+#cc-automated-staff-notifications .asn-day-check{flex:1 1 calc(33.33% - 6px);min-width:0;justify-content:flex-start;padding:7px 8px;font-size:11px}
+#cc-automated-staff-notifications .asn-schedule-row{flex-direction:column;align-items:stretch;gap:10px}
+#cc-automated-staff-notifications .asn-schedule-row .asn-time-field{max-width:100%}
 #cc-automated-staff-notifications .asn-actions{flex-direction:column;align-items:stretch}
 #cc-automated-staff-notifications .asn-actions .btn{width:100%}
 #cc-automated-staff-notifications .asn-item-actions .btn{flex:1 1 calc(50% - 4px);min-width:0}
@@ -19270,44 +19278,52 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
   <div class="card cc-section" id="cc-automated-staff-notifications" style="display:none">
     <div class="cc-section-hdr">Automated Staff Notifications</div>
-    <div class="cc-section-sub">Schedule Luna to answer a saved prompt and WhatsApp selected staff on selected days/times.</div>
+    <div class="cc-section-sub">Schedule Luna to answer saved prompts and send them to selected staff.</div>
     <div id="asn-error"></div>
     <div id="asn-status"></div>
-    <div class="asn-field">
-      <label class="asn-label" for="asn-prompt-title">Prompt title</label>
-      <input id="asn-prompt-title" type="text" class="asn-input" placeholder="e.g. Morning arrivals summary" autocomplete="off" spellcheck="false">
-    </div>
-    <div class="asn-field">
-      <label class="asn-label">Recipients</label>
-      <div id="asn-recipients" class="asn-recipients"></div>
-    </div>
-    <div class="asn-field">
-      <label class="asn-label" for="asn-prompt-text">Prompt</label>
-      <textarea id="asn-prompt-text" rows="5" class="asn-textarea" placeholder="What should Luna look up and send to staff?"></textarea>
-    </div>
-    <div class="asn-field">
-      <label class="asn-label">Days</label>
-      <div class="asn-days" id="asn-days">
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-mon" value="0"><span>Mon</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-tue" value="1"><span>Tue</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-wed" value="2"><span>Wed</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-thu" value="3"><span>Thu</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-fri" value="4"><span>Fri</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-sat" value="5"><span>Sat</span></label>
-        <label class="asn-day-check"><input type="checkbox" id="asn-day-sun" value="6"><span>Sun</span></label>
+    <div class="asn-block">
+      <div class="asn-field">
+        <label class="asn-label" for="asn-prompt-title">Prompt title</label>
+        <input id="asn-prompt-title" type="text" class="asn-input" placeholder="e.g. Morning arrivals summary" autocomplete="off" spellcheck="false">
+      </div>
+      <div class="asn-field">
+        <label class="asn-label" for="asn-prompt-text">Prompt</label>
+        <textarea id="asn-prompt-text" rows="5" class="asn-textarea" placeholder="e.g. &ldquo;How many check-ins, check-outs, and surf packages do we have today?&rdquo;"></textarea>
       </div>
     </div>
-    <div class="asn-field asn-time-field">
-      <label class="asn-label" for="asn-time">Time</label>
-      <input id="asn-time" type="time" class="asn-time-input">
+    <div class="asn-block">
+      <div class="asn-field">
+        <label class="asn-label">Recipients</label>
+        <div id="asn-recipients" class="asn-recipients"></div>
+      </div>
     </div>
-    <div class="asn-field">
-      <label class="asn-toggle-row" for="asn-enabled">
-        <input type="checkbox" id="asn-enabled" checked>
-        <span>Enabled</span>
-      </label>
+    <div class="asn-block">
+      <div class="asn-field">
+        <label class="asn-label">Days</label>
+        <div class="asn-days" id="asn-days">
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-mon" value="0"><span>Mon</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-tue" value="1"><span>Tue</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-wed" value="2"><span>Wed</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-thu" value="3"><span>Thu</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-fri" value="4"><span>Fri</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-sat" value="5"><span>Sat</span></label>
+          <label class="asn-day-check"><input type="checkbox" id="asn-day-sun" value="6"><span>Sun</span></label>
+        </div>
+      </div>
+      <div class="asn-schedule-row">
+        <div class="asn-field asn-time-field">
+          <label class="asn-label" for="asn-time">Time</label>
+          <input id="asn-time" type="time" class="asn-time-input">
+        </div>
+        <div class="asn-field asn-enabled-field">
+          <label class="asn-toggle-row" for="asn-enabled">
+            <input type="checkbox" id="asn-enabled" checked>
+            <span>Enabled</span>
+          </label>
+        </div>
+      </div>
     </div>
-    <div class="al-form-row asn-actions">
+    <div class="sns-actions asn-actions">
       <button class="btn btn-primary" id="asn-save-btn" type="button" onclick="automatedStaffNotificationsSave()">Save automation</button>
       <button class="btn btn-ghost" id="asn-reset-btn" type="button" onclick="automatedStaffNotificationsResetForm()">Clear form</button>
     </div>
@@ -19344,8 +19360,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
     <div class="sns-card-hdr">
       <div>
-        <div class="cc-section-hdr">Staff WhatsApp Alerts</div>
-        <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts to staff when Luna starts a new guest conversation or needs human help.</div>
+        <div class="cc-section-hdr">Guest Conversation Alerts</div>
+        <div class="cc-section-sub sns-card-sub">Send WhatsApp alerts when Luna starts a guest conversation or needs human help.</div>
       </div>
       <span class="pill pill-grey sns-server-pill" id="sns-server-pill" style="display:none"></span>
     </div>
@@ -24576,24 +24592,37 @@ function automatedStaffNotificationsListRender(){
   if (!host) return;
   var rows = Array.isArray(staffAutomatedNotificationsCache) ? staffAutomatedNotificationsCache : [];
   if (!rows.length){
-    host.innerHTML = '<div class="asn-empty">No automations yet. Create one above.</div>';
+    host.innerHTML = '<div class="asn-empty">No automated staff notifications yet. Create one above.</div>';
     return;
   }
   host.innerHTML = rows.map(function(row){
     var pillClass = row.enabled ? 'is-on' : 'is-off';
     var pillText = row.enabled ? 'Enabled' : 'Disabled';
-    var meta = automatedStaffNotificationsFormatDays(row.days_of_week) + ' at ' + escHtml(row.local_time || '\u2014');
-    meta += '<br>Recipients: ' + escHtml(automatedStaffNotificationsFormatRecipients(row.recipients));
+    var schedule = escHtml(automatedStaffNotificationsFormatDays(row.days_of_week) + ' at ' + (row.local_time || '\u2014'));
+    var recipients = escHtml(automatedStaffNotificationsFormatRecipients(row.recipients));
+    var lastRunRow = '';
     if (row.last_run_at || row.last_status) {
-      meta += '<br>Last run: ' + escHtml(row.last_run_at ? fmtTs(row.last_run_at) : '\u2014');
-      if (row.last_status) meta += ' (' + escHtml(row.last_status) + ')';
+      var lastRun = escHtml(row.last_run_at ? fmtTs(row.last_run_at) : '\u2014');
+      if (row.last_status) lastRun += ' (' + escHtml(row.last_status) + ')';
+      lastRunRow = '<div class="asn-item-row asn-item-last-run">' +
+        '<span class="asn-item-row-label">Last run</span>' +
+        '<span class="asn-item-row-value">' + lastRun + '</span>' +
+      '</div>';
     }
     return '<div class="asn-item" data-asn-id="' + escHtml(row.id) + '">' +
       '<div class="asn-item-hdr">' +
         '<div class="asn-item-title">' + escHtml(row.title || 'Untitled') + '</div>' +
         '<span class="asn-item-pill ' + pillClass + '">' + pillText + '</span>' +
       '</div>' +
-      '<div class="asn-item-meta">' + meta + '</div>' +
+      '<div class="asn-item-row asn-item-schedule">' +
+        '<span class="asn-item-row-label">Schedule</span>' +
+        '<span class="asn-item-row-value">' + schedule + '</span>' +
+      '</div>' +
+      '<div class="asn-item-row asn-item-recipients">' +
+        '<span class="asn-item-row-label">Recipients</span>' +
+        '<span class="asn-item-row-value">' + recipients + '</span>' +
+      '</div>' +
+      lastRunRow +
       '<div class="asn-item-actions">' +
         '<button type="button" class="btn btn-ghost asn-item-edit" data-asn-id="' + escHtml(row.id) + '">Edit</button>' +
         '<button type="button" class="btn btn-ghost asn-item-delete" data-asn-id="' + escHtml(row.id) + '">Delete</button>' +

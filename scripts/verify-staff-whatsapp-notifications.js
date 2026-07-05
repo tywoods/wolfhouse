@@ -263,6 +263,8 @@ async function runAsyncTests() {
   const staffApi = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
   ok('staff API exposes notification settings route', staffApi.includes('/staff/notification-settings'));
   ok('staff API exposes Luna Staff notification UI card', staffApi.includes('cc-staff-notification-settings'));
+  ok('notification card uses Guest Conversation Alerts title', staffApi.includes('>Guest Conversation Alerts</div>'));
+  ok('old Staff WhatsApp Alerts card title removed', !staffApi.includes('>Staff WhatsApp Alerts</div>'));
   ok('notification card markup includes new conversation block', staffApi.includes('sns-new-enabled'));
   ok('notification card markup includes human needed block', staffApi.includes('sns-human-enabled'));
   ok('maybeLoadStaffNotificationSettings helper exists', staffApi.includes('function maybeLoadStaffNotificationSettings'));
