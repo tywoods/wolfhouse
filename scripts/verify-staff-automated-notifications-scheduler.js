@@ -86,6 +86,18 @@ ok('dry runner args omit --live', !dryPlan.runnerArgs.includes('--live'));
 console.log('\n── schedule ──');
 ok('cron every 5 minutes', dryPlan.cronExpression === '*/5 * * * *');
 ok('plan includes Schedule trigger command', dryPlan.commands.some((c) => c.argv.includes('Schedule')));
+ok('dedupe overlap comment in deploy script', /schedule interval.*overlap.*dedupe/i.test(deploy));
+
+console.log('\n── apply command order ──');
+const upsertLabels = dryPlan.commands.map((c) => c.label);
+const createIdx = upsertLabels.findIndex((l) => /create scheduled job/i.test(l));
+const identityIdx = upsertLabels.findIndex((l) => /assign managed identity/i.test(l));
+const secretIdx = upsertLabels.findIndex((l) => /bind Key Vault secrets/i.test(l));
+const updateIdx = upsertLabels.findIndex((l) => /update job image/i.test(l));
+ok('create job before identity assign', createIdx >= 0 && identityIdx >= 0 && createIdx < identityIdx);
+ok('create job before secret set', createIdx >= 0 && secretIdx >= 0 && createIdx < secretIdx);
+ok('identity assign before secret set', identityIdx >= 0 && secretIdx >= 0 && identityIdx < secretIdx);
+ok('secret set before final update', secretIdx >= 0 && updateIdx >= 0 && secretIdx < updateIdx);
 
 console.log('\n── live gates ──');
 const liveBlocked = validateJobDeployOptions({ live: true, allowedPhones: '' });

@@ -8,6 +8,8 @@
  *
  * The job runs `scripts/run-staff-automated-notifications.js` on a schedule (every 5
  * minutes UTC). Europe/Madrid due logic stays in the runner. No in-process timers.
+ * Schedule interval and runner window overlap is safe: per-slot dedupe keys in
+ * staff-automated-notifications prevent duplicate Ask Luna / WhatsApp sends.
  *
  * Usage:
  *   node scripts/deploy-staff-automated-notifications-job.js
@@ -226,25 +228,6 @@ function buildJobDeployPlan(opts, { image = opts.image || '<staff-api-image>' } 
     };
   }
 
-  commands.push({
-    label: 'assign managed identity',
-    argv: [
-      'az', 'containerapp', 'job', 'identity', 'assign',
-      '-g', profile.resourceGroup,
-      '-n', profile.jobName,
-      '--user-assigned', profile.identityId,
-    ],
-  });
-  commands.push({
-    label: 'bind Key Vault secrets',
-    argv: [
-      'az', 'containerapp', 'job', 'secret', 'set',
-      '-g', profile.resourceGroup,
-      '-n', profile.jobName,
-      '--secrets', ...buildSecretSetArgs(),
-    ],
-  });
-
   const createOrUpdateBase = [
     'az', 'containerapp', 'job', 'create',
     '-g', profile.resourceGroup,
@@ -266,9 +249,28 @@ function buildJobDeployPlan(opts, { image = opts.image || '<staff-api-image>' } 
     '--set-env-vars', ...envVarsToAzArgs(envVars),
   ];
 
+  // Job resource must exist before identity assign / secret set (first-time apply).
   commands.push({
-    label: 'create scheduled job (or update via az containerapp job update if exists)',
+    label: 'create scheduled job (or tolerate already exists)',
     argv: createOrUpdateBase,
+  });
+  commands.push({
+    label: 'assign managed identity',
+    argv: [
+      'az', 'containerapp', 'job', 'identity', 'assign',
+      '-g', profile.resourceGroup,
+      '-n', profile.jobName,
+      '--user-assigned', profile.identityId,
+    ],
+  });
+  commands.push({
+    label: 'bind Key Vault secrets',
+    argv: [
+      'az', 'containerapp', 'job', 'secret', 'set',
+      '-g', profile.resourceGroup,
+      '-n', profile.jobName,
+      '--secrets', ...buildSecretSetArgs(),
+    ],
   });
   commands.push({
     label: 'update job image/args/env if job already exists',
@@ -385,7 +387,7 @@ function main() {
       runAz(step.argv);
     } catch (err) {
       if (plan.action === 'upsert' && /create scheduled job/.test(step.label)) {
-        console.error('[apply] create failed (job may already exist) — continuing to update step');
+        console.error('[apply] create failed (job may already exist) — continuing to identity/secret/update steps');
         continue;
       }
       console.error(String(err.message || err));
