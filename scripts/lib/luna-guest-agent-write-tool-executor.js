@@ -18,6 +18,15 @@ const {
   shouldAllowGuestStripeTestLinkCreate,
 } = require('./luna-guest-stripe-test-link-create');
 const { attachAllGuestAddonServices } = require('./luna-guest-addon-service-attach');
+const {
+  addGuestToBooking,
+  isPaidBookingPaymentStatus,
+  isAddGuestPaidEnabled,
+} = require('./luna-guest-addguest-attach');
+const {
+  runGuestBalancePaymentLinkCreateApproved,
+  shouldAllowGuestBalancePaymentLinkCreate,
+} = require('./luna-guest-balance-payment-link-create');
 const { mergePendingServiceAttachContext } = require('./luna-guest-pending-service-attach');
 const {
   runGuestAddonServicePaymentLinkCreateApproved,
@@ -52,6 +61,56 @@ function hasServiceAttachIntent(fields) {
   if (trimStr(f.yoga_request)) return true;
   if (trimStr(f.meals_request)) return true;
   if (Array.isArray(f.services_pending_manual) && f.services_pending_manual.length) return true;
+  return false;
+}
+
+/**
+ * Slice 1 — guest asked to add a person to an existing booking.
+ * The extracted field add_guest_request carries either an array of names or a truthy marker.
+ */
+function hasAddGuestIntent(fields) {
+  const f = fields || {};
+  const req = f.add_guest_request;
+  if (req == null) return false;
+  if (Array.isArray(req)) return req.length > 0;
+  if (typeof req === 'object') {
+    if (Array.isArray(req.names)) return req.names.length > 0;
+    if (req.requested === true) return true;
+    return Object.keys(req).length > 0;
+  }
+  if (typeof req === 'boolean') return req === true;
+  return !!trimStr(req);
+}
+
+/** Resolve added guest name(s) from the extracted add_guest_request field. */
+function resolveAddGuestNames(fields) {
+  const req = (fields || {}).add_guest_request;
+  if (req == null) return [];
+  if (Array.isArray(req)) return req.map((n) => trimStr(n)).filter(Boolean);
+  if (typeof req === 'object' && Array.isArray(req.names)) {
+    return req.names.map((n) => trimStr(n)).filter(Boolean);
+  }
+  const single = trimStr(req);
+  return single && single !== 'true' ? [single] : [];
+}
+
+/**
+ * Detect a paid / partially paid booking from the write-tool context (no DB round-trip).
+ * Mirrors the payment-truth signals the handoff policy reads. Paid add-guest stays a
+ * staff handoff (Slice 2), so readiness blocks it with booking_paid_requires_staff.
+ */
+function isPaidBookingContext(ctx) {
+  const c = ctx || {};
+  const direct = trimStr(c.payment_status)
+    || trimStr(c.booking_payment_status)
+    || (c.prior_guest_context && trimStr(c.prior_guest_context.payment_status));
+  if (isPaidBookingPaymentStatus(direct)) return true;
+  const truth = c.payment_truth
+    || (c.result && c.result.payment_truth)
+    || (c.prior_guest_context && c.prior_guest_context.payment_truth)
+    || null;
+  if (truth && isPaidBookingPaymentStatus(truth.payment_status)) return true;
+  if (c.deposit_paid === true || c.payment_received === true) return true;
   return false;
 }
 
@@ -171,6 +230,29 @@ function evaluateWriteToolReadiness(toolId, chainPayload, ctx) {
     };
   }
 
+  if (id === 'add_guest_to_booking') {
+    // Slice 1 — UNPAID: ready requires an existing booking, an add-guest intent, booking
+    // writes enabled, and pg. Slice 2 — PAID: allowed only when LUNA_GUEST_ADD_GUEST_PAID_ENABLED
+    // is ON (top-up path). Flag OFF + paid → still blocks with booking_paid_requires_staff.
+    const reasons = [];
+    if (!refs.bookingId) reasons.push('booking_id_missing');
+    if (!hasAddGuestIntent(refs.fields)) reasons.push('no_add_guest_intent');
+    if (!isOpenDemoBookingWritesEnabled(env)) reasons.push('booking_writes_disabled');
+    if (!context.pg) reasons.push('pg_required_for_active');
+    if (isPaidBookingContext(context) && !isAddGuestPaidEnabled(env)) {
+      reasons.push('booking_paid_requires_staff');
+    }
+    const ready = reasons.length === 0;
+    const wouldExecute = ready && context.confirm_add_guest === true;
+    return {
+      tool_id: id,
+      ready,
+      would_execute: wouldExecute,
+      block_reasons: reasons,
+      source: 'gate_eval',
+    };
+  }
+
   if (id === 'create_service_payment_link') {
     const allow = shouldAllowGuestServicePaymentLinkCreate({
       booking_id: refs.bookingId,
@@ -184,6 +266,28 @@ function evaluateWriteToolReadiness(toolId, chainPayload, ctx) {
       tool_id: id,
       ready,
       would_execute: ready && context.confirm_service_payment_link === true,
+      block_reasons: ready ? [] : [
+        ...(refs.bookingId ? [] : ['booking_id_missing']),
+        ...(allow.allowed ? [] : allow.reasons),
+      ],
+      source: 'gate_eval',
+    };
+  }
+
+  if (id === 'create_balance_payment_link') {
+    // Slice 2 — outstanding balance / paid add-guest top-up. Ready requires a booking_id
+    // and confirm_balance_payment_link; the balance creator derives the amount (the delta).
+    const allow = shouldAllowGuestBalancePaymentLinkCreate({
+      booking_id: refs.bookingId,
+    }, {
+      ...context,
+      confirm_balance_payment_link: context.confirm_balance_payment_link === true,
+    });
+    const ready = !!refs.bookingId && allow.allowed === true;
+    return {
+      tool_id: id,
+      ready,
+      would_execute: ready && context.confirm_balance_payment_link === true,
       block_reasons: ready ? [] : [
         ...(refs.bookingId ? [] : ['booking_id_missing']),
         ...(allow.allowed ? [] : allow.reasons),
@@ -311,6 +415,38 @@ async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
     }
   }
 
+  if (id === 'add_guest_to_booking') {
+    try {
+      const addOut = await addGuestToBooking(context.pg, {
+        clientSlug,
+        bookingId: refs.bookingId,
+        bookingCode: refs.bookingCode,
+        newGuestNames: resolveAddGuestNames(refs.fields),
+        checkIn: refs.fields.check_in,
+        checkOut: refs.fields.check_out,
+        packageCode: refs.fields.package_interest,
+        writeSource: 'luna_guest_gpt_write_tool_add_guest',
+        env,
+      });
+      const okStatus = addOut.status === 'ok';
+      return {
+        tool_id: id,
+        status: okStatus ? 'ok' : (addOut.status === 'handoff_paid' || addOut.status === 'no_availability' ? 'blocked' : 'error'),
+        readiness,
+        result: addOut,
+        block_reasons: okStatus ? [] : [addOut.reason].filter(Boolean),
+      };
+    } catch (err) {
+      return {
+        tool_id: id,
+        status: 'error',
+        readiness,
+        result: null,
+        block_reasons: [String(err.message || err).slice(0, 120)],
+      };
+    }
+  }
+
   if (id === 'create_service_payment_link') {
     const out = await runGuestAddonServicePaymentLinkCreateApproved(withSunsetLocationIdOnPayload({
       booking_id: refs.bookingId,
@@ -318,6 +454,25 @@ async function executeGuestAgentWriteTool(toolId, chainPayload, ctx) {
       client_slug: clientSlug,
     }, clientSlug, context.location_id), {
       confirm_service_payment_link: true,
+      env,
+      host_header: context.host_header,
+      pg: context.pg,
+    });
+    return {
+      tool_id: id,
+      status: out.success ? 'ok' : 'error',
+      readiness,
+      result: out,
+      block_reasons: out.stripe_link_block_reasons || [],
+    };
+  }
+
+  if (id === 'create_balance_payment_link') {
+    const out = await runGuestBalancePaymentLinkCreateApproved(withSunsetLocationIdOnPayload({
+      booking_id: refs.bookingId,
+      client_slug: clientSlug,
+    }, clientSlug, context.location_id), {
+      confirm_balance_payment_link: true,
       env,
       host_header: context.host_header,
       pg: context.pg,
@@ -367,6 +522,38 @@ function buildDeterministicWriteToolPlan(chainPayload, ctx) {
     });
   }
 
+  // Add a guest to an existing booking. add_guest_to_booking always runs before the payment
+  // link so the link reflects the mutation.
+  //  - Slice 1 (UNPAID): add_guest → create_payment_link (refreshed pay-in-full link).
+  //  - Slice 2 (PAID + LUNA_GUEST_ADD_GUEST_PAID_ENABLED on): add_guest → create_balance_payment_link
+  //    (top-up for ONLY the new guest's delta). Paid with the flag OFF stays a staff handoff.
+  if (refs.bookingId && hasAddGuestIntent(refs.fields)) {
+    const paidBooking = isPaidBookingContext(context);
+    const paidTopupEnabled = paidBooking && isAddGuestPaidEnabled(context.env || process.env);
+    if (!paidBooking || paidTopupEnabled) {
+      tools.push({
+        tool_id: 'add_guest_to_booking',
+        reason: 'guest_requested_add_person_on_existing_booking',
+        source: 'deterministic',
+      });
+      if (paidTopupEnabled) {
+        tools.push({
+          tool_id: 'create_balance_payment_link',
+          reason: 'charge_delta_top_up_after_add_guest_on_paid_booking',
+          source: 'deterministic',
+          depends_on: 'add_guest_to_booking',
+        });
+      } else {
+        tools.push({
+          tool_id: 'create_payment_link',
+          reason: 'refresh_pay_in_full_link_after_add_guest',
+          source: 'deterministic',
+          depends_on: 'add_guest_to_booking',
+        });
+      }
+    }
+  }
+
   if (refs.bookingId && hasServiceAttachIntent(refs.fields)) {
     tools.push({
       tool_id: 'attach_post_booking_services',
@@ -401,4 +588,7 @@ module.exports = {
   buildDeterministicWriteToolPlan,
   resolveBookingRef,
   hasServiceAttachIntent,
+  hasAddGuestIntent,
+  resolveAddGuestNames,
+  isPaidBookingContext,
 };

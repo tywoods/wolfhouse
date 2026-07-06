@@ -1,0 +1,44 @@
+{
+  "id": "golden-22-add-guest-paid",
+  "label": "Post-booking add guest on PAID booking — top-up for only the new guest's share (€135), no handoff",
+  "spec_refs": ["7.2"],
+  "contact_name": "John",
+  "reference_date": "2026-06-10",
+  "env": {
+    "LUNA_GUEST_ADD_GUEST_PAID_ENABLED": "true"
+  },
+  "turns": [
+    {
+      "message": "Sorry, please add 1 more person. Tom",
+      "inject_guest_context": {
+        "booking_id": "11111111-1111-4111-8111-111111111122",
+        "booking_code": "WH-G27-GOLDEN22",
+        "payment_status": "deposit_paid",
+        "guest_count": 2,
+        "check_in": "2026-09-16",
+        "check_out": "2026-09-19",
+        "env": {
+          "LUNA_GUEST_ADD_GUEST_PAID_ENABLED": "true"
+        },
+        "extracted_fields": {
+          "guest_count": 2,
+          "guest_name": "John, Jane",
+          "check_in": "2026-09-16",
+          "check_out": "2026-09-19",
+          "package_interest": "accommodation_only"
+        }
+      },
+      "expect": {
+        "expected_message_lane": "add_service_request",
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_fake_confirmation": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

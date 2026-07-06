@@ -75,10 +75,20 @@ const GUEST_AGENT_TOOLS = Object.freeze({
     safety_gate_required: true,
     backing: 'luna-guest-addon-service-attach.attachAllGuestAddonServices (post-hold)',
   },
+  add_guest_to_booking: {
+    read_or_write: 'write',
+    safety_gate_required: true,
+    backing: 'luna-guest-addguest-attach.addGuestToBooking (post-hold, UNPAID only; requote +1 guest)',
+  },
   create_service_payment_link: {
     read_or_write: 'write',
     safety_gate_required: true,
     backing: 'luna-guest-addon-service-payment-link-create (addon_service Stripe checkout)',
+  },
+  create_balance_payment_link: {
+    read_or_write: 'write',
+    safety_gate_required: true,
+    backing: 'luna-guest-balance-payment-link-create (outstanding balance / paid add-guest top-up)',
   },
 });
 
@@ -153,6 +163,18 @@ function planGuestAgentToolSteps(input) {
     return steps;
   }
 
+  if (intent === 'add_guest_request') {
+    // Slice 1 — add a guest to an UNPAID booking: check a bed exists, requote +1 guest,
+    // update booking + re-send the pay-in-full link. PAID bookings are handled upstream by
+    // paid_booking_change (staff handoff), never here.
+    steps.push(planItem('check_availability', 'confirm a bed exists for the extra guest on the same dates', 'done', false));
+    steps.push(planItem('quote_booking', 'requote accommodation for guest_count + added guests', 'done', false));
+    steps.push(planItem('add_guest_to_booking', 'unpaid booking — add guest + requote via existing gated write path', 'pending_gates', false));
+    steps.push(planItem('create_payment_link', 'refresh the pay-in-full link for the updated total', 'pending_gates', false));
+    steps.push(planItem('compose_cami_reply', 'confirm the added person, new total, and refreshed link', 'done', false));
+    return steps;
+  }
+
   // Booking-progress intents share the deterministic chain.
   if (missing.length > 0) {
     steps.push(planItem(
@@ -200,7 +222,9 @@ const GUEST_AGENT_WRITE_TOOL_IDS = Object.freeze(
 /** Stage 50d/50e — write tools GPT may plan when chain + gates are ready. */
 const GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS = Object.freeze([
   'create_booking_hold',
+  'add_guest_to_booking',
   'create_payment_link',
+  'create_balance_payment_link',
   'attach_post_booking_services',
   'create_service_payment_link',
 ]);

@@ -133,6 +133,7 @@ const COMPOSER_STATES = Object.freeze([
   'post_payment_link_ack',
   'service_scheduled_ack',
   'post_booking_service_attach_ack',
+  'add_guest_to_booking_ack',
   'transfer_times_updated_ack',
   'clarify_missing_info',
   'contextual_pending_answer',
@@ -658,6 +659,16 @@ function resolveComposerState(input) {
   }
 
   if (!isBookingFlowLane(result)) return null;
+
+  // Slice 1 — a completed add-guest write takes priority over service side-question intent
+  // so the confirmation (added person + new total + refreshed link) is what the guest sees.
+  if (mode === 'live_staging') {
+    const addGuestOutEarly = live.addGuestWrite;
+    if (addGuestOutEarly && addGuestOutEarly.status === 'ok' && addGuestOutEarly.result
+      && addGuestOutEarly.result.status === 'ok') {
+      return 'add_guest_to_booking_ack';
+    }
+  }
 
   function resolveServiceSideQuestionIntent() {
     if (isExplicitAddonSelectionMessage(messageText)) return null;
@@ -1427,6 +1438,80 @@ function buildReplyForState(state, ctx) {
       return lang === 'de'
         ? 'Alles klar — das Extra ist notiert 😊'
         : 'Got it — I\'ve noted that for your stay 😊';
+    }
+    case 'add_guest_to_booking_ack': {
+      // Warm confirmation for an added guest. Composer owns the numbers + link.
+      // One question per message; no jargon.
+      const liveOut = (ctx && ctx.live_outcomes) || {};
+      const addRes = (liveOut.addGuestWrite && liveOut.addGuestWrite.result) || {};
+      const names = Array.isArray(addRes.added_guest_names) ? addRes.added_guest_names : [];
+      const personName = names.length ? names.join(' and ') : 'your extra guest';
+
+      // Slice 2 — PAID top-up: the existing payment stands; charge only the new guest's
+      // share (the delta) via the balance link. Distinct copy from the unpaid re-send.
+      if (addRes.paid_topup === true) {
+        // dueCents = what the balance link actually charges (outstanding after existing
+        // payments). shareCents = the new person's own accommodation delta. They are equal
+        // for a fully-paid booking; for a deposit_paid booking dueCents also includes the
+        // original unpaid remainder, so we must NOT call the full amount "just their share".
+        const dueCents = Number(addRes.topup_amount_cents);
+        const shareCents = Number(addRes.accommodation_delta_cents);
+        const eur = (c) => (Number.isFinite(c) ? `€${(c / 100).toFixed(2)}` : null);
+        const dueEur = eur(dueCents);
+        const shareEur = eur(shareCents);
+        const extraOwed = Number.isFinite(dueCents) && Number.isFinite(shareCents)
+          && dueCents > shareCents;
+        const balanceLink = (liveOut.balanceStripeLink && (liveOut.balanceStripeLink.stripe_checkout_url
+          || liveOut.balanceStripeLink.guest_payment_url
+          || (liveOut.balanceStripeLink.result && liveOut.balanceStripeLink.result.stripe_checkout_url)))
+          || (liveOut.stripeLink && liveOut.stripeLink.stripe_checkout_url)
+          || null;
+        const paidLines = [];
+        if (lang === 'de') {
+          paidLines.push(`Super — ich habe ${personName} zu eurer Buchung hinzugefügt 🙌`);
+          paidLines.push('Eure bisherige Zahlung bleibt bestehen.');
+          if (extraOwed) {
+            if (shareEur) paidLines.push(`Der Anteil für ${personName} beträgt ${shareEur}.`);
+            if (dueEur) paidLines.push(`Zusammen mit dem offenen Restbetrag sind jetzt ${dueEur} fällig.`);
+            if (balanceLink) paidLines.push(`Hier ist der Link, um das zu begleichen: ${balanceLink}`);
+          } else {
+            if (dueEur) paidLines.push(`Für ${personName} sind es ${dueEur}.`);
+            if (balanceLink) paidLines.push(`Hier ist der Link nur für diesen Anteil: ${balanceLink}`);
+          }
+        } else {
+          paidLines.push(`Lovely — I've added ${personName} to your booking 🙌`);
+          paidLines.push('Your existing payment stays as it is.');
+          if (extraOwed) {
+            if (shareEur) paidLines.push(`${personName}'s share is ${shareEur}.`);
+            if (dueEur) paidLines.push(`With the balance already on your booking, that's ${dueEur} to settle now.`);
+            if (balanceLink) paidLines.push(`Here's the link to settle it: ${balanceLink}`);
+          } else {
+            if (dueEur) paidLines.push(`For ${personName} that comes to ${dueEur}.`);
+            if (balanceLink) paidLines.push(`Here's the link for just their share: ${balanceLink}`);
+          }
+        }
+        return paidLines.join('\n');
+      }
+
+      // Slice 1 — UNPAID: acknowledge the person, state the new total, share the refreshed
+      // pay-in-full link.
+      const newTotalCents = Number(addRes.new_total_amount_cents);
+      const totalEur = Number.isFinite(newTotalCents)
+        ? `€${(newTotalCents / 100).toFixed(2)}`
+        : null;
+      const link = (liveOut.stripeLink && (liveOut.stripeLink.stripe_checkout_url
+        || (liveOut.stripeLink.result && liveOut.stripeLink.result.stripe_checkout_url))) || null;
+      const lines = [];
+      if (lang === 'de') {
+        lines.push(`Super — ich habe ${personName} zu eurer Buchung hinzugefügt 🙌`);
+        if (totalEur) lines.push(`Der neue Gesamtbetrag ist ${totalEur}.`);
+        if (link) lines.push(`Hier ist der aktualisierte Link für die volle Zahlung: ${link}`);
+      } else {
+        lines.push(`Lovely — I've added ${personName} to your booking 🙌`);
+        if (totalEur) lines.push(`Your new total is ${totalEur}.`);
+        if (link) lines.push(`Here's the refreshed link to pay in full: ${link}`);
+      }
+      return lines.join('\n');
     }
     case 'transfer_times_updated_ack': {
       const liveOut = (ctx && ctx.live_outcomes) || {};

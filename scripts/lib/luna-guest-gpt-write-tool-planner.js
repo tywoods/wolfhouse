@@ -17,6 +17,7 @@ const {
   evaluateWriteToolReadiness,
   executeGuestAgentWriteTool,
 } = require('./luna-guest-agent-write-tool-executor');
+const { isAddGuestPaidEnabled } = require('./luna-guest-addguest-attach');
 
 const FLAG = 'LUNA_GUEST_GPT_WRITE_TOOLS_ENABLED';
 const FLAG_PROD = 'LUNA_GUEST_GPT_WRITE_TOOLS_ENABLED_PROD';
@@ -65,10 +66,12 @@ function buildWritePlannerSystemPrompt() {
     `Allowed write tools: ${list}`,
     'Only plan writes when chain snapshot shows readiness (payment_choice_ready, hold plan ready, or existing booking_id for add-ons).',
     'When booking_id is present AND meals_request or yoga_request is non-null in chain_status, you MUST plan attach_post_booking_services.',
+    'When booking_id is present AND add_guest_request is non-null in chain_status AND the booking is UNPAID, you MUST plan add_guest_to_booking, then create_payment_link to refresh the pay-in-full link.',
+    'When booking_id is present AND add_guest_request is non-null AND the booking is PAID/deposit_paid AND add_guest_paid_enabled is true, you MUST plan add_guest_to_booking, then create_balance_payment_link (a top-up for ONLY the new guest\'s delta) — NOT create_payment_link. If the booking is PAID/deposit_paid and add_guest_paid_enabled is false, do NOT plan add_guest_to_booking (staff handoff).',
     'NEVER plan assign_beds or mark_handoff.',
-    'Order: create_booking_hold before create_payment_link; attach_post_booking_services before create_service_payment_link.',
+    'Order: create_booking_hold before create_payment_link; add_guest_to_booking before create_payment_link and before create_balance_payment_link; attach_post_booking_services before create_service_payment_link.',
     'Return ONLY JSON: {"planned_tools":["tool_id",...],"rationale":"short reason"}',
-    'Max 4 tools. No prose outside JSON.',
+    'Max 5 tools. No prose outside JSON.',
   ].join('\n');
 }
 
@@ -85,9 +88,12 @@ function buildWritePlannerUserPrompt(input) {
       booking_id: input.booking_id || null,
       meals_request: extractedFields.meals_request || null,
       yoga_request: extractedFields.yoga_request || null,
+      add_guest_request: extractedFields.add_guest_request || null,
+      payment_status: (snap.result && snap.result.payment_status) || input.payment_status || null,
     },
     allowed_write_tools: GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS,
     service_pay_now_enabled: input.service_pay_now_enabled === true,
+    add_guest_paid_enabled: input.add_guest_paid_enabled === true,
   }, null, 2);
 }
 
@@ -219,6 +225,7 @@ async function runGuestGptWriteToolPlanner(input, options) {
           ...inp,
           chain_snapshot: chainSnapshot,
           service_pay_now_enabled: base.service_pay_now_enabled,
+          add_guest_paid_enabled: isAddGuestPaidEnabled(env),
         }),
         model: plannerModel(env),
         env,
@@ -279,6 +286,12 @@ async function runGuestGptWriteToolPlanner(input, options) {
         holdPaymentDraftId = result.result.payment_draft_id || holdPaymentDraftId;
         holdBookingId = result.result.booking_id || holdBookingId;
       }
+      // add_guest_to_booking refreshes the pay-in-full draft to the new total; thread its
+      // payment_draft_id so the follow-on create_payment_link re-sends the correct amount.
+      if (toolId === 'add_guest_to_booking') {
+        holdPaymentDraftId = result.result.payment_draft_id || holdPaymentDraftId;
+        holdBookingId = result.result.booking_id || holdBookingId;
+      }
       if (toolId === 'attach_post_booking_services' && result.result.service_payment_ledger) {
         outcomes.service_payment_ledger = result.result.service_payment_ledger;
       }
@@ -331,6 +344,7 @@ module.exports = {
   isGuestServicePayNowEnabled,
   sanitizeGptWritePlan,
   buildDeterministicWriteToolPlan,
+  buildWritePlannerSystemPrompt,
   runGuestGptWriteToolPlanner,
   buildGptWriteToolPlannerObservability,
 };

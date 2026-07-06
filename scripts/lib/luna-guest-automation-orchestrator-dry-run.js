@@ -1435,6 +1435,7 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
         balanceStripeLink: wo.create_balance_payment_link || null,
         serviceAttach: wo.attach_post_booking_services || null,
         serviceStripeLink: wo.create_service_payment_link || null,
+        addGuestWrite: wo.add_guest_to_booking || null,
       };
       payload.gpt_write_outcomes = wo;
     }

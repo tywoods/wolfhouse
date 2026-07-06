@@ -34,6 +34,7 @@ const {
   detectBalancePaymentLinkRequest,
   hasExistingPaidBookingContext,
 } = require('./luna-guest-balance-payment-link-create');
+const { isAddGuestPaidEnabled } = require('./luna-guest-addguest-attach');
 const { buildTransferSideQuestionReply, detectTransferSideQuestionIntent, detectServiceSideQuestionIntent } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
 const {
@@ -848,6 +849,46 @@ function isBookingProgressWhenQuestion(text) {
     && /\b(?:will you|you send|you confirm|next step|hear back|get back)\b/i.test(t);
 }
 
+/**
+ * Slice 1 — detect a post-booking "add a person" request and pull the added guest name(s).
+ * e.g. "Sorry, please add 1 more person. Tom" -> { requested: true, names: ['Tom'], count: 1 }.
+ * Returns null when the message is not an add-guest request.
+ */
+function detectAddGuestRequest(text) {
+  const t = String(text || '').trim();
+  if (!t) return null;
+  // Must reference adding a person/guest to the party (not a service/add-on).
+  const addPersonRe = /\b(?:add|adding|include|bring|another|one more|1 more|\+\s*1)\b[^.!?\n]*\b(?:person|people|guest|guests|persona|personas|persone|personne|personnes|friend|friends|mate|amico|amica|amici|ami|amis)\b/i;
+  const bringPersonRe = /\b(?:bring(?:ing)?|add(?:ing)?)\b[^.!?\n]*\b(?:friend|friends|mate|guy|girl|someone|amico|amica|amici)\b/i;
+  if (!addPersonRe.test(t) && !bringPersonRe.test(t)) return null;
+
+  // Count of added people (default 1).
+  let count = 1;
+  const numWord = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+  const numMatch = /\b(?:add|adding|include|bring|\+)?\s*(\d+)\s*(?:more\s+)?(?:person|people|guest|guests|persona|personas|persone|amico|amici|friend|friends)\b/i.exec(t);
+  if (numMatch) {
+    const n = parseInt(numMatch[1], 10);
+    if (Number.isInteger(n) && n > 0 && n < 20) count = n;
+  } else {
+    const wordMatch = /\b(one|two|three|four|five)\s+(?:more\s+)?(?:person|people|guest|guests|friend|friends)\b/i.exec(t);
+    if (wordMatch) count = numWord[wordMatch[1].toLowerCase()] || 1;
+  }
+
+  // Extract added guest name(s): a capitalized token after the request, or a trailing name.
+  const names = [];
+  // "add 1 more person. Tom" / "add a person - Tom" / "and Tom"
+  const trailingName = /(?:person|people|guest|guests|persona|personas|persone|friend|friends|amico|amici)[^A-Za-zÀ-ÿ]*(?:[-—:.,]\s*|\s+(?:called|named|it'?s|its|his name is|her name is|they'?re|and)\s+)?([A-ZÀ-Ý][a-zà-ÿ]+)\b/;
+  const m = trailingName.exec(t);
+  if (m && m[1]) names.push(m[1]);
+  // Standalone capitalized trailing token (e.g. sentence ending in ". Tom").
+  if (!names.length) {
+    const tail = /[.!?,-]\s*([A-ZÀ-Ý][a-zà-ÿ]+)\s*$/.exec(t);
+    if (tail && tail[1]) names.push(tail[1]);
+  }
+
+  return { requested: true, count, names };
+}
+
 function classifyMessageLane(text, guestContext) {
   const t = String(text || '');
   const ctx = guestContext || {};
@@ -922,6 +963,22 @@ function classifyMessageLane(text, guestContext) {
   }
 
   if (hasCode && !detectNewStayBookingIntent(t)) {
+    // Post-booking "add a person" on an existing booking.
+    //  - UNPAID: handled lane (the write pipeline requotes + updates the booking).
+    //  - PAID + LUNA_GUEST_ADD_GUEST_PAID_ENABLED on (Slice 2): handled lane — the pipeline
+    //    adds the guest and charges a top-up for only the new guest's delta.
+    //  - PAID + flag off (Slice 1): staff handoff — never mutate a paid booking here.
+    if (detectAddGuestRequest(t)) {
+      if (hasPaidBookingContext(ctx) && !isAddGuestPaidEnabled(ctx.env)) {
+        return {
+          lane: 'staff_handoff_required',
+          handoff: true,
+          reasons: ['add_guest_on_paid_booking'],
+          confidence: 0.9,
+        };
+      }
+      return { lane: 'add_service_request', handoff: false, reasons: [], confidence: 0.88 };
+    }
     try {
       const { hasPostBookingHold, isPostBookingServiceBookRequest } = require('./luna-guest-knowledge-config');
       if (hasPostBookingHold(ctx) && isPostBookingServiceBookRequest(t)) {
@@ -1740,6 +1797,15 @@ function runLunaGuestMessageRouterDryRun(input, context) {
       if (reactivePatch.meals_request) {
         extractedFields = { ...extractedFields, meals_request: reactivePatch.meals_request };
       }
+      // Slice 1 — surface a post-booking add-guest request as an extracted field so the
+      // write pipeline can requote + add the guest on an UNPAID booking.
+      const addGuest = detectAddGuestRequest(messageText);
+      if (addGuest && (addGuest.names.length || addGuest.count)) {
+        extractedFields = {
+          ...extractedFields,
+          add_guest_request: addGuest.names.length ? addGuest.names : [{ requested: true, count: addGuest.count }],
+        };
+      }
       // preservedExtracted overlay is applied after its declaration below (line ~1681).
     }
   } else {
@@ -1779,11 +1845,13 @@ function runLunaGuestMessageRouterDryRun(input, context) {
   // current-turn extractedFields onto preservedExtracted so they survive the router return.
   // The router returns preservedExtracted (not extractedFields) for non-booking lanes.
   if (lane === 'add_service_request'
-    && (extractedFields.meals_request != null || extractedFields.yoga_request != null)) {
+    && (extractedFields.meals_request != null || extractedFields.yoga_request != null
+      || extractedFields.add_guest_request != null)) {
     preservedExtracted = {
       ...(preservedExtracted || priorExtracted),
       ...(extractedFields.meals_request != null ? { meals_request: extractedFields.meals_request } : {}),
       ...(extractedFields.yoga_request != null ? { yoga_request: extractedFields.yoga_request } : {}),
+      ...(extractedFields.add_guest_request != null ? { add_guest_request: extractedFields.add_guest_request } : {}),
     };
   }
 
@@ -1996,6 +2064,7 @@ function runLunaGuestMessageRouterDryRun(input, context) {
 module.exports = {
   runLunaGuestMessageRouterDryRun,
   classifyMessageLane,
+  detectAddGuestRequest,
   isVagueMonthAvailabilityQuestion,
   isRelativeDatePhraseNeedingClarification,
   extractVagueMonthLabel,
