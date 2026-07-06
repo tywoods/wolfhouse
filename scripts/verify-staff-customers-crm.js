@@ -214,13 +214,8 @@ if (apiSrc) {
   assert('template picker in drawer', apiSrc.includes('cust-outreach-template-select') && apiSrc.includes('loadCustomerMessageTemplates'));
   assert('apply template to message', apiSrc.includes('applyCustomerMessageTemplateBody'));
   assert('save draft as template', apiSrc.includes('saveCustomerMessageTemplateFromDraft'));
-  assert('send button disabled shell', apiSrc.includes('id="cust-outreach-send"') && apiSrc.includes('customers.outreach.sendDisabled'));
+  assert('send button in drawer', apiSrc.includes('id="cust-outreach-send"'));
   assert('mobile bottom sheet CSS marker', apiSrc.includes('staff-portal-mobile:cust-outreach'));
-  assert('no outreach send API route', !apiSrc.includes('/staff/customers/outreach') && !apiSrc.includes('handleCustomerOutreachSend'));
-  assert('no outreach send fetch', !apiSrc.includes("'/staff/customers/outreach")
-    && !/saveCustomerMessageTemplateFromDraft[\s\S]{0,400}message-templates\/send/i.test(apiSrc));
-  assert('no whatsapp send helper in outreach', !/wireCustomersOutreachDrawer[\s\S]{0,2500}sendWhatsApp/i.test(apiSrc)
-    && !/loadCustomerMessageTemplates[\s\S]{0,2500}(sendMeta|graph\.facebook)/i.test(apiSrc));
   assert('tag save still PATCH only', apiSrc.includes("'/tags?client='"));
 }
 
@@ -290,16 +285,61 @@ if (apiSrc) {
   assert('generate fetch client', apiSrc.includes('customersOutreachGenerateUrl') && apiSrc.includes('message-templates/generate'));
   assert('regenerate label support', apiSrc.includes('customers.outreach.regenerate'));
   assert('generated body fills message textarea', apiSrc.includes('applyCustomerMessageTemplateBody(res.data.body)'));
-  assert('no outreach send route', !apiSrc.includes("pathname === '/staff/customers/outreach'"));
+  assert('generate does not call outreach send', !/generateCustomerOutreachDraftFromNotes[\s\S]{0,800}customers\/outreach\/send/.test(apiSrc));
   assert('no template send endpoint', !apiSrc.includes('message-templates/send') && !apiSrc.includes('handleCustomerMessageTemplateSend'));
-  assert('no whatsapp send in generate flow', !/generateCustomerOutreachDraftFromNotes[\s\S]{0,800}sendWhatsApp/i.test(apiSrc));
-  assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
+  assert('generate still no whatsapp send', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(apiSrc));
 }
 
 if (fs.existsSync(I18N_PATH)) {
   const i18n = fs.readFileSync(I18N_PATH, 'utf8');
   assert('notes for Luna label', i18n.includes("'customers.outreach.modeNotes': 'Notes for Luna'"));
   assert('generate button label', i18n.includes("'customers.outreach.generate': 'Generate'"));
+}
+
+console.log('\n[10] WhatsApp bulk outreach send — confirmation, caps, tenant scope');
+
+const SEND_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outreach-send.js');
+
+if (fs.existsSync(SEND_LIB)) {
+  const lib = fs.readFileSync(SEND_LIB, 'utf8');
+  const sendMod = require(SEND_LIB);
+  assert('send helper module', lib.includes('executeCustomerOutreachSend'));
+  assert('confirmed true required', lib.includes("b.confirmed !== true"));
+  assert('recipient cap 50', lib.includes('MAX_RECIPIENTS = 50'));
+  assert('message min length', lib.includes('MESSAGE_MIN'));
+  assert('DNC hard skip', lib.includes('do_not_contact'));
+  assert('missing phone skip', lib.includes('missing_phone'));
+  assert('tenant lookup join', lib.includes('INNER JOIN clients c') && lib.includes('c.slug = $1'));
+  assert('uses sendLunaWhatsAppMessage', lib.includes('sendLunaWhatsAppMessage'));
+  assert('no email channel', lib.includes('email_not_supported'));
+  assert('parse rejects missing confirm', sendMod.parseOutreachSendBody({ message: 'hello world', phones: ['+34123456789'] }).error === 'confirmation_required');
+  assert('parse rejects cap', sendMod.parseOutreachSendBody({
+    confirmed: true,
+    message: 'hello world',
+    phones: Array.from({ length: 51 }, (_, i) => `+34000000${String(i).padStart(4, '0')}`),
+  }).error === 'recipient_cap_exceeded');
+}
+
+if (apiSrc) {
+  assert('outreach send route POST', apiSrc.includes("pathname === '/staff/customers/outreach/send' && method === 'POST'"));
+  assert('outreach send handler', apiSrc.includes('handleCustomerOutreachSend'));
+  assert('send operator auth', /customers\/outreach\/send[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
+  assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,500}assertStaffClientAccess/.test(apiSrc));
+  assert('send requires confirmed in body fetch', apiSrc.includes('confirmed: true'));
+  assert('confirmation modal UI', apiSrc.includes('cust-outreach-confirm-modal') && apiSrc.includes('cust-outreach-confirm-send'));
+  assert('modal shows preview + stats', apiSrc.includes('cust-outreach-confirm-preview') && apiSrc.includes('openCustomersOutreachConfirmModal'));
+  assert('results panel UI', apiSrc.includes('renderCustomersOutreachResults'));
+  assert('send button gated by message length', apiSrc.includes('updateCustomersOutreachSendButton'));
+  assert('send only selected phones', apiSrc.includes('plan.recipients.map(function(r) { return r.phone; })'));
+  assert('staff actions gate on send', /handleCustomerOutreachSend[\s\S]{0,300}STAFF_ACTIONS_ENABLED/.test(apiSrc));
+  assert('per-recipient audit', apiSrc.includes("intent: 'api:customers.outreach.send.recipient'"));
+  assert('no email outreach route', !apiSrc.includes('/staff/customers/outreach/email'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('send whatsapp label', i18n.includes("'customers.outreach.sendWhatsApp': 'Send WhatsApp'"));
+  assert('confirm send label', i18n.includes("'customers.outreach.confirmSend': 'Send WhatsApp'"));
 }
 
 const MIGRATION_PATH = path.join(ROOT, 'database', 'migrations', '034_customers_crm_tags.sql');

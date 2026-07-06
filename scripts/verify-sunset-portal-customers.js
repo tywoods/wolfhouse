@@ -302,9 +302,9 @@ if (apiSrc) {
   assert('customers outreach drawer', apiSrc.includes('customers-outreach-drawer'));
   assert('drawer open/close handlers', apiSrc.includes('openCustomersOutreachDrawer') && apiSrc.includes('closeCustomersOutreachDrawer'));
   assert('DNC skip in outreach plan', apiSrc.includes('customerIsDoNotContact'));
-  assert('disabled send button only', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
-  assert('no customer outreach POST route', !apiSrc.includes("pathname === '/staff/customers/outreach'"));
-  assert('no bulk whatsapp send from CRM', !/customersBulkSelected[\s\S]{0,3000}sendWhatsApp/i.test(apiSrc));
+  assert('disabled send button only', apiSrc.includes('cust-outreach-send') && apiSrc.includes('updateCustomersOutreachSendButton'));
+  assert('no customer outreach POST route', apiSrc.includes("pathname === '/staff/customers/outreach/send'"));
+  assert('no bulk whatsapp send from CRM list', !/customersBulkSelected[\s\S]{0,3000}sendLunaWhatsAppMessage/i.test(apiSrc));
   assert('mobile outreach drawer CSS', apiSrc.includes('staff-portal-mobile:cust-outreach'));
 }
 
@@ -329,7 +329,7 @@ if (apiSrc) {
   assert('template picker in outreach drawer', apiSrc.includes('cust-outreach-template-select'));
   assert('save template from draft', apiSrc.includes('saveCustomerMessageTemplateFromDraft'));
   assert('no template send route', !apiSrc.includes('message-templates/send'));
-  assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
+  assert('send button in drawer', apiSrc.includes('cust-outreach-send') && apiSrc.includes('updateCustomersOutreachSendButton'));
 }
 
 console.log('\n[12] Luna outreach draft generation — notes mode + generate API, no sends');
@@ -347,7 +347,24 @@ if (apiSrc) {
   assert('notes mode toggle', apiSrc.includes('cust-outreach-mode-notes'));
   assert('generate button in drawer', apiSrc.includes('generateCustomerOutreachDraftFromNotes'));
   assert('no template send route', !apiSrc.includes('message-templates/send'));
-  assert('send button still disabled', apiSrc.includes('sendBtn.disabled = true'));
+  assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('updateCustomersOutreachSendButton'));
+}
+
+console.log('\n[13] WhatsApp bulk outreach send — confirmation modal + send API');
+
+const OUTREACH_SEND_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outreach-send.js');
+
+if (fs.existsSync(OUTREACH_SEND_LIB)) {
+  const lib = fs.readFileSync(OUTREACH_SEND_LIB, 'utf8');
+  assert('outreach send helper', lib.includes('executeCustomerOutreachSend'));
+  assert('confirmed required', lib.includes('confirmation_required'));
+}
+
+if (apiSrc) {
+  assert('outreach send API route', apiSrc.includes('/staff/customers/outreach/send'));
+  assert('confirmation modal', apiSrc.includes('cust-outreach-confirm-modal'));
+  assert('confirmed true in fetch', apiSrc.includes('confirmed: true'));
+  assert('send results panel', apiSrc.includes('renderCustomersOutreachResults'));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

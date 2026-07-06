@@ -225,6 +225,10 @@ const {
   generateCustomerOutreachDraft,
 } = require('./lib/staff-customer-outreach-draft-generate');
 const {
+  executeCustomerOutreachSend,
+  MESSAGE_MIN: OUTREACH_MESSAGE_MIN,
+} = require('./lib/staff-customer-outreach-send');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -17197,6 +17201,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-template-save input{flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
 #tab-customers .customers-outreach-template-save .btn{flex:0 0 auto}
 .customers-outreach-actions{margin-top:auto;padding-top:12px;display:flex;flex-wrap:wrap;gap:8px}
+.customers-outreach-results{margin-top:8px}
+.customers-outreach-result-row{font-size:12px;padding:6px 0;border-bottom:1px solid var(--border-soft);line-height:1.45}
+.customers-outreach-result-row:last-child{border-bottom:none}
+.customers-outreach-result-sent{color:#1f6b3a}
+.customers-outreach-result-skipped{color:var(--text-3)}
+.customers-outreach-result-error{color:#9b1c1c}
+.customers-outreach-confirm-preview{white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;max-height:180px;overflow:auto}
+.customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
 .customers-card-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
 .customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:6px;line-height:1.4}
 .customers-card-preview{font-size:12px;color:var(--text-2);line-height:1.4;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -18591,9 +18603,24 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </div>
   <div id="cust-outreach-body" class="customers-outreach-body"></div>
   <div class="customers-outreach-actions">
-    <button type="button" id="cust-outreach-send" class="btn btn-primary" disabled data-i18n="customers.outreach.sendDisabled">Sending enabled in next slice</button>
+    <button type="button" id="cust-outreach-send" class="btn btn-primary" disabled data-i18n="customers.outreach.sendWhatsApp">Send WhatsApp</button>
   </div>
 </aside>
+<div id="cust-outreach-confirm-modal" class="portal-schedule-create-modal" style="display:none" aria-hidden="true">
+  <div class="portal-schedule-create-backdrop" id="cust-outreach-confirm-backdrop"></div>
+  <div class="portal-schedule-create-drawer" role="dialog" aria-labelledby="cust-outreach-confirm-title">
+    <h3 id="cust-outreach-confirm-title" data-i18n="customers.outreach.confirmTitle">Send WhatsApp messages?</h3>
+    <div id="cust-outreach-confirm-stats" class="customers-outreach-confirm-stats"></div>
+    <div id="cust-outreach-confirm-skipped" class="customers-outreach-warn-muted"></div>
+    <div class="customers-outreach-section-hdr" data-i18n="customers.outreach.confirmPreview">Message preview</div>
+    <div id="cust-outreach-confirm-preview" class="customers-outreach-confirm-preview"></div>
+    <div class="portal-schedule-create-actions">
+      <button type="button" class="btn btn-primary" id="cust-outreach-confirm-send" data-i18n="customers.outreach.confirmSend">Send WhatsApp</button>
+      <button type="button" class="btn btn-ghost" id="cust-outreach-confirm-cancel" data-i18n="customers.outreach.confirmCancel">Cancel</button>
+    </div>
+    <p id="cust-outreach-confirm-msg" class="state-msg" style="display:none;margin-top:8px"></p>
+  </div>
+</div>
 </div><!-- /tab-customers -->
 
 <!-- ── Admin tab (Sunset read-only skeleton) ─────────────────────────────── -->
@@ -24175,6 +24202,11 @@ var customersOutreachTemplatesCache = [];
 var customersOutreachTemplateEditingId = null;
 var customersOutreachComposeMode = 'message';
 var customersOutreachHasGeneratedDraft = false;
+var CUSTOMERS_OUTREACH_MESSAGE_MIN = ${OUTREACH_MESSAGE_MIN};
+
+function customersOutreachSendUrl() {
+  return '/staff/customers/outreach/send?client=' + encodeURIComponent(getClient());
+}
 
 function customersMessageTemplatesUrl(suffix) {
   return '/staff/customers/message-templates' + (suffix || '') + '?client=' + encodeURIComponent(getClient());
@@ -24230,6 +24262,7 @@ function loadCustomerMessageTemplates() {
 function applyCustomerMessageTemplateBody(body) {
   var msg = el('cust-outreach-message');
   if (msg && body) msg.value = body;
+  updateCustomersOutreachSendButton();
 }
 
 function customersOutreachGenerateUrl() {
@@ -24385,6 +24418,143 @@ function deleteCustomerMessageTemplate(id) {
     .catch(function(err) { showCustomerTemplateMsg(portalT('customers.templates.deleteFailed') + ' ' + err.message, true); });
 }
 
+function updateCustomersOutreachSendButton() {
+  var btn = el('cust-outreach-send');
+  if (!btn) return;
+  var msgEl = el('cust-outreach-message');
+  var message = (msgEl && msgEl.value || '').trim();
+  var plan = buildCustomersOutreachPlan();
+  btn.disabled = !(message.length >= CUSTOMERS_OUTREACH_MESSAGE_MIN && plan.recipients.length > 0);
+}
+
+function closeCustomersOutreachConfirmModal() {
+  var modal = el('cust-outreach-confirm-modal');
+  if (modal) { modal.style.display = 'none'; modal.setAttribute('aria-hidden', 'true'); }
+  var msg = el('cust-outreach-confirm-msg');
+  if (msg) { msg.style.display = 'none'; msg.textContent = ''; }
+}
+
+function openCustomersOutreachConfirmModal() {
+  var msgEl = el('cust-outreach-message');
+  var message = (msgEl && msgEl.value || '').trim();
+  if (message.length < CUSTOMERS_OUTREACH_MESSAGE_MIN) {
+    return;
+  }
+  var plan = buildCustomersOutreachPlan();
+  if (!plan.recipients.length) return;
+  var stats = el('cust-outreach-confirm-stats');
+  var skipped = el('cust-outreach-confirm-skipped');
+  var preview = el('cust-outreach-confirm-preview');
+  if (stats) {
+    stats.textContent = portalT('customers.outreach.confirmEligible').replace('{count}', String(plan.recipients.length))
+      + ' · ' + portalT('customers.outreach.confirmSkipped').replace('{count}', String(plan.skippedNoPhone.length + plan.skippedDnc.length));
+  }
+  if (skipped) {
+    var lines = [];
+    plan.skippedNoPhone.forEach(function(r) {
+      lines.push(portalT('customers.outreach.skippedNoPhone') + ': ' + r.name);
+    });
+    plan.skippedDnc.forEach(function(r) {
+      lines.push(portalT('customers.outreach.skippedDnc') + ': ' + r.name);
+    });
+    skipped.textContent = lines.join('\n');
+    skipped.style.display = lines.length ? 'block' : 'none';
+  }
+  if (preview) preview.textContent = message;
+  var modal = el('cust-outreach-confirm-modal');
+  if (modal) { modal.style.display = 'flex'; modal.setAttribute('aria-hidden', 'false'); }
+}
+
+function renderCustomersOutreachResults(results) {
+  var host = el('cust-outreach-results');
+  if (!host) return;
+  if (!results || !results.length) {
+    host.innerHTML = '';
+    host.style.display = 'none';
+    return;
+  }
+  var html = '<div class="customers-outreach-section"><div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.resultsTitle')) + '</div>';
+  results.forEach(function(row) {
+    var cls = 'customers-outreach-result-row ';
+    var label = row.status;
+    if (row.status === 'sent') { cls += 'customers-outreach-result-sent'; label = portalT('customers.outreach.resultSent'); }
+    else if (row.status === 'skipped') { cls += 'customers-outreach-result-skipped'; label = portalT('customers.outreach.resultSkipped'); }
+    else { cls += 'customers-outreach-result-error'; label = portalT('customers.outreach.resultError'); }
+    var detail = row.name || row.phone || '';
+    if (row.reason) detail += (detail ? ' — ' : '') + row.reason;
+    html += '<div class="' + cls + '"><strong>' + escHtml(label) + '</strong> ' + escHtml(detail) + '</div>';
+  });
+  html += '</div>';
+  host.innerHTML = html;
+  host.style.display = 'block';
+}
+
+function executeCustomersOutreachSend() {
+  var msgEl = el('cust-outreach-message');
+  var message = (msgEl && msgEl.value || '').trim();
+  var plan = buildCustomersOutreachPlan();
+  if (message.length < CUSTOMERS_OUTREACH_MESSAGE_MIN || !plan.recipients.length) return;
+  var confirmBtn = el('cust-outreach-confirm-send');
+  var confirmMsg = el('cust-outreach-confirm-msg');
+  if (confirmBtn) confirmBtn.disabled = true;
+  if (confirmMsg) { confirmMsg.style.display = 'none'; confirmMsg.textContent = ''; }
+  fetch(customersOutreachSendUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      confirmed: true,
+      channel: 'whatsapp',
+      message: message,
+      phones: plan.recipients.map(function(r) { return r.phone; }),
+    }),
+  })
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.data || !res.data.success) {
+        throw new Error((res.data && (res.data.detail || res.data.error)) || 'send failed');
+      }
+      closeCustomersOutreachConfirmModal();
+      renderCustomersOutreachResults(res.data.results || []);
+      var sendMsg = el('cust-outreach-send-msg');
+      if (sendMsg) {
+        sendMsg.className = 'state-msg';
+        sendMsg.textContent = portalT('customers.outreach.sendComplete');
+        sendMsg.style.display = 'block';
+      }
+    })
+    .catch(function(err) {
+      if (confirmMsg) {
+        confirmMsg.className = 'state-msg error';
+        confirmMsg.textContent = portalT('customers.outreach.sendFailed') + ' ' + err.message;
+        confirmMsg.style.display = 'block';
+      }
+    })
+    .finally(function() { if (confirmBtn) confirmBtn.disabled = false; });
+}
+
+function wireCustomersOutreachSendActions() {
+  var sendBtn = el('cust-outreach-send');
+  if (sendBtn && !sendBtn.dataset.wired) {
+    sendBtn.dataset.wired = '1';
+    sendBtn.addEventListener('click', function() { openCustomersOutreachConfirmModal(); });
+  }
+  var confirmSend = el('cust-outreach-confirm-send');
+  if (confirmSend && !confirmSend.dataset.wired) {
+    confirmSend.dataset.wired = '1';
+    confirmSend.addEventListener('click', function() { executeCustomersOutreachSend(); });
+  }
+  var confirmCancel = el('cust-outreach-confirm-cancel');
+  if (confirmCancel && !confirmCancel.dataset.wired) {
+    confirmCancel.dataset.wired = '1';
+    confirmCancel.addEventListener('click', function() { closeCustomersOutreachConfirmModal(); });
+  }
+  var confirmBackdrop = el('cust-outreach-confirm-backdrop');
+  if (confirmBackdrop && !confirmBackdrop.dataset.wired) {
+    confirmBackdrop.dataset.wired = '1';
+    confirmBackdrop.addEventListener('click', function() { closeCustomersOutreachConfirmModal(); });
+  }
+}
+
 function wireCustomersOutreachTemplateActions() {
   var applyBtn = el('cust-outreach-template-apply');
   if (applyBtn) applyBtn.onclick = function() { applySelectedCustomerMessageTemplate(); };
@@ -24416,11 +24586,7 @@ function wireCustomersOutreachDrawer() {
     backdrop.dataset.wired = '1';
     backdrop.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
   }
-  var sendBtn = el('cust-outreach-send');
-  if (sendBtn && !sendBtn.dataset.wired) {
-    sendBtn.dataset.wired = '1';
-    sendBtn.disabled = true;
-  }
+  wireCustomersOutreachSendActions();
   var drawer = el('customers-outreach-drawer');
   if (drawer && !drawer.dataset.templatesWired) {
     drawer.dataset.templatesWired = '1';
@@ -24491,12 +24657,18 @@ function renderCustomersOutreachDrawer() {
   html += '<button type="button" class="btn btn-ghost" id="cust-outreach-template-cancel-edit" style="display:none">' + escHtml(portalT('customers.cancel')) + '</button>';
   html += '</div>';
   html += '<p id="cust-outreach-template-msg" class="state-msg" style="display:none;margin-top:8px"></p></div>';
+  html += '<div id="cust-outreach-results" class="customers-outreach-results" style="display:none"></div>';
+  html += '<p id="cust-outreach-send-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   body.innerHTML = html;
   var msg = el('cust-outreach-message');
-  if (msg) msg.setAttribute('placeholder', portalT('customers.outreach.messagePlaceholder'));
+  if (msg) {
+    msg.setAttribute('placeholder', portalT('customers.outreach.messagePlaceholder'));
+    msg.addEventListener('input', updateCustomersOutreachSendButton);
+  }
   var notes = el('cust-outreach-notes');
   if (notes) notes.setAttribute('placeholder', portalT('customers.outreach.notesPlaceholder'));
   setCustomersOutreachComposeMode(customersOutreachComposeMode);
+  updateCustomersOutreachSendButton();
   var titleInput = el('cust-outreach-template-title');
   if (titleInput) titleInput.setAttribute('placeholder', portalT('customers.templates.titlePlaceholder'));
 }
@@ -38035,6 +38207,80 @@ async function handleCustomerMessageTemplateGenerate(query, req, res, user) {
   }
 }
 
+async function handleCustomerOutreachSend(query, req, res, user) {
+  if (!STAFF_ACTIONS_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'staff_actions_disabled',
+      detail: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+      sends_whatsapp: false,
+    });
+  }
+
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.outreach.send',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => executeCustomerOutreachSend(pg, clientSlug, body, {
+      env: process.env,
+      onRecipientAudit: (row) => {
+        appendAuditLog({
+          ...auditBase,
+          intent: 'api:customers.outreach.send.recipient',
+          recipient_phone: row.phone,
+          recipient_status: row.status,
+          recipient_reason: row.reason || null,
+          success: row.status === 'sent',
+        });
+      },
+    }));
+
+    const elapsed = Date.now() - started;
+    if (!result.ok) {
+      appendAuditLog({ ...auditBase, success: false, error: result.error, elapsed_ms: elapsed });
+      return sendJSON(res, result.status || 400, {
+        success: false,
+        error: result.error,
+        sends_whatsapp: false,
+        elapsed_ms: elapsed,
+      });
+    }
+
+    appendAuditLog({
+      ...auditBase,
+      success: true,
+      summary: result.summary,
+      sends_whatsapp: result.sends_whatsapp === true,
+      elapsed_ms: elapsed,
+    });
+
+    return sendJSON(res, 200, {
+      success: true,
+      results: result.results,
+      summary: result.summary,
+      message_preview: result.message_preview,
+      sends_whatsapp: result.sends_whatsapp === true,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'send failed', sends_whatsapp: false });
+  }
+}
+
 async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -43401,6 +43647,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerMessageTemplateGenerate(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/customers/outreach/send' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerOutreachSend(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/customers/message-templates' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
