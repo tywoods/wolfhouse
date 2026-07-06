@@ -211,22 +211,58 @@ if (apiSrc) {
   assert('outreach drawer shell', apiSrc.includes('id="customers-outreach-drawer"') && apiSrc.includes('cust-outreach-backdrop'));
   assert('drawer recipients + warnings', apiSrc.includes('buildCustomersOutreachPlan') && apiSrc.includes('skippedDnc'));
   assert('drawer message textarea', apiSrc.includes('cust-outreach-message'));
-  assert('canned responses placeholder', apiSrc.includes('customers.outreach.cannedPlaceholder'));
+  assert('template picker in drawer', apiSrc.includes('cust-outreach-template-select') && apiSrc.includes('loadCustomerMessageTemplates'));
+  assert('apply template to message', apiSrc.includes('applyCustomerMessageTemplateBody'));
+  assert('save draft as template', apiSrc.includes('saveCustomerMessageTemplateFromDraft'));
   assert('send button disabled shell', apiSrc.includes('id="cust-outreach-send"') && apiSrc.includes('customers.outreach.sendDisabled'));
   assert('mobile bottom sheet CSS marker', apiSrc.includes('staff-portal-mobile:cust-outreach'));
   assert('no outreach send API route', !apiSrc.includes('/staff/customers/outreach') && !apiSrc.includes('handleCustomerOutreachSend'));
-  assert('no outreach fetch send', !/openCustomersOutreachDrawer[\s\S]{0,1200}fetch\s*\(/.test(apiSrc)
-    && !/renderCustomersOutreachDrawer[\s\S]{0,1200}fetch\s*\(/.test(apiSrc));
-  assert('no whatsapp send helper in outreach', !/wireCustomersOutreachDrawer[\s\S]{0,2000}sendWhatsApp/i.test(apiSrc)
-    && !/openCustomersOutreachDrawer[\s\S]{0,2000}(sendMeta|graph\.facebook)/i.test(apiSrc));
+  assert('no outreach send fetch', !apiSrc.includes("'/staff/customers/outreach")
+    && !/saveCustomerMessageTemplateFromDraft[\s\S]{0,400}message-templates\/send/i.test(apiSrc));
+  assert('no whatsapp send helper in outreach', !/wireCustomersOutreachDrawer[\s\S]{0,2500}sendWhatsApp/i.test(apiSrc)
+    && !/loadCustomerMessageTemplates[\s\S]{0,2500}(sendMeta|graph\.facebook)/i.test(apiSrc));
   assert('tag save still PATCH only', apiSrc.includes("'/tags?client='"));
+}
+
+console.log('\n[8] Message templates — schema, CRUD, tenant scope, no sends');
+
+const TEMPLATES_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-message-templates.js');
+const MIGRATION_035 = path.join(ROOT, 'database', 'migrations', '035_customer_message_templates.sql');
+
+if (fs.existsSync(MIGRATION_035)) {
+  const mig = fs.readFileSync(MIGRATION_035, 'utf8');
+  assert('035 migration exists', mig.includes('customer_message_templates'));
+  assert('migration client_id FK', mig.includes('client_id') && mig.includes('REFERENCES clients(id)'));
+  assert('migration template fields', mig.includes('title') && mig.includes('body') && mig.includes('channel'));
+  assert('migration tags jsonb', mig.includes('tags') && mig.includes('JSONB'));
+  assert('migration active default', mig.includes('active') && mig.includes('DEFAULT TRUE'));
+} else {
+  assert('035_customer_message_templates.sql exists', false);
+}
+
+if (fs.existsSync(TEMPLATES_LIB)) {
+  const lib = fs.readFileSync(TEMPLATES_LIB, 'utf8');
+  assert('list templates scoped by slug', lib.includes('c.slug = $1') && lib.includes('listCustomerMessageTemplates'));
+  assert('create uses client_id', lib.includes('client_id') && lib.includes('createCustomerMessageTemplate'));
+  assert('update scoped by slug + id', lib.includes('updateCustomerMessageTemplate') && lib.includes('c.slug = $1'));
+  assert('soft delete active=false', lib.includes('deactivateCustomerMessageTemplate') && lib.includes('active: false'));
+}
+
+if (apiSrc) {
+  assert('GET message-templates route', apiSrc.includes("pathname === '/staff/customers/message-templates' && method === 'GET'"));
+  assert('POST message-templates route', apiSrc.includes("pathname === '/staff/customers/message-templates' && method === 'POST'"));
+  assert('PATCH message-templates route', apiSrc.includes('CUSTOMER_MESSAGE_TEMPLATE_RE') && apiSrc.includes('handleCustomerMessageTemplateUpdate'));
+  assert('DELETE message-templates route', apiSrc.includes('handleCustomerMessageTemplateDelete'));
+  assert('templates list audit intent', apiSrc.includes("intent: 'api:customers.message_templates.list'"));
+  assert('templates use assertStaffClientAccess', /handleCustomerMessageTemplatesList[\s\S]{0,400}assertStaffClientAccess/.test(apiSrc));
+  assert('drawer delete template UI', apiSrc.includes('cust-template-delete'));
+  assert('no template send endpoint', !apiSrc.includes('message-templates/send') && !apiSrc.includes('handleCustomerMessageTemplateSend'));
 }
 
 if (fs.existsSync(I18N_PATH)) {
   const i18n = fs.readFileSync(I18N_PATH, 'utf8');
-  assert('outreach message selected label', i18n.includes("'customers.outreach.messageSelected': 'Message selected'"));
-  assert('outreach send disabled copy', i18n.includes("'customers.outreach.sendDisabled': 'Sending enabled in next slice'"));
-  assert('outreach skipped DNC copy', i18n.includes("'customers.outreach.skippedDnc': 'Do not contact'"));
+  assert('template apply label', i18n.includes("'customers.templates.apply': 'Apply'"));
+  assert('template save as label', i18n.includes("'customers.templates.saveAs': 'Save as template'"));
 }
 
 const MIGRATION_PATH = path.join(ROOT, 'database', 'migrations', '034_customers_crm_tags.sql');

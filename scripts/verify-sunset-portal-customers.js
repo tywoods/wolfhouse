@@ -308,6 +308,30 @@ if (apiSrc) {
   assert('mobile outreach drawer CSS', apiSrc.includes('staff-portal-mobile:cust-outreach'));
 }
 
+console.log('\n[11] Message templates — CRUD + drawer integration, no sends');
+
+const TEMPLATES_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-message-templates.js');
+const MIGRATION_035 = path.join(ROOT, 'database', 'migrations', '035_customer_message_templates.sql');
+
+if (fs.existsSync(MIGRATION_035)) {
+  const mig = fs.readFileSync(MIGRATION_035, 'utf8');
+  assert('customer_message_templates table', mig.includes('CREATE TABLE IF NOT EXISTS customer_message_templates'));
+  assert('tenant FK client_id', mig.includes('client_id') && mig.includes('clients(id)'));
+}
+
+if (fs.existsSync(TEMPLATES_LIB)) {
+  const lib = fs.readFileSync(TEMPLATES_LIB, 'utf8');
+  assert('templates lib tenant scope', lib.includes('INNER JOIN clients c') && lib.includes('c.slug = $1'));
+}
+
+if (apiSrc) {
+  assert('message-templates API routes', apiSrc.includes('/staff/customers/message-templates'));
+  assert('template picker in outreach drawer', apiSrc.includes('cust-outreach-template-select'));
+  assert('save template from draft', apiSrc.includes('saveCustomerMessageTemplateFromDraft'));
+  assert('no template send route', !apiSrc.includes('message-templates/send'));
+  assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

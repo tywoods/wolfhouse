@@ -215,6 +215,13 @@ const {
   updateCustomerCrmTags,
 } = require('./lib/staff-customer-queries');
 const {
+  listCustomerMessageTemplates,
+  createCustomerMessageTemplate,
+  updateCustomerMessageTemplate,
+  deactivateCustomerMessageTemplate,
+  isMissingTemplatesTable,
+} = require('./lib/staff-customer-message-templates');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -795,6 +802,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
 const CUSTOMER_TAGS_RE = /^\/staff\/customers\/([^/]+)\/tags$/i;
+const CUSTOMER_MESSAGE_TEMPLATE_RE = /^\/staff\/customers\/message-templates\/([0-9a-f-]{36})$/i;
 const CUSTOMER_PHONE_RE = /^\/staff\/customers\/([^/]+)$/i;
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
@@ -17172,6 +17180,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-warn-muted{font-size:12px;color:var(--text-3);font-style:italic;line-height:1.45}
 .customers-outreach-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);resize:vertical}
 .customers-outreach-canned-placeholder{font-size:12px;color:var(--text-3);padding:12px;background:var(--surface-soft);border:1px dashed var(--border);border-radius:var(--radius-sm);line-height:1.45}
+.customers-outreach-template-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
+.customers-outreach-template-select{flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.customers-outreach-template-list{margin:4px 0 10px}
+.customers-outreach-template-item{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px 0;border-bottom:1px solid var(--border-soft);font-size:12px}
+.customers-outreach-template-item-title{flex:1;min-width:120px;font-weight:600;color:var(--text)}
+.customers-outreach-template-save{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:4px}
+.customers-outreach-template-save input{flex:1;min-width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+#tab-customers .customers-outreach-template-save .btn{flex:0 0 auto}
 .customers-outreach-actions{margin-top:auto;padding-top:12px;display:flex;flex-wrap:wrap;gap:8px}
 .customers-card-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
 .customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:6px;line-height:1.4}
@@ -24147,6 +24163,194 @@ function buildCustomersOutreachPlan() {
   return { recipients: recipients, skippedNoPhone: skippedNoPhone, skippedDnc: skippedDnc };
 }
 
+var customersOutreachTemplatesCache = [];
+var customersOutreachTemplateEditingId = null;
+
+function customersMessageTemplatesUrl(suffix) {
+  return '/staff/customers/message-templates' + (suffix || '') + '?client=' + encodeURIComponent(getClient());
+}
+
+function findCustomerMessageTemplate(id) {
+  for (var i = 0; i < customersOutreachTemplatesCache.length; i++) {
+    if (customersOutreachTemplatesCache[i].id === id) return customersOutreachTemplatesCache[i];
+  }
+  return null;
+}
+
+function renderCustomerMessageTemplatesPicker() {
+  var select = el('cust-outreach-template-select');
+  var list = el('cust-outreach-template-list');
+  if (!select || !list) return;
+  var opts = '<option value="">' + escHtml(portalT('customers.templates.pickPlaceholder')) + '</option>';
+  customersOutreachTemplatesCache.forEach(function(t) {
+    opts += '<option value="' + escHtml(t.id) + '">' + escHtml(t.title) + '</option>';
+  });
+  select.innerHTML = opts;
+  if (!customersOutreachTemplatesCache.length) {
+    list.innerHTML = '<p class="customers-outreach-warn-muted">' + escHtml(portalT('customers.templates.empty')) + '</p>';
+    return;
+  }
+  list.innerHTML = customersOutreachTemplatesCache.map(function(t) {
+    return '<div class="customers-outreach-template-item" data-template-id="' + escHtml(t.id) + '">' +
+      '<span class="customers-outreach-template-item-title">' + escHtml(t.title) + '</span>' +
+      '<button type="button" class="btn btn-ghost cust-template-apply" data-template-id="' + escHtml(t.id) + '">' + escHtml(portalT('customers.templates.apply')) + '</button>' +
+      '<button type="button" class="btn btn-ghost cust-template-edit" data-template-id="' + escHtml(t.id) + '">' + escHtml(portalT('customers.templates.edit')) + '</button>' +
+      '<button type="button" class="btn btn-ghost cust-template-delete" data-template-id="' + escHtml(t.id) + '">' + escHtml(portalT('customers.templates.delete')) + '</button>' +
+      '</div>';
+  }).join('');
+}
+
+function loadCustomerMessageTemplates() {
+  var list = el('cust-outreach-template-list');
+  if (list) list.innerHTML = '<p class="customers-outreach-warn-muted">' + escHtml(portalT('customers.templates.loading')) + '</p>';
+  return fetch(customersMessageTemplatesUrl())
+    .then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data) {
+      customersOutreachTemplatesCache = (data && data.templates) || [];
+      renderCustomerMessageTemplatesPicker();
+    })
+    .catch(function() {
+      customersOutreachTemplatesCache = [];
+      renderCustomerMessageTemplatesPicker();
+      var msg = el('cust-outreach-template-msg');
+      if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.templates.loadFailed'); msg.style.display = 'block'; }
+    });
+}
+
+function applyCustomerMessageTemplateBody(body) {
+  var msg = el('cust-outreach-message');
+  if (msg && body) msg.value = body;
+}
+
+function applySelectedCustomerMessageTemplate() {
+  var select = el('cust-outreach-template-select');
+  if (!select || !select.value) return;
+  var t = findCustomerMessageTemplate(select.value);
+  if (t) applyCustomerMessageTemplateBody(t.body);
+}
+
+function beginEditCustomerMessageTemplate(id) {
+  var t = findCustomerMessageTemplate(id);
+  if (!t) return;
+  customersOutreachTemplateEditingId = id;
+  var titleEl = el('cust-outreach-template-title');
+  var cancelBtn = el('cust-outreach-template-cancel-edit');
+  var saveBtn = el('cust-outreach-template-save');
+  if (titleEl) titleEl.value = t.title;
+  applyCustomerMessageTemplateBody(t.body);
+  if (cancelBtn) cancelBtn.style.display = '';
+  if (saveBtn) saveBtn.textContent = portalT('customers.templates.update');
+}
+
+function cancelEditCustomerMessageTemplate() {
+  customersOutreachTemplateEditingId = null;
+  var titleEl = el('cust-outreach-template-title');
+  var cancelBtn = el('cust-outreach-template-cancel-edit');
+  var saveBtn = el('cust-outreach-template-save');
+  if (titleEl) titleEl.value = '';
+  if (cancelBtn) cancelBtn.style.display = 'none';
+  if (saveBtn) saveBtn.textContent = portalT('customers.templates.saveAs');
+}
+
+function showCustomerTemplateMsg(text, isError) {
+  var msg = el('cust-outreach-template-msg');
+  if (!msg) return;
+  msg.className = isError ? 'state-msg error' : 'state-msg';
+  msg.textContent = text;
+  msg.style.display = text ? 'block' : 'none';
+}
+
+function saveCustomerMessageTemplateFromDraft() {
+  var titleEl = el('cust-outreach-template-title');
+  var msgEl = el('cust-outreach-message');
+  var saveBtn = el('cust-outreach-template-save');
+  var title = (titleEl && titleEl.value || '').trim();
+  var body = (msgEl && msgEl.value || '').trim();
+  if (!title || !body) {
+    showCustomerTemplateMsg(portalT('customers.templates.saveRequired'), true);
+    return;
+  }
+  showCustomerTemplateMsg('', false);
+  var editing = customersOutreachTemplateEditingId;
+  var url = editing ? customersMessageTemplatesUrl('/' + encodeURIComponent(editing)) : customersMessageTemplatesUrl();
+  var method = editing ? 'PATCH' : 'POST';
+  var payload = editing ? { title: title, body: body } : { title: title, body: body, channel: 'whatsapp' };
+  if (saveBtn) saveBtn.disabled = true;
+  fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.data || !res.data.success) throw new Error((res.data && res.data.error) || 'save failed');
+      cancelEditCustomerMessageTemplate();
+      return loadCustomerMessageTemplates();
+    })
+    .then(function() { showCustomerTemplateMsg(portalT('customers.templates.saved'), false); })
+    .catch(function(err) { showCustomerTemplateMsg(portalT('customers.templates.saveFailed') + ' ' + err.message, true); })
+    .finally(function() { if (saveBtn) saveBtn.disabled = false; });
+}
+
+function deleteCustomerMessageTemplate(id) {
+  if (!id) return;
+  if (!window.confirm(portalT('customers.templates.deleteConfirm'))) return;
+  fetch(customersMessageTemplatesUrl('/' + encodeURIComponent(id)), { method: 'DELETE' })
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.data || !res.data.success) throw new Error((res.data && res.data.error) || 'delete failed');
+      if (customersOutreachTemplateEditingId === id) cancelEditCustomerMessageTemplate();
+      return loadCustomerMessageTemplates();
+    })
+    .then(function() { showCustomerTemplateMsg(portalT('customers.templates.deleted'), false); })
+    .catch(function(err) { showCustomerTemplateMsg(portalT('customers.templates.deleteFailed') + ' ' + err.message, true); });
+}
+
+function wireCustomersOutreachTemplateActions() {
+  var applyBtn = el('cust-outreach-template-apply');
+  if (applyBtn) applyBtn.onclick = function() { applySelectedCustomerMessageTemplate(); };
+  var saveBtn = el('cust-outreach-template-save');
+  if (saveBtn) saveBtn.onclick = function() { saveCustomerMessageTemplateFromDraft(); };
+  var cancelBtn = el('cust-outreach-template-cancel-edit');
+  if (cancelBtn) cancelBtn.onclick = function() { cancelEditCustomerMessageTemplate(); };
+}
+
+function wireCustomersOutreachDrawer() {
+  var openBtn = el('cust-message-selected-btn');
+  if (openBtn && !openBtn.dataset.wired) {
+    openBtn.dataset.wired = '1';
+    openBtn.addEventListener('click', function() { openCustomersOutreachDrawer(); });
+  }
+  var closeBtn = el('cust-outreach-close');
+  if (closeBtn && !closeBtn.dataset.wired) {
+    closeBtn.dataset.wired = '1';
+    closeBtn.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
+  }
+  var backdrop = el('cust-outreach-backdrop');
+  if (backdrop && !backdrop.dataset.wired) {
+    backdrop.dataset.wired = '1';
+    backdrop.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
+  }
+  var sendBtn = el('cust-outreach-send');
+  if (sendBtn && !sendBtn.dataset.wired) {
+    sendBtn.dataset.wired = '1';
+    sendBtn.disabled = true;
+  }
+  var drawer = el('customers-outreach-drawer');
+  if (drawer && !drawer.dataset.templatesWired) {
+    drawer.dataset.templatesWired = '1';
+    drawer.addEventListener('click', function(ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('button[data-template-id]') : null;
+      if (!btn) return;
+      var id = btn.getAttribute('data-template-id');
+      if (btn.classList.contains('cust-template-apply')) {
+        var t = findCustomerMessageTemplate(id);
+        if (t) applyCustomerMessageTemplateBody(t.body);
+      } else if (btn.classList.contains('cust-template-edit')) {
+        beginEditCustomerMessageTemplate(id);
+      } else if (btn.classList.contains('cust-template-delete')) {
+        deleteCustomerMessageTemplate(id);
+      }
+    });
+  }
+}
+
 function renderCustomersOutreachDrawer() {
   var body = el('cust-outreach-body');
   if (!body) return;
@@ -24173,16 +24377,32 @@ function renderCustomersOutreachDrawer() {
   }
   html += '<div class="customers-outreach-section"><label class="customers-edit-field" for="cust-outreach-message"><span>' + escHtml(portalT('customers.outreach.messageLabel')) + '</span></label>';
   html += '<textarea id="cust-outreach-message" class="customers-outreach-textarea" data-i18n-placeholder="customers.outreach.messagePlaceholder" placeholder="Type your message…"></textarea></div>';
-  html += '<div class="customers-outreach-section"><div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.cannedTitle')) + '</div>';
-  html += '<div class="customers-outreach-canned-placeholder">' + escHtml(portalT('customers.outreach.cannedPlaceholder')) + '</div></div>';
+  html += '<div class="customers-outreach-section" id="cust-outreach-templates-section">';
+  html += '<div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.cannedTitle')) + '</div>';
+  html += '<div class="customers-outreach-template-toolbar">';
+  html += '<select id="cust-outreach-template-select" class="customers-outreach-template-select" aria-label="' + escHtml(portalT('customers.templates.pickPlaceholder')) + '"></select>';
+  html += '<button type="button" class="btn btn-ghost" id="cust-outreach-template-apply">' + escHtml(portalT('customers.templates.apply')) + '</button>';
+  html += '</div>';
+  html += '<div id="cust-outreach-template-list" class="customers-outreach-template-list"></div>';
+  html += '<div class="customers-outreach-template-save">';
+  html += '<input id="cust-outreach-template-title" type="text" data-i18n-placeholder="customers.templates.titlePlaceholder" placeholder="Template title">';
+  html += '<button type="button" class="btn btn-primary" id="cust-outreach-template-save">' + escHtml(portalT('customers.templates.saveAs')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="cust-outreach-template-cancel-edit" style="display:none">' + escHtml(portalT('customers.cancel')) + '</button>';
+  html += '</div>';
+  html += '<p id="cust-outreach-template-msg" class="state-msg" style="display:none;margin-top:8px"></p></div>';
   body.innerHTML = html;
   var msg = el('cust-outreach-message');
   if (msg) msg.setAttribute('placeholder', portalT('customers.outreach.messagePlaceholder'));
+  var titleInput = el('cust-outreach-template-title');
+  if (titleInput) titleInput.setAttribute('placeholder', portalT('customers.templates.titlePlaceholder'));
 }
 
 function openCustomersOutreachDrawer() {
   if (getCustomersBulkSelectedPhones().length < 1) return;
+  customersOutreachTemplateEditingId = null;
   renderCustomersOutreachDrawer();
+  wireCustomersOutreachTemplateActions();
+  loadCustomerMessageTemplates();
   var backdrop = el('cust-outreach-backdrop');
   var drawer = el('customers-outreach-drawer');
   if (backdrop) { backdrop.classList.add('open'); backdrop.setAttribute('aria-hidden', 'false'); }
@@ -24194,29 +24414,6 @@ function closeCustomersOutreachDrawer() {
   var drawer = el('customers-outreach-drawer');
   if (backdrop) { backdrop.classList.remove('open'); backdrop.setAttribute('aria-hidden', 'true'); }
   if (drawer) { drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); }
-}
-
-function wireCustomersOutreachDrawer() {
-  var openBtn = el('cust-message-selected-btn');
-  if (openBtn && !openBtn.dataset.wired) {
-    openBtn.dataset.wired = '1';
-    openBtn.addEventListener('click', function() { openCustomersOutreachDrawer(); });
-  }
-  var closeBtn = el('cust-outreach-close');
-  if (closeBtn && !closeBtn.dataset.wired) {
-    closeBtn.dataset.wired = '1';
-    closeBtn.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
-  }
-  var backdrop = el('cust-outreach-backdrop');
-  if (backdrop && !backdrop.dataset.wired) {
-    backdrop.dataset.wired = '1';
-    backdrop.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
-  }
-  var sendBtn = el('cust-outreach-send');
-  if (sendBtn && !sendBtn.dataset.wired) {
-    sendBtn.dataset.wired = '1';
-    sendBtn.disabled = true;
-  }
 }
 
 function customerBadgeHtml(badge) {
@@ -37565,6 +37762,129 @@ async function handleCustomerTagsUpdate(phoneRaw, query, req, res, user) {
   }
 }
 
+async function handleCustomerMessageTemplatesList(query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.message_templates.list',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const templates = await withPgClient((pg) => listCustomerMessageTemplates(pg, clientSlug));
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: true, count: templates.length, elapsed_ms: elapsed });
+    return sendJSON(res, 200, { success: true, templates, count: templates.length, elapsed_ms: elapsed });
+  } catch (err) {
+    if (isMissingTemplatesTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'query failed' });
+  }
+}
+
+async function handleCustomerMessageTemplateCreate(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.message_templates.create',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => createCustomerMessageTemplate(pg, clientSlug, body));
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    if (isMissingTemplatesTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'create failed' });
+  }
+}
+
+async function handleCustomerMessageTemplateUpdate(templateId, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.message_templates.update',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    template_id: templateId,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => updateCustomerMessageTemplate(pg, clientSlug, templateId, body));
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    if (isMissingTemplatesTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'update failed' });
+  }
+}
+
+async function handleCustomerMessageTemplateDelete(templateId, query, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.message_templates.delete',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    template_id: templateId,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => deactivateCustomerMessageTemplate(pg, clientSlug, templateId));
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    if (isMissingTemplatesTable(err)) {
+      return sendJSON(res, 503, { success: false, error: 'templates_schema_missing' });
+    }
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'delete failed' });
+  }
+}
+
 async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -42908,6 +43228,29 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerTagsUpdate(customerTagsMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  const customerTemplateMatch = CUSTOMER_MESSAGE_TEMPLATE_RE.exec(pathname);
+  if (customerTemplateMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerMessageTemplateUpdate(customerTemplateMatch[1], parsed.query, req, res, auth.user);
+  }
+  if (customerTemplateMatch && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerMessageTemplateDelete(customerTemplateMatch[1], parsed.query, res, auth.user);
+  }
+
+  if (pathname === '/staff/customers/message-templates' && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleCustomerMessageTemplatesList(parsed.query, res, auth.user);
+  }
+  if (pathname === '/staff/customers/message-templates' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerMessageTemplateCreate(parsed.query, req, res, auth.user);
   }
 
   const customerPhoneMatch = CUSTOMER_PHONE_RE.exec(pathname);
