@@ -199,10 +199,34 @@ if (apiSrc) {
   assert('customers.tags audit intent', apiSrc.includes("intent: 'api:customers.tags'"));
   assert('tag checkboxes in detail', apiSrc.includes('data-crm-tag') && apiSrc.includes('cust-tags-save'));
   assert('applyCustomersFilterVisibility for surf', apiSrc.includes('function applyCustomersFilterVisibility('));
-  assert('no outreach drawer in customers tab', !/tab-customers[\s\S]{0,4000}outreach/i.test(apiSrc));
-  assert('no bulk send in customers tab', !/tab-customers[\s\S]{0,4000}bulk[\s_-]?send/i.test(apiSrc));
-  assert('no outbound whatsapp from customers CRM', !/customerSaveTags[\s\S]{0,500}whatsapp/i.test(apiSrc)
-    && !apiSrc.includes('customers-outreach'));
+  assert('no bulk send in customers tab', !/tab-customers[\s\S]{0,8000}bulk[\s_-]?send/i.test(apiSrc));
+}
+
+console.log('\n[7] Outreach drawer shell — selection UI, no sends');
+
+if (apiSrc) {
+  assert('bulk selection checkboxes', apiSrc.includes('cust-bulk-check') && apiSrc.includes('customers-card-check'));
+  assert('selected count toolbar', apiSrc.includes('id="cust-selected-count"') && apiSrc.includes('updateCustomersBulkSelectionUI'));
+  assert('message selected button', apiSrc.includes('id="cust-message-selected-btn"'));
+  assert('outreach drawer shell', apiSrc.includes('id="customers-outreach-drawer"') && apiSrc.includes('cust-outreach-backdrop'));
+  assert('drawer recipients + warnings', apiSrc.includes('buildCustomersOutreachPlan') && apiSrc.includes('skippedDnc'));
+  assert('drawer message textarea', apiSrc.includes('cust-outreach-message'));
+  assert('canned responses placeholder', apiSrc.includes('customers.outreach.cannedPlaceholder'));
+  assert('send button disabled shell', apiSrc.includes('id="cust-outreach-send"') && apiSrc.includes('customers.outreach.sendDisabled'));
+  assert('mobile bottom sheet CSS marker', apiSrc.includes('staff-portal-mobile:cust-outreach'));
+  assert('no outreach send API route', !apiSrc.includes('/staff/customers/outreach') && !apiSrc.includes('handleCustomerOutreachSend'));
+  assert('no outreach fetch send', !/openCustomersOutreachDrawer[\s\S]{0,1200}fetch\s*\(/.test(apiSrc)
+    && !/renderCustomersOutreachDrawer[\s\S]{0,1200}fetch\s*\(/.test(apiSrc));
+  assert('no whatsapp send helper in outreach', !/wireCustomersOutreachDrawer[\s\S]{0,2000}sendWhatsApp/i.test(apiSrc)
+    && !/openCustomersOutreachDrawer[\s\S]{0,2000}(sendMeta|graph\.facebook)/i.test(apiSrc));
+  assert('tag save still PATCH only', apiSrc.includes("'/tags?client='"));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('outreach message selected label', i18n.includes("'customers.outreach.messageSelected': 'Message selected'"));
+  assert('outreach send disabled copy', i18n.includes("'customers.outreach.sendDisabled': 'Sending enabled in next slice'"));
+  assert('outreach skipped DNC copy', i18n.includes("'customers.outreach.skippedDnc': 'Do not contact'"));
 }
 
 const MIGRATION_PATH = path.join(ROOT, 'database', 'migrations', '034_customers_crm_tags.sql');

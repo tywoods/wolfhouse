@@ -45,5 +45,11 @@ check('T4', src.includes('id="tab-conversations"'), 'WhatsApp/inbox tab marker')
   check('UI4', src.includes('BC_ZOOM_MOBILE_DEFAULT'), 'mobile zoom constants in source');
 }
 
+// Customers outreach drawer — mobile bottom sheet shell (slice 5)
+check('C1', src.includes('customers-outreach-drawer'), 'customers outreach drawer marker');
+check('C2', src.includes('staff-portal-mobile:cust-outreach'), 'customers outreach mobile CSS marker');
+check('C3', src.includes('cust-bulk-check'), 'customer bulk selection checkbox marker');
+check('C4', src.includes('cust-outreach-send') && src.includes('sendBtn.disabled = true'), 'outreach send button disabled shell');
+
 console.log(`\nverify-staff-portal-mobile-layout: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

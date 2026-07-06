@@ -285,13 +285,27 @@ if (apiSrc) {
   assert('PATCH customer tags route', apiSrc.includes('CUSTOMER_TAGS_RE') && apiSrc.includes('handleCustomerTagsUpdate'));
   assert('tag editor UI', apiSrc.includes('cust-tags-section') && apiSrc.includes('customerSaveTags'));
   assert('no whatsapp send from CRM tags', !/customerSaveTags[\s\S]{0,600}(sendWhatsApp|outbound|bulk)/i.test(apiSrc));
-  assert('no outreach drawer', !apiSrc.includes('customers-outreach'));
 }
 
 if (fs.existsSync(I18N_PATH)) {
   const i18n = fs.readFileSync(I18N_PATH, 'utf8');
   assert('crm tag labels in i18n', i18n.includes("'customers.tags.vip': 'VIP'")
     && i18n.includes("'customers.tags.do_not_contact': 'Do not contact'"));
+  assert('outreach drawer i18n keys', i18n.includes("'customers.outreach.title': 'Message customers'"));
+}
+
+console.log('\n[10] Outreach drawer shell — no sends');
+
+if (apiSrc) {
+  assert('selection checkboxes in list', apiSrc.includes('cust-bulk-check'));
+  assert('message selected toolbar button', apiSrc.includes('cust-message-selected-btn'));
+  assert('customers outreach drawer', apiSrc.includes('customers-outreach-drawer'));
+  assert('drawer open/close handlers', apiSrc.includes('openCustomersOutreachDrawer') && apiSrc.includes('closeCustomersOutreachDrawer'));
+  assert('DNC skip in outreach plan', apiSrc.includes('customerIsDoNotContact'));
+  assert('disabled send button only', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
+  assert('no customer outreach POST route', !apiSrc.includes("pathname === '/staff/customers/outreach'"));
+  assert('no bulk whatsapp send from CRM', !/customersBulkSelected[\s\S]{0,3000}sendWhatsApp/i.test(apiSrc));
+  assert('mobile outreach drawer CSS', apiSrc.includes('staff-portal-mobile:cust-outreach'));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

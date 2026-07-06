@@ -17153,6 +17153,26 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-card{padding:12px 14px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:6px;transition:background .15s,border-color .15s}
 .customers-card:hover{background:var(--surface-soft)}
 .customers-card.selected{background:var(--surface-soft);border-color:var(--tan)}
+.customers-card-row{display:flex;align-items:flex-start;gap:10px}
+.customers-card-check{flex:0 0 auto;margin-top:2px;cursor:pointer}
+.customers-card-check input{margin:0;width:16px;height:16px;cursor:pointer}
+.customers-card-body{flex:1;min-width:0}
+.customers-selected-count{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap}
+.customers-outreach-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:9200;display:none}
+.customers-outreach-backdrop.open{display:block}
+.customers-outreach-drawer{position:fixed;top:0;right:0;width:min(440px,92vw);height:100vh;height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9201;padding:16px 18px;overflow:auto;box-sizing:border-box;display:none;flex-direction:column;gap:12px;transform:translateX(100%);transition:transform .22s ease}
+.customers-outreach-drawer.open{display:flex;transform:translateX(0)}
+.customers-outreach-drawer-hdr{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:4px}
+.customers-outreach-drawer-hdr h3{margin:0;font-size:16px;font-weight:800;color:var(--text)}
+.customers-outreach-section{margin-top:4px}
+.customers-outreach-section-hdr{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:6px}
+.customers-outreach-recipient{font-size:13px;padding:6px 0;border-bottom:1px solid var(--border-soft);line-height:1.4}
+.customers-outreach-recipient:last-child{border-bottom:none}
+.customers-outreach-warn{font-size:12px;color:#9b1c1c;background:#fde8e8;border:1px solid #f5c2c2;border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:6px;line-height:1.45}
+.customers-outreach-warn-muted{font-size:12px;color:var(--text-3);font-style:italic;line-height:1.45}
+.customers-outreach-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);resize:vertical}
+.customers-outreach-canned-placeholder{font-size:12px;color:var(--text-3);padding:12px;background:var(--surface-soft);border:1px dashed var(--border);border-radius:var(--radius-sm);line-height:1.45}
+.customers-outreach-actions{margin-top:auto;padding-top:12px;display:flex;flex-wrap:wrap;gap:8px}
 .customers-card-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
 .customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:6px;line-height:1.4}
 .customers-card-preview{font-size:12px;color:var(--text-2);line-height:1.4;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -18262,6 +18282,9 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #swn-tbody td:last-child{justify-content:flex-end;margin-top:8px;padding-top:8px;border-top:1px solid var(--border-soft)}
 #cc-staff-whatsapp-numbers .al-form-row{flex-direction:column;align-items:stretch;gap:10px}
 #cc-staff-whatsapp-numbers .al-form-row input,#cc-staff-whatsapp-numbers .al-form-row select,#cc-staff-whatsapp-numbers .al-form-row button{width:100%;min-width:0;box-sizing:border-box}
+/* staff-portal-mobile:cust-outreach — full-width bottom sheet on phone */
+.customers-outreach-drawer{top:auto;bottom:0;right:0;left:0;width:100%;max-width:100vw;height:min(92dvh,100%);max-height:92dvh;border-left:none;border-top:1px solid var(--border-soft);border-radius:var(--radius) var(--radius) 0 0;transform:translateY(100%)}
+.customers-outreach-drawer.open{transform:translateY(0)}
 #cc-staff-whatsapp-numbers .al-form-row label{width:100%}
 #cc-staff-notification-settings .sns-recipient-row{grid-template-columns:1fr;gap:8px}
 #cc-staff-notification-settings .sns-recipient-enabled{justify-content:flex-start}
@@ -18513,6 +18536,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="customers-filter-btn" data-cust-filter="do_not_contact" data-i18n="customers.filter.doNotContact" data-i18n-title="customers.filter.doNotContactTitle" title="Marked do not contact">Do Not Contact</button>
     <button type="button" class="customers-filter-btn" data-cust-filter="needs_attention" data-i18n="customers.filter.needsAttention">Needs attention</button>
     <button type="button" id="cust-add-btn" class="customers-filter-btn" data-i18n="customers.add">Add customer</button>
+    <span id="cust-selected-count" class="customers-selected-count">0 selected</span>
+    <button type="button" id="cust-message-selected-btn" class="btn btn-primary" disabled data-i18n="customers.outreach.messageSelected">Message selected</button>
   </div>
   <div id="cust-add-panel" class="customers-add-panel" style="display:none" aria-hidden="true">
     <label class="customers-edit-field"><span data-i18n="customers.detail.name">Name</span><input id="cust-add-name" type="text" autocomplete="name"></label>
@@ -18534,6 +18559,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 </div>
+<div id="cust-outreach-backdrop" class="customers-outreach-backdrop" aria-hidden="true"></div>
+<aside id="customers-outreach-drawer" class="customers-outreach-drawer" aria-hidden="true" role="dialog" aria-labelledby="cust-outreach-title">
+  <div class="customers-outreach-drawer-hdr">
+    <h3 id="cust-outreach-title" data-i18n="customers.outreach.title">Message customers</h3>
+    <button type="button" class="btn btn-ghost" id="cust-outreach-close" data-i18n="customers.outreach.close">Close</button>
+  </div>
+  <div id="cust-outreach-body" class="customers-outreach-body"></div>
+  <div class="customers-outreach-actions">
+    <button type="button" id="cust-outreach-send" class="btn btn-primary" disabled data-i18n="customers.outreach.sendDisabled">Sending enabled in next slice</button>
+  </div>
+</aside>
 </div><!-- /tab-customers -->
 
 <!-- ── Admin tab (Sunset read-only skeleton) ─────────────────────────────── -->
@@ -20676,6 +20712,7 @@ function applyCustomersPortalI18n(profile){
     if (!k || k.indexOf('customers.') !== 0) return;
     node.setAttribute('title', portalT(k));
   });
+  updateCustomersBulkSelectionUI();
   applyCustomersFilterVisibility(profile);
 }
 
@@ -24055,6 +24092,132 @@ var customersCache = [];
 var customersFilter = 'all';
 var selectedCustomerPhone = null;
 var customersSearchTimer = null;
+var customersBulkSelected = {};
+
+function customerHasValidPhone(c) {
+  return !!(c && c.phone && String(c.phone).trim());
+}
+
+function customerIsDoNotContact(c) {
+  if (!c) return false;
+  var tags = c.crm_tags || {};
+  if (tags.do_not_contact) return true;
+  return (c.badges || []).indexOf('do_not_contact') >= 0;
+}
+
+function getCustomersBulkSelectedPhones() {
+  return Object.keys(customersBulkSelected).filter(function(phone) { return customersBulkSelected[phone]; });
+}
+
+function findCachedCustomer(phone) {
+  for (var i = 0; i < customersCache.length; i++) {
+    if (customersCache[i].phone === phone) return customersCache[i];
+  }
+  return null;
+}
+
+function updateCustomersBulkSelectionUI() {
+  var count = getCustomersBulkSelectedPhones().length;
+  var countEl = el('cust-selected-count');
+  var btn = el('cust-message-selected-btn');
+  if (countEl) {
+    countEl.textContent = portalT('customers.outreach.selectedCount').replace('{count}', String(count));
+  }
+  if (btn) btn.disabled = count < 1;
+}
+
+function buildCustomersOutreachPlan() {
+  var phones = getCustomersBulkSelectedPhones();
+  var recipients = [];
+  var skippedNoPhone = [];
+  var skippedDnc = [];
+  phones.forEach(function(phone) {
+    var c = findCachedCustomer(phone) || { phone: phone };
+    var name = c.display_name || phone || 'Guest';
+    if (!customerHasValidPhone(c)) {
+      skippedNoPhone.push({ phone: phone, name: name });
+      return;
+    }
+    if (customerIsDoNotContact(c)) {
+      skippedDnc.push({ phone: c.phone, name: name });
+      return;
+    }
+    recipients.push({ phone: c.phone, name: name });
+  });
+  return { recipients: recipients, skippedNoPhone: skippedNoPhone, skippedDnc: skippedDnc };
+}
+
+function renderCustomersOutreachDrawer() {
+  var body = el('cust-outreach-body');
+  if (!body) return;
+  var plan = buildCustomersOutreachPlan();
+  var html = '';
+  html += '<div class="customers-outreach-section"><div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.recipients')) + '</div>';
+  if (plan.recipients.length) {
+    plan.recipients.forEach(function(r) {
+      html += '<div class="customers-outreach-recipient"><strong>' + escHtml(r.name) + '</strong><br>' + escHtml(r.phone) + '</div>';
+    });
+  } else {
+    html += '<p class="customers-outreach-warn-muted">' + escHtml(portalT('customers.outreach.noRecipients')) + '</p>';
+  }
+  html += '</div>';
+  if (plan.skippedNoPhone.length || plan.skippedDnc.length) {
+    html += '<div class="customers-outreach-section"><div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.skipped')) + '</div>';
+    plan.skippedNoPhone.forEach(function(r) {
+      html += '<div class="customers-outreach-warn">' + escHtml(portalT('customers.outreach.skippedNoPhone')) + ': ' + escHtml(r.name) + '</div>';
+    });
+    plan.skippedDnc.forEach(function(r) {
+      html += '<div class="customers-outreach-warn">' + escHtml(portalT('customers.outreach.skippedDnc')) + ': ' + escHtml(r.name) + ' (' + escHtml(r.phone) + ')</div>';
+    });
+    html += '</div>';
+  }
+  html += '<div class="customers-outreach-section"><label class="customers-edit-field" for="cust-outreach-message"><span>' + escHtml(portalT('customers.outreach.messageLabel')) + '</span></label>';
+  html += '<textarea id="cust-outreach-message" class="customers-outreach-textarea" data-i18n-placeholder="customers.outreach.messagePlaceholder" placeholder="Type your message…"></textarea></div>';
+  html += '<div class="customers-outreach-section"><div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.cannedTitle')) + '</div>';
+  html += '<div class="customers-outreach-canned-placeholder">' + escHtml(portalT('customers.outreach.cannedPlaceholder')) + '</div></div>';
+  body.innerHTML = html;
+  var msg = el('cust-outreach-message');
+  if (msg) msg.setAttribute('placeholder', portalT('customers.outreach.messagePlaceholder'));
+}
+
+function openCustomersOutreachDrawer() {
+  if (getCustomersBulkSelectedPhones().length < 1) return;
+  renderCustomersOutreachDrawer();
+  var backdrop = el('cust-outreach-backdrop');
+  var drawer = el('customers-outreach-drawer');
+  if (backdrop) { backdrop.classList.add('open'); backdrop.setAttribute('aria-hidden', 'false'); }
+  if (drawer) { drawer.classList.add('open'); drawer.setAttribute('aria-hidden', 'false'); }
+}
+
+function closeCustomersOutreachDrawer() {
+  var backdrop = el('cust-outreach-backdrop');
+  var drawer = el('customers-outreach-drawer');
+  if (backdrop) { backdrop.classList.remove('open'); backdrop.setAttribute('aria-hidden', 'true'); }
+  if (drawer) { drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); }
+}
+
+function wireCustomersOutreachDrawer() {
+  var openBtn = el('cust-message-selected-btn');
+  if (openBtn && !openBtn.dataset.wired) {
+    openBtn.dataset.wired = '1';
+    openBtn.addEventListener('click', function() { openCustomersOutreachDrawer(); });
+  }
+  var closeBtn = el('cust-outreach-close');
+  if (closeBtn && !closeBtn.dataset.wired) {
+    closeBtn.dataset.wired = '1';
+    closeBtn.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
+  }
+  var backdrop = el('cust-outreach-backdrop');
+  if (backdrop && !backdrop.dataset.wired) {
+    backdrop.dataset.wired = '1';
+    backdrop.addEventListener('click', function() { closeCustomersOutreachDrawer(); });
+  }
+  var sendBtn = el('cust-outreach-send');
+  if (sendBtn && !sendBtn.dataset.wired) {
+    sendBtn.dataset.wired = '1';
+    sendBtn.disabled = true;
+  }
+}
 
 function customerBadgeHtml(badge) {
   var cls = 'customers-badge';
@@ -24094,6 +24257,7 @@ function renderCustomersList(rows) {
   if (!rows || !rows.length) {
     box.innerHTML = '<div class="customers-detail-empty"><p class="main-msg">' + escHtml(portalT('customers.empty.main')) + '</p>' +
       '<p class="sub-msg" style="margin-top:8px;font-size:12px">' + escHtml(portalT('customers.empty.sub')) + '</p></div>';
+    updateCustomersBulkSelectionUI();
     return;
   }
   box.innerHTML = rows.map(function(c) {
@@ -24103,14 +24267,19 @@ function renderCustomersList(rows) {
     if (c.phone) contact.push(c.phone);
     var badges = (c.badges || []).map(customerBadgeHtml).join('');
     var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
+    var bulkChecked = customersBulkSelected[c.phone] ? ' checked' : '';
     return '<div class="customers-card' + sel + '" data-phone="' + escHtml(c.phone) + '">' +
+      '<div class="customers-card-row">' +
+      '<label class="customers-card-check"><input type="checkbox" class="cust-bulk-check" data-phone="' + escHtml(c.phone) + '"' + bulkChecked + ' aria-label="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"></label>' +
+      '<div class="customers-card-body">' +
       '<div class="customers-card-name">' + escHtml(name) + '</div>' +
       '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
       '<div class="customers-card-meta">' + escHtml(portalT('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
       (badges ? '<div class="customers-badges">' + badges + '</div>' : '') +
-      '</div>';
+      '</div></div></div>';
   }).join('');
+  updateCustomersBulkSelectionUI();
 }
 
 var customerDetailState = { phone: null, data: null, editing: false };
@@ -24362,6 +24531,8 @@ function selectCustomerCard(phone) { loadCustomerDetail(phone); }
 
 function setCustomersFilter(mode) {
   customersFilter = mode || 'all';
+  customersBulkSelected = {};
+  closeCustomersOutreachDrawer();
   document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.getAttribute('data-cust-filter') === customersFilter);
   });
@@ -24376,6 +24547,8 @@ function wireCustomersTab() {
     btn.addEventListener('click', function() { setCustomersFilter(btn.getAttribute('data-cust-filter')); });
   });
   wireCustomerAddForm();
+  wireCustomersOutreachDrawer();
+  updateCustomersBulkSelectionUI();
   var search = el('cust-search');
   if (search && !search.dataset.wired) {
     search.dataset.wired = '1';
@@ -24388,8 +24561,18 @@ function wireCustomersTab() {
   if (list && !list.dataset.wired) {
     list.dataset.wired = '1';
     list.addEventListener('click', function(ev) {
+      if (ev.target && ev.target.closest && (ev.target.closest('.customers-card-check') || ev.target.closest('.cust-bulk-check'))) return;
       var card = ev.target && ev.target.closest ? ev.target.closest('.customers-card') : null;
       if (card && card.dataset && card.dataset.phone) loadCustomerDetail(card.dataset.phone);
+    });
+    list.addEventListener('change', function(ev) {
+      var cb = ev.target;
+      if (!cb || !cb.classList || !cb.classList.contains('cust-bulk-check')) return;
+      var phone = cb.getAttribute('data-phone');
+      if (!phone) return;
+      if (cb.checked) customersBulkSelected[phone] = true;
+      else delete customersBulkSelected[phone];
+      updateCustomersBulkSelectionUI();
     });
   }
 }
