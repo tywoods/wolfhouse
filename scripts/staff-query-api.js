@@ -17121,7 +17121,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 [data-theme="dark"] #tab-portal-home .portal-schedule-heat-swatch.heat-4{background:rgba(111,167,131,.48);border-color:rgba(111,167,131,.62)}
 
 
-/* ── Customers tab (Sunset / surf guest history) ──────────────────────────── */
+/* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:20px 20px 16px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:14px}
@@ -18476,13 +18476,13 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 </div>
 </div><!-- /tab-portal-home -->
 
-<!-- ── Customers tab (Sunset guest history) ─────────────────────────────── -->
+<!-- ── Customers tab (shared CRM) ───────────────────────────────────────── -->
 <div id="tab-customers" class="tab-panel">
 <div class="customers-wrap">
   <header class="customers-header">
     <h2 data-i18n="customers.title">Customers</h2>
-    <p data-i18n="customers.subtitle">Guest history, preferences, and previous lessons or rentals.</p>
-    <p class="customers-promo" data-i18n="customers.promo">Remember returning guests — see previous lessons, rentals, preferences, and notes. When someone comes back next year, confirm what they had before and book it again faster.</p>
+    <p data-i18n="customers.subtitle">Customer profiles, contact history, and past bookings.</p>
+    <p class="customers-promo" data-i18n="customers.promo">Review past bookings, preferences, and notes to serve returning customers faster.</p>
     <div class="portal-school-context customers-school-context" id="customers-school-context" style="display:none" aria-live="polite">
       <span data-i18n="customers.school.context">Customers for:</span>
       <strong id="customers-school-label">—</strong>
@@ -18500,7 +18500,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div id="cust-list" class="customers-list-scroll"></div>
     </div>
     <div id="cust-detail" class="customers-detail-col">
-      <div class="customers-detail-empty" data-i18n="customers.detail.select">Select a customer to view history.</div>
+      <div class="customers-detail-empty" data-i18n="customers.detail.select">Select a customer to view their profile.</div>
     </div>
   </div>
 </div>
@@ -20511,13 +20511,21 @@ function getPortalProfile(clientSlug){
   return { default_tab: 'bed-calendar', hidden_tabs: [], hidden_drawer_tabs: [], lesson_slots_demo: [], is_surf_vertical: false };
 }
 
+function portalHasCustomersCrm(profile){
+  profile = profile || getPortalProfile(getClient());
+  if (!profile) return false;
+  if (profile.customers_crm === false) return false;
+  var hidden = profile.hidden_tabs || [];
+  return hidden.indexOf('customers') < 0;
+}
+
 function isTabHiddenForClient(tab, clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
   if (hidden.indexOf(tab) >= 0) return true;
   if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
-  if (tab === 'customers' && !profile.is_surf_vertical) return true;
+  if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
@@ -20564,7 +20572,7 @@ function applySurfNavLabels(profile){
     homeBtn.textContent = t('nav.tab.portalHome');
   }
   var custBtn = document.querySelector('.tab-btn[data-tab="customers"]');
-  if (custBtn && profile.is_surf_vertical) {
+  if (custBtn && portalHasCustomersCrm(profile)) {
     custBtn.setAttribute('data-i18n', 'nav.tab.customers');
     custBtn.textContent = t('nav.tab.customers');
   }
@@ -20617,6 +20625,24 @@ function finishPortalProfileStartup(){
   staffInboxDeepLinkBootstrap();
 }
 
+function applyCustomersPortalI18n(profile){
+  profile = profile || getPortalProfile(getClient());
+  var panel = el('tab-customers');
+  if (!panel) return;
+  panel.querySelectorAll('[data-i18n]').forEach(function(node){
+    var k = node.getAttribute('data-i18n');
+    if (!k || k.indexOf('customers.') !== 0) return;
+    node.textContent = portalT(k);
+  });
+  var search = el('cust-search');
+  if (search) search.setAttribute('placeholder', portalT('customers.searchPlaceholder'));
+  panel.querySelectorAll('[data-i18n-placeholder]').forEach(function(node){
+    var k = node.getAttribute('data-i18n-placeholder');
+    if (!k) return;
+    node.setAttribute('placeholder', portalT(k));
+  });
+}
+
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
   var hidden = profile.hidden_tabs || [];
@@ -20627,7 +20653,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'customers') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = portalHasCustomersCrm(profile) ? '' : 'none';
       return;
     }
     if (tab === 'admin') {
@@ -20649,6 +20675,7 @@ function applyClientPortalProfile(clientSlug){
     btn.style.display = (hidden.indexOf(tab) >= 0) ? 'none' : '';
   });
   applySurfNavLabels(profile);
+  applyCustomersPortalI18n(profile);
   applySurfInboxFilters(profile);
   wireSunsetSchoolSwitcher();
   refreshSunsetSchoolContextLabels();
@@ -24005,8 +24032,8 @@ function renderCustomersList(rows) {
   var box = el('cust-list');
   if (!box) return;
   if (!rows || !rows.length) {
-    box.innerHTML = '<div class="customers-detail-empty"><p class="main-msg">' + escHtml(t('customers.empty.main')) + '</p>' +
-      '<p class="sub-msg" style="margin-top:8px;font-size:12px">' + escHtml(t('customers.empty.sub')) + '</p></div>';
+    box.innerHTML = '<div class="customers-detail-empty"><p class="main-msg">' + escHtml(portalT('customers.empty.main')) + '</p>' +
+      '<p class="sub-msg" style="margin-top:8px;font-size:12px">' + escHtml(portalT('customers.empty.sub')) + '</p></div>';
     return;
   }
   box.innerHTML = rows.map(function(c) {
@@ -24018,9 +24045,9 @@ function renderCustomersList(rows) {
     var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
     return '<div class="customers-card' + sel + '" data-phone="' + escHtml(c.phone) + '">' +
       '<div class="customers-card-name">' + escHtml(name) + '</div>' +
-      '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || t('customers.contact.unknown')) + '</div>' +
+      '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
-      '<div class="customers-card-meta">' + escHtml(t('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
+      '<div class="customers-card-meta">' + escHtml(portalT('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
       (badges ? '<div class="customers-badges">' + badges + '</div>' : '') +
       '</div>';
   }).join('');
@@ -24040,27 +24067,27 @@ function renderCustomerProfileSection(data, editing) {
     return '<div class="customers-section" id="cust-profile-section">' +
       '<div class="customers-section-hdr">' + escHtml(id.display_name || data.phone || 'Guest') + '</div>' +
       '<div class="customers-section-body customers-profile-view">' +
-      '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.phone')) + ':</strong> ' + escHtml(data.phone || '—') + '</p>' +
-      '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.email')) + ':</strong> ' + escHtml(id.email || '—') + '</p>' +
-      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
-      '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.notes')) + ':</strong> ' + escHtml(notes || t('customers.detail.noNotes')) + '</p>' +
-      (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
+      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.phone')) + ':</strong> ' + escHtml(data.phone || '—') + '</p>' +
+      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.email')) + ':</strong> ' + escHtml(id.email || '—') + '</p>' +
+      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
+      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.notes')) + ':</strong> ' + escHtml(notes || portalT('customers.detail.noNotes')) + '</p>' +
+      (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
       '</div>' +
-      '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-profile-edit">' + escHtml(t('customers.edit')) + '</button></div>' +
+      '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-profile-edit">' + escHtml(portalT('customers.edit')) + '</button></div>' +
       '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
       '</div>';
   }
   return '<div class="customers-section" id="cust-profile-section">' +
-    '<div class="customers-section-hdr">' + escHtml(t('customers.editProfile')) + '</div>' +
+    '<div class="customers-section-hdr">' + escHtml(portalT('customers.editProfile')) + '</div>' +
     '<div class="customers-section-body customers-profile-edit">' +
-    '<label class="customers-edit-field"><span>' + escHtml(t('customers.detail.name')) + '</span><input id="cust-edit-name" type="text" value="' + escHtml(id.display_name || '') + '"></label>' +
-    '<label class="customers-edit-field"><span>' + escHtml(t('customers.detail.phone')) + '</span><input id="cust-edit-phone" type="tel" value="' + escHtml(data.phone || '') + '"></label>' +
-    '<label class="customers-edit-field"><span>' + escHtml(t('customers.detail.email')) + '</span><input id="cust-edit-email" type="email" value="' + escHtml(id.email || '') + '"></label>' +
-    '<label class="customers-edit-field"><span>' + escHtml(t('customers.detail.notes')) + '</span><textarea id="cust-edit-notes" rows="3">' + escHtml(notes) + '</textarea></label>' +
+    '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.name')) + '</span><input id="cust-edit-name" type="text" value="' + escHtml(id.display_name || '') + '"></label>' +
+    '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.phone')) + '</span><input id="cust-edit-phone" type="tel" value="' + escHtml(data.phone || '') + '"></label>' +
+    '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.email')) + '</span><input id="cust-edit-email" type="email" value="' + escHtml(id.email || '') + '"></label>' +
+    '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.notes')) + '</span><textarea id="cust-edit-notes" rows="3">' + escHtml(notes) + '</textarea></label>' +
     '</div>' +
     '<div class="customers-profile-actions">' +
-    '<button type="button" class="btn btn-primary" id="cust-profile-save">' + escHtml(t('customers.save')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" id="cust-profile-cancel">' + escHtml(t('customers.cancel')) + '</button>' +
+    '<button type="button" class="btn btn-primary" id="cust-profile-save">' + escHtml(portalT('customers.save')) + '</button>' +
+    '<button type="button" class="btn btn-ghost" id="cust-profile-cancel">' + escHtml(portalT('customers.cancel')) + '</button>' +
     '</div>' +
     '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
     '</div>';
@@ -24098,7 +24125,7 @@ function customerSaveProfile() {
     notes: (el('cust-edit-notes') && el('cust-edit-notes').value || '').trim(),
   };
   if (!payload.display_name || !payload.phone) {
-    if (msg) { msg.className = 'state-msg error'; msg.textContent = t('customers.saveRequired'); msg.style.display = 'block'; }
+    if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.saveRequired'); msg.style.display = 'block'; }
     return;
   }
   if (saveBtn) saveBtn.disabled = true;
@@ -24116,7 +24143,7 @@ function customerSaveProfile() {
       return loadCustomerDetail(newPhone);
     })
     .catch(function(err){
-      if (msg) { msg.className = 'state-msg error'; msg.textContent = t('customers.saveFailed') + ' ' + err.message; msg.style.display = 'block'; }
+      if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.saveFailed') + ' ' + err.message; msg.style.display = 'block'; }
     })
     .finally(function(){ if (saveBtn) saveBtn.disabled = false; });
 }
@@ -24125,7 +24152,7 @@ function renderCustomerDetail(data) {
   var box = el('cust-detail');
   if (!box) return;
   if (!data || !data.success) {
-    box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.detail.error')) + '</div>';
+    box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.detail.error')) + '</div>';
     return;
   }
   customerDetailState.data = data;
@@ -24134,10 +24161,10 @@ function renderCustomerDetail(data) {
   var name = id.display_name || data.phone || 'Guest';
   var html = renderCustomerProfileSection(data, customerDetailState.editing);
 
-  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.lastSetup">Last setup</div><div class="customers-section-body">' +
-    escHtml(data.last_setup_summary || t('customers.detail.noServices')) + '</div></div>';
+  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.lastSetup')) + '</div><div class="customers-section-body">' +
+    escHtml(data.last_setup_summary || portalT('customers.detail.noServices')) + '</div></div>';
 
-  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.services">Previous lessons and rentals</div>';
+  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.services')) + '</div>';
   if (data.service_records && data.service_records.length) {
     html += '<table class="customers-row-table"><thead><tr><th>Date</th><th>Service</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
     data.service_records.forEach(function(r) {
@@ -24145,32 +24172,32 @@ function renderCustomerDetail(data) {
     });
     html += '</tbody></table>';
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noServices')) + '</div>';
+    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noServices')) + '</div>';
   }
   html += '</div>';
 
-  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.notes">Notes for next time</div><div class="customers-section-body">';
+  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.notes')) + '</div><div class="customers-section-body">';
   var notes = (data.notes && (data.notes.human_notes || data.notes.internal_staff_notes)) || '';
-  html += escHtml(notes || t('customers.detail.noNotes'));
+  html += escHtml(notes || portalT('customers.detail.noNotes'));
   html += '</div></div>';
 
-  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.messages">Recent messages</div>';
+  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.messages')) + '</div>';
   if (data.messages && data.messages.length) {
     data.messages.forEach(function(m) {
       html += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(m.message_text || '') + '</div></div>';
     });
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noMessages')) + '</div>';
+    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noMessages')) + '</div>';
   }
   html += '</div>';
 
-  html += '<div class="customers-section"><div class="customers-section-hdr" data-i18n="customers.detail.handoffs">Open handoffs</div>';
+  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.handoffs')) + '</div>';
   if (data.open_handoffs && data.open_handoffs.length) {
     data.open_handoffs.forEach(function(h) {
       html += '<div class="customers-msg"><strong>' + escHtml(h.reason_code || 'handoff') + '</strong> — ' + escHtml(h.summary || '') + '</div>';
     });
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(t('customers.detail.noHandoffs')) + '</div>';
+    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noHandoffs')) + '</div>';
   }
   html += '</div>';
 
@@ -24180,14 +24207,14 @@ function renderCustomerDetail(data) {
 
 function loadCustomersList() {
   var profile = getPortalProfile(getClient());
-  if (!profile.is_surf_vertical) return;
+  if (!portalHasCustomersCrm(profile)) return;
   var state = el('cust-state');
   var q = (el('cust-search') && el('cust-search').value) ? el('cust-search').value.trim() : '';
   var url = '/staff/customers' + customersClientQuery() +
     '&filter=' + encodeURIComponent(customersFilter) +
     '&limit=50&offset=0';
   if (q) url += '&q=' + encodeURIComponent(q);
-  if (state) { state.textContent = t('customers.loading'); state.style.display = 'block'; state.classList.remove('error'); }
+  if (state) { state.textContent = portalT('customers.loading'); state.style.display = 'block'; state.classList.remove('error'); }
   fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data) {
       customersCache = (data && data.customers) || [];
@@ -24196,7 +24223,7 @@ function loadCustomersList() {
       if (state && !customersCache.length) state.textContent = '';
     })
     .catch(function(e) {
-      if (state) { state.textContent = t('customers.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
+      if (state) { state.textContent = portalT('customers.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
     });
 }
 
@@ -24205,13 +24232,13 @@ function loadCustomerDetail(phone) {
   selectedCustomerPhone = phone;
   renderCustomersList(customersCache);
   var box = el('cust-detail');
-  if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.loading')) + '</div>';
+  if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.loading')) + '</div>';
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient()) +
     (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
   fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data) { renderCustomerDetail(data); })
     .catch(function() {
-      if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(t('customers.detail.error')) + '</div>';
+      if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.detail.error')) + '</div>';
     });
 }
 
@@ -34978,6 +35005,7 @@ window.staffPortalOnLocaleChange = function(){
   if (typeof toRefreshRoomSelects === 'function') toRefreshRoomSelects();
   if (toBlocksCache && toBlocksCache.length && typeof toRenderBlockSelect === 'function') toRenderBlockSelect(toBlocksCache);
   if (typeof scheduleRefreshOnLocaleChange === 'function') scheduleRefreshOnLocaleChange();
+  if (typeof applyCustomersPortalI18n === 'function') applyCustomersPortalI18n();
 };
 
 function loadBedCalendar(afterRender){

@@ -1,0 +1,90 @@
+'use strict';
+
+/**
+ * verify:staff-customers-crm
+ *
+ * Offline checks for shared Customers CRM tab visibility and copy.
+ *
+ * Run:
+ *   node scripts/verify-staff-customers-crm.js
+ */
+
+const fs = require('fs');
+const path = require('path');
+
+const { loadClientPortalProfile } = require('./lib/staff-portal-clients');
+
+const ROOT = path.join(__dirname, '..');
+const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
+
+let pass = 0;
+let fail = 0;
+
+function assert(label, condition, detail) {
+  if (condition) {
+    console.log(`  PASS  ${label}`);
+    pass++;
+  } else {
+    console.error(`  FAIL  ${label}${detail ? ' — ' + detail : ''}`);
+    fail++;
+  }
+}
+
+console.log('\nverify:staff-customers-crm — shared Customers CRM offline checks\n');
+
+let apiSrc = '';
+if (fs.existsSync(STAFF_API_PATH)) {
+  apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
+} else {
+  assert('staff-query-api.js exists', false);
+}
+
+console.log('[1] Portal profiles — CRM access defaults');
+
+const wh = loadClientPortalProfile('wolfhouse-somo');
+const ss = loadClientPortalProfile('sunset');
+assert('Wolfhouse lodging vertical', wh.vertical === 'lodging_surf_house');
+assert('Sunset surf vertical', ss.is_surf_vertical === true);
+assert('Wolfhouse customers tab not hidden', !(wh.hidden_tabs || []).includes('customers'));
+assert('Sunset customers tab not hidden', !(ss.hidden_tabs || []).includes('customers'));
+
+console.log('\n[2] staff-query-api.js — CRM tab visibility');
+
+if (apiSrc) {
+  assert('portalHasCustomersCrm defined', apiSrc.includes('function portalHasCustomersCrm('));
+  assert('applyClientPortalProfile shows customers via CRM gate',
+    apiSrc.includes('portalHasCustomersCrm(profile) ? \'\' : \'none\'')
+    && apiSrc.includes("if (tab === 'customers')"));
+  assert('isTabHiddenForClient uses CRM gate',
+    apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
+  assert('no surf-only customers tab gate',
+    !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
+  assert('generic CRM HTML subtitle default',
+    apiSrc.includes('Customer profiles, contact history, and past bookings'));
+  assert('portalT used in customers list', apiSrc.includes("portalT('customers.empty.sub')"));
+  assert('school context still sunset surf only', apiSrc.includes('function isSunsetSurfActive()')
+    && apiSrc.includes('function renderCustomersSchoolContext('));
+}
+
+console.log('\n[3] staff-portal-i18n.js — generic + surf copy');
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('generic customers.subtitle', i18n.includes('Customer profiles, contact history, and past bookings'));
+  assert('surf customers.subtitle.surf', i18n.includes("'customers.subtitle.surf'"));
+  assert('generic customers.detail.select', i18n.includes('Select a customer to view their profile'));
+  assert('surf customers.detail.select.surf', i18n.includes("'customers.detail.select.surf'"));
+  assert('generic customers.detail.services', i18n.includes("'customers.detail.services': 'Previous services'"));
+  assert('surf customers.detail.services.surf', i18n.includes("'customers.detail.services.surf'"));
+} else {
+  assert('staff-portal-i18n.js exists', false);
+}
+
+console.log('\n' + '─'.repeat(48));
+console.log(`Results: ${pass} passed, ${fail} failed`);
+if (fail > 0) {
+  console.error('verify:staff-customers-crm — FAILED');
+  process.exit(1);
+}
+console.log('verify:staff-customers-crm — ALL CHECKS PASSED');
