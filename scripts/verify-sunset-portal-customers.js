@@ -332,6 +332,24 @@ if (apiSrc) {
   assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
 }
 
+console.log('\n[12] Luna outreach draft generation — notes mode + generate API, no sends');
+
+const GENERATE_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outreach-draft-generate.js');
+
+if (fs.existsSync(GENERATE_LIB)) {
+  const lib = fs.readFileSync(GENERATE_LIB, 'utf8');
+  assert('generate helper', lib.includes('generateCustomerOutreachDraft'));
+  assert('tenant voice in prompt', lib.includes('voice_summary'));
+}
+
+if (apiSrc) {
+  assert('generate API route', apiSrc.includes('/staff/customers/message-templates/generate'));
+  assert('notes mode toggle', apiSrc.includes('cust-outreach-mode-notes'));
+  assert('generate button in drawer', apiSrc.includes('generateCustomerOutreachDraftFromNotes'));
+  assert('no template send route', !apiSrc.includes('message-templates/send'));
+  assert('send button still disabled', apiSrc.includes('sendBtn.disabled = true'));
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

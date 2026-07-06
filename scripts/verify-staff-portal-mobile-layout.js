@@ -51,6 +51,7 @@ check('C2', src.includes('staff-portal-mobile:cust-outreach'), 'customers outrea
 check('C3', src.includes('cust-bulk-check'), 'customer bulk selection checkbox marker');
 check('C4', src.includes('cust-outreach-send') && src.includes('sendBtn.disabled = true'), 'outreach send button disabled shell');
 check('C5', src.includes('cust-outreach-template-select') && src.includes('loadCustomerMessageTemplates'), 'outreach template picker markers');
+check('C6', src.includes('cust-outreach-mode-notes') && src.includes('cust-outreach-generate'), 'outreach Luna notes generate markers');
 
 console.log(`\nverify-staff-portal-mobile-layout: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -265,6 +265,43 @@ if (fs.existsSync(I18N_PATH)) {
   assert('template save as label', i18n.includes("'customers.templates.saveAs': 'Save as template'"));
 }
 
+console.log('\n[9] Luna outreach draft generation — notes mode, generate API, no sends');
+
+const GENERATE_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outreach-draft-generate.js');
+
+if (fs.existsSync(GENERATE_LIB)) {
+  const lib = fs.readFileSync(GENERATE_LIB, 'utf8');
+  assert('generate helper module', lib.includes('generateCustomerOutreachDraft'));
+  assert('tenant voice loader', lib.includes('loadTenantOutreachVoice'));
+  assert('prompt guardrails no prices', lib.includes('Do NOT invent availability, prices'));
+  assert('prompt guardrails no jargon', lib.includes('Do NOT mention internal systems'));
+  assert('uses callLunaAiJsonChat', lib.includes('callLunaAiJsonChat'));
+}
+
+if (apiSrc) {
+  assert('generate route POST', apiSrc.includes("pathname === '/staff/customers/message-templates/generate' && method === 'POST'"));
+  assert('generate handler', apiSrc.includes('handleCustomerMessageTemplateGenerate'));
+  assert('generate operator auth', /message-templates\/generate[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
+  assert('generate uses assertStaffClientAccess', /handleCustomerMessageTemplateGenerate[\s\S]{0,400}assertStaffClientAccess/.test(apiSrc));
+  assert('generate audit intent', apiSrc.includes("intent: 'api:customers.message_templates.generate'"));
+  assert('generate response sends_whatsapp false', /handleCustomerMessageTemplateGenerate[\s\S]{0,1200}sends_whatsapp:\s*false/.test(apiSrc));
+  assert('mode toggle UI', apiSrc.includes('cust-outreach-mode-message') && apiSrc.includes('cust-outreach-mode-notes'));
+  assert('notes textarea + generate button', apiSrc.includes('cust-outreach-notes') && apiSrc.includes('cust-outreach-generate'));
+  assert('generate fetch client', apiSrc.includes('customersOutreachGenerateUrl') && apiSrc.includes('message-templates/generate'));
+  assert('regenerate label support', apiSrc.includes('customers.outreach.regenerate'));
+  assert('generated body fills message textarea', apiSrc.includes('applyCustomerMessageTemplateBody(res.data.body)'));
+  assert('no outreach send route', !apiSrc.includes("pathname === '/staff/customers/outreach'"));
+  assert('no template send endpoint', !apiSrc.includes('message-templates/send') && !apiSrc.includes('handleCustomerMessageTemplateSend'));
+  assert('no whatsapp send in generate flow', !/generateCustomerOutreachDraftFromNotes[\s\S]{0,800}sendWhatsApp/i.test(apiSrc));
+  assert('send button still disabled', apiSrc.includes('cust-outreach-send') && apiSrc.includes('sendBtn.disabled = true'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('notes for Luna label', i18n.includes("'customers.outreach.modeNotes': 'Notes for Luna'"));
+  assert('generate button label', i18n.includes("'customers.outreach.generate': 'Generate'"));
+}
+
 const MIGRATION_PATH = path.join(ROOT, 'database', 'migrations', '034_customers_crm_tags.sql');
 assert('crm_tags migration file exists', fs.existsSync(MIGRATION_PATH));
 if (fs.existsSync(MIGRATION_PATH)) {

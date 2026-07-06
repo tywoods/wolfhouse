@@ -222,6 +222,9 @@ const {
   isMissingTemplatesTable,
 } = require('./lib/staff-customer-message-templates');
 const {
+  generateCustomerOutreachDraft,
+} = require('./lib/staff-customer-outreach-draft-generate');
+const {
   clearConversationMessages,
   resetLunaConversationContext,
   deleteConversationHard,
@@ -17179,6 +17182,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-warn{font-size:12px;color:#9b1c1c;background:#fde8e8;border:1px solid #f5c2c2;border-radius:var(--radius-sm);padding:8px 10px;margin-bottom:6px;line-height:1.45}
 .customers-outreach-warn-muted{font-size:12px;color:var(--text-3);font-style:italic;line-height:1.45}
 .customers-outreach-textarea{width:100%;min-height:120px;box-sizing:border-box;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);resize:vertical}
+.customers-outreach-mode-toggle{display:flex;gap:6px;margin-bottom:10px}
+.customers-outreach-mode-btn{flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--surface-soft);font-size:12px;font-weight:700;color:var(--text-2);cursor:pointer}
+.customers-outreach-mode-btn.active{background:var(--surface);border-color:var(--tan);color:var(--text)}
+.customers-outreach-notes-panel{margin-bottom:10px}
+.customers-outreach-generate-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
 .customers-outreach-canned-placeholder{font-size:12px;color:var(--text-3);padding:12px;background:var(--surface-soft);border:1px dashed var(--border);border-radius:var(--radius-sm);line-height:1.45}
 .customers-outreach-template-toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:8px}
 .customers-outreach-template-select{flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
@@ -24165,6 +24173,8 @@ function buildCustomersOutreachPlan() {
 
 var customersOutreachTemplatesCache = [];
 var customersOutreachTemplateEditingId = null;
+var customersOutreachComposeMode = 'message';
+var customersOutreachHasGeneratedDraft = false;
 
 function customersMessageTemplatesUrl(suffix) {
   return '/staff/customers/message-templates' + (suffix || '') + '?client=' + encodeURIComponent(getClient());
@@ -24220,6 +24230,79 @@ function loadCustomerMessageTemplates() {
 function applyCustomerMessageTemplateBody(body) {
   var msg = el('cust-outreach-message');
   if (msg && body) msg.value = body;
+}
+
+function customersOutreachGenerateUrl() {
+  return '/staff/customers/message-templates/generate?client=' + encodeURIComponent(getClient());
+}
+
+function setCustomersOutreachComposeMode(mode) {
+  customersOutreachComposeMode = mode === 'notes' ? 'notes' : 'message';
+  var msgPanel = el('cust-outreach-message-panel');
+  var notesPanel = el('cust-outreach-notes-panel');
+  var msgBtn = el('cust-outreach-mode-message');
+  var notesBtn = el('cust-outreach-mode-notes');
+  if (notesPanel) notesPanel.style.display = customersOutreachComposeMode === 'notes' ? '' : 'none';
+  if (msgPanel) msgPanel.style.display = '';
+  if (msgBtn) msgBtn.classList.toggle('active', customersOutreachComposeMode === 'message');
+  if (notesBtn) notesBtn.classList.toggle('active', customersOutreachComposeMode === 'notes');
+  updateCustomersOutreachGenerateButton();
+}
+
+function updateCustomersOutreachGenerateButton() {
+  var btn = el('cust-outreach-generate');
+  if (!btn) return;
+  btn.textContent = portalT(customersOutreachHasGeneratedDraft ? 'customers.outreach.regenerate' : 'customers.outreach.generate');
+}
+
+function showCustomersOutreachGenerateMsg(text, isError) {
+  var msg = el('cust-outreach-generate-msg');
+  if (!msg) return;
+  msg.className = isError ? 'state-msg error' : 'state-msg';
+  msg.textContent = text;
+  msg.style.display = text ? 'block' : 'none';
+}
+
+function generateCustomerOutreachDraftFromNotes() {
+  var notesEl = el('cust-outreach-notes');
+  var notes = (notesEl && notesEl.value || '').trim();
+  if (!notes) {
+    showCustomersOutreachGenerateMsg(portalT('customers.outreach.notesRequired'), true);
+    return;
+  }
+  showCustomersOutreachGenerateMsg('', false);
+  var plan = buildCustomersOutreachPlan();
+  var payload = {
+    notes: notes,
+    recipient_count: plan.recipients.length,
+    recipient_names: plan.recipients.map(function(r) { return r.name; }),
+  };
+  var btn = el('cust-outreach-generate');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = portalT('customers.outreach.generating');
+  }
+  fetch(customersOutreachGenerateUrl(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+    .then(function(r) { return r.json().then(function(data) { return { ok: r.ok, data: data }; }); })
+    .then(function(res) {
+      if (!res.ok || !res.data || !res.data.success || !res.data.body) {
+        throw new Error((res.data && (res.data.detail || res.data.error)) || 'generate failed');
+      }
+      applyCustomerMessageTemplateBody(res.data.body);
+      customersOutreachHasGeneratedDraft = true;
+      showCustomersOutreachGenerateMsg('', false);
+    })
+    .catch(function(err) {
+      showCustomersOutreachGenerateMsg(portalT('customers.outreach.generateFailed') + ' ' + err.message, true);
+    })
+    .finally(function() {
+      if (btn) btn.disabled = false;
+      updateCustomersOutreachGenerateButton();
+    });
 }
 
 function applySelectedCustomerMessageTemplate() {
@@ -24309,6 +24392,12 @@ function wireCustomersOutreachTemplateActions() {
   if (saveBtn) saveBtn.onclick = function() { saveCustomerMessageTemplateFromDraft(); };
   var cancelBtn = el('cust-outreach-template-cancel-edit');
   if (cancelBtn) cancelBtn.onclick = function() { cancelEditCustomerMessageTemplate(); };
+  var msgBtn = el('cust-outreach-mode-message');
+  if (msgBtn) msgBtn.onclick = function() { setCustomersOutreachComposeMode('message'); };
+  var notesBtn = el('cust-outreach-mode-notes');
+  if (notesBtn) notesBtn.onclick = function() { setCustomersOutreachComposeMode('notes'); };
+  var genBtn = el('cust-outreach-generate');
+  if (genBtn) genBtn.onclick = function() { generateCustomerOutreachDraftFromNotes(); };
 }
 
 function wireCustomersOutreachDrawer() {
@@ -24375,8 +24464,20 @@ function renderCustomersOutreachDrawer() {
     });
     html += '</div>';
   }
-  html += '<div class="customers-outreach-section"><label class="customers-edit-field" for="cust-outreach-message"><span>' + escHtml(portalT('customers.outreach.messageLabel')) + '</span></label>';
+  html += '<div class="customers-outreach-section">';
+  html += '<div class="customers-outreach-mode-toggle" role="tablist" aria-label="' + escHtml(portalT('customers.outreach.messageLabel')) + '">';
+  html += '<button type="button" class="customers-outreach-mode-btn" id="cust-outreach-mode-message" role="tab">' + escHtml(portalT('customers.outreach.modeMessage')) + '</button>';
+  html += '<button type="button" class="customers-outreach-mode-btn" id="cust-outreach-mode-notes" role="tab">' + escHtml(portalT('customers.outreach.modeNotes')) + '</button>';
+  html += '</div>';
+  html += '<div id="cust-outreach-notes-panel" class="customers-outreach-notes-panel" style="display:none">';
+  html += '<label class="customers-edit-field" for="cust-outreach-notes"><span>' + escHtml(portalT('customers.outreach.notesLabel')) + '</span></label>';
+  html += '<textarea id="cust-outreach-notes" class="customers-outreach-textarea" data-i18n-placeholder="customers.outreach.notesPlaceholder" placeholder="What should Luna say? Bullet points are fine…"></textarea>';
+  html += '<div class="customers-outreach-generate-row"><button type="button" class="btn btn-primary" id="cust-outreach-generate">' + escHtml(portalT('customers.outreach.generate')) + '</button></div>';
+  html += '<p id="cust-outreach-generate-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '</div>';
+  html += '<div id="cust-outreach-message-panel"><label class="customers-edit-field" for="cust-outreach-message"><span>' + escHtml(portalT('customers.outreach.messageLabel')) + '</span></label>';
   html += '<textarea id="cust-outreach-message" class="customers-outreach-textarea" data-i18n-placeholder="customers.outreach.messagePlaceholder" placeholder="Type your message…"></textarea></div>';
+  html += '</div>';
   html += '<div class="customers-outreach-section" id="cust-outreach-templates-section">';
   html += '<div class="customers-outreach-section-hdr">' + escHtml(portalT('customers.outreach.cannedTitle')) + '</div>';
   html += '<div class="customers-outreach-template-toolbar">';
@@ -24393,6 +24494,9 @@ function renderCustomersOutreachDrawer() {
   body.innerHTML = html;
   var msg = el('cust-outreach-message');
   if (msg) msg.setAttribute('placeholder', portalT('customers.outreach.messagePlaceholder'));
+  var notes = el('cust-outreach-notes');
+  if (notes) notes.setAttribute('placeholder', portalT('customers.outreach.notesPlaceholder'));
+  setCustomersOutreachComposeMode(customersOutreachComposeMode);
   var titleInput = el('cust-outreach-template-title');
   if (titleInput) titleInput.setAttribute('placeholder', portalT('customers.templates.titlePlaceholder'));
 }
@@ -24400,6 +24504,8 @@ function renderCustomersOutreachDrawer() {
 function openCustomersOutreachDrawer() {
   if (getCustomersBulkSelectedPhones().length < 1) return;
   customersOutreachTemplateEditingId = null;
+  customersOutreachComposeMode = 'message';
+  customersOutreachHasGeneratedDraft = false;
   renderCustomersOutreachDrawer();
   wireCustomersOutreachTemplateActions();
   loadCustomerMessageTemplates();
@@ -37885,6 +37991,50 @@ async function handleCustomerMessageTemplateDelete(templateId, query, res, user)
   }
 }
 
+async function handleCustomerMessageTemplateGenerate(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.message_templates.generate',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await generateCustomerOutreachDraft(clientSlug, body);
+    const elapsed = Date.now() - started;
+    if (!result.ok) {
+      appendAuditLog({ ...auditBase, success: false, error: result.error, elapsed_ms: elapsed });
+      return sendJSON(res, result.status, {
+        success: false,
+        error: result.error,
+        detail: result.detail,
+        sends_whatsapp: false,
+        elapsed_ms: elapsed,
+      });
+    }
+    appendAuditLog({ ...auditBase, success: true, body_chars: result.body.length, elapsed_ms: elapsed });
+    return sendJSON(res, 200, {
+      success: true,
+      body: result.body,
+      voice: result.voice,
+      sends_whatsapp: false,
+      elapsed_ms: elapsed,
+    });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'generation failed', sends_whatsapp: false });
+  }
+}
+
 async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -43246,6 +43396,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
     return handleCustomerMessageTemplatesList(parsed.query, res, auth.user);
+  }
+  if (pathname === '/staff/customers/message-templates/generate' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerMessageTemplateGenerate(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/customers/message-templates' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
