@@ -318,13 +318,16 @@ if (fs.existsSync(SEND_LIB)) {
     message: 'hello world',
     phones: Array.from({ length: 51 }, (_, i) => `+34000000${String(i).padStart(4, '0')}`),
   }).error === 'recipient_cap_exceeded');
+  assert('outreach env gate helper', lib.includes('isCustomerOutreachWhatsAppEnabled'));
+  assert('outreach enabled defaults false', sendMod.isCustomerOutreachWhatsAppEnabled({}) === false);
+  assert('outreach enabled requires explicit true', sendMod.isCustomerOutreachWhatsAppEnabled({ CUSTOMER_OUTREACH_WHATSAPP_ENABLED: 'true' }) === true);
 }
 
 if (apiSrc) {
   assert('outreach send route POST', apiSrc.includes("pathname === '/staff/customers/outreach/send' && method === 'POST'"));
   assert('outreach send handler', apiSrc.includes('handleCustomerOutreachSend'));
   assert('send operator auth', /customers\/outreach\/send[\s\S]{0,200}requireAuth\(req, res, 'operator'\)/.test(apiSrc));
-  assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,500}assertStaffClientAccess/.test(apiSrc));
+  assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,900}assertStaffClientAccess/.test(apiSrc));
   assert('send requires confirmed in body fetch', apiSrc.includes('confirmed: true'));
   assert('confirmation modal UI', apiSrc.includes('cust-outreach-confirm-modal') && apiSrc.includes('cust-outreach-confirm-send'));
   assert('modal shows preview + stats', apiSrc.includes('cust-outreach-confirm-preview') && apiSrc.includes('openCustomersOutreachConfirmModal'));
@@ -332,6 +335,9 @@ if (apiSrc) {
   assert('send button gated by message length', apiSrc.includes('updateCustomersOutreachSendButton'));
   assert('send only selected phones', apiSrc.includes('plan.recipients.map(function(r) { return r.phone; })'));
   assert('staff actions gate on send', /handleCustomerOutreachSend[\s\S]{0,300}STAFF_ACTIONS_ENABLED/.test(apiSrc));
+  assert('customer outreach env gate', apiSrc.includes('CUSTOMER_OUTREACH_WHATSAPP_ENABLED'));
+  assert('customer outreach disabled error', apiSrc.includes("error: 'customer_outreach_disabled'"));
+  assert('outreach gate not whatsapp dry run', !/handleCustomerOutreachSend[\s\S]{0,500}WHATSAPP_DRY_RUN/.test(apiSrc));
   assert('per-recipient audit', apiSrc.includes("intent: 'api:customers.outreach.send.recipient'"));
   assert('no email outreach route', !apiSrc.includes('/staff/customers/outreach/email'));
 }

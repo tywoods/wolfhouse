@@ -19,6 +19,10 @@ const MESSAGE_MIN = 5;
 const MESSAGE_MAX = 4000;
 const OUTREACH_SEND_SOURCE = 'staff_customer_outreach';
 
+function isCustomerOutreachWhatsAppEnabled(env = process.env) {
+  return String((env || {}).CUSTOMER_OUTREACH_WHATSAPP_ENABLED || '').trim().toLowerCase() === 'true';
+}
+
 function trimText(value, maxLen) {
   const s = String(value || '').trim();
   if (!s) return '';
@@ -221,6 +225,7 @@ module.exports = {
   MESSAGE_MIN,
   MESSAGE_MAX,
   OUTREACH_SEND_SOURCE,
+  isCustomerOutreachWhatsAppEnabled,
   parseOutreachSendBody,
   buildOutreachIdempotencyKey,
   lookupTenantCustomersByPhones,

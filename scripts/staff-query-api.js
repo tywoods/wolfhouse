@@ -673,6 +673,8 @@ const STAFF_PORTAL_LOGIN_BG_PATH = path.join(__dirname, '..', 'public', 'images'
 
 // Write endpoint config — disabled unless explicitly enabled
 const STAFF_ACTIONS_ENABLED  = process.env.STAFF_ACTIONS_ENABLED  === 'true';
+// Customers CRM bulk WhatsApp outreach — separate from WHATSAPP_DRY_RUN; default OFF.
+const CUSTOMER_OUTREACH_WHATSAPP_ENABLED = process.env.CUSTOMER_OUTREACH_WHATSAPP_ENABLED === 'true';
 const MANUAL_BOOKING_ENABLED = process.env.MANUAL_BOOKING_ENABLED === 'true';
 // Stage 8.5.4 — Luna bot booking create via shared engine.
 // BOT_BOOKING_ENABLED=false by default — must be explicitly set to true.
@@ -38213,6 +38215,14 @@ async function handleCustomerOutreachSend(query, req, res, user) {
       success: false,
       error: 'staff_actions_disabled',
       detail: 'Staff write actions are disabled. Set STAFF_ACTIONS_ENABLED=true to enable.',
+      sends_whatsapp: false,
+    });
+  }
+  if (!CUSTOMER_OUTREACH_WHATSAPP_ENABLED) {
+    return sendJSON(res, 403, {
+      success: false,
+      error: 'customer_outreach_disabled',
+      detail: 'Customer CRM WhatsApp outreach is disabled. Set CUSTOMER_OUTREACH_WHATSAPP_ENABLED=true to enable.',
       sends_whatsapp: false,
     });
   }

@@ -356,12 +356,17 @@ const OUTREACH_SEND_LIB = path.join(ROOT, 'scripts', 'lib', 'staff-customer-outr
 
 if (fs.existsSync(OUTREACH_SEND_LIB)) {
   const lib = fs.readFileSync(OUTREACH_SEND_LIB, 'utf8');
+  const sendMod = require(OUTREACH_SEND_LIB);
   assert('outreach send helper', lib.includes('executeCustomerOutreachSend'));
   assert('confirmed required', lib.includes('confirmation_required'));
+  assert('outreach env gate helper', lib.includes('isCustomerOutreachWhatsAppEnabled'));
+  assert('outreach defaults disabled', sendMod.isCustomerOutreachWhatsAppEnabled({}) === false);
 }
 
 if (apiSrc) {
   assert('outreach send API route', apiSrc.includes('/staff/customers/outreach/send'));
+  assert('customer outreach env gate', apiSrc.includes('CUSTOMER_OUTREACH_WHATSAPP_ENABLED'));
+  assert('customer outreach disabled error', apiSrc.includes('customer_outreach_disabled'));
   assert('confirmation modal', apiSrc.includes('cust-outreach-confirm-modal'));
   assert('confirmed true in fetch', apiSrc.includes('confirmed: true'));
   assert('send results panel', apiSrc.includes('renderCustomersOutreachResults'));
