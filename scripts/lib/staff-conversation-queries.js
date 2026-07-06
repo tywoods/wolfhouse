@@ -23,6 +23,9 @@
  *   - Conversation messages exist in the `messages` table (migration 001 +
  *     003 rename hostel_id → client_id); messages may be sparse or absent for
  *     fixture-only conversations seeded without a WhatsApp source.
+ *   - Customers CRM rows are upserted on inbound WhatsApp touch via
+ *     staff-customer-queries.upsertCustomerFromInboundTouch (Hermes mirror path);
+ *     conversation INSERT also syncs via migration 031 trigger when applied.
  *
  * @module staff-conversation-queries
  */

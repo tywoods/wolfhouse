@@ -221,6 +221,32 @@ if (apiSrc) {
     apiSrc.includes("tab === 'customers'") && !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
 }
 
+// ── 7. Inbound contact → customer row ───────────────────────────────────────
+
+console.log('\n[7] Inbound WhatsApp → tenant-scoped customer');
+
+const CUST_Q_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js');
+const MIRROR_PATH = path.join(ROOT, 'scripts', 'lib', 'luna-hermes-whatsapp-thread-mirror.js');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  assert('normalizeCustomerPhone for dedupe key', custSrc.includes('function normalizeCustomerPhone('));
+  assert('upsertCustomerFromInboundTouch', custSrc.includes('async function upsertCustomerFromInboundTouch('));
+  assert('tenant scope via client slug lookup', custSrc.includes("WHERE slug = $1"));
+  assert('list query joins clients.slug', custSrc.includes('INNER JOIN clients c ON c.id = cu.client_id')
+    && custSrc.includes('WHERE c.slug = $1'));
+} else {
+  assert('staff-customer-queries.js exists', false);
+}
+
+if (fs.existsSync(MIRROR_PATH)) {
+  const mirrorSrc = fs.readFileSync(MIRROR_PATH, 'utf8');
+  assert('mirror upserts customer on inbound', mirrorSrc.includes('upsertCustomerFromInboundTouch'));
+  assert('mirror sets conversation display_name safely', mirrorSrc.includes('display_name = COALESCE(NULLIF(EXCLUDED.display_name'));
+} else {
+  assert('luna-hermes-whatsapp-thread-mirror.js exists', false);
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

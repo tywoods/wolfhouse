@@ -81,6 +81,39 @@ if (fs.existsSync(I18N_PATH)) {
   assert('staff-portal-i18n.js exists', false);
 }
 
+console.log('\n[4] Inbound WhatsApp → tenant-scoped customer upsert');
+
+const CUST_Q_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js');
+const MIRROR_PATH = path.join(ROOT, 'scripts', 'lib', 'luna-hermes-whatsapp-thread-mirror.js');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  assert('normalizeCustomerPhone helper', custSrc.includes('function normalizeCustomerPhone('));
+  assert('upsertCustomerFromInboundTouch helper', custSrc.includes('async function upsertCustomerFromInboundTouch('));
+  assert('customer dedupe ON CONFLICT (client_id, phone)', custSrc.includes('ON CONFLICT (client_id, phone)'));
+  assert('display name preserved on upsert', custSrc.includes('COALESCE(EXCLUDED.full_name, customers.full_name)'));
+  assert('client resolved by slug only', custSrc.includes("WHERE slug = $1"));
+  assert('customer list scoped by clients.slug', custSrc.includes('WHERE c.slug = $1'));
+} else {
+  assert('staff-customer-queries.js exists', false);
+}
+
+if (fs.existsSync(MIRROR_PATH)) {
+  const mirrorSrc = fs.readFileSync(MIRROR_PATH, 'utf8');
+  assert('Hermes mirror calls inbound customer upsert', mirrorSrc.includes('upsertCustomerFromInboundTouch(pg'));
+  assert('Hermes mirror uses shared phone normalization', mirrorSrc.includes('normalizeCustomerPhone'));
+  assert('conversation display_name safe merge on conflict',
+    mirrorSrc.includes('display_name = COALESCE(NULLIF(EXCLUDED.display_name'));
+  assert('inbound path is guest_whatsapp_inbound', mirrorSrc.includes("'guest_whatsapp_inbound'"));
+} else {
+  assert('luna-hermes-whatsapp-thread-mirror.js exists', false);
+}
+
+if (apiSrc) {
+  assert('whatsapp-thread-mirror route wired', apiSrc.includes('handleBotHermesWhatsAppThreadMirror')
+    && apiSrc.includes('mirrorHermesWhatsAppThreadMessage'));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

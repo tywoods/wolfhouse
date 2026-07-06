@@ -18,6 +18,10 @@ const {
   maybeNotifyHumanNeeded,
   extractLocationFromMetadata,
 } = require('./staff-whatsapp-notifications');
+const {
+  normalizeCustomerPhone,
+  upsertCustomerFromInboundTouch,
+} = require('./staff-customer-queries');
 
 function trimStr(v) {
   if (v == null) return '';
@@ -25,11 +29,7 @@ function trimStr(v) {
 }
 
 function normalizeGuestPhone(phone) {
-  const raw = trimStr(phone);
-  if (!raw) return '';
-  if (raw.startsWith('+')) return raw;
-  const digits = raw.replace(/[^\d]/g, '');
-  return digits ? `+${digits}` : '';
+  return normalizeCustomerPhone(phone);
 }
 
 function toBool(v) {
@@ -99,6 +99,7 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
   if (!clientR.rows[0]) return null;
   const clientId = clientR.rows[0].id;
   const preview = trimStr(previewText) || trimStr(contactName) || phone;
+  const displayName = trimStr(contactName) || null;
   const metadata = mergeSunsetInboundLocationMetadata(
     { channel: 'whatsapp', hermes_luna: true },
     extractSunsetChannelHintsFromNormalized({
@@ -115,20 +116,32 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
   const created = existing.rows.length === 0;
   const ins = await pg.query(
     `INSERT INTO conversations (
-       client_id, phone, status, bot_mode, conversation_stage, metadata, last_message_preview
+       client_id, phone, display_name, status, bot_mode, conversation_stage, metadata, last_message_preview
      ) VALUES (
-       $1, $2, 'open'::conversation_status, 'bot'::bot_mode, 'guest_whatsapp_inbound',
-       $3::jsonb, $4
+       $1, $2, $3, 'open'::conversation_status, 'bot'::bot_mode, 'guest_whatsapp_inbound',
+       $4::jsonb, $5
      )
      ON CONFLICT (client_id, phone) DO UPDATE SET
+       display_name = COALESCE(NULLIF(EXCLUDED.display_name, ''), conversations.display_name),
        metadata = conversations.metadata || EXCLUDED.metadata,
        last_message_preview = EXCLUDED.last_message_preview,
        updated_at = NOW()
      RETURNING id::text AS conversation_id`,
-    [clientId, phone, JSON.stringify(metadata), preview.slice(0, 500)],
+    [clientId, phone, displayName, JSON.stringify(metadata), preview.slice(0, 500)],
   );
   const conversationId = ins.rows[0] && ins.rows[0].conversation_id;
   if (!conversationId) return null;
+
+  const locationId = extractLocationFromMetadata(metadata);
+  await upsertCustomerFromInboundTouch(pg, {
+    client_slug: clientSlug,
+    client_id: clientId,
+    phone,
+    display_name: displayName,
+    location_id: locationId,
+    conversation_id: conversationId,
+  });
+
   return {
     conversation_id: conversationId,
     created,

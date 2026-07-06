@@ -19,6 +19,95 @@ const {
 
 const ALLOWED_FILTERS = new Set(['all', 'booked', 'needs_attention']);
 
+/**
+ * Canonical E.164-style phone key for customer dedupe per tenant.
+ * Matches Hermes WhatsApp mirror normalization.
+ */
+function normalizeCustomerPhone(phone) {
+  const raw = String(phone || '').trim();
+  if (!raw) return '';
+  if (raw.startsWith('+')) return raw.slice(0, 40);
+  const digits = raw.replace(/[^\d]/g, '');
+  return digits ? `+${digits}`.slice(0, 40) : '';
+}
+
+function trimInboundText(value, maxLen) {
+  const s = String(value || '').trim();
+  if (!s) return null;
+  return s.slice(0, maxLen);
+}
+
+/**
+ * Upsert a tenant-scoped customer row when an inbound WhatsApp/Luna contact touches
+ * the inbox. Deduped by (client_id, normalized phone). Display name is only filled
+ * when missing — never overwritten with null/blank on repeat inbound.
+ *
+ * @param {import('pg').Client|import('pg').PoolClient} pg
+ * @param {{
+ *   client_slug: string,
+ *   client_id?: string,
+ *   phone: string,
+ *   display_name?: string|null,
+ *   email?: string|null,
+ *   location_id?: string|null,
+ *   conversation_id?: string|null,
+ * }} input
+ * @returns {Promise<{ ok: boolean, reason?: string, customer_id?: string, phone?: string, client_id?: string }>}
+ */
+async function upsertCustomerFromInboundTouch(pg, input) {
+  const src = input || {};
+  const clientSlug = String(src.client_slug || '').trim();
+  const phone = normalizeCustomerPhone(src.phone);
+  if (!clientSlug || !phone) {
+    return { ok: false, reason: 'missing_client_or_phone' };
+  }
+
+  let clientId = src.client_id || null;
+  if (!clientId) {
+    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+    clientId = clientRes.rows[0] && clientRes.rows[0].id;
+  }
+  if (!clientId) {
+    return { ok: false, reason: 'client_not_found' };
+  }
+
+  const displayName = trimInboundText(src.display_name, 120);
+  const email = trimInboundText(src.email, 160);
+  const locationId = trimInboundText(src.location_id, 64);
+
+  const ins = await pg.query(
+    `INSERT INTO customers (client_id, phone, full_name, email, location_id, first_seen, last_seen)
+     VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+     ON CONFLICT (client_id, phone) DO UPDATE SET
+       full_name   = COALESCE(EXCLUDED.full_name, customers.full_name),
+       email       = COALESCE(EXCLUDED.email, customers.email),
+       location_id = COALESCE(EXCLUDED.location_id, customers.location_id),
+       last_seen   = NOW(),
+       updated_at  = NOW()
+     RETURNING id::text AS customer_id`,
+    [clientId, phone, displayName, email, locationId],
+  );
+  const customerId = ins.rows[0] && ins.rows[0].customer_id;
+  if (!customerId) {
+    return { ok: false, reason: 'customer_upsert_failed' };
+  }
+
+  const conversationId = trimInboundText(src.conversation_id, 64);
+  if (conversationId) {
+    await pg.query(
+      `UPDATE conversations
+          SET customer_id = $3::uuid,
+              updated_at = NOW()
+        WHERE id = $2::uuid
+          AND client_id = $1::uuid
+          AND (customer_id IS NULL OR customer_id = $3::uuid)`,
+      [clientId, conversationId, customerId],
+    );
+  }
+
+  return { ok: true, customer_id: customerId, phone, client_id: clientId };
+}
+
 function normalizeCustomerFilter(filter) {
   const f = String(filter || 'all').trim().toLowerCase();
   return ALLOWED_FILTERS.has(f) ? f : 'all';
@@ -360,6 +449,8 @@ function buildCustomerListParams(clientSlug, query) {
 
 module.exports = {
   ALLOWED_FILTERS,
+  normalizeCustomerPhone,
+  upsertCustomerFromInboundTouch,
   normalizeCustomerFilter,
   clampLimit,
   clampOffset,
