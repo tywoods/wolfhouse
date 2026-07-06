@@ -3,7 +3,7 @@
 /**
  * verify:sunset-portal-customers
  *
- * Offline checks for Sunset Customers tab (read-only guest history v1).
+ * Offline checks for Customers tab (shared CRM + Sunset surf context).
  *
  * Run:
  *   node scripts/verify-sunset-portal-customers.js
@@ -74,7 +74,7 @@ if (fs.existsSync(QUERIES_PATH)) {
   const ctxSql = getCustomerContextQuery();
   assert('list query scopes c.slug = $1', listSql.includes('c.slug = $1'));
   assert('context query scopes c.slug = $1', ctxSql.includes('c.slug = $1'));
-  assert('list query anchors on phone', listSql.includes('conv.phone') && listSql.includes('phone_universe'));
+  assert('list query anchors on phone', listSql.includes('cu.phone') && listSql.includes('customer_base'));
   assert('no email-only join in list query', !/JOIN.*email\s*=/i.test(listSql));
   assert('buildCustomerListParams uses bound params', (() => {
     const b = buildCustomerListParams('sunset', { filter: 'booked', limit: 10, offset: 0, q: 'maria' });
@@ -85,21 +85,27 @@ if (fs.existsSync(QUERIES_PATH)) {
   assert('staff-customer-queries.js exists', false);
 }
 
-// ── 3. UI — Customers tab surf-only ─────────────────────────────────────────
+// ── 3. UI — Customers tab CRM gating ────────────────────────────────────────
 
 console.log('\n[3] staff-query-api.js — Customers tab UI');
 
 if (apiSrc) {
   assert('Customers tab button', apiSrc.includes('data-tab="customers"'));
   assert('Customers tab panel', apiSrc.includes('id="tab-customers"'));
-  assert('customers tab hidden for non-surf', apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
+  assert('portalHasCustomersCrm helper', apiSrc.includes('function portalHasCustomersCrm('));
+  assert('customers tab gated by CRM profile', apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
   assert('loadCustomersTab function', apiSrc.includes('function loadCustomersTab('));
+  assert('loadCustomersList uses portalHasCustomersCrm', apiSrc.includes('if (!portalHasCustomersCrm(profile)) return'));
+  assert('applyCustomersPortalI18n for surf copy', apiSrc.includes('function applyCustomersPortalI18n('));
   assert('Customers empty state i18n keys', apiSrc.includes('customers.empty.main'));
   assert('Customers search placeholder', apiSrc.includes('customers.searchPlaceholder'));
   assert('Customers filters All/Booked/Needs attention', apiSrc.includes('data-cust-filter="booked"')
     && apiSrc.includes('data-cust-filter="needs_attention"'));
   assert('Last setup detail section', apiSrc.includes('customers.detail.lastSetup')
-    || apiSrc.includes('customers.detail.lastSetup'));
+    || apiSrc.includes('portalT(\'customers.detail.lastSetup\')'));
+  assert('Sunset school context preserved', apiSrc.includes('id="customers-school-context"')
+    && apiSrc.includes('function renderCustomersSchoolContext(')
+    && apiSrc.includes('isSunsetSurfActive()'));
 
   const panel = extractCustomersPanel(apiSrc);
   if (panel) {
@@ -124,10 +130,12 @@ console.log('\n[4] staff-portal-i18n.js — Customers copy');
 if (fs.existsSync(I18N_PATH)) {
   const i18n = fs.readFileSync(I18N_PATH, 'utf8');
   assert('nav.tab.customers key', i18n.includes("'nav.tab.customers': 'Customers'"));
-  assert('customers.subtitle surf oriented', i18n.includes('Guest history, preferences'));
+  assert('customers.subtitle generic CRM copy', i18n.includes('Customer profiles, contact history, and past bookings'));
+  assert('customers.subtitle.surf variant', i18n.includes("'customers.subtitle.surf': 'Guest history, preferences"));
   assert('customers.empty.main', i18n.includes("'customers.empty.main': 'No customers yet.'"));
-  assert('customers.empty.sub future wording', i18n.includes('will appear here'));
-  assert('Remember returning guests copy', i18n.includes('Remember returning guests'));
+  assert('customers.empty.sub generic', i18n.includes('Profiles appear here when Luna receives messages'));
+  assert('customers.promo generic CRM', i18n.includes('Review past bookings, preferences, and notes'));
+  assert('customers.promo.surf variant', i18n.includes("'customers.promo.surf'"));
   assert('Wolfhouse whatsapp tab unchanged', i18n.includes("'nav.tab.whatsapp': 'WhatsApp'"));
 } else {
   assert('staff-portal-i18n.js exists', false);
@@ -200,10 +208,17 @@ console.log('\n[5] Wolfhouse portal profile preserved');
 const wh = loadClientPortalProfile('wolfhouse-somo');
 assert('wolfhouse default_tab bed-calendar', wh.default_tab === 'bed-calendar');
 assert('wolfhouse is_surf_vertical false', wh.is_surf_vertical === false);
+assert('wolfhouse customers not in hidden_tabs', !(wh.hidden_tabs || []).includes('customers'));
+
+const ss = loadClientPortalProfile('sunset');
+assert('sunset is_surf_vertical true', ss.is_surf_vertical === true);
+assert('sunset customers not in hidden_tabs', !(ss.hidden_tabs || []).includes('customers'));
 
 if (apiSrc) {
   assert('no hardcoded sunset-staging URL', !apiSrc.includes('sunset-staging.lunafrontdesk.com'));
   assert('Wolfhouse bed-calendar preserved', apiSrc.includes('data-tab="bed-calendar"'));
+  assert('Wolfhouse customers tab uses CRM gate not surf gate',
+    apiSrc.includes("tab === 'customers'") && !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────
