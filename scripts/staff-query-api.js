@@ -16437,7 +16437,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-switch-orange input:checked + .inbox-switch-slider{background:#c47a2a;border-color:#a86520}
 [data-theme="dark"] .inbox-switch-red input:checked + .inbox-switch-slider{background:#a94444;border-color:#8a3333}
 [data-theme="dark"] .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#a94444}
-[data-theme="dark"] .luna-global-pause-card.luna-global-paused,#banner .banner-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020}
+[data-theme="dark"] .luna-global-pause-card.luna-global-paused,#tabs .tabs-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020}
 [data-theme="dark"] .al-hero{background:linear-gradient(135deg,#252526 0%,#2d2d2d 100%);border-color:#3c3c3c}
 [data-theme="dark"] .al-hero-title{color:#cccccc}
 [data-theme="dark"] .al-hero-sub{color:#9d9d9d}
@@ -16513,15 +16513,6 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
-#banner .banner-global-pause{display:inline-flex;align-items:center;gap:5px;flex-shrink:1;min-width:0;padding:2px 8px;border-radius:16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22)}
-#banner .banner-global-pause.luna-global-paused{background:rgba(199,74,74,.28);border-color:rgba(255,180,180,.35)}
-#banner .banner-global-pause-label{font-size:10.5px;font-weight:600;color:#fffaf1;white-space:nowrap;line-height:1.2;letter-spacing:.01em}
-#banner .banner-global-pause .luna-global-pause-switch{width:32px;height:18px}
-#banner .banner-global-pause .luna-global-pause-slider{background:rgba(255,255,255,.35)}
-#banner .banner-global-pause .luna-global-pause-slider:before{height:14px;width:14px;left:2px;bottom:2px}
-#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#C74A4A}
-#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
-#banner .banner-global-pause .luna-global-pause-help,#banner #luna-global-pause-status{display:none!important}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
@@ -16550,7 +16541,15 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;padding:0 28px;box-shadow:var(--shadow-soft)}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0}
+#tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border-left:1px solid var(--border-soft);background:var(--surface);position:sticky;right:0;z-index:2}
+#tabs .tabs-global-pause.luna-global-paused{background:#FFF5F5;border-left-color:#E0A8A8}
+#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2)}
+#tabs .tabs-global-pause-label{white-space:nowrap}
+#tabs .tabs-global-pause .luna-global-pause-switch{width:34px;height:20px}
+#tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
+#tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
+#tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
 .tab-btn{padding:14px 22px;font-size:13px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s}
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
@@ -18202,12 +18201,14 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 #banner .brand{align-self:center}
 #banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
 #banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
-#banner .banner-global-pause-label{font-size:9.5px}
-#banner .banner-global-pause .luna-global-pause-switch{width:28px;height:16px}
-#banner .banner-global-pause .luna-global-pause-slider:before{height:12px;width:12px}
-#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(12px)}
 #banner .btn-logout{padding:5px 12px;font-size:11px}
-#tabs{width:100%;max-width:100vw;padding:0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
+#tabs{width:100%;max-width:100vw;padding:0 8px 0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
+#tabs .tabs-global-pause{padding-left:10px}
+#tabs .tabs-global-pause-toggle{padding:8px 8px 8px 0;font-size:11px;gap:6px}
+#tabs .tabs-global-pause-label{font-size:11px}
+#tabs .tabs-global-pause .luna-global-pause-switch{width:30px;height:18px}
+#tabs .tabs-global-pause .luna-global-pause-slider:before{height:14px;width:14px}
+#tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(12px)}
 .tab-btn{flex:0 0 auto;padding:12px 14px;font-size:12px;scroll-snap-align:start;white-space:nowrap;min-width:0}
 #wrap,#wrap-bc,.customers-wrap,.portal-admin-wrap,.portal-home-wrap,#al-wrap{width:100%!important;max-width:100vw!important;padding:8px 12px!important;margin:0 auto;box-sizing:border-box;height:auto!important;min-height:calc(100dvh - 120px)}
 #tab-conversations.active{display:flex;flex-direction:column;width:100%!important;max-width:100vw!important;height:calc(100dvh - 112px)!important;min-height:0;overflow:hidden;box-sizing:border-box}
@@ -18285,17 +18286,6 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
     <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
   </button>
-  <div class="banner-global-pause luna-global-pause-card" id="cc-luna-global-pause">
-    <label class="banner-global-pause-toggle luna-global-pause-toggle" for="luna-global-pause-switch">
-      <span class="banner-global-pause-label">Pause Luna Globally:</span>
-      <span class="luna-global-pause-switch">
-        <input type="checkbox" id="luna-global-pause-switch">
-        <span class="luna-global-pause-slider"></span>
-      </span>
-    </label>
-    <span class="al-hint banner-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
-    <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
-  </div>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
   </div>
 </div>
@@ -18313,6 +18303,17 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
   <button class="tab-btn" data-tab="tour-operator" data-i18n="nav.tab.tourOperator">Tour Operator</button>
   <button class="tab-btn dev-tab" data-tab="query-tools"><span aria-hidden="true">&#128736;</span> <span data-i18n="nav.tab.devtools">Developer Tools</span></button>
   <button class="tab-btn dev-tab" data-tab="luna-guest-simulator" data-i18n="nav.tab.simulator">Luna Guest Simulator</button>
+  <div class="tabs-global-pause luna-global-pause-card" id="cc-luna-global-pause">
+    <label class="tabs-global-pause-toggle" for="luna-global-pause-switch">
+      <span class="tabs-global-pause-label">Pause Luna Globally:</span>
+      <span class="luna-global-pause-switch">
+        <input type="checkbox" id="luna-global-pause-switch">
+        <span class="luna-global-pause-slider"></span>
+      </span>
+    </label>
+    <span class="al-hint tabs-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
+    <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
+  </div>
 </div>
 
 <div id="portal-profile-gate" aria-live="polite" aria-busy="true">

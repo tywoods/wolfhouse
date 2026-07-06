@@ -35,6 +35,12 @@ const tabStart = src.indexOf('id="tab-ask-luna"');
 const tabEnd = src.indexOf('<!-- /tab-ask-luna -->', tabStart);
 const tabSrc = tabStart >= 0 && tabEnd > tabStart ? src.slice(tabStart, tabEnd) : '';
 
+const bannerActionsStart = src.indexOf('<div class="banner-actions">');
+const tabsMarker = src.indexOf('<!-- ── Tabs', bannerActionsStart);
+const bannerActionsSrc = bannerActionsStart >= 0 && tabsMarker > bannerActionsStart
+  ? src.slice(bannerActionsStart, tabsMarker)
+  : '';
+
 console.log('verify:staff-automated-notification-ui\n');
 
 console.log('── card copy ──');
@@ -77,8 +83,11 @@ for (const token of forbiddenUi) {
 }
 
 console.log('\n── Luna Staff portal layout ──');
-ok('global pause markup in banner actions', /class="banner-actions"[\s\S]*?id="cc-luna-global-pause"[\s\S]*?id="btn-logout"/.test(src));
-ok('banner pause label copy', src.includes('Pause Luna Globally:'));
+ok('global pause not in banner actions', bannerActionsSrc && !bannerActionsSrc.includes('id="cc-luna-global-pause"'));
+ok('global pause in tabs nav row', /id="tabs"[\s\S]*?id="cc-luna-global-pause"/.test(src));
+ok('tabs pause label copy', src.includes('Pause Luna Globally:'));
+ok('label and switch inline in tabs control', /class="tabs-global-pause-toggle"[\s\S]*?Pause Luna Globally:[\s\S]*?luna-global-pause-switch/.test(src));
+ok('global pause switch id preserved', src.includes('id="luna-global-pause-switch"'));
 ok('old Luna Staff global pause card removed', !tabSrc.includes('luna-global-pause-card" id="cc-luna-global-pause"'));
 ok('operations card hidden in Luna Staff tab', tabSrc.includes('id="cc-operations"') && tabSrc.includes('cc-luna-staff-retired'));
 ok('owner insights card hidden in Luna Staff tab', tabSrc.includes('id="cc-owner-insights"') && tabSrc.includes('cc-luna-staff-retired'));
