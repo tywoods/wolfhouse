@@ -25,6 +25,16 @@ function ok(name, cond) {
 
 const src = fs.readFileSync(STAFF_API, 'utf8');
 
+function appearsBefore(needle, later, haystack) {
+  const a = haystack.indexOf(needle);
+  const b = haystack.indexOf(later);
+  return a >= 0 && b >= 0 && a < b;
+}
+
+const tabStart = src.indexOf('id="tab-ask-luna"');
+const tabEnd = src.indexOf('<!-- /tab-ask-luna -->', tabStart);
+const tabSrc = tabStart >= 0 && tabEnd > tabStart ? src.slice(tabStart, tabEnd) : '';
+
 console.log('verify:staff-automated-notification-ui\n');
 
 console.log('── card copy ──');
@@ -65,6 +75,17 @@ const forbiddenUi = [
 for (const token of forbiddenUi) {
   ok(`no ${token} in staff portal UI`, !src.includes(token));
 }
+
+console.log('\n── Luna Staff portal layout ──');
+ok('global pause markup in banner actions', /class="banner-actions"[\s\S]*?id="cc-luna-global-pause"[\s\S]*?id="btn-logout"/.test(src));
+ok('banner pause label copy', src.includes('Pause Luna Globally:'));
+ok('old Luna Staff global pause card removed', !tabSrc.includes('luna-global-pause-card" id="cc-luna-global-pause"'));
+ok('operations card hidden in Luna Staff tab', tabSrc.includes('id="cc-operations"') && tabSrc.includes('cc-luna-staff-retired'));
+ok('owner insights card hidden in Luna Staff tab', tabSrc.includes('id="cc-owner-insights"') && tabSrc.includes('cc-luna-staff-retired'));
+ok('card order: staff numbers before automated notifications', appearsBefore('id="cc-staff-whatsapp-numbers"', 'id="cc-automated-staff-notifications"', tabSrc));
+ok('card order: automated notifications before guest alerts', appearsBefore('id="cc-automated-staff-notifications"', 'id="cc-staff-notification-settings"', tabSrc));
+ok('card order: guest alerts before general notes', appearsBefore('id="cc-staff-notification-settings"', 'id="cc-house-notes"', tabSrc));
+ok('retired cards after visible Luna Staff cards', appearsBefore('id="cc-house-notes"', 'id="cc-operations"', tabSrc) && appearsBefore('id="cc-operations"', 'id="cc-owner-insights"', tabSrc));
 
 console.log(`\n── staff-automated-notification-ui: ${pass} passed, ${fail} failed ──`);
 process.exit(fail ? 1 : 0);

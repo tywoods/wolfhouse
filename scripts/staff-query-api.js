@@ -16437,7 +16437,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-switch-orange input:checked + .inbox-switch-slider{background:#c47a2a;border-color:#a86520}
 [data-theme="dark"] .inbox-switch-red input:checked + .inbox-switch-slider{background:#a94444;border-color:#8a3333}
 [data-theme="dark"] .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#a94444}
-[data-theme="dark"] .luna-global-pause-card.luna-global-paused{border-color:#6a4040;background:#2a2020}
+[data-theme="dark"] .luna-global-pause-card.luna-global-paused,#banner .banner-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020}
 [data-theme="dark"] .al-hero{background:linear-gradient(135deg,#252526 0%,#2d2d2d 100%);border-color:#3c3c3c}
 [data-theme="dark"] .al-hero-title{color:#cccccc}
 [data-theme="dark"] .al-hero-sub{color:#9d9d9d}
@@ -16513,6 +16513,16 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
 .btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
+#banner .banner-global-pause{display:inline-flex;align-items:center;gap:5px;flex-shrink:1;min-width:0;padding:2px 8px;border-radius:16px;background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.22)}
+#banner .banner-global-pause.luna-global-paused{background:rgba(199,74,74,.28);border-color:rgba(255,180,180,.35)}
+#banner .banner-global-pause-label{font-size:10.5px;font-weight:600;color:#fffaf1;white-space:nowrap;line-height:1.2;letter-spacing:.01em}
+#banner .banner-global-pause .luna-global-pause-switch{width:32px;height:18px}
+#banner .banner-global-pause .luna-global-pause-slider{background:rgba(255,255,255,.35)}
+#banner .banner-global-pause .luna-global-pause-slider:before{height:14px;width:14px;left:2px;bottom:2px}
+#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#C74A4A}
+#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
+#banner .banner-global-pause .luna-global-pause-help,#banner #luna-global-pause-status{display:none!important}
+.cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
 #banner .badge{background:rgba(255,253,250,.22);color:#fff;font-size:10.5px;font-weight:700;letter-spacing:.10em;padding:4px 12px;border-radius:var(--radius-pill);white-space:nowrap;backdrop-filter:blur(2px);border:1px solid rgba(255,255,255,.28)}
 #banner .badge-sm{background:rgba(68,80,74,.18);color:#FBF7F0;font-size:10px;padding:3px 10px;border-radius:var(--radius-pill);letter-spacing:.04em}
@@ -18192,6 +18202,11 @@ body{width:100%;max-width:100vw;overflow-x:hidden;min-height:100vh;min-height:10
 #banner .brand{align-self:center}
 #banner .brand-logo{max-height:40px;height:40px;max-width:min(200px,calc(100vw - 180px))}
 #banner .banner-actions{flex-wrap:wrap;gap:6px;margin-left:auto;flex-shrink:0}
+#banner .banner-global-pause-label{font-size:9.5px}
+#banner .banner-global-pause .luna-global-pause-switch{width:28px;height:16px}
+#banner .banner-global-pause .luna-global-pause-slider:before{height:12px;width:12px}
+#banner .banner-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(12px)}
+#banner .btn-logout{padding:5px 12px;font-size:11px}
 #tabs{width:100%;max-width:100vw;padding:0 8px;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;scroll-snap-type:x proximity;flex-wrap:nowrap;box-sizing:border-box}
 .tab-btn{flex:0 0 auto;padding:12px 14px;font-size:12px;scroll-snap-align:start;white-space:nowrap;min-width:0}
 #wrap,#wrap-bc,.customers-wrap,.portal-admin-wrap,.portal-home-wrap,#al-wrap{width:100%!important;max-width:100vw!important;padding:8px 12px!important;margin:0 auto;box-sizing:border-box;height:auto!important;min-height:calc(100dvh - 120px)}
@@ -18270,6 +18285,17 @@ ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
     <svg class="staff-theme-icon staff-theme-icon-moon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path fill="currentColor" d="M15.5 3.5a8.5 8.5 0 1 0 4.2 15.8 7 7 0 1 1-4.2-15.8z"/></svg>
     <svg class="staff-theme-icon staff-theme-icon-sun" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><circle cx="12" cy="12" r="4.2" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="12" y1="2.2" x2="12" y2="5.2"/><line x1="12" y1="18.8" x2="12" y2="21.8"/><line x1="2.2" y1="12" x2="5.2" y2="12"/><line x1="18.8" y1="12" x2="21.8" y2="12"/><line x1="4.9" y1="4.9" x2="7.1" y2="7.1"/><line x1="16.9" y1="16.9" x2="19.1" y2="19.1"/><line x1="16.9" y1="7.1" x2="19.1" y2="4.9"/><line x1="4.9" y1="19.1" x2="7.1" y2="16.9"/></g></svg>
   </button>
+  <div class="banner-global-pause luna-global-pause-card" id="cc-luna-global-pause">
+    <label class="banner-global-pause-toggle luna-global-pause-toggle" for="luna-global-pause-switch">
+      <span class="banner-global-pause-label">Pause Luna Globally:</span>
+      <span class="luna-global-pause-switch">
+        <input type="checkbox" id="luna-global-pause-switch">
+        <span class="luna-global-pause-slider"></span>
+      </span>
+    </label>
+    <span class="al-hint banner-global-pause-help" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active" hidden>Luna is active for all guest conversations.</span>
+    <span id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></span>
+  </div>
   <button class="btn-logout" id="btn-logout" onclick="doLogout()" data-i18n="app.signOut">Sign out</button>
   </div>
 </div>
@@ -19181,68 +19207,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="al-hero">
     <div>
       <div class="al-hero-title" data-i18n="lunaStaff.hero.title">Luna Staff</div>
-      <div class="al-hero-sub" data-i18n="lunaStaff.hero.sub">Operations questions and owner business insights from structured data. Read-only &mdash; no writes, no WhatsApp sends.</div>
+      <div class="al-hero-sub" data-i18n="lunaStaff.hero.sub">Staff numbers, automated notifications, guest alerts, and house notes for Luna. Ask operations questions in WhatsApp.</div>
     </div>
-  </div>
-
-  <div class="card cc-section" id="cc-house-notes" style="display:none">
-    <div class="cc-section-hdr">General Notes for Luna</div>
-    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
-    <div id="hn-error"></div>
-    <div id="hn-status"></div>
-    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
-    <div class="al-form-row" style="margin-top:8px">
-      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
-    </div>
-  </div>
-
-  <div class="card cc-section luna-global-pause-card" id="cc-luna-global-pause">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.pause.section">Luna guest automation</div>
-    <div class="cc-section-sub" data-i18n="lunaStaff.pause.sub">Pause automated guest replies for every conversation at once. Staff Ask Luna below still works.</div>
-    <div class="luna-global-pause-row">
-      <label class="luna-global-pause-toggle" for="luna-global-pause-switch">
-        <span data-i18n="lunaStaff.pause.toggle">Global Pause Luna</span>
-        <span class="luna-global-pause-switch">
-          <input type="checkbox" id="luna-global-pause-switch">
-          <span class="luna-global-pause-slider"></span>
-        </span>
-      </label>
-      <div class="al-hint" id="luna-global-pause-help" data-i18n="lunaStaff.pause.active">Luna is active for all guest conversations.</div>
-      <div id="luna-global-pause-status" class="luna-pause-action-status" style="display:none"></div>
-    </div>
-  </div>
-
-  <div class="card cc-section">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.ops.section">Operations</div>
-    <div class="cc-section-sub" data-i18n="lunaStaff.ops.sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
-    <div class="al-form-row">
-      <input id="al-input" type="text" data-i18n-placeholder="lunaStaff.ops.placeholder" placeholder="What&rsquo;s happening today?"
-             autocomplete="off" spellcheck="false"
-             onkeydown="if(event.key==='Enter')alAsk()">
-      <button class="btn btn-primary" id="al-btn" onclick="alAsk()" data-i18n="lunaStaff.ops.ask">Ask</button>
-    </div>
-    <div class="al-hint" data-i18n="lunaStaff.ops.examplesHint">Tap an example or type your own question:</div>
-    <div class="al-examples" id="al-examples">
-      <button type="button" class="al-example-chip" data-q="What's happening today?">What&rsquo;s happening today?</button>
-      <button type="button" class="al-example-chip" data-q="What should I prepare for tomorrow?">What should I prepare for tomorrow?</button>
-      <button type="button" class="al-example-chip" data-q="Who is checking in today?">Who is checking in today?</button>
-      <button type="button" class="al-example-chip" data-q="Who is checking out tomorrow?">Who is checking out tomorrow?</button>
-      <button type="button" class="al-example-chip" data-q="What rooms need cleaning today?">What rooms need cleaning today?</button>
-      <button type="button" class="al-example-chip" data-q="Who is staying tonight?">Who is staying tonight?</button>
-      <button type="button" class="al-example-chip" data-q="Which beds are free tonight?">Which beds are free tonight?</button>
-      <button type="button" class="al-example-chip" data-q="Who has surf lessons today?">Who has surf lessons today?</button>
-      <button type="button" class="al-example-chip" data-q="What gear do we need tomorrow?">What gear do we need tomorrow?</button>
-      <button type="button" class="al-example-chip" data-q="Who has meals today?">Who has meals today?</button>
-      <button type="button" class="al-example-chip" data-q="How many people are in yoga on Friday?">How many people are in yoga on Friday?</button>
-      <button type="button" class="al-example-chip" data-q="Show pending manual services">Show pending manual services</button>
-      <button type="button" class="al-example-chip" data-q="Which conversations need staff reply?">Which conversations need staff reply?</button>
-      <button type="button" class="al-example-chip" data-q="Show Jimmy's booking">Show Jimmy&rsquo;s booking</button>
-      <button type="button" class="al-example-chip" data-q="Who is in R1?">Who is in R1?</button>
-      <button type="button" class="al-example-chip" data-q="Which bookings need payment follow-up?">Which bookings need payment follow-up?</button>
-    </div>
-    <div id="al-error"></div>
-    <div id="al-status"></div>
-    <div id="al-result"></div>
   </div>
 
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
@@ -19333,30 +19299,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </div>
 
-  <div class="card cc-section" id="cc-owner-insights">
-    <div class="cc-section-hdr" data-i18n="lunaStaff.owner.section">Owner Insights</div>
-    <div class="cc-section-sub" data-i18n="lunaStaff.owner.sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
-    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none" data-i18n="lunaStaff.owner.denied">Owner Insights requires owner access.</div>
-    <div id="cc-owner-insights-active">
-    <div class="oi-form-row">
-      <input id="oi-input" type="text" data-i18n-placeholder="lunaStaff.owner.placeholder" placeholder="How much revenue this month?"
-             autocomplete="off" spellcheck="false"
-             onkeydown="if(event.key==='Enter')oiAsk()">
-      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()" data-i18n="lunaStaff.owner.ask">Ask Owner Insights</button>
-    </div>
-    <div class="al-hint" data-i18n="lunaStaff.owner.examplesHint">Example owner questions:</div>
-    <div class="oi-examples" id="oi-examples">
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Which package is most popular?">Which package is most popular?</button>
-      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="List recent guest messages for Wolfhouse">List recent guest messages</button>
-    </div>
-    <div id="oi-error"></div>
-    <div id="oi-status"></div>
-    <div id="oi-result"></div>
-    </div>
-  </div>
-
   <div class="card cc-section" id="cc-staff-notification-settings" style="display:none">
     <div class="sns-card-hdr">
       <div>
@@ -19403,6 +19345,74 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="al-hint sns-phone-hint">Use international phone format, e.g. +34600000000.</div>
     <div class="sns-actions">
       <button class="btn btn-primary" id="sns-save-btn" onclick="staffNotificationSettingsSave()">Save notification settings</button>
+    </div>
+  </div>
+
+  <div class="card cc-section" id="cc-house-notes" style="display:none">
+    <div class="cc-section-hdr">General Notes for Luna</div>
+    <div class="cc-section-sub">Client-facing info Luna can share with guests on demand (e.g. parking, wifi, quiet hours, pet policy). Plain text &mdash; guests may see this.</div>
+    <div id="hn-error"></div>
+    <div id="hn-status"></div>
+    <textarea id="hn-text" rows="8" style="width:100%;box-sizing:border-box" placeholder="e.g. Parking: free street parking out front. Wifi password: WolfHouse2024. Quiet hours after 11pm. Sorry, no pets."></textarea>
+    <div class="al-form-row" style="margin-top:8px">
+      <button class="btn btn-primary" id="hn-save-btn" onclick="houseNotesSave()">Save notes</button>
+    </div>
+  </div>
+
+  <div class="card cc-section cc-luna-staff-retired" id="cc-operations" style="display:none" aria-hidden="true">
+    <div class="cc-section-hdr" data-i18n="lunaStaff.ops.section">Operations</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.ops.sub">Arrivals, checkouts, cleaning, occupancy, lessons, gear, meals, and payment follow-up.</div>
+    <div class="al-form-row">
+      <input id="al-input" type="text" data-i18n-placeholder="lunaStaff.ops.placeholder" placeholder="What&rsquo;s happening today?"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')alAsk()">
+      <button class="btn btn-primary" id="al-btn" onclick="alAsk()" data-i18n="lunaStaff.ops.ask">Ask</button>
+    </div>
+    <div class="al-hint" data-i18n="lunaStaff.ops.examplesHint">Tap an example or type your own question:</div>
+    <div class="al-examples" id="al-examples">
+      <button type="button" class="al-example-chip" data-q="What's happening today?">What&rsquo;s happening today?</button>
+      <button type="button" class="al-example-chip" data-q="What should I prepare for tomorrow?">What should I prepare for tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="Who is checking in today?">Who is checking in today?</button>
+      <button type="button" class="al-example-chip" data-q="Who is checking out tomorrow?">Who is checking out tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="What rooms need cleaning today?">What rooms need cleaning today?</button>
+      <button type="button" class="al-example-chip" data-q="Who is staying tonight?">Who is staying tonight?</button>
+      <button type="button" class="al-example-chip" data-q="Which beds are free tonight?">Which beds are free tonight?</button>
+      <button type="button" class="al-example-chip" data-q="Who has surf lessons today?">Who has surf lessons today?</button>
+      <button type="button" class="al-example-chip" data-q="What gear do we need tomorrow?">What gear do we need tomorrow?</button>
+      <button type="button" class="al-example-chip" data-q="Who has meals today?">Who has meals today?</button>
+      <button type="button" class="al-example-chip" data-q="How many people are in yoga on Friday?">How many people are in yoga on Friday?</button>
+      <button type="button" class="al-example-chip" data-q="Show pending manual services">Show pending manual services</button>
+      <button type="button" class="al-example-chip" data-q="Which conversations need staff reply?">Which conversations need staff reply?</button>
+      <button type="button" class="al-example-chip" data-q="Show Jimmy's booking">Show Jimmy&rsquo;s booking</button>
+      <button type="button" class="al-example-chip" data-q="Who is in R1?">Who is in R1?</button>
+      <button type="button" class="al-example-chip" data-q="Which bookings need payment follow-up?">Which bookings need payment follow-up?</button>
+    </div>
+    <div id="al-error"></div>
+    <div id="al-status"></div>
+    <div id="al-result"></div>
+  </div>
+
+  <div class="card cc-section cc-luna-staff-retired" id="cc-owner-insights" style="display:none" aria-hidden="true">
+    <div class="cc-section-hdr" data-i18n="lunaStaff.owner.section">Owner Insights</div>
+    <div class="cc-section-sub" data-i18n="lunaStaff.owner.sub">Business intelligence from approved owner SQL templates (read-only plan-and-execute).</div>
+    <div id="cc-owner-insights-denied" class="cc-role-note" style="display:none" data-i18n="lunaStaff.owner.denied">Owner Insights requires owner access.</div>
+    <div id="cc-owner-insights-active">
+    <div class="oi-form-row">
+      <input id="oi-input" type="text" data-i18n-placeholder="lunaStaff.owner.placeholder" placeholder="How much revenue this month?"
+             autocomplete="off" spellcheck="false"
+             onkeydown="if(event.key==='Enter')oiAsk()">
+      <button class="btn btn-primary" id="oi-btn" onclick="oiAsk()" data-i18n="lunaStaff.owner.ask">Ask Owner Insights</button>
+    </div>
+    <div class="al-hint" data-i18n="lunaStaff.owner.examplesHint">Example owner questions:</div>
+    <div class="oi-examples" id="oi-examples">
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Who hasn't settled up?">Who hasn&rsquo;t settled up?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="How much revenue this month?">How much revenue this month?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="Which package is most popular?">Which package is most popular?</button>
+      <button type="button" class="al-example-chip oi-example-chip" data-oi-q="List recent guest messages for Wolfhouse">List recent guest messages</button>
+    </div>
+    <div id="oi-error"></div>
+    <div id="oi-status"></div>
+    <div id="oi-result"></div>
     </div>
   </div>
 
@@ -24351,14 +24361,19 @@ function canUseOwnerInsightsPortal(){
 function applyOwnerInsightsGate(){
   var active = el('cc-owner-insights-active');
   var denied = el('cc-owner-insights-denied');
-  if (!active || !denied) return;
-  if (canUseOwnerInsightsPortal()){
-    active.style.display = '';
-    denied.style.display = 'none';
-  } else {
-    active.style.display = 'none';
-    denied.style.display = 'block';
+  if (active && denied) {
+    if (canUseOwnerInsightsPortal()){
+      active.style.display = '';
+      denied.style.display = 'none';
+    } else {
+      active.style.display = 'none';
+      denied.style.display = 'block';
+    }
   }
+  var opsCard = el('cc-operations');
+  if (opsCard) opsCard.style.display = 'none';
+  var oiCard = el('cc-owner-insights');
+  if (oiCard) oiCard.style.display = 'none';
   var swnCard = el('cc-staff-whatsapp-numbers');
   if (swnCard) swnCard.style.display = canUseOwnerInsightsPortal() ? '' : 'none';
   var asnCard = el('cc-automated-staff-notifications');
@@ -25150,6 +25165,7 @@ function initStaffPortalSession(){
       staffPortalClientProfiles = data.client_profiles || {};
       populateClientSelect(data.clients);
       applyOwnerInsightsGate();
+      if (typeof lunaGlobalPauseLoad === 'function') lunaGlobalPauseLoad();
       applyClientPortalProfile(getClient());
       refreshInboxIfConversationsTabActive();
     })
