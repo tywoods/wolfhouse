@@ -1,5 +1,5 @@
 /**
- * Staff Portal — read-only customer (guest) history queries.
+ * Staff Portal — customer (guest) history queries and manual-create helpers.
  *
  * Anchored on phone per tenant. Email is display-only — never a join key.
  * Always scoped via clients.slug = $1.
@@ -106,6 +106,84 @@ async function upsertCustomerFromInboundTouch(pg, input) {
   }
 
   return { ok: true, customer_id: customerId, phone, client_id: clientId };
+}
+
+/**
+ * Parse POST /staff/customers body (manual add).
+ * @returns {{ ok: true, value: { display_name: string, phone: string, notes: string|null } } | { ok: false, error: string }}
+ */
+function parseManualCustomerCreateBody(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const displayName = trimInboundText(b.display_name || b.name || b.full_name, 120);
+  const phone = normalizeCustomerPhone(b.phone);
+  const notes = trimInboundText(b.notes, 4000);
+  if (!displayName) return { ok: false, error: 'name is required' };
+  if (!phone) return { ok: false, error: 'phone is required' };
+  return { ok: true, value: { display_name: displayName, phone, notes } };
+}
+
+/**
+ * Manual staff create — tenant-scoped, deduped by normalized phone.
+ * On duplicate: returns existing row; fills missing name/notes only.
+ *
+ * @param {import('pg').Client|import('pg').PoolClient} pg
+ * @param {string} clientSlug
+ * @param {object} body
+ * @param {{ location_id?: string|null }} [opts]
+ */
+async function createOrMergeManualCustomer(pg, clientSlug, body, opts = {}) {
+  const parsed = parseManualCustomerCreateBody(body);
+  if (!parsed.ok) {
+    return { ok: false, status: 400, body: { success: false, error: parsed.error } };
+  }
+
+  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+  if (!clientRes.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
+  }
+  const clientId = clientRes.rows[0].id;
+  const { display_name, phone, notes } = parsed.value;
+  const locationId = trimInboundText(opts.location_id, 64);
+
+  const existing = await pg.query(
+    `SELECT id::text AS customer_id, full_name, notes
+       FROM customers
+      WHERE client_id = $1::uuid AND phone = $2
+      LIMIT 1`,
+    [clientId, phone],
+  );
+  const hadRow = existing.rows.length > 0;
+
+  const ins = await pg.query(
+    `INSERT INTO customers (client_id, phone, full_name, notes, location_id, first_seen, last_seen)
+     VALUES ($1::uuid, $2, $3, $4, $5, NOW(), NOW())
+     ON CONFLICT (client_id, phone) DO UPDATE SET
+       full_name   = COALESCE(customers.full_name, EXCLUDED.full_name),
+       notes       = COALESCE(customers.notes, EXCLUDED.notes),
+       location_id = COALESCE(EXCLUDED.location_id, customers.location_id),
+       last_seen   = NOW(),
+       updated_at  = NOW()
+     RETURNING id::text AS customer_id, full_name, phone, notes`,
+    [clientId, phone, display_name, notes, locationId],
+  );
+  const row = ins.rows[0];
+  if (!row) {
+    return { ok: false, status: 500, body: { success: false, error: 'customer create failed' } };
+  }
+
+  return {
+    ok: true,
+    status: hadRow ? 200 : 201,
+    body: {
+      success: true,
+      customer_id: row.customer_id,
+      phone: row.phone,
+      display_name: row.full_name || display_name,
+      notes: row.notes || notes || null,
+      created: !hadRow,
+      duplicate: hadRow,
+    },
+  };
 }
 
 function normalizeCustomerFilter(filter) {
@@ -451,6 +529,8 @@ module.exports = {
   ALLOWED_FILTERS,
   normalizeCustomerPhone,
   upsertCustomerFromInboundTouch,
+  parseManualCustomerCreateBody,
+  createOrMergeManualCustomer,
   normalizeCustomerFilter,
   clampLimit,
   clampOffset,

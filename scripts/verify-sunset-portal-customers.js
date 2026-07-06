@@ -247,6 +247,22 @@ if (fs.existsSync(MIRROR_PATH)) {
   assert('luna-hermes-whatsapp-thread-mirror.js exists', false);
 }
 
+console.log('\n[8] Manual add customer — shared CRM');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  assert('createOrMergeManualCustomer', custSrc.includes('async function createOrMergeManualCustomer('));
+  assert('manual phone normalization', custSrc.includes('normalizeCustomerPhone(b.phone)'));
+  assert('duplicate returns without overwrite name', custSrc.includes('COALESCE(customers.full_name, EXCLUDED.full_name)'));
+}
+
+if (apiSrc) {
+  assert('POST customers route before GET guard', apiSrc.includes("pathname === '/staff/customers' && method === 'POST'"));
+  assert('handleCustomerCreate', apiSrc.includes('handleCustomerCreate'));
+  assert('cust-add-btn in portal HTML', apiSrc.includes('id="cust-add-btn"'));
+  assert('customers.add i18n key', apiSrc.includes('customers.add'));
+}
+
 // ── Summary ─────────────────────────────────────────────────────────────────
 
 console.log('\n' + '─'.repeat(48));

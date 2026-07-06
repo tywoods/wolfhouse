@@ -207,6 +207,8 @@ const {
   getCustomerMessagesQuery,
   buildLastSetupSummary,
   normalizeCustomerFilter,
+  parseManualCustomerCreateBody,
+  createOrMergeManualCustomer,
 } = require('./lib/staff-customer-queries');
 const {
   clearConversationMessages,
@@ -17128,6 +17130,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-header p{font-size:13px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
 .customers-promo{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.5;max-width:720px}
 .customers-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
+.customers-add-panel{width:100%;flex-basis:100%;padding:14px 16px;margin-bottom:4px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
+.customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-search{flex:1;min-width:200px;max-width:420px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
 .customers-filter-btn{padding:7px 14px;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text-2);cursor:pointer}
 .customers-filter-btn.active{background:var(--surface-soft);color:var(--text);border-color:var(--tan)}
@@ -18494,6 +18498,17 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <button type="button" class="customers-filter-btn active" data-cust-filter="all" data-i18n="customers.filter.all">All</button>
     <button type="button" class="customers-filter-btn" data-cust-filter="booked" data-i18n="customers.filter.booked">Booked</button>
     <button type="button" class="customers-filter-btn" data-cust-filter="needs_attention" data-i18n="customers.filter.needsAttention">Needs attention</button>
+    <button type="button" id="cust-add-btn" class="customers-filter-btn" data-i18n="customers.add">Add customer</button>
+  </div>
+  <div id="cust-add-panel" class="customers-add-panel" style="display:none" aria-hidden="true">
+    <label class="customers-edit-field"><span data-i18n="customers.detail.name">Name</span><input id="cust-add-name" type="text" autocomplete="name"></label>
+    <label class="customers-edit-field"><span data-i18n="customers.detail.phone">Phone</span><input id="cust-add-phone" type="tel" autocomplete="tel"></label>
+    <label class="customers-edit-field"><span data-i18n="customers.detail.notes">Notes</span><textarea id="cust-add-notes" rows="2" placeholder=""></textarea></label>
+    <div class="customers-add-actions">
+      <button type="button" class="btn btn-primary" id="cust-add-submit" data-i18n="customers.addSubmit">Save customer</button>
+      <button type="button" class="btn btn-ghost" id="cust-add-cancel" data-i18n="customers.cancel">Cancel</button>
+    </div>
+    <p id="cust-add-msg" class="state-msg" style="display:none;margin-top:8px"></p>
   </div>
   <div id="cust-state" class="state-msg" style="display:none"></div>
   <div class="customers-two-col">
@@ -24256,10 +24271,11 @@ function setCustomersFilter(mode) {
 function wireCustomersTab() {
   if (!el('tab-customers')) return;
   document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
-    if (btn.dataset.wired) return;
+    if (btn.dataset.wired || btn.id === 'cust-add-btn') return;
     btn.dataset.wired = '1';
     btn.addEventListener('click', function() { setCustomersFilter(btn.getAttribute('data-cust-filter')); });
   });
+  wireCustomerAddForm();
   var search = el('cust-search');
   if (search && !search.dataset.wired) {
     search.dataset.wired = '1';
@@ -24274,6 +24290,92 @@ function wireCustomersTab() {
     list.addEventListener('click', function(ev) {
       var card = ev.target && ev.target.closest ? ev.target.closest('.customers-card') : null;
       if (card && card.dataset && card.dataset.phone) loadCustomerDetail(card.dataset.phone);
+    });
+  }
+}
+
+function customerToggleAddPanel(show) {
+  var panel = el('cust-add-panel');
+  var btn = el('cust-add-btn');
+  if (!panel) return;
+  var open = show === true || (show !== false && panel.style.display === 'none');
+  panel.style.display = open ? 'block' : 'none';
+  panel.setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (btn) btn.classList.toggle('active', open);
+  if (!open) {
+    var msg = el('cust-add-msg');
+    if (msg) msg.style.display = 'none';
+  }
+}
+
+function submitCustomerAdd() {
+  var nameEl = el('cust-add-name');
+  var phoneEl = el('cust-add-phone');
+  var notesEl = el('cust-add-notes');
+  var msg = el('cust-add-msg');
+  var submitBtn = el('cust-add-submit');
+  var name = (nameEl && nameEl.value || '').trim();
+  var phone = (phoneEl && phoneEl.value || '').trim();
+  var notes = (notesEl && notesEl.value || '').trim();
+  if (!name || !phone) {
+    if (msg) {
+      msg.className = 'state-msg error';
+      msg.textContent = portalT('customers.saveRequired');
+      msg.style.display = 'block';
+    }
+    return;
+  }
+  if (msg) msg.style.display = 'none';
+  if (submitBtn) submitBtn.disabled = true;
+  var payload = { display_name: name, phone: phone };
+  if (notes) payload.notes = notes;
+  fetch('/staff/customers' + customersClientQuery(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  }).then(function(r) {
+    return r.json().then(function(body) { return { ok: r.ok, body: body }; });
+  }).then(function(res) {
+    if (!res.ok || !res.body || res.body.success !== true) {
+      throw new Error((res.body && (res.body.error || res.body.message)) || 'Create failed');
+    }
+    if (nameEl) nameEl.value = '';
+    if (phoneEl) phoneEl.value = '';
+    if (notesEl) notesEl.value = '';
+    customerToggleAddPanel(false);
+    var newPhone = res.body.phone || phone;
+    return loadCustomersList().then(function() { loadCustomerDetail(newPhone); });
+  }).catch(function(err) {
+    if (msg) {
+      msg.className = 'state-msg error';
+      msg.textContent = portalT('customers.addFailed') + ' ' + err.message;
+      msg.style.display = 'block';
+    }
+  }).finally(function() {
+    if (submitBtn) submitBtn.disabled = false;
+  });
+}
+
+function wireCustomerAddForm() {
+  var btn = el('cust-add-btn');
+  var panel = el('cust-add-panel');
+  var cancel = el('cust-add-cancel');
+  var submit = el('cust-add-submit');
+  if (!btn || btn.dataset.wired) return;
+  btn.dataset.wired = '1';
+  btn.addEventListener('click', function() { customerToggleAddPanel(); });
+  if (cancel && !cancel.dataset.wired) {
+    cancel.dataset.wired = '1';
+    cancel.addEventListener('click', function() { customerToggleAddPanel(false); });
+  }
+  if (submit && !submit.dataset.wired) {
+    submit.dataset.wired = '1';
+    submit.addEventListener('click', function() { submitCustomerAdd(); });
+  }
+  if (panel && !panel.dataset.wired) {
+    panel.dataset.wired = '1';
+    panel.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape') customerToggleAddPanel(false);
     });
   }
 }
@@ -37092,6 +37194,48 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
 }
 
 
+async function handleCustomerCreate(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const locationId = (clientSlug === SUNSET_CLIENT_SLUG && query.location)
+    ? normalizeSunsetLocationId(query.location)
+    : null;
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.create',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => createOrMergeManualCustomer(pg, clientSlug, body, {
+      location_id: locationId,
+    }));
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: result.ok,
+      created: result.body && result.body.created,
+      duplicate: result.body && result.body.duplicate,
+      phone: result.body && result.body.phone,
+      elapsed_ms: elapsed,
+    });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'create failed' });
+  }
+}
+
 async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -42435,6 +42579,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerUpdate(customerPhoneMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/customers' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerCreate(parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

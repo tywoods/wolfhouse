@@ -114,6 +114,32 @@ if (apiSrc) {
     && apiSrc.includes('mirrorHermesWhatsAppThreadMessage'));
 }
 
+console.log('\n[5] Manual add customer — POST /staff/customers');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  assert('parseManualCustomerCreateBody helper', custSrc.includes('function parseManualCustomerCreateBody('));
+  assert('createOrMergeManualCustomer helper', custSrc.includes('async function createOrMergeManualCustomer('));
+  assert('manual create requires name', custSrc.includes("'name is required'"));
+  assert('manual create requires phone', custSrc.includes("'phone is required'"));
+  assert('manual dedupe ON CONFLICT (client_id, phone)', custSrc.includes('ON CONFLICT (client_id, phone)'));
+  assert('manual duplicate preserves existing name', custSrc.includes('COALESCE(customers.full_name, EXCLUDED.full_name)'));
+  assert('manual create scoped by client slug', custSrc.includes("WHERE slug = $1"));
+}
+
+if (apiSrc) {
+  assert('POST /staff/customers route', apiSrc.includes("pathname === '/staff/customers' && method === 'POST'"));
+  assert('handleCustomerCreate handler', apiSrc.includes('async function handleCustomerCreate('));
+  assert('customers.create audit intent', apiSrc.includes("intent: 'api:customers.create'"));
+  assert('create uses assertStaffClientAccess', apiSrc.includes('createOrMergeManualCustomer')
+    && /handleCustomerCreate[\s\S]{0,800}assertStaffClientAccess/.test(apiSrc));
+  assert('Add customer button in UI', apiSrc.includes('id="cust-add-btn"'));
+  assert('Add customer form fields', apiSrc.includes('id="cust-add-name"') && apiSrc.includes('id="cust-add-phone"'));
+  assert('submitCustomerAdd POST fetch', apiSrc.includes("method: 'POST'")
+    && apiSrc.includes('submitCustomerAdd'));
+  assert('after create loads customer detail', apiSrc.includes('loadCustomerDetail(newPhone)'));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
