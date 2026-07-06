@@ -31,6 +31,8 @@ const EXPLICIT_HANDOFF_REASONS = Object.freeze(new Set([
   'complaint',
   'urgent_safety',
   'needs_booking_identification',
+  // Slice 1 — adding a guest to a PAID booking stays a staff handoff (Slice 2).
+  'add_guest_on_paid_booking',
 ]));
 
 const HUMAN_ESCALATION_RE = /\b(?:talk to (?:a )?(?:human|person|someone)|speak to (?:a )?(?:human|person|someone)|human(?:\s+please)?|refund|rimborso|reembolso|cancel(?:led|lation)?(?:\s+(?:paid|my)\s+booking)?|complaint|reclamaci[oó]n|reclamo|remboursement|rückerstattung|stornieren|annullare|parlare\s+con\s+qualcuno|hablar\s+con\s+alguien|parler\s+(?:à|a)\s+quelqu[\w']+|mit\s+jemandem\s+sprechen)\b/i;

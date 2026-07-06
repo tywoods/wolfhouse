@@ -1,0 +1,79 @@
+{
+  "id": "golden-21-add-guest-unpaid",
+  "label": "Post-booking add guest on UNPAID booking — requote (+€135) and re-link, no handoff",
+  "spec_refs": ["7.2"],
+  "contact_name": "John",
+  "reference_date": "2026-06-10",
+  "turns": [
+    {
+      "message": "Hi there",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "We'd like to stay Sept 16 to 19",
+      "expect": {
+        "expected_dates": { "check_in": "2026-09-16", "check_out": "2026-09-19" },
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "2 people, John and Jane",
+      "expect": {
+        "expected_guest_count": 2,
+        "expected_context_preserved": true,
+        "expected_no_handoff": true,
+        "no_internal_language": true
+      }
+    },
+    {
+      "message": "Just the room for now, no package. Maybe board for one day, we'll decide later.",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "Looks good, we'll pay in full.",
+      "expect": {
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_fake_confirmation": true,
+        "allow_partial": true
+      }
+    },
+    {
+      "message": "Sorry, please add 1 more person. Tom",
+      "inject_guest_context": {
+        "booking_id": "00000000-0000-0000-0000-000000000021",
+        "booking_code": "WH-G27-GOLDEN21",
+        "payment_status": "pending",
+        "guest_count": 2,
+        "check_in": "2026-09-16",
+        "check_out": "2026-09-19",
+        "extracted_fields": {
+          "guest_count": 2,
+          "guest_name": "John, Jane",
+          "check_in": "2026-09-16",
+          "check_out": "2026-09-19",
+          "package_interest": "accommodation_only"
+        }
+      },
+      "expect": {
+        "expected_message_lane": "add_service_request",
+        "expected_no_handoff": true,
+        "no_internal_language": true,
+        "no_fake_confirmation": true,
+        "allow_partial": true
+      }
+    }
+  ],
+  "final_expect": {
+    "no_handoff": true,
+    "no_internal_language": true
+  }
+}

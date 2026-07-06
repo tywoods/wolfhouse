@@ -34,6 +34,7 @@ const EXTRACTED_FIELD_KEYS = [
   'service_interest',
   'meals_request',
   'yoga_request',
+  'add_guest_request',
   'payment_preference',
 ];
 

@@ -65,10 +65,11 @@ function buildWritePlannerSystemPrompt() {
     `Allowed write tools: ${list}`,
     'Only plan writes when chain snapshot shows readiness (payment_choice_ready, hold plan ready, or existing booking_id for add-ons).',
     'When booking_id is present AND meals_request or yoga_request is non-null in chain_status, you MUST plan attach_post_booking_services.',
+    'When booking_id is present AND add_guest_request is non-null in chain_status AND the booking is UNPAID, you MUST plan add_guest_to_booking, then create_payment_link to refresh the pay-in-full link. If the booking is PAID/deposit_paid, do NOT plan add_guest_to_booking (staff handoff).',
     'NEVER plan assign_beds or mark_handoff.',
-    'Order: create_booking_hold before create_payment_link; attach_post_booking_services before create_service_payment_link.',
+    'Order: create_booking_hold before create_payment_link; add_guest_to_booking before create_payment_link; attach_post_booking_services before create_service_payment_link.',
     'Return ONLY JSON: {"planned_tools":["tool_id",...],"rationale":"short reason"}',
-    'Max 4 tools. No prose outside JSON.',
+    'Max 5 tools. No prose outside JSON.',
   ].join('\n');
 }
 
@@ -279,6 +280,12 @@ async function runGuestGptWriteToolPlanner(input, options) {
         holdPaymentDraftId = result.result.payment_draft_id || holdPaymentDraftId;
         holdBookingId = result.result.booking_id || holdBookingId;
       }
+      // add_guest_to_booking refreshes the pay-in-full draft to the new total; thread its
+      // payment_draft_id so the follow-on create_payment_link re-sends the correct amount.
+      if (toolId === 'add_guest_to_booking') {
+        holdPaymentDraftId = result.result.payment_draft_id || holdPaymentDraftId;
+        holdBookingId = result.result.booking_id || holdBookingId;
+      }
       if (toolId === 'attach_post_booking_services' && result.result.service_payment_ledger) {
         outcomes.service_payment_ledger = result.result.service_payment_ledger;
       }
@@ -331,6 +338,7 @@ module.exports = {
   isGuestServicePayNowEnabled,
   sanitizeGptWritePlan,
   buildDeterministicWriteToolPlan,
+  buildWritePlannerSystemPrompt,
   runGuestGptWriteToolPlanner,
   buildGptWriteToolPlannerObservability,
 };

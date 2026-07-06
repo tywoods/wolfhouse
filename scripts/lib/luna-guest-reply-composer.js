@@ -133,6 +133,7 @@ const COMPOSER_STATES = Object.freeze([
   'post_payment_link_ack',
   'service_scheduled_ack',
   'post_booking_service_attach_ack',
+  'add_guest_to_booking_ack',
   'transfer_times_updated_ack',
   'clarify_missing_info',
   'contextual_pending_answer',
@@ -658,6 +659,16 @@ function resolveComposerState(input) {
   }
 
   if (!isBookingFlowLane(result)) return null;
+
+  // Slice 1 — a completed add-guest write takes priority over service side-question intent
+  // so the confirmation (added person + new total + refreshed link) is what the guest sees.
+  if (mode === 'live_staging') {
+    const addGuestOutEarly = live.addGuestWrite;
+    if (addGuestOutEarly && addGuestOutEarly.status === 'ok' && addGuestOutEarly.result
+      && addGuestOutEarly.result.status === 'ok') {
+      return 'add_guest_to_booking_ack';
+    }
+  }
 
   function resolveServiceSideQuestionIntent() {
     if (isExplicitAddonSelectionMessage(messageText)) return null;
@@ -1427,6 +1438,32 @@ function buildReplyForState(state, ctx) {
       return lang === 'de'
         ? 'Alles klar — das Extra ist notiert 😊'
         : 'Got it — I\'ve noted that for your stay 😊';
+    }
+    case 'add_guest_to_booking_ack': {
+      // Slice 1 — warm confirmation for an added guest on an UNPAID booking.
+      // Composer owns the numbers + link: acknowledge the person, state the new total,
+      // and share the refreshed pay-in-full link. One question per message; no jargon.
+      const liveOut = (ctx && ctx.live_outcomes) || {};
+      const addRes = (liveOut.addGuestWrite && liveOut.addGuestWrite.result) || {};
+      const names = Array.isArray(addRes.added_guest_names) ? addRes.added_guest_names : [];
+      const personName = names.length ? names.join(' and ') : 'your extra guest';
+      const newTotalCents = Number(addRes.new_total_amount_cents);
+      const totalEur = Number.isFinite(newTotalCents)
+        ? `€${(newTotalCents / 100).toFixed(2)}`
+        : null;
+      const link = (liveOut.stripeLink && (liveOut.stripeLink.stripe_checkout_url
+        || (liveOut.stripeLink.result && liveOut.stripeLink.result.stripe_checkout_url))) || null;
+      const lines = [];
+      if (lang === 'de') {
+        lines.push(`Super — ich habe ${personName} zu eurer Buchung hinzugefügt 🙌`);
+        if (totalEur) lines.push(`Der neue Gesamtbetrag ist ${totalEur}.`);
+        if (link) lines.push(`Hier ist der aktualisierte Link für die volle Zahlung: ${link}`);
+      } else {
+        lines.push(`Lovely — I've added ${personName} to your booking 🙌`);
+        if (totalEur) lines.push(`Your new total is ${totalEur}.`);
+        if (link) lines.push(`Here's the refreshed link to pay in full: ${link}`);
+      }
+      return lines.join('\n');
     }
     case 'transfer_times_updated_ack': {
       const liveOut = (ctx && ctx.live_outcomes) || {};
