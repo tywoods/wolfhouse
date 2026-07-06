@@ -209,6 +209,10 @@ const {
   normalizeCustomerFilter,
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,
+  CRM_TAG_KEYS,
+  parseCrmTagsFromDb,
+  parseCustomerTagsUpdateBody,
+  updateCustomerCrmTags,
 } = require('./lib/staff-customer-queries');
 const {
   clearConversationMessages,
@@ -790,6 +794,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 );
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
+const CUSTOMER_TAGS_RE = /^\/staff\/customers\/([^/]+)\/tags$/i;
 const CUSTOMER_PHONE_RE = /^\/staff\/customers\/([^/]+)$/i;
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
 const CONV_NEEDS_HUMAN_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/needs-human$`, 'i');
@@ -17135,6 +17140,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-search{flex:1;min-width:200px;max-width:420px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
 .customers-filter-btn{padding:7px 14px;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text-2);cursor:pointer}
 .customers-filter-btn.active{background:var(--surface-soft);color:var(--text);border-color:var(--tan)}
+.customers-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.customers-tags-grid{display:flex;flex-wrap:wrap;gap:10px 14px;margin-top:4px}
+.customers-tag-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer}
+.customers-tag-toggle input{margin:0}
+.customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border)}
+.customers-badge-dnc{background:#fde8e8;color:#9b1c1c;border:1px solid #f5c2c2}
 .customers-two-col{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:16px;flex:1;min-height:0;overflow:hidden}
 @media(max-width:900px){.customers-two-col{grid-template-columns:1fr;overflow:auto}}
 .customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
@@ -18496,7 +18507,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   <div class="customers-toolbar">
     <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
     <button type="button" class="customers-filter-btn active" data-cust-filter="all" data-i18n="customers.filter.all">All</button>
-    <button type="button" class="customers-filter-btn" data-cust-filter="booked" data-i18n="customers.filter.booked">Booked</button>
+    <button type="button" class="customers-filter-btn" data-cust-filter="warm_leads" data-i18n="customers.filter.warmLeads" data-i18n-title="customers.filter.warmLeadsTitle" title="Contacted but never booked">Warm Leads</button>
+    <button type="button" class="customers-filter-btn" data-cust-filter="hot_leads" data-i18n="customers.filter.hotLeads" data-i18n-title="customers.filter.hotLeadsTitle" title="Customers who have booked before">Hot Leads</button>
+    <button type="button" class="customers-filter-btn customers-filter-lodging-only" data-cust-filter="checked_in_now" data-i18n="customers.filter.checkedInNow" data-i18n-title="customers.filter.checkedInNowTitle" title="Currently checked in (accommodation)" style="display:none">Checked In Now</button>
+    <button type="button" class="customers-filter-btn" data-cust-filter="do_not_contact" data-i18n="customers.filter.doNotContact" data-i18n-title="customers.filter.doNotContactTitle" title="Marked do not contact">Do Not Contact</button>
     <button type="button" class="customers-filter-btn" data-cust-filter="needs_attention" data-i18n="customers.filter.needsAttention">Needs attention</button>
     <button type="button" id="cust-add-btn" class="customers-filter-btn" data-i18n="customers.add">Add customer</button>
   </div>
@@ -20656,6 +20670,23 @@ function applyCustomersPortalI18n(profile){
     var k = node.getAttribute('data-i18n-placeholder');
     if (!k) return;
     node.setAttribute('placeholder', portalT(k));
+  });
+  panel.querySelectorAll('[data-i18n-title]').forEach(function(node){
+    var k = node.getAttribute('data-i18n-title');
+    if (!k || k.indexOf('customers.') !== 0) return;
+    node.setAttribute('title', portalT(k));
+  });
+  applyCustomersFilterVisibility(profile);
+}
+
+function applyCustomersFilterVisibility(profile){
+  profile = profile || getPortalProfile(getClient());
+  var showCheckedIn = !profile.is_surf_vertical;
+  document.querySelectorAll('.customers-filter-lodging-only').forEach(function(btn){
+    btn.style.display = showCheckedIn ? '' : 'none';
+    if (!showCheckedIn && btn.getAttribute('data-cust-filter') === 'checked_in_now' && customersFilter === 'checked_in_now') {
+      setCustomersFilter('all');
+    }
   });
 }
 
@@ -24027,13 +24058,26 @@ var customersSearchTimer = null;
 
 function customerBadgeHtml(badge) {
   var cls = 'customers-badge';
-  if (badge === 'booked') cls += ' customers-badge-booked';
+  if (badge === 'booked' || badge === 'hot_leads') cls += ' customers-badge-booked';
   else if (badge === 'lesson') cls += ' customers-badge-lesson';
   else if (badge === 'rental') cls += ' customers-badge-rental';
   else if (badge === 'needs_attention') cls += ' customers-badge-attn';
-  var label = badge === 'booked' ? 'Booked' : badge === 'lesson' ? 'Lesson' : badge === 'rental' ? 'Rental' : 'Needs attention';
+  else if (badge === 'do_not_contact') cls += ' customers-badge-dnc';
+  else if (badge.indexOf('tag_') === 0) cls += ' customers-badge-tag';
+  var label = badge;
+  if (badge === 'booked' || badge === 'hot_leads') label = portalT('customers.filter.hotLeads');
+  else if (badge === 'lesson') label = 'Lesson';
+  else if (badge === 'rental') label = 'Rental';
+  else if (badge === 'needs_attention') label = portalT('customers.filter.needsAttention');
+  else if (badge === 'do_not_contact') label = portalT('customers.filter.doNotContact');
+  else if (badge.indexOf('tag_') === 0) {
+    var tagKey = badge.slice(4);
+    label = portalT('customers.tags.' + tagKey) || tagKey;
+  }
   return '<span class="' + cls + '">' + escHtml(label) + '</span>';
 }
+
+var CUSTOMER_CRM_TAG_KEYS = ['lead','repeat_guest','vip','local','surf_school','accommodation','do_not_contact','newsletter_ok'];
 
 function formatCustomerWhen(iso) {
   if (!iso) return '—';
@@ -24070,6 +24114,60 @@ function renderCustomersList(rows) {
 }
 
 var customerDetailState = { phone: null, data: null, editing: false };
+
+function renderCustomerTagsSection(data) {
+  var tags = (data.identity && data.identity.crm_tags) || {};
+  var html = '<div class="customers-section" id="cust-tags-section">';
+  html += '<div class="customers-section-hdr">' + escHtml(portalT('customers.tags.title')) + '</div>';
+  html += '<div class="customers-tags-grid">';
+  CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
+    var checked = tags[key] ? ' checked' : '';
+    html += '<label class="customers-tag-toggle"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
+  });
+  html += '</div>';
+  html += '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-tags-save">' + escHtml(portalT('customers.tags.save')) + '</button></div>';
+  html += '<p id="cust-tags-msg" class="state-msg" style="display:none;margin-top:8px"></p></div>';
+  return html;
+}
+
+function wireCustomerTagsActions() {
+  var saveBtn = el('cust-tags-save');
+  if (!saveBtn || saveBtn.dataset.wired) return;
+  saveBtn.dataset.wired = '1';
+  saveBtn.addEventListener('click', function(){ customerSaveTags(); });
+}
+
+function customerSaveTags() {
+  if (!customerDetailState.data || !customerDetailState.phone) return;
+  var msg = el('cust-tags-msg');
+  var saveBtn = el('cust-tags-save');
+  var tags = {};
+  CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
+    var input = document.querySelector('#cust-tags-section input[data-crm-tag="' + key + '"]');
+    tags[key] = !!(input && input.checked);
+  });
+  if (saveBtn) saveBtn.disabled = true;
+  if (msg) msg.style.display = 'none';
+  fetch('/staff/customers/' + encodeURIComponent(customerDetailState.phone) + '/tags?client=' + encodeURIComponent(getClient()), {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tags: tags }),
+  }).then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
+    .then(function(res){
+      if (!res.ok || !res.body || !res.body.success) {
+        throw new Error((res.body && res.body.error) || 'save failed');
+      }
+      if (customerDetailState.data && customerDetailState.data.identity) {
+        customerDetailState.data.identity.crm_tags = res.body.crm_tags || tags;
+      }
+      if (msg) { msg.className = 'state-msg'; msg.textContent = portalT('customers.tags.saved'); msg.style.display = 'block'; }
+      loadCustomersList();
+    })
+    .catch(function(err){
+      if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.tags.saveFailed') + ' ' + err.message; msg.style.display = 'block'; }
+    })
+    .finally(function(){ if (saveBtn) saveBtn.disabled = false; });
+}
 
 function customerProfileNotes(data) {
   var notes = data && data.notes ? data.notes : {};
@@ -24176,6 +24274,7 @@ function renderCustomerDetail(data) {
   var id = data.identity || {};
   var name = id.display_name || data.phone || 'Guest';
   var html = renderCustomerProfileSection(data, customerDetailState.editing);
+  html += renderCustomerTagsSection(data);
 
   html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.lastSetup')) + '</div><div class="customers-section-body">' +
     escHtml(data.last_setup_summary || portalT('customers.detail.noServices')) + '</div></div>';
@@ -24219,6 +24318,7 @@ function renderCustomerDetail(data) {
 
   box.innerHTML = html;
   wireCustomerProfileActions(data);
+  wireCustomerTagsActions();
 }
 
 function loadCustomersList() {
@@ -35776,11 +35876,17 @@ function handleLoginPage(res) {
 
 function mapCustomerListRow(row) {
   const serviceType = row.last_service_type || '';
+  const crmTags = parseCrmTagsFromDb(row.crm_tags);
   const badges = [];
-  if (row.is_booked) badges.push('booked');
+  if (row.is_booked) badges.push('hot_leads');
   if (serviceType === 'surf_lesson') badges.push('lesson');
   if (serviceType === 'wetsuit' || serviceType === 'surfboard') badges.push('rental');
   if (row.has_open_handoff || row.needs_human) badges.push('needs_attention');
+  if (crmTags.do_not_contact) badges.push('do_not_contact');
+  for (const key of CRM_TAG_KEYS) {
+    if (key === 'do_not_contact') continue;
+    if (crmTags[key]) badges.push(`tag_${key}`);
+  }
   let lastServiceSummary = null;
   if (serviceType) {
     const qty = row.last_service_quantity != null ? row.last_service_quantity : 1;
@@ -35803,6 +35909,8 @@ function mapCustomerListRow(row) {
     last_service_date: row.last_service_date || row.last_service_date_detail || null,
     has_open_handoff: !!row.has_open_handoff,
     is_booked: !!row.is_booked,
+    checked_in_now: !!row.checked_in_now,
+    crm_tags: crmTags,
     badges,
     last_message_preview: row.last_message_preview || null,
   };
@@ -37161,13 +37269,17 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
       const st = String(h.handoff_status || '').toLowerCase();
       return st === 'open' || st === 'assigned' || st === 'waiting_guest';
     });
+    const identity = data.identity ? {
+      ...data.identity,
+      crm_tags: parseCrmTagsFromDb(data.identity.crm_tags),
+    } : { phone, display_name: null, email: null, crm_tags: parseCrmTagsFromDb(null) };
 
     const elapsed = Date.now() - started;
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
     return sendJSON(res, 200, {
       success: true,
       phone,
-      identity: data.identity || { phone, display_name: null, email: null },
+      identity,
       conversation_summary: data.identity ? {
         conversation_id: data.identity.conversation_id,
         last_message_preview: data.identity.last_message_preview,
@@ -37233,6 +37345,40 @@ async function handleCustomerCreate(query, req, res, user) {
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'create failed' });
+  }
+}
+
+async function handleCustomerTagsUpdate(phoneRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  let phone;
+  try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
+  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+  const parsed = parseCustomerTagsUpdateBody(body);
+  if (!parsed.ok) return send400(res, parsed.error || 'invalid tags body');
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.tags',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    phone,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => updateCustomerCrmTags(pg, clientSlug, phone, parsed.tags));
+    const elapsed = Date.now() - started;
+    appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'tags update failed' });
   }
 }
 
@@ -42572,6 +42718,13 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
+  }
+
+  const customerTagsMatch = CUSTOMER_TAGS_RE.exec(pathname);
+  if (customerTagsMatch && method === 'PATCH') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerTagsUpdate(customerTagsMatch[1], parsed.query, req, res, auth.user);
   }
 
   const customerPhoneMatch = CUSTOMER_PHONE_RE.exec(pathname);

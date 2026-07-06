@@ -140,6 +140,78 @@ if (apiSrc) {
   assert('after create loads customer detail', apiSrc.includes('loadCustomerDetail(newPhone)'));
 }
 
+console.log('\n[6] CRM filters, tags, and no-send guarantee');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  const {
+    normalizeCustomerFilter,
+    getCustomerListQuery,
+    CRM_TAG_KEYS,
+  } = require('./lib/staff-customer-queries');
+
+  assert('CRM_TAG_KEYS includes lead and do_not_contact',
+    CRM_TAG_KEYS.includes('lead') && CRM_TAG_KEYS.includes('do_not_contact'));
+  assert('normalizeCustomerFilter warm_leads', normalizeCustomerFilter('warm_leads') === 'warm_leads');
+  assert('normalizeCustomerFilter hot_leads', normalizeCustomerFilter('hot_leads') === 'hot_leads');
+  assert('normalizeCustomerFilter booked alias → hot_leads', normalizeCustomerFilter('booked') === 'hot_leads');
+  assert('normalizeCustomerFilter checked_in_now', normalizeCustomerFilter('checked_in_now') === 'checked_in_now');
+  assert('normalizeCustomerFilter do_not_contact', normalizeCustomerFilter('do_not_contact') === 'do_not_contact');
+
+  const warmSql = getCustomerListQuery({ filter: 'warm_leads', hasSearch: false });
+  const hotSql = getCustomerListQuery({ filter: 'hot_leads', hasSearch: false });
+  const dncSql = getCustomerListQuery({ filter: 'do_not_contact', hasSearch: false });
+  const checkedLodgingSql = getCustomerListQuery({ filter: 'checked_in_now', hasSearch: false, accommodationCrm: true });
+  const checkedSurfSql = getCustomerListQuery({ filter: 'checked_in_now', hasSearch: false, accommodationCrm: false });
+
+  assert('warm_leads requires contact without bookings', warmSql.includes('conversation_id IS NOT NULL')
+    && warmSql.includes('booking_count, 0) = 0'));
+  assert('hot_leads requires bookings or services', hotSql.includes('booking_count, 0) > 0'));
+  assert('do_not_contact uses crm_tags', dncSql.includes("crm_tags->>'do_not_contact'"));
+  assert('checked_in_now uses stay dates for lodging', checkedLodgingSql.includes('checked_in_agg')
+    && checkedLodgingSql.includes('check_in <= CURRENT_DATE'));
+  assert('checked_in_now empty for surf vertical', checkedSurfSql.includes('AND FALSE'));
+  assert('list filters tenant-scoped', warmSql.includes('c.slug = $1') && dncSql.includes('c.slug = $1'));
+  assert('updateCustomerCrmTags scoped by client slug', custSrc.includes('async function updateCustomerCrmTags(')
+    && custSrc.includes('c.slug = $1'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('warm leads filter label', i18n.includes("'customers.filter.warmLeads': 'Warm Leads'"));
+  assert('warm leads tooltip', i18n.includes("'customers.filter.warmLeadsTitle': 'Contacted but never booked'"));
+  assert('hot leads filter label', i18n.includes("'customers.filter.hotLeads': 'Hot Leads'"));
+  assert('checked in now filter', i18n.includes("'customers.filter.checkedInNow': 'Checked In Now'"));
+  assert('do not contact filter', i18n.includes("'customers.filter.doNotContact': 'Do Not Contact'"));
+  assert('crm tag keys in i18n', i18n.includes("'customers.tags.lead': 'Lead'")
+    && i18n.includes("'customers.tags.newsletter_ok': 'Newsletter OK'"));
+}
+
+if (apiSrc) {
+  assert('warm_leads filter pebble', apiSrc.includes('data-cust-filter="warm_leads"'));
+  assert('hot_leads filter pebble', apiSrc.includes('data-cust-filter="hot_leads"'));
+  assert('checked_in_now lodging-only pebble', apiSrc.includes('data-cust-filter="checked_in_now"')
+    && apiSrc.includes('customers-filter-lodging-only'));
+  assert('do_not_contact filter pebble', apiSrc.includes('data-cust-filter="do_not_contact"'));
+  assert('warm leads tooltip title attr', apiSrc.includes('data-i18n-title="customers.filter.warmLeadsTitle"'));
+  assert('PATCH /staff/customers/:phone/tags route', apiSrc.includes('CUSTOMER_TAGS_RE')
+    && apiSrc.includes('handleCustomerTagsUpdate'));
+  assert('customers.tags audit intent', apiSrc.includes("intent: 'api:customers.tags'"));
+  assert('tag checkboxes in detail', apiSrc.includes('data-crm-tag') && apiSrc.includes('cust-tags-save'));
+  assert('applyCustomersFilterVisibility for surf', apiSrc.includes('function applyCustomersFilterVisibility('));
+  assert('no outreach drawer in customers tab', !/tab-customers[\s\S]{0,4000}outreach/i.test(apiSrc));
+  assert('no bulk send in customers tab', !/tab-customers[\s\S]{0,4000}bulk[\s_-]?send/i.test(apiSrc));
+  assert('no outbound whatsapp from customers CRM', !/customerSaveTags[\s\S]{0,500}whatsapp/i.test(apiSrc)
+    && !apiSrc.includes('customers-outreach'));
+}
+
+const MIGRATION_PATH = path.join(ROOT, 'database', 'migrations', '034_customers_crm_tags.sql');
+assert('crm_tags migration file exists', fs.existsSync(MIGRATION_PATH));
+if (fs.existsSync(MIGRATION_PATH)) {
+  const mig = fs.readFileSync(MIGRATION_PATH, 'utf8');
+  assert('migration adds crm_tags jsonb', mig.includes('crm_tags') && mig.includes('JSONB'));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

@@ -80,7 +80,11 @@ if (fs.existsSync(QUERIES_PATH)) {
     const b = buildCustomerListParams('sunset', { filter: 'booked', limit: 10, offset: 0, q: 'maria' });
     return b.params[0] === 'sunset' && b.params.includes(10);
   })());
-  assert('filter booked supported', listSql.includes('booking_count') || queriesSrc.includes("'booked'"));
+  assert('filter booked supported', listSql.includes('booking_count') || queriesSrc.includes("'hot_leads'"));
+  assert('warm_leads filter SQL', getCustomerListQuery({ filter: 'warm_leads', hasSearch: false }).includes('conversation_id IS NOT NULL'));
+  assert('do_not_contact filter SQL tenant scoped', getCustomerListQuery({ filter: 'do_not_contact', hasSearch: false }).includes("crm_tags->>'do_not_contact'")
+    && getCustomerListQuery({ filter: 'do_not_contact', hasSearch: false }).includes('c.slug = $1'));
+  assert('checked_in_now disabled for surf', getCustomerListQuery({ filter: 'checked_in_now', hasSearch: false, accommodationCrm: false }).includes('AND FALSE'));
 } else {
   assert('staff-customer-queries.js exists', false);
 }
@@ -99,8 +103,13 @@ if (apiSrc) {
   assert('applyCustomersPortalI18n for surf copy', apiSrc.includes('function applyCustomersPortalI18n('));
   assert('Customers empty state i18n keys', apiSrc.includes('customers.empty.main'));
   assert('Customers search placeholder', apiSrc.includes('customers.searchPlaceholder'));
-  assert('Customers filters All/Booked/Needs attention', apiSrc.includes('data-cust-filter="booked"')
-    && apiSrc.includes('data-cust-filter="needs_attention"'));
+  assert('Customers filters All/Booked/Needs attention', apiSrc.includes('data-cust-filter="needs_attention"')
+    && apiSrc.includes('data-cust-filter="warm_leads"'));
+  assert('CRM filter pebbles warm/hot/checked-in/dnc', apiSrc.includes('data-cust-filter="hot_leads"')
+    && apiSrc.includes('data-cust-filter="checked_in_now"')
+    && apiSrc.includes('data-cust-filter="do_not_contact"'));
+  assert('warm leads tooltip in toolbar', apiSrc.includes('customers.filter.warmLeadsTitle'));
+  assert('lodging-only checked-in filter class', apiSrc.includes('customers-filter-lodging-only'));
   assert('Last setup detail section', apiSrc.includes('customers.detail.lastSetup')
     || apiSrc.includes('portalT(\'customers.detail.lastSetup\')'));
   assert('Sunset school context preserved', apiSrc.includes('id="customers-school-context"')
@@ -261,6 +270,28 @@ if (apiSrc) {
   assert('handleCustomerCreate', apiSrc.includes('handleCustomerCreate'));
   assert('cust-add-btn in portal HTML', apiSrc.includes('id="cust-add-btn"'));
   assert('customers.add i18n key', apiSrc.includes('customers.add'));
+}
+
+console.log('\n[9] CRM tags — PATCH route, no outbound send');
+
+if (fs.existsSync(CUST_Q_PATH)) {
+  const custSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+  assert('CRM_TAG_KEYS exported', custSrc.includes('CRM_TAG_KEYS'));
+  assert('updateCustomerCrmTags helper', custSrc.includes('async function updateCustomerCrmTags('));
+  assert('tags update scoped by slug', custSrc.includes('c.slug = $1') && custSrc.includes('crm_tags = $3::jsonb'));
+}
+
+if (apiSrc) {
+  assert('PATCH customer tags route', apiSrc.includes('CUSTOMER_TAGS_RE') && apiSrc.includes('handleCustomerTagsUpdate'));
+  assert('tag editor UI', apiSrc.includes('cust-tags-section') && apiSrc.includes('customerSaveTags'));
+  assert('no whatsapp send from CRM tags', !/customerSaveTags[\s\S]{0,600}(sendWhatsApp|outbound|bulk)/i.test(apiSrc));
+  assert('no outreach drawer', !apiSrc.includes('customers-outreach'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('crm tag labels in i18n', i18n.includes("'customers.tags.vip': 'VIP'")
+    && i18n.includes("'customers.tags.do_not_contact': 'Do not contact'"));
 }
 
 // ── Summary ─────────────────────────────────────────────────────────────────

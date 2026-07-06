@@ -16,8 +16,96 @@ const {
   sqlConversationLocationMatch,
   sqlLocationMatch,
 } = require('./sunset-school-locations');
+const { loadClientPortalProfile } = require('./staff-portal-clients');
 
-const ALLOWED_FILTERS = new Set(['all', 'booked', 'needs_attention']);
+const CRM_TAG_KEYS = [
+  'lead',
+  'repeat_guest',
+  'vip',
+  'local',
+  'surf_school',
+  'accommodation',
+  'do_not_contact',
+  'newsletter_ok',
+];
+
+const ALLOWED_FILTERS = new Set([
+  'all',
+  'needs_attention',
+  'warm_leads',
+  'hot_leads',
+  'checked_in_now',
+  'do_not_contact',
+]);
+
+function isAccommodationCrmClient(clientSlug) {
+  const profile = loadClientPortalProfile(String(clientSlug || '').trim());
+  return !!(profile && !profile.is_surf_vertical);
+}
+
+function normalizeCrmTags(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const out = {};
+  for (const key of CRM_TAG_KEYS) {
+    out[key] = !!src[key];
+  }
+  return out;
+}
+
+function parseCrmTagsFromDb(raw) {
+  if (!raw) return normalizeCrmTags({});
+  if (typeof raw === 'object') return normalizeCrmTags(raw);
+  try {
+    return normalizeCrmTags(JSON.parse(raw));
+  } catch (_) {
+    return normalizeCrmTags({});
+  }
+}
+
+/**
+ * Parse PATCH /staff/customers/:phone/tags body.
+ * @returns {{ ok: true, tags: object } | { ok: false, error: string }}
+ */
+function parseCustomerTagsUpdateBody(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const tags = normalizeCrmTags(b.tags || b.crm_tags || b);
+  return { ok: true, tags };
+}
+
+/**
+ * Update CRM tags for a tenant-scoped customer (by normalized phone).
+ *
+ * @param {import('pg').Client|import('pg').PoolClient} pg
+ * @param {string} clientSlug
+ * @param {string} phone
+ * @param {object} tags
+ */
+async function updateCustomerCrmTags(pg, clientSlug, phone, tags) {
+  const normalizedPhone = normalizeCustomerPhone(phone);
+  if (!clientSlug || !normalizedPhone) {
+    return { ok: false, status: 400, body: { success: false, error: 'invalid client or phone' } };
+  }
+  const crmTags = normalizeCrmTags(tags);
+  const r = await pg.query(
+    `UPDATE customers cu
+        SET crm_tags = $3::jsonb,
+            updated_at = NOW()
+       FROM clients c
+      WHERE cu.client_id = c.id
+        AND c.slug = $1
+        AND cu.phone = $2
+      RETURNING cu.crm_tags`,
+    [clientSlug, normalizedPhone, JSON.stringify(crmTags)],
+  );
+  if (!r.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'customer not found' } };
+  }
+  return {
+    ok: true,
+    status: 200,
+    body: { success: true, crm_tags: parseCrmTagsFromDb(r.rows[0].crm_tags) },
+  };
+}
 
 /**
  * Canonical E.164-style phone key for customer dedupe per tenant.
@@ -187,7 +275,8 @@ async function createOrMergeManualCustomer(pg, clientSlug, body, opts = {}) {
 }
 
 function normalizeCustomerFilter(filter) {
-  const f = String(filter || 'all').trim().toLowerCase();
+  let f = String(filter || 'all').trim().toLowerCase();
+  if (f === 'booked') f = 'hot_leads';
   return ALLOWED_FILTERS.has(f) ? f : 'all';
 }
 
@@ -207,8 +296,9 @@ function clampOffset(offset) {
  * List customers for a tenant. One row per phone.
  *
  * @param {object} opts
- * @param {string} opts.filter - all | booked | needs_attention
+ * @param {string} opts.filter - all | warm_leads | hot_leads | checked_in_now | do_not_contact | needs_attention
  * @param {boolean} opts.hasSearch - when true, adds ILIKE param $2
+ * @param {boolean} [opts.accommodationCrm] - when false, checked_in_now returns no rows
  * @returns {string} SQL ($1 client slug; optional $2 search; $3 limit; $4 offset)
  */
 function customerListLimitOffsetParams(opts) {
@@ -225,11 +315,22 @@ function getCustomerListQuery(opts) {
   const filter = normalizeCustomerFilter(opts && opts.filter);
   const hasSearch = !!(opts && opts.hasSearch);
   const locationScoped = !!(opts && opts.locationScoped);
+  const accommodationCrm = !!(opts && opts.accommodationCrm);
   const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
 
   let filterClause = '';
-  if (filter === 'booked') {
+  if (filter === 'hot_leads') {
     filterClause = 'AND (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0)';
+  } else if (filter === 'warm_leads') {
+    filterClause = `AND (
+      lc.conversation_id IS NOT NULL OR lc.last_contact_at IS NOT NULL
+    ) AND COALESCE(ba.booking_count, 0) = 0 AND COALESCE(sa.service_count, 0) = 0`;
+  } else if (filter === 'checked_in_now') {
+    filterClause = accommodationCrm
+      ? 'AND COALESCE(cia.checked_in_now, FALSE) = TRUE'
+      : 'AND FALSE';
+  } else if (filter === 'do_not_contact') {
+    filterClause = `AND COALESCE((cu.crm_tags->>'do_not_contact')::boolean, FALSE) = TRUE`;
   } else if (filter === 'needs_attention') {
     filterClause = 'AND (lc.needs_human OR COALESCE(ho.has_open_handoff, FALSE))';
   }
@@ -254,7 +355,7 @@ function getCustomerListQuery(opts) {
 
   return `
 WITH customer_base AS (
-  SELECT cu.phone, cu.full_name, cu.email, cu.language, cu.notes, cu.location_id
+  SELECT cu.phone, cu.full_name, cu.email, cu.language, cu.notes, cu.location_id, cu.crm_tags
   FROM customers cu
   INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1
@@ -321,6 +422,19 @@ last_service AS (
   WHERE bsr.client_slug = $1
     AND b.phone IS NOT NULL${serviceLocClause}
   ORDER BY b.phone, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
+),
+checked_in_agg AS (
+  SELECT b.phone, TRUE AS checked_in_now
+  FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
+  WHERE c.slug = $1
+    AND b.phone IS NOT NULL
+    AND b.status IN ('confirmed', 'checked_in', 'payment_pending')
+    AND b.check_in IS NOT NULL
+    AND b.check_out IS NOT NULL
+    AND b.check_in <= CURRENT_DATE
+    AND b.check_out > CURRENT_DATE${bookingLocClause}
+  GROUP BY b.phone
 )
 SELECT
   cu.phone,
@@ -340,13 +454,16 @@ SELECT
   ls.quantity AS last_service_quantity,
   ls.service_date AS last_service_date_detail,
   COALESCE(ho.has_open_handoff, FALSE) AS has_open_handoff,
-  (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) AS is_booked
+  (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) AS is_booked,
+  cu.crm_tags,
+  COALESCE(cia.checked_in_now, FALSE) AS checked_in_now
 FROM customer_base cu
 LEFT JOIN latest_conv lc ON lc.phone = cu.phone
 LEFT JOIN booking_agg ba ON ba.phone = cu.phone
 LEFT JOIN service_agg sa ON sa.phone = cu.phone
 LEFT JOIN handoff_open ho ON ho.phone = cu.phone
 LEFT JOIN last_service ls ON ls.phone = cu.phone
+LEFT JOIN checked_in_agg cia ON cia.phone = cu.phone
 WHERE 1=1
 ${searchClause}
 ${filterClause}
@@ -391,7 +508,8 @@ SELECT
   GREATEST(cust.last_seen, conv.updated_at) AS last_contact_at,
   conv.human_notes,
   COALESCE(cust.notes, conv.internal_staff_notes) AS internal_staff_notes,
-  conv.metadata
+  conv.metadata,
+  cust.crm_tags
 FROM cust
 LEFT JOIN conv ON TRUE
 `;
@@ -513,6 +631,7 @@ function buildCustomerListParams(clientSlug, query) {
   if (locationScoped) params.push(locationId);
   if (hasSearch) params.push(`%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`);
   params.push(limit, offset);
+  const accommodationCrm = isAccommodationCrmClient(clientSlug);
   return {
     filter,
     limit,
@@ -520,18 +639,25 @@ function buildCustomerListParams(clientSlug, query) {
     hasSearch,
     locationScoped,
     locationId,
+    accommodationCrm,
     params,
-    sql: getCustomerListQuery({ filter, hasSearch, locationScoped }),
+    sql: getCustomerListQuery({ filter, hasSearch, locationScoped, accommodationCrm }),
   };
 }
 
 module.exports = {
   ALLOWED_FILTERS,
+  CRM_TAG_KEYS,
   normalizeCustomerPhone,
   upsertCustomerFromInboundTouch,
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,
   normalizeCustomerFilter,
+  normalizeCrmTags,
+  parseCrmTagsFromDb,
+  parseCustomerTagsUpdateBody,
+  updateCustomerCrmTags,
+  isAccommodationCrmClient,
   clampLimit,
   clampOffset,
   getCustomerListQuery,
