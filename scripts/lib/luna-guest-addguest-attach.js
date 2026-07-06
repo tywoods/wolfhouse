@@ -42,6 +42,17 @@ function isPaidBookingPaymentStatus(paymentStatus) {
   return PAID_BOOKING_PAYMENT_STATUSES.has(trimStr(paymentStatus).toLowerCase());
 }
 
+/**
+ * Slice 2 — PAID top-up flag. When ON, adding a guest to a PAID / deposit_paid booking
+ * proceeds with the same booking mutation as the unpaid path but charges only the delta
+ * (the new guest's share) via the balance payment link, instead of handing off to staff.
+ * Default OFF → paid bookings keep the Slice 1 handoff.
+ */
+function isAddGuestPaidEnabled(env) {
+  const e = env || process.env;
+  return String(e.LUNA_GUEST_ADD_GUEST_PAID_ENABLED || '').toLowerCase() === 'true';
+}
+
 function normalizeNewGuestNames(input) {
   if (Array.isArray(input)) {
     return input.map((n) => trimStr(n)).filter(Boolean);
@@ -230,8 +241,11 @@ async function addGuestToBooking(pg, opts) {
     return { ...base, status: 'noop', reason: 'booking_not_found' };
   }
 
-  // Defense in depth — never mutate a paid / partially paid booking. Readiness blocks too.
-  if (isPaidBookingPaymentStatus(booking.payment_status)) {
+  // Slice 2 — a paid / partially paid booking. When the paid top-up flag is OFF, this stays
+  // a staff handoff (Slice 1 defense in depth; readiness blocks too). When ON, we fall
+  // through and mutate the booking, then charge only the delta via the balance link.
+  const bookingIsPaid = isPaidBookingPaymentStatus(booking.payment_status);
+  if (bookingIsPaid && !isAddGuestPaidEnabled(env)) {
     return {
       ...base,
       status: 'handoff_paid',
@@ -358,8 +372,34 @@ async function addGuestToBooking(pg, opts) {
     insertedGuests.push(r.rows[0]);
   }
 
-  // Refresh the pay-in-full draft so the re-sent link charges the NEW total (€435), not
-  // the stale €300 draft. Threaded back to create_payment_link via payment_draft_id.
+  // Slice 2 — PAID booking top-up: the already-paid full_amount draft stays as-is (do NOT
+  // refresh it). balance_due_cents (newTotal − amountPaid) is the delta for the new guest;
+  // the follow-on create_balance_payment_link derives the top-up charge from the booking.
+  if (bookingIsPaid) {
+    return {
+      ...base,
+      status: 'ok',
+      paid_topup: true,
+      topup_amount_cents: newBalanceDueCents,
+      payment_status: booking.payment_status,
+      booking_id: booking.booking_id,
+      booking_code: booking.booking_code,
+      old_guest_count: currentGuestCount,
+      new_guest_count: newGuestCount,
+      old_total_amount_cents: oldTotalCents,
+      new_total_amount_cents: newTotalCents,
+      new_balance_due_cents: newBalanceDueCents,
+      amount_paid_cents: amountPaidCents,
+      accommodation_delta_cents: requote.delta_cents,
+      guest_name: newGuestName,
+      inserted_booking_guests: insertedGuests,
+      payment_draft_id: null,
+      payment_draft_amount_due_cents: null,
+    };
+  }
+
+  // UNPAID — refresh the pay-in-full draft so the re-sent link charges the NEW total (€435),
+  // not the stale €300 draft. Threaded back to create_payment_link via payment_draft_id.
   const refreshedDraft = await refreshFullPaymentDraftAmount(
     pg, clientSlug, booking.booking_id, newTotalCents,
   );
@@ -387,6 +427,7 @@ module.exports = {
   ADD_GUEST_ATTACH_ORIGIN,
   PAID_BOOKING_PAYMENT_STATUSES,
   isPaidBookingPaymentStatus,
+  isAddGuestPaidEnabled,
   normalizeNewGuestNames,
   buildQuoteFields,
   computeAccommodationDelta,

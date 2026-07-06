@@ -85,6 +85,11 @@ const GUEST_AGENT_TOOLS = Object.freeze({
     safety_gate_required: true,
     backing: 'luna-guest-addon-service-payment-link-create (addon_service Stripe checkout)',
   },
+  create_balance_payment_link: {
+    read_or_write: 'write',
+    safety_gate_required: true,
+    backing: 'luna-guest-balance-payment-link-create (outstanding balance / paid add-guest top-up)',
+  },
 });
 
 function planItem(toolId, reason, currentStatus, wouldExecuteNow) {
@@ -219,6 +224,7 @@ const GUEST_AGENT_GPT_PLANNABLE_WRITE_TOOL_IDS = Object.freeze([
   'create_booking_hold',
   'add_guest_to_booking',
   'create_payment_link',
+  'create_balance_payment_link',
   'attach_post_booking_services',
   'create_service_payment_link',
 ]);

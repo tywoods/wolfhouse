@@ -34,6 +34,7 @@ const {
   detectBalancePaymentLinkRequest,
   hasExistingPaidBookingContext,
 } = require('./luna-guest-balance-payment-link-create');
+const { isAddGuestPaidEnabled } = require('./luna-guest-addguest-attach');
 const { buildTransferSideQuestionReply, detectTransferSideQuestionIntent, detectServiceSideQuestionIntent } = require('./luna-guest-service-transfer-explainer');
 const { decideConversationAction } = require('./luna-conversation-brain');
 const {
@@ -962,11 +963,13 @@ function classifyMessageLane(text, guestContext) {
   }
 
   if (hasCode && !detectNewStayBookingIntent(t)) {
-    // Slice 1 — post-booking "add a person" on an existing booking.
-    // UNPAID: stays a handled lane (the write pipeline requotes + updates the booking).
-    // PAID (Slice 2): must hand off to staff — never mutate a paid booking here.
+    // Post-booking "add a person" on an existing booking.
+    //  - UNPAID: handled lane (the write pipeline requotes + updates the booking).
+    //  - PAID + LUNA_GUEST_ADD_GUEST_PAID_ENABLED on (Slice 2): handled lane — the pipeline
+    //    adds the guest and charges a top-up for only the new guest's delta.
+    //  - PAID + flag off (Slice 1): staff handoff — never mutate a paid booking here.
     if (detectAddGuestRequest(t)) {
-      if (hasPaidBookingContext(ctx)) {
+      if (hasPaidBookingContext(ctx) && !isAddGuestPaidEnabled(ctx.env)) {
         return {
           lane: 'staff_handoff_required',
           handoff: true,
