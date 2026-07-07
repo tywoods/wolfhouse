@@ -15,6 +15,7 @@ const path = require('path');
 
 const {
   loadClientPortalProfile,
+  listBaselineClients,
 } = require('./lib/staff-portal-clients');
 
 const {
@@ -160,16 +161,27 @@ const SUNSET_ACCESS_PATH = path.join(ROOT, 'config', 'clients', 'staff-portal-ac
 const CLIENTS_MODULE_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-clients.js');
 
 function slugsWithAccessFile(accessFile, email) {
-  const bak = ACCESS_PATH + '.verify-bak';
-  fs.copyFileSync(ACCESS_PATH, bak);
-  fs.copyFileSync(accessFile, ACCESS_PATH);
-  delete require.cache[require.resolve('./lib/staff-portal-clients')];
-  const mod = require('./lib/staff-portal-clients');
-  const slugs = mod.getAccessibleClientSlugs({ email, role: 'owner' });
-  fs.copyFileSync(bak, ACCESS_PATH);
-  fs.unlinkSync(bak);
-  delete require.cache[require.resolve('./lib/staff-portal-clients')];
-  return slugs;
+  const all = listBaselineClients().map((c) => c.slug);
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(accessFile, 'utf8'));
+  } catch {
+    return [];
+  }
+
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const explicit = cfg.client_access && cfg.client_access[normalizedEmail];
+
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    const allowed = new Set(
+      explicit.map((slug) => String(slug || '').trim()).filter(Boolean),
+    );
+    return all.filter((slug) => allowed.has(slug));
+  }
+
+  const allEmails = (cfg.all_clients_emails || []).map((e) => String(e || '').trim().toLowerCase());
+  if (allEmails.includes(normalizedEmail)) return all;
+  return [];
 }
 
 if (fs.existsSync(SUNSET_ACCESS_PATH)) {

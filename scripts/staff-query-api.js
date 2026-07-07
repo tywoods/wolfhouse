@@ -20667,8 +20667,10 @@ function portalHasCustomersCrm(profile){
   profile = profile || getPortalProfile(getClient());
   if (!profile) return false;
   if (profile.customers_crm === false) return false;
+  if (profile.customers_crm === true) return true;
   var hidden = profile.hidden_tabs || [];
-  return hidden.indexOf('customers') < 0;
+  if (hidden.indexOf('customers') >= 0) return false;
+  return !!profile.is_surf_vertical;
 }
 
 function isTabHiddenForClient(tab, clientSlug){
@@ -20677,7 +20679,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (hidden.indexOf(tab) >= 0) return true;
   if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
-  if (tab === 'customers' && !profile.is_surf_vertical) return true;
+  if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
@@ -20825,7 +20827,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'customers') {
-      btn.style.display = profile.is_surf_vertical ? '' : 'none';
+      btn.style.display = portalHasCustomersCrm(profile) ? '' : 'none';
       return;
     }
     if (tab === 'admin') {
@@ -27275,7 +27277,7 @@ function openCustomersOutreachConfirmModal() {
     plan.skippedDnc.forEach(function(r) {
       lines.push(portalT('customers.outreach.skippedDnc') + ': ' + r.name);
     });
-    skipped.textContent = lines.join('\n');
+    skipped.textContent = lines.join('\\n');
     skipped.style.display = lines.length ? 'block' : 'none';
   }
   if (preview) preview.textContent = message;

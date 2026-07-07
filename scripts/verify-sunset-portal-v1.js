@@ -296,7 +296,10 @@ console.log('\n[9] staff-query-api.js — Customers tab (read-only v1)');
 if (apiSrc) {
   assert('Customers tab button present', apiSrc.includes('data-tab="customers"'));
   assert('Customers tab panel present', apiSrc.includes('id="tab-customers"'));
-  assert('customers tab surf-gated', apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
+  assert('portalHasCustomersCrm helper', apiSrc.includes('function portalHasCustomersCrm('));
+  assert('customers tab CRM-gated in isTabHiddenForClient', apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
+  assert('customers tab CRM-gated in applyClientPortalProfile', apiSrc.includes("if (tab === 'customers')") && apiSrc.includes('portalHasCustomersCrm(profile)'));
+  assert('Wolfhouse customers not surf-only gated', !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
   assert('/staff/customers route present', apiSrc.includes("pathname === '/staff/customers'"));
   assert('nav.tab.customers in i18n usage', apiSrc.includes('nav.tab.customers') || apiSrc.includes('customers.title'));
 }
