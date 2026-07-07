@@ -22,6 +22,7 @@ ENFORCEMENT (this increment):
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -214,7 +215,70 @@ def language_mismatch(text: str, guest_lang: Optional[str]) -> Optional[str]:
     return sorted(signals)[0]
 
 
-# --- orchestrator -------------------------------------------------------------
+# --- platform / role gating ---------------------------------------------------
+
+def _hermes_role() -> str:
+    return (os.getenv("HERMES_ROLE") or "luna").strip().lower()
+
+
+def should_apply_guest_output_guard(*, platform: Any = None) -> bool:
+    """Guest leak scrubbing applies only on Luna WhatsApp, never on orchestrator."""
+    if _hermes_role() == "orchestrator":
+        return False
+    if platform is not None:
+        try:
+            from wolfhouse.guest_send_guard import is_guest_facing_platform
+
+            return is_guest_facing_platform(platform)
+        except Exception:
+            return False
+    # Turn-handler tests and legacy callers without platform: Luna container only.
+    return _hermes_role() == "luna"
+
+
+def orchestrator_debug_error(raw: str, *, kind: str) -> str:
+    preview = str(raw or "").strip().replace("\n", " ")[:500]
+    return f"[wolfhouse-orchestrator] {kind}: {preview}"
+
+
+def _model_meta_from_agent_result(agent_result: Any) -> Dict[str, Any]:
+    """Best-effort provider/model fields from gateway agent_result (shape varies)."""
+    meta: Dict[str, Any] = {}
+    if agent_result is None:
+        return meta
+    keys = (
+        "model",
+        "provider",
+        "model_provider",
+        "active_provider",
+        "fallback_used",
+        "used_fallback",
+        "fallback_reason",
+        "compression_applied",
+        "context_compressed",
+        "memory_loaded",
+        "system_memory_loaded",
+    )
+    for key in keys:
+        val = None
+        if isinstance(agent_result, dict):
+            val = agent_result.get(key)
+        else:
+            val = getattr(agent_result, key, None)
+        if val is not None:
+            meta[key] = val
+    return meta
+
+
+def _log_guard_decision(**fields: Any) -> None:
+    try:
+        import json
+        import sys
+
+        print(f"[wolfhouse] output-guard decision: {json.dumps(fields, default=str)}", file=sys.stderr)
+    except Exception:
+        pass
+
 
 def guard_reply(
     reply_text: str,
@@ -293,26 +357,67 @@ def _guest_lang_from_history(history: Any) -> Optional[str]:
     return None
 
 
-def guard_turn_response(response: Any, agent_result: Any = None, history: Any = None) -> str:
+def guard_turn_response(
+    response: Any,
+    agent_result: Any = None,
+    history: Any = None,
+    platform: Any = None,
+) -> str:
     """gateway.run adapter: guard the final reply with turn context available.
 
     Returns the (possibly leak-scrubbed) reply string. Advisory findings are
     printed to stderr for staff/telemetry. Never raises — callers wrap in
     try/except too, but this is the inner safety net.
+
+    Guest leak/outage fallbacks run only on Luna WhatsApp. Orchestrator /
+    operator channels pass replies through (provider errors become debug text).
     """
     try:
         text = str(response or "")
         if not text:
             return response
+
+        guest_guard = should_apply_guest_output_guard(platform=platform)
+        model_meta = _model_meta_from_agent_result(agent_result)
+
+        if not guest_guard:
+            if is_provider_error(text):
+                diag = orchestrator_debug_error(text, kind="model/provider error")
+                _log_guard_decision(
+                    guest_guard=False,
+                    hermes_role=_hermes_role(),
+                    platform=str(getattr(platform, "value", platform) or ""),
+                    action="orchestrator_provider_error",
+                    fallback_used=False,
+                    model_meta=model_meta,
+                )
+                return diag
+            _log_guard_decision(
+                guest_guard=False,
+                hermes_role=_hermes_role(),
+                platform=str(getattr(platform, "value", platform) or ""),
+                action="passthrough",
+                fallback_used=False,
+                model_meta=model_meta,
+            )
+            return response
+
         guest_lang = _guest_lang_from_history(history)
         tool_calls = _tool_calls_from_agent_result(agent_result)
         safe, findings = guard_reply(text, guest_lang=guest_lang, tool_calls=tool_calls)
         if findings:
-            try:
-                import sys
-                print(f"[wolfhouse] output-guard turn findings: {findings}", file=sys.stderr)
-            except Exception:
-                pass
+            block_kinds = [f.get("kind") for f in findings if f.get("severity") == "block"]
+            _log_guard_decision(
+                guest_guard=True,
+                hermes_role=_hermes_role(),
+                platform=str(getattr(platform, "value", platform) or ""),
+                action="guest_scrub" if safe != text else "guest_advisory",
+                fallback_used=safe != text,
+                fallback_reason=block_kinds or None,
+                guest_lang=guest_lang,
+                model_meta=model_meta,
+                findings=findings,
+            )
         return safe
     except Exception:
         return response
