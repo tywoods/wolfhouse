@@ -1559,6 +1559,7 @@ function getStaffPortalI18nBootstrapScript(enabledLocales) {
       var s = localStorage.getItem(STAFF_LOCALE_KEY);
       if (STAFF_ENABLED_LOCALES.indexOf(s) !== -1) return s;
     } catch(_){}
+    if (STAFF_ENABLED_LOCALES.indexOf('es') !== -1) return 'es';
     return STAFF_DEFAULT_LOCALE;
   };
   window.getStaffTheme = function(){

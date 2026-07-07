@@ -653,6 +653,12 @@ const STAFF_PORTAL_LOCALES = (function () {
   return list.length ? Array.from(new Set(list)) : ['es', 'en'];
 })();
 
+function staffLangDataAttr(loc) {
+  if (loc === 'es') return 'data-lang="es"';
+  if (loc === 'en') return 'data-lang="en"';
+  return 'data-lang="' + loc + '"';
+}
+
 // Render the language switcher buttons from STAFF_PORTAL_LOCALES (no hardcoded locale set).
 function renderStaffLangSwitchButtons(loginVariant) {
   const btnCls = loginVariant ? 'staff-lang-btn-login staff-lang-btn' : 'staff-lang-btn';
@@ -661,7 +667,7 @@ function renderStaffLangSwitchButtons(loginVariant) {
   return STAFF_PORTAL_LOCALES.map((loc, i) => {
     const sep = i > 0 ? `<span class="${sepCls}">|</span>` : '';
     const isActive = loc === active ? ' is-active' : '';
-    return `${sep}<button type="button" class="${btnCls}${isActive}" data-lang="${loc}">${loc.toUpperCase()}</button>`;
+    return `${sep}<button type="button" class="${btnCls}${isActive}" ${staffLangDataAttr(loc)}>${loc.toUpperCase()}</button>`;
   }).join('\n    ');
 }
 const MAX_ROWS           = 500;
