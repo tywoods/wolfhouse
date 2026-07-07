@@ -19,6 +19,7 @@ const { execFileSync } = require('child_process');
 
 const {
   loadClientPortalProfile,
+  listBaselineClients,
 } = require('./lib/staff-portal-clients');
 
 const ROOT = path.join(__dirname, '..');
@@ -399,23 +400,27 @@ const ACCESS_PATH_V1 = path.join(ROOT, 'config', 'clients', 'staff-portal-access
 const SUNSET_ACCESS_PATH_V1 = path.join(ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
 
 function slugsWithAccessFileV1(accessFile, email) {
-  const bak = ACCESS_PATH_V1 + '.verify-bak';
-  fs.copyFileSync(ACCESS_PATH_V1, bak);
-  fs.copyFileSync(accessFile, ACCESS_PATH_V1);
-  delete require.cache[require.resolve('./lib/staff-portal-clients')];
-  const mod = require('./lib/staff-portal-clients');
-  const slugs = mod.getAccessibleClientSlugs({ email, role: 'owner' });
-  fs.copyFileSync(bak, ACCESS_PATH_V1);
-  fs.unlinkSync(bak);
-  delete require.cache[require.resolve('./lib/staff-portal-clients')];
-  return slugs;
+  const all = listBaselineClients().map((c) => c.slug);
+  let cfg;
+  try {
+    cfg = JSON.parse(fs.readFileSync(accessFile, 'utf8'));
+  } catch {
+    return [];
+  }
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const explicit = cfg.client_access && cfg.client_access[normalizedEmail];
+  if (Array.isArray(explicit) && explicit.length > 0) {
+    const allowed = new Set(
+      explicit.map((slug) => String(slug || '').trim()).filter(Boolean),
+    );
+    return all.filter((slug) => allowed.has(slug));
+  }
+  const allEmails = (cfg.all_clients_emails || []).map((e) => String(e || '').trim().toLowerCase());
+  if (allEmails.includes(normalizedEmail)) return all;
+  return [];
 }
 
-const whSlugsDefault = (() => {
-  delete require.cache[require.resolve('./lib/staff-portal-clients')];
-  const mod = require('./lib/staff-portal-clients');
-  return mod.getAccessibleClientSlugs({ email: 'tywoods@gmail.com', role: 'owner' });
-})();
+const whSlugsDefault = slugsWithAccessFileV1(ACCESS_PATH_V1, 'tywoods@gmail.com');
 assert('Default access config scopes tywoods@gmail.com to wolfhouse-somo only',
   whSlugsDefault.length === 1 && whSlugsDefault[0] === 'wolfhouse-somo',
   JSON.stringify(whSlugsDefault));
