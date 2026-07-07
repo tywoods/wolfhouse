@@ -832,8 +832,24 @@ function renderAdminSectionChangeHistoryFromConfig(cfg){
   box.innerHTML = html;
 }
 
+function renderAdminWriteState(cfg){
+  var banner = el('admin-write-banner');
+  if (!banner) return;
+  if (cfg && cfg.writes_enabled === true) {
+    banner.innerHTML = '<strong>' + escHtml(portalT('admin.banner.writesUiEnabled')) + '</strong> — ' +
+      escHtml(portalT('admin.banner.writesUiEnabledSub'));
+  } else {
+    banner.innerHTML = '<strong data-i18n="admin.banner.readOnly">' + escHtml(portalT('admin.banner.readOnly')) + '</strong> — ' +
+      '<span data-i18n="admin.banner.writesDisabled">' + escHtml(portalT('admin.banner.writesDisabled')) + '</span> ' +
+      '<span data-i18n="admin.banner.lunaNote">' + escHtml(portalT('admin.banner.lunaNote')) + '</span>';
+  }
+}
+
 function renderAdminFromConfig(cfg){
+  renderAdminWriteState(cfg);
+  if (typeof renderAdminSchoolContext === 'function') renderAdminSchoolContext(cfg);
   try { renderAdminSectionBusinessInfoFromConfig(cfg); } catch (err) { console.error('admin business render failed', err); }
+  try { renderAdminSectionCapacityFromConfig(cfg); } catch (err) { console.error('admin capacity render failed', err); }
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
   try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
   try { renderAdminSectionChangeHistoryFromConfig(cfg); } catch (err) { console.error('admin history render failed', err); }
@@ -841,13 +857,16 @@ function renderAdminFromConfig(cfg){
 
 function renderAdminFallback(profile){
   adminEditTarget = null;
+  renderAdminWriteState(null);
   var fallbackLocation = getClient() === 'sunset' ? getSunsetLocation() : null;
   renderAdminSectionBusinessInfoFromConfig({
     location_id: fallbackLocation,
     location_label: fallbackLocation ? getSunsetLocationLabel(fallbackLocation) : null,
     business_info: {}
   });
-  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [], lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } });
+  var fallbackCapacity = { lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } };
+  renderAdminSectionCapacityFromConfig(fallbackCapacity);
+  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [], lesson_capacity: fallbackCapacity.lesson_capacity });
   renderAdminSectionPricesFromConfig(null);
   renderAdminSectionChangeHistoryFromConfig(null);
 }
@@ -939,7 +958,7 @@ function wireAdminTab(){
       return;
     }
     if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson'){
-      if (!adminCfgWritesEnabled(cfg)){ adminShowMessage('error', portalT('admin.banner.writesDisabled')); return; }
+      if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'edit-capacity'){
       adminEditTarget = 'capacity';
