@@ -18637,6 +18637,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <div class="portal-admin-wrap">
   <header class="portal-admin-header">
     <h2 data-i18n="admin.title">Admin</h2>
+    <div class="portal-school-context portal-admin-school-context" id="admin-school-context" style="display:none" aria-live="polite">
+      <span data-i18n="admin.school.active">Config for</span>
+      <strong id="admin-school-label">—</strong>
+      <span class="portal-admin-muted" data-i18n="admin.school.switchHint"> (use header school switcher)</span>
+    </div>
     <div id="admin-fetch-state" class="state-msg" style="display:none;margin-bottom:12px"></div>
   </header>
   <div class="portal-admin-sections">
@@ -20479,6 +20484,14 @@ function customersClientQuery(){
   return q;
 }
 
+function adminClientQuery(){
+  var q = '?client=' + encodeURIComponent(getClient());
+  if (getClient() === 'sunset') {
+    q += '&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  return q;
+}
+
 function scheduleResolveDrawerSchoolLabel(ctx, row){
   var loc = (ctx && ctx.location_id) || (row && row.location_id) || getSunsetLocation();
   return getSunsetLocationLabel(loc);
@@ -20530,13 +20543,16 @@ function refreshSunsetSchoolContextLabels(channelConfig){
 }
 
 function renderAdminSchoolContext(cfg){
-  var profile = getPortalProfile(getClient());
-  if (getClient() !== 'sunset' || !profile.is_surf_vertical) return;
-  if (cfg && cfg.success === true) {
-    renderAdminFromConfig(cfg);
+  var wrap = el('admin-school-context');
+  var label = el('admin-school-label');
+  if (!wrap || !label) return;
+  if (!isSunsetSurfActive()) {
+    wrap.style.display = 'none';
     return;
   }
-  renderAdminFallback(profile);
+  var loc = (cfg && cfg.location_id) ? cfg.location_id : getSunsetLocation();
+  label.textContent = (cfg && cfg.location_label) ? cfg.location_label : getSunsetLocationLabel(loc);
+  wrap.style.display = 'block';
 }
 
 function renderInboxSchoolContext(channelConfig){
@@ -20789,6 +20805,8 @@ function applyCustomersFilterVisibility(profile){
 
 function applyClientPortalProfile(clientSlug){
   var profile = getPortalProfile(clientSlug);
+  wireSunsetSchoolSwitcher();
+  refreshSunsetSchoolContextLabels();
   var hidden = profile.hidden_tabs || [];
   document.querySelectorAll('.tab-btn[data-tab]').forEach(function(btn){
     var tab = btn.getAttribute('data-tab');
@@ -20821,8 +20839,6 @@ function applyClientPortalProfile(clientSlug){
   applySurfNavLabels(profile);
   applyCustomersPortalI18n(profile);
   applySurfInboxFilters(profile);
-  wireSunsetSchoolSwitcher();
-  refreshSunsetSchoolContextLabels();
 }
 
 
@@ -21882,7 +21898,7 @@ function scheduleRowsForSameBookings(allRows, seedRows){
 
 function scheduleFetchLessonTimesConfig(client){
   if (scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
-  var cfgUrl = '/staff/admin/config?client=' + encodeURIComponent(client) + (client === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
+  var cfgUrl = '/staff/admin/config' + adminClientQuery();
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(data){
@@ -24138,6 +24154,10 @@ function wireScheduleControls(){
 
 function loadPortalHome(){ loadSchedulePage(); }
 function wirePortalHomeScheduleControls(){ wireScheduleControls(); }
+
+function loadAdminTab(){
+  var url = '/staff/admin/config' + adminClientQuery();
+}
 
 
 /* sunset-admin-ui-helpers: injected from scripts/lib/sunset-admin-ui-helpers.js */
