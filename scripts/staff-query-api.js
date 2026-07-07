@@ -16381,6 +16381,7 @@ async function handleManualBookingCreate(req, res, user) {
 function buildUiHtml(port) {
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
+  const portalBodyOpen = '<body class="portal-profile-pending"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -18340,7 +18341,7 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 }
 </style>
 </head>
-<body class="portal-profile-pending${portalDevTabsEnabled ? '' : ' portal-no-dev-tabs'}">
+${portalBodyOpen}
 ${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}
 <script>window.__STAFF_PORTAL_DEV_TABS__=${portalDevTabsEnabled ? 'true' : 'false'};</script>
 
@@ -20644,7 +20645,7 @@ function isTabHiddenForClient(tab, clientSlug){
   if (hidden.indexOf(tab) >= 0) return true;
   if (window.__STAFF_PORTAL_DEV_TABS__ !== true && (tab === 'query-tools' || tab === 'luna-guest-simulator')) return true;
   if (tab === 'portal-home' && !profile.is_surf_vertical) return true;
-  if (tab === 'customers' && !portalHasCustomersCrm(profile)) return true;
+  if (tab === 'customers' && !profile.is_surf_vertical) return true;
   if (tab === 'admin' && !profile.is_surf_vertical) return true;
   if (tab === 'services' && clientSlug !== 'wolfhouse-somo') return true;
   if (tab === 'day-schedule') return true;
@@ -20790,7 +20791,7 @@ function applyClientPortalProfile(clientSlug){
       return;
     }
     if (tab === 'customers') {
-      btn.style.display = portalHasCustomersCrm(profile) ? '' : 'none';
+      btn.style.display = profile.is_surf_vertical ? '' : 'none';
       return;
     }
     if (tab === 'admin') {
@@ -24829,7 +24830,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-section-body customers-profile-view">' +
       '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.phone')) + ':</strong> ' + escHtml(data.phone || '—') + '</p>' +
       '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.email')) + ':</strong> ' + escHtml(id.email || '—') + '</p>' +
-      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
+      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
       '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.notes')) + ':</strong> ' + escHtml(notes || portalT('customers.detail.noNotes')) + '</p>' +
       (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
       '</div>' +
