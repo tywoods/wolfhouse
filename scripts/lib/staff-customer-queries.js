@@ -557,7 +557,7 @@ function getCustomerListQuery(opts) {
 
   return `
 WITH customer_crm_merged AS (
-  SELECT
+  SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
     ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
     COALESCE(
       (
@@ -585,7 +585,7 @@ WITH customer_crm_merged AS (
   WHERE c.slug = $1
     AND cu.phone IS NOT NULL
     AND TRIM(cu.phone) <> ''${custLocClause}
-  GROUP BY ${sqlCustomerPhoneDigits('cu.phone')}
+  ORDER BY ${sqlCustomerPhoneDigits('cu.phone')}
 ),
 customer_base AS (
   SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
