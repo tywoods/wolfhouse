@@ -5,6 +5,7 @@
  */
 
 const { getCrowsnestClients, getCrowsnestTemplates } = require('./crowsnest-clients');
+const { renderCrowsnestOnboardingSection } = require('./crowsnest-onboarding');
 
 function escapeHtml(text) {
   return String(text)
@@ -58,6 +59,7 @@ function renderCrowsnestPage() {
         <h2>${escapeHtml(t.label)}</h2>
         <span class="badge">${escapeHtml(t.status)}</span>
       </div>`).join('\n      ');
+  const onboardingSection = renderCrowsnestOnboardingSection();
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -96,6 +98,20 @@ function renderCrowsnestPage() {
       background: #eef1f4; border: 1px solid #ccd3db; border-radius: 6px;
       color: #888; font-size: 0.9rem; cursor: not-allowed;
     }
+    .onboarding-form .form-row { margin-bottom: 0.85rem; }
+    .onboarding-form label { display: block; font-size: 0.88rem; font-weight: 500; color: #555; margin-bottom: 0.25rem; }
+    .onboarding-form input, .onboarding-form select, .onboarding-form textarea {
+      width: 100%; max-width: 28rem; box-sizing: border-box; padding: 0.45rem 0.55rem;
+      border: 1px solid #ccd3db; border-radius: 6px; font-size: 0.9rem;
+      background: #f8f9fb; color: #888;
+    }
+    .form-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+    .form-actions .btn-disabled { margin-top: 0; }
+    .onboarding-checklist { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e8edf2; }
+    .checklist-heading { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.02em; }
+    .checklist { margin: 0; padding-left: 1.1rem; font-size: 0.88rem; color: #666; }
+    .checklist li { margin: 0.35rem 0; }
+    .check-label { margin-right: 0.35rem; }
     .safety {
       margin-top: 1.5rem; padding: 0.75rem 1rem; background: #fff8e6;
       border: 1px solid #f0d78c; border-radius: 8px; font-size: 0.85rem;
@@ -115,6 +131,8 @@ function renderCrowsnestPage() {
       </div>
       <button type="button" class="btn-disabled" disabled aria-disabled="true">Add new client — Coming soon</button>
     </section>
+
+    ${onboardingSection}
 
     <section id="templates">
       <h2 class="section">Templates</h2>

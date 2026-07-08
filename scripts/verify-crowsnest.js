@@ -11,6 +11,7 @@ const ROOT = path.join(__dirname, '..');
 const API_PATH = path.join(ROOT, 'scripts', 'crowsnest-api.js');
 const PAGE_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js');
 const CLIENTS_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-clients.js');
+const ONBOARDING_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-onboarding.js');
 const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
@@ -42,11 +43,13 @@ console.log('verify:crowsnest — Crowsnest skeleton gate\n');
 ok('scripts/crowsnest-api.js exists', fs.existsSync(API_PATH));
 ok('scripts/lib/crowsnest/crowsnest-page.js exists', fs.existsSync(PAGE_PATH));
 ok('scripts/lib/crowsnest/crowsnest-clients.js exists', fs.existsSync(CLIENTS_PATH));
+ok('scripts/lib/crowsnest/crowsnest-onboarding.js exists', fs.existsSync(ONBOARDING_PATH));
 ok('scripts/lib/crowsnest/crowsnest-auth.js exists', fs.existsSync(AUTH_PATH));
 
 const apiSrc = read(API_PATH) || '';
 const pageSrc = read(PAGE_PATH) || '';
 const clientsSrc = read(CLIENTS_PATH) || '';
+const onboardingSrc = read(ONBOARDING_PATH) || '';
 const uiHtml = (() => {
   try {
     const { renderCrowsnestPage } = require(PAGE_PATH);
@@ -61,7 +64,10 @@ const pkgRaw = read(PKG_PATH) || '';
 
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
 ok('getCrowsnestClients exported', /function getCrowsnestClients|getCrowsnestClients\s*\(/.test(clientsSrc));
+ok('getCrowsnestOnboardingTemplates exported', /function getCrowsnestOnboardingTemplates|getCrowsnestOnboardingTemplates\s*\(/.test(onboardingSrc));
+ok('getCrowsnestOnboardingChecklist exported', /function getCrowsnestOnboardingChecklist|getCrowsnestOnboardingChecklist\s*\(/.test(onboardingSrc));
 ok('crowsnest-page requires crowsnest-clients', pageSrc.includes("require('./crowsnest-clients')"));
+ok('crowsnest-page requires crowsnest-onboarding', pageSrc.includes("require('./crowsnest-onboarding')"));
 ok('crowsnest-api requires crowsnest-page', apiSrc.includes("require('./lib/crowsnest/crowsnest-page')"));
 ok('UI Clients section exists', uiHtml.includes('>Clients<') || uiHtml.includes('section">Clients'));
 ok('UI Wolfhouse Somo card', uiHtml.includes('Wolfhouse Somo'));
@@ -79,8 +85,31 @@ ok('UI Luna WhatsApp placeholder', uiHtml.includes('Luna WhatsApp') && /Coming s
 ok('UI Stripe placeholder', uiHtml.includes('Stripe'));
 ok('UI Database placeholder', uiHtml.includes('Database'));
 ok('UI static placeholders / no live health checks copy', /static placeholders only|no live health checks/i.test(uiHtml));
+ok('UI New client onboarding section', uiHtml.includes('New client onboarding'));
+ok('UI onboarding draft/no client creation copy', /draft form only|no client creation/i.test(uiHtml));
+ok('UI Surf house template option', uiHtml.includes('Surf house'));
+ok('UI Surf school template option', uiHtml.includes('Surf school'));
+ok('UI client name field', uiHtml.includes('Client name') && uiHtml.includes('Example Surf House'));
+ok('UI client slug field', uiHtml.includes('Client slug') && uiHtml.includes('example-surf-house'));
+ok('UI primary location field', uiHtml.includes('Primary location') && uiHtml.includes('Somo, Spain'));
+ok('UI contact email field', uiHtml.includes('Contact email') && uiHtml.includes('hello@example.com'));
+ok('UI WhatsApp number field', uiHtml.includes('WhatsApp number'));
+ok('UI staff portal domain field', uiHtml.includes('Staff portal domain'));
+ok('UI staging domain field', uiHtml.includes('Staging domain'));
+ok('UI notes field', uiHtml.includes('Notes') && /Internal setup notes/i.test(uiHtml));
+ok('UI Preview setup button disabled', uiHtml.includes('Preview setup') && /disabled|aria-disabled/.test(uiHtml));
+ok('UI Create client button disabled', uiHtml.includes('Create client') && /disabled|aria-disabled/.test(uiHtml));
+ok('UI checklist tenant record', /Create tenant record/i.test(uiHtml));
+ok('UI checklist database/schema', /database\/schema|Create database/i.test(uiHtml));
+ok('UI checklist Staff API', /Staff API/i.test(uiHtml));
+ok('UI checklist Luna identity', /Luna identity/i.test(uiHtml));
+ok('UI checklist WhatsApp', /Configure WhatsApp/i.test(uiHtml));
+ok('UI checklist Stripe', /Configure Stripe/i.test(uiHtml));
+ok('UI checklist DNS/domain', /DNS\/domain/i.test(uiHtml));
+ok('UI checklist smoke tests', /smoke tests/i.test(uiHtml));
+ok('UI onboarding form safe action', /action="#"/.test(uiHtml) && !/<form[^>]+action=["']https?:/i.test(uiHtml));
 
-const crowsnestLibSrc = [pageSrc, clientsSrc, read(AUTH_PATH) || ''].join('\n');
+const crowsnestLibSrc = [pageSrc, clientsSrc, onboardingSrc, read(AUTH_PATH) || ''].join('\n');
 ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));

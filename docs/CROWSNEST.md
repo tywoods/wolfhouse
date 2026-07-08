@@ -33,7 +33,8 @@ From the Crowsnest UI, operators will eventually:
 | Item | Status |
 |------|--------|
 | Dedicated location | `scripts/crowsnest-api.js` + `scripts/lib/crowsnest/` |
-| Static placeholder UI | Skeleton + read-only **Clients** overview with environment/status rows (no live health checks) |
+| Static placeholder UI | Skeleton + read-only **Clients** overview + **New client onboarding** form mockup (local-only, non-functional) |
+| Onboarding mockup | Draft form only — surf house / surf school templates; all fields and buttons disabled; no submit |
 | `GET /healthz` | `service: crowsnest`, `writes_enabled: false` |
 | Writes / DB / Stripe / WhatsApp | **None** |
 | Deploy / Azure / domain move | **Not yet** — see [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md) |
