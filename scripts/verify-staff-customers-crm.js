@@ -464,6 +464,11 @@ if (apiSrc) {
   assert('opener switches to bed-calendar tab', openerBody.includes("switchToTab(\"bed-calendar\"") || openerBody.includes("switchToTab('bed-calendar'"));
   assert('opener sets bk-phone', openerBody.includes('bk-phone'));
   assert('opener sets bk-email', openerBody.includes('bk-email'));
+  assert('opener prefills bk-notes from staff notes', openerBody.includes('bk-notes') && openerBody.includes('staff_notes'));
+  assert('staff notes helper prefers internal_staff_notes', apiSrc.includes('contact.internal_staff_notes != null ? contact.internal_staff_notes : contact.staff_notes'));
+  assert('customer wire passes internal_staff_notes only', /wireCustomerProfileActions[\s\S]{0,1400}internal_staff_notes/.test(apiSrc)
+    && !/wireCustomerProfileActions[\s\S]{0,1400}human_notes/.test(apiSrc));
+  assert('inbox wire passes internal_staff_notes', /inbox-create-booking-for-guest[\s\S]{0,400}internal_staff_notes/.test(apiSrc));
   assert('opener does NOT write bc-sel-cin', !openerBody.includes('bc-sel-cin'));
   assert('opener does NOT write bc-sel-cout', !openerBody.includes('bc-sel-cout'));
 

@@ -28028,11 +28028,13 @@ function wireCustomerProfileActions(data) {
   var createBookingBtn = el('cust-profile-create-booking');
   if (createBookingBtn) createBookingBtn.addEventListener('click', function(){
     var id = (customerDetailState.data && customerDetailState.data.identity) || {};
+    var custNotes = customerDetailState.data && customerDetailState.data.notes;
     openCreateBookingFromContact({
       display_name: id.display_name,
       phone: customerDetailState.data ? customerDetailState.data.phone : null,
       email: id.email,
-      language: id.language
+      language: id.language,
+      internal_staff_notes: custNotes ? custNotes.internal_staff_notes : null
     });
   });
   var saveBtn = el('cust-profile-save');
@@ -30795,7 +30797,8 @@ function loadConvDetail(convId, targetEl){
         display_name: c.guest_name,
         phone: c.phone,
         email: c.email,
-        language: c.language
+        language: c.language,
+        internal_staff_notes: c.internal_staff_notes
       });
     });
     wireNeedsHumanToggle(convId, targetEl);
@@ -31948,13 +31951,21 @@ function bcRenderGuestNameInputs(){
    identity fields (first guest name, phone, email). Dates/beds stay blank for
    staff to select on the calendar as normal. This never creates a booking,
    never sends payment/WhatsApp, and does not touch the calendar create flow. */
+function contactStaffNotesForBooking(contact){
+  contact = contact || {};
+  var raw = contact.internal_staff_notes != null ? contact.internal_staff_notes : contact.staff_notes;
+  if (raw == null) return '';
+  return String(raw).trim().slice(0, 4000);
+}
+
 function openCreateBookingFromContact(contact){
   contact = contact || {};
   bcPendingCreatePrefill = {
     name: (contact.display_name || "").toString().trim(),
     phone: (contact.phone || "").toString().trim(),
     email: (contact.email || "").toString().trim(),
-    language: contact.language || null
+    language: contact.language || null,
+    staff_notes: contactStaffNotesForBooking(contact) || null
   };
   switchToTab("bed-calendar", null);
   bcApplyCreatePrefill();
@@ -31991,6 +32002,7 @@ function bcApplyCreatePrefill(){
   }
   setVal("bk-phone", pf.phone);
   setVal("bk-email", pf.email);
+  if (pf.staff_notes) setVal("bk-notes", pf.staff_notes);
   if (typeof bcUpdateCreateButton === "function") bcUpdateCreateButton();
   /* Bring the create panel into view for the staffer. */
   if (panel && typeof panel.scrollIntoView === "function"){
