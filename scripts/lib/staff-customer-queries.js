@@ -701,9 +701,9 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
       );
       await pg.query(
         `UPDATE customers SET
-           full_name = $2, email = $3, notes = $4, language = $5,
-           phone = $6, updated_at = NOW()
-         WHERE id = $7::uuid`,
+           full_name = $1, email = $2, notes = $3, language = $4,
+           phone = $5, updated_at = NOW()
+         WHERE id = $6::uuid`,
         [input.display_name, input.email, input.notes || null, input.language, input.phone, keeperId],
       );
     } else {

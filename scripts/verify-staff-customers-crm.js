@@ -283,7 +283,8 @@ assert('normalizeCustomerPhone adds plus', normalizeCustomerPhone('15105888224')
 assert('context query uses digit phone match', getCustomerContextQuery().includes('regexp_replace') && getCustomerContextQuery().includes('conv.phone'));
 assert('bookings query uses digit phone match', getCustomerBookingsQuery().includes('regexp_replace'));
 const customerQueriesSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js'), 'utf8');
-assert('profile update persists notes field', customerQueriesSrc.includes('notes = $5'));
+assert('profile update persists notes field', customerQueriesSrc.includes('notes = $3'));
+assert('profile update keeper uses contiguous SQL params', /UPDATE customers SET[\s\S]*full_name = \$1[\s\S]*WHERE id = \$6::uuid/.test(customerQueriesSrc));
 assert('profile update conv match uses bare phone column', customerQueriesSrc.includes("const convPhoneMatch = sqlCustomerPhoneMatch('phone', '$2')"));
 assert('parseCustomerProfileUpdateBody keeps notes', parseCustomerProfileUpdateBody({ display_name: 'Ty', phone: '+1', notes: 'Awesome dude!' }).value.notes === 'Awesome dude!');
 assert('normalized list phone', apiSrc.includes('normalizeCustomerPhone(row.phone)'));
