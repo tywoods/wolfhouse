@@ -16,6 +16,7 @@ const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
 const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
+const DOCKERFILE_PATH = path.join(ROOT, 'Dockerfile.crowsnest');
 const PKG_PATH = path.join(ROOT, 'package.json');
 
 let pass = 0;
@@ -140,6 +141,19 @@ ok('deploy plan mentions domain move from wh-staging-staff-api', /wh-staging-sta
 ok('deploy plan staff-staging remains untouched', /staff-staging.*untouched|remains.*wh-staging-staff-api|Must not change/i.test(deployDoc));
 ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
 ok('deploy plan is planning only / DO NOT RUN YET', /DO NOT RUN YET|PLANNING ONLY|planning only/i.test(deployDoc));
+
+const dockerSrc = read(DOCKERFILE_PATH) || '';
+ok('Dockerfile.crowsnest exists', fs.existsSync(DOCKERFILE_PATH));
+ok('Dockerfile uses node:22-alpine', /FROM node:22-alpine/i.test(dockerSrc));
+ok('Dockerfile exposes 3040', /EXPOSE 3040/.test(dockerSrc));
+ok('Dockerfile CMD runs crowsnest-api.js', /CMD.*scripts\/crowsnest-api\.js/.test(dockerSrc.replace(/\s+/g, ' ')));
+ok('Dockerfile sets CROWSNEST_PORT=3040', /CROWSNEST_PORT=3040/.test(dockerSrc));
+ok('Dockerfile does not reference staff-query-api.js', !/staff-query-api/.test(dockerSrc));
+ok('Dockerfile does not reference WOLFHOUSE_DATABASE_URL', !/WOLFHOUSE_DATABASE/.test(dockerSrc));
+ok('Dockerfile does not reference STRIPE', !/STRIPE/i.test(dockerSrc));
+ok('Dockerfile does not reference WHATSAPP', !/WHATSAPP/i.test(dockerSrc));
+ok('Dockerfile does not reference Azure CLI commands', !/\baz (containerapp|acr build)/.test(dockerSrc));
+ok('deploy plan mentions Dockerfile.crowsnest', /Dockerfile\.crowsnest/.test(deployDoc));
 
 let pkg = null;
 try {

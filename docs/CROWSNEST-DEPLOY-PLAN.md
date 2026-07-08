@@ -12,7 +12,7 @@ Crowsnest is the internal dev/operator portal for **Monshies** and **Earthling**
 
 | Topic | Today |
 |-------|--------|
-| Code | Standalone skeleton in repo: `scripts/crowsnest-api.js`, `scripts/lib/crowsnest/`, `scripts/verify-crowsnest.js` |
+| Code | Standalone skeleton in repo: `scripts/crowsnest-api.js`, `scripts/lib/crowsnest/`, `scripts/verify-crowsnest.js`, **`Dockerfile.crowsnest`** |
 | Local run | `npm run crowsnest:start` → port **3040**, `writes_enabled: false` |
 | Domain | `crowsnest.lunafrontdesk.com` is a **custom domain alias on Wolfhouse staff-staging** Container App `wh-staging-staff-api` |
 | Staff staging | `staff-staging.lunafrontdesk.com` also points to **`wh-staging-staff-api`** (same app, same image, Staff API + portal) |
@@ -95,43 +95,20 @@ Root [`Dockerfile`](../Dockerfile) runs Staff API:
 
 Crowsnest needs port **3040**, no Staff API, no DB — **use a dedicated Dockerfile**.
 
-### 4.2 Proposed `Dockerfile.crowsnest`
+### 4.2 `Dockerfile.crowsnest` (in repo)
 
-**Add in a future implementation slice** (not created by this planning doc unless operator approves):
-
-```dockerfile
-FROM node:22-alpine
-
-WORKDIR /app
-
-ENV NODE_ENV=production
-ENV CROWSNEST_PORT=3040
-ENV CROWSNEST_HOST=0.0.0.0
-
-COPY package*.json ./
-RUN npm ci --omit=dev
-
-COPY scripts ./scripts
-COPY docs/CROWSNEST.md docs/CROWSNEST-LOCATION-PLAN.md docs/CROWSNEST-DEPLOY-PLAN.md ./docs/
-
-EXPOSE 3040
-
-CMD ["node", "scripts/crowsnest-api.js"]
-```
-
-Notes:
-
-- No `database/`, `config/clients/`, or `public/` unless a later slice needs them for read-only registry display.
-- Image tag = **current short/full git SHA** at build time (`assert-deploy-from-master` / clean tree policy applies to operator builds).
-- Build example ( **DO NOT RUN YET** ):
+Committed at repo root — local build only until operator approves deploy:
 
 ```bash
-# DO NOT RUN YET — proposed only
-SHA=$(git rev-parse HEAD)
-az acr build --registry whstagingacr \
-  --image crowsnest:${SHA} \
-  --file Dockerfile.crowsnest .
+# Local smoke only — not Azure deploy
+docker build -f Dockerfile.crowsnest -t crowsnest:local .
+docker run --rm -p 3040:3040 crowsnest:local
+curl -fsS http://127.0.0.1:3040/healthz
 ```
+
+Contents match deploy requirements: `node:22-alpine`, port **3040**, `CMD node scripts/crowsnest-api.js`, no Staff API / DB / Stripe / WhatsApp env.
+
+### 4.3 Proposed ACR build (DO NOT RUN YET)
 
 ---
 
