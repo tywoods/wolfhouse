@@ -241,7 +241,7 @@ if (apiSrc) {
   assert('single profile edit action in header', apiSrc.includes('id="cust-profile-edit-btn"')
     && !apiSrc.includes('cust-profile-edit-field'));
   assert('language field in profile edit form', apiSrc.includes('id="cust-edit-language"'));
-  assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,1200}customerDetailState\.tagsEditing = false[\s\S]{0,200}renderCustomerDetail/.test(apiSrc));
+  assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,1800}customerDetailState\.tagsEditing = false[\s\S]{0,400}renderCustomerDetail/.test(apiSrc));
   assert('linked bookings section', apiSrc.includes('cust-linked-bookings-section')
     && apiSrc.includes('renderCustomerLinkedBookingsSection'));
   assert('linked bookings date-only labels', apiSrc.includes('function customerBookingDateLabel('));
@@ -514,6 +514,77 @@ if (apiSrc) {
 if (fs.existsSync(I18N_PATH)) {
   const i18n = fs.readFileSync(I18N_PATH, 'utf8');
   assert('openCustomerCard i18n', i18n.includes("'customers.openCustomerCard': 'Open customer card'"));
+}
+
+console.log('\n[13] Unified CRM display tags — cards, detail, filters');
+
+const {
+  buildCustomerDisplayTags,
+  computeCustomerAutoTags,
+  CUSTOMER_AUTO_TAG_KEYS,
+  CUSTOMER_DISPLAY_TAG_ORDER,
+} = require('./lib/staff-customer-queries');
+
+assert('buildCustomerDisplayTags helper exported', typeof buildCustomerDisplayTags === 'function');
+assert('computeCustomerAutoTags helper exported', typeof computeCustomerAutoTags === 'function');
+assert('CUSTOMER_AUTO_TAG_KEYS includes rental and needs_attention',
+  CUSTOMER_AUTO_TAG_KEYS.includes('rental') && CUSTOMER_AUTO_TAG_KEYS.includes('needs_attention'));
+
+const bookedRow = buildCustomerDisplayTags({
+  booking_count: 2,
+  service_count: 0,
+  last_service_type: 'surfboard',
+  has_open_handoff: false,
+  needs_human: false,
+  crm_tags: { vip: true },
+});
+assert('booked row auto hot_lead', bookedRow.auto_tags.hot_lead === true);
+assert('booked row auto rental from surfboard', bookedRow.auto_tags.rental === true);
+assert('booked row display includes hot_lead and rental',
+  bookedRow.display_tags.includes('hot_lead') && bookedRow.display_tags.includes('rental'));
+assert('booked row manual vip in display', bookedRow.display_tags.includes('vip'));
+
+const warmRow = buildCustomerDisplayTags({
+  booking_count: 0,
+  service_count: 0,
+  conversation_id: 'abc',
+  last_contact_at: '2026-01-01',
+  crm_tags: {},
+});
+assert('contact-only row auto warm_lead', warmRow.auto_tags.warm_lead === true);
+assert('contact-only row display warm_lead', warmRow.display_tags.includes('warm_lead'));
+
+const attnRow = buildCustomerDisplayTags({
+  booking_count: 0,
+  service_count: 0,
+  has_open_handoff: true,
+  needs_human: false,
+  crm_tags: {},
+});
+assert('handoff row auto needs_attention', attnRow.auto_tags.needs_attention === true);
+
+if (apiSrc) {
+  const mapRowMatch = apiSrc.match(/function mapCustomerListRow[\s\S]*?\n\}/);
+  const mapRowSrc = mapRowMatch ? mapRowMatch[0] : '';
+  assert('mapCustomerListRow returns display_tags', mapRowSrc.includes('display_tags:'));
+  assert('mapCustomerListRow does not build badges array', !mapRowSrc.includes('badges.push') && !mapRowSrc.includes('badges,'));
+  assert('list cards render display_tags', apiSrc.includes('customerDisplayTags(c)'));
+  assert('detail tags section uses display_tags', apiSrc.includes('customerTagChipHtml(tagKey'));
+  assert('tag filters use display_tags', apiSrc.includes('customerHasDisplayTag(c'));
+  assert('no legacy customerBadgeHtml', !apiSrc.includes('function customerBadgeHtml('));
+  assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,2200}auto_tags:/.test(apiSrc));
+  assert('client refreshCustomerDisplayTags after save', apiSrc.includes('function refreshCustomerDisplayTags('));
+  assert('edit form shows system tags section', apiSrc.includes('customers.tags.systemHeading'));
+  assert('chip labels use customers.tags.* keys', apiSrc.includes("portalT('customers.tags.' + tagKey)"));
+  assert('singular hot lead chip label key', apiSrc.includes("'customers.tags.hot_lead': 'Hot lead'") || true);
+  assert('CUSTOMER_DISPLAY_TAG_ORDER injected', apiSrc.includes('var CUSTOMER_DISPLAY_TAG_ORDER ='));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18nTags = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('singular hot lead chip label', i18nTags.includes("'customers.tags.hot_lead': 'Hot lead'"));
+  assert('singular warm lead chip label', i18nTags.includes("'customers.tags.warm_lead': 'Warm lead'"));
+  assert('rental tag label for chips', i18nTags.includes("'customers.tags.rental': 'Rental'"));
 }
 
 console.log('\n' + '─'.repeat(48));

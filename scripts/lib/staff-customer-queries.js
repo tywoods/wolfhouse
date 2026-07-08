@@ -64,6 +64,141 @@ function parseCrmTagsFromDb(raw) {
   }
 }
 
+/** System-derived tag keys (subset may overlap editable CRM keys like hot_lead). */
+const CUSTOMER_AUTO_TAG_KEYS = [
+  'hot_lead',
+  'warm_lead',
+  'rental',
+  'surf_school',
+  'needs_attention',
+];
+
+/** Stable chip order for cards, detail, and client-side filters. */
+const CUSTOMER_DISPLAY_TAG_ORDER = [
+  'needs_attention',
+  'do_not_contact',
+  'hot_lead',
+  'warm_lead',
+  'lead',
+  'rental',
+  'surf_school',
+  'repeat_guest',
+  'vip',
+  'local',
+  'accommodation',
+  'newsletter_ok',
+];
+
+/**
+ * Normalize list-row or customer-context shapes into tag computation input.
+ * @param {object} raw
+ */
+function resolveCustomerTagInput(raw) {
+  if (!raw || typeof raw !== 'object') {
+    return {
+      crm_tags: null,
+      booking_count: 0,
+      service_count: 0,
+      last_service_type: '',
+      has_open_handoff: false,
+      needs_human: false,
+      conversation_id: null,
+      last_contact_at: null,
+    };
+  }
+  if (raw.booking_count != null || raw.is_booked != null || raw.last_service_type != null) {
+    return {
+      crm_tags: raw.crm_tags,
+      booking_count: Number(raw.booking_count) || (raw.is_booked ? 1 : 0),
+      service_count: Number(raw.service_count) || 0,
+      last_service_type: String(raw.last_service_type || ''),
+      has_open_handoff: !!raw.has_open_handoff,
+      needs_human: !!raw.needs_human,
+      conversation_id: raw.conversation_id || null,
+      last_contact_at: raw.last_contact_at || null,
+    };
+  }
+  const identity = raw.identity || raw;
+  const bookings = Array.isArray(raw.bookings) ? raw.bookings : [];
+  const serviceRecords = Array.isArray(raw.service_records) ? raw.service_records : [];
+  const openHandoffs = Array.isArray(raw.open_handoffs) ? raw.open_handoffs : [];
+  let lastServiceType = '';
+  if (serviceRecords.length) {
+    const sorted = serviceRecords.slice().sort((a, b) => {
+      const da = a.service_date || a.created_at || '';
+      const db = b.service_date || b.created_at || '';
+      return String(db).localeCompare(String(da));
+    });
+    lastServiceType = String(sorted[0].service_type || '');
+  }
+  const activeBookings = bookings.filter((b) => {
+    const st = String(b.booking_status || b.status || '').toLowerCase();
+    return st !== 'cancelled' && st !== 'expired';
+  });
+  return {
+    crm_tags: identity.crm_tags,
+    booking_count: activeBookings.length,
+    service_count: serviceRecords.length,
+    last_service_type: lastServiceType,
+    has_open_handoff: openHandoffs.length > 0,
+    needs_human: !!identity.needs_human,
+    conversation_id: identity.conversation_id || null,
+    last_contact_at: identity.last_contact_at || null,
+  };
+}
+
+/**
+ * Compute system-derived tags from bookings, services, contact, and handoffs.
+ * Does not read persisted crm_tags except indirectly via resolveCustomerTagInput.
+ *
+ * @param {object} input - list row, context payload, or resolved tag input
+ * @returns {Record<string, boolean>}
+ */
+function computeCustomerAutoTags(input) {
+  const resolved = (input && input.booking_count != null && input.last_service_type != null
+    && input.conversation_id !== undefined && !input.identity)
+    ? input
+    : resolveCustomerTagInput(input);
+  const auto = {};
+  const bookingCount = Number(resolved.booking_count) || 0;
+  const serviceCount = Number(resolved.service_count) || 0;
+  const hasContact = !!(resolved.conversation_id || resolved.last_contact_at);
+  if (bookingCount > 0 || serviceCount > 0) {
+    auto.hot_lead = true;
+  } else if (hasContact) {
+    auto.warm_lead = true;
+  }
+  const serviceType = String(resolved.last_service_type || '');
+  if (serviceType === 'wetsuit' || serviceType === 'surfboard') auto.rental = true;
+  if (serviceType === 'surf_lesson') auto.surf_school = true;
+  if (resolved.has_open_handoff || resolved.needs_human) auto.needs_attention = true;
+  return auto;
+}
+
+/**
+ * Union persisted CRM tags with computed auto tags for display/filtering.
+ *
+ * @param {object} input - list row or customer context payload
+ * @returns {{ crm_tags: object, auto_tags: Record<string, boolean>, display_tags: string[] }}
+ */
+function buildCustomerDisplayTags(input) {
+  const resolved = resolveCustomerTagInput(input);
+  const crmTags = parseCrmTagsFromDb(resolved.crm_tags);
+  const autoTags = computeCustomerAutoTags(resolved);
+  const displayObj = {};
+  for (const key of CRM_TAG_KEYS) {
+    if (crmTags[key]) displayObj[key] = true;
+  }
+  for (const key of CUSTOMER_AUTO_TAG_KEYS) {
+    if (autoTags[key]) displayObj[key] = true;
+  }
+  return {
+    crm_tags: crmTags,
+    auto_tags: autoTags,
+    display_tags: CUSTOMER_DISPLAY_TAG_ORDER.filter((key) => displayObj[key]),
+  };
+}
+
 /**
  * Parse PATCH /staff/customers/:phone/tags body.
  * @returns {{ ok: true, tags: object } | { ok: false, error: string }}
@@ -877,6 +1012,11 @@ function buildCustomerListParams(clientSlug, query) {
 module.exports = {
   ALLOWED_FILTERS,
   CRM_TAG_KEYS,
+  CUSTOMER_AUTO_TAG_KEYS,
+  CUSTOMER_DISPLAY_TAG_ORDER,
+  resolveCustomerTagInput,
+  computeCustomerAutoTags,
+  buildCustomerDisplayTags,
   normalizeCustomerPhone,
   customerPhoneDigits,
   sqlCustomerPhoneMatch,

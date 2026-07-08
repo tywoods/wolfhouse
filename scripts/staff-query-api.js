@@ -210,7 +210,10 @@ const {
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,
   CRM_TAG_KEYS,
+  CUSTOMER_AUTO_TAG_KEYS,
+  CUSTOMER_DISPLAY_TAG_ORDER,
   parseCrmTagsFromDb,
+  buildCustomerDisplayTags,
   parseCustomerTagsUpdateBody,
   updateCustomerCrmTags,
   parseCustomerProfileUpdateBody,
@@ -17218,7 +17221,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-badge-lesson{background:#e4edf2;color:#4a6270;border-color:#cddbe3}
 .customers-badge-rental{background:#f2ebe2;color:#8a6840;border-color:#e8ddd0}
 .customers-badge-attn{background:#f0e6e2;color:#8f5644;border-color:#e5d5ce}
+.customers-badge-warm{background:#ede8e4;color:#6d6258;border-color:#ddd4cc}
+.customers-badge-auto{opacity:.92;font-style:normal}
+.customers-badge-auto::after{content:' · auto';font-weight:500;opacity:.75;font-size:8px}
+.customers-tags-system{margin-top:10px;padding-top:10px;border-top:1px dashed var(--border-soft)}
+.customers-tags-system-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:6px}
+.customers-tags-system-note{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.4}
 [data-theme="dark"] .customers-badge-booked{background:rgba(111,167,131,.18);color:#b5cfc0;border-color:rgba(111,167,131,.32)}
+[data-theme="dark"] .customers-badge-warm{background:rgba(180,160,130,.12);color:#c4b8a8;border-color:rgba(180,160,130,.22)}
 [data-theme="dark"] .customers-badge-lesson{background:rgba(122,170,187,.16);color:#a8c4d0;border-color:rgba(122,170,187,.28)}
 [data-theme="dark"] .customers-badge-rental{background:rgba(200,160,110,.14);color:#d4b896;border-color:rgba(200,160,110,.26)}
 [data-theme="dark"] .customers-badge-attn{background:rgba(200,130,110,.14);color:#d4a898;border-color:rgba(200,130,110,.26)}
@@ -27019,7 +27029,7 @@ var CUSTOMERS_STATUS_FILTER_DEFS = [
 ];
 
 var CUSTOMERS_TAG_FILTER_DEFS = [
-  { id: 'rental', i18n: 'customers.filter.rental', match: function(c) { return (c.badges || []).indexOf('rental') >= 0; } },
+  { id: 'rental', i18n: 'customers.filter.rental', tag: 'rental' },
   { id: 'accommodation', i18n: 'customers.tags.accommodation', tag: 'accommodation' },
   { id: 'surf_school', i18n: 'customers.tags.surf_school', tag: 'surf_school' },
   { id: 'vip', i18n: 'customers.tags.vip', tag: 'vip' },
@@ -27027,21 +27037,27 @@ var CUSTOMERS_TAG_FILTER_DEFS = [
   { id: 'newsletter_ok', i18n: 'customers.tags.newsletter_ok', tag: 'newsletter_ok' },
 ];
 
-function customerFilterLabel(def) {
-  return portalT(def.i18n);
+function customerDisplayTags(c) {
+  if (!c) return [];
+  if (Array.isArray(c.display_tags)) return c.display_tags;
+  return [];
+}
+
+function customerHasDisplayTag(c, tagKey) {
+  return customerDisplayTags(c).indexOf(tagKey) >= 0;
 }
 
 function customerMatchesTagFilter(c, filterId) {
   for (var i = 0; i < CUSTOMERS_TAG_FILTER_DEFS.length; i++) {
     var def = CUSTOMERS_TAG_FILTER_DEFS[i];
     if (def.id !== filterId) continue;
-    if (def.match) return def.match(c);
-    if (def.tag) {
-      var tags = c.crm_tags || {};
-      return !!tags[def.tag];
-    }
+    if (def.tag) return customerHasDisplayTag(c, def.tag);
   }
   return true;
+}
+
+function customerFilterLabel(def) {
+  return portalT(def.i18n);
 }
 
 function getActiveCustomersTagFilterIds() {
@@ -27177,9 +27193,7 @@ function customerHasValidPhone(c) {
 
 function customerIsDoNotContact(c) {
   if (!c) return false;
-  var tags = c.crm_tags || {};
-  if (tags.do_not_contact) return true;
-  return (c.badges || []).indexOf('do_not_contact') >= 0;
+  return customerHasDisplayTag(c, 'do_not_contact');
 }
 
 function getCustomersBulkSelectedPhones() {
@@ -27730,28 +27744,43 @@ function closeCustomersOutreachDrawer() {
   if (drawer) { drawer.classList.remove('open'); drawer.setAttribute('aria-hidden', 'true'); }
 }
 
-function customerBadgeHtml(badge) {
+function customerTagChipHtml(tagKey, opts) {
+  opts = opts || {};
+  var isAuto = !!opts.auto;
   var cls = 'customers-badge';
-  if (badge === 'booked' || badge === 'hot_leads') cls += ' customers-badge-booked';
-  else if (badge === 'lesson') cls += ' customers-badge-lesson';
-  else if (badge === 'rental') cls += ' customers-badge-rental';
-  else if (badge === 'needs_attention') cls += ' customers-badge-attn';
-  else if (badge === 'do_not_contact') cls += ' customers-badge-dnc';
-  else if (badge.indexOf('tag_') === 0) cls += ' customers-badge-tag';
-  var label = badge;
-  if (badge === 'booked' || badge === 'hot_leads') label = portalT('customers.filter.hotLeads');
-  else if (badge === 'lesson') label = 'Lesson';
-  else if (badge === 'rental') label = 'Rental';
-  else if (badge === 'needs_attention') label = portalT('customers.filter.needsAttention');
-  else if (badge === 'do_not_contact') label = portalT('customers.filter.doNotContact');
-  else if (badge.indexOf('tag_') === 0) {
-    var tagKey = badge.slice(4);
-    label = portalT('customers.tags.' + tagKey) || tagKey;
-  }
-  return '<span class="' + cls + '">' + escHtml(label) + '</span>';
+  if (tagKey === 'hot_lead') cls += ' customers-badge-booked';
+  else if (tagKey === 'warm_lead') cls += ' customers-badge-warm';
+  else if (tagKey === 'surf_school') cls += ' customers-badge-lesson';
+  else if (tagKey === 'rental') cls += ' customers-badge-rental';
+  else if (tagKey === 'needs_attention') cls += ' customers-badge-attn';
+  else if (tagKey === 'do_not_contact') cls += ' customers-badge-dnc';
+  else cls += ' customers-badge-tag';
+  if (isAuto) cls += ' customers-badge-auto';
+  var label = portalT('customers.tags.' + tagKey) || tagKey;
+  var title = isAuto ? portalT('customers.tags.autoTitle') : '';
+  return '<span class="' + cls + '"' + (title ? ' title="' + escHtml(title) + '"' : '') + '>' + escHtml(label) + '</span>';
 }
 
 var CUSTOMER_CRM_TAG_KEYS = ${JSON.stringify(CRM_TAG_KEYS)};
+var CUSTOMER_AUTO_TAG_KEYS = ${JSON.stringify(CUSTOMER_AUTO_TAG_KEYS)};
+var CUSTOMER_DISPLAY_TAG_ORDER = ${JSON.stringify(CUSTOMER_DISPLAY_TAG_ORDER)};
+
+function refreshCustomerDisplayTags(identity) {
+  if (!identity) return [];
+  var crm = identity.crm_tags || {};
+  var auto = identity.auto_tags || {};
+  var display = [];
+  CUSTOMER_DISPLAY_TAG_ORDER.forEach(function(key) {
+    if (crm[key] || auto[key]) display.push(key);
+  });
+  identity.display_tags = display;
+  return display;
+}
+
+function customerTagIsAuto(tagKey, identity) {
+  var auto = (identity && identity.auto_tags) || {};
+  return !!auto[tagKey];
+}
 
 function formatCustomerWhen(iso) {
   if (!iso) return '—';
@@ -27776,7 +27805,9 @@ function renderCustomersList(rows) {
     var contact = [];
     if (c.email) contact.push(c.email);
     if (c.phone) contact.push(c.phone);
-    var badges = (c.badges || []).map(customerBadgeHtml).join('');
+    var tagChips = customerDisplayTags(c).map(function(tagKey) {
+      return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, c) });
+    }).join('');
     var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
     var bulkSel = customersBulkSelected[c.phone] ? ' bulk-selected' : '';
     var bulkChecked = customersBulkSelected[c.phone] ? ' checked' : '';
@@ -27787,7 +27818,7 @@ function renderCustomersList(rows) {
       '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
       '<div class="customers-card-meta">' + escHtml(portalT('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
-      (badges ? '<div class="customers-badges">' + badges + '</div>' : '') +
+      (tagChips ? '<div class="customers-badges">' + tagChips + '</div>' : '') +
       '</div></div>';
   }).join('');
   updateCustomersBulkSelectionUI();
@@ -27796,15 +27827,17 @@ function renderCustomersList(rows) {
 var customerDetailState = { phone: null, data: null, editing: false, tagsEditing: false };
 
 function renderCustomerTagsSection(data) {
-  var tags = (data.identity && data.identity.crm_tags) || {};
+  var identity = (data && data.identity) || {};
+  var tags = identity.crm_tags || {};
+  var autoTags = identity.auto_tags || {};
+  var displayTags = customerDisplayTags(identity).length ? customerDisplayTags(identity) : refreshCustomerDisplayTags(identity);
   var html = '<div class="customers-section" id="cust-tags-section">';
   html += '<div class="customers-section-hdr">' + escHtml(portalT('customers.tags.title')) + '</div>';
   if (!customerDetailState.tagsEditing) {
-    var active = CUSTOMER_CRM_TAG_KEYS.filter(function(key) { return tags[key]; });
     html += '<div class="customers-tags-view">';
-    if (active.length) {
-      html += '<div class="customers-tags-chips">' + active.map(function(key) {
-        return customerBadgeHtml('tag_' + key);
+    if (displayTags.length) {
+      html += '<div class="customers-tags-chips">' + displayTags.map(function(tagKey) {
+        return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, identity) });
       }).join('') + '</div>';
     } else {
       html += '<span class="customers-tags-empty">' + escHtml(portalT('customers.tags.none')) + '</span>';
@@ -27813,12 +27846,23 @@ function renderCustomerTagsSection(data) {
     html += '</div>';
   } else {
     html += '<div class="customers-tags-edit">';
+    html += '<div class="customers-tags-system-hdr">' + escHtml(portalT('customers.tags.manualHeading')) + '</div>';
     html += '<div class="customers-tags-grid">';
     CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
       var checked = tags[key] ? ' checked' : '';
       html += '<label class="customers-tag-toggle"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
     });
     html += '</div>';
+    var autoActive = CUSTOMER_AUTO_TAG_KEYS.filter(function(key) { return autoTags[key]; });
+    if (autoActive.length) {
+      html += '<div class="customers-tags-system">';
+      html += '<div class="customers-tags-system-hdr">' + escHtml(portalT('customers.tags.systemHeading')) + '</div>';
+      html += '<div class="customers-tags-chips">' + autoActive.map(function(tagKey) {
+        return customerTagChipHtml(tagKey, { auto: true });
+      }).join('') + '</div>';
+      html += '<p class="customers-tags-system-note">' + escHtml(portalT('customers.tags.systemNote')) + '</p>';
+      html += '</div>';
+    }
     html += '<div class="customers-profile-actions">';
     html += '<button type="button" class="btn btn-primary" id="cust-tags-save">' + escHtml(portalT('customers.tags.save')) + '</button>';
     html += '<button type="button" class="btn btn-ghost" id="cust-tags-cancel">' + escHtml(portalT('customers.cancel')) + '</button>';
@@ -27874,6 +27918,7 @@ function customerSaveTags() {
       }
       if (customerDetailState.data && customerDetailState.data.identity) {
         customerDetailState.data.identity.crm_tags = res.body.crm_tags || tags;
+        refreshCustomerDisplayTags(customerDetailState.data.identity);
       }
       customerDetailState.tagsEditing = false;
       renderCustomerDetail(customerDetailState.data);
@@ -40027,17 +40072,7 @@ function handleLoginPage(res) {
 
 function mapCustomerListRow(row) {
   const serviceType = row.last_service_type || '';
-  const crmTags = parseCrmTagsFromDb(row.crm_tags);
-  const badges = [];
-  if (row.is_booked) badges.push('hot_leads');
-  if (serviceType === 'surf_lesson') badges.push('lesson');
-  if (serviceType === 'wetsuit' || serviceType === 'surfboard') badges.push('rental');
-  if (row.has_open_handoff || row.needs_human) badges.push('needs_attention');
-  if (crmTags.do_not_contact) badges.push('do_not_contact');
-  for (const key of CRM_TAG_KEYS) {
-    if (key === 'do_not_contact') continue;
-    if (crmTags[key]) badges.push(`tag_${key}`);
-  }
+  const tagBundle = buildCustomerDisplayTags(row);
   let lastServiceSummary = null;
   if (serviceType) {
     const qty = row.last_service_quantity != null ? row.last_service_quantity : 1;
@@ -40061,8 +40096,9 @@ function mapCustomerListRow(row) {
     has_open_handoff: !!row.has_open_handoff,
     is_booked: !!row.is_booked,
     checked_in_now: !!row.checked_in_now,
-    crm_tags: crmTags,
-    badges,
+    crm_tags: tagBundle.crm_tags,
+    auto_tags: tagBundle.auto_tags,
+    display_tags: tagBundle.display_tags,
     last_message_preview: row.last_message_preview || null,
   };
 }
@@ -41420,10 +41456,25 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
       const st = String(h.handoff_status || '').toLowerCase();
       return st === 'open' || st === 'assigned' || st === 'waiting_guest';
     });
+    const tagBundle = buildCustomerDisplayTags({
+      identity: data.identity,
+      bookings: data.bookings,
+      service_records: data.service_records,
+      open_handoffs: openHandoffs,
+    });
     const identity = data.identity ? {
       ...data.identity,
-      crm_tags: parseCrmTagsFromDb(data.identity.crm_tags),
-    } : { phone, display_name: null, email: null, crm_tags: parseCrmTagsFromDb(null) };
+      crm_tags: tagBundle.crm_tags,
+      auto_tags: tagBundle.auto_tags,
+      display_tags: tagBundle.display_tags,
+    } : {
+      phone,
+      display_name: null,
+      email: null,
+      crm_tags: tagBundle.crm_tags,
+      auto_tags: tagBundle.auto_tags,
+      display_tags: tagBundle.display_tags,
+    };
 
     const elapsed = Date.now() - started;
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
