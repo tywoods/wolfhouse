@@ -188,12 +188,11 @@ if (fs.existsSync(I18N_PATH)) {
 }
 
 if (apiSrc) {
-  assert('warm_leads filter pebble', apiSrc.includes('data-cust-filter="warm_leads"'));
-  assert('hot_leads filter pebble', apiSrc.includes('data-cust-filter="hot_leads"'));
-  assert('checked_in_now lodging-only pebble', apiSrc.includes('data-cust-filter="checked_in_now"')
-    && apiSrc.includes('customers-filter-lodging-only'));
-  assert('do_not_contact filter pebble', apiSrc.includes('data-cust-filter="do_not_contact"'));
-  assert('warm leads tooltip title attr', apiSrc.includes('data-i18n-title="customers.filter.warmLeadsTitle"'));
+  assert('warm_leads status filter in dropdown defs', apiSrc.includes("id: 'warm_leads'") && apiSrc.includes('CUSTOMERS_STATUS_FILTER_DEFS'));
+  assert('hot_leads status filter in dropdown defs', apiSrc.includes("id: 'hot_leads'"));
+  assert('checked_in_now lodging-only in dropdown defs', apiSrc.includes("id: 'checked_in_now'") && apiSrc.includes('lodgingOnly: true'));
+  assert('do_not_contact status filter in dropdown defs', apiSrc.includes("id: 'do_not_contact'"));
+  assert('filters dropdown trigger', apiSrc.includes('id="cust-filters-btn"') && apiSrc.includes('data-cust-status-filter'));
   assert('PATCH /staff/customers/:phone/tags route', apiSrc.includes('CUSTOMER_TAGS_RE')
     && apiSrc.includes('handleCustomerTagsUpdate'));
   assert('customers.tags audit intent', apiSrc.includes("intent: 'api:customers.tags'"));
@@ -206,7 +205,8 @@ console.log('\n[7] Outreach drawer shell — selection UI, no sends');
 
 if (apiSrc) {
   assert('bulk selection checkboxes', apiSrc.includes('cust-bulk-check') && apiSrc.includes('customers-card-check'));
-  assert('selected count toolbar', apiSrc.includes('id="cust-selected-count"') && apiSrc.includes('updateCustomersBulkSelectionUI'));
+  assert('bulk action bar + selected count', apiSrc.includes('id="cust-bulk-bar"') && apiSrc.includes('id="cust-selected-count"') && apiSrc.includes('updateCustomersBulkSelectionUI'));
+  assert('select all shown control', apiSrc.includes('id="cust-select-all-shown"') && apiSrc.includes('selectAllShownCustomers'));
   assert('message selected button', apiSrc.includes('id="cust-message-selected-btn"'));
   assert('outreach drawer shell', apiSrc.includes('id="customers-outreach-drawer"') && apiSrc.includes('cust-outreach-backdrop'));
   assert('drawer recipients + warnings', apiSrc.includes('buildCustomersOutreachPlan') && apiSrc.includes('skippedDnc'));
@@ -330,6 +330,7 @@ if (apiSrc) {
   assert('send uses assertStaffClientAccess', /handleCustomerOutreachSend[\s\S]{0,900}assertStaffClientAccess/.test(apiSrc));
   assert('send requires confirmed in body fetch', apiSrc.includes('confirmed: true'));
   assert('confirmation modal UI', apiSrc.includes('cust-outreach-confirm-modal') && apiSrc.includes('cust-outreach-confirm-send'));
+  assert('confirm skipped join escaped for embedded script', apiSrc.includes("lines.join('\\\\n')"));
   assert('modal shows preview + stats', apiSrc.includes('cust-outreach-confirm-preview') && apiSrc.includes('openCustomersOutreachConfirmModal'));
   assert('results panel UI', apiSrc.includes('renderCustomersOutreachResults'));
   assert('send button gated by message length', apiSrc.includes('updateCustomersOutreachSendButton'));

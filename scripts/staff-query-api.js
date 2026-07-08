@@ -17153,35 +17153,105 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
 #tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
-.customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:20px 20px 16px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
-.customers-header{margin-bottom:14px}
-.customers-header h2{font-size:18px;font-weight:800;color:var(--text);margin:0 0 4px}
-.customers-header p{font-size:13px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
-.customers-promo{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.5;max-width:720px}
-.customers-toolbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:14px}
-.customers-add-panel{width:100%;flex-basis:100%;padding:14px 16px;margin-bottom:4px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
+.customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
+.customers-header{margin-bottom:12px}
+.customers-header h2{font-size:17px;font-weight:800;color:var(--text);margin:0 0 3px;letter-spacing:-.01em}
+.customers-header p{font-size:12px;color:var(--text-2);margin:0;line-height:1.45;max-width:640px}
+.customers-promo{font-size:11px;color:var(--text-3);margin:6px 0 0;line-height:1.5;max-width:720px}
+.customers-toolbar{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+.customers-toolbar-main{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.customers-search{flex:1 1 220px;min-width:0;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface);box-shadow:inset 0 1px 2px rgba(0,0,0,.03)}
+.customers-search:focus{outline:none;border-color:var(--tan);box-shadow:0 0 0 2px rgba(180,160,130,.18)}
+.customers-filters-wrap{position:relative;flex:0 0 auto}
+.customers-filters-trigger{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:12px;font-weight:600;white-space:nowrap}
+.customers-filters-trigger.has-active{border-color:var(--tan);color:var(--text)}
+.customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;min-width:min(320px,92vw);max-height:min(70vh,420px);overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px 0;display:none}
+.customers-filters-menu.open{display:block}
+.customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
+.customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
+.customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
+.customers-filters-option{display:flex;align-items:center;gap:8px;width:100%;padding:8px 14px;border:none;background:transparent;text-align:left;font-size:12px;font-weight:500;color:var(--text-2);cursor:pointer}
+.customers-filters-option:hover{background:var(--surface-soft);color:var(--text)}
+.customers-filters-option.active{color:var(--text);font-weight:600;background:var(--surface-soft)}
+.customers-filters-option input[type=checkbox]{margin:0;flex-shrink:0}
+.customers-add-btn{margin-left:auto;flex:0 0 auto;white-space:nowrap}
+.customers-filter-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:0}
+.customers-filter-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;font-weight:500;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);line-height:1.3}
+.customers-filter-chip button{border:none;background:transparent;color:var(--text-3);cursor:pointer;padding:0 2px;font-size:13px;line-height:1}
+.customers-filter-chip button:hover{color:var(--text)}
+.customers-bulk-bar{display:none;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 12px;margin-bottom:10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
+.customers-bulk-bar.is-visible{display:flex}
+.customers-selected-count{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap;margin-right:4px}
+.customers-bulk-bar .btn{font-size:12px;padding:7px 12px}
+.customers-bulk-bar .btn-primary{margin-left:auto}
+.customers-add-panel{width:100%;padding:12px 14px;margin-bottom:8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.customers-search{flex:1;min-width:200px;max-width:420px;padding:9px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
-.customers-filter-btn{padding:7px 14px;font-size:12px;font-weight:600;border:1px solid var(--border);border-radius:var(--radius-pill);background:var(--surface);color:var(--text-2);cursor:pointer}
-.customers-filter-btn.active{background:var(--surface-soft);color:var(--text);border-color:var(--tan)}
-.customers-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
-.customers-tags-grid{display:flex;flex-wrap:wrap;gap:10px 14px;margin-top:4px}
-.customers-tag-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer}
+.customers-tags-grid{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:6px}
+.customers-tag-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer;padding:4px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
 .customers-tag-toggle input{margin:0}
-.customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border)}
-.customers-badge-dnc{background:#fde8e8;color:#9b1c1c;border:1px solid #f5c2c2}
-.customers-two-col{display:grid;grid-template-columns:minmax(280px,360px) minmax(0,1fr);gap:16px;flex:1;min-height:0;overflow:hidden}
-@media(max-width:900px){.customers-two-col{grid-template-columns:1fr;overflow:auto}}
+.customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
+.customers-badge-dnc{background:#f3e8e8;color:#8b4545;border:1px solid #e6cfcf}
+.customers-two-col{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;flex:1;min-height:0;overflow:hidden}
+@media(max-width:900px){.customers-two-col{grid-template-columns:1fr;overflow:auto}.customers-add-btn{margin-left:0}.customers-toolbar-main{align-items:stretch}.customers-filters-wrap,.customers-add-btn{flex:1 1 auto}.customers-bulk-bar .btn-primary{margin-left:0;width:100%;justify-content:center}}
 .customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
-.customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:8px}
-.customers-card{padding:12px 14px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:6px;transition:background .15s,border-color .15s}
+.customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:6px}
+.customers-card{position:relative;padding:9px 34px 9px 11px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:4px;transition:background .12s,border-color .12s,box-shadow .12s}
 .customers-card:hover{background:var(--surface-soft)}
-.customers-card.selected{background:var(--surface-soft);border-color:var(--tan)}
-.customers-card-row{display:flex;align-items:flex-start;gap:10px}
-.customers-card-check{flex:0 0 auto;margin-top:2px;cursor:pointer}
-.customers-card-check input{margin:0;width:16px;height:16px;cursor:pointer}
-.customers-card-body{flex:1;min-width:0}
-.customers-selected-count{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap}
+.customers-card.selected{border-color:var(--border);background:var(--surface-soft);box-shadow:inset 3px 0 0 var(--tan)}
+.customers-card.bulk-selected{background:rgba(180,160,130,.08);border-color:rgba(180,160,130,.35)}
+.customers-card.selected.bulk-selected{box-shadow:inset 3px 0 0 var(--tan)}
+.customers-card-check{position:absolute;top:8px;right:8px;margin:0;cursor:pointer;z-index:1;line-height:0}
+.customers-card-check input{margin:0;width:15px;height:15px;cursor:pointer;accent-color:var(--primary)}
+.customers-card-body{min-width:0}
+.customers-card-name{font-size:13px;font-weight:700;color:var(--text);margin-bottom:1px;line-height:1.3}
+.customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:4px;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.customers-card-preview{font-size:11px;color:var(--text-2);line-height:1.35;margin-bottom:3px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+.customers-card-meta{font-size:10px;color:var(--text-3)}
+.customers-badges{display:flex;flex-wrap:wrap;gap:3px;margin-top:4px}
+.customers-badge{display:inline-block;font-size:9px;font-weight:600;padding:1px 6px;border-radius:var(--radius-pill);letter-spacing:.02em;border:1px solid transparent;line-height:1.45}
+.customers-badge-booked{background:#e8f0e4;color:#5a6d52;border-color:#d4e0cc}
+.customers-badge-lesson{background:#e4edf2;color:#4a6270;border-color:#cddbe3}
+.customers-badge-rental{background:#f2ebe2;color:#8a6840;border-color:#e8ddd0}
+.customers-badge-attn{background:#f0e6e2;color:#8f5644;border-color:#e5d5ce}
+[data-theme="dark"] .customers-badge-booked{background:rgba(111,167,131,.18);color:#b5cfc0;border-color:rgba(111,167,131,.32)}
+[data-theme="dark"] .customers-badge-lesson{background:rgba(122,170,187,.16);color:#a8c4d0;border-color:rgba(122,170,187,.28)}
+[data-theme="dark"] .customers-badge-rental{background:rgba(200,160,110,.14);color:#d4b896;border-color:rgba(200,160,110,.26)}
+[data-theme="dark"] .customers-badge-attn{background:rgba(200,130,110,.14);color:#d4a898;border-color:rgba(200,130,110,.26)}
+[data-theme="dark"] .customers-badge-tag{background:rgba(255,255,255,.06);color:var(--text-2);border-color:rgba(255,255,255,.1)}
+[data-theme="dark"] .customers-badge-dnc{background:rgba(180,90,90,.14);color:#d4a0a0;border-color:rgba(180,90,90,.28)}
+.customers-detail-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;overflow-y:auto;min-height:0}
+.customers-detail-empty{color:var(--text-3);font-size:13px;padding:20px 8px;text-align:center}
+.customers-profile-summary{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
+.customers-profile-summary-hdr{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--text-2);letter-spacing:.02em}
+.customers-profile-identity{min-width:0;flex:1}
+.customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:-.01em}
+.customers-profile-contact{font-size:12px;color:var(--text-3);line-height:1.4;word-break:break-word}
+.customers-profile-fields{display:flex;flex-direction:column;gap:8px}
+.customers-profile-field{display:grid;grid-template-columns:minmax(72px,88px) minmax(0,1fr) auto;gap:6px 10px;align-items:start;font-size:12px;line-height:1.45}
+.customers-profile-field-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);padding-top:2px}
+.customers-profile-field-value{color:var(--text);word-break:break-word}
+.customers-profile-field-value.is-muted{color:var(--text-3);font-style:italic}
+.customers-inline-edit{flex:0 0 auto;border:none;background:transparent;color:var(--text-3);cursor:pointer;padding:2px 4px;font-size:12px;line-height:1;border-radius:4px}
+.customers-inline-edit:hover{color:var(--text);background:var(--surface-soft)}
+.customers-profile-edit-form{display:flex;flex-direction:column;gap:10px}
+.customers-profile-kv{margin:0 0 8px;font-size:13px;line-height:1.45}
+.customers-profile-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.customers-edit-field{display:block;margin-bottom:10px}
+.customers-edit-field span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
+.customers-edit-field input,.customers-edit-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.customers-tags-view{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.customers-tags-chips{display:flex;flex-wrap:wrap;gap:4px;flex:1;min-width:0}
+.customers-tags-empty{font-size:12px;color:var(--text-3);font-style:italic}
+.customers-section{margin-top:14px}
+.customers-section-hdr{font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:.01em}
+.customers-section-body{font-size:12px;color:var(--text-2);line-height:1.5}
+.customers-section-empty{font-size:12px;color:var(--text-3);font-style:italic}
+.customers-msg{border-top:1px solid var(--border-soft);padding:7px 0}
+.customers-msg-dir{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3)}
+.customers-row-table{width:100%;border-collapse:collapse;font-size:11px}
+.customers-row-table th,.customers-row-table td{padding:5px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
+#tab-customers .state-msg{margin:8px 0;font-size:13px;color:var(--text-2)}
 .customers-outreach-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:9200;display:none}
 .customers-outreach-backdrop.open{display:block}
 .customers-outreach-drawer{position:fixed;top:0;right:0;width:min(440px,92vw);height:100vh;height:100dvh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9201;padding:16px 18px;overflow:auto;box-sizing:border-box;display:none;flex-direction:column;gap:12px;transform:translateX(100%);transition:transform .22s ease}
@@ -17218,32 +17288,6 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-result-error{color:#9b1c1c}
 .customers-outreach-confirm-preview{white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;max-height:180px;overflow:auto}
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
-.customers-card-name{font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px}
-.customers-card-contact{font-size:11px;color:var(--text-3);margin-bottom:6px;line-height:1.4}
-.customers-card-preview{font-size:12px;color:var(--text-2);line-height:1.4;margin-bottom:6px;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
-.customers-card-meta{font-size:11px;color:var(--text-3)}
-.customers-badges{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}
-.customers-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:var(--radius-pill);letter-spacing:.03em}
-.customers-badge-booked{background:#DCEAD2;color:#5C7350}
-.customers-badge-lesson{background:#D5E5EF;color:#3F6070}
-.customers-badge-rental{background:#F5E6D2;color:#A2743D}
-.customers-badge-attn{background:#EFD9D0;color:#9C5742}
-.customers-detail-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:18px 20px;overflow-y:auto;min-height:0}
-.customers-detail-empty{color:var(--text-3);font-size:13px;padding:24px 8px;text-align:center}
-.customers-profile-kv{margin:0 0 8px;font-size:13px;line-height:1.45}
-.customers-profile-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-.customers-edit-field{display:block;margin-bottom:12px}
-.customers-edit-field span{display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin-bottom:4px}
-.customers-edit-field input,.customers-edit-field textarea{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
-.customers-section{margin-top:18px}
-.customers-section-hdr{font-size:13px;font-weight:700;color:var(--text);margin-bottom:8px}
-.customers-section-body{font-size:12px;color:var(--text-2);line-height:1.5}
-.customers-section-empty{font-size:12px;color:var(--text-3);font-style:italic}
-.customers-msg{border-top:1px solid var(--border-soft);padding:8px 0}
-.customers-msg-dir{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3)}
-.customers-row-table{width:100%;border-collapse:collapse;font-size:12px}
-.customers-row-table th,.customers-row-table td{padding:6px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
-#tab-customers .state-msg{margin:8px 0;font-size:13px;color:var(--text-2)}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -18568,15 +18612,20 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
   </header>
   <div class="customers-toolbar">
-    <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
-    <button type="button" class="customers-filter-btn active" data-cust-filter="all" data-i18n="customers.filter.all">All</button>
-    <button type="button" class="customers-filter-btn" data-cust-filter="warm_leads" data-i18n="customers.filter.warmLeads" data-i18n-title="customers.filter.warmLeadsTitle" title="Contacted but never booked">Warm Leads</button>
-    <button type="button" class="customers-filter-btn" data-cust-filter="hot_leads" data-i18n="customers.filter.hotLeads" data-i18n-title="customers.filter.hotLeadsTitle" title="Customers who have booked before">Hot Leads</button>
-    <button type="button" class="customers-filter-btn customers-filter-lodging-only" data-cust-filter="checked_in_now" data-i18n="customers.filter.checkedInNow" data-i18n-title="customers.filter.checkedInNowTitle" title="Currently checked in (accommodation)" style="display:none">Checked In Now</button>
-    <button type="button" class="customers-filter-btn" data-cust-filter="do_not_contact" data-i18n="customers.filter.doNotContact" data-i18n-title="customers.filter.doNotContactTitle" title="Marked do not contact">Do Not Contact</button>
-    <button type="button" class="customers-filter-btn" data-cust-filter="needs_attention" data-i18n="customers.filter.needsAttention">Needs attention</button>
-    <button type="button" id="cust-add-btn" class="customers-filter-btn" data-i18n="customers.add">Add customer</button>
+    <div class="customers-toolbar-main">
+      <input type="search" id="cust-search" class="customers-search" data-i18n-placeholder="customers.searchPlaceholder" placeholder="Search by name, email, or phone" autocomplete="off">
+      <div class="customers-filters-wrap">
+        <button type="button" id="cust-filters-btn" class="btn btn-ghost customers-filters-trigger" aria-haspopup="true" aria-expanded="false" data-i18n="customers.filters.button">Filters</button>
+        <div id="cust-filters-menu" class="customers-filters-menu" role="menu" aria-hidden="true"></div>
+      </div>
+      <button type="button" id="cust-add-btn" class="btn btn-primary customers-add-btn" data-i18n="customers.add">Add customer</button>
+    </div>
+    <div id="cust-filter-chips" class="customers-filter-chips" aria-live="polite"></div>
+  </div>
+  <div id="cust-bulk-bar" class="customers-bulk-bar" aria-hidden="true">
     <span id="cust-selected-count" class="customers-selected-count">0 selected</span>
+    <button type="button" id="cust-select-all-shown" class="btn btn-ghost" data-i18n="customers.bulk.selectAllShown">Select all shown</button>
+    <button type="button" id="cust-clear-selection" class="btn btn-ghost" data-i18n="customers.bulk.clearSelection">Clear selection</button>
     <button type="button" id="cust-message-selected-btn" class="btn btn-primary" disabled data-i18n="customers.outreach.messageSelected">Message selected</button>
   </div>
   <div id="cust-add-panel" class="customers-add-panel" style="display:none" aria-hidden="true">
@@ -20799,17 +20848,17 @@ function applyCustomersPortalI18n(profile){
   });
   updateCustomersBulkSelectionUI();
   applyCustomersFilterVisibility(profile);
+  renderCustomersFilterUI();
 }
 
 function applyCustomersFilterVisibility(profile){
   profile = profile || getPortalProfile(getClient());
   var showCheckedIn = !profile.is_surf_vertical;
-  document.querySelectorAll('.customers-filter-lodging-only').forEach(function(btn){
-    btn.style.display = showCheckedIn ? '' : 'none';
-    if (!showCheckedIn && btn.getAttribute('data-cust-filter') === 'checked_in_now' && customersFilter === 'checked_in_now') {
-      setCustomersFilter('all');
-    }
-  });
+  if (!showCheckedIn && customersFilter === 'checked_in_now') {
+    setCustomersFilter('all');
+    return;
+  }
+  renderCustomersFilterUI();
 }
 
 function applyClientPortalProfile(clientSlug){
@@ -26952,9 +27001,173 @@ function wireAdminTab(){
 ${getWolfhouseServicesAdminSource()}
 var customersCache = [];
 var customersFilter = 'all';
+var customersTagFilters = {};
 var selectedCustomerPhone = null;
 var customersSearchTimer = null;
 var customersBulkSelected = {};
+var customersFiltersMenuOpen = false;
+
+var CUSTOMERS_STATUS_FILTER_DEFS = [
+  { id: 'all', i18n: 'customers.filter.all' },
+  { id: 'warm_leads', i18n: 'customers.filter.warmLeads', title: 'customers.filter.warmLeadsTitle', lodgingOnly: false },
+  { id: 'hot_leads', i18n: 'customers.filter.hotLeads', title: 'customers.filter.hotLeadsTitle' },
+  { id: 'checked_in_now', i18n: 'customers.filter.checkedInNow', title: 'customers.filter.checkedInNowTitle', lodgingOnly: true },
+  { id: 'do_not_contact', i18n: 'customers.filter.doNotContact', title: 'customers.filter.doNotContactTitle' },
+  { id: 'needs_attention', i18n: 'customers.filter.needsAttention' },
+];
+
+var CUSTOMERS_TAG_FILTER_DEFS = [
+  { id: 'rental', i18n: 'customers.filter.rental', match: function(c) { return (c.badges || []).indexOf('rental') >= 0; } },
+  { id: 'accommodation', i18n: 'customers.tags.accommodation', tag: 'accommodation' },
+  { id: 'surf_school', i18n: 'customers.tags.surf_school', tag: 'surf_school' },
+  { id: 'vip', i18n: 'customers.tags.vip', tag: 'vip' },
+  { id: 'local', i18n: 'customers.tags.local', tag: 'local' },
+  { id: 'newsletter_ok', i18n: 'customers.tags.newsletter_ok', tag: 'newsletter_ok' },
+];
+
+function customerFilterLabel(def) {
+  return portalT(def.i18n);
+}
+
+function customerMatchesTagFilter(c, filterId) {
+  for (var i = 0; i < CUSTOMERS_TAG_FILTER_DEFS.length; i++) {
+    var def = CUSTOMERS_TAG_FILTER_DEFS[i];
+    if (def.id !== filterId) continue;
+    if (def.match) return def.match(c);
+    if (def.tag) {
+      var tags = c.crm_tags || {};
+      return !!tags[def.tag];
+    }
+  }
+  return true;
+}
+
+function getActiveCustomersTagFilterIds() {
+  return Object.keys(customersTagFilters).filter(function(k) { return customersTagFilters[k]; });
+}
+
+function getCustomersVisibleRows() {
+  var rows = customersCache || [];
+  var tagIds = getActiveCustomersTagFilterIds();
+  if (!tagIds.length) return rows;
+  return rows.filter(function(c) {
+    return tagIds.every(function(fid) { return customerMatchesTagFilter(c, fid); });
+  });
+}
+
+function customersHasActiveFilters() {
+  return customersFilter !== 'all' || getActiveCustomersTagFilterIds().length > 0;
+}
+
+function customerProfileInitials(name) {
+  var parts = String(name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function closeCustomersFiltersMenu() {
+  customersFiltersMenuOpen = false;
+  var menu = el('cust-filters-menu');
+  var btn = el('cust-filters-btn');
+  if (menu) { menu.classList.remove('open'); menu.setAttribute('aria-hidden', 'true'); }
+  if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleCustomersFiltersMenu(forceOpen) {
+  var menu = el('cust-filters-menu');
+  if (!menu) return;
+  var open = forceOpen === true ? true : (forceOpen === false ? false : !customersFiltersMenuOpen);
+  customersFiltersMenuOpen = open;
+  menu.classList.toggle('open', open);
+  menu.setAttribute('aria-hidden', open ? 'false' : 'true');
+  var btn = el('cust-filters-btn');
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+  if (open) renderCustomersFiltersMenu();
+}
+
+function renderCustomersFiltersMenu() {
+  var menu = el('cust-filters-menu');
+  if (!menu) return;
+  var profile = getPortalProfile(getClient());
+  var showCheckedIn = !profile.is_surf_vertical;
+  var html = '<div class="customers-filters-group"><div class="customers-filters-group-hdr">' + escHtml(portalT('customers.filters.statusHeading')) + '</div>';
+  CUSTOMERS_STATUS_FILTER_DEFS.forEach(function(def) {
+    if (def.lodgingOnly && !showCheckedIn) return;
+    var active = customersFilter === def.id;
+    var title = def.title ? ' title="' + escHtml(portalT(def.title)) + '"' : '';
+    html += '<button type="button" class="customers-filters-option' + (active ? ' active' : '') + '" data-cust-status-filter="' + escHtml(def.id) + '"' + title + ' role="menuitemradio" aria-checked="' + (active ? 'true' : 'false') + '">' + escHtml(customerFilterLabel(def)) + '</button>';
+  });
+  html += '</div><div class="customers-filters-group"><div class="customers-filters-group-hdr">' + escHtml(portalT('customers.filters.tagsHeading')) + '</div>';
+  CUSTOMERS_TAG_FILTER_DEFS.forEach(function(def) {
+    var checked = !!customersTagFilters[def.id];
+    html += '<label class="customers-filters-option' + (checked ? ' active' : '') + '" role="menuitemcheckbox"><input type="checkbox" data-cust-tag-filter="' + escHtml(def.id) + '"' + (checked ? ' checked' : '') + '> ' + escHtml(customerFilterLabel(def)) + '</label>';
+  });
+  html += '</div>';
+  if (customersHasActiveFilters()) {
+    html += '<div class="customers-filters-group"><button type="button" class="customers-filters-option" data-cust-clear-filters role="menuitem">' + escHtml(portalT('customers.filters.clearAll')) + '</button></div>';
+  }
+  menu.innerHTML = html;
+}
+
+function renderCustomersFilterChips() {
+  var box = el('cust-filter-chips');
+  var trigger = el('cust-filters-btn');
+  if (trigger) trigger.classList.toggle('has-active', customersHasActiveFilters());
+  if (!box) return;
+  var chips = [];
+  if (customersFilter !== 'all') {
+    CUSTOMERS_STATUS_FILTER_DEFS.forEach(function(def) {
+      if (def.id === customersFilter) {
+        chips.push({ kind: 'status', id: def.id, label: customerFilterLabel(def) });
+      }
+    });
+  }
+  getActiveCustomersTagFilterIds().forEach(function(id) {
+    CUSTOMERS_TAG_FILTER_DEFS.forEach(function(def) {
+      if (def.id === id) chips.push({ kind: 'tag', id: id, label: customerFilterLabel(def) });
+    });
+  });
+  if (!chips.length) { box.innerHTML = ''; return; }
+  box.innerHTML = chips.map(function(chip) {
+    return '<span class="customers-filter-chip">' + escHtml(chip.label) +
+      '<button type="button" data-cust-chip-remove="' + escHtml(chip.kind + ':' + chip.id) + '" aria-label="Remove ' + escHtml(chip.label) + '">×</button></span>';
+  }).join('');
+}
+
+function renderCustomersFilterUI() {
+  renderCustomersFiltersMenu();
+  renderCustomersFilterChips();
+}
+
+function clearCustomersFilters() {
+  customersFilter = 'all';
+  customersTagFilters = {};
+  customersBulkSelected = {};
+  closeCustomersOutreachDrawer();
+  renderCustomersFilterUI();
+  loadCustomersList();
+}
+
+function toggleCustomersTagFilter(id) {
+  if (!id) return;
+  if (customersTagFilters[id]) delete customersTagFilters[id];
+  else customersTagFilters[id] = true;
+  renderCustomersFilterUI();
+  renderCustomersList(getCustomersVisibleRows());
+}
+
+function selectAllShownCustomers() {
+  getCustomersVisibleRows().forEach(function(c) {
+    if (c && c.phone) customersBulkSelected[c.phone] = true;
+  });
+  renderCustomersList(getCustomersVisibleRows());
+}
+
+function clearCustomersBulkSelection() {
+  customersBulkSelected = {};
+  renderCustomersList(getCustomersVisibleRows());
+}
 
 function customerHasValidPhone(c) {
   return !!(c && c.phone && String(c.phone).trim());
@@ -26982,10 +27195,19 @@ function updateCustomersBulkSelectionUI() {
   var count = getCustomersBulkSelectedPhones().length;
   var countEl = el('cust-selected-count');
   var btn = el('cust-message-selected-btn');
+  var bar = el('cust-bulk-bar');
+  if (bar) {
+    bar.classList.toggle('is-visible', count > 0);
+    bar.setAttribute('aria-hidden', count > 0 ? 'false' : 'true');
+  }
   if (countEl) {
     countEl.textContent = portalT('customers.outreach.selectedCount').replace('{count}', String(count));
   }
-  if (btn) btn.disabled = count < 1;
+  if (btn) {
+    btn.disabled = count < 1;
+    var label = portalT('customers.outreach.messageSelected');
+    btn.textContent = count > 0 ? (label + ' (' + String(count) + ')') : label;
+  }
 }
 
 function buildCustomersOutreachPlan() {
@@ -27553,43 +27775,78 @@ function renderCustomersList(rows) {
     if (c.phone) contact.push(c.phone);
     var badges = (c.badges || []).map(customerBadgeHtml).join('');
     var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
+    var bulkSel = customersBulkSelected[c.phone] ? ' bulk-selected' : '';
     var bulkChecked = customersBulkSelected[c.phone] ? ' checked' : '';
-    return '<div class="customers-card' + sel + '" data-phone="' + escHtml(c.phone) + '">' +
-      '<div class="customers-card-row">' +
-      '<label class="customers-card-check"><input type="checkbox" class="cust-bulk-check" data-phone="' + escHtml(c.phone) + '"' + bulkChecked + ' aria-label="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"></label>' +
+    return '<div class="customers-card' + sel + bulkSel + '" data-phone="' + escHtml(c.phone) + '">' +
+      '<label class="customers-card-check" title="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"><input type="checkbox" class="cust-bulk-check" data-phone="' + escHtml(c.phone) + '"' + bulkChecked + ' aria-label="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"></label>' +
       '<div class="customers-card-body">' +
       '<div class="customers-card-name">' + escHtml(name) + '</div>' +
       '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
       (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
       '<div class="customers-card-meta">' + escHtml(portalT('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
       (badges ? '<div class="customers-badges">' + badges + '</div>' : '') +
-      '</div></div></div>';
+      '</div></div>';
   }).join('');
   updateCustomersBulkSelectionUI();
 }
 
-var customerDetailState = { phone: null, data: null, editing: false };
+var customerDetailState = { phone: null, data: null, editing: false, tagsEditing: false };
 
 function renderCustomerTagsSection(data) {
   var tags = (data.identity && data.identity.crm_tags) || {};
   var html = '<div class="customers-section" id="cust-tags-section">';
   html += '<div class="customers-section-hdr">' + escHtml(portalT('customers.tags.title')) + '</div>';
-  html += '<div class="customers-tags-grid">';
-  CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
-    var checked = tags[key] ? ' checked' : '';
-    html += '<label class="customers-tag-toggle"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
-  });
-  html += '</div>';
-  html += '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-tags-save">' + escHtml(portalT('customers.tags.save')) + '</button></div>';
+  if (!customerDetailState.tagsEditing) {
+    var active = CUSTOMER_CRM_TAG_KEYS.filter(function(key) { return tags[key]; });
+    html += '<div class="customers-tags-view">';
+    if (active.length) {
+      html += '<div class="customers-tags-chips">' + active.map(function(key) {
+        return customerBadgeHtml('tag_' + key);
+      }).join('') + '</div>';
+    } else {
+      html += '<span class="customers-tags-empty">' + escHtml(portalT('customers.tags.none')) + '</span>';
+    }
+    html += '<button type="button" class="btn btn-ghost" id="cust-tags-edit-toggle">' + escHtml(portalT('customers.tags.edit')) + '</button>';
+    html += '</div>';
+  } else {
+    html += '<div class="customers-tags-edit">';
+    html += '<div class="customers-tags-grid">';
+    CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
+      var checked = tags[key] ? ' checked' : '';
+      html += '<label class="customers-tag-toggle"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
+    });
+    html += '</div>';
+    html += '<div class="customers-profile-actions">';
+    html += '<button type="button" class="btn btn-primary" id="cust-tags-save">' + escHtml(portalT('customers.tags.save')) + '</button>';
+    html += '<button type="button" class="btn btn-ghost" id="cust-tags-cancel">' + escHtml(portalT('customers.cancel')) + '</button>';
+    html += '</div></div>';
+  }
   html += '<p id="cust-tags-msg" class="state-msg" style="display:none;margin-top:8px"></p></div>';
   return html;
 }
 
 function wireCustomerTagsActions() {
+  var editBtn = el('cust-tags-edit-toggle');
+  if (editBtn && !editBtn.dataset.wired) {
+    editBtn.dataset.wired = '1';
+    editBtn.addEventListener('click', function() {
+      customerDetailState.tagsEditing = true;
+      if (customerDetailState.data) renderCustomerDetail(customerDetailState.data);
+    });
+  }
+  var cancelBtn = el('cust-tags-cancel');
+  if (cancelBtn && !cancelBtn.dataset.wired) {
+    cancelBtn.dataset.wired = '1';
+    cancelBtn.addEventListener('click', function() {
+      customerDetailState.tagsEditing = false;
+      if (customerDetailState.data) renderCustomerDetail(customerDetailState.data);
+    });
+  }
   var saveBtn = el('cust-tags-save');
-  if (!saveBtn || saveBtn.dataset.wired) return;
-  saveBtn.dataset.wired = '1';
-  saveBtn.addEventListener('click', function(){ customerSaveTags(); });
+  if (saveBtn && !saveBtn.dataset.wired) {
+    saveBtn.dataset.wired = '1';
+    saveBtn.addEventListener('click', function(){ customerSaveTags(); });
+  }
 }
 
 function customerSaveTags() {
@@ -27616,6 +27873,7 @@ function customerSaveTags() {
         customerDetailState.data.identity.crm_tags = res.body.crm_tags || tags;
       }
       if (msg) { msg.className = 'state-msg'; msg.textContent = portalT('customers.tags.saved'); msg.style.display = 'block'; }
+      customerDetailState.tagsEditing = false;
       loadCustomersList();
     })
     .catch(function(err){
@@ -27632,23 +27890,32 @@ function customerProfileNotes(data) {
 function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
+  var displayName = id.display_name || data.phone || 'Guest';
+  var editLabel = escHtml(portalT('customers.profile.editField'));
   if (!editing) {
-    return '<div class="customers-section" id="cust-profile-section">' +
-      '<div class="customers-section-hdr">' + escHtml(id.display_name || data.phone || 'Guest') + '</div>' +
-      '<div class="customers-section-body customers-profile-view">' +
-      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.phone')) + ':</strong> ' + escHtml(data.phone || '—') + '</p>' +
-      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.email')) + ':</strong> ' + escHtml(id.email || '—') + '</p>' +
-      (isSunsetSurfActive() ? '<p class="customers-profile-kv"><strong>' + escHtml(t('customers.detail.school')) + ':</strong> ' + escHtml(getSunsetLocationLabel()) + '</p>' : '') +
-      '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.notes')) + ':</strong> ' + escHtml(notes || portalT('customers.detail.noNotes')) + '</p>' +
-      (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
+    var contactBits = [];
+    if (data.phone) contactBits.push(data.phone);
+    if (id.email) contactBits.push(id.email);
+    return '<div class="customers-profile-summary" id="cust-profile-section">' +
+      '<div class="customers-profile-summary-hdr">' +
+      '<div class="customers-profile-avatar" aria-hidden="true">' + escHtml(customerProfileInitials(displayName)) + '</div>' +
+      '<div class="customers-profile-identity">' +
+      '<h3 class="customers-profile-name">' + escHtml(displayName) + '</h3>' +
+      '<div class="customers-profile-contact">' + escHtml(contactBits.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
+      '</div></div>' +
+      '<div class="customers-profile-fields">' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value">' + escHtml(data.phone || '—') + '</span><button type="button" class="customers-inline-edit" id="cust-profile-edit" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="email" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
+      (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="notes" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
+      (id.language ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value">' + escHtml(id.language) + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="language" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' : '') +
       '</div>' +
-      '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-profile-edit">' + escHtml(portalT('customers.edit')) + '</button></div>' +
       '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
       '</div>';
   }
   return '<div class="customers-section" id="cust-profile-section">' +
     '<div class="customers-section-hdr">' + escHtml(portalT('customers.editProfile')) + '</div>' +
-    '<div class="customers-section-body customers-profile-edit">' +
+    '<div class="customers-section-body customers-profile-edit-form">' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.name')) + '</span><input id="cust-edit-name" type="text" value="' + escHtml(id.display_name || '') + '"></label>' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.phone')) + '</span><input id="cust-edit-phone" type="tel" value="' + escHtml(data.phone || '') + '"></label>' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.email')) + '</span><input id="cust-edit-email" type="email" value="' + escHtml(id.email || '') + '"></label>' +
@@ -27665,6 +27932,9 @@ function renderCustomerProfileSection(data, editing) {
 function wireCustomerProfileActions(data) {
   var editBtn = el('cust-profile-edit');
   if (editBtn) editBtn.addEventListener('click', function(){ customerEnterEditMode(); });
+  document.querySelectorAll('.cust-profile-edit-field').forEach(function(btn) {
+    btn.addEventListener('click', function(){ customerEnterEditMode(); });
+  });
   var saveBtn = el('cust-profile-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ customerSaveProfile(); });
   var cancelBtn = el('cust-profile-cancel');
@@ -27789,7 +28059,7 @@ function loadCustomersList() {
   fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data) {
       customersCache = (data && data.customers) || [];
-      renderCustomersList(customersCache);
+      renderCustomersList(getCustomersVisibleRows());
       if (state) state.style.display = customersCache.length ? 'none' : 'block';
       if (state && !customersCache.length) state.textContent = '';
     })
@@ -27799,9 +28069,9 @@ function loadCustomersList() {
 }
 
 function loadCustomerDetail(phone) {
-  customerDetailState = { phone: phone, data: null, editing: false };
+  customerDetailState = { phone: phone, data: null, editing: false, tagsEditing: false };
   selectedCustomerPhone = phone;
-  renderCustomersList(customersCache);
+  renderCustomersList(getCustomersVisibleRows());
   var box = el('cust-detail');
   if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.loading')) + '</div>';
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient()) +
@@ -27819,22 +28089,85 @@ function setCustomersFilter(mode) {
   customersFilter = mode || 'all';
   customersBulkSelected = {};
   closeCustomersOutreachDrawer();
-  document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
-    btn.classList.toggle('active', btn.getAttribute('data-cust-filter') === customersFilter);
-  });
+  renderCustomersFilterUI();
   loadCustomersList();
+}
+
+function wireCustomersFiltersUI() {
+  var trigger = el('cust-filters-btn');
+  if (trigger && !trigger.dataset.wired) {
+    trigger.dataset.wired = '1';
+    trigger.addEventListener('click', function(ev) {
+      ev.stopPropagation();
+      toggleCustomersFiltersMenu();
+    });
+  }
+  var menu = el('cust-filters-menu');
+  if (menu && !menu.dataset.wired) {
+    menu.dataset.wired = '1';
+    menu.addEventListener('click', function(ev) {
+      var statusBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cust-status-filter]') : null;
+      if (statusBtn) {
+        setCustomersFilter(statusBtn.getAttribute('data-cust-status-filter'));
+        closeCustomersFiltersMenu();
+        return;
+      }
+      var clearBtn = ev.target && ev.target.closest ? ev.target.closest('[data-cust-clear-filters]') : null;
+      if (clearBtn) {
+        clearCustomersFilters();
+        closeCustomersFiltersMenu();
+      }
+    });
+    menu.addEventListener('change', function(ev) {
+      var tagInput = ev.target;
+      if (!tagInput || !tagInput.matches || !tagInput.matches('[data-cust-tag-filter]')) return;
+      var id = tagInput.getAttribute('data-cust-tag-filter');
+      if (!id) return;
+      if (tagInput.checked) customersTagFilters[id] = true;
+      else delete customersTagFilters[id];
+      renderCustomersFilterUI();
+      renderCustomersList(getCustomersVisibleRows());
+    });
+  }
+  var chips = el('cust-filter-chips');
+  if (chips && !chips.dataset.wired) {
+    chips.dataset.wired = '1';
+    chips.addEventListener('click', function(ev) {
+      var btn = ev.target && ev.target.closest ? ev.target.closest('[data-cust-chip-remove]') : null;
+      if (!btn) return;
+      var token = btn.getAttribute('data-cust-chip-remove') || '';
+      var parts = token.split(':');
+      if (parts[0] === 'status') setCustomersFilter('all');
+      else if (parts[0] === 'tag') toggleCustomersTagFilter(parts[1]);
+    });
+  }
+  if (!document.body.dataset.custFiltersDocWired) {
+    document.body.dataset.custFiltersDocWired = '1';
+    document.addEventListener('click', function(ev) {
+      if (!customersFiltersMenuOpen) return;
+      var wrap = ev.target && ev.target.closest ? ev.target.closest('.customers-filters-wrap') : null;
+      if (!wrap) closeCustomersFiltersMenu();
+    });
+  }
 }
 
 function wireCustomersTab() {
   if (!el('tab-customers')) return;
-  document.querySelectorAll('.customers-filter-btn').forEach(function(btn) {
-    if (btn.dataset.wired || btn.id === 'cust-add-btn') return;
-    btn.dataset.wired = '1';
-    btn.addEventListener('click', function() { setCustomersFilter(btn.getAttribute('data-cust-filter')); });
-  });
+  wireCustomersFiltersUI();
+  renderCustomersFilterUI();
   wireCustomerAddForm();
   wireCustomersOutreachDrawer();
   updateCustomersBulkSelectionUI();
+  var selectAllBtn = el('cust-select-all-shown');
+  if (selectAllBtn && !selectAllBtn.dataset.wired) {
+    selectAllBtn.dataset.wired = '1';
+    selectAllBtn.addEventListener('click', function() { selectAllShownCustomers(); });
+  }
+  var clearBtn = el('cust-clear-selection');
+  if (clearBtn && !clearBtn.dataset.wired) {
+    clearBtn.dataset.wired = '1';
+    clearBtn.addEventListener('click', function() { clearCustomersBulkSelection(); });
+  }
   var search = el('cust-search');
   if (search && !search.dataset.wired) {
     search.dataset.wired = '1';
@@ -27870,7 +28203,7 @@ function customerToggleAddPanel(show) {
   var open = show === true || (show !== false && panel.style.display === 'none');
   panel.style.display = open ? 'block' : 'none';
   panel.setAttribute('aria-hidden', open ? 'false' : 'true');
-  if (btn) btn.classList.toggle('active', open);
+  if (btn) btn.setAttribute('aria-expanded', open ? 'true' : 'false');
   if (!open) {
     var msg = el('cust-add-msg');
     if (msg) msg.style.display = 'none';
