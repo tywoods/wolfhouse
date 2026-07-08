@@ -41624,7 +41624,7 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
     return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'update failed' });
+    return sendJSON(res, 500, { success: false, error: 'update failed', detail: err.message });
   }
 }
 

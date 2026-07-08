@@ -756,7 +756,11 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
     };
   } catch (err) {
     await pg.query('ROLLBACK');
-    throw err;
+    return {
+      ok: false,
+      status: 500,
+      body: { success: false, error: 'update failed', detail: err.message },
+    };
   }
 }
 
