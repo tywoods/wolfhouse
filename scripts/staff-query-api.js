@@ -31905,7 +31905,10 @@ function bcRenderGuestNameInputs(){
       html += ' data-bed-code="' + escHtml(bed.bed_code) + '" data-room-code="' + escHtml(bed.room_code) + '"';
     }
     html += ' placeholder="Full name" value="' + escHtml(val) + '">';
-    html += '<select id="bk-guest-package-' + i + '" class="bk-input bk-input-sm bk-guest-package-input" data-guest-num="' + i + '" aria-label="Package for guest ' + i + '" style="margin-top:4px">';
+    html += '</div>';
+    html += '<div class="bk-compact-row bk-guest-package-row">';
+    html += '<label class="bk-label" for="bk-guest-package-' + i + '">Package</label>';
+    html += '<select id="bk-guest-package-' + i + '" class="bk-input bk-input-sm bk-guest-package-input" data-guest-num="' + i + '" aria-label="Package for guest ' + i + '">';
     bcGuestPackageOptions().forEach(function(opt){
       html += '<option value="' + escHtml(opt.value) + '"' + (opt.value === pkgVal ? ' selected' : '') + '>' + escHtml(opt.label) + '</option>';
     });
