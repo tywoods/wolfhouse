@@ -17257,6 +17257,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-msg-dir{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3)}
 .customers-row-table{width:100%;border-collapse:collapse;font-size:11px}
 .customers-row-table th,.customers-row-table td{padding:5px 8px;border-bottom:1px solid var(--border-soft);text-align:left}
+.customers-row-table .cust-booking-open-cell{text-align:right;white-space:nowrap;width:1%}
+.customers-booking-open-link{font-size:11px;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;padding:0;text-decoration:underline}
+.customers-booking-open-link:hover{color:var(--primary-hover)}
 #tab-customers .state-msg{margin:8px 0;font-size:13px;color:var(--text-2)}
 .customers-outreach-backdrop{position:fixed;inset:0;background:rgba(0,0,0,.28);z-index:9200;display:none}
 .customers-outreach-backdrop.open{display:block}
@@ -27904,6 +27907,13 @@ function customerResolveConversationId(data) {
   return cs && cs.conversation_id ? cs.conversation_id : null;
 }
 
+function customerBookingDateLabel(val) {
+  if (!val) return '';
+  var s = String(val).trim();
+  if (!s) return '';
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
 function renderCustomerLinkedBookingsSection(data) {
   var bookings = (data && data.bookings) || [];
   var html = '<div class="customers-section" id="cust-linked-bookings-section">';
@@ -27914,19 +27924,33 @@ function renderCustomerLinkedBookingsSection(data) {
       '<th>' + escHtml(portalT('customers.detail.bookingDates')) + '</th>' +
       '<th>' + escHtml(portalT('customers.detail.bookingStatus')) + '</th>' +
       '<th>' + escHtml(portalT('customers.detail.paymentStatus')) + '</th>' +
+      '<th class="cust-booking-open-cell" aria-hidden="true"></th>' +
       '</tr></thead><tbody>';
     bookings.forEach(function(b) {
+      var checkIn = customerBookingDateLabel(b.check_in);
+      var checkOut = customerBookingDateLabel(b.check_out);
       var dates = '';
-      if (b.check_in || b.check_out) {
-        dates = escHtml(String(b.check_in || '—')) + ' → ' + escHtml(String(b.check_out || '—'));
+      if (checkIn || checkOut) {
+        dates = escHtml(checkIn || '—') + ' → ' + escHtml(checkOut || '—');
       } else {
         dates = '—';
       }
       var payStatus = b.payment_status || b.payment_payment_status || '—';
+      var openTitle = escHtml(portalT('customers.detail.openBookingTitle'));
+      var openLabel = escHtml(portalT('customers.detail.openBooking'));
       html += '<tr><td>' + escHtml(String(b.booking_code || '—')) + '</td>' +
         '<td>' + dates + '</td>' +
         '<td>' + escHtml(String(b.booking_status || '—')) + '</td>' +
-        '<td>' + escHtml(String(payStatus)) + '</td></tr>';
+        '<td>' + escHtml(String(payStatus)) + '</td>' +
+        '<td class="cust-booking-open-cell">' +
+        '<button type="button" class="customers-booking-open-link cust-booking-open-link" ' +
+        'title="' + openTitle + '" ' +
+        'data-booking-id="' + escHtml(String(b.booking_id || '')) + '" ' +
+        'data-booking-code="' + escHtml(String(b.booking_code || '')) + '" ' +
+        'data-check-in="' + escHtml(checkIn) + '" ' +
+        'data-check-out="' + escHtml(checkOut) + '" ' +
+        'data-guest-name="' + escHtml(String(b.guest_name || '')) + '">' +
+        openLabel + '</button></td></tr>';
     });
     html += '</tbody></table>';
   } else {
@@ -27934,6 +27958,20 @@ function renderCustomerLinkedBookingsSection(data) {
   }
   html += '</div>';
   return html;
+}
+
+function wireCustomerLinkedBookingsActions() {
+  document.querySelectorAll('.cust-booking-open-link').forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      openBookingInCalendar({
+        booking_id: btn.dataset.bookingId || null,
+        booking_code: btn.dataset.bookingCode || null,
+        check_in: btn.dataset.checkIn || null,
+        check_out: btn.dataset.checkOut || null,
+        guest_name: btn.dataset.guestName || '',
+      });
+    });
+  });
 }
 
 function renderCustomerProfileSection(data, editing) {
@@ -28148,6 +28186,7 @@ function renderCustomerDetail(data) {
   box.innerHTML = html;
   wireCustomerProfileActions(data);
   wireCustomerTagsActions();
+  wireCustomerLinkedBookingsActions();
 }
 
 function loadCustomersList() {

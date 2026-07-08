@@ -244,6 +244,9 @@ if (apiSrc) {
   assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,1200}customerDetailState\.tagsEditing = false[\s\S]{0,200}renderCustomerDetail/.test(apiSrc));
   assert('linked bookings section', apiSrc.includes('cust-linked-bookings-section')
     && apiSrc.includes('renderCustomerLinkedBookingsSection'));
+  assert('linked bookings date-only labels', apiSrc.includes('function customerBookingDateLabel('));
+  assert('linked bookings open action', apiSrc.includes('cust-booking-open-link') && apiSrc.includes('wireCustomerLinkedBookingsActions'));
+  assert('open booking link copy', apiSrc.includes("'customers.detail.openBooking'") && apiSrc.includes("'customers.detail.openBookingTitle'"));
   assert('open/start conversation action', apiSrc.includes('id="cust-conversation-btn"')
     && apiSrc.includes('customerOpenOrStartConversation'));
   assert('customer create-conversation route', apiSrc.includes('CUSTOMER_CREATE_CONVERSATION_RE')

@@ -150,6 +150,8 @@ const STAFF_PORTAL_STRINGS = {
     'customers.detail.bookingDates': 'Dates',
     'customers.detail.bookingStatus': 'Status',
     'customers.detail.paymentStatus': 'Payment',
+    'customers.detail.openBooking': 'Open Booking',
+    'customers.detail.openBookingTitle': 'Link to Booking',
     'customers.detail.lastSetup': 'Last booking summary',
     'customers.detail.lastSetup.surf': 'Last setup',
     'customers.detail.services': 'Previous services',
