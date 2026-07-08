@@ -252,7 +252,8 @@ if (apiSrc) {
   assert('outreach confirm modal above drawer z-index', apiSrc.includes('#cust-outreach-confirm-modal{z-index:9300}'));
   assert('wolfhouse customer profile PATCH uses updateCustomerProfile', apiSrc.includes('updateCustomerProfile(pg, clientSlug, phone, body)'));
   assert('handleCustomerUpdate not sunset-only gate', !/async function handleCustomerUpdate[\s\S]{0,400}return sendJSON\(res, 403[\s\S]{0,40}sunset only/.test(apiSrc));
-  assert('CRM tag keys use shared CRM_TAG_KEYS', apiSrc.includes('var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS'));
+  assert('CRM tag keys injected into portal bundle', apiSrc.includes('var CUSTOMER_CRM_TAG_KEYS = ${JSON.stringify(CRM_TAG_KEYS)}'));
+  assert('portal bundle does not reference bare CRM_TAG_KEYS', !/var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS;/.test(apiSrc));
 }
 
 console.log('\n[7] Outreach drawer shell — selection UI, no sends');

@@ -27757,7 +27757,7 @@ function customerBadgeHtml(badge) {
   return '<span class="' + cls + '">' + escHtml(label) + '</span>';
 }
 
-var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS;
+var CUSTOMER_CRM_TAG_KEYS = ${JSON.stringify(CRM_TAG_KEYS)};
 
 function formatCustomerWhen(iso) {
   if (!iso) return '—';
