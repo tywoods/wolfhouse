@@ -200,6 +200,8 @@ if (fs.existsSync(CUST_Q_PATH)) {
   assert('hot_leads requires bookings or services', hotSql.includes('booking_count, 0) > 0'));
   assert('hot_leads includes manual crm_tags.hot_lead', hotSql.includes("crm_tags->>'hot_lead'"));
   assert('do_not_contact uses crm_tags', dncSql.includes("crm_tags->>'do_not_contact'"));
+  assert('list query merges crm_tags by phone digits', warmSql.includes('customer_crm_merged'));
+  assert('list query joins aggs by phone digits', warmSql.includes('phone_digits'));
   assert('checked_in_now uses stay dates for lodging', checkedLodgingSql.includes('checked_in_agg')
     && checkedLodgingSql.includes('check_in <= CURRENT_DATE'));
   assert('checked_in_now empty for surf vertical', checkedSurfSql.includes('AND FALSE'));
@@ -241,7 +243,7 @@ if (apiSrc) {
   assert('single profile edit action in header', apiSrc.includes('id="cust-profile-edit-btn"')
     && !apiSrc.includes('cust-profile-edit-field'));
   assert('language field in profile edit form', apiSrc.includes('id="cust-edit-language"'));
-  assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,1800}customerDetailState\.tagsEditing = false[\s\S]{0,400}renderCustomerDetail/.test(apiSrc));
+  assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,2200}customerDetailState\.tagsEditing = false[\s\S]{0,600}loadCustomerDetail\(reloadPhone\)/.test(apiSrc));
   assert('linked bookings section', apiSrc.includes('cust-linked-bookings-section')
     && apiSrc.includes('renderCustomerLinkedBookingsSection'));
   assert('linked bookings date-only labels', apiSrc.includes('function customerBookingDateLabel('));
@@ -572,7 +574,7 @@ if (apiSrc) {
   assert('detail tags section uses display_tags', apiSrc.includes('customerTagChipHtml(tagKey'));
   assert('tag filters use display_tags', apiSrc.includes('customerHasDisplayTag(c'));
   assert('no legacy customerBadgeHtml', !apiSrc.includes('function customerBadgeHtml('));
-  assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,2200}auto_tags:/.test(apiSrc));
+  assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,3200}auto_tags:/.test(apiSrc));
   assert('client refreshCustomerDisplayTags after save', apiSrc.includes('function refreshCustomerDisplayTags('));
   assert('edit form shows system tags section', apiSrc.includes('customers.tags.systemHeading'));
   assert('chip labels use customers.tags.* keys', apiSrc.includes("portalT('customers.tags.' + tagKey)"));
@@ -586,6 +588,47 @@ if (fs.existsSync(I18N_PATH)) {
   assert('singular warm lead chip label', i18nTags.includes("'customers.tags.warm_lead': 'Warm lead'"));
   assert('rental tag label for chips', i18nTags.includes("'customers.tags.rental': 'Rental'"));
 }
+
+console.log('\n[14] Manual CRM tag persistence — write/read parity');
+
+const {
+  mergeCrmTagsFromDbRows,
+  loadCustomerCrmTagsMerged,
+} = require('./lib/staff-customer-queries');
+
+const custQueriesSrc = fs.readFileSync(CUST_Q_PATH, 'utf8');
+
+assert('mergeCrmTagsFromDbRows exported', typeof mergeCrmTagsFromDbRows === 'function');
+assert('loadCustomerCrmTagsMerged exported', typeof loadCustomerCrmTagsMerged === 'function');
+assert('duplicate tag merge keeps vip true',
+  mergeCrmTagsFromDbRows([{ vip: false }, { vip: true }]).vip === true);
+assert('duplicate tag merge keeps manual and auto separate keys',
+  mergeCrmTagsFromDbRows([{ vip: true }, { warm_lead: false }]).vip === true);
+
+assert('updateCustomerCrmTags uses digit phone match',
+  custQueriesSrc.includes('sqlCustomerPhoneMatch(\'cu.phone\', \'$2\')')
+  && /async function updateCustomerCrmTags[\s\S]*sqlCustomerPhoneMatch/.test(custQueriesSrc));
+assert('updateCustomerCrmTags updates all digit-matching rows',
+  /async function updateCustomerCrmTags[\s\S]*rows_updated/.test(custQueriesSrc));
+
+if (apiSrc) {
+  assert('tags PATCH normalizes phone', /function handleCustomerTagsUpdate[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(apiSrc));
+  assert('context loads merged crm tags', apiSrc.includes('loadCustomerCrmTagsMerged(pg, clientSlug, phone)'));
+  assert('tag save reloads customer detail context', /function customerSaveTags[\s\S]{0,1800}loadCustomerDetail\(reloadPhone\)/.test(apiSrc));
+  assert('list cards hide auto suffix', apiSrc.includes('compact: true'));
+  assert('detail chips may show auto styling', apiSrc.includes('customerTagIsAuto(tagKey, identity)'));
+}
+
+const vipDisplay = buildCustomerDisplayTags({
+  booking_count: 1,
+  service_count: 1,
+  last_service_type: 'surfboard',
+  crm_tags: { vip: true },
+});
+assert('display_tags includes manual vip with auto hot_lead/rental',
+  vipDisplay.display_tags.includes('vip')
+  && vipDisplay.display_tags.includes('hot_lead')
+  && vipDisplay.display_tags.includes('rental'));
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

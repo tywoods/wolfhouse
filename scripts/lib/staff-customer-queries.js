@@ -230,17 +230,18 @@ async function updateCustomerCrmTags(pg, clientSlug, phone, tags) {
        FROM clients c
       WHERE cu.client_id = c.id
         AND c.slug = $1
-        AND cu.phone = $2
-      RETURNING cu.crm_tags`,
+        AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}
+      RETURNING cu.crm_tags, cu.phone`,
     [clientSlug, normalizedPhone, JSON.stringify(crmTags)],
   );
   if (!r.rows.length) {
     return { ok: false, status: 404, body: { success: false, error: 'customer not found' } };
   }
+  const mergedTags = mergeCrmTagsFromDbRows(r.rows.map((row) => row.crm_tags));
   return {
     ok: true,
     status: 200,
-    body: { success: true, crm_tags: parseCrmTagsFromDb(r.rows[0].crm_tags) },
+    body: { success: true, crm_tags: mergedTags, rows_updated: r.rows.length },
   };
 }
 
@@ -263,6 +264,52 @@ function customerPhoneDigits(phone) {
 
 function sqlCustomerPhoneMatch(column, paramRef) {
   return `regexp_replace(COALESCE(${column}, ''), '[^0-9]', '', 'g') = regexp_replace(COALESCE(${paramRef}::text, ''), '[^0-9]', '', 'g')`;
+}
+
+/** Digits-only SQL expression for grouping/joining customer phones. */
+function sqlCustomerPhoneDigits(column) {
+  return `regexp_replace(COALESCE(${column}, ''), '[^0-9]', '', 'g')`;
+}
+
+function sqlCustomerPhoneDigitsJoin(leftCol, rightCol) {
+  return `${sqlCustomerPhoneDigits(leftCol)} = ${sqlCustomerPhoneDigits(rightCol)}`;
+}
+
+function sqlCustomerCanonicalPhoneRank(column) {
+  return `(CASE WHEN ${column} LIKE '+%' THEN 0 ELSE 1 END)`;
+}
+
+/**
+ * Merge persisted CRM tag objects (OR per key — any duplicate row true wins).
+ * @param {Array<object|string|null>} rawTagsList
+ */
+function mergeCrmTagsFromDbRows(rawTagsList) {
+  const out = normalizeCrmTags({});
+  const list = Array.isArray(rawTagsList) ? rawTagsList : [];
+  for (const raw of list) {
+    const tags = parseCrmTagsFromDb(raw);
+    for (const key of CRM_TAG_KEYS) {
+      if (tags[key]) out[key] = true;
+    }
+  }
+  return out;
+}
+
+/**
+ * Load merged manual CRM tags for all tenant customer rows matching a phone.
+ */
+async function loadCustomerCrmTagsMerged(pg, clientSlug, phone) {
+  const normalizedPhone = normalizeCustomerPhone(phone);
+  if (!clientSlug || !normalizedPhone) return normalizeCrmTags({});
+  const r = await pg.query(
+    `SELECT cu.crm_tags
+       FROM customers cu
+      INNER JOIN clients c ON c.id = cu.client_id
+      WHERE c.slug = $1
+        AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}`,
+    [clientSlug, normalizedPhone],
+  );
+  return mergeCrmTagsFromDbRows(r.rows.map((row) => row.crm_tags));
 }
 
 function trimInboundText(value, maxLen) {
@@ -469,11 +516,11 @@ function getCustomerListQuery(opts) {
     filterClause = `AND (
       COALESCE(ba.booking_count, 0) > 0
       OR COALESCE(sa.service_count, 0) > 0
-      OR COALESCE((cu.crm_tags->>'hot_lead')::boolean, FALSE) = TRUE
+      OR COALESCE((crm.crm_tags->>'hot_lead')::boolean, FALSE) = TRUE
     )`;
   } else if (filter === 'warm_leads') {
     filterClause = `AND (
-      COALESCE((cu.crm_tags->>'warm_lead')::boolean, FALSE) = TRUE
+      COALESCE((crm.crm_tags->>'warm_lead')::boolean, FALSE) = TRUE
       OR (
         (lc.conversation_id IS NOT NULL OR lc.last_contact_at IS NOT NULL)
         AND COALESCE(ba.booking_count, 0) = 0
@@ -485,7 +532,7 @@ function getCustomerListQuery(opts) {
       ? 'AND COALESCE(cia.checked_in_now, FALSE) = TRUE'
       : 'AND FALSE';
   } else if (filter === 'do_not_contact') {
-    filterClause = `AND COALESCE((cu.crm_tags->>'do_not_contact')::boolean, FALSE) = TRUE`;
+    filterClause = `AND COALESCE((crm.crm_tags->>'do_not_contact')::boolean, FALSE) = TRUE`;
   } else if (filter === 'needs_attention') {
     filterClause = 'AND (lc.needs_human OR COALESCE(ho.has_open_handoff, FALSE))';
   }
@@ -509,16 +556,58 @@ function getCustomerListQuery(opts) {
     : '';
 
   return `
-WITH customer_base AS (
-  SELECT cu.phone, cu.full_name, cu.email, cu.language, cu.notes, cu.location_id, cu.crm_tags
+WITH customer_crm_merged AS (
+  SELECT
+    ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
+    COALESCE(
+      (
+        SELECT jsonb_object_agg(s.k, to_jsonb(s.v))
+        FROM (
+          SELECT e.key AS k,
+            bool_or(
+              CASE jsonb_typeof(e.value)
+                WHEN 'boolean' THEN (e.value)::boolean
+                ELSE lower(btrim(e.value::text)) IN ('true', 't', '1')
+              END
+            ) AS v
+          FROM customers cu_inner
+          INNER JOIN clients c_inner ON c_inner.id = cu_inner.client_id
+          CROSS JOIN LATERAL jsonb_each(COALESCE(cu_inner.crm_tags, '{}'::jsonb)) e
+          WHERE c_inner.slug = $1
+            AND ${sqlCustomerPhoneDigits('cu_inner.phone')} = ${sqlCustomerPhoneDigits('cu.phone')}
+          GROUP BY e.key
+        ) s
+      ),
+      '{}'::jsonb
+    ) AS crm_tags
   FROM customers cu
   INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1
     AND cu.phone IS NOT NULL
     AND TRIM(cu.phone) <> ''${custLocClause}
+  GROUP BY ${sqlCustomerPhoneDigits('cu.phone')}
+),
+customer_base AS (
+  SELECT DISTINCT ON (${sqlCustomerPhoneDigits('cu.phone')})
+    ${sqlCustomerPhoneDigits('cu.phone')} AS phone_digits,
+    cu.phone,
+    cu.full_name,
+    cu.email,
+    cu.language,
+    cu.notes,
+    cu.location_id
+  FROM customers cu
+  INNER JOIN clients c ON c.id = cu.client_id
+  WHERE c.slug = $1
+    AND cu.phone IS NOT NULL
+    AND TRIM(cu.phone) <> ''${custLocClause}
+  ORDER BY ${sqlCustomerPhoneDigits('cu.phone')},
+    cu.updated_at DESC NULLS LAST,
+    ${sqlCustomerCanonicalPhoneRank('cu.phone')}
 ),
 latest_conv AS (
-  SELECT DISTINCT ON (conv.phone)
+  SELECT DISTINCT ON (${sqlCustomerPhoneDigits('conv.phone')})
+    ${sqlCustomerPhoneDigits('conv.phone')} AS phone_digits,
     conv.phone,
     conv.id::text AS conversation_id,
     conv.display_name,
@@ -532,10 +621,10 @@ latest_conv AS (
   INNER JOIN clients c ON c.id = conv.client_id
   WHERE c.slug = $1
     AND conv.phone IS NOT NULL${convLocClause}
-  ORDER BY conv.phone, conv.updated_at DESC
+  ORDER BY ${sqlCustomerPhoneDigits('conv.phone')}, conv.updated_at DESC
 ),
 booking_agg AS (
-  SELECT b.phone,
+  SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits,
     COUNT(*)::int AS booking_count,
     MAX(b.check_in) AS last_check_in
   FROM bookings b
@@ -543,10 +632,10 @@ booking_agg AS (
   WHERE c.slug = $1
     AND b.phone IS NOT NULL
     AND b.status NOT IN ('cancelled', 'expired')${bookingLocClause}
-  GROUP BY b.phone
+  GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
 ),
 service_agg AS (
-  SELECT b.phone,
+  SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits,
     COUNT(bsr.id)::int AS service_count,
     MAX(bsr.service_date) AS last_service_date
   FROM booking_service_records bsr
@@ -555,18 +644,20 @@ service_agg AS (
   WHERE bsr.client_slug = $1
     AND c.slug = $1
     AND b.phone IS NOT NULL${serviceLocClause}
-  GROUP BY b.phone
+  GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
 ),
 handoff_open AS (
-  SELECT DISTINCT conv.phone, TRUE AS has_open_handoff
+  SELECT ${sqlCustomerPhoneDigits('conv.phone')} AS phone_digits, TRUE AS has_open_handoff
   FROM staff_handoffs h
   INNER JOIN conversations conv ON conv.id = h.conversation_id
   INNER JOIN clients c ON c.id = conv.client_id
   WHERE c.slug = $1
     AND h.status IN ('open', 'assigned', 'waiting_guest')${convLocClause}
+  GROUP BY ${sqlCustomerPhoneDigits('conv.phone')}
 ),
 last_service AS (
-  SELECT DISTINCT ON (b.phone)
+  SELECT DISTINCT ON (${sqlCustomerPhoneDigits('b.phone')})
+    ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits,
     b.phone,
     bsr.service_type,
     bsr.quantity,
@@ -576,10 +667,10 @@ last_service AS (
   INNER JOIN bookings b ON b.id = bsr.booking_id
   WHERE bsr.client_slug = $1
     AND b.phone IS NOT NULL${serviceLocClause}
-  ORDER BY b.phone, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
+  ORDER BY ${sqlCustomerPhoneDigits('b.phone')}, bsr.service_date DESC NULLS LAST, bsr.created_at DESC
 ),
 checked_in_agg AS (
-  SELECT b.phone, TRUE AS checked_in_now
+  SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits, TRUE AS checked_in_now
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
   WHERE c.slug = $1
@@ -589,7 +680,7 @@ checked_in_agg AS (
     AND b.check_out IS NOT NULL
     AND b.check_in <= CURRENT_DATE
     AND b.check_out > CURRENT_DATE${bookingLocClause}
-  GROUP BY b.phone
+  GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
 )
 SELECT
   cu.phone,
@@ -610,15 +701,16 @@ SELECT
   ls.service_date AS last_service_date_detail,
   COALESCE(ho.has_open_handoff, FALSE) AS has_open_handoff,
   (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0) AS is_booked,
-  cu.crm_tags,
+  crm.crm_tags,
   COALESCE(cia.checked_in_now, FALSE) AS checked_in_now
 FROM customer_base cu
-LEFT JOIN latest_conv lc ON lc.phone = cu.phone
-LEFT JOIN booking_agg ba ON ba.phone = cu.phone
-LEFT JOIN service_agg sa ON sa.phone = cu.phone
-LEFT JOIN handoff_open ho ON ho.phone = cu.phone
-LEFT JOIN last_service ls ON ls.phone = cu.phone
-LEFT JOIN checked_in_agg cia ON cia.phone = cu.phone
+INNER JOIN customer_crm_merged crm ON crm.phone_digits = cu.phone_digits
+LEFT JOIN latest_conv lc ON lc.phone_digits = cu.phone_digits
+LEFT JOIN booking_agg ba ON ba.phone_digits = cu.phone_digits
+LEFT JOIN service_agg sa ON sa.phone_digits = cu.phone_digits
+LEFT JOIN handoff_open ho ON ho.phone_digits = cu.phone_digits
+LEFT JOIN last_service ls ON ls.phone_digits = cu.phone_digits
+LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits
 WHERE 1=1
 ${searchClause}
 ${filterClause}
@@ -641,6 +733,7 @@ WITH cust AS (
   FROM customers cu
   INNER JOIN clients c ON c.id = cu.client_id
   WHERE c.slug = $1 AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}
+  ORDER BY cu.updated_at DESC NULLS LAST, ${sqlCustomerCanonicalPhoneRank('cu.phone')}
   LIMIT 1
 ),
 conv AS (
@@ -1017,6 +1110,10 @@ module.exports = {
   resolveCustomerTagInput,
   computeCustomerAutoTags,
   buildCustomerDisplayTags,
+  mergeCrmTagsFromDbRows,
+  loadCustomerCrmTagsMerged,
+  sqlCustomerPhoneDigits,
+  sqlCustomerPhoneDigitsJoin,
   normalizeCustomerPhone,
   customerPhoneDigits,
   sqlCustomerPhoneMatch,

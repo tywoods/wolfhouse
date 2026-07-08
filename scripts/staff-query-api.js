@@ -214,6 +214,8 @@ const {
   CUSTOMER_DISPLAY_TAG_ORDER,
   parseCrmTagsFromDb,
   buildCustomerDisplayTags,
+  loadCustomerCrmTagsMerged,
+  mergeCrmTagsFromDbRows,
   parseCustomerTagsUpdateBody,
   updateCustomerCrmTags,
   parseCustomerProfileUpdateBody,
@@ -27755,7 +27757,7 @@ function customerTagChipHtml(tagKey, opts) {
   else if (tagKey === 'needs_attention') cls += ' customers-badge-attn';
   else if (tagKey === 'do_not_contact') cls += ' customers-badge-dnc';
   else cls += ' customers-badge-tag';
-  if (isAuto) cls += ' customers-badge-auto';
+  if (isAuto && !opts.compact) cls += ' customers-badge-auto';
   var label = portalT('customers.tags.' + tagKey) || tagKey;
   var title = isAuto ? portalT('customers.tags.autoTitle') : '';
   return '<span class="' + cls + '"' + (title ? ' title="' + escHtml(title) + '"' : '') + '>' + escHtml(label) + '</span>';
@@ -27806,7 +27808,7 @@ function renderCustomersList(rows) {
     if (c.email) contact.push(c.email);
     if (c.phone) contact.push(c.phone);
     var tagChips = customerDisplayTags(c).map(function(tagKey) {
-      return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, c) });
+      return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, c), compact: true });
     }).join('');
     var sel = selectedCustomerPhone === c.phone ? ' selected' : '';
     var bulkSel = customersBulkSelected[c.phone] ? ' bulk-selected' : '';
@@ -27921,8 +27923,10 @@ function customerSaveTags() {
         refreshCustomerDisplayTags(customerDetailState.data.identity);
       }
       customerDetailState.tagsEditing = false;
-      renderCustomerDetail(customerDetailState.data);
-      loadCustomersList();
+      var reloadPhone = customerDetailState.phone;
+      loadCustomerDetail(reloadPhone).then(function() {
+        loadCustomersList();
+      });
     })
     .catch(function(err){
       if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.tags.saveFailed') + ' ' + err.message; msg.style.display = 'block'; }
@@ -41444,11 +41448,12 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
   try {
     const data = await withPgClient(async (pg) => {
       const identity = (await pg.query(getCustomerContextQuery(), [clientSlug, phone])).rows[0] || null;
+      const mergedCrmTags = await loadCustomerCrmTagsMerged(pg, clientSlug, phone);
       const bookings = (await pg.query(getCustomerBookingsQuery(), [clientSlug, phone])).rows;
       const service_records = (await pg.query(getCustomerServiceRecordsQuery(), [clientSlug, phone])).rows;
       const handoffs = (await pg.query(getCustomerHandoffsQuery(), [clientSlug, phone])).rows;
       const messages = (await pg.query(getCustomerMessagesQuery(), [clientSlug, phone])).rows;
-      return { identity, bookings, service_records, handoffs, messages };
+      return { identity, mergedCrmTags, bookings, service_records, handoffs, messages };
     });
 
     const lastSetup = buildLastSetupSummary(data.service_records);
@@ -41456,21 +41461,23 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
       const st = String(h.handoff_status || '').toLowerCase();
       return st === 'open' || st === 'assigned' || st === 'waiting_guest';
     });
-    const tagBundle = buildCustomerDisplayTags({
-      identity: data.identity,
-      bookings: data.bookings,
-      service_records: data.service_records,
-      open_handoffs: openHandoffs,
-    });
-    const identity = data.identity ? {
+    const identityBase = data.identity ? {
       ...data.identity,
-      crm_tags: tagBundle.crm_tags,
-      auto_tags: tagBundle.auto_tags,
-      display_tags: tagBundle.display_tags,
+      crm_tags: data.mergedCrmTags,
     } : {
       phone,
       display_name: null,
       email: null,
+      crm_tags: data.mergedCrmTags,
+    };
+    const tagBundle = buildCustomerDisplayTags({
+      identity: identityBase,
+      bookings: data.bookings,
+      service_records: data.service_records,
+      open_handoffs: openHandoffs,
+    });
+    const identity = {
+      ...identityBase,
       crm_tags: tagBundle.crm_tags,
       auto_tags: tagBundle.auto_tags,
       display_tags: tagBundle.display_tags,
@@ -41554,8 +41561,8 @@ async function handleCustomerTagsUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   let phone;
-  try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
-  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
+  try { phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim())); } catch (_) { return send400(res, 'invalid phone encoding'); }
+  if (!phone || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or phone');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   let body = {};
