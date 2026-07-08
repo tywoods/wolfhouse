@@ -16471,7 +16471,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-switch-orange input:checked + .inbox-switch-slider{background:#c47a2a;border-color:#a86520}
 [data-theme="dark"] .inbox-switch-red input:checked + .inbox-switch-slider{background:#a94444;border-color:#8a3333}
 [data-theme="dark"] .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#a94444}
-[data-theme="dark"] .luna-global-pause-card.luna-global-paused,#tabs .tabs-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020}
+[data-theme="dark"] .luna-global-pause-card.luna-global-paused,[data-theme="dark"] #tabs .tabs-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020;border-left-color:#6a4040}
 [data-theme="dark"] .al-hero{background:linear-gradient(135deg,#252526 0%,#2d2d2d 100%);border-color:#3c3c3c}
 [data-theme="dark"] .al-hero-title{color:#cccccc}
 [data-theme="dark"] .al-hero-sub{color:#9d9d9d}
