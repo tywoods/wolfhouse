@@ -167,6 +167,7 @@ module.exports = {
   'customers.detail.error': 'No se pudieron cargar los detalles del cliente.',
   'customers.detail.handoffs': 'Derivaciones abiertas',
   'customers.detail.language': 'Idioma',
+  'customers.detail.createBooking': 'Crear reserva',
   'customers.detail.lastSetup': 'Última configuración',
   'customers.detail.messages': 'Mensajes recientes',
   'customers.detail.noHandoffs': 'Sin derivaciones abiertas',
