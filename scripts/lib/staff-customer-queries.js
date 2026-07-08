@@ -726,16 +726,10 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
          email = $4,
          internal_staff_notes = $5,
          language = COALESCE($6, language),
-         phone = $7,
          updated_at = NOW()
-       WHERE id = (
-         SELECT conv.id FROM conversations conv
-         WHERE conv.client_id = $1::uuid AND ${convPhoneMatch}
-         ORDER BY conv.updated_at DESC
-         LIMIT 1
-       )
+       WHERE client_id = $1::uuid AND ${convPhoneMatch}
        RETURNING id::text AS conversation_id, phone`,
-      [clientId, phoneDigits, input.display_name, input.email, input.notes || null, input.language, input.phone],
+      [clientId, phoneDigits, input.display_name, input.email, input.notes || null, input.language],
     );
 
     await pg.query(
