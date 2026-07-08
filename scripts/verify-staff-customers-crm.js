@@ -65,7 +65,35 @@ if (apiSrc) {
   assert('portalT used in customers list', apiSrc.includes("portalT('customers.empty.sub')"));
   assert('school context still sunset surf only', apiSrc.includes('function isSunsetSurfActive()')
     && apiSrc.includes('function renderCustomersSchoolContext('));
+  assert('wolfhouse-somo slug in CRM gate', apiSrc.includes("slug === 'wolfhouse-somo'"));
+  assert('CRM gate uses profile client slug', apiSrc.includes('profile.client_slug || profile.slug || getClient()'));
 }
+
+console.log('\n[2b] portalHasCustomersCrm — gate behavior');
+
+function portalHasCustomersCrmForVerify(profile, clientSlug) {
+  profile = profile || {};
+  if (!profile) return false;
+  if (profile.customers_crm === false) return false;
+  if (profile.customers_crm === true) return true;
+  const hidden = profile.hidden_tabs || [];
+  if (hidden.indexOf('customers') >= 0) return false;
+  const slug = String(profile.client_slug || profile.slug || clientSlug || '');
+  return !!profile.is_surf_vertical || slug === 'wolfhouse-somo';
+}
+
+assert('Wolfhouse customers CRM gate true by default',
+  portalHasCustomersCrmForVerify(wh, 'wolfhouse-somo') === true);
+assert('Sunset surf vertical still shows Customers',
+  portalHasCustomersCrmForVerify(ss, 'sunset') === true);
+assert('explicit customers_crm:false hides Customers',
+  portalHasCustomersCrmForVerify({ ...wh, customers_crm: false }, 'wolfhouse-somo') === false);
+assert('hidden_tabs customers hides Customers',
+  portalHasCustomersCrmForVerify({ ...wh, hidden_tabs: ['customers'] }, 'wolfhouse-somo') === false);
+assert('explicit customers_crm:true overrides non-surf non-wolfhouse',
+  portalHasCustomersCrmForVerify({ customers_crm: true, is_surf_vertical: false, client_slug: 'other' }, 'other') === true);
+assert('unknown tenant without flag stays hidden',
+  portalHasCustomersCrmForVerify({ is_surf_vertical: false, client_slug: 'other' }, 'other') === false);
 
 console.log('\n[3] staff-portal-i18n.js — generic + surf copy');
 

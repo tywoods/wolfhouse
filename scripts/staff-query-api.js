@@ -20716,7 +20716,8 @@ function portalHasCustomersCrm(profile){
   if (profile.customers_crm === true) return true;
   var hidden = profile.hidden_tabs || [];
   if (hidden.indexOf('customers') >= 0) return false;
-  return !!profile.is_surf_vertical;
+  var slug = String(profile.client_slug || profile.slug || getClient() || '');
+  return !!profile.is_surf_vertical || slug === 'wolfhouse-somo';
 }
 
 function isTabHiddenForClient(tab, clientSlug){
