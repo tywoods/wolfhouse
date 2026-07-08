@@ -259,6 +259,35 @@ if (apiSrc) {
   assert('portal bundle does not reference bare CRM_TAG_KEYS', !/var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS;/.test(apiSrc));
 }
 
+console.log('\n[6c] Profile save — context reload + notes persistence');
+
+const {
+  normalizeCustomerPhone,
+  customerPhoneDigits,
+  parseCustomerProfileUpdateBody,
+  getCustomerContextQuery,
+  getCustomerBookingsQuery,
+} = require('./lib/staff-customer-queries');
+
+if (apiSrc) {
+  assert('PATCH profile route wired', apiSrc.includes('CUSTOMER_PHONE_RE') && apiSrc.includes("method === 'PATCH'")
+    && apiSrc.includes('handleCustomerUpdate'));
+  assert('customerSaveProfile reloads full context', /function customerSaveProfile[\s\S]*loadCustomerDetail\(newPhone\)/.test(apiSrc));
+  assert('customerSaveProfile does not render PATCH body', !/function customerSaveProfile[\s\S]*renderCustomerDetail\(res\.body/.test(apiSrc));
+  assert('loadCustomerDetail returns fetch promise', /function loadCustomerDetail\(phone\)[\s\S]*return fetch\(url\)/.test(apiSrc));
+  assert('profile save refreshes customer list', /function customerSaveProfile[\s\S]*loadCustomersList\(\)/.test(apiSrc));
+  assert('context handler normalizes phone', /handleCustomerContext[\s\S]{0,400}normalizeCustomerPhone\(decodeURIComponent/.test(apiSrc));
+}
+assert('phone digit match helper', customerPhoneDigits('+15105888224') === customerPhoneDigits('15105888224'));
+assert('normalizeCustomerPhone adds plus', normalizeCustomerPhone('15105888224') === '+15105888224');
+assert('context query uses digit phone match', getCustomerContextQuery().includes('regexp_replace') && getCustomerContextQuery().includes('conv.phone'));
+assert('bookings query uses digit phone match', getCustomerBookingsQuery().includes('regexp_replace'));
+const customerQueriesSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js'), 'utf8');
+assert('profile update persists notes field', customerQueriesSrc.includes('notes = $5'));
+assert('parseCustomerProfileUpdateBody keeps notes', parseCustomerProfileUpdateBody({ display_name: 'Ty', phone: '+1', notes: 'Awesome dude!' }).value.notes === 'Awesome dude!');
+assert('normalized list phone', apiSrc.includes('normalizeCustomerPhone(row.phone)'));
+assert('context notes from customers.notes coalesce', getCustomerContextQuery().includes('COALESCE(cust.notes, conv.internal_staff_notes)'));
+
 console.log('\n[7] Outreach drawer shell — selection UI, no sends');
 
 if (apiSrc) {

@@ -121,6 +121,15 @@ function normalizeCustomerPhone(phone) {
   return digits ? `+${digits}`.slice(0, 40) : '';
 }
 
+/** Digits-only phone key for tolerant tenant-scoped matching (+prefix optional). */
+function customerPhoneDigits(phone) {
+  return String(phone || '').replace(/[^\d]/g, '');
+}
+
+function sqlCustomerPhoneMatch(column, paramRef) {
+  return `regexp_replace(COALESCE(${column}, ''), '[^0-9]', '', 'g') = regexp_replace(COALESCE(${paramRef}::text, ''), '[^0-9]', '', 'g')`;
+}
+
 function trimInboundText(value, maxLen) {
   const s = String(value || '').trim();
   if (!s) return null;
@@ -496,20 +505,20 @@ WITH cust AS (
   SELECT cu.*
   FROM customers cu
   INNER JOIN clients c ON c.id = cu.client_id
-  WHERE c.slug = $1 AND cu.phone = $2
+  WHERE c.slug = $1 AND ${sqlCustomerPhoneMatch('cu.phone', '$2')}
   LIMIT 1
 ),
 conv AS (
   SELECT conv.*
   FROM conversations conv
   INNER JOIN clients c ON c.id = conv.client_id
-  WHERE c.slug = $1 AND conv.phone = $2
+  WHERE c.slug = $1 AND ${sqlCustomerPhoneMatch('conv.phone', '$2')}
   ORDER BY conv.updated_at DESC
   LIMIT 1
 )
 SELECT
   conv.id::text AS conversation_id,
-  cust.phone,
+  COALESCE(cust.phone, conv.phone) AS phone,
   COALESCE(conv.display_name, cust.full_name) AS display_name,
   COALESCE(conv.email, cust.email) AS email,
   COALESCE(conv.language, cust.language) AS language,
@@ -522,7 +531,7 @@ SELECT
   conv.metadata,
   cust.crm_tags
 FROM cust
-LEFT JOIN conv ON TRUE
+FULL OUTER JOIN conv ON TRUE
 `;
 }
 
@@ -541,7 +550,7 @@ SELECT
 FROM bookings b
 INNER JOIN clients c ON c.id = b.client_id
 WHERE c.slug = $1
-  AND b.phone = $2
+  AND ${sqlCustomerPhoneMatch('b.phone', '$2')}
   AND b.status NOT IN ('cancelled', 'expired')
 ORDER BY b.check_in DESC NULLS LAST, b.created_at DESC
 LIMIT 20
@@ -566,7 +575,7 @@ INNER JOIN bookings b ON b.id = bsr.booking_id
 INNER JOIN clients c ON c.id = b.client_id
 WHERE bsr.client_slug = $1
   AND c.slug = $1
-  AND b.phone = $2
+  AND ${sqlCustomerPhoneMatch('b.phone', '$2')}
 ORDER BY bsr.service_date DESC NULLS LAST, bsr.created_at DESC
 LIMIT 30
 `;
@@ -586,7 +595,7 @@ FROM staff_handoffs h
 INNER JOIN conversations conv ON conv.id = h.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
 WHERE c.slug = $1
-  AND conv.phone = $2
+  AND ${sqlCustomerPhoneMatch('conv.phone', '$2')}
 ORDER BY h.opened_at DESC
 LIMIT 10
 `;
@@ -604,7 +613,7 @@ FROM messages m
 INNER JOIN conversations conv ON conv.id = m.conversation_id
 INNER JOIN clients c ON c.id = conv.client_id
 WHERE c.slug = $1
-  AND conv.phone = $2
+  AND ${sqlCustomerPhoneMatch('conv.phone', '$2')}
 ORDER BY m.created_at DESC
 LIMIT 15
 `;
@@ -660,7 +669,8 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
   }
   const input = parsed.value;
   const phoneFrom = normalizeCustomerPhone(oldPhone);
-  if (!phoneFrom || !clientSlug) {
+  const phoneDigits = customerPhoneDigits(phoneFrom || input.phone);
+  if (!phoneFrom || !clientSlug || !phoneDigits) {
     return { ok: false, status: 400, body: { success: false, error: 'invalid client or phone' } };
   }
 
@@ -669,15 +679,32 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
     return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
   }
   const clientId = clientRes.rows[0].id;
+  const phoneMatch = sqlCustomerPhoneMatch('phone', '$2');
+  const convPhoneMatch = sqlCustomerPhoneMatch('conv.phone', '$2');
 
   await pg.query('BEGIN');
   try {
+    await pg.query(
+      `WITH dups AS (
+         SELECT id,
+           ROW_NUMBER() OVER (
+             ORDER BY (phone = $3) DESC, updated_at DESC NULLS LAST, id
+           ) AS rn
+         FROM customers
+         WHERE client_id = $1::uuid AND ${phoneMatch}
+       )
+       DELETE FROM customers c
+       USING dups d
+       WHERE c.id = d.id AND d.rn > 1`,
+      [clientId, phoneDigits, input.phone],
+    );
+
     const custUpd = await pg.query(
       `UPDATE customers SET
          full_name = $3, email = $4, notes = $5, language = $6,
          phone = $7, updated_at = NOW()
-       WHERE client_id = $1::uuid AND phone = $2`,
-      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
+       WHERE client_id = $1::uuid AND ${phoneMatch}`,
+      [clientId, phoneDigits, input.display_name, input.email, input.notes || null, input.language, input.phone],
     );
     if (custUpd.rowCount === 0) {
       await pg.query(
@@ -699,23 +726,23 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
          email = $4,
          internal_staff_notes = $5,
          language = COALESCE($6, language),
-         phone = CASE WHEN $7 <> $2 THEN $7 ELSE phone END,
+         phone = $7,
          updated_at = NOW()
        WHERE id = (
          SELECT conv.id FROM conversations conv
-         WHERE conv.client_id = $1::uuid AND conv.phone = $2
+         WHERE conv.client_id = $1::uuid AND ${convPhoneMatch}
          ORDER BY conv.updated_at DESC
          LIMIT 1
        )
        RETURNING id::text AS conversation_id, phone`,
-      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
+      [clientId, phoneDigits, input.display_name, input.email, input.notes || null, input.language, input.phone],
     );
 
     await pg.query(
       `UPDATE bookings SET guest_name = $3, phone = $4
-       WHERE client_id = $1::uuid AND phone = $2
+       WHERE client_id = $1::uuid AND ${phoneMatch}
          AND status NOT IN ('cancelled', 'expired')`,
-      [clientId, phoneFrom, input.display_name, input.phone],
+      [clientId, phoneDigits, input.display_name, input.phone],
     );
 
     await pg.query('COMMIT');
@@ -853,6 +880,8 @@ module.exports = {
   ALLOWED_FILTERS,
   CRM_TAG_KEYS,
   normalizeCustomerPhone,
+  customerPhoneDigits,
+  sqlCustomerPhoneMatch,
   upsertCustomerFromInboundTouch,
   parseManualCustomerCreateBody,
   createOrMergeManualCustomer,

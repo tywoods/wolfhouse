@@ -216,6 +216,7 @@ const {
   parseCustomerProfileUpdateBody,
   updateCustomerProfile,
   createCustomerConversation,
+  normalizeCustomerPhone,
 } = require('./lib/staff-customer-queries');
 const {
   listCustomerMessageTemplates,
@@ -27895,8 +27896,19 @@ function customerSaveTags() {
 }
 
 function customerProfileNotes(data) {
-  var notes = data && data.notes ? data.notes : {};
+  if (!data) return '';
+  var notes = data.notes;
+  if (typeof notes === 'string') return notes.trim();
+  notes = notes && typeof notes === 'object' ? notes : {};
   return (notes.internal_staff_notes || notes.human_notes || '').trim();
+}
+
+function normalizeCustomerPhoneClient(phone) {
+  var raw = String(phone || '').trim();
+  if (!raw) return '';
+  if (raw.charAt(0) === '+') return raw.slice(0, 40);
+  var digits = raw.replace(/[^\d]/g, '');
+  return digits ? ('+' + digits).slice(0, 40) : '';
 }
 
 function customerResolveConversationId(data) {
@@ -28117,10 +28129,12 @@ function customerSaveProfile() {
   }).then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
     .then(function(res){
       if (!res.ok || !res.body || res.body.success !== true) throw new Error((res.body && (res.body.error || res.body.message)) || 'Save failed');
-      var newPhone = res.body.phone || payload.phone;
+      var newPhone = normalizeCustomerPhoneClient(res.body.phone || payload.phone);
       customerDetailState.editing = false;
       customerDetailState.phone = newPhone;
-      return loadCustomerDetail(newPhone);
+      return loadCustomerDetail(newPhone).then(function() {
+        loadCustomersList();
+      });
     })
     .catch(function(err){
       if (msg) { msg.className = 'state-msg error'; msg.textContent = portalT('customers.saveFailed') + ' ' + err.message; msg.style.display = 'block'; }
@@ -28212,6 +28226,8 @@ function loadCustomersList() {
 }
 
 function loadCustomerDetail(phone) {
+  phone = normalizeCustomerPhoneClient(phone);
+  if (!phone) return Promise.resolve();
   customerDetailState = { phone: phone, data: null, editing: false, tagsEditing: false };
   selectedCustomerPhone = phone;
   renderCustomersList(getCustomersVisibleRows());
@@ -28219,8 +28235,8 @@ function loadCustomerDetail(phone) {
   if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.loading')) + '</div>';
   var url = '/staff/customers/' + encodeURIComponent(phone) + '/context?client=' + encodeURIComponent(getClient()) +
     (getClient() === 'sunset' ? ('&location=' + encodeURIComponent(getSunsetLocation())) : '');
-  fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
-    .then(function(data) { renderCustomerDetail(data); })
+  return fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+    .then(function(data) { renderCustomerDetail(data); return data; })
     .catch(function() {
       if (box) box.innerHTML = '<div class="customers-detail-empty">' + escHtml(portalT('customers.detail.error')) + '</div>';
     });
@@ -39839,7 +39855,7 @@ function mapCustomerListRow(row) {
     lastServiceSummary = qty + ' ' + label;
   }
   return {
-    phone: row.phone,
+    phone: normalizeCustomerPhone(row.phone) || row.phone,
     conversation_id: row.conversation_id || null,
     display_name: row.display_name || null,
     email: row.email || null,
@@ -41181,11 +41197,11 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   let phone;
   try {
-    phone = decodeURIComponent(String(phoneRaw || '').trim());
+    phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim()));
   } catch (_) {
     return send400(res, 'invalid phone encoding');
   }
-  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) {
+  if (!phone || SQL_INJECT_RE.test(clientSlug)) {
     return send400(res, 'invalid client or phone');
   }
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
@@ -41580,8 +41596,8 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
   let phone;
-  try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
-  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
+  try { phone = normalizeCustomerPhone(decodeURIComponent(String(phoneRaw || '').trim())); } catch (_) { return send400(res, 'invalid phone encoding'); }
+  if (!phone || SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client or phone');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
 
   let body = {};
