@@ -17311,6 +17311,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .btn-primary:disabled{background:#C9CFC8;color:#F2F1EC;cursor:default;box-shadow:none}
 .btn-ghost{background:var(--surface);border:1px solid var(--border);color:var(--text-2)}
 .btn-ghost:hover{background:var(--surface-soft);border-color:var(--tan)}
+.btn-soft-grey{background:#F0EEEA;border:1px solid var(--border);color:var(--text-2)}
+.btn-soft-grey:hover{background:var(--surface-soft);border-color:var(--tan)}
+.btn-compact{padding:5px 10px;font-size:11px;line-height:1.3}
+[data-theme="dark"] .btn-soft-grey{background:var(--surface);border-color:var(--border);color:var(--text-2)}
+[data-theme="dark"] .btn-soft-grey:hover{background:var(--surface-soft);border-color:var(--tan)}
 /* ── Status pills ───────────────────────────────────────────────────────── */
 .pill{display:inline-block;font-size:10.5px;font-weight:700;padding:3px 10px;border-radius:var(--radius-pill);white-space:nowrap;letter-spacing:.03em;border:1px solid transparent}
 .pill-red{background:#EFD9D0;color:#9C5742;border-color:#E6C7BC}      /* urgent — soft terracotta */
@@ -28203,7 +28208,7 @@ function renderCustomerDetail(data) {
 
 function loadCustomersList() {
   var profile = getPortalProfile(getClient());
-  if (!portalHasCustomersCrm(profile)) return;
+  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
   var state = el('cust-state');
   var q = (el('cust-search') && el('cust-search').value) ? el('cust-search').value.trim() : '';
   var url = '/staff/customers' + customersClientQuery() +
@@ -28211,16 +28216,49 @@ function loadCustomersList() {
     '&limit=50&offset=0';
   if (q) url += '&q=' + encodeURIComponent(q);
   if (state) { state.textContent = portalT('customers.loading'); state.style.display = 'block'; state.classList.remove('error'); }
-  fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
+  return fetch(url).then(function(r) { return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
     .then(function(data) {
       customersCache = (data && data.customers) || [];
       renderCustomersList(getCustomersVisibleRows());
       if (state) state.style.display = customersCache.length ? 'none' : 'block';
       if (state && !customersCache.length) state.textContent = '';
+      return data;
     })
     .catch(function(e) {
       if (state) { state.textContent = portalT('customers.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
+      throw e;
     });
+}
+
+function waitForCustomersDom(maxTries) {
+  maxTries = maxTries || 40;
+  return new Promise(function(resolve) {
+    var tries = 0;
+    function check() {
+      if (el('cust-search') && el('tab-customers')) return resolve();
+      if (++tries >= maxTries) return resolve();
+      setTimeout(check, 50);
+    }
+    check();
+  });
+}
+
+function openCustomerCardForPhone(phone, opts) {
+  opts = opts || {};
+  phone = normalizeCustomerPhoneClient(phone);
+  if (!phone) return Promise.resolve();
+  var profile = getPortalProfile(getClient());
+  if (!portalHasCustomersCrm(profile)) return Promise.resolve();
+  var search = el('cust-search');
+  if (search) search.value = phone;
+  switchToTab('customers');
+  return waitForCustomersDom().then(function() {
+    var searchEl = el('cust-search');
+    if (searchEl) searchEl.value = phone;
+    return loadCustomersList();
+  }).then(function() {
+    return loadCustomerDetail(phone);
+  });
 }
 
 function loadCustomerDetail(phone) {
@@ -30183,6 +30221,32 @@ function bcSyncConversationButtons(data){
 
 function bcWireOpenConversationButtons(data){
   bcSyncConversationButtons(data);
+  bcSyncCustomerCardButton(data);
+}
+
+function bcResolveGuestPhone(data, blk) {
+  data = data || bcLastBookingContext || null;
+  blk = blk || bcLastOpenedBlock || null;
+  var bk = (data && data.booking) || {};
+  var raw = bk.phone
+    || (data && data.conversation && data.conversation.phone)
+    || (blk && blk.phone)
+    || '';
+  return normalizeCustomerPhoneClient(raw);
+}
+
+function bcSyncCustomerCardButton(data) {
+  var btn = el('bc-open-customer-card');
+  if (!btn) return;
+  var phone = bcResolveGuestPhone(data);
+  var show = !!phone && portalHasCustomersCrm(getPortalProfile(getClient()));
+  btn.style.display = show ? '' : 'none';
+  btn.disabled = !show;
+  if (show) {
+    btn.onclick = function() { openCustomerCardForPhone(phone); };
+  } else {
+    btn.onclick = null;
+  }
 }
 
 function wireLunaPauseSwitch(convId, targetEl){
@@ -30694,6 +30758,10 @@ function loadConvDetail(convId, targetEl){
     html +=     '</div>';
     html +=   '</div>';
     html +=   '<div class="detail-header-right">';
+    var convPhone = normalizeCustomerPhoneClient(c.phone);
+    if (convPhone && portalHasCustomersCrm(getPortalProfile(getClient()))) {
+      html += '<button type="button" class="btn btn-soft-grey btn-compact" id="inbox-open-customer-card">' + escHtml(portalT('customers.openCustomerCard')) + '</button>';
+    }
     html +=     '<span class="detail-header-pills">' + convHeaderStatusPillsHtml(c, lunaGuestPaused) + '</span>';
     html +=     detailHeaderSwitchesHtml(c, lunaGuestPaused);
     html +=   '</div>';
@@ -30791,6 +30859,10 @@ function loadConvDetail(convId, targetEl){
     targetEl.classList.remove('is-loading-detail');
 
     wireInboxSendReply(convId, c.phone, targetEl);
+    var inboxCustBtn = targetEl.querySelector('#inbox-open-customer-card');
+    if (inboxCustBtn && convPhone) {
+      inboxCustBtn.addEventListener('click', function() { openCustomerCardForPhone(convPhone); });
+    }
     var cbBtn = targetEl.querySelector('#inbox-create-booking-for-guest');
     if (cbBtn) cbBtn.addEventListener('click', function(){
       openCreateBookingFromContact({
@@ -34009,6 +34081,7 @@ function showBlockDetail(blk){
     '<div class="bc-detail-toolbar-actions">' +
     '<span id="bc-open-conversation-status" class="bc-open-conversation-status"></span>' +
     '<button type="button" class="btn btn-success-light" id="bc-open-conversation-toolbar">' + escHtml(t('drawer.footer.startConv')) + '</button>' +
+    '<button type="button" class="btn btn-soft-grey btn-compact" id="bc-open-customer-card" style="display:none">' + escHtml(portalT('customers.openCustomerCard')) + '</button>' +
     '<button type="button" class="btn btn-ghost" id="bc-refresh-detail" title="' + escHtml(t('drawer.toolbar.refresh')) + '">\u21bb ' + escHtml(t('drawer.toolbar.refresh')) + '</button>' +
     '</div></div>' +
     '<div id="bc-ctx-body">' + bcRenderBlockSummaryPreviewHtml(blk) + '</div>';

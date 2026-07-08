@@ -487,6 +487,35 @@ if (fs.existsSync(I18N_PATH)) {
   assert('createForGuest label i18n', i18n.includes("'inbox.detail.bookings.createForGuest': 'Create booking for this guest'"));
 }
 
+console.log('\n[12] Open customer card shortcuts — booking drawer + inbox');
+
+if (apiSrc) {
+  assert('booking drawer open customer card button', apiSrc.includes('id="bc-open-customer-card"'));
+  assert('inbox open customer card button', apiSrc.includes('id="inbox-open-customer-card"'));
+  assert('openCustomerCardForPhone helper defined', apiSrc.includes('function openCustomerCardForPhone('));
+  assert('helper normalizes phone', /function openCustomerCardForPhone[\s\S]{0,200}normalizeCustomerPhoneClient/.test(apiSrc));
+  assert('helper switches to customers tab', /function openCustomerCardForPhone[\s\S]{0,400}switchToTab\('customers'\)/.test(apiSrc));
+  assert('helper sets cust-search', /function openCustomerCardForPhone[\s\S]{0,600}cust-search/.test(apiSrc));
+  assert('helper loads customer detail', /function openCustomerCardForPhone[\s\S]{0,800}loadCustomerDetail\(phone\)/.test(apiSrc));
+  assert('helper waits for customers DOM', apiSrc.includes('function waitForCustomersDom('));
+  assert('loadCustomersList returns promise on skip', /function loadCustomersList\(\)[\s\S]{0,120}return Promise\.resolve\(\)/.test(apiSrc));
+  assert('loadCustomersList returns fetch promise', /function loadCustomersList\([\s\S]*?return fetch\(url\)/.test(apiSrc));
+  assert('booking drawer syncs customer card button', apiSrc.includes('function bcSyncCustomerCardButton('));
+  assert('booking resolves guest phone', apiSrc.includes('function bcResolveGuestPhone('));
+  assert('booking button hidden without phone', /bc-open-customer-card[\s\S]{0,80}display:none/.test(apiSrc));
+  assert('inbox button only when phone exists', /convPhone && portalHasCustomersCrm/.test(apiSrc));
+  assert('soft grey button style', apiSrc.includes('.btn-soft-grey'));
+  const shortcutMatch = apiSrc.match(/function openCustomerCardForPhone\([\s\S]*?\n\}/);
+  const shortcutBody = shortcutMatch ? shortcutMatch[0] : '';
+  assert('shortcut does not auto-create customer', !shortcutBody.includes("method: 'POST'") && !shortcutBody.includes('/create-conversation'));
+  assert('shortcut does not send WhatsApp', !shortcutBody.includes('outreach') && !shortcutBody.includes('sendWhatsApp'));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('openCustomerCard i18n', i18n.includes("'customers.openCustomerCard': 'Open customer card'"));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

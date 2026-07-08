@@ -132,6 +132,7 @@ const STAFF_PORTAL_STRINGS = {
     'customers.save': 'Save',
     'customers.cancel': 'Cancel',
     'customers.editProfile': 'Edit profile',
+    'customers.openCustomerCard': 'Open customer card',
     'customers.conversation.open': 'Open conversation',
     'customers.conversation.start': 'Start conversation',
     'customers.conversation.failed': 'Could not open conversation:',
