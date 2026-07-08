@@ -11,33 +11,105 @@ function getCrowsnestClients() {
       name: 'Wolfhouse Somo',
       client_slug: 'wolfhouse-somo',
       type: 'Surf house',
-      staging_url: 'https://staff-staging.lunafrontdesk.com',
-      staging_url_href: true,
-      production_url: 'https://wolfhouse.lunafrontdesk.com',
-      production_url_href: true,
       status: 'Coming soon',
+      environments: [
+        {
+          label: 'Staff staging',
+          kind: 'staff_portal',
+          url: 'https://staff-staging.lunafrontdesk.com',
+          state: 'linked',
+        },
+        {
+          label: 'Staff production',
+          kind: 'staff_portal',
+          url: 'https://wolfhouse.lunafrontdesk.com',
+          state: 'linked',
+        },
+        {
+          label: 'Luna WhatsApp',
+          kind: 'whatsapp',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Stripe',
+          kind: 'payments',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Database',
+          kind: 'database',
+          state: 'coming_soon',
+        },
+      ],
     },
     {
       id: 'sunset-somo',
       name: 'Sunset Somo',
       client_slug: 'sunset',
       type: 'Surf school',
-      staging_url: 'https://sunset-staging.lunafrontdesk.com',
-      staging_url_href: true,
-      production_url: 'Coming soon / not linked',
-      production_url_href: false,
       status: 'Coming soon',
+      environments: [
+        {
+          label: 'Staff staging',
+          kind: 'staff_portal',
+          url: 'https://sunset-staging.lunafrontdesk.com',
+          state: 'linked',
+        },
+        {
+          label: 'Staff production',
+          kind: 'staff_portal',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Luna WhatsApp',
+          kind: 'whatsapp',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Stripe',
+          kind: 'payments',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Database',
+          kind: 'database',
+          state: 'coming_soon',
+        },
+      ],
     },
     {
       id: 'sunset-sardinero',
       name: 'Sunset Sardinero',
       client_slug: 'sunset-sardinero',
       type: 'Surf school',
-      staging_url: 'Coming soon',
-      staging_url_href: false,
-      production_url: 'Coming soon',
-      production_url_href: false,
       status: 'Coming soon',
+      environments: [
+        {
+          label: 'Staff staging',
+          kind: 'staff_portal',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Staff production',
+          kind: 'staff_portal',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Luna WhatsApp',
+          kind: 'whatsapp',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Stripe',
+          kind: 'payments',
+          state: 'coming_soon',
+        },
+        {
+          label: 'Database',
+          kind: 'database',
+          state: 'coming_soon',
+        },
+      ],
     },
   ];
 }

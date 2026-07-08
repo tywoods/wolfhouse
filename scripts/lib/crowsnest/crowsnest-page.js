@@ -14,23 +14,38 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function renderUrlField(label, value, href) {
-  const safe = escapeHtml(value);
-  const inner = href
-    ? `<a href="${escapeHtml(value)}" target="_blank" rel="noopener noreferrer">${safe}</a>`
-    : safe;
-  return `<div class="field"><span class="field-label">${escapeHtml(label)}</span> ${inner}</div>`;
+function renderField(label, value) {
+  return `<div class="field"><span class="field-label">${escapeHtml(label)}</span> ${escapeHtml(value)}</div>`;
+}
+
+function renderEnvironmentRow(env) {
+  const linked = env.state === 'linked' && env.url;
+  const stateClass = linked ? 'env-linked' : 'env-muted';
+  let valueHtml;
+  if (linked) {
+    valueHtml = `<a href="${escapeHtml(env.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(env.url)}</a>`;
+  } else {
+    valueHtml = '<span class="env-coming-soon">Coming soon</span>';
+  }
+  const note = env.note ? `<span class="env-note">${escapeHtml(env.note)}</span>` : '';
+  return `<div class="env-row ${stateClass}">
+      <span class="env-label">${escapeHtml(env.label)}</span>
+      <span class="env-value">${valueHtml}${note}</span>
+    </div>`;
 }
 
 function renderClientCard(client) {
+  const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
   return `<div class="card client-card">
         <h2>${escapeHtml(client.name)}</h2>
         <div class="meta">
-          ${renderUrlField('client slug:', client.client_slug, false)}
-          ${renderUrlField('type:', client.type, false)}
-          ${renderUrlField('staging URL:', client.staging_url, client.staging_url_href)}
-          ${renderUrlField('production URL:', client.production_url, client.production_url_href)}
-          ${renderUrlField('status:', client.status, false)}
+          ${renderField('client slug:', client.client_slug)}
+          ${renderField('type:', client.type)}
+          ${renderField('status:', client.status)}
+        </div>
+        <div class="env-section">
+          <h3 class="env-heading">Environments / status</h3>
+          ${envRows}
         </div>
       </div>`;
 }
@@ -58,6 +73,7 @@ function renderCrowsnestPage() {
     .sub { color: #555; margin: 0 0 1.5rem; }
     h2.section { margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 600; }
     section { margin-bottom: 1.75rem; }
+    .section-note { margin: -0.35rem 0 0.85rem; font-size: 0.85rem; color: #777; }
     .cards { display: grid; gap: 0.75rem; }
     .card {
       background: #fff; border: 1px solid #dde3ea; border-radius: 8px;
@@ -66,7 +82,14 @@ function renderCrowsnestPage() {
     .card h2 { margin: 0 0 0.5rem; font-size: 1rem; }
     .meta .field { margin: 0.25rem 0; font-size: 0.88rem; color: #444; }
     .field-label { color: #666; font-weight: 500; }
-    .card a { color: #0b5cab; }
+    .env-section { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid #e8edf2; }
+    .env-heading { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.02em; }
+    .env-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin: 0.35rem 0; font-size: 0.86rem; align-items: baseline; }
+    .env-label { min-width: 8.5rem; color: #555; font-weight: 500; }
+    .env-value { flex: 1; }
+    .env-linked a { color: #0b5cab; }
+    .env-muted .env-label, .env-coming-soon { color: #999; }
+    .env-note { margin-left: 0.35rem; color: #888; font-size: 0.8rem; }
     .badge { display: inline-block; font-size: 0.75rem; color: #888; margin-top: 0.35rem; }
     .btn-disabled {
       display: inline-block; margin-top: 0.75rem; padding: 0.5rem 1rem;
@@ -86,6 +109,7 @@ function renderCrowsnestPage() {
 
     <section id="clients">
       <h2 class="section">Clients</h2>
+      <p class="section-note">Static placeholders only — no live health checks yet.</p>
       <div class="cards">
       ${clientCards}
       </div>

@@ -71,6 +71,17 @@ ok('UI surf house template text', /surf house template/i.test(uiHtml));
 ok('UI surf school template text', /surf school template/i.test(uiHtml));
 ok('UI Add new client disabled/coming soon', uiHtml.includes('Add new client') && /Coming soon|disabled|aria-disabled/.test(uiHtml));
 ok('UI safety copy read-only/no writes', /read-only|no client creation|no writes/i.test(uiHtml));
+ok('UI environment/status rows render', uiHtml.includes('env-row') && uiHtml.includes('Environments / status'));
+ok('UI Wolfhouse staff-staging link', uiHtml.includes('https://staff-staging.lunafrontdesk.com'));
+ok('UI Wolfhouse production link', uiHtml.includes('https://wolfhouse.lunafrontdesk.com'));
+ok('UI Sunset staging link', uiHtml.includes('https://sunset-staging.lunafrontdesk.com'));
+ok('UI Luna WhatsApp placeholder', uiHtml.includes('Luna WhatsApp') && /Coming soon|coming_soon/i.test(uiHtml));
+ok('UI Stripe placeholder', uiHtml.includes('Stripe'));
+ok('UI Database placeholder', uiHtml.includes('Database'));
+ok('UI static placeholders / no live health checks copy', /static placeholders only|no live health checks/i.test(uiHtml));
+
+const crowsnestLibSrc = [pageSrc, clientsSrc, read(AUTH_PATH) || ''].join('\n');
+ok('no fetch/axios/http outbound in crowsnest lib', !/\bfetch\s*\(|require\(['"]axios|require\(['"]node-fetch|https?\.request\s*\(|https?\.get\s*\(/.test(crowsnestLibSrc));
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
 ok('writes_enabled false in healthz', apiSrc.includes('writes_enabled: false'));
