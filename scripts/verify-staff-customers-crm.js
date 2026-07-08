@@ -284,6 +284,7 @@ assert('context query uses digit phone match', getCustomerContextQuery().include
 assert('bookings query uses digit phone match', getCustomerBookingsQuery().includes('regexp_replace'));
 const customerQueriesSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-customer-queries.js'), 'utf8');
 assert('profile update persists notes field', customerQueriesSrc.includes('notes = $5'));
+assert('profile update conv match uses bare phone column', customerQueriesSrc.includes("const convPhoneMatch = sqlCustomerPhoneMatch('phone', '$2')"));
 assert('parseCustomerProfileUpdateBody keeps notes', parseCustomerProfileUpdateBody({ display_name: 'Ty', phone: '+1', notes: 'Awesome dude!' }).value.notes === 'Awesome dude!');
 assert('normalized list phone', apiSrc.includes('normalizeCustomerPhone(row.phone)'));
 assert('context notes from customers.notes coalesce', getCustomerContextQuery().includes('COALESCE(cust.notes, conv.internal_staff_notes)'));

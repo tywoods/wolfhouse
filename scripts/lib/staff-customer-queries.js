@@ -680,7 +680,7 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
   }
   const clientId = clientRes.rows[0].id;
   const phoneMatch = sqlCustomerPhoneMatch('phone', '$2');
-  const convPhoneMatch = sqlCustomerPhoneMatch('conv.phone', '$2');
+  const convPhoneMatch = sqlCustomerPhoneMatch('phone', '$2');
 
   await pg.query('BEGIN');
   try {
