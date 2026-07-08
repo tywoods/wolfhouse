@@ -213,6 +213,9 @@ const {
   parseCrmTagsFromDb,
   parseCustomerTagsUpdateBody,
   updateCustomerCrmTags,
+  parseCustomerProfileUpdateBody,
+  updateCustomerProfile,
+  createCustomerConversation,
 } = require('./lib/staff-customer-queries');
 const {
   listCustomerMessageTemplates,
@@ -815,6 +818,7 @@ const BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE = new RegExp(
 const CONV_ID_RE  = new RegExp(`^/staff/conversations/(${UUID_RE})$`, 'i');
 const CUSTOMER_CONTEXT_RE = /^\/staff\/customers\/([^/]+)\/context$/i;
 const CUSTOMER_TAGS_RE = /^\/staff\/customers\/([^/]+)\/tags$/i;
+const CUSTOMER_CREATE_CONVERSATION_RE = /^\/staff\/customers\/([^/]+)\/create-conversation$/i;
 const CUSTOMER_MESSAGE_TEMPLATE_RE = /^\/staff\/customers\/message-templates\/([0-9a-f-]{36})$/i;
 const CUSTOMER_PHONE_RE = /^\/staff\/customers\/([^/]+)$/i;
 const CONV_SUB_RE = new RegExp(`^/staff/conversations/(${UUID_RE})/(messages|context|draft|staff-state)$`, 'i');
@@ -17222,7 +17226,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-detail-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:14px 16px;overflow-y:auto;min-height:0}
 .customers-detail-empty{color:var(--text-3);font-size:13px;padding:20px 8px;text-align:center}
 .customers-profile-summary{margin-bottom:14px;padding-bottom:14px;border-bottom:1px solid var(--border-soft)}
-.customers-profile-summary-hdr{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.customers-profile-summary-hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
+.customers-profile-hdr-actions{display:flex;flex-wrap:wrap;gap:6px;flex:0 0 auto;align-items:center}
+.customers-profile-hdr-actions .btn{font-size:12px;padding:6px 10px}
 .customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--text-2);letter-spacing:.02em}
 .customers-profile-identity{min-width:0;flex:1}
 .customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:-.01em}
@@ -17288,6 +17294,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-result-error{color:#9b1c1c}
 .customers-outreach-confirm-preview{white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;max-height:180px;overflow:auto}
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
+#cust-outreach-confirm-modal{z-index:9300}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
@@ -27476,6 +27483,7 @@ function openCustomersOutreachConfirmModal() {
   }
   var plan = buildCustomersOutreachPlan();
   if (!plan.recipients.length) return;
+  closeCustomersOutreachDrawer();
   var stats = el('cust-outreach-confirm-stats');
   var skipped = el('cust-outreach-confirm-skipped');
   var preview = el('cust-outreach-confirm-preview');
@@ -27749,7 +27757,7 @@ function customerBadgeHtml(badge) {
   return '<span class="' + cls + '">' + escHtml(label) + '</span>';
 }
 
-var CUSTOMER_CRM_TAG_KEYS = ['lead','repeat_guest','vip','local','surf_school','accommodation','do_not_contact','newsletter_ok'];
+var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS;
 
 function formatCustomerWhen(iso) {
   if (!iso) return '—';
@@ -27873,8 +27881,8 @@ function customerSaveTags() {
       if (customerDetailState.data && customerDetailState.data.identity) {
         customerDetailState.data.identity.crm_tags = res.body.crm_tags || tags;
       }
-      if (msg) { msg.className = 'state-msg'; msg.textContent = portalT('customers.tags.saved'); msg.style.display = 'block'; }
       customerDetailState.tagsEditing = false;
+      renderCustomerDetail(customerDetailState.data);
       loadCustomersList();
     })
     .catch(function(err){
@@ -27888,11 +27896,52 @@ function customerProfileNotes(data) {
   return (notes.internal_staff_notes || notes.human_notes || '').trim();
 }
 
+function customerResolveConversationId(data) {
+  if (!data) return null;
+  var id = data.identity && data.identity.conversation_id;
+  if (id) return id;
+  var cs = data.conversation_summary;
+  return cs && cs.conversation_id ? cs.conversation_id : null;
+}
+
+function renderCustomerLinkedBookingsSection(data) {
+  var bookings = (data && data.bookings) || [];
+  var html = '<div class="customers-section" id="cust-linked-bookings-section">';
+  html += '<div class="customers-section-hdr">' + escHtml(portalT('customers.detail.linkedBookings')) + '</div>';
+  if (bookings.length) {
+    html += '<table class="customers-row-table"><thead><tr>' +
+      '<th>' + escHtml(portalT('customers.detail.bookingCode')) + '</th>' +
+      '<th>' + escHtml(portalT('customers.detail.bookingDates')) + '</th>' +
+      '<th>' + escHtml(portalT('customers.detail.bookingStatus')) + '</th>' +
+      '<th>' + escHtml(portalT('customers.detail.paymentStatus')) + '</th>' +
+      '</tr></thead><tbody>';
+    bookings.forEach(function(b) {
+      var dates = '';
+      if (b.check_in || b.check_out) {
+        dates = escHtml(String(b.check_in || '—')) + ' → ' + escHtml(String(b.check_out || '—'));
+      } else {
+        dates = '—';
+      }
+      var payStatus = b.payment_status || b.payment_payment_status || '—';
+      html += '<tr><td>' + escHtml(String(b.booking_code || '—')) + '</td>' +
+        '<td>' + dates + '</td>' +
+        '<td>' + escHtml(String(b.booking_status || '—')) + '</td>' +
+        '<td>' + escHtml(String(payStatus)) + '</td></tr>';
+    });
+    html += '</tbody></table>';
+  } else {
+    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noLinkedBookings')) + '</div>';
+  }
+  html += '</div>';
+  return html;
+}
+
 function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
   var displayName = id.display_name || data.phone || 'Guest';
-  var editLabel = escHtml(portalT('customers.profile.editField'));
+  var convId = customerResolveConversationId(data);
+  var convLabel = convId ? portalT('customers.conversation.open') : portalT('customers.conversation.start');
   if (!editing) {
     var contactBits = [];
     if (data.phone) contactBits.push(data.phone);
@@ -27903,13 +27952,17 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-identity">' +
       '<h3 class="customers-profile-name">' + escHtml(displayName) + '</h3>' +
       '<div class="customers-profile-contact">' + escHtml(contactBits.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
+      '</div>' +
+      '<div class="customers-profile-hdr-actions">' +
+      '<button type="button" class="btn btn-primary" id="cust-conversation-btn">' + escHtml(convLabel) + '</button>' +
+      '<button type="button" class="btn btn-ghost" id="cust-profile-edit-btn">' + escHtml(portalT('customers.editProfile')) + '</button>' +
       '</div></div>' +
       '<div class="customers-profile-fields">' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value">' + escHtml(data.phone || '—') + '</span><button type="button" class="customers-inline-edit" id="cust-profile-edit" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="email" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.phone')) + '</span><span class="customers-profile-field-value">' + escHtml(data.phone || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span></div>' +
       (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
-      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="notes" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' +
-      (id.language ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value">' + escHtml(id.language) + '</span><button type="button" class="customers-inline-edit cust-profile-edit-field" data-field="language" title="' + editLabel + '" aria-label="' + editLabel + '">✎</button></div>' : '') +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span></div>' +
       '</div>' +
       '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
       '</div>';
@@ -27920,6 +27973,7 @@ function renderCustomerProfileSection(data, editing) {
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.name')) + '</span><input id="cust-edit-name" type="text" value="' + escHtml(id.display_name || '') + '"></label>' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.phone')) + '</span><input id="cust-edit-phone" type="tel" value="' + escHtml(data.phone || '') + '"></label>' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.email')) + '</span><input id="cust-edit-email" type="email" value="' + escHtml(id.email || '') + '"></label>' +
+    '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.language')) + '</span><input id="cust-edit-language" type="text" value="' + escHtml(id.language || '') + '" placeholder="en, es, …"></label>' +
     '<label class="customers-edit-field"><span>' + escHtml(portalT('customers.detail.notes')) + '</span><textarea id="cust-edit-notes" rows="3">' + escHtml(notes) + '</textarea></label>' +
     '</div>' +
     '<div class="customers-profile-actions">' +
@@ -27931,15 +27985,62 @@ function renderCustomerProfileSection(data, editing) {
 }
 
 function wireCustomerProfileActions(data) {
-  var editBtn = el('cust-profile-edit');
+  var editBtn = el('cust-profile-edit-btn');
   if (editBtn) editBtn.addEventListener('click', function(){ customerEnterEditMode(); });
-  document.querySelectorAll('.cust-profile-edit-field').forEach(function(btn) {
-    btn.addEventListener('click', function(){ customerEnterEditMode(); });
-  });
+  var convBtn = el('cust-conversation-btn');
+  if (convBtn) convBtn.addEventListener('click', function(){ customerOpenOrStartConversation(); });
   var saveBtn = el('cust-profile-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ customerSaveProfile(); });
   var cancelBtn = el('cust-profile-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', function(){ customerCancelEditMode(); });
+}
+
+function customerOpenOrStartConversation() {
+  if (!customerDetailState.data || !customerDetailState.phone) return;
+  var convId = customerResolveConversationId(customerDetailState.data);
+  if (convId) {
+    openInboxToConversation(convId);
+    return;
+  }
+  customerStartConversationFromProfile();
+}
+
+function customerStartConversationFromProfile() {
+  if (!customerDetailState.data || !customerDetailState.phone) return;
+  var btn = el('cust-conversation-btn');
+  var msg = el('cust-profile-msg');
+  if (btn && btn.disabled) return;
+  if (btn) btn.disabled = true;
+  if (msg) msg.style.display = 'none';
+  var idemKey = 'customer-profile-conv-' + customerDetailState.phone;
+  fetch('/staff/customers/' + encodeURIComponent(customerDetailState.phone) + '/create-conversation?client=' + encodeURIComponent(getClient()), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      idempotency_key: idemKey,
+      reason: 'Created from customer profile',
+    }),
+  }).then(function(r){ return r.json().then(function(body){ return { ok: r.ok, body: body }; }); })
+    .then(function(res){
+      if (!res.ok || !res.body || !res.body.success) {
+        throw new Error((res.body && res.body.error) || 'conversation failed');
+      }
+      var convId = res.body.conversation_id;
+      if (convId && customerDetailState.data) {
+        if (customerDetailState.data.identity) customerDetailState.data.identity.conversation_id = convId;
+        if (!customerDetailState.data.conversation_summary) customerDetailState.data.conversation_summary = {};
+        customerDetailState.data.conversation_summary.conversation_id = convId;
+      }
+      if (convId) openInboxToConversation(convId);
+    })
+    .catch(function(err){
+      if (msg) {
+        msg.className = 'state-msg error';
+        msg.textContent = portalT('customers.conversation.failed') + ' ' + err.message;
+        msg.style.display = 'block';
+      }
+    })
+    .finally(function(){ if (btn) btn.disabled = false; });
 }
 
 function customerEnterEditMode() {
@@ -27962,6 +28063,7 @@ function customerSaveProfile() {
     display_name: (el('cust-edit-name') && el('cust-edit-name').value || '').trim(),
     phone: (el('cust-edit-phone') && el('cust-edit-phone').value || '').trim(),
     email: (el('cust-edit-email') && el('cust-edit-email').value || '').trim(),
+    language: (el('cust-edit-language') && el('cust-edit-language').value || '').trim(),
     notes: (el('cust-edit-notes') && el('cust-edit-notes').value || '').trim(),
   };
   if (!payload.display_name || !payload.phone) {
@@ -28001,6 +28103,7 @@ function renderCustomerDetail(data) {
   var name = id.display_name || data.phone || 'Guest';
   var html = renderCustomerProfileSection(data, customerDetailState.editing);
   html += renderCustomerTagsSection(data);
+  html += renderCustomerLinkedBookingsSection(data);
 
   html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.lastSetup')) + '</div><div class="customers-section-body">' +
     escHtml(data.last_setup_summary || portalT('customers.detail.noServices')) + '</div></div>';
@@ -41441,7 +41544,6 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
   if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
-  if (clientSlug !== 'sunset') return sendJSON(res, 403, { success: false, error: 'sunset only' });
 
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
@@ -41456,7 +41558,11 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   };
 
   try {
-    const result = await withPgClient((pg) => updateSunsetCustomerProfile(pg, clientSlug, phone, body, { actor: user }));
+    const result = await withPgClient((pg) => (
+      clientSlug === SUNSET_CLIENT_SLUG
+        ? updateSunsetCustomerProfile(pg, clientSlug, phone, body, { actor: user })
+        : updateCustomerProfile(pg, clientSlug, phone, body)
+    ));
     const elapsed = Date.now() - started;
     appendAuditLog({ ...auditBase, success: result.ok, elapsed_ms: elapsed });
     if (!result.ok) return sendJSON(res, result.status, result.body);
@@ -41464,6 +41570,67 @@ async function handleCustomerUpdate(phoneRaw, query, req, res, user) {
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'update failed' });
+  }
+}
+
+async function handleCustomerCreateConversation(phoneRaw, query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  let phone;
+  try { phone = decodeURIComponent(String(phoneRaw || '').trim()); } catch (_) { return send400(res, 'invalid phone encoding'); }
+  if (!phone || SQL_INJECT_RE.test(clientSlug) || SQL_INJECT_RE.test(phone)) return send400(res, 'invalid client or phone');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+
+  const idempotencyKey = String(body.idempotency_key || '').trim()
+    || `customer-profile-${phone}`;
+  const reason = body.reason != null ? String(body.reason).trim().slice(0, 500) : 'Created from customer profile';
+
+  let metadata = {
+    source: 'staff_manual',
+    channel: 'manual',
+    idempotency_key: idempotencyKey,
+    reason,
+    created_from: 'customer_profile',
+  };
+  const sessionState = { source: 'staff_manual', channel: 'manual' };
+  if (clientSlug === SUNSET_CLIENT_SLUG) {
+    const locationId = normalizeSunsetLocationId(query.location || body.location_id || body.location);
+    metadata = attachConversationChannelMetadata(metadata, locationId);
+    sessionState.location_id = metadata.location_id;
+  }
+
+  const auditBase = {
+    ts: new Date().toISOString(),
+    intent: 'api:customers.create_conversation',
+    category: 'customer_api',
+    client_slug: clientSlug,
+    phone,
+    staff_user_id: user ? user.staff_user_id : null,
+  };
+
+  try {
+    const result = await withPgClient((pg) => createCustomerConversation(pg, clientSlug, phone, {
+      idempotency_key: idempotencyKey,
+      reason,
+      metadata,
+      session_state: sessionState,
+    }));
+    const elapsed = Date.now() - started;
+    appendAuditLog({
+      ...auditBase,
+      success: result.ok,
+      conversation_id: result.body && result.body.conversation_id,
+      created: result.body && result.body.created,
+      elapsed_ms: elapsed,
+    });
+    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: elapsed });
+  } catch (err) {
+    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
+    return sendJSON(res, 500, { success: false, error: 'conversation create failed' });
   }
 }
 
@@ -46777,6 +46944,13 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerTagsUpdate(customerTagsMatch[1], parsed.query, req, res, auth.user);
+  }
+
+  const customerCreateConvMatch = CUSTOMER_CREATE_CONVERSATION_RE.exec(pathname);
+  if (customerCreateConvMatch && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerCreateConversation(customerCreateConvMatch[1], parsed.query, req, res, auth.user);
   }
 
   const customerTemplateMatch = CUSTOMER_MESSAGE_TEMPLATE_RE.exec(pathname);

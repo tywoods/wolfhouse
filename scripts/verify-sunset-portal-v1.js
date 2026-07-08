@@ -847,7 +847,7 @@ if (apiSrc) {
   assert('booking drawer cancel button', apiSrc.includes('id="ps-drawer-cancel"') && apiSrc.includes('schedule.drawer.cancel'));
   assert('booking drawer opens read-only default', apiSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)'));
   assert('booking drawer edit mode toggle', apiSrc.includes('function scheduleEnterDrawerEditMode(') && apiSrc.includes('function scheduleCancelDrawerEditMode('));
-  assert('customer profile edit button', apiSrc.includes('id="cust-profile-edit"'));
+  assert('customer profile edit button', apiSrc.includes('id="cust-profile-edit-btn"'));
   assert('customer profile save cancel', apiSrc.includes('id="cust-profile-save"') && apiSrc.includes('id="cust-profile-cancel"'));
   assert('customer PATCH route', apiSrc.includes('CUSTOMER_PHONE_RE') && apiSrc.includes("method === 'PATCH'") && apiSrc.includes('handleCustomerUpdate'));
   assert('customer edit fields', apiSrc.includes('id="cust-edit-name"') && apiSrc.includes('id="cust-edit-notes"'));

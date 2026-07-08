@@ -180,6 +180,8 @@ if (fs.existsSync(CUST_Q_PATH)) {
 
   assert('CRM_TAG_KEYS includes lead and do_not_contact',
     CRM_TAG_KEYS.includes('lead') && CRM_TAG_KEYS.includes('do_not_contact'));
+  assert('CRM_TAG_KEYS includes warm_lead and hot_lead',
+    CRM_TAG_KEYS.includes('warm_lead') && CRM_TAG_KEYS.includes('hot_lead'));
   assert('normalizeCustomerFilter warm_leads', normalizeCustomerFilter('warm_leads') === 'warm_leads');
   assert('normalizeCustomerFilter hot_leads', normalizeCustomerFilter('hot_leads') === 'hot_leads');
   assert('normalizeCustomerFilter booked alias → hot_leads', normalizeCustomerFilter('booked') === 'hot_leads');
@@ -194,7 +196,9 @@ if (fs.existsSync(CUST_Q_PATH)) {
 
   assert('warm_leads requires contact without bookings', warmSql.includes('conversation_id IS NOT NULL')
     && warmSql.includes('booking_count, 0) = 0'));
+  assert('warm_leads includes manual crm_tags.warm_lead', warmSql.includes("crm_tags->>'warm_lead'"));
   assert('hot_leads requires bookings or services', hotSql.includes('booking_count, 0) > 0'));
+  assert('hot_leads includes manual crm_tags.hot_lead', hotSql.includes("crm_tags->>'hot_lead'"));
   assert('do_not_contact uses crm_tags', dncSql.includes("crm_tags->>'do_not_contact'"));
   assert('checked_in_now uses stay dates for lodging', checkedLodgingSql.includes('checked_in_agg')
     && checkedLodgingSql.includes('check_in <= CURRENT_DATE'));
@@ -213,6 +217,8 @@ if (fs.existsSync(I18N_PATH)) {
   assert('do not contact filter', i18n.includes("'customers.filter.doNotContact': 'Do Not Contact'"));
   assert('crm tag keys in i18n', i18n.includes("'customers.tags.lead': 'Lead'")
     && i18n.includes("'customers.tags.newsletter_ok': 'Newsletter OK'"));
+  assert('warm_lead and hot_lead tag labels', i18n.includes("'customers.tags.warm_lead': 'Warm lead'")
+    && i18n.includes("'customers.tags.hot_lead': 'Hot lead'"));
 }
 
 if (apiSrc) {
@@ -227,6 +233,26 @@ if (apiSrc) {
   assert('tag checkboxes in detail', apiSrc.includes('data-crm-tag') && apiSrc.includes('cust-tags-save'));
   assert('applyCustomersFilterVisibility for surf', apiSrc.includes('function applyCustomersFilterVisibility('));
   assert('no bulk send in customers tab', !/tab-customers[\s\S]{0,8000}bulk[\s_-]?send/i.test(apiSrc));
+}
+
+console.log('\n[6b] Profile UX, linked bookings, conversation, outreach stacking');
+
+if (apiSrc) {
+  assert('single profile edit action in header', apiSrc.includes('id="cust-profile-edit-btn"')
+    && !apiSrc.includes('cust-profile-edit-field'));
+  assert('language field in profile edit form', apiSrc.includes('id="cust-edit-language"'));
+  assert('tags save closes edit mode', /customerSaveTags[\s\S]{0,1200}customerDetailState\.tagsEditing = false[\s\S]{0,200}renderCustomerDetail/.test(apiSrc));
+  assert('linked bookings section', apiSrc.includes('cust-linked-bookings-section')
+    && apiSrc.includes('renderCustomerLinkedBookingsSection'));
+  assert('open/start conversation action', apiSrc.includes('id="cust-conversation-btn"')
+    && apiSrc.includes('customerOpenOrStartConversation'));
+  assert('customer create-conversation route', apiSrc.includes('CUSTOMER_CREATE_CONVERSATION_RE')
+    && apiSrc.includes('handleCustomerCreateConversation'));
+  assert('outreach confirm hides composer first', /openCustomersOutreachConfirmModal[\s\S]{0,400}closeCustomersOutreachDrawer/.test(apiSrc));
+  assert('outreach confirm modal above drawer z-index', apiSrc.includes('#cust-outreach-confirm-modal{z-index:9300}'));
+  assert('wolfhouse customer profile PATCH uses updateCustomerProfile', apiSrc.includes('updateCustomerProfile(pg, clientSlug, phone, body)'));
+  assert('handleCustomerUpdate not sunset-only gate', !/async function handleCustomerUpdate[\s\S]{0,400}return sendJSON\(res, 403[\s\S]{0,40}sunset only/.test(apiSrc));
+  assert('CRM tag keys use shared CRM_TAG_KEYS', apiSrc.includes('var CUSTOMER_CRM_TAG_KEYS = CRM_TAG_KEYS'));
 }
 
 console.log('\n[7] Outreach drawer shell — selection UI, no sends');

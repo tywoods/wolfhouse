@@ -20,6 +20,8 @@ const { loadClientPortalProfile } = require('./staff-portal-clients');
 
 const CRM_TAG_KEYS = [
   'lead',
+  'warm_lead',
+  'hot_lead',
   'repeat_guest',
   'vip',
   'local',
@@ -320,11 +322,20 @@ function getCustomerListQuery(opts) {
 
   let filterClause = '';
   if (filter === 'hot_leads') {
-    filterClause = 'AND (COALESCE(ba.booking_count, 0) > 0 OR COALESCE(sa.service_count, 0) > 0)';
+    filterClause = `AND (
+      COALESCE(ba.booking_count, 0) > 0
+      OR COALESCE(sa.service_count, 0) > 0
+      OR COALESCE((cu.crm_tags->>'hot_lead')::boolean, FALSE) = TRUE
+    )`;
   } else if (filter === 'warm_leads') {
     filterClause = `AND (
-      lc.conversation_id IS NOT NULL OR lc.last_contact_at IS NOT NULL
-    ) AND COALESCE(ba.booking_count, 0) = 0 AND COALESCE(sa.service_count, 0) = 0`;
+      COALESCE((cu.crm_tags->>'warm_lead')::boolean, FALSE) = TRUE
+      OR (
+        (lc.conversation_id IS NOT NULL OR lc.last_contact_at IS NOT NULL)
+        AND COALESCE(ba.booking_count, 0) = 0
+        AND COALESCE(sa.service_count, 0) = 0
+      )
+    )`;
   } else if (filter === 'checked_in_now') {
     filterClause = accommodationCrm
       ? 'AND COALESCE(cia.checked_in_now, FALSE) = TRUE'
@@ -524,7 +535,7 @@ SELECT
   b.check_in,
   b.check_out,
   b.status::text AS booking_status,
-  b.payment_status::text AS payment_payment_status,
+  b.payment_status::text AS payment_status,
   b.guest_count,
   b.created_at
 FROM bookings b
@@ -617,6 +628,199 @@ function buildLastSetupSummary(serviceRows) {
   return parts.length ? parts.join(', ') : null;
 }
 
+function parseCustomerProfileUpdateBody(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const display_name = String(b.display_name != null ? b.display_name : b.name || '').trim().slice(0, 120);
+  const email = String(b.email || '').trim().slice(0, 160);
+  const notes = String(b.notes || '').trim().slice(0, 4000);
+  const phone = normalizeCustomerPhone(b.phone);
+  const language = String(b.language || '').trim().slice(0, 32) || null;
+  if (!display_name) return { ok: false, error: 'display_name is required' };
+  if (!phone) return { ok: false, error: 'phone is required' };
+  return {
+    ok: true,
+    value: {
+      display_name,
+      email: email || null,
+      notes,
+      phone,
+      language,
+    },
+  };
+}
+
+/**
+ * Update customer profile fields for any tenant (name, phone, email, language, notes).
+ * No outbound messaging.
+ */
+async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
+  const parsed = parseCustomerProfileUpdateBody(body);
+  if (!parsed.ok) {
+    return { ok: false, status: 400, body: { success: false, error: parsed.error } };
+  }
+  const input = parsed.value;
+  const phoneFrom = normalizeCustomerPhone(oldPhone);
+  if (!phoneFrom || !clientSlug) {
+    return { ok: false, status: 400, body: { success: false, error: 'invalid client or phone' } };
+  }
+
+  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+  if (!clientRes.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
+  }
+  const clientId = clientRes.rows[0].id;
+
+  await pg.query('BEGIN');
+  try {
+    const custUpd = await pg.query(
+      `UPDATE customers SET
+         full_name = $3, email = $4, notes = $5, language = $6,
+         phone = $7, updated_at = NOW()
+       WHERE client_id = $1::uuid AND phone = $2`,
+      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
+    );
+    if (custUpd.rowCount === 0) {
+      await pg.query(
+        `INSERT INTO customers (client_id, phone, full_name, email, notes, language)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6)
+         ON CONFLICT (client_id, phone) DO UPDATE SET
+           full_name = EXCLUDED.full_name,
+           email = EXCLUDED.email,
+           notes = EXCLUDED.notes,
+           language = COALESCE(EXCLUDED.language, customers.language),
+           updated_at = NOW()`,
+        [clientId, input.phone, input.display_name, input.email, input.notes || null, input.language],
+      );
+    }
+
+    const convRes = await pg.query(
+      `UPDATE conversations SET
+         display_name = $3,
+         email = $4,
+         internal_staff_notes = $5,
+         language = COALESCE($6, language),
+         phone = CASE WHEN $7 <> $2 THEN $7 ELSE phone END,
+         updated_at = NOW()
+       WHERE id = (
+         SELECT conv.id FROM conversations conv
+         WHERE conv.client_id = $1::uuid AND conv.phone = $2
+         ORDER BY conv.updated_at DESC
+         LIMIT 1
+       )
+       RETURNING id::text AS conversation_id, phone`,
+      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
+    );
+
+    await pg.query(
+      `UPDATE bookings SET guest_name = $3, phone = $4
+       WHERE client_id = $1::uuid AND phone = $2
+         AND status NOT IN ('cancelled', 'expired')`,
+      [clientId, phoneFrom, input.display_name, input.phone],
+    );
+
+    await pg.query('COMMIT');
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        phone: input.phone,
+        previous_phone: phoneFrom,
+        conversation_updated: convRes.rows.length > 0,
+        display_name: input.display_name,
+        email: input.email,
+        language: input.language,
+        notes: input.notes || null,
+      },
+    };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    throw err;
+  }
+}
+
+/**
+ * Create or return existing staff conversation for a customer phone (no message send).
+ */
+async function createCustomerConversation(pg, clientSlug, phone, opts = {}) {
+  const normalizedPhone = normalizeCustomerPhone(phone);
+  if (!clientSlug || !normalizedPhone) {
+    return { ok: false, status: 400, body: { success: false, error: 'invalid client or phone' } };
+  }
+
+  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+  if (!clientRes.rows.length) {
+    return { ok: false, status: 404, body: { success: false, error: 'client not found' } };
+  }
+  const clientId = clientRes.rows[0].id;
+
+  const existing = await pg.query(
+    `SELECT conv.id::text AS conversation_id
+       FROM conversations conv
+      WHERE conv.client_id = $1::uuid AND conv.phone = $2
+      ORDER BY conv.updated_at DESC
+      LIMIT 1`,
+    [clientId, normalizedPhone],
+  );
+  if (existing.rows.length) {
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        conversation_id: existing.rows[0].conversation_id,
+        idempotent: true,
+        created: false,
+        no_message_sent: true,
+        no_whatsapp: true,
+      },
+    };
+  }
+
+  const custRes = await pg.query(
+    `SELECT full_name FROM customers WHERE client_id = $1::uuid AND phone = $2 LIMIT 1`,
+    [clientId, normalizedPhone],
+  );
+  const displayName = (custRes.rows[0] && custRes.rows[0].full_name) || null;
+  const metadata = opts.metadata && typeof opts.metadata === 'object' ? opts.metadata : {
+    source: 'staff_manual',
+    channel: 'manual',
+    idempotency_key: opts.idempotency_key || `customer-profile-${normalizedPhone}`,
+    reason: opts.reason || 'Created from customer profile',
+    created_from: 'customer_profile',
+  };
+  const sessionState = opts.session_state && typeof opts.session_state === 'object'
+    ? opts.session_state
+    : { source: 'staff_manual', channel: 'manual' };
+
+  const ins = await pg.query(
+    `INSERT INTO conversations (
+       client_id, phone, display_name, status, bot_mode, conversation_stage, metadata, session_state
+     ) VALUES (
+       $1, $2, $3, 'open'::conversation_status, 'staff'::bot_mode, 'staff_manual', $4::jsonb, $5::jsonb
+     )
+     ON CONFLICT (client_id, phone) DO UPDATE SET
+       display_name = COALESCE(EXCLUDED.display_name, conversations.display_name),
+       metadata = conversations.metadata || EXCLUDED.metadata,
+       updated_at = NOW()
+     RETURNING id::text AS conversation_id`,
+    [clientId, normalizedPhone, displayName, JSON.stringify(metadata), JSON.stringify(sessionState)],
+  );
+
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: true,
+      conversation_id: ins.rows[0].conversation_id,
+      idempotent: false,
+      created: true,
+      no_message_sent: true,
+      no_whatsapp: true,
+    },
+  };
+}
+
 function buildCustomerListParams(clientSlug, query) {
   const filter = normalizeCustomerFilter(query.filter);
   const limit = clampLimit(query.limit);
@@ -667,5 +871,8 @@ module.exports = {
   getCustomerHandoffsQuery,
   getCustomerMessagesQuery,
   buildLastSetupSummary,
+  parseCustomerProfileUpdateBody,
+  updateCustomerProfile,
+  createCustomerConversation,
   buildCustomerListParams,
 };

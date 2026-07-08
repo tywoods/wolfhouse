@@ -21,9 +21,10 @@ function parseCustomerUpdateBody(body) {
   const email = normalizeText(b.email, 160);
   const notes = normalizeText(b.notes, 4000);
   const phone = normalizePhone(b.phone);
+  const language = normalizeText(b.language, 32) || null;
   if (!display_name) return { ok: false, error: 'display_name is required' };
   if (!phone) return { ok: false, error: 'phone is required' };
-  return { ok: true, value: { display_name, email: email || null, notes, phone } };
+  return { ok: true, value: { display_name, email: email || null, notes, phone, language } };
 }
 
 async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts = {}) {
@@ -51,19 +52,21 @@ async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts 
     // Canonical customer record (source of truth for the Customers list/detail).
     const custUpd = await pg.query(
       `UPDATE customers SET
-         full_name = $3, email = $4, notes = $5,
-         phone = $6, updated_at = NOW()
+         full_name = $3, email = $4, notes = $5, language = $6,
+         phone = $7, updated_at = NOW()
        WHERE client_id = $1::uuid AND phone = $2`,
-      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.phone],
+      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
     );
     if (custUpd.rowCount === 0) {
       await pg.query(
-        `INSERT INTO customers (client_id, phone, full_name, email, notes)
-         VALUES ($1::uuid, $2, $3, $4, $5)
+        `INSERT INTO customers (client_id, phone, full_name, email, notes, language)
+         VALUES ($1::uuid, $2, $3, $4, $5, $6)
          ON CONFLICT (client_id, phone) DO UPDATE SET
            full_name = EXCLUDED.full_name, email = EXCLUDED.email,
-           notes = EXCLUDED.notes, updated_at = NOW()`,
-        [clientId, input.phone, input.display_name, input.email, input.notes || null],
+           notes = EXCLUDED.notes,
+           language = COALESCE(EXCLUDED.language, customers.language),
+           updated_at = NOW()`,
+        [clientId, input.phone, input.display_name, input.email, input.notes || null, input.language],
       );
     }
 
@@ -72,7 +75,8 @@ async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts 
          display_name = $3,
          email = $4,
          internal_staff_notes = $5,
-         phone = CASE WHEN $6 <> $2 THEN $6 ELSE phone END,
+         language = COALESCE($6, language),
+         phone = CASE WHEN $7 <> $2 THEN $7 ELSE phone END,
          updated_at = NOW()
        WHERE id = (
          SELECT conv.id FROM conversations conv
@@ -81,7 +85,7 @@ async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts 
          LIMIT 1
        )
        RETURNING id::text AS conversation_id, phone`,
-      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.phone],
+      [clientId, phoneFrom, input.display_name, input.email, input.notes || null, input.language, input.phone],
     );
 
     await pg.query(
@@ -115,6 +119,7 @@ async function updateSunsetCustomerProfile(pg, clientSlug, oldPhone, body, opts 
         conversation_updated: convRes.rows.length > 0,
         display_name: input.display_name,
         email: input.email,
+        language: input.language,
         notes: input.notes || null,
       },
     };
