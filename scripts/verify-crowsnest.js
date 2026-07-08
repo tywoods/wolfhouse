@@ -15,6 +15,7 @@ const ONBOARDING_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnes
 const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
+const DOC_DEPLOY = path.join(ROOT, 'docs', 'CROWSNEST-DEPLOY-PLAN.md');
 const PKG_PATH = path.join(ROOT, 'package.json');
 
 let pass = 0;
@@ -60,6 +61,7 @@ const uiHtml = (() => {
 })();
 const productDoc = read(DOC_PRODUCT) || '';
 const planDoc = read(DOC_PLAN) || '';
+const deployDoc = read(DOC_DEPLOY) || '';
 const pkgRaw = read(PKG_PATH) || '';
 
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
@@ -130,6 +132,14 @@ ok('product doc mentions surf school template', /surf school/i.test(productDoc))
 ok('product doc mentions skeleton / no live writes', /skeleton|no live writes|no writes/i.test(productDoc));
 ok('plan doc mentions crowsnest.lunafrontdesk.com', /crowsnest\.lunafrontdesk\.com/i.test(planDoc));
 ok('plan doc mentions no deploy / no Azure changes yet', /no deploy|no Azure|not.*deploy/i.test(planDoc));
+ok('docs/CROWSNEST-DEPLOY-PLAN.md exists', fs.existsSync(DOC_DEPLOY));
+ok('deploy plan mentions separate Container App', /separate.*Container App/i.test(deployDoc));
+ok('deploy plan mentions crowsnest-internal', /crowsnest-internal/.test(deployDoc));
+ok('deploy plan mentions Dockerfile.crowsnest', /Dockerfile\.crowsnest/.test(deployDoc));
+ok('deploy plan mentions domain move from wh-staging-staff-api', /wh-staging-staff-api/.test(deployDoc) && /domain|detach|move/i.test(deployDoc));
+ok('deploy plan staff-staging remains untouched', /staff-staging.*untouched|remains.*wh-staging-staff-api|Must not change/i.test(deployDoc));
+ok('deploy plan has rollback plan', /rollback/i.test(deployDoc));
+ok('deploy plan is planning only / DO NOT RUN YET', /DO NOT RUN YET|PLANNING ONLY|planning only/i.test(deployDoc));
 
 let pkg = null;
 try {
