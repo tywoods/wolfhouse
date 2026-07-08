@@ -16750,6 +16750,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-card-title-row{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
 .portal-admin-card-actions{display:flex;gap:4px;align-items:center;justify-content:flex-end;flex-shrink:0}
 .portal-admin-icon-btn{min-width:0;padding:2px 7px;border-radius:999px;font-size:11px;line-height:1.5}.portal-admin-icon-btn.portal-admin-danger{padding:0 4px;font-size:10px;line-height:1.15;min-height:16px;border-radius:4px}
+.portal-admin-pack-card .portal-admin-card-actions .portal-admin-icon-btn{font-size:10px;padding:0 4px;line-height:1.15;min-height:16px;border-radius:4px}
 .portal-admin-lesson-facts{display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;color:var(--text-2)}
 .portal-admin-lesson-fact{border:1px solid var(--border-soft);border-radius:8px;padding:5px 6px;background:var(--surface)}
 .portal-admin-lesson-fact strong{display:block;color:var(--text);font-size:12px;margin-top:1px}
@@ -16927,7 +16928,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-private-slot-group{border-left:3px solid #7c3aed}
 .portal-schedule-private-lesson-row .portal-schedule-lesson-slot-label{color:#7c3aed}
 .portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
-.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
 .portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
@@ -16977,7 +16978,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-ops-empty{font-size:12px;color:var(--text-3);padding:12px 14px}
 .portal-schedule-ops-fallback{font-size:11px;color:var(--text-3);margin-bottom:8px}
 .portal-schedule-week-forecast{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:10px;margin-bottom:22px}
-@media(max-width:900px){.portal-schedule-week-forecast{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:900px){.portal-schedule-week-forecast{grid-template-columns:repeat(2,minmax(280px,1fr))}}
+@media(max-width:640px){.portal-schedule-week-forecast{display:flex;overflow-x:auto;gap:12px;padding-bottom:8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch}.portal-schedule-week-forecast-card{flex:0 0 min(84vw,360px);scroll-snap-align:start}}
 .portal-schedule-week-forecast-card,.portal-schedule-next30-card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:12px 14px;cursor:pointer;transition:border-color .12s,box-shadow .12s}
 .portal-schedule-week-forecast-card:hover,.portal-schedule-next30-card:hover{border-color:var(--tan);box-shadow:var(--shadow-soft)}
 .portal-schedule-week-forecast-card.is-today,.portal-schedule-next30-card.is-today{border-color:var(--tan)}
@@ -18472,11 +18474,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div>
       <div class="portal-schedule-glance-num" id="ps-wetsuits-today">…</div>
       <div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div>
-    </div>
-    <div class="portal-schedule-glance-cell portal-schedule-glance-cell-unpaid">
-      <div class="portal-schedule-card-label" data-i18n="schedule.card.unpaid">Unpaid</div>
-      <div class="portal-schedule-glance-num" id="ps-unpaid-glance">…</div>
-      <div class="portal-schedule-card-sub" data-i18n="schedule.card.unpaidPendingSub">Bookings awaiting payment</div>
     </div>
     <div class="portal-schedule-glance-cell portal-schedule-glance-cell-reply">
       <div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div>
@@ -23210,12 +23207,6 @@ function renderScheduleSummary(profile, weekData, convs){
   if (wetsSub){
     wetsSub.textContent = String(equip.wetsuits.lesson) + ' ' + portalT('schedule.metric.lesson') + ' · ' +
       String(equip.wetsuits.rental) + ' ' + portalT('schedule.metric.rental');
-  }
-  var unpaidEl = el('ps-unpaid-glance');
-  if (unpaidEl){
-    var unpaidCount = scheduleUnpaidPendingCount(rows, activeIso);
-    unpaidEl.textContent = String(unpaidCount);
-    unpaidEl.classList.toggle('is-zero', unpaidCount === 0);
   }
   var emailCount = scheduleNeedReplyEmailCount(convs);
   var waCount = scheduleNeedReplyWhatsAppCount(convs);
