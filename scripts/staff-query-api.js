@@ -31583,7 +31583,7 @@ function bcApplyDefaultPackageForStay(nights){
   if (!Number.isFinite(nights) || nights <= 0) return;
   var wrap = el('bk-guest-names-wrap');
   if (!wrap) return;
-  var defPkg = nights < 7 ? 'package_none' : bcFirstRealPackage();
+  var defPkg = (Number.isFinite(nights) && nights >= 6) ? bcFirstRealPackage() : 'package_none';
   wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
     sel.value = defPkg;
   });
@@ -31843,8 +31843,22 @@ function bcGuestPackageOptions(){
 
 /* Default per-guest package = the client's first real package option, else
    No package. Used when a guest dropdown has no value yet. */
+function bcCurrentStayNights(){
+  var cin = el('bc-sel-cin') ? el('bc-sel-cin').value : '';
+  var cout = el('bc-sel-cout') ? el('bc-sel-cout').value : '';
+  var n = bcStayNightsFromCheckInOut(cin, cout);
+  if (n > 0) return n;
+  var nEl = el('bc-sel-nights');
+  var nv = nEl ? parseInt(nEl.value, 10) : NaN;
+  return Number.isFinite(nv) && nv > 0 ? nv : 0;
+}
+/* Per-guest package auto-default: No package unless the stay is 6+ nights,
+   then the client's first real package (e.g. Malibu). */
+function bcStayDefaultPackage(){
+  return bcCurrentStayNights() >= 6 ? bcFirstRealPackage() : 'package_none';
+}
 function bcDefaultGuestPackage(){
-  return bcFirstRealPackage();
+  return bcStayDefaultPackage();
 }
 
 /* Most common non-empty per-guest package (majority), else 'package_none'.
