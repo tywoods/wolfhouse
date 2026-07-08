@@ -8,7 +8,14 @@
 
 const http = require('http');
 const { renderCrowsnestPage } = require('./lib/crowsnest/crowsnest-page');
-const { isCrowsnestAuthEnabled, getAllowedCrowsnestUsers } = require('./lib/crowsnest/crowsnest-auth');
+const {
+  isCrowsnestAuthEnabled,
+  getCrowsnestAllowedUsers,
+  getCrowsnestBasicAuthConfig,
+  isCrowsnestRequestAuthorized,
+  sendCrowsnestAuthRequired,
+  sendCrowsnestAuthMisconfigured,
+} = require('./lib/crowsnest/crowsnest-auth');
 
 const PORT = Number(process.env.CROWSNEST_PORT) || 3040;
 const HOST = process.env.CROWSNEST_HOST || '0.0.0.0';
@@ -28,6 +35,21 @@ function sendHTML(res, status, html) {
     'Content-Length': Buffer.byteLength(html, 'utf8'),
   });
   res.end(html);
+}
+
+function gateCrowsnestUi(req, res) {
+  if (!isCrowsnestAuthEnabled()) return true;
+
+  const config = getCrowsnestBasicAuthConfig();
+  if (!config.configured) {
+    sendCrowsnestAuthMisconfigured(res);
+    return false;
+  }
+  if (!isCrowsnestRequestAuthorized(req)) {
+    sendCrowsnestAuthRequired(res);
+    return false;
+  }
+  return true;
 }
 
 function router(req, res) {
@@ -50,11 +72,13 @@ function router(req, res) {
       stage: 'skeleton',
       writes_enabled: false,
       auth_enabled: isCrowsnestAuthEnabled(),
-      allowed_users: getAllowedCrowsnestUsers(),
+      allowed_users: getCrowsnestAllowedUsers(),
     });
   }
 
   if (pathname === '/' || pathname === '/crowsnest' || pathname === '/crowsnest/ui') {
+    if (!gateCrowsnestUi(req, res)) return;
+
     if (method === 'HEAD') {
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       return res.end();
@@ -77,7 +101,7 @@ if (require.main === module) {
   server.listen(PORT, HOST, () => {
     console.log(`Crowsnest skeleton running on http://${HOST}:${PORT}`);
     console.log('  writes_enabled: false');
-    console.log(`  auth: ${isCrowsnestAuthEnabled() ? 'required (env)' : 'not enforced (skeleton)'}`);
+    console.log(`  auth: ${isCrowsnestAuthEnabled() ? 'required' : 'not required'}`);
   });
 }
 

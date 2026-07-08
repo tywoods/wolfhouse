@@ -52,6 +52,7 @@ const apiSrc = read(API_PATH) || '';
 const pageSrc = read(PAGE_PATH) || '';
 const clientsSrc = read(CLIENTS_PATH) || '';
 const onboardingSrc = read(ONBOARDING_PATH) || '';
+const authSrc = read(AUTH_PATH) || '';
 const uiHtml = (() => {
   try {
     const { renderCrowsnestPage } = require(PAGE_PATH);
@@ -118,6 +119,28 @@ ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
 ok('writes_enabled false in healthz', apiSrc.includes('writes_enabled: false'));
 
+ok('CROWSNEST_AUTH_USERNAME env referenced', /CROWSNEST_AUTH_USERNAME/.test(authSrc));
+ok('CROWSNEST_AUTH_PASSWORD env referenced', /CROWSNEST_AUTH_PASSWORD/.test(authSrc));
+ok('Basic auth parsing helper exists', /function parseBasicAuthHeader|parseBasicAuthHeader\s*\(/.test(authSrc));
+ok('isCrowsnestRequestAuthorized helper exists', /function isCrowsnestRequestAuthorized|isCrowsnestRequestAuthorized\s*\(/.test(authSrc));
+ok('sendCrowsnestAuthRequired helper exists', /function sendCrowsnestAuthRequired|sendCrowsnestAuthRequired\s*\(/.test(authSrc));
+ok('sendCrowsnestAuthMisconfigured helper exists', /function sendCrowsnestAuthMisconfigured|sendCrowsnestAuthMisconfigured\s*\(/.test(authSrc));
+ok('/healthz remains ungated (no gateCrowsnestUi in healthz handler)', (() => {
+  const parts = apiSrc.split("pathname === '/healthz'");
+  if (parts.length < 2) return false;
+  const afterHealth = parts[1].split("pathname === '/'")[0];
+  return !afterHealth.includes('gateCrowsnestUi');
+})());
+ok('UI routes call auth gate', apiSrc.includes('gateCrowsnestUi(req, res)'));
+ok('401 auth required path exists', apiSrc.includes('sendCrowsnestAuthRequired'));
+ok('WWW-Authenticate Basic realm=Crowsnest', /Basic realm="Crowsnest"/.test(authSrc));
+ok('auth misconfigured 503 path exists', apiSrc.includes('sendCrowsnestAuthMisconfigured'));
+ok('healthz JSON does not embed auth password', !/auth_password|CROWSNEST_AUTH_PASSWORD/.test(apiSrc.split("pathname === '/healthz'")[1] || ''));
+ok('page renderer does not embed auth credentials', !/CROWSNEST_AUTH_PASSWORD|DEFAULT_PASSWORD/.test(pageSrc));
+ok('product doc mentions Basic Auth', /Basic Auth|basic auth/i.test(productDoc));
+ok('deploy plan mentions CROWSNEST_AUTH_USERNAME', /CROWSNEST_AUTH_USERNAME/.test(deployDoc));
+ok('deploy plan mentions CROWSNEST_AUTH_PASSWORD', /CROWSNEST_AUTH_PASSWORD/.test(deployDoc));
+
 const writeRouteRe = /\.(post|put|patch|delete)\(|method\s*===\s*['"]POST|method\s*===\s*['"]PUT|method\s*===\s*['"]DELETE|method\s*===\s*['"]PATCH/i;
 ok('no POST/PUT/DELETE write routes in crowsnest-api', !writeRouteRe.test(apiSrc));
 ok('no database / pg imports in crowsnest-api', !/require\(['"].*pg|postgres|WOLFHOUSE_DATABASE/i.test(apiSrc));
@@ -164,6 +187,7 @@ try {
 ok('package.json parses', pkg != null);
 ok('package.json has crowsnest:start', pkg && pkg.scripts && typeof pkg.scripts['crowsnest:start'] === 'string');
 ok('package.json has verify:crowsnest', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest'] === 'string');
+ok('package.json has verify:crowsnest-auth', pkg && pkg.scripts && typeof pkg.scripts['verify:crowsnest-auth'] === 'string');
 
 console.log(`\n── verify:crowsnest: ${pass} passed, ${fail} failed ──`);
 if (fail === 0) {

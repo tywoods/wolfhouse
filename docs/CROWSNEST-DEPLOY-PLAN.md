@@ -12,7 +12,7 @@ Crowsnest is the internal dev/operator portal for **Monshies** and **Earthling**
 
 | Topic | Today |
 |-------|--------|
-| Code | Standalone skeleton in repo: `scripts/crowsnest-api.js`, `scripts/lib/crowsnest/`, `scripts/verify-crowsnest.js`, **`Dockerfile.crowsnest`** |
+| Code | Standalone skeleton in repo: `scripts/crowsnest-api.js`, `scripts/lib/crowsnest/`, `scripts/verify-crowsnest.js`, `scripts/verify-crowsnest-auth.js`, **`Dockerfile.crowsnest`** |
 | Local run | `npm run crowsnest:start` → port **3040**, `writes_enabled: false` |
 | Domain | `crowsnest.lunafrontdesk.com` is a **custom domain alias on Wolfhouse staff-staging** Container App `wh-staging-staff-api` |
 | Staff staging | `staff-staging.lunafrontdesk.com` also points to **`wh-staging-staff-api`** (same app, same image, Staff API + portal) |
@@ -67,8 +67,10 @@ Recent repo commits (Crowsnest slices): `b4bc09c`, `b0452ca`, `035899b`, `c807e1
 | `CROWSNEST_PORT` | `3040` | unchanged |
 | `CROWSNEST_HOST` | `0.0.0.0` | unchanged |
 | `NODE_ENV` | `production` | unchanged |
-| `CROWSNEST_AUTH_REQUIRED` | `false` (skeleton) or `true` if auth slice lands first | **true** before broad exposure |
-| `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | operator-maintained allow-list |
+| `CROWSNEST_AUTH_REQUIRED` | `false` (local) / **`true` before public hostname** | Enable HTTP Basic Auth on UI routes |
+| `CROWSNEST_AUTH_USERNAME` | Set in Container App secrets (not `admin` in prod) | Basic Auth username |
+| `CROWSNEST_AUTH_PASSWORD` | Set in Container App secrets (not `admin` in prod) | Basic Auth password |
+| `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` |
 
 No database URL, Stripe, WhatsApp, or Staff API env vars in first deploy.
 

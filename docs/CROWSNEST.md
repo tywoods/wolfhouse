@@ -35,7 +35,8 @@ From the Crowsnest UI, operators will eventually:
 | Dedicated location | `scripts/crowsnest-api.js` + `scripts/lib/crowsnest/` |
 | Static placeholder UI | Skeleton + read-only **Clients** overview + **New client onboarding** form mockup (local-only, non-functional) |
 | Onboarding mockup | Draft form only — surf house / surf school templates; all fields and buttons disabled; no submit |
-| `GET /healthz` | `service: crowsnest`, `writes_enabled: false` |
+| `GET /healthz` | `service: crowsnest`, `writes_enabled: false`, `auth_enabled` reflects env |
+| Basic Auth (UI) | Optional gate on `/`, `/crowsnest`, `/crowsnest/ui` when `CROWSNEST_AUTH_REQUIRED=true`; `/healthz` stays public |
 | Writes / DB / Stripe / WhatsApp | **None** |
 | Deploy / Azure / domain move | **Not yet** — see [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md) |
 
@@ -47,8 +48,35 @@ npm run crowsnest:start
 curl http://127.0.0.1:3040/healthz
 ```
 
+### Auth (temporary local credentials)
+
+HTTP Basic Auth gates UI routes only when enabled. **`GET /healthz` is always public** and never includes credentials.
+
+| Variable | Default | Notes |
+|----------|---------|-------|
+| `CROWSNEST_AUTH_REQUIRED` | `false` | Set `true` to require Basic Auth on UI routes |
+| `CROWSNEST_AUTH_USERNAME` | `admin` (non-production only) | Replace before real use |
+| `CROWSNEST_AUTH_PASSWORD` | `admin` (non-production only) | Replace before real use |
+| `CROWSNEST_ALLOWED_USERS` | `Monshies,Earthling` | Informational allow-list in `/healthz` only |
+
+When `CROWSNEST_AUTH_REQUIRED=true`:
+
+- Valid credentials → `200` on UI routes
+- Missing/wrong credentials → `401` with `WWW-Authenticate: Basic realm="Crowsnest"`
+- Auth required but credentials empty/missing in production → `503` (`Crowsnest auth is not configured`)
+
+Local auth-enabled smoke:
+
+```bash
+CROWSNEST_AUTH_REQUIRED=true CROWSNEST_AUTH_USERNAME=admin CROWSNEST_AUTH_PASSWORD=admin npm run crowsnest:start
+curl -i http://127.0.0.1:3040/crowsnest/ui          # 401
+curl -i -u admin:admin http://127.0.0.1:3040/crowsnest/ui  # 200
+curl http://127.0.0.1:3040/healthz                  # 200, auth_enabled:true, no password
+```
+
 Verify:
 
 ```bash
 npm run verify:crowsnest
+npm run verify:crowsnest-auth
 ```
