@@ -19084,21 +19084,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
           <input type="number" id="bk-guest-count" class="bk-input bk-input-sm" value="1" min="1" max="20">
         </div>
         <div class="bk-compact-row">
-          <label class="bk-label" for="bk-package" data-i18n="calendar.create.package">Package</label>
-          <select id="bk-package" class="bk-input bk-input-sm">
-            <option value="" data-i18n="calendar.create.selectPackage">&mdash; select package &mdash;</option>
-            <option value="malibu">Malibu</option>
-            <option value="uluwatu">Uluwatu</option>
-            <option value="waimea">Waimea</option>
-            <option value="package_none" data-i18n="calendar.create.noPackage">No package / accommodation only</option>
-            <option value="manual_override" data-i18n="calendar.create.manualOverride">Manual Price Override</option>
-          </select>
-        </div>
-        <div class="bk-compact-row" id="bk-manual-price-row" style="display:none">
-          <label class="bk-label" for="bk-manual-price-night" data-i18n="calendar.create.pricePerNight">Price per night</label>
-          <input type="number" id="bk-manual-price-night" class="bk-input bk-input-sm" placeholder="40.00" step="0.01" min="0.01" aria-label="Price per night EUR">
-        </div>
-        <div class="bk-compact-row">
           <label class="bk-label" for="bk-source" data-i18n="calendar.create.source">Source / channel</label>
           <input type="text" id="bk-source" class="bk-input bk-input-sm" value="manual_staff" readonly>
         </div>
@@ -31590,20 +31575,27 @@ var bcLastQuote = null;
 var bcLastQuoteResp = null;
 var bcPackageUserSelected = false;
 
-function bcUpdateManualPriceOverrideVisibility(){
-  var pkgEl = el('bk-package');
-  var row = el('bk-manual-price-row');
-  if (!pkgEl || !row) return;
-  row.style.display = pkgEl.value === 'manual_override' ? '' : 'none';
-}
-
+/* Stay-length default package, applied directly to every per-guest dropdown.
+   Short stays (nights < 7) default to No package; 7+ nights default to the
+   client's first real package. Staff can still override each guest afterward. */
 function bcApplyDefaultPackageForStay(nights){
   if (bcPackageUserSelected) return;
-  var pkgEl = el('bk-package');
-  if (!pkgEl) return;
   if (!Number.isFinite(nights) || nights <= 0) return;
-  pkgEl.value = nights < 7 ? 'package_none' : 'malibu';
-  bcUpdateManualPriceOverrideVisibility();
+  var wrap = el('bk-guest-names-wrap');
+  if (!wrap) return;
+  var defPkg = nights < 7 ? 'package_none' : bcFirstRealPackage();
+  wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
+    sel.value = defPkg;
+  });
+}
+
+/* First real (non "No package") option for the current client, else 'package_none'. */
+function bcFirstRealPackage(){
+  var opts = bcGuestPackageOptions();
+  for (var i = 0; i < opts.length; i++){
+    if (opts[i] && opts[i].value && opts[i].value !== 'package_none') return opts[i].value;
+  }
+  return 'package_none';
 }
 /* Stage 8.4.10 — payment_id from last successful manual booking create */
 var bcLastPaymentId = null;
@@ -31721,7 +31713,7 @@ function bcClearSelection(){
   var pat = el('bk-paid-amount-type'); if (pat) pat.value = 'deposit';
   var pac = el('bk-paid-amount-custom'); if (pac) pac.value = '';
   if (typeof bcUpdateManualBookingPaidFields === 'function') bcUpdateManualBookingPaidFields();
-  var pk = el('bk-package'); if (pk) pk.value = '';
+  bcPackageUserSelected = false;
   var rt = el('bk-room-type'); if (rt) rt.value = 'shared';
   /* Reset quote state and create panel (Stage 8.4.8/10) */
   bcLastQuote = null;
@@ -31825,6 +31817,8 @@ function bcGuestCountForNameInputs(){
   return Math.max(1, Math.min(20, gc));
 }
 
+/* Hardcoded fallback per-guest package options (used when the client profile
+   does not supply manual_booking_packages). */
 var BC_GUEST_PACKAGE_OPTIONS = [
   { value: 'malibu', label: 'Malibu' },
   { value: 'uluwatu', label: 'Uluwatu' },
@@ -31832,12 +31826,44 @@ var BC_GUEST_PACKAGE_OPTIONS = [
   { value: 'package_none', label: 'No package' },
 ];
 
-/* Default per-guest package = the top "Package" selector, when it's a real
-   package. manual_override / empty falls back to No package. */
+/* Per-client per-guest package options. Prefers the tenant profile's
+   manual_booking_packages (built server-side from the client's package
+   offerings), falling back to the hardcoded list above. */
+function bcGuestPackageOptions(){
+  try {
+    var profiles = (typeof staffPortalClientProfiles !== 'undefined') ? staffPortalClientProfiles : null;
+    var slug = (typeof getBcClient === 'function') ? getBcClient()
+             : ((typeof getClient === 'function') ? getClient() : '');
+    var prof = (profiles && slug) ? profiles[slug] : null;
+    var opts = prof && prof.manual_booking_packages;
+    if (Array.isArray(opts) && opts.length) return opts;
+  } catch (e) {}
+  return BC_GUEST_PACKAGE_OPTIONS;
+}
+
+/* Default per-guest package = the client's first real package option, else
+   No package. Used when a guest dropdown has no value yet. */
 function bcDefaultGuestPackage(){
-  var top = el('bk-package') ? String(el('bk-package').value || '') : '';
-  var known = ['malibu', 'uluwatu', 'waimea', 'package_none'];
-  return known.indexOf(top) >= 0 ? top : 'package_none';
+  return bcFirstRealPackage();
+}
+
+/* Most common non-empty per-guest package (majority), else 'package_none'.
+   Used to derive the booking-level package for the quote request. */
+function bcMajorityGuestPackage(){
+  var counts = {};
+  var wrap = el('bk-guest-names-wrap');
+  if (wrap){
+    wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
+      var v = String(sel.value || '').trim();
+      if (v) counts[v] = (counts[v] || 0) + 1;
+    });
+  }
+  var best = '';
+  var bestN = 0;
+  Object.keys(counts).forEach(function(k){
+    if (counts[k] > bestN){ bestN = counts[k]; best = k; }
+  });
+  return best || 'package_none';
 }
 
 /* Option A — prefill-and-jump: pending contact prefill applied to the create
@@ -31880,8 +31906,8 @@ function bcRenderGuestNameInputs(){
     }
     html += ' placeholder="Full name" value="' + escHtml(val) + '">';
     html += '<select id="bk-guest-package-' + i + '" class="bk-input bk-input-sm bk-guest-package-input" data-guest-num="' + i + '" aria-label="Package for guest ' + i + '" style="margin-top:4px">';
-    BC_GUEST_PACKAGE_OPTIONS.forEach(function(opt){
-      html += '<option value="' + opt.value + '"' + (opt.value === pkgVal ? ' selected' : '') + '>' + escHtml(opt.label) + '</option>';
+    bcGuestPackageOptions().forEach(function(opt){
+      html += '<option value="' + escHtml(opt.value) + '"' + (opt.value === pkgVal ? ' selected' : '') + '>' + escHtml(opt.label) + '</option>';
     });
     html += '</select>';
     html += '</div>';
@@ -31891,18 +31917,12 @@ function bcRenderGuestNameInputs(){
     inp.oninput = function(){ bcUpdateCreateButton(); };
   });
   wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
-    sel.onchange = function(){ bcUpdateCreateButton(); };
-  });
-}
-
-/* When the top-level Package changes, default-fill every guest's package dropdown
-   (staff can still override each one individually afterwards). */
-function bcSyncGuestPackagesToTop(){
-  var defPkg = bcDefaultGuestPackage();
-  var wrap = el('bk-guest-names-wrap');
-  if (!wrap) return;
-  wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
-    sel.value = defPkg;
+    sel.onchange = function(){
+      bcPackageUserSelected = true;
+      bcRefreshQuotePreviewDisplay();
+      bcUpdateQuoteButton();
+      bcUpdateCreateButton();
+    };
   });
 }
 
@@ -31976,11 +31996,9 @@ function bcCollectGuestPayload(){
   return guests;
 }
 
-/* Per-guest packages for the create payload (guest_packages[]). Skipped when the
-   top selector is Manual Price Override (custom pricing handles the whole booking). */
+/* Per-guest packages for the create payload (guest_packages[]). The backend
+   derives the effective package from these (majority), so they are authoritative. */
 function bcCollectGuestPackages(){
-  var top = el('bk-package') ? String(el('bk-package').value || '') : '';
-  if (top === 'manual_override') return [];
   var count = bcGuestCountForNameInputs();
   var out = [];
   for (var i = 1; i <= count; i++){
@@ -32058,8 +32076,8 @@ function bcFetchManualBookingAvailability(){
     selected_bed_codes: bedCodes,
     guest_count: parseInt(gcEl ? gcEl.value : '1', 10) || 1,
   };
-  var pkgEl = el('bk-package');
-  if (pkgEl && pkgEl.value) payload.package_or_stay_type = pkgEl.value;
+  var majorityPkg = bcMajorityGuestPackage();
+  if (majorityPkg) payload.package_or_stay_type = majorityPkg;
   return fetch('/staff/manual-bookings/preview', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -32268,9 +32286,8 @@ function bcUpdateQuoteButton(){
   var cin  = bcReadDateField(el('bc-sel-cin'));
   var cout = bcReadDateField(el('bc-sel-cout'));
   var gc   = parseInt(el('bk-guest-count') ? el('bk-guest-count').value : '0', 10) || 0;
-  var pkg  = el('bk-package')        ? el('bk-package').value        : '';
   var pc   = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
-  btn.disabled = !(hasSelection && cin && cout && gc >= 1 && pkg && pc);
+  btn.disabled = !(hasSelection && cin && cout && gc >= 1 && pc);
 }
 
 /* ── Create button state helper (Stage 8.4.8) ────────────────────────────── */
@@ -32289,7 +32306,6 @@ function bcUpdateCreateButton(){
   var cin          = bcReadDateField(el('bc-sel-cin'));
   var cout         = bcReadDateField(el('bc-sel-cout'));
   var gc           = parseInt(el('bk-guest-count')   ? el('bk-guest-count').value   : '0', 10) || 0;
-  var pkg          = el('bk-package')        ? el('bk-package').value        : '';
   var pc           = el('bk-payment-choice') ? el('bk-payment-choice').value : '';
   var gname        = bcAllGuestNamesFilled();
   var quoteOk      = !!bcLastQuote;
@@ -32297,7 +32313,6 @@ function bcUpdateCreateButton(){
   if (!hasSelection) missing.push(t('calendar.create.missing.bedSelection'));
   if (!cin || !cout) missing.push(t('calendar.create.missing.dates'));
   if (gc < 1) missing.push(t('calendar.create.missing.guestCount'));
-  if (!pkg) missing.push(t('calendar.create.missing.package'));
   if (!pc) missing.push(t('calendar.create.missing.paymentChoice'));
   if (!gname) missing.push(t('calendar.create.missing.guestName'));
   if (!quoteOk) missing.push(t('calendar.create.missing.quote'));
@@ -32401,7 +32416,10 @@ function runManualBookingCreate(){
   var guestCount   = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
   var guests       = bcCollectGuestPayload();
   var guestName    = guests.length ? guests[0].name : '';
-  var packageCode  = el('bk-package')        ? el('bk-package').value        : '';
+  /* Booking-level package removed — backend derives the effective package from
+     the per-guest guest_packages (majority). We only compute a majority here to
+     apply the client-side 7-night package rule. */
+  var packageCode  = bcMajorityGuestPackage();
   var payChoice    = el('bk-payment-choice') ? el('bk-payment-choice').value : 'stripe_deposit';
   var paidAmtType  = el('bk-paid-amount-type') ? el('bk-paid-amount-type').value : 'deposit';
   var paidCustomEl = el('bk-paid-amount-custom');
@@ -32422,7 +32440,7 @@ function runManualBookingCreate(){
     guest_packages:     bcCollectGuestPackages(),
     phone:              phone,
     email:              email,
-    package_code:       packageCode,
+    package_code:       null,
     room_type:          roomType,
     payment_choice:     payChoice,
     paid_amount_type:   paidAmtType,
@@ -32433,11 +32451,6 @@ function runManualBookingCreate(){
   };
   if (paidAmtType === 'custom' && !isNaN(paidCustomEuros) && paidCustomEuros > 0) {
     payload.paid_amount_cents = Math.round(paidCustomEuros * 100);
-  }
-  if (packageCode === 'manual_override') {
-    var mpEl = el('bk-manual-price-night');
-    var mpEuros = mpEl ? parseFloat(mpEl.value) : NaN;
-    if (!isNaN(mpEuros) && mpEuros > 0) payload.manual_price_per_night_cents = Math.round(mpEuros * 100);
   }
   if (!checkIn || !checkOut || bcSelectedBeds.length === 0) {
     cr.innerHTML = '<div class="bk-preview-error"><div class="bk-preview-badge">Missing input</div>Select beds and dates on the calendar.</div>';
@@ -32761,8 +32774,7 @@ function runQuotePreview(){
   var client = getBcClient();
   var gcEl = el('bk-guest-count');
   var guestCount = parseInt(gcEl ? gcEl.value : '1', 10) || 1;
-  var pkgEl = el('bk-package');
-  var packageCode = pkgEl ? pkgEl.value : '';
+  var packageCode = bcMajorityGuestPackage();
   var pcEl = el('bk-payment-choice');
   var paymentChoice = (pcEl && pcEl.value) ? pcEl.value : 'stripe_deposit';
   var payload = {
@@ -32775,12 +32787,11 @@ function runQuotePreview(){
     add_ons: []
   };
   /* add_ons overwritten below by buildAddOns() */
+  /* Per-guest packages are authoritative; the booking-level package_code is only
+     a hint. Send both so the backend can derive the majority package itself. */
+  var quoteGuestPackages = bcCollectGuestPackages();
+  if (quoteGuestPackages.length) payload.guest_packages = quoteGuestPackages;
   if (packageCode) payload.package_code = packageCode;
-  if (packageCode === 'manual_override') {
-    var mpInput = el('bk-manual-price-night');
-    var mpEuros = mpInput ? parseFloat(mpInput.value) : NaN;
-    if (!isNaN(mpEuros) && mpEuros > 0) payload.manual_price_per_night_cents = Math.round(mpEuros * 100);
-  }
   payload.selected_bed_codes = bcSelectedBeds.map(function(b){ return b.bed_code; });
   payload.add_ons = buildAddOns();
   var quoteNightVal = bcValidatePackageNightRule(checkIn, checkOut, packageCode);
@@ -33349,18 +33360,13 @@ function renderBedCalendar(data){
   var _blockBtn = el('bc-sel-block');
   if (_blockBtn) _blockBtn.onclick = runCalendarBedBlock;
   /* Wire form field listeners for quote + create button enable/disable */
-  ['bk-package','bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone'].forEach(function(fId){
+  ['bk-payment-choice','bk-paid-amount-type','bk-guest-count','bk-phone'].forEach(function(fId){
     var fEl = el(fId);
     if (!fEl) return;
     function syncBookingFormState(){
       if (fId === 'bk-payment-choice' || fId === 'bk-paid-amount-type') {
         bcUpdateManualBookingPaidFields();
         bcRefreshQuotePreviewDisplay();
-      }
-      if (fId === 'bk-package') {
-        bcPackageUserSelected = true;
-        bcUpdateManualPriceOverrideVisibility();
-        bcSyncGuestPackagesToTop();
       }
       if (fId === 'bk-guest-count') bcRenderGuestNameInputs();
       bcUpdateQuoteButton();
@@ -33374,12 +33380,6 @@ function renderBedCalendar(data){
     bcRefreshQuotePreviewDisplay();
     bcUpdateCreateButton();
   };
-  var mpEl = el('bk-manual-price-night');
-  if (mpEl) mpEl.oninput = function(){
-    bcUpdateQuoteButton();
-    bcUpdateCreateButton();
-  };
-  bcUpdateManualPriceOverrideVisibility();
   bcUpdateManualBookingPaidFields();
   bcRenderGuestNameInputs();
   bcUpdateCreateButton();

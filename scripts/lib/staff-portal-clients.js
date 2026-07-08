@@ -114,6 +114,79 @@ function loadInboxThreadsDemo(cfg) {
 }
 
 /**
+ * Hardcoded fallback for the manual-booking per-guest package selector. Mirrors
+ * the legacy Wolfhouse list (kept in sync with the browser BC_GUEST_PACKAGE_OPTIONS).
+ */
+const MANUAL_BOOKING_PACKAGES_FALLBACK = [
+  { value: 'malibu', label: 'Malibu' },
+  { value: 'uluwatu', label: 'Uluwatu' },
+  { value: 'waimea', label: 'Waimea' },
+  { value: 'package_none', label: 'No package' },
+];
+
+function titleCasePackageLabel(code) {
+  const raw = String(code || '').trim();
+  if (!raw) return raw;
+  return raw
+    .split(/[_\s-]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
+
+/**
+ * Per-client per-guest package options for the manual "Create New Booking" panel.
+ * Always appends { value: 'package_none', label: 'No package' }.
+ *
+ * The per-client package list is read straight from the tenant's baseline config
+ * (the same source resolveTenantBusinessConfig() draws its package offerings from),
+ * so this stays aligned per client without introducing a require cycle:
+ *   1. catalog.accommodation.offerings (package offerings — generic tenant shape)
+ *   2. packages.known_packages (Wolfhouse legacy shape → malibu/uluwatu/waimea)
+ * Falls back to MANUAL_BOOKING_PACKAGES_FALLBACK if config is missing / empty.
+ */
+function buildManualBookingPackages(cfg) {
+  const packages = [];
+  const seen = new Set();
+  const push = (value, label) => {
+    const code = String(value || '').trim();
+    if (!code || code === 'package_none' || seen.has(code)) return;
+    seen.add(code);
+    packages.push({ value: code, label: label || titleCasePackageLabel(code) });
+  };
+
+  try {
+    // 1) Generic tenant shape: catalog.accommodation.offerings.
+    const offerings = cfg
+      && cfg.catalog
+      && cfg.catalog.accommodation
+      && cfg.catalog.accommodation.offerings;
+    if (offerings && typeof offerings === 'object') {
+      for (const [key, off] of Object.entries(offerings)) {
+        if (!off || typeof off !== 'object') continue;
+        push(key, off.label);
+      }
+    }
+
+    // 2) Wolfhouse legacy shape: packages.known_packages.
+    if (!packages.length) {
+      const known = cfg && cfg.packages && Array.isArray(cfg.packages.known_packages)
+        ? cfg.packages.known_packages
+        : [];
+      for (const code of known) push(code);
+    }
+  } catch {
+    /* fall through to hardcoded fallback */
+  }
+
+  if (!packages.length) {
+    return MANUAL_BOOKING_PACKAGES_FALLBACK.slice();
+  }
+  packages.push({ value: 'package_none', label: 'No package' });
+  return packages;
+}
+
+/**
  * Per-tenant portal shell profile (tab gating, default tab, demo lesson slots).
  * Wolfhouse (lodging_surf_house) preserves legacy defaults.
  */
@@ -131,6 +204,7 @@ function loadClientPortalProfile(clientSlug) {
     hidden_drawer_tabs: surf ? ['transfers'] : [],
     lesson_slots_demo: surf ? loadLessonSlotsDemo(cfg) : [],
     inbox_threads_demo: surf ? loadInboxThreadsDemo(cfg) : [],
+    manual_booking_packages: buildManualBookingPackages(cfg),
     demo_mode: !!(cfg && cfg.portal_demo && cfg.portal_demo.demo_mode),
   };
 }
