@@ -5,6 +5,12 @@ scripts/node_modules
 .env
 infra/.env
 *.log
+tmp
+.cache
+.openclaw
+.openclaw/**
+.openclaw-cli-images
+.openclaw-cli-images/**
 data/raw-whatsapp
 data/whatsapp-raw
 data/whatsapp-redacted
