@@ -355,6 +355,43 @@ if (fs.existsSync(MIGRATION_PATH)) {
   assert('migration adds crm_tags jsonb', mig.includes('crm_tags') && mig.includes('JSONB'));
 }
 
+console.log('\n[11] Create booking from contact (Option A — prefill-and-jump)');
+
+if (apiSrc) {
+  // Buttons rendered in the two entry points.
+  assert('customer profile create-booking button', apiSrc.includes('id="cust-profile-create-booking"'));
+  assert('customer profile create-booking label', apiSrc.includes("portalT('customers.detail.createBooking')"));
+  assert('inbox create-booking-for-guest button', apiSrc.includes('id="inbox-create-booking-for-guest"'));
+  assert('inbox create-booking label', apiSrc.includes("t('inbox.detail.bookings.createForGuest')"));
+
+  // Opener function exists and behaves per Option A.
+  assert('openCreateBookingFromContact defined', apiSrc.includes('function openCreateBookingFromContact('));
+
+  const openerMatch = apiSrc.match(/function openCreateBookingFromContact\([\s\S]*?\n\}/);
+  const applyMatch = apiSrc.match(/function bcApplyCreatePrefill\([\s\S]*?\n\}/);
+  const openerBody = (openerMatch ? openerMatch[0] : '') + '\n' + (applyMatch ? applyMatch[0] : '');
+
+  assert('opener switches to bed-calendar tab', openerBody.includes("switchToTab(\"bed-calendar\"") || openerBody.includes("switchToTab('bed-calendar'"));
+  assert('opener sets bk-phone', openerBody.includes('bk-phone'));
+  assert('opener sets bk-email', openerBody.includes('bk-email'));
+  assert('opener does NOT write bc-sel-cin', !openerBody.includes('bc-sel-cin'));
+  assert('opener does NOT write bc-sel-cout', !openerBody.includes('bc-sel-cout'));
+
+  // Existing calendar create flow intact.
+  assert('bc-sel-cin still readonly', apiSrc.includes('id="bc-sel-cin" class="bk-input bk-input-sm" readonly'));
+  assert('bc-sel-cout still readonly', apiSrc.includes('id="bc-sel-cout" class="bk-input bk-input-sm" readonly'));
+  assert('create button bc-sel-create still present', apiSrc.includes('id="bc-sel-create"'));
+
+  // No auto booking-create / payment / whatsapp from the opener.
+  assert('opener does not create booking', !/openCreateBookingFromContact[\s\S]*?bcSubmitManualBooking/.test(openerBody));
+}
+
+if (fs.existsSync(I18N_PATH)) {
+  const i18n = fs.readFileSync(I18N_PATH, 'utf8');
+  assert('createBooking label i18n', i18n.includes("'customers.detail.createBooking': 'Create booking'"));
+  assert('createForGuest label i18n', i18n.includes("'inbox.detail.bookings.createForGuest': 'Create booking for this guest'"));
+}
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {

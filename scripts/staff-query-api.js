@@ -27651,7 +27651,10 @@ function renderCustomerProfileSection(data, editing) {
       '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.notes')) + ':</strong> ' + escHtml(notes || portalT('customers.detail.noNotes')) + '</p>' +
       (id.language ? '<p class="customers-profile-kv"><strong>' + escHtml(portalT('customers.detail.language')) + ':</strong> ' + escHtml(id.language) + '</p>' : '') +
       '</div>' +
-      '<div class="customers-profile-actions"><button type="button" class="btn btn-primary" id="cust-profile-edit">' + escHtml(portalT('customers.edit')) + '</button></div>' +
+      '<div class="customers-profile-actions">' +
+      '<button type="button" class="btn btn-primary" id="cust-profile-edit">' + escHtml(portalT('customers.edit')) + '</button>' +
+      '<button type="button" class="btn btn-ghost" id="cust-profile-create-booking">' + escHtml(portalT('customers.detail.createBooking')) + '</button>' +
+      '</div>' +
       '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
       '</div>';
   }
@@ -27674,6 +27677,16 @@ function renderCustomerProfileSection(data, editing) {
 function wireCustomerProfileActions(data) {
   var editBtn = el('cust-profile-edit');
   if (editBtn) editBtn.addEventListener('click', function(){ customerEnterEditMode(); });
+  var createBookingBtn = el('cust-profile-create-booking');
+  if (createBookingBtn) createBookingBtn.addEventListener('click', function(){
+    var id = (customerDetailState.data && customerDetailState.data.identity) || {};
+    openCreateBookingFromContact({
+      display_name: id.display_name,
+      phone: customerDetailState.data ? customerDetailState.data.phone : null,
+      email: id.email,
+      language: id.language
+    });
+  });
   var saveBtn = el('cust-profile-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ customerSaveProfile(); });
   var cancelBtn = el('cust-profile-cancel');
@@ -30291,6 +30304,7 @@ function loadConvDetail(convId, targetEl){
       });
       html += '</div>';
     }
+    html += '<button type="button" class="btn btn-ghost" id="inbox-create-booking-for-guest" style="margin-top:10px">' + escHtml(t('inbox.detail.bookings.createForGuest')) + '</button>';
     html += '</div>'; /* /sidebar-card */
 
     /* Notes / summary */
@@ -30309,6 +30323,15 @@ function loadConvDetail(convId, targetEl){
     targetEl.classList.remove('is-loading-detail');
 
     wireInboxSendReply(convId, c.phone, targetEl);
+    var cbBtn = targetEl.querySelector('#inbox-create-booking-for-guest');
+    if (cbBtn) cbBtn.addEventListener('click', function(){
+      openCreateBookingFromContact({
+        display_name: c.guest_name,
+        phone: c.phone,
+        email: c.email,
+        language: c.language
+      });
+    });
     wireNeedsHumanToggle(convId, targetEl);
     wireLunaPauseSwitch(convId, targetEl);
     wireFreshStart(convId, targetEl);
@@ -31336,6 +31359,11 @@ function bcDefaultGuestPackage(){
   return known.indexOf(top) >= 0 ? top : 'package_none';
 }
 
+/* Option A — prefill-and-jump: pending contact prefill applied to the create
+   panel when it renders. Guest-name inputs render dynamically, so we keep the
+   name here and re-apply it inside bcRenderGuestNameInputs() below. */
+var bcPendingCreatePrefill = null;
+
 function bcRenderGuestNameInputs(){
   var wrap = el('bk-guest-names-wrap');
   if (!wrap) return;
@@ -31346,6 +31374,11 @@ function bcRenderGuestNameInputs(){
     var n = inp.getAttribute('data-guest-num');
     if (n) existing[n] = inp.value;
   });
+  /* Apply a pending contact name to the first guest before rendering so it
+     survives the innerHTML rebuild (Option A prefill). */
+  if (bcPendingCreatePrefill && bcPendingCreatePrefill.name){
+    existing['1'] = bcPendingCreatePrefill.name;
+  }
   wrap.querySelectorAll('.bk-guest-package-input').forEach(function(sel){
     var n = sel.getAttribute('data-guest-num');
     if (n) existingPkg[n] = sel.value;
@@ -31391,6 +31424,63 @@ function bcSyncGuestPackagesToTop(){
     sel.value = defPkg;
   });
 }
+
+/* Option A — Create booking from an existing customer / WhatsApp contact.
+   Switches to the bed-calendar tab and PREFILLS only the create panel's guest
+   identity fields (first guest name, phone, email). Dates/beds stay blank for
+   staff to select on the calendar as normal. This never creates a booking,
+   never sends payment/WhatsApp, and does not touch the calendar create flow. */
+function openCreateBookingFromContact(contact){
+  contact = contact || {};
+  bcPendingCreatePrefill = {
+    name: (contact.display_name || "").toString().trim(),
+    phone: (contact.phone || "").toString().trim(),
+    email: (contact.email || "").toString().trim(),
+    language: contact.language || null
+  };
+  switchToTab("bed-calendar", null);
+  bcApplyCreatePrefill();
+}
+
+/* Reveal the create panel (normally hidden until a calendar selection) and
+   write the pending contact prefill into the guest identity fields. Dates
+   (bc-sel-cin / bc-sel-cout) are readonly + calendar-driven and never touched. */
+function bcApplyCreatePrefill(){
+  var pf = bcPendingCreatePrefill;
+  if (!pf) return;
+  /* Make the create panel visible so staff can see the prefilled fields even
+     before a bed selection exists (mirrors how selection reveals it). */
+  var panel = el("bc-sel-panel");
+  if (panel) panel.style.display = "block";
+  /* Ensure the dynamic guest-name inputs exist; render picks up pf.name for
+     guest 1 via the pending-prefill hook inside bcRenderGuestNameInputs(). */
+  if (typeof bcRenderGuestNameInputs === "function") bcRenderGuestNameInputs();
+  var setVal = function(id, val){
+    var elm = el(id);
+    if (!elm) return;
+    elm.value = val || "";
+    elm.dispatchEvent(new Event("input", { bubbles: true }));
+    elm.dispatchEvent(new Event("change", { bubbles: true }));
+  };
+  /* First guest-name input (bk-guest-name-1, else first rendered one). */
+  var wrap = el("bk-guest-names-wrap");
+  var firstName = el("bk-guest-name-1")
+    || (wrap ? wrap.querySelector(".bk-guest-name-input") : null);
+  if (firstName){
+    firstName.value = pf.name || "";
+    firstName.dispatchEvent(new Event("input", { bubbles: true }));
+    firstName.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+  setVal("bk-phone", pf.phone);
+  setVal("bk-email", pf.email);
+  if (typeof bcUpdateCreateButton === "function") bcUpdateCreateButton();
+  /* Bring the create panel into view for the staffer. */
+  if (panel && typeof panel.scrollIntoView === "function"){
+    try { panel.scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) {}
+  }
+  bcPendingCreatePrefill = null;
+}
+window.openCreateBookingFromContact = openCreateBookingFromContact;
 
 function bcCollectGuestPayload(){
   var count = bcGuestCountForNameInputs();

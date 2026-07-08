@@ -224,6 +224,7 @@ module.exports = {
   "inbox.detail.switch.pauseLuna": "Pausar Luna",
   "inbox.detail.bookings.title": "Reservas",
   "inbox.detail.bookings.none": "Sin reservas para este huésped.",
+  "inbox.detail.bookings.createForGuest": "Crear reserva para este huésped",
   "inbox.detail.reply.editPlaceholder": "Edita la respuesta antes de enviar",
   "inbox.detail.reply.copied": "Copiado",
   "inbox.detail.botState.helpActive": "Estado de automatización: activa.",
