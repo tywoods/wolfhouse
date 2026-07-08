@@ -33,7 +33,7 @@ From the Crowsnest UI, operators will eventually:
 | Item | Status |
 |------|--------|
 | Dedicated location | `scripts/crowsnest-api.js` + `scripts/lib/crowsnest/` |
-| Static placeholder UI | Skeleton only |
+| Static placeholder UI | Skeleton + read-only **Clients** overview (Wolfhouse, Sunset) |
 | `GET /healthz` | `service: crowsnest`, `writes_enabled: false` |
 | Writes / DB / Stripe / WhatsApp | **None** |
 | Deploy / Azure / domain move | **Not yet** — see [`CROWSNEST-LOCATION-PLAN.md`](CROWSNEST-LOCATION-PLAN.md) |

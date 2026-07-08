@@ -10,6 +10,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const API_PATH = path.join(ROOT, 'scripts', 'crowsnest-api.js');
 const PAGE_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-page.js');
+const CLIENTS_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-clients.js');
 const AUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'crowsnest', 'crowsnest-auth.js');
 const DOC_PRODUCT = path.join(ROOT, 'docs', 'CROWSNEST.md');
 const DOC_PLAN = path.join(ROOT, 'docs', 'CROWSNEST-LOCATION-PLAN.md');
@@ -40,16 +41,36 @@ console.log('verify:crowsnest — Crowsnest skeleton gate\n');
 
 ok('scripts/crowsnest-api.js exists', fs.existsSync(API_PATH));
 ok('scripts/lib/crowsnest/crowsnest-page.js exists', fs.existsSync(PAGE_PATH));
+ok('scripts/lib/crowsnest/crowsnest-clients.js exists', fs.existsSync(CLIENTS_PATH));
 ok('scripts/lib/crowsnest/crowsnest-auth.js exists', fs.existsSync(AUTH_PATH));
 
 const apiSrc = read(API_PATH) || '';
 const pageSrc = read(PAGE_PATH) || '';
+const clientsSrc = read(CLIENTS_PATH) || '';
+const uiHtml = (() => {
+  try {
+    const { renderCrowsnestPage } = require(PAGE_PATH);
+    return typeof renderCrowsnestPage === 'function' ? renderCrowsnestPage() : '';
+  } catch {
+    return '';
+  }
+})();
 const productDoc = read(DOC_PRODUCT) || '';
 const planDoc = read(DOC_PLAN) || '';
 const pkgRaw = read(PKG_PATH) || '';
 
 ok('renderCrowsnestPage exported', /function renderCrowsnestPage|renderCrowsnestPage\s*\(/.test(pageSrc));
+ok('getCrowsnestClients exported', /function getCrowsnestClients|getCrowsnestClients\s*\(/.test(clientsSrc));
+ok('crowsnest-page requires crowsnest-clients', pageSrc.includes("require('./crowsnest-clients')"));
 ok('crowsnest-api requires crowsnest-page', apiSrc.includes("require('./lib/crowsnest/crowsnest-page')"));
+ok('UI Clients section exists', uiHtml.includes('>Clients<') || uiHtml.includes('section">Clients'));
+ok('UI Wolfhouse Somo card', uiHtml.includes('Wolfhouse Somo'));
+ok('UI Sunset Somo card', uiHtml.includes('Sunset Somo'));
+ok('UI Sunset Sardinero card', uiHtml.includes('Sunset Sardinero'));
+ok('UI surf house template text', /surf house template/i.test(uiHtml));
+ok('UI surf school template text', /surf school template/i.test(uiHtml));
+ok('UI Add new client disabled/coming soon', uiHtml.includes('Add new client') && /Coming soon|disabled|aria-disabled/.test(uiHtml));
+ok('UI safety copy read-only/no writes', /read-only|no client creation|no writes/i.test(uiHtml));
 ok('/healthz route present', apiSrc.includes("pathname === '/healthz'"));
 ok('healthz returns service crowsnest', apiSrc.includes("service: 'crowsnest'"));
 ok('writes_enabled false in healthz', apiSrc.includes('writes_enabled: false'));
