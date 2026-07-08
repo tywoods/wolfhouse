@@ -684,29 +684,29 @@ async function updateCustomerProfile(pg, clientSlug, oldPhone, body) {
 
   await pg.query('BEGIN');
   try {
-    await pg.query(
-      `WITH dups AS (
-         SELECT id,
-           ROW_NUMBER() OVER (
-             ORDER BY (phone = $3) DESC, updated_at DESC NULLS LAST, id
-           ) AS rn
-         FROM customers
-         WHERE client_id = $1::uuid AND ${phoneMatch}
-       )
-       DELETE FROM customers c
-       USING dups d
-       WHERE c.id = d.id AND d.rn > 1`,
+    const keeperRes = await pg.query(
+      `SELECT id::text AS id FROM customers
+       WHERE client_id = $1::uuid AND ${phoneMatch}
+       ORDER BY (phone = $3) DESC, updated_at DESC NULLS LAST, id
+       LIMIT 1`,
       [clientId, phoneDigits, input.phone],
     );
+    const keeperId = keeperRes.rows[0] && keeperRes.rows[0].id;
 
-    const custUpd = await pg.query(
-      `UPDATE customers SET
-         full_name = $3, email = $4, notes = $5, language = $6,
-         phone = $7, updated_at = NOW()
-       WHERE client_id = $1::uuid AND ${phoneMatch}`,
-      [clientId, phoneDigits, input.display_name, input.email, input.notes || null, input.language, input.phone],
-    );
-    if (custUpd.rowCount === 0) {
+    if (keeperId) {
+      await pg.query(
+        `DELETE FROM customers
+         WHERE client_id = $1::uuid AND ${phoneMatch} AND id <> $3::uuid`,
+        [clientId, phoneDigits, keeperId],
+      );
+      await pg.query(
+        `UPDATE customers SET
+           full_name = $2, email = $3, notes = $4, language = $5,
+           phone = $6, updated_at = NOW()
+         WHERE id = $7::uuid`,
+        [input.display_name, input.email, input.notes || null, input.language, input.phone, keeperId],
+      );
+    } else {
       await pg.query(
         `INSERT INTO customers (client_id, phone, full_name, email, notes, language)
          VALUES ($1::uuid, $2, $3, $4, $5, $6)
