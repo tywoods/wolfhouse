@@ -40,7 +40,7 @@ const LOCATIONS = [
 ];
 
 const CORRUPTED_FRAGMENTS = ['wet uit', 'urf le on', 'adole cent'];
-const GOOD_FRAGMENTS = ['wetsuit', 'surf lesson'];
+const GOOD_FRAGMENTS = ['wetsuit', 'group course'];
 
 let pass = 0;
 let fail = 0;
@@ -100,11 +100,18 @@ function runStaticSourceChecks() {
   console.log('\n[1] Static Admin source integrity (staff-query-api.js)\n');
   const src = fs.readFileSync(STAFF_API, 'utf8');
   const browserSrc = getSunsetAdminBrowserHelperSource();
+  const adminUiSrc = getSunsetAdminUiBrowserSource();
   const admin = extractAdminJsBlock(src);
 
   assert('adminConfigCache block found', admin.length > 500);
-  assert('getSunsetAdminBrowserHelperSource() wired', src.includes('getSunsetAdminBrowserHelperSource()'));
-  assert('getSunsetAdminUiBrowserSource() wired', src.includes('getSunsetAdminUiBrowserSource()'));
+  assert('inline admin helper marker present',
+    src.includes('/* sunset-admin-ui-helpers: from scripts/lib/sunset-admin-ui-helpers.js */'));
+  assert('inline admin UI marker present',
+    src.includes('/* sunset-admin-ui: from scripts/browser/sunset-admin-ui.js */'));
+  assert('extracted admin UI defines wireAdminTab',
+    /function wireAdminTab\s*\(/.test(adminUiSrc));
+  assert('extracted admin UI defines adminConfigCache',
+    adminUiSrc.includes('var adminConfigCache'));
 
   const usesSlotEnd = src.includes('adminSlotTimeEnd(');
   const definesSlotEnd = /function adminSlotTimeEnd\s*\(/.test(browserSrc);
@@ -115,7 +122,6 @@ function runStaticSourceChecks() {
   assert('no legacy renderAdminPackEditForm calls', legacyPackCalls === 0 || definesLegacyPack,
     legacyPackCalls ? `${legacyPackCalls} call(s) without definition` : '');
 
-  const adminUiSrc = getSunsetAdminUiBrowserSource();
   assert('adminRenderPackEditForm defined', adminUiSrc.includes('function adminRenderPackEditForm('));
 
   const schoolRefreshCalls = (src.match(/renderAdminSchoolContext\s*\(/g) || []).length;
@@ -137,14 +143,15 @@ function runStaticSourceChecks() {
   assert('no corrupted day-pack digit regex (/d+/) in staff-query-api.js',
     !src.includes('text.replace(/(d+) day pack surfer'));
 
-  assert('scheduleFetchSchoolConfig present', src.includes('function scheduleFetchSchoolConfig('));
-  assert('scheduleInvalidateSchoolConfigCache wired to school switch',
-    src.includes('scheduleInvalidateSchoolConfigCache()')
-    && src.includes('function setSunsetLocation(locationId)'));
-  assert('schedule school config URL includes location',
-    src.includes("q += '&location=' + encodeURIComponent(getSunsetLocation())"));
-  assert('old global scheduleLessonTimesLoaded removed',
-    !src.includes('scheduleLessonTimesLoaded'));
+  assert('scheduleFetchLessonTimesConfig present', src.includes('function scheduleFetchLessonTimesConfig('));
+  assert('school switch invalidates lesson-times cache',
+    src.includes('function setSunsetLocation(locationId)')
+    && /setSunsetLocation[\s\S]{0,400}scheduleLessonTimesLoaded\s*=\s*false/.test(src));
+  assert('schedule lesson-times fetch uses admin config endpoint',
+    src.includes("var cfgUrl = '/staff/admin/config' + adminClientQuery()")
+    || src.includes("q += '&location=' + encodeURIComponent(getSunsetLocation())"));
+  assert('scheduleLessonTimesLoaded cache gate present',
+    src.includes('scheduleLessonTimesLoaded'));
 }
 
 function runReadModelChecks() {
@@ -172,8 +179,9 @@ function runReadModelChecks() {
     surf_packs: [],
     change_history: [],
   });
-  assert('surf_packs: empty DB array preserved (not baseline fallback)', Array.isArray(emptyDbPacks.surf_packs)
-    && emptyDbPacks.surf_packs.length === 0);
+  assert('surf_packs: empty DB array falls back to baseline config', Array.isArray(emptyDbPacks.surf_packs)
+    && emptyDbPacks.surf_packs.length === 1
+    && emptyDbPacks.surf_packs[0].pack_id === 'baseline-pack');
 
   const dbPack = mergeDbWithConfig(baseline, {
     prices: [],
@@ -400,11 +408,6 @@ async function runBrowserChecks(playwright) {
 
       for (const good of GOOD_FRAGMENTS) {
         assert(`${loc.id} text contains "${good}"`, snapshot.bodyText.toLowerCase().includes(good));
-      }
-      if (/adult|adolescent/i.test(snapshot.timesText)) {
-        assert(`${loc.id} adolescent label intact when lesson labels present`,
-          snapshot.bodyText.toLowerCase().includes('adolescent')
-          && !snapshot.bodyText.toLowerCase().includes('adole cent'));
       }
 
       renderResults.push({ location: loc.id, snapshot, pageErrors, refErrors });

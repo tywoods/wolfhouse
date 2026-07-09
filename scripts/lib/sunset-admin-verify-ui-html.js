@@ -13,14 +13,6 @@ function loadStaffPortalI18n() {
   return require('./staff-portal-i18n');
 }
 
-function loadSunsetAdminBrowserHelpers() {
-  return require('./sunset-admin-ui-helpers');
-}
-
-function loadSunsetAdminBrowserUi() {
-  return require('./sunset-admin-browser-source');
-}
-
 function loadWolfhouseServicesAdmin() {
   return require('./wolfhouse-services-browser-source');
 }
@@ -30,13 +22,18 @@ function buildVerifyStaffUiHtml() {
     getStaffPortalThemeEarlyScript,
     getStaffPortalI18nBootstrapScript,
   } = loadStaffPortalI18n();
-  const { getSunsetAdminBrowserHelperSource } = loadSunsetAdminBrowserHelpers();
-  const { getSunsetAdminUiBrowserSource } = loadSunsetAdminBrowserUi();
   const { getWolfhouseServicesAdminSource } = loadWolfhouseServicesAdmin();
+  const { staffPortalDevTabsEnabled } = require('./staff-portal-clients');
+  const { MESSAGE_MIN: OUTREACH_MESSAGE_MIN } = require('./staff-customer-outreach-send');
+  const {
+    CRM_TAG_KEYS,
+    CUSTOMER_AUTO_TAG_KEYS,
+    CUSTOMER_DISPLAY_TAG_ORDER,
+  } = require('./staff-customer-queries');
+
   const apiPath = path.join(__dirname, '..', 'staff-query-api.js');
   const apiSrc = fs.readFileSync(apiPath, 'utf8');
   const fnStart = apiSrc.indexOf('function buildUiHtml(port)');
-  const retStart = apiSrc.indexOf('return `<!DOCTYPE html>', fnStart);
   const htmlStart = apiSrc.indexOf('<!DOCTYPE html>', fnStart);
   const htmlEnd = apiSrc.indexOf('</html>`;', htmlStart);
   if (fnStart < 0 || htmlStart < 0 || htmlEnd < 0) {
@@ -49,14 +46,24 @@ function buildVerifyStaffUiHtml() {
     .map((s) => s.trim())
     .filter(Boolean);
 
+  const portalDevTabsEnabled = staffPortalDevTabsEnabled();
+  const portalBodyOpen = '<body class="portal-profile-pending"'
+    + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
+  const bookUiClass = String(process.env.STAFF_PORTAL_BOOK_UI || 'true').trim().toLowerCase() === 'false'
+    ? ''
+    : ' book-ui';
+
   const replacements = [
     ['${getStaffPortalThemeEarlyScript()}', getStaffPortalThemeEarlyScript()],
     ['${getStaffPortalI18nBootstrapScript(STAFF_PORTAL_LOCALES)}', getStaffPortalI18nBootstrapScript(locales)],
-    ['${getSunsetAdminBrowserHelperSource()}', getSunsetAdminBrowserHelperSource()],
-    ['${getSunsetAdminUiBrowserSource()}', getSunsetAdminUiBrowserSource()],
     ['${getWolfhouseServicesAdminSource()}', getWolfhouseServicesAdminSource()],
-    ["portal-profile-pending${portalDevTabsEnabled ? '' : ' portal-no-dev-tabs'}", 'portal-profile-pending portal-no-dev-tabs'],
-    ['${portalDevTabsEnabled ? \'true\' : \'false\'}', 'false'],
+    ['${portalBodyOpen}', portalBodyOpen],
+    ['${bookUiClass}', bookUiClass],
+    ['${OUTREACH_MESSAGE_MIN}', String(OUTREACH_MESSAGE_MIN)],
+    ['${JSON.stringify(CRM_TAG_KEYS)}', JSON.stringify(CRM_TAG_KEYS)],
+    ['${JSON.stringify(CUSTOMER_AUTO_TAG_KEYS)}', JSON.stringify(CUSTOMER_AUTO_TAG_KEYS)],
+    ['${JSON.stringify(CUSTOMER_DISPLAY_TAG_ORDER)}', JSON.stringify(CUSTOMER_DISPLAY_TAG_ORDER)],
+    ['${portalDevTabsEnabled ? \'true\' : \'false\'}', portalDevTabsEnabled ? 'true' : 'false'],
     ['${renderStaffLangSwitchButtons(false)}', ''],
     ['${renderStaffLangSwitchButtons(true)}', ''],
     ['${STAFF_ACTIONS_ENABLED}', 'false'],

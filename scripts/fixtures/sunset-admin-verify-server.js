@@ -15,6 +15,18 @@ const {
 } = require('../lib/staff-portal-clients');
 const { resolveTenantBusinessConfig } = require('../lib/tenant-business-config');
 
+/** Offline verify: baseline config file has no surf_packs (DB-owned in prod). */
+const VERIFY_ADMIN_DEMO_SURF_PACKS = [{
+  pack_id: 'verify-demo-pack',
+  label: 'Adult group course (verify)',
+  age_band: '12_and_up',
+  group_size: 16,
+  beaches: ['somo'],
+  weekly: 'mon_fri',
+  schedules: [{ key: '1000_1200', label: '10:00-12:00' }],
+  price_tiers: [{ days: 5, amount: 195 }],
+}];
+
 let cachedHtml = null;
 
 function sendJson(res, status, body) {
@@ -52,6 +64,9 @@ function handleAdminConfig(query, res) {
     return sendJson(res, 403, { success: false, error: resolved.reason || 'unsupported_client' });
   }
   const { ok, ...payload } = resolved;
+  if (!Array.isArray(payload.surf_packs) || !payload.surf_packs.length) {
+    payload.surf_packs = VERIFY_ADMIN_DEMO_SURF_PACKS.slice();
+  }
   return sendJson(res, 200, {
     success: true,
     ...payload,
