@@ -16953,7 +16953,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-private-slot-group{border-left:3px solid #7c3aed}
 .portal-schedule-private-lesson-row .portal-schedule-lesson-slot-label{color:#7c3aed}
 .portal-schedule-create-actions{display:flex;gap:8px;margin-top:16px;flex-wrap:wrap}
-.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(3,minmax(0,1fr));gap:12px;margin-bottom:18px}
+.portal-schedule-ops-metrics{display:grid;grid-template-columns:minmax(0,1.5fr) repeat(4,minmax(0,1fr));gap:12px;margin-bottom:18px}
 @media(max-width:1100px){.portal-schedule-ops-metrics{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media(max-width:640px){.portal-schedule-ops-metrics{grid-template-columns:1fr 1fr}}
 .portal-schedule-ops-board{margin-bottom:22px;display:flex;flex-direction:column;gap:16px}
@@ -18732,6 +18732,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="portal-schedule-card-label" data-i18n="schedule.card.wetsuitsToday">Wetsuits</div>
       <div class="portal-schedule-glance-num" id="ps-wetsuits-today">…</div>
       <div class="portal-schedule-card-sub" id="ps-wetsuits-sub">…</div>
+    </div>
+    <div class="portal-schedule-glance-cell portal-schedule-glance-cell-unpaid">
+      <div class="portal-schedule-card-label" data-i18n="schedule.card.unpaidPending">Unpaid / Pending</div>
+      <div class="portal-schedule-glance-num" id="ps-unpaid-glance">…</div>
+      <div class="portal-schedule-card-sub" id="ps-unpaid-glance-sub">…</div>
     </div>
     <div class="portal-schedule-glance-cell portal-schedule-glance-cell-reply">
       <div class="portal-schedule-card-label" data-i18n="schedule.card.needReply">Need reply</div>
@@ -23458,6 +23463,12 @@ function renderScheduleSummary(profile, weekData, convs){
     wetsSub.textContent = String(equip.wetsuits.lesson) + ' ' + portalT('schedule.metric.lesson') + ' · ' +
       String(equip.wetsuits.rental) + ' ' + portalT('schedule.metric.rental');
   }
+  var unpaidCount = scheduleUnpaidPendingCount(rows, activeIso);
+  setText('ps-unpaid-glance', String(unpaidCount));
+  var unpaidNum = el('ps-unpaid-glance');
+  if (unpaidNum) unpaidNum.classList.toggle('is-zero', unpaidCount === 0);
+  var unpaidSub = el('ps-unpaid-glance-sub');
+  if (unpaidSub) unpaidSub.textContent = portalT('schedule.card.unpaidPendingSub');
   var emailCount = scheduleNeedReplyEmailCount(convs);
   var waCount = scheduleNeedReplyWhatsAppCount(convs);
   setText('ps-need-reply-today', String(emailCount + waCount));
