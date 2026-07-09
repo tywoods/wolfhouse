@@ -12,6 +12,7 @@
 const {
   runLunaGuestMessageRouterDryRun,
   detectNewBookingResetIntent,
+  detectAddGuestRequest,
   buildNewBookingResetReply,
   hasSubstantiveNewBookingDetailsAfterReset,
   resolveActiveIntakeMissingField,
@@ -117,6 +118,11 @@ const {
 } = require('./luna-booking-addons-policy');
 const { buildReactiveServicesObservability } = require('./luna-booking-reactive-services-policy');
 const { runGuestWritePipeline } = require('./luna-guest-write-pipeline');
+const {
+  hasAddGuestIntent,
+  resolveAddGuestNames,
+} = require('./luna-guest-agent-write-tool-executor');
+const { previewAddGuestToBooking } = require('./luna-guest-addguest-attach');
 const {
   isSunsetClientSlug,
   attachSunsetSchoolToGuestContext,
@@ -667,7 +673,11 @@ function resolveProposedReply(payload, messageText, priorGuestContext, brainDeci
     const explicitAddonSelection = isExplicitAddonSelectionMessage(sideQuestionText);
     const addonsStepSelection = quoteAwaitingAddonsDecision(quote)
       && extractAddOnSelections(sideQuestionText).length > 0;
-    const serviceIntent = (!explicitAddonSelection && !addonsStepSelection)
+    const sideFields = {
+      ...collectPriorExtractedFields(priorGuestContext),
+      ...((result && result.extracted_fields) || {}),
+    };
+    const serviceIntent = (!explicitAddonSelection && !addonsStepSelection && !hasAddGuestIntent(sideFields))
       ? (detectServiceSideQuestionIntent(sideQuestionText)
         || (result && result.message_lane === 'add_service_request' ? 'services_general' : null))
       : null;
@@ -801,6 +811,143 @@ function buildOrchestratorResponse(parts) {
     proposed_luna_reply: parts.proposed_luna_reply,
     reused_chain_helpers: [...REUSED_CHAIN_HELPERS],
   };
+}
+
+function buildGoldenAddGuestStripeUrl(bookingCode, kind) {
+  const code = encodeURIComponent(bookingCode || 'booking');
+  return `https://checkout.stripe.com/golden/${code}/${kind}`;
+}
+
+function isPostBookingAddGuestTurn(result, chainGuestContext, messageText) {
+  const bookingRef = trimStr(chainGuestContext.booking_id) || trimStr(chainGuestContext.booking_code);
+  if (!bookingRef) return false;
+  const fields = collectPriorExtractedFields({ ...chainGuestContext, result });
+  if (hasAddGuestIntent(fields)) return true;
+  return !!(result && result.message_lane === 'add_service_request' && detectAddGuestRequest(messageText));
+}
+
+async function finalizePostBookingAddGuestDryRun(result, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx) {
+  const clientSlug = trimStr(chainGuestContext.client_slug) || trimStr(ctx.client_slug) || DEFAULT_CLIENT;
+  const fields = { ...collectPriorExtractedFields({ ...chainGuestContext, result }) };
+  if (!hasAddGuestIntent(fields)) {
+    const det = detectAddGuestRequest(messageText);
+    if (det && (det.names.length || det.count)) {
+      fields.add_guest_request = det.names.length ? det.names : [{ requested: true, count: det.count }];
+    }
+  }
+
+  const bookingId = trimStr(chainGuestContext.booking_id);
+  const bookingCode = trimStr(chainGuestContext.booking_code);
+  const packageCode = fields.package_interest === 'accommodation_only'
+    ? 'no_package'
+    : (fields.package_interest || chainGuestContext.package_code || 'no_package');
+
+  const addGuestPlan = await previewAddGuestToBooking(ctx.pg, {
+    clientSlug,
+    bookingId,
+    bookingCode,
+    newGuestNames: resolveAddGuestNames(fields),
+    checkIn: fields.check_in || chainGuestContext.check_in,
+    checkOut: fields.check_out || chainGuestContext.check_out,
+    packageCode,
+    env: brainEnv,
+  });
+
+  if (addGuestPlan.status === 'handoff_paid') {
+    const handoffResult = {
+      ...result,
+      message_lane: 'staff_handoff_required',
+      safe_handoff_required: true,
+      handoff_reasons: ['add_guest_on_paid_booking'],
+      extracted_fields: fields,
+    };
+    return finalizeNonBookingLaneResponse(handoffResult, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx);
+  }
+
+  const liveOutcomes = {
+    addGuestWrite: { status: 'ok', result: addGuestPlan },
+  };
+  const linkCode = bookingCode || bookingId;
+  if (addGuestPlan.paid_topup === true) {
+    liveOutcomes.balanceStripeLink = {
+      stripe_link_created: true,
+      stripe_checkout_url: buildGoldenAddGuestStripeUrl(linkCode, 'balance'),
+    };
+  } else if (addGuestPlan.status === 'ok') {
+    liveOutcomes.stripeLink = {
+      stripe_link_created: true,
+      stripe_checkout_url: buildGoldenAddGuestStripeUrl(linkCode, 'full'),
+    };
+  }
+
+  const heldResult = {
+    ...result,
+    message_lane: 'add_service_request',
+    intake_state: 'post_booking_service_request',
+    safe_handoff_required: false,
+    handoff_reasons: [],
+    booking_intake_ready: false,
+    extracted_fields: fields,
+  };
+
+  const payload = {
+    gate,
+    result: heldResult,
+    availability: null,
+    quote: { quote_status: 'not_ready', payment_choice_needed: false },
+    payment_choice: buildGuestPaymentChoiceSkippedResponse({}),
+    hold_payment_draft_plan: null,
+    proposed_next_action: 'await_guest_reply',
+  };
+
+  const composed = tryComposeBookingReply(payload, messageText, chainGuestContext, brainDecision, {
+    client_slug: clientSlug,
+    liveOutcomes,
+    mode: 'live_staging',
+    env: brainEnv,
+  });
+
+  let proposedLunaReply = composed && composed.reply
+    ? composed.reply
+    : (heldResult.proposed_luna_reply || "Thanks — I'll check that with our team and get back to you.");
+
+  const replyPipeline = await applyGuestReplyPipeline({
+    client_slug: clientSlug,
+    conversation_id: null,
+    guest_phone: ctx.guest_phone || null,
+    message_text: messageText,
+    prior_guest_context: chainGuestContext,
+    brain_decision: brainDecision,
+    composed,
+    candidate_reply: proposedLunaReply,
+    candidate_source: composed ? composed.reply_source : 'add_guest_preview',
+    allowed_next_action: payload.proposed_next_action,
+    payload,
+    channel_mode: 'orchestrator_dry_run',
+    env: brainEnv,
+    authorCaller: ctx.cami_reply_author_caller,
+  });
+  proposedLunaReply = dedupeLunaIntro(replyPipeline.reply, false);
+
+  return buildOrchestratorResponse({
+    automation_gate: gate,
+    result: {
+      ...heldResult,
+      extracted_fields: fields,
+      add_guest_preview: addGuestPlan,
+    },
+    availability: payload.availability,
+    quote: payload.quote,
+    payment_choice: payload.payment_choice,
+    hold_payment_draft_plan: null,
+    guest_context_chain: buildGuestContextChainSnapshot({
+      ...chainGuestContext,
+      booking_id: bookingId,
+      booking_code: bookingCode,
+    }),
+    proposed_next_action: payload.proposed_next_action,
+    proposed_luna_reply: proposedLunaReply,
+  });
 }
 
 function buildNonBookingLaneResponse(result, gate, messageText, brainDecision, priorGuestContext) {
@@ -1221,6 +1368,12 @@ async function runGuestAutomationOrchestratorDryRun(input, context) {
     transferTimesContinuation = priorQuoteWasReady(chainGuestContext)
       && guestProvidedTransferTimes(collectPriorExtractedFields(chainGuestContext), messageText);
   } catch (_) { /* noop */ }
+
+  if (isPostBookingAddGuestTurn(result, chainGuestContext, messageText)) {
+    return finalizePostBookingAddGuestDryRun(
+      result, gate, messageText, brainDecision, chainGuestContext, brainEnv, ctx,
+    );
+  }
 
   const bookingContinuation = shouldAttemptGuestPaymentChoiceWire(chainGuestContext, messageText)
     || (chainGuestContext.quote && chainGuestContext.quote.quote_status === 'ready'

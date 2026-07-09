@@ -26,6 +26,7 @@ require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 const { runGuestAutomationOrchestratorDryRun } = require('./lib/luna-guest-automation-orchestrator-dry-run');
 const { composeLunaGuestReply } = require('./lib/luna-guest-reply-composer');
 const { withPgClient } = require('./lib/pg-connect');
+const { createLunaGoldenOfflinePg } = require('./lib/luna-golden-offline-pg');
 const { normalizeGuestContextForChain } = require('./lib/luna-guest-context-merge');
 const {
   runGuestHoldPaymentDraftWriteDryRunApproved,
@@ -103,7 +104,37 @@ Options:
   --phone-prefix <prefix>  Default +34629800
   --reference-date <date>  Default ${DEFAULT_REFERENCE_DATE}
   --fixture-dir <path>     Default fixtures/luna-conversation-state-machine
+  --offline                Golden gate: deterministic stub pg (no local Postgres / Staff API)
   --help                   Show this help`);
+}
+
+function buildGoldenDeterministicEnv(fixtureEnv) {
+  return {
+    ...process.env,
+    LUNA_CONVERSATION_BRAIN_ENABLED: 'false',
+    LUNA_CONVERSATION_BRAIN_LLM_ENABLED: 'false',
+    LUNA_GUEST_CAMI_REPLY_AUTHOR_ENABLED: 'false',
+    LUNA_GUEST_FRONTDESK_PLANNER_ENABLED: 'false',
+    LUNA_GUEST_GPT_TOOL_PLANNER_ENABLED: 'false',
+    LUNA_GUEST_GPT_WRITE_TOOLS_ENABLED: 'false',
+    LUNA_GUEST_UNIFIED_PLANNER_MODE: 'false',
+    ...(fixtureEnv || {}),
+  };
+}
+
+async function runGuestOrchestratorDryRunTurn(input, opts, contextBits) {
+  const context = {
+    reference_date: contextBits.referenceDate,
+    guest_phone: contextBits.phone,
+    dry_run: true,
+  };
+  if (opts.offline) {
+    context.pg = createLunaGoldenOfflinePg();
+    context.env = contextBits.env || buildGoldenDeterministicEnv();
+    return runGuestAutomationOrchestratorDryRun(input, context);
+  }
+  if (contextBits.env) context.env = contextBits.env;
+  return withPgClient((pg) => runGuestAutomationOrchestratorDryRun(input, { ...context, pg }));
 }
 
 function parseArgs(argv) {
@@ -125,11 +156,13 @@ function parseArgs(argv) {
     phonePrefix: '+34629800',
     referenceDate: DEFAULT_REFERENCE_DATE,
     fixtureDir: DEFAULT_FIXTURE_DIR,
+    offline: false,
     help: false,
   };
   for (let i = 2; i < argv.length; i++) {
     const a = argv[i];
     if (a === '--help' || a === '-h') opts.help = true;
+    else if (a === '--offline') opts.offline = true;
     else if (a === '--all') opts.all = true;
     else if (a === '--json') opts.json = true;
     else if (a === '--verbose') opts.verbose = true;
@@ -2213,6 +2246,9 @@ async function runFixture(fixture, opts, fixtureIndex) {
   const contactName = fixture.contact_name || null;
   const referenceDate = fixture.reference_date || opts.referenceDate;
   const phone = `${opts.phonePrefix}${String(fixtureIndex + 1).padStart(2, '0')}`;
+  const fixtureEnv = opts.offline
+    ? buildGoldenDeterministicEnv(fixture.env || null)
+    : (fixture.env ? { ...process.env, ...fixture.env } : null);
   const result = {
     id: fixture.id,
     label: fixture.label || fixture.id,
@@ -2239,6 +2275,12 @@ async function runFixture(fixture, opts, fixtureIndex) {
     if (turn && typeof turn === 'object' && turn.surf_report_mock) {
       guestContext = { ...guestContext, surf_report_mock: turn.surf_report_mock };
     }
+    if (turn && typeof turn === 'object' && turn.inject_guest_context && typeof turn.inject_guest_context === 'object') {
+      guestContext = normalizeGuestContextForChain({
+        ...guestContext,
+        ...turn.inject_guest_context,
+      });
+    }
     const input = {
       client_slug: CLIENT_SLUG,
       channel: 'whatsapp',
@@ -2255,12 +2297,11 @@ async function runFixture(fixture, opts, fixtureIndex) {
       },
     };
 
-    lastOut = await withPgClient((pg) => runGuestAutomationOrchestratorDryRun(input, {
-      reference_date: referenceDate,
-      guest_phone: phone,
-      dry_run: true,
-      pg,
-    }));
+    lastOut = await runGuestOrchestratorDryRunTurn(input, opts, {
+      referenceDate,
+      phone,
+      env: fixtureEnv,
+    });
 
     const diag = buildTurnDiagnostic(ti, message, lastOut);
     result.turns.push(diag);
@@ -2331,6 +2372,11 @@ async function main() {
   if (opts.help) {
     usage();
     process.exit(0);
+  }
+
+  if (opts.offline && opts.allowWrites) {
+    console.error('FAIL — --offline cannot be combined with --allow-writes (requires real Postgres)');
+    process.exit(1);
   }
 
   if (opts.precleanUnpaidHolds && !opts.allowWrites) {

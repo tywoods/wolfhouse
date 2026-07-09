@@ -20,7 +20,6 @@
  */
 
 const { runBookingPreviewDryRun } = require('./luna-guest-booking-dry-run');
-const { runGuestAvailabilityDryRun } = require('./luna-guest-availability-dry-run');
 const { isOpenDemoBookingWritesEnabled } = require('./open-demo-whatsapp-gate');
 
 const ADD_GUEST_WRITE_SOURCE = 'luna_guest';
@@ -110,29 +109,33 @@ function computeAccommodationDelta(opts, currentGuestCount, addedCount) {
 
 /**
  * Availability guard — confirm a bed exists for the requested party size on the same dates.
- * Reuses the existing availability dry-run. Returns { available, status, detail }.
+ * Uses the bed-calendar dry-run directly (post-booking add-guest already has dates/count).
  */
 async function confirmAddedGuestAvailability(pg, opts, newGuestCount) {
   const o = opts || {};
-  const routerResult = {
-    success: true,
-    detected_language: 'en',
-    extracted_fields: {
-      check_in: o.checkIn || null,
-      check_out: o.checkOut || null,
-      guest_count: Number(newGuestCount),
-      package_interest: 'accommodation_only',
-    },
-  };
-  const avail = await runGuestAvailabilityDryRun(routerResult, {
-    pg,
+  if (!pg) {
+    return { available: false, status: 'no_pg', detail: null };
+  }
+  const { runAvailabilityCheckDryRun } = require('./luna-guest-booking-dry-run');
+  const raw = await runAvailabilityCheckDryRun({
     client_slug: trimStr(o.clientSlug) || 'wolfhouse-somo',
+    check_in: o.checkIn || null,
+    check_out: o.checkOut || null,
+    guest_count: Number(newGuestCount),
+    package_code: o.packageCode || 'no_package',
     room_type: trimStr(o.roomType) || 'shared',
-  });
+  }, pg);
+  if (!raw || raw.skipped) {
+    return {
+      available: false,
+      status: raw && raw.reason ? 'needs_staff_review' : 'not_ready',
+      detail: raw,
+    };
+  }
   return {
-    available: avail && avail.availability_status === 'available',
-    status: avail && avail.availability_status,
-    detail: avail,
+    available: raw.has_enough_beds === true,
+    status: raw.has_enough_beds ? 'available' : 'unavailable',
+    detail: raw,
   };
 }
 
@@ -300,23 +303,41 @@ async function addGuestToBooking(pg, opts) {
   const newTotalCents = oldTotalCents + requote.delta_cents;
   const newBalanceDueCents = Math.max(0, newTotalCents - amountPaidCents);
   const newGuestName = appendGuestName(booking.guest_name, newGuestNames);
+  const paidTopup = bookingIsPaid && isAddGuestPaidEnabled(env);
+
+  const previewSnapshot = {
+    ...base,
+    booking_id: booking.booking_id,
+    booking_code: booking.booking_code,
+    old_guest_count: currentGuestCount,
+    new_guest_count: newGuestCount,
+    old_total_amount_cents: oldTotalCents,
+    new_total_amount_cents: newTotalCents,
+    new_balance_due_cents: newBalanceDueCents,
+    amount_paid_cents: amountPaidCents,
+    accommodation_delta_cents: requote.delta_cents,
+    guest_name: newGuestName,
+    paid_topup: paidTopup,
+    payment_status: booking.payment_status,
+  };
+
+  if (o.previewOnly === true) {
+    return {
+      ...previewSnapshot,
+      status: 'ok',
+      preview_only: true,
+      no_write_performed: true,
+      topup_amount_cents: paidTopup ? newBalanceDueCents : null,
+    };
+  }
 
   // Respect the env gate. Without it (or without a live gate) we compute the snapshot
   // but do NOT write — same posture as the addon-service attach path.
   if (!isOpenDemoBookingWritesEnabled(env)) {
     return {
-      ...base,
+      ...previewSnapshot,
       status: 'gated',
       reason: 'booking_writes_disabled',
-      booking_id: booking.booking_id,
-      booking_code: booking.booking_code,
-      old_guest_count: currentGuestCount,
-      new_guest_count: newGuestCount,
-      old_total_amount_cents: oldTotalCents,
-      new_total_amount_cents: newTotalCents,
-      new_balance_due_cents: newBalanceDueCents,
-      accommodation_delta_cents: requote.delta_cents,
-      guest_name: newGuestName,
     };
   }
 
@@ -375,7 +396,7 @@ async function addGuestToBooking(pg, opts) {
   // Slice 2 — PAID booking top-up: the already-paid full_amount draft stays as-is (do NOT
   // refresh it). balance_due_cents (newTotal − amountPaid) is the delta for the new guest;
   // the follow-on create_balance_payment_link derives the top-up charge from the booking.
-  if (bookingIsPaid) {
+  if (paidTopup) {
     return {
       ...base,
       status: 'ok',
@@ -422,6 +443,13 @@ async function addGuestToBooking(pg, opts) {
   };
 }
 
+/**
+ * Dry-run / golden gate — requote + availability without writes or env write gates.
+ */
+async function previewAddGuestToBooking(pg, opts) {
+  return addGuestToBooking(pg, { ...(opts || {}), previewOnly: true });
+}
+
 module.exports = {
   ADD_GUEST_WRITE_SOURCE,
   ADD_GUEST_ATTACH_ORIGIN,
@@ -434,4 +462,5 @@ module.exports = {
   confirmAddedGuestAvailability,
   refreshFullPaymentDraftAmount,
   addGuestToBooking,
+  previewAddGuestToBooking,
 };

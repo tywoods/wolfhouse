@@ -38,6 +38,7 @@ function runGolden() {
     '--fixture-dir', FIXTURE_DIR,
     '--all',
     '--json',
+    '--offline',
   ], { cwd: ROOT, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
 
   const stdout = res.stdout || '';

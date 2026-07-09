@@ -662,15 +662,14 @@ function resolveComposerState(input) {
 
   // Slice 1 — a completed add-guest write takes priority over service side-question intent
   // so the confirmation (added person + new total + refreshed link) is what the guest sees.
-  if (mode === 'live_staging') {
-    const addGuestOutEarly = live.addGuestWrite;
-    if (addGuestOutEarly && addGuestOutEarly.status === 'ok' && addGuestOutEarly.result
-      && addGuestOutEarly.result.status === 'ok') {
-      return 'add_guest_to_booking_ack';
-    }
+  const addGuestOutEarly = live.addGuestWrite;
+  if (addGuestOutEarly && addGuestOutEarly.status === 'ok' && addGuestOutEarly.result
+    && addGuestOutEarly.result.status === 'ok') {
+    return 'add_guest_to_booking_ack';
   }
 
   function resolveServiceSideQuestionIntent() {
+    if (fields.add_guest_request != null) return null;
     if (isExplicitAddonSelectionMessage(messageText)) return null;
     if (quoteAwaitingAddonsDecision(quote) && extractAddOnSelections(messageText).length > 0) {
       return null;

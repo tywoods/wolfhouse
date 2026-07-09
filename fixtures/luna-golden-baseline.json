@@ -21,7 +21,9 @@
     "golden-16-addon-no-false-link-error": "PASS",
     "golden-17-group-lesson-relabeled": "PASS",
     "golden-18-private-lesson-catalog": "PASS",
-    "golden-19-bare-lesson-ask-private-or-group": "PASS"
+    "golden-19-bare-lesson-ask-private-or-group": "PASS",
+    "golden-21-add-guest-unpaid": "PASS",
+    "golden-22-add-guest-paid": "PASS"
   },
-  "recorded_at": "2026-07-01T13:15:28.346Z"
+  "recorded_at": "2026-07-09T08:37:30.504Z"
 }
