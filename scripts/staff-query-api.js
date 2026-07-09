@@ -17634,8 +17634,8 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 /* ── Bed calendar (Stage 7.7h) ──────────────────────────────────────────── */
 .bc-grid{border-collapse:separate;border-spacing:0;font-size:calc(12px * var(--bc-zoom, 1));min-width:100%}
 .bc-grid th,.bc-grid td{border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);padding:0}
-.bc-grid thead th{background:var(--surface-soft);padding:calc(7px * var(--bc-zoom, 1)) calc(8px * var(--bc-zoom, 1));font-size:calc(10px * var(--bc-zoom, 1));font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.03em}
-.bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:calc(130px * var(--bc-zoom, 1));background:var(--sand)}
+.bc-grid thead th{background:var(--surface-soft);padding:calc(7px * var(--bc-zoom, 1)) calc(8px * var(--bc-zoom, 1));font-size:calc(10px * var(--bc-zoom, 1));font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:5;white-space:nowrap;letter-spacing:.03em}
+.bc-grid thead th.bc-bed-head{left:0;z-index:6;text-align:left;min-width:calc(130px * var(--bc-zoom, 1));background:var(--sand)}
 .bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1));font-size:calc(12px * var(--bc-zoom, 1))}
 .bc-grid-shell{display:none;position:relative}
 .bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
@@ -17658,7 +17658,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(20px)}
 .luna-global-pause-switch input:focus-visible + .luna-global-pause-slider{outline:2px solid rgba(199,74,74,.45);outline-offset:2px}
 .luna-global-pause-card.luna-global-paused{border-color:#E0A8A8;background:#FFF5F5}
-.bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));min-width:calc(120px * var(--bc-zoom, 1));position:sticky;left:0;z-index:1;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
+.bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));min-width:calc(120px * var(--bc-zoom, 1));position:sticky;left:0;z-index:4;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
 .bc-day-cell{height:calc(30px * var(--bc-zoom, 1));min-width:calc(46px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-block{min-height:calc(28px * var(--bc-zoom, 1));border-radius:calc(7px * var(--bc-zoom, 1));padding:calc(3px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1)) calc(9px * var(--bc-zoom, 1));font-size:calc(11px * var(--bc-zoom, 1));font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:calc(4px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
 .bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;max-width:100%}
@@ -18377,7 +18377,10 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:840px}
-#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:10px;padding:4px 6px;white-space:normal;line-height:1.2}
+#tab-bed-calendar .bc-bed-cell{min-width:78px;font-size:11px;padding:9px 6px;white-space:normal;line-height:1.25;min-height:34px;border-bottom:1px solid var(--border-soft)}
+#tab-bed-calendar .bc-day-cell,#tab-bed-calendar .bc-day-cell-turnover{min-height:34px;padding:5px 3px}
+#tab-bed-calendar .bc-room-hdr{padding:9px 10px}
+#tab-bed-calendar .bc-room-hdr-row td{padding-top:7px}
 #tab-bed-calendar .bc-block{font-size:10.5px;padding:2px 4px 2px 7px;gap:2px 4px}
 #tab-bed-calendar .bc-block-pay-badge{font-size:8.5px;padding:1px 4px}
 #tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
@@ -33414,7 +33417,7 @@ function renderBedCalendar(data){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
-    var roomNumMatch = String(room.room_code || '').match(/^R0*(\d+)$/i);
+    var roomNumMatch = String(room.room_code || '').trim().match(/^R0*(\d+)$/i);
     var roomLabel = escHtml(roomNumMatch ? 'Room ' + roomNumMatch[1] : room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
