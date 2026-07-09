@@ -756,9 +756,10 @@ if (apiSrc) {
   assert('spanish sunset supplement', i18nSrc.includes('staff-portal-i18n-es-sunset'));
   assert('lesson groups time rows', apiSrc.includes('portal-schedule-lesson-time-row'));
   assert('lesson groups show configured name', apiSrc.includes('portal-schedule-lesson-slot-label'));
-  assert('schedule calm surface scoped', apiSrc.includes('--sched-bg:#F4F5F7'));
-  assert('warm light schedule surface exists', apiSrc.includes('--sched-surface-warm:#F3EDE4'));
-  assert('schedule cards use warm sched surface tokens', apiSrc.includes('--sched-surface:#F3EDE4'));
+  assert('schedule calm surface scoped', apiSrc.includes('--sunset-bg:#EDE8E0'));
+  assert('warm light schedule card surface exists', apiSrc.includes('--sunset-card:#FAF7F2'));
+  assert('schedule layered panel tokens', apiSrc.includes('--sunset-panel:#F5F1EB') && apiSrc.includes('--sunset-panel-strong:#FFFCF8'));
+  assert('schedule cards use warm sunset surface tokens', apiSrc.includes('background:var(--sunset-card)'));
   assert('schedule source rails retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff'));
   assert('schedule calm light scoped only', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{'));
   assert('schedule dark night mode restored', apiSrc.includes('[data-theme="dark"] #tab-portal-home{background:var(--cream)}'));
