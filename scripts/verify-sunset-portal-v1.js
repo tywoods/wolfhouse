@@ -349,8 +349,9 @@ if (apiSrc) {
   assert('admin tab surf-gated', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
   assert('loadAdminTab helper present', apiSrc.includes('function loadAdminTab('));
   assert('Admin prices section', apiSrc.includes('admin.section.prices') || apiSrc.includes('admin-sec-prices'));
-  assert('Admin capacity section', apiSrc.includes('admin.section.capacity') || apiSrc.includes('admin-sec-capacity'));
   assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
+  assert('Admin group lesson cards removed from render', !apiSrc.includes('box.innerHTML = renderAdminLessonCards'));
+  assert('Admin capacity section removed from markup', !apiSrc.includes('id="admin-sec-capacity"'));
   assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
   assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
   assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
@@ -608,7 +609,7 @@ if (apiSrc) {
   assert('schedule slot grouping helper', apiSrc.includes('function scheduleRenderDayBodyHtml('));
   assert('schedule slot aggregates', apiSrc.includes('function scheduleSlotAggregates('));
   assert('lessons today slot breakdown', apiSrc.includes('function scheduleRenderLessonsTodayBreakdown('));
-  assert('create lesson slot select', apiSrc.includes('id="ps-create-time-slot"'));
+  assert('create lesson slot select removed', !apiSrc.includes('id="ps-create-time-slot"'));
   assert('no hardcoded-only slot times', !apiSrc.includes("slot_time: '10:00'") || apiSrc.includes('scheduleNormalizeSlotTime'));
   assert('submit no longer sends needs_reply from UI', !apiSrc.includes('ps-create-needs-reply'));
 }
@@ -630,7 +631,8 @@ if (apiSrc) {
   assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
   assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
   assert('today-first forward range', apiSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
-  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-lesson"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-course"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking group lesson checkbox removed', !apiSrc.includes('id="ps-create-comp-lesson"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
   assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
   assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('schedule.badge.course'));
@@ -638,7 +640,7 @@ if (apiSrc) {
   assert('ops board collapses empty lesson slots', apiSrc.includes('function scheduleRenderTimelineEmptySlot(') && apiSrc.includes('data-ps-add-slot'));
   assert('ops board course groups', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('portal-schedule-ops-course-group'));
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
-  assert('Adult lesson category label', apiSrc.includes('schedule.create.lessonCategory'));
+  assert('group lesson slot fields removed from create drawer', !apiSrc.includes('id="ps-create-lesson-fields"'));
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
   assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
   assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
@@ -837,10 +839,10 @@ console.log('\n[26] Schedule polish + edit-mode drawers');
 if (apiSrc) {
   assert('schedule light page uses portal cream bg', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{') && apiSrc.includes('background:var(--cream)'));
   assert('create booking title no demo text', !/schedule\.create\.title['"]:\s*['"]Create booking \(demo\)/.test(i18nSrc));
-  assert('create component order wetsuit board lesson', (function(){
+  assert('create component order wetsuit board course', (function(){
     var i = apiSrc.indexOf('id="ps-create-comp-wetsuit"');
     var j = apiSrc.indexOf('id="ps-create-comp-surfboard"', i);
-    var k = apiSrc.indexOf('id="ps-create-comp-lesson"', j);
+    var k = apiSrc.indexOf('id="ps-create-comp-course"', j);
     return i > -1 && j > i && k > j;
   })());
   assert('booking drawer view mode helper', apiSrc.includes('function scheduleRenderViewDrawerHtml('));

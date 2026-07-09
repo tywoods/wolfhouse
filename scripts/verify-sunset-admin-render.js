@@ -308,10 +308,10 @@ async function waitForAdminRendered(page) {
   await page.waitForSelector('#tab-admin.tab-panel.active', { timeout: 20000 });
   await page.waitForSelector('.portal-admin-school-heading', { timeout: 20000 });
   await page.waitForFunction(() => {
-    const lessons = document.querySelectorAll('#admin-lesson-card-grid .portal-admin-lesson-card').length;
+    const packCards = document.querySelectorAll('#admin-pack-card-grid .portal-admin-pack-card').length;
     const prices = document.querySelectorAll('#admin-prices-body .portal-admin-price-card').length;
-    const packsTitle = document.querySelector('#admin-times-body .portal-admin-subsection-title');
-    return lessons >= 1 && prices >= 1 && packsTitle && packsTitle.textContent.trim().length > 0;
+    const privateCard = document.querySelector('[data-admin-private-lesson-card="1"]');
+    return packCards >= 1 && prices >= 1 && privateCard;
   }, null, { timeout: 25000 });
 }
 
@@ -357,9 +357,10 @@ async function runBrowserChecks(playwright) {
         const times = document.querySelector('#admin-times-body');
         const prices = document.querySelector('#admin-prices-body');
         const history = document.querySelector('#admin-history-body');
-        const lessonCards = document.querySelectorAll('#admin-lesson-card-grid .portal-admin-lesson-card').length;
+        const packCards = document.querySelectorAll('#admin-pack-card-grid .portal-admin-pack-card').length;
         const priceCards = document.querySelectorAll('#admin-prices-body .portal-admin-price-card').length;
-        const packSection = document.querySelector('#admin-times-body .portal-admin-subsection-title');
+        const privateCard = !!document.querySelector('[data-admin-private-lesson-card="1"]');
+        const capacitySection = !!document.querySelector('#admin-sec-capacity');
         const schoolHeading = document.querySelector('.portal-admin-school-heading');
         return {
           activeAdmin,
@@ -367,9 +368,10 @@ async function runBrowserChecks(playwright) {
           timesText: times ? times.innerText.trim() : '',
           pricesText: prices ? prices.innerText.trim() : '',
           historyText: history ? history.innerText.trim() : '',
-          lessonCards,
+          packCards,
           priceCards,
-          packSectionText: packSection ? packSection.innerText.trim() : '',
+          privateCard,
+          capacitySection,
           schoolHeading: schoolHeading ? schoolHeading.innerText.trim() : '',
           bodyText: text,
         };
@@ -383,10 +385,10 @@ async function runBrowserChecks(playwright) {
       assert(`${loc.id} lessons/packs body non-empty`, snapshot.timesText.length > 0);
       assert(`${loc.id} rentals body non-empty`, snapshot.pricesText.length > 0);
       assert(`${loc.id} history body non-empty`, snapshot.historyText.length > 0);
-      assert(`${loc.id} lesson card present`, snapshot.lessonCards >= 1);
+      assert(`${loc.id} group course card present`, snapshot.packCards >= 1);
       assert(`${loc.id} rental price card present`, snapshot.priceCards >= 1);
-      assert(`${loc.id} surf packs subsection present`, snapshot.packSectionText.length > 0
-        && !/^admin\./i.test(snapshot.packSectionText));
+      assert(`${loc.id} private lesson card present`, snapshot.privateCard);
+      assert(`${loc.id} top capacity section removed`, !snapshot.capacitySection);
       assert(`${loc.id} school heading shows ${loc.schoolLabel}`,
         snapshot.schoolHeading.includes(loc.schoolLabel));
 

@@ -58,7 +58,8 @@ assert('API imports private lesson rules', api.includes('sunset-admin-private-le
 assert('admin UI renderAdminPrivateLessonCard', adminUi.includes('renderAdminPrivateLessonCard'));
 assert('admin UI save-private-lesson action', adminUi.includes('save-private-lesson'));
 assert('admin UI no time fields in private form', !/admin-private-start|admin-private-time/.test(adminUi));
-assert('admin UI third subsection in section render', /renderAdminLessonCards[\s\S]*renderAdminPackCards[\s\S]*renderAdminPrivateLessonCard/.test(adminUi));
+assert('admin UI group courses + private in section render', /renderAdminPackCards[\s\S]*renderAdminPrivateLessonCard/.test(adminUi));
+assert('admin UI group lesson cards removed from section render', !/box\.innerHTML = renderAdminLessonCards/.test(adminUi));
 
 assert('EN private lessons title', en.includes("'admin.privateLessons.title': 'Private lessons'"));
 assert('ES clases privadas title', es.includes("'admin.privateLessons.title': 'Clases privadas'"));
