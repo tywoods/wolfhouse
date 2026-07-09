@@ -66,13 +66,13 @@ async function main() {
 
     await page.click('button.tab-btn[data-tab="customers"]');
     await page.waitForTimeout(1200);
-    const customersLabel = await readLabel(page, 'customers-school-label');
-    check('customers-school-label elSardi', /elSardi/i.test(customersLabel), customersLabel);
+    const customersLabel = await readLabel(page, 'customers-school-heading');
+    check('customers-school-heading elSardi', /elSardi/i.test(customersLabel), customersLabel);
 
     await page.click('button.tab-btn[data-tab="admin"]');
     await page.waitForTimeout(2000);
-    const adminLabel = await readLabel(page, 'admin-school-label');
-    check('admin-school-label elSardi', /elSardi/i.test(adminLabel), adminLabel);
+    const adminLabel = await readLabel(page, 'admin-school-heading');
+    check('admin-school-heading elSardi', /elSardi/i.test(adminLabel), adminLabel);
 
     const stored = await page.evaluate(() => localStorage.getItem('staff_portal_sunset_location'));
     check('localStorage staff_portal_sunset_location', stored === 'sunset-sardinero', stored || '');
