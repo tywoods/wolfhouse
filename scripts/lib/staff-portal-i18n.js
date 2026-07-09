@@ -933,7 +933,7 @@ const STAFF_PORTAL_STRINGS = {
     'admin.banner.lunaNote': 'These settings will eventually control what Luna quotes and offers.',
     'admin.section.prices': 'Rental prices',
     'admin.section.capacity': 'Group lesson capacity',
-    'admin.section.lessonTimes': 'Group lessons and group courses',
+    'admin.section.lessonTimes': 'Group courses',
     'admin.section.businessInfo': 'Business info',
     'admin.section.changeHistory': 'Change history',
     'admin.prices.notConfigured': 'Not configured yet',

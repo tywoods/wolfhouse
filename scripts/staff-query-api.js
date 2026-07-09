@@ -18790,8 +18790,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <div class="portal-schedule-create-components">
         <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox"> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox"> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-lesson" type="checkbox" checked> <span data-i18n="schedule.type.lesson">Group lesson</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox"> <span data-i18n="schedule.type.course">Group course</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private lesson</span></label>
       </div>
     </div>
@@ -18804,9 +18803,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
     <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
-    <div class="portal-schedule-create-field" id="ps-create-lesson-fields"><label for="ps-create-time-slot" data-i18n="schedule.create.lessonSlot">Group lesson time slot</label><select id="ps-create-time-slot"></select>
-      <p class="portal-schedule-card-sub" style="margin-top:6px" data-i18n="schedule.create.lessonCategory">Adult (Over 12)</p></div>
-    <div class="portal-schedule-create-field" id="ps-create-lesson-qty-wrap"><label for="ps-create-lesson-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-lesson-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-board-qty-wrap" style="display:none"><label for="ps-create-board-qty" data-i18n="schedule.create.boardQty">Boards</label><input id="ps-create-board-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-wetsuit-qty-wrap" style="display:none"><label for="ps-create-wetsuit-qty" data-i18n="schedule.create.wetsuitQty">Wetsuits</label><input id="ps-create-wetsuit-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
@@ -18924,10 +18920,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <section class="portal-admin-section" id="admin-sec-business">
       <div class="portal-admin-section-hdr" data-i18n="admin.section.businessInfo">Business info</div>
       <div class="portal-admin-section-body" id="admin-business-body"></div>
-    </section>
-    <section class="portal-admin-section" id="admin-sec-capacity">
-      <div class="portal-admin-section-hdr" data-i18n="admin.section.capacity">Group lesson capacity</div>
-      <div class="portal-admin-section-body" id="admin-capacity-body"></div>
     </section>
     <section class="portal-admin-section" id="admin-sec-times">
       <div class="portal-admin-section-hdr" data-i18n="admin.section.lessonTimes">Lesson times</div>
@@ -21940,19 +21932,12 @@ function scheduleFetchNext30(client, startDate){
 }
 
 function scheduleOnCreateComponentChange(changedId){
-  var lesson = el('ps-create-comp-lesson');
   var course = el('ps-create-comp-course');
   var privateLesson = el('ps-create-comp-private-lesson');
-  if (changedId === 'ps-create-comp-lesson' && lesson && lesson.checked) {
-    if (course) course.checked = false;
-    if (privateLesson) privateLesson.checked = false;
-  }
   if (changedId === 'ps-create-comp-course' && course && course.checked) {
-    if (lesson) lesson.checked = false;
     if (privateLesson) privateLesson.checked = false;
   }
   if (changedId === 'ps-create-comp-private-lesson' && privateLesson && privateLesson.checked) {
-    if (lesson) lesson.checked = false;
     if (course) course.checked = false;
   }
   schedulePopulateCreateComponentFields();
@@ -22056,26 +22041,20 @@ function scheduleRowBookingRef(row, group){
 }
 
 function schedulePopulateCreateComponentFields(){
-  var lessonOn = !!(el('ps-create-comp-lesson') && el('ps-create-comp-lesson').checked);
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
   var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
   var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
-  var lf = el('ps-create-lesson-fields');
-  var lq = el('ps-create-lesson-qty-wrap');
   var cf = el('ps-create-course-fields');
   var cq = el('ps-create-course-qty-wrap');
   var pf = el('ps-create-private-lesson-fields');
   var bq = el('ps-create-board-qty-wrap');
   var wq = el('ps-create-wetsuit-qty-wrap');
-  if (lf) lf.style.display = lessonOn ? '' : 'none';
-  if (lq) lq.style.display = lessonOn ? '' : 'none';
   if (cf) cf.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
   if (wq) wq.style.display = wetsuitOn ? '' : 'none';
-  if (lessonOn) schedulePopulateCreateTimeFields('lesson');
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
@@ -22090,13 +22069,6 @@ function scheduleReadCreatePayload(){
   var payment = el('ps-create-payment') ? el('ps-create-payment').value : 'unpaid';
   var notes = (el('ps-create-notes') && el('ps-create-notes').value || '').trim();
   var components = {};
-  if (el('ps-create-comp-lesson') && el('ps-create-comp-lesson').checked){
-    components.lesson = {
-      quantity: parseInt((el('ps-create-lesson-qty') && el('ps-create-lesson-qty').value) || '1', 10) || 1,
-      slot_time: (el('ps-create-time-slot') && el('ps-create-time-slot').value) || '',
-      category: portalT('schedule.create.lessonCategory'),
-    };
-  }
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
     var courseSel = el('ps-create-course-select');
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
@@ -23431,14 +23403,13 @@ function scheduleWireOpsBoardClicks(container){
       var dt = el('ps-create-date-to');
       if (df) df.value = dateIso;
       if (dt) dt.value = dateIso;
-      var lessonCb = el('ps-create-comp-lesson');
-      if (lessonCb && !lessonCb.checked){
-        lessonCb.checked = true;
-        scheduleOnCreateComponentChange('ps-create-comp-lesson');
+      var courseCb = el('ps-create-comp-course');
+      if (courseCb && !courseCb.checked){
+        courseCb.checked = true;
+        scheduleOnCreateComponentChange('ps-create-comp-course');
       }
-      schedulePopulateCreateTimeFields('lesson');
-      var slotSel = el('ps-create-time-slot');
-      if (slotSel && slotKey) slotSel.value = slotKey;
+      schedulePopulateCreateCourseFields();
+      var courseSel = el('ps-create-course-select');
     });
   });
 }
@@ -24427,7 +24398,7 @@ function wireScheduleControls(){
     btn.dataset.wired = '1';
     btn.addEventListener('click', function(){ setScheduleFilter(btn.getAttribute('data-ps-filter')); });
   });
-  ['ps-create-comp-lesson','ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-surfboard','ps-create-comp-wetsuit'].forEach(function(id){
+  ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-surfboard','ps-create-comp-wetsuit'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.wired){
       node.dataset.wired = '1';
@@ -25909,11 +25880,11 @@ function renderAdminLessonCards(slots, cfg, writes, defaultCap){
 
 }
 
-function renderAdminPackCards(packs, writes){
+function renderAdminPackCards(packs, writes, defaultCap){
+
+  defaultCap = defaultCap != null ? defaultCap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
 
   var html = '<div class="portal-admin-subsection"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
-
-  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.packs.title')) + '</h3>';
 
   if (writes && !adminPackSectionEditing()){
 
@@ -25947,7 +25918,7 @@ function renderAdminPackCards(packs, writes){
 
     html += '<div class="portal-admin-card-title-row"><div><div class="portal-admin-pack-title">' + escHtml(p.label || 'Pack') + '</div>' +
 
-      '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + ' · ' + escHtml(portalT('admin.packs.groupExclusive').replace('{n}', String(p.group_size || 16))) + '</div></div>';
+      '<div class="portal-admin-pack-sub">' + escHtml(adminLessonAgeLabel(p.age_band)) + '</div></div>';
 
     if (writes && !editing && !adminPackSectionEditing()){
 
@@ -25964,6 +25935,14 @@ function renderAdminPackCards(packs, writes){
     if (editing) html += adminRenderPackEditForm(pid, p);
 
     else {
+
+      var capText = String(p.group_size != null ? p.group_size : defaultCap);
+
+      html += '<div class="portal-admin-lesson-facts">' +
+
+        '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.edit.capacity')) + '<strong>' + escHtml(capText + ' ' + portalT('admin.lessonTimes.seats')) + '</strong></div>' +
+
+        '</div>';
 
       html += adminRenderPackPillReadout('beaches', adminPackBeachOptions(), p.beaches || [], true);
 
@@ -26101,7 +26080,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
 
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
 
-  box.innerHTML = renderAdminLessonCards(slots, cfg, writes, defaultCap) + renderAdminPackCards(packs, writes) + renderAdminPrivateLessonCard(cfg, writes);
+  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
 
 }
 
@@ -26199,8 +26178,6 @@ function renderAdminFromConfig(cfg){
 
   try { renderAdminSectionBusinessInfoFromConfig(cfg); } catch (err) { console.error('admin business render failed', err); }
 
-  try { renderAdminSectionCapacityFromConfig(cfg); } catch (err) { console.error('admin capacity render failed', err); }
-
   try { renderAdminSectionLessonTimesFromConfig(cfg); } catch (err) { console.error('admin lessons render failed', err); }
 
   try { renderAdminSectionPricesFromConfig(cfg); } catch (err) { console.error('admin prices render failed', err); }
@@ -26229,11 +26206,7 @@ function renderAdminFallback(profile){
 
   });
 
-  var fallbackCapacity = { lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } };
-
-  renderAdminSectionCapacityFromConfig(fallbackCapacity);
-
-  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [], lesson_capacity: fallbackCapacity.lesson_capacity });
+  renderAdminSectionLessonTimesFromConfig({ lesson_times: (profile && profile.lesson_slots_demo) ? profile.lesson_slots_demo : [], lesson_capacity: { default_daily_cap: SUNSET_SCHEDULE_LESSON_DAY_CAP } });
 
   renderAdminSectionPricesFromConfig(null);
 
