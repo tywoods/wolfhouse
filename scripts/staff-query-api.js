@@ -17326,6 +17326,14 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-outreach-confirm-preview{white-space:pre-wrap;font-size:13px;line-height:1.5;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:10px 12px;margin:10px 0;max-height:180px;overflow:auto}
 .customers-outreach-confirm-stats{font-size:12px;color:var(--text-2);line-height:1.5;margin-bottom:6px}
 #cust-outreach-confirm-modal{z-index:9300}
+/* ── Customers tab typography (Booking Calendar 2026 serif family) ─────────── */
+#tab-customers{--cust-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
+#tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+#tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
+#tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
+#tab-customers .customers-outreach-drawer-hdr h3{font-weight:700;letter-spacing:.005em}
+#tab-customers .customers-section-hdr,#tab-customers .customers-filters-group-hdr,#tab-customers .customers-profile-field-label,#tab-customers .customers-edit-field span,#tab-customers .customers-tags-system-hdr,#tab-customers .customers-outreach-section-hdr,#tab-customers .customers-msg-dir{letter-spacing:.06em}
+#tab-customers .btn,#tab-customers .customers-filters-trigger,#tab-customers .customers-filters-option,#tab-customers .customers-filter-chip,#tab-customers .customers-outreach-mode-btn,#tab-customers .customers-booking-open-link{font-family:inherit}
 /* ── Cards ──────────────────────────────────────────────────────────────── */
 .card{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);padding:22px 24px;margin-bottom:20px;box-shadow:var(--shadow)}
 /* ── Toolbar ─────────────────────────────────────────────────────────────── */
