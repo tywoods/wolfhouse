@@ -18421,176 +18421,25 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #cc-automated-staff-notifications .asn-actions .btn{width:100%}
 #cc-automated-staff-notifications .asn-item-actions .btn{flex:1 1 calc(50% - 4px);min-width:0}
 }
-/* ===== BEGIN book-ui (warm paperback calendar/drawer restyle) =====
-   Scoped, additive restyle of the Booking Calendar tab + Booking drawer +
-   Create-Booking panel. Everything below only applies inside an element that
-   carries the "book-ui" class (applied via the STAFF_PORTAL_BOOK_UI switch in
-   buildUiHtml). Set STAFF_PORTAL_BOOK_UI=false to restore the previous look
-   instantly — no rule above this line is edited, only layered over.
-   Palette tokens are scoped to .book-ui (light) and [data-theme="dark"]
-   .book-ui (warm dark) so other tabs/tenants and the global theme are
-   untouched. Rules built purely from these tokens adapt to dark mode
-   automatically; explicit [data-theme="dark"] pairs are given wherever a
-   literal color differs per mode or an existing dark rule must be outranked. */
-.book-ui{
-  --bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;
-  --bk-paper:#F4ECD8;        /* aged page */
-  --bk-paper-deep:#EDE2C8;   /* header cells, tab rail, insets */
-  --bk-paper-edge:#EADFC6;   /* sticky bed column, drawer panel */
-  --bk-paper-lift:#FAF4E4;   /* inputs, raised cards */
-  --bk-ink:#3E342A;          /* sepia ink — never pure black */
-  --bk-ink-soft:#6B5D4C;     /* secondary ink */
-  --bk-ink-faint:#94836B;    /* tertiary ink / hints */
-  --bk-rule:#D8C7A8;         /* hairline rules, warm taupe */
-  --bk-rule-soft:#E5D9BF;    /* subtle dividers */
-  --bk-accent:#4A6B3D;       /* dusty terracotta */
-  --bk-accent-deep:#3A5230;
-  --bk-sage:#7E8B6A;         /* aged sage */
-  color:var(--bk-ink);
-}
-[data-theme="dark"] .book-ui{
-  --bk-paper:#221C16;
-  --bk-paper-deep:#2A2219;
-  --bk-paper-edge:#2C241C;
-  --bk-paper-lift:#2E261D;
-  --bk-ink:#E9DCC5;
-  --bk-ink-soft:#B9A98C;
-  --bk-ink-faint:#8F8168;
-  --bk-rule:#4A3E30;
-  --bk-rule-soft:#3C3226;
-  --bk-accent:#86A96F;
-  --bk-accent-deep:#6E9558;
-  --bk-sage:#8FA07A;
-}
-/* ── Paper surfaces ── */
-.book-ui .card,.card.book-ui{background:var(--bk-paper);border-color:var(--bk-rule);box-shadow:0 1px 2px rgba(62,52,42,.06),0 5px 16px rgba(62,52,42,.07);color:var(--bk-ink);line-height:1.55;padding:24px 28px}
-[data-theme="dark"] #tab-bed-calendar.book-ui .card,[data-theme="dark"] .card.book-ui{background:var(--bk-paper);background-image:none;border-color:var(--bk-rule);box-shadow:0 1px 2px rgba(0,0,0,.3),0 6px 18px rgba(0,0,0,.34)}
-.book-ui ::selection{background:var(--bk-rule);color:var(--bk-ink)}
-.book-ui :focus-visible{outline-color:var(--bk-accent)}
-/* ── Literary display type (serif for headings, names, chapter labels) ── */
-.book-ui .toolbar h2{font-family:var(--bk-serif);font-weight:600;font-size:19px;letter-spacing:.005em;color:var(--bk-ink)}
-#tab-bed-calendar.book-ui .toolbar label{color:var(--bk-ink-soft)!important}
-.book-ui .bc-detail-title{font-family:var(--bk-serif)}
-.book-ui .bc-detail-meta{color:var(--bk-ink-soft)}
-.book-ui .bc-block-label{font-family:var(--bk-serif);letter-spacing:.01em}
-.book-ui .bk-form-section-title,.book-ui .bc-sel-title,.book-ui .bc-drawer-card-title,.book-ui .bc-drawer-card-subtitle,.book-ui .ctx-section h3{font-family:var(--bk-serif);font-weight:700;letter-spacing:.13em;color:var(--bk-ink-soft)}
-.book-ui .kv .k{font-family:var(--bk-serif);letter-spacing:.09em;color:var(--bk-ink-faint)}
-.book-ui .kv .v{color:var(--bk-ink)}
-.book-ui .kv.kv-balance-due .v{color:#9C5742;font-weight:700}
-[data-theme="dark"] .book-ui .kv.kv-balance-due .v{color:#ffb896}
-/* ── Hairline rules + comfortable leading ── */
-.book-ui .bk-form-section{border-top-color:var(--bk-rule);margin-top:20px;padding-top:16px}
-.book-ui .ctx-section{border-top-color:var(--bk-rule-soft)}
-.book-ui .bc-summary-strip{border-bottom-color:var(--bk-rule-soft);color:var(--bk-ink-soft)}
-.book-ui .bc-summary-strip b{color:var(--bk-ink)}
-.book-ui .bc-drawer-preview .ctx-loading{border-top-color:var(--bk-rule-soft)}
-/* ── Calendar grid — paper page with taupe hairlines ── */
-.book-ui .bc-grid-wrap-inner{background:var(--bk-paper-lift);border-color:var(--bk-rule)}
-.book-ui .bc-grid th,.book-ui .bc-grid td{border-right-color:var(--bk-rule-soft);border-bottom-color:var(--bk-rule-soft)}
-.book-ui .bc-grid thead th{background:var(--bk-paper-deep);color:var(--bk-ink-soft)}
-.book-ui .bc-grid thead th.bc-bed-head{background:var(--bk-paper-edge);color:var(--bk-ink-soft);font-family:var(--bk-serif);letter-spacing:.07em}
-.book-ui .bc-bed-cell{background:var(--bk-paper-edge);color:var(--bk-ink-soft);border-right-color:var(--bk-rule)}
-.book-ui .bc-room-hdr{background:#6B5D4C;color:#F7F0DD;font-family:var(--bk-serif);letter-spacing:.09em}
-[data-theme="dark"] .book-ui .bc-room-hdr{background:#3A3126;color:var(--bk-ink)}
-.book-ui .bc-day-cell:not(:has(.bc-block)){background:rgba(237,226,200,.30)}
-[data-theme="dark"] .book-ui .bc-day-cell:not(:has(.bc-block)){background:rgba(14,11,8,.45)}
-.book-ui .bc-day-cell[data-date]:hover{background:rgba(166,106,78,.10)}
-[data-theme="dark"] .book-ui .bc-day-cell[data-date]:hover{background:rgba(198,135,95,.14)}
-.book-ui .bc-day-cell.bc-sel{background:rgba(126,139,106,.24);outline-color:rgba(126,139,106,.65)}
-[data-theme="dark"] .book-ui .bc-day-cell.bc-sel{background:rgba(143,160,122,.24);outline-color:rgba(143,160,122,.6)}
-.book-ui .bc-day-cell.bc-sel-anchor{outline-color:var(--bk-sage)}
-.book-ui .bc-grid-resize-handle{background:linear-gradient(180deg,var(--bk-paper-deep) 0%,var(--bk-paper-edge) 100%);border-color:var(--bk-rule)}
-.book-ui .bc-grid-resize-handle::after{background:var(--bk-ink-faint)}
-.book-ui .bc-grid-resize-handle:hover::after,.book-ui .bc-grid-resize-handle:active::after{background:var(--bk-ink-soft)}
-/* ── Chips, legend, zoom bar ── */
-.book-ui .bc-chip{background:var(--bk-paper-lift);border-color:var(--bk-rule);color:var(--bk-ink-soft)}
-.book-ui .bc-chip:hover{background:var(--bk-accent);border-color:var(--bk-accent);color:#FBF4E2}
-[data-theme="dark"] .book-ui .bc-chip:hover{color:#241B12}
-.book-ui .bc-chip.bc-chip-active{background:var(--bk-accent);border-color:var(--bk-accent-deep);color:#FBF4E2}
-[data-theme="dark"] .book-ui .bc-chip.bc-chip-active{color:#241B12}
-.book-ui .bc-legend,.book-ui .bc-zoom-bar{background:var(--bk-paper-lift);border-color:var(--bk-rule-soft);color:var(--bk-ink-soft)}
-.book-ui .bc-zoom-btn{background:var(--bk-paper);border-color:var(--bk-rule);color:var(--bk-ink)}
-.book-ui .bc-zoom-btn:hover:not(:disabled){background:var(--bk-paper-deep);border-color:var(--bk-accent)}
-.book-ui .bc-zoom-pct{color:var(--bk-ink-soft)}
-.book-ui .bc-zoom-lock{color:var(--bk-ink-faint)}
-/* ── Buttons (colors only — behavior, sizing, disabled gating untouched) ── */
-.book-ui .btn-primary{background:var(--bk-accent);color:#FBF4E2;box-shadow:0 1px 3px rgba(62,52,42,.18)}
-.book-ui .btn-primary:hover{background:var(--bk-accent-deep)}
-[data-theme="dark"] .book-ui .btn-primary{color:#241B12}
-[data-theme="dark"] .book-ui .btn-primary:hover{background:#D69A73}
-.book-ui .btn-primary:disabled{background:var(--bk-rule);color:var(--bk-paper-lift)}
-[data-theme="dark"] .book-ui .btn-primary:disabled{background:#3C3226;color:#8F8168}
-.book-ui .btn-ghost{background:var(--bk-paper-lift);border-color:var(--bk-rule);color:var(--bk-ink-soft)}
-.book-ui .btn-ghost:hover{background:var(--bk-paper-deep);border-color:var(--bk-accent)}
-.book-ui .btn-soft-grey{background:var(--bk-paper-deep);border-color:var(--bk-rule);color:var(--bk-ink-soft)}
-.book-ui .btn-soft-grey:hover{background:var(--bk-paper-edge);border-color:var(--bk-accent)}
-.book-ui .btn-success-light{background:#E2E7CF;color:#4C5A38;border-color:#C6D0A8}
-.book-ui .btn-success-light:hover{background:#D6DEBE;border-color:#B4C293}
-[data-theme="dark"] .book-ui .btn-success-light{background:#2A3120;color:#C6D2A2;border-color:#47532F}
-[data-theme="dark"] .book-ui .btn-success-light:hover{background:#333C27;border-color:#5A6A3D}
-.book-ui .btn-bc-quote-soft{background:#F0DFC4;color:#7E5228;border-color:#DCC094}
-.book-ui .btn-bc-quote-soft:hover:not(:disabled){background:#EAD3AE;border-color:#CBA873}
-.book-ui .btn-bc-quote-soft:disabled{background:#F2EADA;color:#B4A488;border-color:#E2D6BC}
-[data-theme="dark"] .book-ui .btn-bc-quote-soft{background:#3A2E1C;color:#E3BC82;border-color:#5C4A29}
-[data-theme="dark"] .book-ui .btn-bc-quote-soft:hover:not(:disabled){background:#463823;border-color:#6E5A34}
-[data-theme="dark"] .book-ui .btn-bc-quote-soft:disabled{background:#2C251A;color:#7E7156;border-color:#413828}
-.book-ui .btn-bc-create-soft{background:#DCE3C8;color:#4C5A38;border-color:#C2CE9F}
-.book-ui .btn-bc-create-soft:hover:not(:disabled){background:#D0D9B8;border-color:#AFBE88}
-[data-theme="dark"] .book-ui .btn-bc-create-soft{background:#2A3120;color:#C6D2A2;border-color:#47532F}
-[data-theme="dark"] .book-ui .btn-bc-create-soft:hover:not(:disabled){background:#333C27;border-color:#5A6A3D}
-.book-ui .btn-bc-block-pebble{background:var(--bk-paper-deep);color:var(--bk-ink-soft);border-color:var(--bk-rule)}
-.book-ui .btn-bc-block-pebble:hover:not(:disabled){background:var(--bk-paper-edge);border-color:var(--bk-ink-faint);box-shadow:0 1px 4px rgba(62,52,42,.10)}
-[data-theme="dark"] .book-ui .btn-bc-block-pebble:hover:not(:disabled){box-shadow:0 1px 4px rgba(0,0,0,.3)}
-.book-ui .btn-bc-field-edit{background:var(--bk-paper-lift);border-color:var(--bk-rule);color:var(--bk-ink-soft)}
-.book-ui .btn-bc-field-edit:hover{background:var(--bk-paper-deep);color:var(--bk-accent)}
-/* ── Form controls — lighter paper fields with real borders + visible focus ── */
-.book-ui .bk-input,.book-ui textarea.bk-input,.book-ui input,.book-ui select,.book-ui textarea{background:var(--bk-paper-lift);border-color:var(--bk-rule);color:var(--bk-ink)}
-.book-ui ::placeholder{color:var(--bk-ink-faint);opacity:1}
-.book-ui .bk-input[readonly]{background:var(--bk-paper-deep);color:var(--bk-ink-soft);border-style:dashed;border-color:var(--bk-rule)}
-.book-ui input[type="date"].bc-date-input,.book-ui input[type="text"].bc-date-input{background:var(--bk-paper-lift);border-color:var(--bk-rule);color:var(--bk-ink)}
-.book-ui .bk-input:focus,.book-ui textarea.bk-input:focus,.book-ui input:focus,.book-ui select:focus,.book-ui textarea:focus{outline:none;border-color:var(--bk-accent);box-shadow:0 0 0 3px rgba(166,106,78,.20)}
-[data-theme="dark"] .book-ui .bk-input:focus,[data-theme="dark"] .book-ui textarea.bk-input:focus,[data-theme="dark"] .book-ui input:focus,[data-theme="dark"] .book-ui select:focus,[data-theme="dark"] .book-ui textarea:focus{box-shadow:0 0 0 3px rgba(198,135,95,.26)}
-.book-ui input[type="date"].bc-date-input:focus,.book-ui input[type="text"].bc-date-input:focus{border-color:var(--bk-accent);box-shadow:0 0 0 3px rgba(166,106,78,.20)}
-[data-theme="dark"] .book-ui input[type="date"].bc-date-input:focus,[data-theme="dark"] .book-ui input[type="text"].bc-date-input:focus{box-shadow:0 0 0 3px rgba(198,135,95,.26)}
-.book-ui label{color:var(--bk-ink-soft)}
-.book-ui .bk-label{color:var(--bk-ink-soft)}
-.book-ui .bk-ao-label{color:var(--bk-ink)}
-.book-ui .bk-ao-unit,.book-ui .bk-ao-note,.book-ui .bk-compact-hint,.book-ui .bc-sel-notice,.book-ui .bk-preview-not-run,.book-ui .bk-preview-create-note{color:var(--bk-ink-faint)}
-.book-ui .bc-sel-bed-count{color:var(--bk-ink-soft)}
-.book-ui .bc-sel-bed-tag{background:var(--bk-paper-deep);color:var(--bk-ink-soft);border-color:var(--bk-rule)}
-.book-ui .state-msg{color:var(--bk-ink-faint)}
-.book-ui .state-msg.error{color:#9C5742}
-.book-ui .bc-open-conversation-status{color:var(--bk-ink-faint)}
-/* ── Booking drawer — book tabs on an aged page ── */
-.book-ui .bc-drawer-tab{background:var(--bk-paper-deep);color:var(--bk-ink-soft);border-color:var(--bk-rule);font-family:var(--bk-serif);letter-spacing:.03em}
-.book-ui .bc-drawer-tab:hover{background:var(--bk-paper-lift);color:var(--bk-ink)}
-.book-ui .bc-drawer-tab.is-active{background:var(--bk-paper-edge);color:var(--bk-ink);border-color:var(--bk-rule)}
-.book-ui .bc-drawer-tab-content-panel{background:var(--bk-paper-edge);border-color:var(--bk-rule)}
-.book-ui .bc-drawer-overview-card{background:var(--bk-paper-lift);border-color:var(--bk-rule-soft);box-shadow:0 1px 2px rgba(62,52,42,.05);padding:16px 18px}
-[data-theme="dark"] .book-ui .bc-drawer-overview-card{box-shadow:none}
-.book-ui .bc-drawer-overview-card .ctx-section{border-top-color:var(--bk-rule-soft)}
-.book-ui .bc-drawer-overview-card .ctx-field-edit-group{border-top-color:var(--bk-rule-soft)}
-.book-ui .bc-drawer-footer{border-top-color:var(--bk-rule)}
-.book-ui .ctx-pay-box{background:var(--bk-paper-deep);border-color:var(--bk-rule-soft)}
-.book-ui #bc-drawer-tab-payments .ctx-pay-box{background:var(--bk-paper-lift)}
-[data-theme="dark"] .book-ui .ctx-payment-history-card{background:var(--bk-paper-deep)!important}
-.book-ui .ctx-nights-badge{background:var(--bk-paper-deep);border-color:var(--bk-rule-soft);color:var(--bk-ink-soft)}
-.book-ui .ctx-loading,.book-ui .ctx-none{color:var(--bk-ink-faint)}
-/* ── Move-bed pills — warm sage instead of the base blue ── */
-.book-ui .bc-move-source-pill{background:var(--bk-paper-lift);color:var(--bk-ink-soft);border:1px solid var(--bk-rule)}
-.book-ui .bc-move-source-pill:hover{background:var(--bk-paper-deep);border-color:var(--bk-sage);color:var(--bk-ink)}
-.book-ui .bc-move-source-pill.is-selected{background:#DCE3C8;color:#3E4A2C;border:2px solid var(--bk-sage);box-shadow:0 1px 3px rgba(62,52,42,.14)}
-[data-theme="dark"] .book-ui .bc-move-source-pill.is-selected{background:#2A3120;color:#DAE4BC}
-.book-ui .bc-move-source-pill:focus{outline:2px solid var(--bk-accent)}
-/* ── Quote preview — hairline taupe rules + chapter-style section titles ── */
-.book-ui .bk-quote-item{border-bottom-color:var(--bk-rule-soft)}
-.book-ui .bk-quote-divider{border-top-color:var(--bk-rule)}
-.book-ui .bk-quote-section-title{font-family:var(--bk-serif);letter-spacing:.12em;color:var(--bk-ink-soft)}
-.book-ui .bk-quote-item-label{color:var(--bk-ink-soft)}
-.book-ui .bk-quote-formula,.book-ui .bk-quote-item-note{color:var(--bk-ink-faint)}
-/* ── Un-classed secondary buttons in drawer (e.g. Add note) ── */
-.book-ui .btn-secondary{background:var(--bk-paper-deep);border:1px solid var(--bk-rule);color:var(--bk-ink-soft)}
-.book-ui .btn-secondary:hover{background:var(--bk-paper-edge);border-color:var(--bk-accent)}
+/* ===== BEGIN book-ui (serif typeface only; paperback restyle removed) =====
+   Kept the literary serif on Booking Calendar + drawer headings; all the warm
+   paperback colors/paper/spacing/borders were removed so the rest returns to the
+   original look. Still scoped under .book-ui and gated by STAFF_PORTAL_BOOK_UI
+   (set =false to drop the serif too and fully restore the prior look). ===== */
+.book-ui{--bk-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.book-ui .toolbar h2,
+.book-ui .bc-detail-title,
+.book-ui .bc-block-label,
+.book-ui .bk-form-section-title,
+.book-ui .bc-sel-title,
+.book-ui .bc-drawer-card-title,
+.book-ui .bc-drawer-card-subtitle,
+.book-ui .ctx-section h3,
+.book-ui .kv .k,
+.book-ui .bc-grid thead th.bc-bed-head,
+.book-ui .bc-room-hdr,
+.book-ui .bc-drawer-tab,
+.book-ui .bk-quote-section-title{font-family:var(--bk-serif)}
 /* ===== END book-ui ===== */
 </style>
 </head>
