@@ -56,8 +56,8 @@ assert('API mutual exclusive lesson/course/private', api.includes('ps-create-com
 assert('API submit validates session count', api.includes('schedule.create.privateLesson.sessionsMismatch'));
 assert('API loads default duration from config', api.includes('schedulePrivateLessonDurationCache'));
 
-assert('EN private lesson type label', en.includes("'schedule.type.privateLesson': 'Private lesson'"));
-assert('ES clase privada type label', es.includes("'schedule.type.privateLesson': 'Clase privada'"));
+assert('EN private course type label', en.includes("'schedule.type.privateLesson': 'Private Course'"));
+assert('ES curso privado type label', es.includes("'schedule.type.privateLesson': 'Curso privado'"));
 assert('EN sessions mismatch i18n', en.includes('schedule.create.privateLesson.sessionsMismatch'));
 assert('ES sessions mismatch i18n', es.includes('schedule.create.privateLesson.sessionsMismatch'));
 

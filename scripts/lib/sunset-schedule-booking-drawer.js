@@ -47,6 +47,13 @@ function normalizeUiPayment(ps) {
   return 'unpaid';
 }
 
+// Safe allowlist of paid-method labels stored in booking metadata (does not affect payment math).
+const PAYMENT_METHOD_VALUES = new Set(['bank_transfer', 'in_store', 'link']);
+function normalizePaymentMethod(m) {
+  const v = String(m || '').toLowerCase().trim();
+  return PAYMENT_METHOD_VALUES.has(v) ? v : null;
+}
+
 function staffUiServiceType(componentKey) {
   if (componentKey === 'lesson') return 'lesson';
   if (componentKey === 'course') return 'course';
@@ -315,6 +322,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       phone: bundle.booking.phone || meta.guest_phone || null,
       notes: bundle.services[0] && bundle.services[0].notes ? bundle.services[0].notes : null,
       payment_status: payment.payment_status,
+      payment_method: payment.payment_status === 'paid' ? (normalizePaymentMethod(meta.sunset_payment_method) || null) : null,
       date_from: agg.date_from,
       date_to: agg.date_to,
       components: agg.components,
@@ -372,6 +380,10 @@ async function updateSunsetScheduleBooking(pg, opts) {
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
+  // Paid-method label (bank_transfer | in_store | link) stored in metadata; null when unpaid.
+  const paymentMethod = input.payment_status === 'paid'
+    ? normalizePaymentMethod(opts.body && opts.body.payment_method)
+    : null;
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const bundleId = meta.bundle_id || crypto.randomBytes(8).toString('hex');
@@ -408,6 +420,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
           guest_phone: guest_phone || null,
           bundle_id: bundleId,
           components: componentKeys,
+          sunset_payment_method: paymentMethod,
           sunset_stripe_link_stale: true,
           sunset_updated_at: new Date().toISOString(),
         }, recordLocationId)),
@@ -532,4 +545,5 @@ module.exports = {
   updateSunsetScheduleBooking,
   buildPaymentSummary,
   aggregateComponentsFromServices,
+  normalizePaymentMethod,
 };

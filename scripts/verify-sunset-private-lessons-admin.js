@@ -61,8 +61,8 @@ assert('admin UI no time fields in private form', !/admin-private-start|admin-pr
 assert('admin UI group courses + private in section render', /renderAdminPackCards[\s\S]*renderAdminPrivateLessonCard/.test(adminUi));
 assert('admin UI group lesson cards removed from section render', !/box\.innerHTML = renderAdminLessonCards/.test(adminUi));
 
-assert('EN private lessons title', en.includes("'admin.privateLessons.title': 'Private lessons'"));
-assert('ES clases privadas title', es.includes("'admin.privateLessons.title': 'Clases privadas'"));
+assert('EN private courses title', en.includes("'admin.privateLessons.title': 'Private Courses'"));
+assert('ES cursos privados title', es.includes("'admin.privateLessons.title': 'Cursos privados'"));
 
 const {
   defaultPrivateLessonApi,

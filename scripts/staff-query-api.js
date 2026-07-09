@@ -7681,6 +7681,11 @@ async function handleBookingRecordCashPayment(req, res, user) {
   const note           = body.note != null ? String(body.note).trim().slice(0, 500) : null;
   const paymentDateIn  = String(body.payment_date || '').trim();
   const amountCents    = Math.floor(Number(body.amount_cents));
+  // Optional staff payment method from a safe allowlist; defaults to cash. Does not affect payment math.
+  const STAFF_MANUAL_METHODS = { cash: 'staff_cash', bank_transfer: 'staff_bank_transfer', in_store: 'staff_in_store' };
+  const methodIn       = String(body.method || 'cash').trim().toLowerCase();
+  const method         = STAFF_MANUAL_METHODS[methodIn] ? methodIn : 'cash';
+  const methodSource   = STAFF_MANUAL_METHODS[method];
 
   if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
   if (!clientSlug) return send400(res, 'client_slug is required');
@@ -7739,8 +7744,8 @@ async function handleBookingRecordCashPayment(req, res, user) {
   }
 
   const pmMeta = {
-    source: 'staff_cash',
-    method: 'cash',
+    source: methodSource,
+    method: method,
     idempotency_key: idempotencyKey,
     note: note,
     payment_date: paymentDate,
@@ -16638,6 +16643,17 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
+/* Sunset Schedule warm serif for page/section/card headings and course titles (form fields stay sans). */
+#tab-portal-home{--sched-heading-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+#tab-portal-home .portal-schedule-page-title,
+#tab-portal-home .portal-schedule-hero-title,
+#tab-portal-home .portal-schedule-card-label,
+#tab-portal-home .portal-schedule-ops-lesson-hdr-title,
+#tab-portal-home .portal-schedule-ops-rental-pickups-hdr,
+#tab-portal-home .portal-schedule-rentals-hdr,
+#tab-portal-home .portal-schedule-private-hdr,
+#tab-portal-home .portal-schedule-lesson-slot-label,
+#tab-portal-home .portal-schedule-section-hdr{font-family:var(--sched-heading-serif)}
 /* Sunset Schedule — warm readable ops surface (light theme only) */
 :root:not([data-theme="dark"]) #tab-portal-home{
   --sunset-bg:#EDE8E0;
@@ -16899,6 +16915,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;overflow:auto;font-size:13px;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
+.portal-schedule-manual-pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.portal-schedule-manual-pay-grid label,.portal-schedule-manual-pay-note{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-3)}
+.portal-schedule-manual-pay-note{margin-top:8px}
+.portal-schedule-add-session-btn{margin-top:8px;font-size:12px;padding:5px 12px}
+.portal-schedule-private-session-row{padding:2px 0}
+.portal-schedule-create-check{padding:7px 12px}
 .portal-schedule-drawer-hero h3{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section{background:var(--sunset-panel-strong);border-color:var(--sunset-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section-title{color:var(--sched-text)}
@@ -18656,22 +18678,25 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox"> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox"> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private lesson</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
     </div>
     <div id="ps-create-private-lesson-fields" style="display:none">
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
-      <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private lesson session.</span>
+      <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">Set date and time for each private course session.</span>
         <div id="ps-create-private-lesson-sessions" class="portal-schedule-private-sessions"></div>
+        <button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-create-add-session" data-i18n="schedule.create.privateLesson.addSession">+ Add session</button>
       </div>
     </div>
     <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-board-qty-wrap" style="display:none"><label for="ps-create-board-qty" data-i18n="schedule.create.boardQty">Boards</label><input id="ps-create-board-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-wetsuit-qty-wrap" style="display:none"><label for="ps-create-wetsuit-qty" data-i18n="schedule.create.wetsuitQty">Wetsuits</label><input id="ps-create-wetsuit-qty" type="number" min="1" max="99" value="1"></div>
+    <div id="ps-create-date-range">
     <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
+    </div>
     <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
     <div class="portal-schedule-create-actions">
@@ -19433,13 +19458,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 <!-- ── Command Center tab (Stage 8.6.2 / 25i) ─────────────────────────────── -->
 <div id="tab-ask-luna" class="tab-panel">
 <div id="al-wrap">
-
-  <div class="al-hero">
-    <div>
-      <div class="al-hero-title" data-i18n="lunaStaff.hero.title">Luna Staff</div>
-      <div class="al-hero-sub" data-i18n="lunaStaff.hero.sub">Staff numbers, automated notifications, guest alerts, and house notes for Luna. Ask operations questions in WhatsApp.</div>
-    </div>
-  </div>
 
   <div class="card cc-section" id="cc-staff-whatsapp-numbers" style="display:none">
     <div class="cc-section-hdr">Staff &amp; Owner Numbers</div>
@@ -21848,16 +21866,24 @@ function scheduleSyncPrivateLessonSessions(){
     var date = prev.date || dateFrom;
     var start = prev.start || '10:00';
     var end = prev.end || schedulePrivateLessonDefaultEnd(start);
+    var removeBtn = i > 0
+      ? '<button type="button" class="btn btn-ghost portal-schedule-session-remove" data-session-remove="' + String(i) + '" data-i18n="schedule.create.privateLesson.removeSession">Remove</button>'
+      : '';
     html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">' +
       '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>' +
       '<div class="portal-schedule-private-session-grid">' +
       '<label><span data-i18n="schedule.create.privateLesson.date">Date</span><input class="ps-pl-session-date" type="date" value="' + escHtml(date) + '"></label>' +
       '<label><span data-i18n="schedule.create.privateLesson.start">Start</span><input class="ps-pl-session-start" type="time" value="' + escHtml(start) + '"></label>' +
       '<label><span data-i18n="schedule.create.privateLesson.end">End</span><input class="ps-pl-session-end" type="time" value="' + escHtml(end) + '"></label>' +
-      '</div></div>';
+      '</div>' + removeBtn + '</div>';
   }
   wrap.innerHTML = html;
   wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(scheduleWirePrivateLessonSessionRow);
+  wrap.querySelectorAll('.portal-schedule-session-remove').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      scheduleRemovePrivateLessonSession(parseInt(btn.getAttribute('data-session-remove'), 10));
+    });
+  });
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
 }
@@ -21870,6 +21896,48 @@ function scheduleUpdatePrivateLessonDateRangeFromSessions(){
   var dt = el('ps-create-date-to');
   if (df) df.value = dates[0];
   if (dt) dt.value = dates[dates.length - 1];
+}
+
+// Add a private-course session: duplicate the last session, defaulting its date to the next day.
+function scheduleAddPrivateLessonSession(){
+  var qtyEl = el('ps-create-private-lesson-qty');
+  if (!qtyEl) return;
+  var existing = scheduleReadPrivateLessonSessionsFromDom();
+  var last = existing[existing.length - 1] || {};
+  var nextDate = last.date ? scheduleIsoDate(scheduleAddDays(scheduleParseIso(last.date), 1)) : ((el('ps-create-date-from') && el('ps-create-date-from').value) || scheduleTodayIso());
+  var max = 30;
+  var next = Math.min((parseInt(qtyEl.value, 10) || existing.length || 1) + 1, max);
+  qtyEl.value = String(next);
+  scheduleSyncPrivateLessonSessions();
+  // Set the new (last) session row to the duplicated defaults.
+  var wrap = el('ps-create-private-lesson-sessions');
+  if (wrap){
+    var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
+    var row = rows[rows.length - 1];
+    if (row){
+      var dEl = row.querySelector('.ps-pl-session-date');
+      var sEl = row.querySelector('.ps-pl-session-start');
+      var eEl = row.querySelector('.ps-pl-session-end');
+      if (dEl) dEl.value = nextDate;
+      if (sEl && last.start) sEl.value = last.start;
+      if (eEl && last.end) eEl.value = last.end;
+    }
+  }
+  scheduleUpdatePrivateLessonDateRangeFromSessions();
+}
+
+function scheduleRemovePrivateLessonSession(index){
+  var qtyEl = el('ps-create-private-lesson-qty');
+  var wrap = el('ps-create-private-lesson-sessions');
+  if (!qtyEl || !wrap) return;
+  var rows = wrap.querySelectorAll('.portal-schedule-private-session-row');
+  if (index < 0 || index >= rows.length || rows.length <= 1) return;
+  var target = rows[index];
+  if (target && target.parentNode) target.parentNode.removeChild(target);
+  var remaining = wrap.querySelectorAll('.portal-schedule-private-session-row').length;
+  qtyEl.value = String(Math.max(remaining, 1));
+  scheduleSyncPrivateLessonSessions();
+  scheduleUpdatePrivateLessonDateRangeFromSessions();
 }
 
 function scheduleRowBookingRef(row, group){
@@ -21903,6 +21971,9 @@ function schedulePopulateCreateComponentFields(){
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
   if (wq) wq.style.display = wetsuitOn ? '' : 'none';
+  // Private Course uses per-session dates, so hide the group date-range UI when it is selected.
+  var dateRange = el('ps-create-date-range');
+  if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
@@ -23474,9 +23545,27 @@ function scheduleFormatComponentsView(comps){
   return parts.length ? parts.join(' · ') : '—';
 }
 
+// Shared paid-method label: maps a stored method to its visible "Paid - X" label.
+function schedulePaymentStatusLabel(status, method){
+  if (status !== 'paid') return portalT('schedule.payment.unpaid');
+  if (method === 'bank_transfer') return portalT('schedule.payment.paidBankTransfer');
+  if (method === 'in_store') return portalT('schedule.payment.paidInStore');
+  if (method === 'link') return portalT('schedule.payment.paidViaLink');
+  return portalT('schedule.payment.paid');
+}
+
+// Shared "Open customer" button: shown only when the booking has a phone to resolve the customer card.
+function scheduleRenderDrawerOpenCustomerBtnHtml(ctx){
+  var profile = getPortalProfile(getClient());
+  if (!portalHasCustomersCrm(profile)) return '';
+  var phone = ctx && ctx.phone;
+  if (!phone) return '';
+  return '<button type="button" class="btn btn-ghost" id="ps-drawer-open-customer" data-customer-phone="' + escHtml(String(phone)) + '">' +
+    escHtml(portalT('schedule.drawer.openCustomer')) + '</button>';
+}
+
 function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   var comps = (ctx && ctx.components) || {};
-  var payLabel = ctx && ctx.payment_status === 'paid' ? portalT('schedule.payment.paid') : portalT('schedule.payment.unpaid');
   var html = '<div class="portal-schedule-drawer-hero">';
   html += '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(ctx.guest_name || row.guest_name || 'Guest') + '</h3>';
   if (isSunsetSurfActive()) {
@@ -23492,8 +23581,6 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>');
   html += scheduleDrawerSectionHtml('schedule.drawer.section.components',
     '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(scheduleFormatComponentsView(comps)) + '</p>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.payment',
-    '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.create.payment')) + ':</strong> ' + escHtml(payLabel) + '</p>');
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
@@ -23503,6 +23590,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';
   if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
+  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
   var stripeAvail = ctx && ctx.stripe_available;
   var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
     ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
@@ -23522,12 +23610,38 @@ function scheduleDrawerEur(cents){
   return '\u20ac' + (Number(cents) / 100).toFixed(2);
 }
 
-function scheduleRenderDrawerPaymentSectionHtml(ctx){
+// Single, consolidated payment area. When editable, the status select lives here (no duplicate card).
+function scheduleDrawerPaymentSelectValue(ctx){
+  if (!ctx || ctx.payment_status !== 'paid') return 'unpaid';
+  if (ctx.payment_method === 'bank_transfer') return 'paid_bank_transfer';
+  if (ctx.payment_method === 'in_store') return 'paid_in_store';
+  if (ctx.payment_method === 'link') return 'paid_via_link';
+  return 'paid_bank_transfer';
+}
+
+function scheduleRenderDrawerPaymentSelectHtml(ctx){
+  var cur = scheduleDrawerPaymentSelectValue(ctx);
+  function opt(val, key){
+    return '<option value="' + val + '"' + (cur === val ? ' selected' : '') + '>' + escHtml(portalT(key)) + '</option>';
+  }
+  return '<div class="portal-schedule-create-field" style="margin-bottom:10px"><label for="ps-drawer-payment">' + escHtml(portalT('schedule.create.payment')) + '</label>' +
+    '<select id="ps-drawer-payment">' +
+    opt('unpaid', 'schedule.payment.unpaid') +
+    opt('paid_bank_transfer', 'schedule.payment.paidBankTransfer') +
+    opt('paid_in_store', 'schedule.payment.paidInStore') +
+    opt('paid_via_link', 'schedule.payment.paidViaLink') +
+    '</select></div>';
+}
+
+function scheduleRenderDrawerPaymentSectionHtml(ctx, editable){
   var pay = (ctx && ctx.payment) || {};
   var items = pay.line_items || [];
   var html = '<div class="ctx-pay-box" id="ps-drawer-payment-box" style="margin-top:14px">';
   html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
     escHtml(portalT('schedule.drawer.paymentSection')) + '</div>';
+  if (editable){
+    html += scheduleRenderDrawerPaymentSelectHtml(ctx);
+  }
   if (pay.pricing_note){
     html += '<p style="font-size:11px;color:var(--text-3);margin:0 0 8px">' + escHtml(portalT('schedule.drawer.livePricingNote')) + '</p>';
   }
@@ -23549,9 +23663,35 @@ function scheduleRenderDrawerPaymentSectionHtml(ctx){
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.drawer.remaining')) +
     '</span><span class="ctx-inv-total-amount owing" id="ps-drawer-remaining">' + escHtml(scheduleDrawerEur(pay.balance_due_cents)) + '</span></div>';
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.col.payment')) +
-    '</span><span class="ctx-inv-total-amount" id="ps-drawer-pay-status">' + escHtml(pay.payment_status === 'paid' ? portalT('schedule.payment.paid') : portalT('schedule.payment.unpaid')) + '</span></div>';
+    '</span><span class="ctx-inv-total-amount" id="ps-drawer-pay-status">' + escHtml(schedulePaymentStatusLabel(pay.payment_status, ctx && ctx.payment_method)) + '</span></div>';
   html += '</div>';
+  html += scheduleRenderDrawerManualPaymentHtml(ctx);
   html += scheduleRenderDrawerStripeLinkSectionHtml(ctx);
+  html += '</div>';
+  return html;
+}
+
+// Compact "Add manual payment" control. Persists via /staff/bookings/record-cash-payment.
+function scheduleRenderDrawerManualPaymentHtml(ctx){
+  if (!(ctx && ctx.booking_id)) return '';
+  var html = '<div id="ps-drawer-manual-pay" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
+  html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
+    escHtml(portalT('schedule.drawer.addManualPayment')) + '</div>';
+  html += '<div class="portal-schedule-manual-pay-grid">';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
+    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
+    '<select id="ps-drawer-manual-method">' +
+    '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
+    '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
+    '<option value="cash">' + escHtml(portalT('schedule.payment.paid')) + '</option>' +
+    '</select></label>';
+  html += '</div>';
+  html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
+    '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
+    escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
+  html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
   html += '</div>';
   return html;
 }
@@ -23608,10 +23748,17 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '<div class="portal-schedule-create-field"><label for="ps-drawer-phone">' + escHtml(portalT('schedule.drawer.phone')) + '</label>' +
     '<input id="ps-drawer-phone" type="tel" value="' + escHtml(ctx.phone || '') + '"></div>');
   html += scheduleDrawerSectionHtml('schedule.drawer.section.dates',
+    '<div id="ps-drawer-date-range"' + (privateOn ? ' style="display:none"' : '') + '>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-date-from">' + escHtml(portalT('schedule.create.dateFrom')) + '</label>' +
     '<input id="ps-drawer-date-from" type="date" value="' + escHtml(ctx.date_from || '') + '"></div>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-date-to">' + escHtml(portalT('schedule.create.dateTo')) + '</label>' +
-    '<input id="ps-drawer-date-to" type="date" value="' + escHtml(ctx.date_to || ctx.date_from || '') + '"></div>');
+    '<input id="ps-drawer-date-to" type="date" value="' + escHtml(ctx.date_to || ctx.date_from || '') + '"></div>' +
+    '</div>' +
+    '<div id="ps-drawer-private-sessions-wrap"' + (privateOn ? '' : ' style="display:none"') + '>' +
+    '<span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">' + escHtml(portalT('schedule.create.privateLesson.sessionsHelp')) + '</span>' +
+    '<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>' +
+    '<button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-drawer-add-session">' + escHtml(portalT('schedule.create.privateLesson.addSession')) + '</button>' +
+    '</div>');
   html += scheduleDrawerSectionHtml('schedule.drawer.section.components',
     '<div class="portal-schedule-create-components">' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-wetsuit"' + (wetsuitOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.wetsuitRental')) + '</label>' +
@@ -23619,32 +23766,33 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-course"' + (courseOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.course')) + '</label>' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-private-lesson"' + (privateOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.privateCourse')) + '</label>' +
     '</div>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.course',
+  // Course card only rendered when a course/private course is selected (compact: hidden otherwise).
+  html += '<div id="ps-drawer-course-section"' + ((courseOn || privateOn) ? '' : ' style="display:none"') + '>' +
+    scheduleDrawerSectionHtml('schedule.drawer.section.course',
     '<div class="portal-schedule-create-field" id="ps-drawer-course-fields"><label for="ps-drawer-course-select">' + escHtml(portalT('schedule.create.courseSelect')) + '</label><select id="ps-drawer-course-select" data-selected="' + escHtml(selectedCourseId) + '"></select></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap"><label for="ps-drawer-course-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '"></div>' +
     '<div id="ps-drawer-private-lesson-fields" style="display:none">' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-private-lesson-surfers">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-private-lesson-surfers" type="number" min="1" max="99" value="' + escHtml(String((comps.private_lesson && comps.private_lesson.surfer_count) || 1)) + '"></div>' +
-    '</div>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.rentals',
+    '</div>') + '</div>';
+  // Rentals card only rendered when a rental is selected.
+  html += '<div id="ps-drawer-rentals-section"' + ((boardOn || wetsuitOn) ? '' : ' style="display:none"') + '>' +
+    scheduleDrawerSectionHtml('schedule.drawer.section.rentals',
     '<div class="portal-schedule-create-field" id="ps-drawer-board-qty-wrap"><label for="ps-drawer-board-qty">' + escHtml(portalT('schedule.create.boardQty')) + '</label>' +
     '<input id="ps-drawer-board-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.surfboard && comps.surfboard.quantity) || 1)) + '"></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-wetsuit-qty-wrap"><label for="ps-drawer-wetsuit-qty">' + escHtml(portalT('schedule.create.wetsuitQty')) + '</label>' +
-    '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.payment',
-    '<div class="portal-schedule-create-field"><label for="ps-drawer-payment">' + escHtml(portalT('schedule.create.payment')) + '</label>' +
-    '<select id="ps-drawer-payment"><option value="unpaid"' + (ctx.payment_status !== 'paid' ? ' selected' : '') + '>' + escHtml(portalT('schedule.payment.unpaid')) + '</option>' +
-    '<option value="paid"' + (ctx.payment_status === 'paid' ? ' selected' : '') + '>' + escHtml(portalT('schedule.payment.paid')) + '</option></select></div>');
+    '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div>') + '</div>';
   html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
     '<div class="portal-schedule-create-field"><label for="ps-drawer-notes">' + escHtml(portalT('schedule.drawer.notes')) + '</label>' +
     '<textarea id="ps-drawer-notes" rows="2">' + escHtml(ctx.notes || '') + '</textarea></div>');
-  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += scheduleRenderDrawerPaymentSectionHtml(ctx, true);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';
   html += '<button type="button" class="btn btn-primary" id="ps-drawer-save">' + escHtml(portalT('schedule.drawer.save')) + '</button>';
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-cancel">' + escHtml(portalT('schedule.drawer.cancel')) + '</button>';
+  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
   var stripeAvail = ctx && ctx.stripe_available;
   var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
     ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
@@ -23675,6 +23823,17 @@ function scheduleDrawerPopulateComponentFields(){
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
   if (wq) wq.style.display = wetsuitOn ? '' : 'none';
+  // Compact: hide whole Course/Rentals cards unless a relevant component is checked.
+  var courseSection = el('ps-drawer-course-section');
+  if (courseSection) courseSection.style.display = (courseOn || privateOn) ? '' : 'none';
+  var rentalsSection = el('ps-drawer-rentals-section');
+  if (rentalsSection) rentalsSection.style.display = (boardOn || wetsuitOn) ? '' : 'none';
+  // Private Course uses per-session dates: hide the group date range and show sessions.
+  var dateRange = el('ps-drawer-date-range');
+  if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
+  var sessionsWrap = el('ps-drawer-private-sessions-wrap');
+  if (sessionsWrap) sessionsWrap.style.display = privateOn ? '' : 'none';
+  if (privateOn) scheduleDrawerSyncPrivateSessions();
   if (courseOn) scheduleDrawerPopulateCourseSelect();
 }
 
@@ -23705,12 +23864,80 @@ function scheduleDrawerPopulateCourseSelect(){
   });
 }
 
+// Edit-drawer private-course sessions: seeded from ctx, with add/remove. Multi-session persists via the PATCH.
+function scheduleDrawerReadPrivateSessionsFromDom(){
+  var wrap = el('ps-drawer-private-sessions');
+  var out = [];
+  if (!wrap) return out;
+  wrap.querySelectorAll('.portal-schedule-private-session-row').forEach(function(row){
+    var d = row.querySelector('.ps-pl-session-date');
+    var s = row.querySelector('.ps-pl-session-start');
+    var e = row.querySelector('.ps-pl-session-end');
+    out.push({ date: d ? d.value : '', start: s ? s.value : '', end: e ? e.value : '' });
+  });
+  return out;
+}
+
+function scheduleDrawerRenderPrivateSessions(sessions){
+  var wrap = el('ps-drawer-private-sessions');
+  if (!wrap) return;
+  var html = '';
+  (sessions || []).forEach(function(sess, i){
+    var removeBtn = i > 0
+      ? '<button type="button" class="btn btn-ghost portal-schedule-session-remove" data-session-remove="' + String(i) + '">' + escHtml(portalT('schedule.create.privateLesson.removeSession')) + '</button>'
+      : '';
+    html += '<div class="portal-schedule-private-session-row" data-session-index="' + String(i + 1) + '">' +
+      '<p class="portal-schedule-card-sub" style="margin:8px 0 4px">' + escHtml(portalT('schedule.create.privateLesson.sessionLabel')) + ' ' + String(i + 1) + '</p>' +
+      '<div class="portal-schedule-private-session-grid">' +
+      '<label><span>' + escHtml(portalT('schedule.create.privateLesson.date')) + '</span><input class="ps-pl-session-date" type="date" value="' + escHtml(sess.date || '') + '"></label>' +
+      '<label><span>' + escHtml(portalT('schedule.create.privateLesson.start')) + '</span><input class="ps-pl-session-start" type="time" value="' + escHtml(sess.start || '10:00') + '"></label>' +
+      '<label><span>' + escHtml(portalT('schedule.create.privateLesson.end')) + '</span><input class="ps-pl-session-end" type="time" value="' + escHtml(sess.end || '12:00') + '"></label>' +
+      '</div>' + removeBtn + '</div>';
+  });
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('.portal-schedule-session-remove').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var idx = parseInt(btn.getAttribute('data-session-remove'), 10);
+      var cur = scheduleDrawerReadPrivateSessionsFromDom();
+      if (cur.length <= 1) return;
+      cur.splice(idx, 1);
+      scheduleDrawerRenderPrivateSessions(cur);
+    });
+  });
+}
+
+function scheduleDrawerSyncPrivateSessions(){
+  var wrap = el('ps-drawer-private-sessions');
+  if (!wrap) return;
+  // Preserve current rows if already rendered; otherwise seed from ctx (or one default row).
+  var existing = scheduleDrawerReadPrivateSessionsFromDom();
+  if (!existing.length){
+    var ctx = scheduleDrawerState.ctx || {};
+    var pl = (ctx.components && ctx.components.private_lesson) || null;
+    existing = (pl && Array.isArray(pl.sessions) && pl.sessions.length)
+      ? pl.sessions.map(function(s){ return { date: s.date, start: s.start || '10:00', end: s.end || '12:00' }; })
+      : [{ date: (ctx.date_from || scheduleTodayIso()), start: '10:00', end: '12:00' }];
+  }
+  scheduleDrawerRenderPrivateSessions(existing);
+}
+
+function scheduleDrawerAddPrivateSession(){
+  var cur = scheduleDrawerReadPrivateSessionsFromDom();
+  if (!cur.length){ scheduleDrawerSyncPrivateSessions(); cur = scheduleDrawerReadPrivateSessionsFromDom(); }
+  var last = cur[cur.length - 1] || {};
+  var nextDate = last.date ? scheduleIsoDate(scheduleAddDays(scheduleParseIso(last.date), 1)) : scheduleTodayIso();
+  if (cur.length >= 30) return;
+  cur.push({ date: nextDate, start: last.start || '10:00', end: last.end || '12:00' });
+  scheduleDrawerRenderPrivateSessions(cur);
+}
+
 function scheduleReadDrawerEditPayload(){
   var guest = (el('ps-drawer-guest') && el('ps-drawer-guest').value || '').trim();
   var phone = (el('ps-drawer-phone') && el('ps-drawer-phone').value || '').trim();
   var dateFrom = el('ps-drawer-date-from') ? el('ps-drawer-date-from').value : '';
   var dateTo = el('ps-drawer-date-to') ? el('ps-drawer-date-to').value : dateFrom;
-  var payment = el('ps-drawer-payment') ? el('ps-drawer-payment').value : 'unpaid';
+  var paymentSel = el('ps-drawer-payment') ? el('ps-drawer-payment').value : 'unpaid';
+  var pm = scheduleParsePaymentSelectValue(paymentSel);
   var notes = (el('ps-drawer-notes') && el('ps-drawer-notes').value || '').trim();
   var components = {};
   var ctx = scheduleDrawerState.ctx || {};
@@ -23726,9 +23953,12 @@ function scheduleReadDrawerEditPayload(){
   }
   if (el('ps-drawer-comp-private-lesson') && el('ps-drawer-comp-private-lesson').checked){
     var plSurfers = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
-    var plSessions = existingPrivate && Array.isArray(existingPrivate.sessions) && existingPrivate.sessions.length
-      ? existingPrivate.sessions.slice()
-      : [{ date: dateFrom || scheduleTodayIso(), start: '10:00', end: '12:00' }];
+    var domSessions = scheduleDrawerReadPrivateSessionsFromDom().filter(function(s){ return s.date; });
+    var plSessions = domSessions.length
+      ? domSessions
+      : (existingPrivate && Array.isArray(existingPrivate.sessions) && existingPrivate.sessions.length
+        ? existingPrivate.sessions.slice()
+        : [{ date: dateFrom || scheduleTodayIso(), start: '10:00', end: '12:00' }]);
     components.private_lesson = {
       enabled: true,
       quantity: plSessions.length,
@@ -23742,7 +23972,18 @@ function scheduleReadDrawerEditPayload(){
   if (el('ps-drawer-comp-wetsuit') && el('ps-drawer-comp-wetsuit').checked){
     components.wetsuit = { quantity: parseInt((el('ps-drawer-wetsuit-qty') && el('ps-drawer-wetsuit-qty').value) || '1', 10) || 1 };
   }
-  return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
+  return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: pm.status, payment_method: pm.method, notes: notes, components: components };
+}
+
+// Map the consolidated payment select value to a booking status + stored method.
+function scheduleParsePaymentSelectValue(val){
+  switch (String(val || '')){
+    case 'paid_bank_transfer': return { status: 'paid', method: 'bank_transfer' };
+    case 'paid_in_store': return { status: 'paid', method: 'in_store' };
+    case 'paid_via_link': return { status: 'paid', method: 'link' };
+    case 'paid': return { status: 'paid', method: null };
+    default: return { status: 'unpaid', method: null };
+  }
 }
 
 
@@ -23750,11 +23991,14 @@ function scheduleUpdateDrawerPaymentFromContext(ctx){
   if (!ctx || !ctx.payment) return;
   var box = el('ps-drawer-payment-box');
   if (!box) return;
+  var editing = !!(scheduleDrawerState && scheduleDrawerState.editing);
   var tmp = document.createElement('div');
-  tmp.innerHTML = scheduleRenderDrawerPaymentSectionHtml(ctx);
+  tmp.innerHTML = scheduleRenderDrawerPaymentSectionHtml(ctx, editing);
   var fresh = tmp.firstChild;
   if (fresh) box.parentNode.replaceChild(fresh, box);
   scheduleWireDrawerStripeCopyOpen(ctx);
+  var row = scheduleDrawerState && scheduleDrawerState.row;
+  if (row) scheduleWireDrawerManualPayment(row);
 }
 
 function scheduleWireDrawerStripeCopyOpen(ctx){
@@ -23860,10 +24104,68 @@ function scheduleCreateDrawerStripeLink(row){
     .finally(function(){ if (btn) btn.disabled = false; });
 }
 
+// Wire the "Open customer" button: navigate to the Customers tab and open the card by phone.
+function scheduleWireDrawerOpenCustomer(){
+  var btn = el('ps-drawer-open-customer');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var phone = btn.getAttribute('data-customer-phone') || '';
+    if (!phone) return;
+    closeScheduleDetailDrawer();
+    openCustomerCardForPhone(phone);
+  });
+}
+
+// Wire the compact "Add manual payment" control to the record-cash-payment endpoint.
+function scheduleWireDrawerManualPayment(row){
+  var btn = el('ps-drawer-manual-submit');
+  if (!btn || !row || !row.booking_id) return;
+  btn.addEventListener('click', function(){
+    var amtEl = el('ps-drawer-manual-amount');
+    var methodEl = el('ps-drawer-manual-method');
+    var noteEl = el('ps-drawer-manual-note');
+    var msg = el('ps-drawer-manual-msg');
+    var euros = parseFloat((amtEl && amtEl.value) || '');
+    if (!(euros > 0)){
+      if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayAmountRequired'); msg.style.display = 'block'; }
+      return;
+    }
+    var amountCents = Math.round(euros * 100);
+    btn.disabled = true;
+    if (msg) msg.style.display = 'none';
+    fetch('/staff/bookings/record-cash-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        client_slug: getClient(),
+        booking_id: row.booking_id,
+        amount_cents: amountCents,
+        method: (methodEl && methodEl.value) || 'cash',
+        note: (noteEl && noteEl.value || '').trim() || null,
+        idempotency_key: 'sunset-drawer-pay-' + row.booking_id + '-' + Date.now(),
+      }),
+    }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
+      .then(function(res){
+        if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
+        if (msg){ msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.manualPaySaved'); msg.style.display = 'block'; }
+        // Refresh drawer totals from the fresh booking context.
+        return fetch('/staff/schedule/bookings/detail?client=' + encodeURIComponent(getClient()) + '&booking_id=' + encodeURIComponent(row.booking_id))
+          .then(function(r2){ return r2.json(); })
+          .then(function(ctxData){ if (ctxData && ctxData.success) scheduleUpdateDrawerPaymentFromContext(ctxData); });
+      })
+      .catch(function(err){
+        if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayFailed') + ' ' + err.message; msg.style.display = 'block'; }
+      })
+      .finally(function(){ btn.disabled = false; });
+  });
+}
+
 function scheduleWireViewDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
   scheduleWireDrawerStripeCopyOpen(ctx);
   scheduleWireDrawerConversation(row, group);
+  scheduleWireDrawerOpenCustomer();
+  scheduleWireDrawerManualPayment(row);
   var editBtn = el('ps-drawer-edit');
   if (editBtn) editBtn.addEventListener('click', function(){ scheduleEnterDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
@@ -23877,8 +24179,12 @@ function scheduleWireEditableDrawer(row, ctx){
     var node = el(id);
     if (node) node.addEventListener('change', function(){ scheduleDrawerOnComponentChange(id); });
   });
+  var addSessionBtn = el('ps-drawer-add-session');
+  if (addSessionBtn) addSessionBtn.addEventListener('click', scheduleDrawerAddPrivateSession);
   scheduleWireDrawerStripeCopyOpen(ctx);
   scheduleWireDrawerConversation(row, group);
+  scheduleWireDrawerOpenCustomer();
+  scheduleWireDrawerManualPayment(row);
   var saveBtn = el('ps-drawer-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ scheduleSaveDrawerBooking(row); });
   var cancelBtn = el('ps-drawer-cancel');
@@ -24229,6 +24535,11 @@ function wireScheduleControls(){
     plQty.dataset.wired = '1';
     plQty.addEventListener('change', scheduleSyncPrivateLessonSessions);
     plQty.addEventListener('input', scheduleSyncPrivateLessonSessions);
+  }
+  var plAddSession = el('ps-create-add-session');
+  if (plAddSession && !plAddSession.dataset.wired) {
+    plAddSession.dataset.wired = '1';
+    plAddSession.addEventListener('click', scheduleAddPrivateLessonSession);
   }
 }
 
