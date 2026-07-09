@@ -17636,7 +17636,7 @@ input:focus,select:focus{outline:none;border-color:var(--ocean);box-shadow:0 0 0
 .bc-grid th,.bc-grid td{border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);padding:0}
 .bc-grid thead th{background:var(--surface-soft);padding:calc(7px * var(--bc-zoom, 1)) calc(8px * var(--bc-zoom, 1));font-size:calc(10px * var(--bc-zoom, 1));font-weight:700;color:var(--text-2);text-align:center;position:sticky;top:0;z-index:2;white-space:nowrap;letter-spacing:.03em}
 .bc-grid thead th.bc-bed-head{left:0;z-index:3;text-align:left;min-width:calc(130px * var(--bc-zoom, 1));background:var(--sand)}
-.bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1))}
+.bc-grid thead th.bc-day-head{min-width:calc(44px * var(--bc-zoom, 1));font-size:calc(12px * var(--bc-zoom, 1))}
 .bc-grid-shell{display:none;position:relative}
 .bc-grid-wrap-inner{--bc-zoom:1;overflow-x:auto;overflow-y:auto;border:1px solid #EFE8DC;border-radius:12px 12px 0 0;background:var(--surface);-webkit-overflow-scrolling:touch;overscroll-behavior:contain}
 .bc-grid-resize-handle{height:10px;cursor:ns-resize;background:linear-gradient(180deg,#EFE8DC 0%,#E6DDD0 100%);border:1px solid #EFE8DC;border-top:none;border-radius:0 0 12px 12px;display:flex;align-items:center;justify-content:center;touch-action:none;user-select:none}
@@ -33414,7 +33414,8 @@ function renderBedCalendar(data){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
-    var roomLabel = escHtml(room.room_code);
+    var roomNumMatch = String(room.room_code || '').match(/^R0*(\d+)$/i);
+    var roomLabel = escHtml(roomNumMatch ? 'Room ' + roomNumMatch[1] : room.room_code);
     if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
     var metaHtml = ' <span style="' + metaStyle + '">' + escHtml(bcFormatRoomMetaLabel(room)) + '</span>';
@@ -33439,10 +33440,13 @@ function renderBedCalendar(data){
 
       html += '<tr class="bc-room-bed-row' + (roomCollapsed ? ' bc-room-collapsed' : '') + '" data-room="' + escHtml(roomCode) + '">';
       /* Prefer bed_code as the primary label; show bed_label as subtitle only if different */
-      var bedLabelHtml = escHtml(bed.bed_code);
-      if (bed.bed_label && bed.bed_label !== bed.bed_code) {
-        bedLabelHtml += '<span style="font-weight:400;font-size:10px;color:var(--text-3);display:block;line-height:1.2">' + escHtml(bed.bed_label) + '</span>';
-      }
+      /* Show a clean "Bed N" label (prefer bed_label, else derive from the B-number
+         in bed_code); drop the raw R#-B# code from the calendar. */
+      var bedBnum = String(bed.bed_code || '').match(/B0*(\d+)\s*$/i);
+      var bedPrimary = (bed.bed_label && String(bed.bed_label).trim())
+        ? bed.bed_label
+        : (bedBnum ? 'Bed ' + bedBnum[1] : bed.bed_code);
+      var bedLabelHtml = escHtml(bedPrimary);
       html += '<td class="bc-bed-cell">' + bedLabelHtml + '</td>';
 
       /* Selectable empty cells carry data-date/room/bed for Stage 8.3c selection model */
