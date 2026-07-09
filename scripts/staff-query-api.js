@@ -18443,8 +18443,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   --bk-ink-faint:#94836B;    /* tertiary ink / hints */
   --bk-rule:#D8C7A8;         /* hairline rules, warm taupe */
   --bk-rule-soft:#E5D9BF;    /* subtle dividers */
-  --bk-accent:#A66A4E;       /* dusty terracotta */
-  --bk-accent-deep:#8F5940;
+  --bk-accent:#4A6B3D;       /* dusty terracotta */
+  --bk-accent-deep:#3A5230;
   --bk-sage:#7E8B6A;         /* aged sage */
   color:var(--bk-ink);
 }
@@ -18458,8 +18458,8 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
   --bk-ink-faint:#8F8168;
   --bk-rule:#4A3E30;
   --bk-rule-soft:#3C3226;
-  --bk-accent:#C6875F;
-  --bk-accent-deep:#B27350;
+  --bk-accent:#86A96F;
+  --bk-accent-deep:#6E9558;
   --bk-sage:#8FA07A;
 }
 /* ── Paper surfaces ── */
