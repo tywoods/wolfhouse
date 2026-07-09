@@ -17659,7 +17659,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .luna-global-pause-switch input:focus-visible + .luna-global-pause-slider{outline:2px solid rgba(199,74,74,.45);outline-offset:2px}
 .luna-global-pause-card.luna-global-paused{border-color:#E0A8A8;background:#FFF5F5}
 .bc-bed-cell{background:var(--surface-soft);color:var(--text-2);font-size:calc(11px * var(--bc-zoom, 1));padding:calc(6px * var(--bc-zoom, 1)) calc(10px * var(--bc-zoom, 1));min-width:calc(120px * var(--bc-zoom, 1));position:sticky;left:0;z-index:4;border-right:2px solid var(--tan);white-space:nowrap;font-weight:500}
-.bc-day-cell{height:calc(30px * var(--bc-zoom, 1));min-width:calc(46px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
+.bc-day-cell{height:calc(36px * var(--bc-zoom, 1));min-width:calc(46px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-block{min-height:calc(28px * var(--bc-zoom, 1));border-radius:calc(7px * var(--bc-zoom, 1));padding:calc(3px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1)) calc(9px * var(--bc-zoom, 1));font-size:calc(11px * var(--bc-zoom, 1));font-weight:600;cursor:pointer;overflow:hidden;display:flex;flex-wrap:wrap;align-items:center;align-content:center;gap:calc(4px * var(--bc-zoom, 1)) calc(6px * var(--bc-zoom, 1));min-width:0;transition:filter .15s,box-shadow .15s;box-shadow:var(--shadow-soft)}
 .bc-block-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:0 1 auto;max-width:100%}
 .bc-block-pay-wrap{display:inline-flex;flex:0 1 auto;flex-wrap:wrap;align-items:center;align-content:center;gap:3px;max-width:100%;min-width:0}
@@ -17683,7 +17683,7 @@ tr.bc-room-bed-row.bc-room-collapsed{display:none}
 .bc-block-tour_operator{background:#E8DDF5;color:#5C4A72;border-left:3px solid #B39BCB;font-style:italic}
 .bc-block-manual{background:#DCEAD2;color:#5C7350;border-left:3px solid #B5D3AD}
 .bc-block-blocked{background:#E4E2DE;color:#5E5C58;border-left:3px solid #B0AEA8}
-.bc-day-cell-turnover{position:relative;height:calc(30px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(2px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
+.bc-day-cell-turnover{position:relative;height:calc(36px * var(--bc-zoom, 1));vertical-align:middle;padding:calc(4px * var(--bc-zoom, 1)) calc(3px * var(--bc-zoom, 1))}
 .bc-day-cell-turnover .bc-block{position:relative;z-index:2}
 .bc-day-cell-turnover .bc-block-checkout-marker{right:auto;width:min(calc(52px * var(--bc-zoom, 1)),34%)}
 .bc-day-cell-turnover .bc-block-checkin-layer{position:relative;z-index:2;height:calc(28px * var(--bc-zoom, 1));width:100%;display:flex;align-items:center;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer}
@@ -33417,9 +33417,11 @@ function renderBedCalendar(data){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
-    var roomNumMatch = String(room.room_code || '').trim().match(/^R0*(\d+)$/i);
-    var roomLabel = escHtml(roomNumMatch ? 'Room ' + roomNumMatch[1] : room.room_code);
-    if (room.room_name && room.room_name !== room.room_code) roomLabel += ' &mdash; ' + escHtml(room.room_name);
+    var rcMatch = String(room.room_code || '').trim().match(/^R0*(\d+)$/i);
+    var rnMatch = String(room.room_name || '').trim().match(/^R0*(\d+)$/i);
+    var roomLabel = escHtml(rcMatch ? 'Room ' + rcMatch[1] : (rnMatch ? 'Room ' + rnMatch[1] : room.room_code));
+    /* Only append a real human room name — never another R# code. */
+    if (room.room_name && room.room_name !== room.room_code && !rnMatch) roomLabel += ' &mdash; ' + escHtml(room.room_name);
     var metaStyle = 'font-weight:400;opacity:.65;font-size:10px;margin-left:6px';
     var metaHtml = ' <span style="' + metaStyle + '">' + escHtml(bcFormatRoomMetaLabel(room)) + '</span>';
     var hideBtn = ' <button type="button" class="bc-room-hide-btn" data-room="' + escHtml(roomCode) + '">' +
