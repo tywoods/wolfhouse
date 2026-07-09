@@ -104,18 +104,29 @@ if (apiSrc) {
   assert('applyCustomersPortalI18n for surf copy', apiSrc.includes('function applyCustomersPortalI18n('));
   assert('Customers empty state i18n keys', apiSrc.includes('customers.empty.main'));
   assert('Customers search placeholder', apiSrc.includes('customers.searchPlaceholder'));
-  assert('Customers filters All/Booked/Needs attention', apiSrc.includes('data-cust-filter="needs_attention"')
-    && apiSrc.includes('data-cust-filter="warm_leads"'));
-  assert('CRM filter pebbles warm/hot/checked-in/dnc', apiSrc.includes('data-cust-filter="hot_leads"')
-    && apiSrc.includes('data-cust-filter="checked_in_now"')
-    && apiSrc.includes('data-cust-filter="do_not_contact"'));
+  assert('Customers filters dropdown status defs', apiSrc.includes('CUSTOMERS_STATUS_FILTER_DEFS')
+    && apiSrc.includes("id: 'needs_attention'")
+    && apiSrc.includes("id: 'warm_leads'"));
+  assert('CRM status filters warm/hot/checked-in/dnc', apiSrc.includes("id: 'hot_leads'")
+    && apiSrc.includes("id: 'checked_in_now'")
+    && apiSrc.includes("id: 'do_not_contact'")
+    && apiSrc.includes('data-cust-status-filter'));
   assert('warm leads tooltip in toolbar', apiSrc.includes('customers.filter.warmLeadsTitle'));
-  assert('lodging-only checked-in filter class', apiSrc.includes('customers-filter-lodging-only'));
+  assert('lodging-only checked-in filter gated for surf', apiSrc.includes('lodgingOnly: true')
+    && apiSrc.includes('function applyCustomersFilterVisibility(')
+    && apiSrc.includes('showCheckedIn = !profile.is_surf_vertical'));
   assert('Last setup detail section', apiSrc.includes('customers.detail.lastSetup')
     || apiSrc.includes('portalT(\'customers.detail.lastSetup\')'));
   assert('Sunset school context preserved', apiSrc.includes('id="customers-school-context"')
     && apiSrc.includes('function renderCustomersSchoolContext(')
     && apiSrc.includes('isSunsetSurfActive()'));
+  assert('Sunset create booking routes to schedule modal', apiSrc.includes('profile.is_surf_vertical')
+    && apiSrc.includes('psPendingCreatePrefill')
+    && apiSrc.includes("switchToTab('portal-home'")
+    && apiSrc.includes('openScheduleCreateModal()'));
+  assert('Sunset linked booking opens schedule drawer', apiSrc.includes('function openBookingInSchedule(')
+    && apiSrc.includes('isSunsetSurfActive()')
+    && apiSrc.includes('openScheduleDetailDrawer('));
 
   const panel = extractCustomersPanel(apiSrc);
   if (panel) {
