@@ -18377,12 +18377,12 @@ input,select,textarea{min-width:0!important;max-width:100%;box-sizing:border-box
 #wrap-bc{width:100%;max-width:100vw;padding:8px 4px;margin:0 auto;box-sizing:border-box}
 #tab-bed-calendar #bc-grid-wrap,#tab-bed-calendar .bc-grid-wrap-inner{width:100%;max-width:100%;overflow-x:auto;overflow-y:auto;-webkit-overflow-scrolling:touch}
 #tab-bed-calendar .bc-grid{min-width:1020px}
-#tab-bed-calendar .toolbar{flex-wrap:nowrap;gap:4px 6px;align-items:center;margin-bottom:10px}
-#tab-bed-calendar .toolbar h2{flex:1 1 auto;font-size:13px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin:0}
-#tab-bed-calendar .toolbar label{flex:0 0 auto;flex-direction:row;align-items:center;gap:2px;font-size:10px;font-weight:600;margin:0;padding:0;min-width:0!important}
-#tab-bed-calendar .toolbar label span{font-size:10px}
-#tab-bed-calendar #bc-start,#tab-bed-calendar #bc-end{height:30px;font-size:13px;min-width:0;max-width:102px;width:102px;padding:2px 4px;box-sizing:border-box}
-#tab-bed-calendar #bc-load{flex:0 0 auto;min-height:30px;height:30px;padding:4px 8px;font-size:11px;line-height:1.2}
+#tab-bed-calendar .toolbar{flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+#tab-bed-calendar .toolbar h2{flex:1 1 100%;font-size:15px;min-width:0;white-space:normal;overflow:visible;text-overflow:clip;margin:0 0 2px}
+#tab-bed-calendar .toolbar label{flex:1 1 auto;flex-direction:row;align-items:center;gap:4px;font-size:12px;font-weight:600;margin:0;padding:0;min-width:0!important}
+#tab-bed-calendar .toolbar label span{font-size:12px}
+#tab-bed-calendar #bc-start,#tab-bed-calendar #bc-end{height:32px;font-size:13px;min-width:0;max-width:none;width:auto;flex:1 1 110px;padding:4px 6px;box-sizing:border-box}
+#tab-bed-calendar #bc-load{flex:0 0 auto;min-height:32px;height:32px;padding:6px 12px;font-size:12px;line-height:1.2}
 #tab-bed-calendar .bc-controls-row{gap:8px}
 #tab-bed-calendar .bc-chips{flex-wrap:wrap;gap:6px}
 #tab-bed-calendar .bc-zoom-bar,#tab-bed-calendar .bc-legend{height:auto;min-height:32px;max-width:100%}
