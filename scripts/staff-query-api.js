@@ -16593,7 +16593,9 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:13px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s}
+.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em}
+/* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
+#tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
 .tab-btn.active{color:var(--primary);border-bottom-color:var(--sage)}
 /* ── Layout ─────────────────────────────────────────────────────────────── */
@@ -33417,8 +33419,10 @@ function renderBedCalendar(data){
     /* Room header spanning all columns */
     var roomCode = String(room.room_code || '');
     var roomCollapsed = bcIsRoomCollapsed(roomCode);
-    var rcMatch = String(room.room_code || '').trim().match(/^R0*(\d+)$/i);
-    var rnMatch = String(room.room_name || '').trim().match(/^R0*(\d+)$/i);
+    /* Strip any non-alphanumerics (stray spaces / zero-width chars / dashes) before
+       matching so an R# code with hidden junk still becomes "Room N". */
+    var rcMatch = String(room.room_code || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\d+)$/i);
+    var rnMatch = String(room.room_name || '').replace(/[^A-Za-z0-9]/g, '').match(/^R0*(\d+)$/i);
     var roomLabel = escHtml(rcMatch ? 'Room ' + rcMatch[1] : (rnMatch ? 'Room ' + rnMatch[1] : room.room_code));
     /* Only append a real human room name — never another R# code. */
     if (room.room_name && room.room_name !== room.room_code && !rnMatch) roomLabel += ' &mdash; ' + escHtml(room.room_name);
