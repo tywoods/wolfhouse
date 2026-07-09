@@ -75,7 +75,14 @@ WHATSAPP_TEXT_NORMALIZE = '''
             except Exception:
                 pass
 '''
-MIRROR_INBOUND_TAG = '_wwm.mirror_whatsapp_thread(source, event, "inbound"'
+# Must match the text INBOUND_MIRROR actually writes (multi-line call) — the old
+# single-line tag never matched a patched file, so "already applied" was invisible.
+MIRROR_INBOUND_TAG = (
+    '_wwm.mirror_whatsapp_thread(\n'
+    '                    source,\n'
+    '                    event,\n'
+    '                    "inbound",'
+)
 MIRROR_OUTBOUND_TAG = '_wwm.mirror_whatsapp_thread(source, event, "outbound"'
 
 RUNNER_GLOBAL_VAR = "_wolfhouse_gateway_runner = None"
@@ -150,9 +157,21 @@ CLEAR_SESSION_ENV_NEW = '''        from gateway.session_context import clear_ses
         clear_session_vars(tokens)'''
 
 # Agent turn handler — patch only this site (not other sanitize calls in gateway.run).
+# The first pass (image build) inserts the output-guard block between the normalize
+# and sanitize calls. bootstrap.sh re-runs this script on every container start, and
+# cleanup_stale_patches() strips only the _wwm mirror blocks — so on the re-run the
+# guard block still sits between the two calls. The anchor must therefore tolerate
+# an optional, already-inserted guard block, otherwise the boot re-run dies with
+# "turn-handler anchor not found" (bootstrap exit 1) even though every patch is in
+# place. The guard block is captured so an existing (possibly newer) _wh_guard_turn
+# call survives re-patching verbatim instead of being downgraded.
 TURN_ANCHOR_RE = re.compile(
     r"response = _normalize_empty_agent_response\(\s*"
     r"agent_result, response, history_len=len\(history\),\s*\)\s*"
+    r"(?P<guard>try:\s*"
+    r"from wolfhouse\.output_guard import guard_turn_response as _wh_guard_turn\s*"
+    r"response = _wh_guard_turn\([^\n]*\)\s*"
+    r"except Exception:\s*pass)?\s*"
     r"response = _sanitize_gateway_final_response\(source\.platform, response\)",
     re.MULTILINE,
 )
@@ -666,20 +685,26 @@ def apply_patches(run_path: Path) -> dict:
         s = s.replace(prepare_marker, prepare_replacement, 1)
 
     if MIRROR_INBOUND_TAG not in s or MIRROR_OUTBOUND_TAG not in s:
-        replacement = (
-            "response = _normalize_empty_agent_response(\n"
-            " agent_result, response, history_len=len(history),\n"
-            " )\n"
-            + OUTPUT_GUARD
-            + INBOUND_MIRROR
-            + WHATSAPP_TEXT_NORMALIZE
-            + "\n            "
-            + SANITIZE
-            + OUTBOUND_MIRROR
-        )
         turn_match = TURN_ANCHOR_RE.search(s)
         if turn_match:
-            s = TURN_ANCHOR_RE.sub(replacement, s, count=1)
+            existing_guard = turn_match.group("guard")
+            guard_block = (
+                "\n            " + existing_guard + "\n" if existing_guard else OUTPUT_GUARD
+            )
+            replacement = (
+                "response = _normalize_empty_agent_response(\n"
+                " agent_result, response, history_len=len(history),\n"
+                " )\n"
+                + guard_block
+                + INBOUND_MIRROR
+                + WHATSAPP_TEXT_NORMALIZE
+                + "\n            "
+                + SANITIZE
+                + OUTBOUND_MIRROR
+            )
+            # Splice by index (not re.sub) so backslashes in the captured guard
+            # block can never be misread as regex group references.
+            s = s[: turn_match.start()] + replacement + s[turn_match.end():]
         elif MIRROR_INBOUND_TAG not in s and MIRROR_OUTBOUND_TAG not in s:
             raise RuntimeError("gateway.run turn-handler anchor not found for inbox mirror")
 
