@@ -21118,6 +21118,7 @@ var SUNSET_SCHEDULE_LESSON_DAY_CAP = 24;
 var scheduleViewMode = 'day';
 var scheduleForwardOffset = 0;
 var scheduleRowsCache = [];
+var psPendingCreatePrefill = null;
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
 var scheduleLastDrawerRowId = null;
@@ -24189,6 +24190,22 @@ function openScheduleDetailDrawerLegacyUnused(row){
   scheduleEnsureRowId(row);
 }
 
+function scheduleApplyCreatePrefill(){
+  var pf = psPendingCreatePrefill;
+  if (!pf) return;
+  var setVal = function(id, val){
+    var elm = el(id);
+    if (!elm) return;
+    elm.value = val || '';
+    elm.dispatchEvent(new Event('input', { bubbles: true }));
+    elm.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  setVal('ps-create-guest', pf.name);
+  setVal('ps-create-phone', pf.phone);
+  if (pf.staff_notes) setVal('ps-create-notes', pf.staff_notes);
+  psPendingCreatePrefill = null;
+}
+
 function openScheduleCreateModal(){
   var modal = el('ps-create-modal');
   if (!modal) return;
@@ -24201,6 +24218,7 @@ function openScheduleCreateModal(){
   renderScheduleCreateSchoolContext();
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
+  scheduleApplyCreatePrefill();
 }
 
 function scheduleUpdateCreateLessonExtras(){
@@ -30211,7 +30229,24 @@ function refreshInboxListPreserveDetail(convId){
   if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
 }
 
+function openBookingInSchedule(booking){
+  booking = booking || {};
+  var code = String(booking.booking_code || '').trim();
+  var id = String(booking.booking_id || '').trim();
+  if (!code && !id) return;
+  switchToTab('portal-home', null);
+  openScheduleDetailDrawer({
+    booking_id: id || null,
+    booking_code: code || null,
+    guest_name: booking.guest_name || booking.booking_guest_name || '',
+  });
+}
+
 function openBookingInCalendar(booking){
+  if (isSunsetSurfActive()) {
+    openBookingInSchedule(booking);
+    return;
+  }
   booking = booking || {};
   var code = String(booking.booking_code || '').trim();
   var id = String(booking.booking_id || '').trim();
@@ -32287,6 +32322,17 @@ function contactStaffNotesForBooking(contact){
 
 function openCreateBookingFromContact(contact){
   contact = contact || {};
+  var profile = getPortalProfile(getClient());
+  if (profile && profile.is_surf_vertical) {
+    psPendingCreatePrefill = {
+      name: (contact.display_name || '').toString().trim(),
+      phone: (contact.phone || '').toString().trim(),
+      staff_notes: contactStaffNotesForBooking(contact) || null,
+    };
+    switchToTab('portal-home', null);
+    openScheduleCreateModal();
+    return;
+  }
   bcPendingCreatePrefill = {
     name: (contact.display_name || "").toString().trim(),
     phone: (contact.phone || "").toString().trim(),
