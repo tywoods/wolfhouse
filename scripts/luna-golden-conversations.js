@@ -334,10 +334,14 @@ const FIXTURES = [
       { text: 'Malibu for all of us, looks good.', expect: {} },
       { text: 'No airport shuttle needed, thanks.', expect: {} },
       { text: 'We will pay the deposit. The name for the booking is Sam.', expect: {} },
+      // Per-guest names contract: Luna (correctly) blocks on the other 3 first
+      // names before the room stage — supply them so the fixture can reach the
+      // composition question within its window. Unisex names on purpose: the
+      // server must never infer gender from names, so Luna HAS to ask.
+      { text: 'The other guests are Alex, Jamie and Taylor.', expect: {} },
       { text: 'Yes, go ahead and set it up.', expect: {} },
-      { text: 'Sure, whatever you need.', expect: {} },
     ],
-    // by SOME later turn (after quote + transfer + payment + name) composition IS the right question
+    // by SOME later turn (after quote + payment + all guest names) composition IS the right question
     expect_overall: { reply_contains: [/girls|guys|boys|mixed|composition|same group|all of you|all women|all men/i] },
   },
 
