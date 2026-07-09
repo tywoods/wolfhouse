@@ -65,7 +65,7 @@ function vmPublicIp() {
 
 function curlCode(url) {
   try {
-    return execSync(`curl.exe -s -m 15 -o NUL -w "%{http_code}" ${url}`, { encoding: 'utf8' }).trim();
+    return execSync(`curl -s -m 15 -o /dev/null -w "%{http_code}" ${url}`, { encoding: 'utf8' }).trim();
   } catch {
     return '000';
   }
