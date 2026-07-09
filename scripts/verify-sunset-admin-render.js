@@ -293,6 +293,10 @@ async function fetchJson(urlPath) {
 
 async function loadPlaywright() {
   try {
+    const rootPlaywright = path.join(ROOT, 'node_modules', 'playwright');
+    if (fs.existsSync(path.join(rootPlaywright, 'package.json'))) {
+      return require(rootPlaywright);
+    }
     return require('playwright');
   } catch (err) {
     console.error('Playwright required: npm install --save-dev playwright && npx playwright install chromium');
@@ -314,7 +318,7 @@ async function waitForPortalReady(page) {
 
 async function waitForAdminRendered(page) {
   await page.waitForSelector('#tab-admin.tab-panel.active', { timeout: 20000 });
-  await page.waitForSelector('.portal-admin-school-heading', { timeout: 20000 });
+  await page.waitForSelector('#admin-school-heading', { timeout: 20000 });
   await page.waitForFunction(() => {
     const packCards = document.querySelectorAll('#admin-pack-card-grid .portal-admin-pack-card').length;
     const prices = document.querySelectorAll('#admin-prices-body .portal-admin-price-card').length;
@@ -361,25 +365,27 @@ async function runBrowserChecks(playwright) {
       const snapshot = await page.evaluate(() => {
         const text = (document.body && document.body.innerText) || '';
         const activeAdmin = !!document.querySelector('button.tab-btn[data-tab="admin"].active');
-        const business = document.querySelector('#admin-business-body');
         const times = document.querySelector('#admin-times-body');
         const prices = document.querySelector('#admin-prices-body');
-        const history = document.querySelector('#admin-history-body');
         const packCards = document.querySelectorAll('#admin-pack-card-grid .portal-admin-pack-card').length;
         const priceCards = document.querySelectorAll('#admin-prices-body .portal-admin-price-card').length;
         const privateCard = !!document.querySelector('[data-admin-private-lesson-card="1"]');
         const capacitySection = !!document.querySelector('#admin-sec-capacity');
-        const schoolHeading = document.querySelector('.portal-admin-school-heading');
+        const businessSection = !!document.querySelector('#admin-sec-business');
+        const historySection = !!document.querySelector('#admin-sec-history');
+        const writeBanner = !!document.querySelector('#admin-write-banner');
+        const schoolHeading = document.querySelector('#admin-school-heading');
         return {
           activeAdmin,
-          businessText: business ? business.innerText.trim() : '',
           timesText: times ? times.innerText.trim() : '',
           pricesText: prices ? prices.innerText.trim() : '',
-          historyText: history ? history.innerText.trim() : '',
           packCards,
           priceCards,
           privateCard,
           capacitySection,
+          businessSection,
+          historySection,
+          writeBanner,
           schoolHeading: schoolHeading ? schoolHeading.innerText.trim() : '',
           bodyText: text,
         };
@@ -389,10 +395,11 @@ async function runBrowserChecks(playwright) {
       assert(`${loc.id} no pageerror`, pageErrors.length === 0, pageErrors.join(' | '));
       assert(`${loc.id} no ReferenceError in console`, refErrors.length === 0, refErrors.join(' | '));
       assert(`${loc.id} Admin tab active`, snapshot.activeAdmin);
-      assert(`${loc.id} business body non-empty`, snapshot.businessText.length > 0);
       assert(`${loc.id} lessons/packs body non-empty`, snapshot.timesText.length > 0);
       assert(`${loc.id} rentals body non-empty`, snapshot.pricesText.length > 0);
-      assert(`${loc.id} history body non-empty`, snapshot.historyText.length > 0);
+      assert(`${loc.id} business section removed`, !snapshot.businessSection);
+      assert(`${loc.id} history section removed`, !snapshot.historySection);
+      assert(`${loc.id} write banner removed`, !snapshot.writeBanner);
       assert(`${loc.id} group course card present`, snapshot.packCards >= 1);
       assert(`${loc.id} rental price card present`, snapshot.priceCards >= 1);
       assert(`${loc.id} private lesson card present`, snapshot.privateCard);

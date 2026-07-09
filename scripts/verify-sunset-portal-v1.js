@@ -186,7 +186,8 @@ if (apiSrc) {
   assert('Schedule week view toggle present', apiSrc.includes('data-ps-view="week"'));
   assert('Schedule wetsuits summary card', apiSrc.includes('schedule.card.wetsuitsToday') && apiSrc.includes('id="ps-wetsuits-today"'));
   assert('Schedule surfboards summary card', apiSrc.includes('schedule.card.surfboardsToday') && apiSrc.includes('id="ps-surfboards-today"'));
-  assert('Schedule glance strip (surfers + capacity bar)', apiSrc.includes('id="ps-surfers-today"') && apiSrc.includes('id="ps-surfers-bar"') && apiSrc.includes('portal-schedule-glance'));
+  assert('Schedule glance strip (ops metrics)', apiSrc.includes('portal-schedule-glance') && apiSrc.includes('portal-schedule-ops-metrics'));
+  assert('Schedule Surfers glance card removed', !apiSrc.includes('id="ps-surfers-today"') && !apiSrc.includes('portal-schedule-glance-cell-surfers'));
   assert('Schedule need reply ops metric', apiSrc.includes('schedule.card.needReply') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-need-reply-sub"'));
   assert('old seats-left summary card removed', !apiSrc.includes('id="ps-seats-left"'));
   assert('old lessons-week summary card removed', !apiSrc.includes('id="ps-lessons-week"'));
@@ -322,8 +323,8 @@ if (apiSrc) {
   assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
-    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-surfers-today"')
-    && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-glance"'));
+    && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-glance"'));
+  assert('schedule surfers summary card removed', !apiSrc.includes('id="ps-surfers-today"'));
   assert('unpaid summary card removed from schedule', !apiSrc.includes('id="ps-unpaid-pending-today"'));
   assert('schedule view toggle today default', apiSrc.includes('data-ps-view="day"')
     && apiSrc.includes('portal-schedule-view-btn active'));
@@ -345,17 +346,23 @@ console.log('\n[11] Sunset Admin tab — read-only skeleton');
 
 if (apiSrc) {
   assert('Admin tab button present', apiSrc.includes('data-tab="admin"'));
+  assert('Admin tab after Luna Staff in nav', (() => {
+    const tabs = apiSrc.match(/<div id="tabs">[\s\S]*?<\/div>\s*\n\s*<div id="portal-profile-gate"/);
+    if (!tabs) return false;
+    const askIdx = tabs[0].indexOf('data-tab="ask-luna"');
+    const adminIdx = tabs[0].indexOf('data-tab="admin"');
+    return askIdx >= 0 && adminIdx > askIdx;
+  })());
   assert('Admin tab panel present', apiSrc.includes('id="tab-admin"'));
   assert('admin tab surf-gated', apiSrc.includes("tab === 'admin' && !profile.is_surf_vertical"));
   assert('loadAdminTab helper present', apiSrc.includes('function loadAdminTab('));
   assert('Admin prices section', apiSrc.includes('admin.section.prices') || apiSrc.includes('admin-sec-prices'));
-  assert('Admin lesson times section', apiSrc.includes('admin.section.lessonTimes') || apiSrc.includes('admin-sec-times'));
   assert('Admin group lesson cards removed from render', !apiSrc.includes('box.innerHTML = renderAdminLessonCards'));
   assert('Admin capacity section removed from markup', !apiSrc.includes('id="admin-sec-capacity"'));
-  assert('Admin business info section', apiSrc.includes('admin.section.businessInfo') || apiSrc.includes('admin-sec-business'));
-  assert('Admin change history section', apiSrc.includes('admin.section.changeHistory') || apiSrc.includes('admin-sec-history'));
-  assert('Admin read-only banner', apiSrc.includes('admin.banner.readOnly'));
-  assert('Admin writes disabled copy', apiSrc.includes('admin.banner.writesDisabled'));
+  assert('Admin business info section removed from markup', !apiSrc.includes('id="admin-sec-business"'));
+  assert('Admin change history section removed from markup', !apiSrc.includes('id="admin-sec-history"'));
+  assert('Admin intro clutter removed', !apiSrc.includes('id="admin-write-banner"') && !apiSrc.includes('data-i18n="admin.title"'));
+  assert('Admin school serif heading', apiSrc.includes('id="admin-school-heading"') && apiSrc.includes('#tab-admin{--admin-serif'));
   assert('Admin writes gated by cfg.writes_enabled', apiSrc.includes('function adminCfgWritesEnabled('));
   assert('Admin edit controls hidden when writes off', apiSrc.includes('if (!adminCfgWritesEnabled(data)) adminEditTarget = null'));
   assert('Admin save message region', apiSrc.includes('id="admin-save-msg"'));
@@ -469,7 +476,7 @@ if (apiSrc) {
   assert('writes_disabled response path', require('fs').readFileSync('scripts/lib/tenant-admin-writes.js', 'utf8').includes("'writes_disabled'"));
   assert('admin write routes require admin role', apiSrc.includes("requireAuth(req, res, 'admin')") && apiSrc.includes('handleAdminConfigPricePatch'));
   assert('renderAdminWriteState helper', apiSrc.includes('function renderAdminWriteState('));
-  assert('admin banner id for write state', apiSrc.includes('id="admin-write-banner"'));
+  assert('admin write banner hidden from markup', !apiSrc.includes('id="admin-write-banner"'));
 }
 
 try {
@@ -559,6 +566,7 @@ console.log('\n[15] Sunset Schedule cleanup — demo bookings, drawer, manual cr
 if (apiSrc) {
   assert('Day Schedule hidden from nav', apiSrc.includes("if (tab === 'day-schedule') return true;"));
   assert('schedule demo bookings helper', apiSrc.includes('function scheduleBuildDemoBookings('));
+  assert('schedule demo bookings gated by demo_mode', apiSrc.includes('profile.demo_mode ? scheduleBuildDemoBookings(rangeStart) : []'));
   assert('schedule manual bookings not in-memory', !apiSrc.includes('var scheduleManualBookings'));
   assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
   assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
@@ -928,7 +936,7 @@ if (apiSrc) {
   assert('handleAdminConfig resolves by location', apiSrc.includes('normalizeSunsetLocationId(query.location)') && apiSrc.includes('resolveTenantBusinessConfig(clientSlug, locationId)'));
   assert('admin writes pass locationId', apiSrc.includes('locationId,') && apiSrc.includes('putLessonCapacityDefault(pg, {'));
   assert('school switch reloads admin tab', apiSrc.includes("el('tab-admin')") && apiSrc.includes('loadAdminTab()'));
-  assert('admin school context UI', apiSrc.includes('renderAdminSchoolContext') && apiSrc.includes('admin-school-label'));
+  assert('admin school context UI', apiSrc.includes('renderAdminSchoolContext') && apiSrc.includes('admin-school-heading'));
 }
 if (fs.existsSync(tbcPath)) {
   const tbcSrc = fs.readFileSync(tbcPath, 'utf8');
@@ -1218,10 +1226,10 @@ if (apiSrc) {
   assert('profile load refreshes school labels', apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch persists localStorage', apiSrc.includes('localStorage.setItem(STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   assert('schedule school context markup', apiSrc.includes('id="schedule-school-context"') && apiSrc.includes('id="schedule-school-label"'));
-  assert('customers school context markup', apiSrc.includes('id="customers-school-context"') && apiSrc.includes('id="customers-school-label"'));
+  assert('customers school heading markup', apiSrc.includes('id="customers-school-heading"') && apiSrc.includes('function renderCustomersSchoolContext('));
   assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
   assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
-  assert('admin school context preserved', apiSrc.includes('id="admin-school-context"') && apiSrc.includes('renderAdminSchoolContext'));
+  assert('admin school heading markup', apiSrc.includes('id="admin-school-heading"') && apiSrc.includes('renderAdminSchoolContext'));
   assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
   assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
   assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));
@@ -1248,7 +1256,7 @@ assert('active school context tabs probe present', fs.existsSync(schoolTabsProbe
 if (fs.existsSync(schoolTabsProbe)) {
   const probeSrc = fs.readFileSync(schoolTabsProbe, 'utf8');
   assert('school tabs probe switches schools', probeSrc.includes('sunset-sardinero') && probeSrc.includes('staff-school-btn'));
-  assert('school tabs probe checks schedule inbox admin customers labels', probeSrc.includes('schedule-school-label') && probeSrc.includes('inbox-school-label') && probeSrc.includes('admin-school-label') && probeSrc.includes('customers-school-label'));
+  assert('school tabs probe checks schedule inbox admin customers labels', probeSrc.includes('schedule-school-label') && probeSrc.includes('inbox-school-label') && probeSrc.includes('admin-school-heading') && probeSrc.includes('customers-school-heading'));
   assert('school tabs probe no outbound send', !probeSrc.includes('send-reply') && !probeSrc.includes('guest-reply-send'));
 }
 
@@ -1267,7 +1275,8 @@ if (apiSrc) {
   assert('courses from surf packs helper', apiSrc.includes('function scheduleCoursesFromConfig(') && apiSrc.includes('data.surf_packs'));
   assert('course payload in create flow', apiSrc.includes('components.course'));
   assert('lesson slot label layout', apiSrc.includes('portal-schedule-lesson-slot-time'));
-  assert('glance surfers cell is widest', apiSrc.includes('portal-schedule-glance-cell-surfers'));
+  assert('glance ops metrics four-column grid', apiSrc.includes('grid-template-columns:repeat(4,minmax(0,1fr))'));
+  assert('glance surfers cell removed', !apiSrc.includes('portal-schedule-glance-cell-surfers'));
 }
 
 if (writesSrc) {

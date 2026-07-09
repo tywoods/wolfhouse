@@ -60,8 +60,8 @@ if (apiSrc) {
     apiSrc.includes("tab === 'customers' && !portalHasCustomersCrm(profile)"));
   assert('no surf-only customers tab gate',
     !apiSrc.includes("tab === 'customers' && !profile.is_surf_vertical"));
-  assert('generic CRM HTML subtitle default',
-    apiSrc.includes('Customer profiles, contact history, and past bookings'));
+  assert('Sunset customers school heading in HTML',
+    apiSrc.includes('id="customers-school-heading"') && apiSrc.includes('customers-school-heading'));
   assert('portalT used in customers list', apiSrc.includes("portalT('customers.empty.sub')"));
   assert('school context still sunset surf only', apiSrc.includes('function isSunsetSurfActive()')
     && apiSrc.includes('function renderCustomersSchoolContext('));

@@ -117,7 +117,7 @@ if (apiSrc) {
     && apiSrc.includes('showCheckedIn = !profile.is_surf_vertical'));
   assert('Last setup detail section', apiSrc.includes('customers.detail.lastSetup')
     || apiSrc.includes('portalT(\'customers.detail.lastSetup\')'));
-  assert('Sunset school context preserved', apiSrc.includes('id="customers-school-context"')
+  assert('Sunset school heading preserved', apiSrc.includes('id="customers-school-heading"')
     && apiSrc.includes('function renderCustomersSchoolContext(')
     && apiSrc.includes('isSunsetSurfActive()'));
   assert('Sunset create booking routes to schedule modal', apiSrc.includes('profile.is_surf_vertical')
