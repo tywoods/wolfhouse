@@ -16584,7 +16584,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border-left:1px solid var(--border-soft);background:var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:#FFF5F5;border-left-color:#E0A8A8}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2)}
@@ -16593,7 +16593,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
 #tabs .tabs-global-pause .luna-global-pause-switch input:checked + .luna-global-pause-slider:before{transform:translateX(14px)}
 #tabs .tabs-global-pause .tabs-global-pause-help,#tabs #luna-global-pause-status{display:none!important}
-.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em}
+.tab-btn{padding:14px 22px;font-size:14px;font-weight:600;color:var(--text-2);border:none;border-bottom:3px solid transparent;background:none;cursor:pointer;margin-bottom:-1px;transition:color .18s,border-color .18s;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;letter-spacing:.01em;white-space:nowrap;flex:0 0 auto}
 /* Hide unused dev tabs (Developer Tools + Luna Guest Simulator) from the nav. */
 #tabs .tab-btn.dev-tab{display:none!important}
 .tab-btn:hover{color:var(--text)}
