@@ -57,7 +57,7 @@ SANITIZE = "response = _sanitize_gateway_final_response(source.platform, respons
 OUTPUT_GUARD = '''
             try:
                 from wolfhouse.output_guard import guard_turn_response as _wh_guard_turn
-                response = _wh_guard_turn(response, agent_result, history)
+                response = _wh_guard_turn(response, agent_result, history, getattr(source, "platform", None))
             except Exception:
                 pass
 '''
@@ -694,6 +694,14 @@ def apply_patches(run_path: Path) -> dict:
         )
         if _norm_marker in s:
             s = s.replace(_norm_marker, _norm_marker + OUTPUT_GUARD, 1)
+
+    _old_guard_call = "response = _wh_guard_turn(response, agent_result, history)"
+    _new_guard_call = (
+        "response = _wh_guard_turn(response, agent_result, history, "
+        "getattr(source, \"platform\", None))"
+    )
+    if _old_guard_call in s and _new_guard_call not in s:
+        s = s.replace(_old_guard_call, _new_guard_call, 1)
 
     soul_note = None
     if LUNA_SOUL_RELOAD_TAG not in s:

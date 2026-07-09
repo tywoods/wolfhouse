@@ -141,6 +141,33 @@ check("turn adapter does NOT scrub fabricated price (advisory only)", fab_out ==
 # never raises on garbage input
 check("turn adapter survives garbage", og.guard_turn_response(None, object(), object()) is None)
 
+# --- orchestrator / operator: never guest handoff copy ------------------------
+print("orchestrator mode (no guest leak scrub):")
+_prev_role = os.environ.get("HERMES_ROLE")
+os.environ["HERMES_ROLE"] = "orchestrator"
+_orch_leak = "The quote tool failed — check the Staff API plugin and backend."
+_orch_out = og.guard_turn_response(_orch_leak, None, [], platform="discord")
+check(
+    "orchestrator leak -> NOT team handoff fallback",
+    _orch_out == _orch_leak and og.SAFE_FALLBACK["en"] not in str(_orch_out),
+    f"got: {_orch_out!r}",
+)
+_raw_orch = "Error code: 400 - {'type': 'error', 'error': {'type': 'invalid_request_error'}, 'request_id': 'req_x'}"
+_orch_err = og.guard_turn_response(_raw_orch, None, [], platform="discord")
+check(
+    "orchestrator provider error -> debug diagnostic (not outage fallback)",
+    _orch_err.startswith("[wolfhouse-orchestrator]") and og.OUTAGE_FALLBACK["en"] not in _orch_err,
+    f"got: {_orch_err!r}",
+)
+check(
+    "should_apply_guest_output_guard false for orchestrator+discord",
+    og.should_apply_guest_output_guard(platform="discord") is False,
+)
+if _prev_role is None:
+    os.environ.pop("HERMES_ROLE", None)
+else:
+    os.environ["HERMES_ROLE"] = _prev_role
+
 print()
 if FAILS:
     print(f"✗ output-guard: {len(FAILS)} FAILED: {FAILS}")
