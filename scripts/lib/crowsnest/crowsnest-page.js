@@ -15,8 +15,31 @@ function escapeHtml(text) {
     .replace(/"/g, '&quot;');
 }
 
-function renderField(label, value) {
-  return `<div class="field"><span class="field-label">${escapeHtml(label)}</span> ${escapeHtml(value)}</div>`;
+function statusPillModifier(status) {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'linked' || key === 'active' || key === 'live') return 'pill--success';
+  if (key === 'coming soon' || key === 'coming_soon' || key === 'planned' || key === 'pending') return 'pill--amber';
+  if (key === 'template') return 'pill--sea';
+  if (key === 'off' || key === 'disabled' || key === 'error') return 'pill--danger';
+  return 'pill--neutral';
+}
+
+function statusPillLabel(status) {
+  const key = String(status || '').trim().toLowerCase();
+  if (key === 'linked') return 'Live';
+  if (key === 'coming_soon') return 'Coming soon';
+  if (key === 'coming soon') return 'Coming soon';
+  return String(status || 'Unknown');
+}
+
+function renderStatusPill(status) {
+  const mod = statusPillModifier(status);
+  const label = statusPillLabel(status);
+  return `<span class="pill ${mod}"><span class="pill-dot" aria-hidden="true"></span>${escapeHtml(label)}</span>`;
+}
+
+function renderMetaChip(label, value) {
+  return `<span class="meta-chip"><span class="meta-chip-label">${escapeHtml(label)}</span><span class="meta-chip-value">${escapeHtml(value)}</span></span>`;
 }
 
 function renderEnvironmentRow(env) {
@@ -24,104 +47,381 @@ function renderEnvironmentRow(env) {
   const stateClass = linked ? 'env-linked' : 'env-muted';
   let valueHtml;
   if (linked) {
-    valueHtml = `<a href="${escapeHtml(env.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(env.url)}</a>`;
+    valueHtml = `<a class="env-link" href="${escapeHtml(env.url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(env.url)}</a>`;
   } else {
     valueHtml = '<span class="env-coming-soon">Coming soon</span>';
   }
-  const note = env.note ? `<span class="env-note">${escapeHtml(env.note)}</span>` : '';
-  return `<div class="env-row ${stateClass}">
-      <span class="env-label">${escapeHtml(env.label)}</span>
-      <span class="env-value">${valueHtml}${note}</span>
-    </div>`;
+  const note = env.note ? `<p class="env-note">${escapeHtml(env.note)}</p>` : '';
+  const envStatus = linked ? 'linked' : (env.state || 'coming_soon');
+
+  return `<li class="env-row ${stateClass}">
+      <div class="env-row-main">
+        <div class="env-row-head">
+          <span class="env-label">${escapeHtml(env.label)}</span>
+          ${renderStatusPill(envStatus)}
+        </div>
+        <div class="env-value">${valueHtml}</div>
+        ${note}
+      </div>
+    </li>`;
 }
 
 function renderClientCard(client) {
   const envRows = (client.environments || []).map(renderEnvironmentRow).join('\n        ');
-  return `<div class="card client-card">
-        <h2>${escapeHtml(client.name)}</h2>
-        <div class="meta">
-          ${renderField('client slug:', client.client_slug)}
-          ${renderField('type:', client.type)}
-          ${renderField('status:', client.status)}
-        </div>
-        <div class="env-section">
+  return `<article class="card client-card">
+        <header class="client-card-head">
+          <h2 class="client-name">${escapeHtml(client.name)}</h2>
+          <div class="client-meta-row">
+            ${renderMetaChip('slug', client.client_slug)}
+            ${renderMetaChip('type', client.type)}
+            <span class="meta-chip meta-chip--status">${renderStatusPill(client.status)}</span>
+          </div>
+        </header>
+        <section class="env-section">
           <h3 class="env-heading">Environments / status</h3>
-          ${envRows}
-        </div>
-      </div>`;
+          <ul class="env-list">
+        ${envRows}
+          </ul>
+        </section>
+      </article>`;
 }
+
+const CROWSNEST_CSS = `
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --sand:#F4EFE6;
+  --sand-deep:#E9E0D2;
+  --surface:#FFFCF7;
+  --surface-raised:#FFFFFF;
+  --navy:#1E2A36;
+  --charcoal:#2C3948;
+  --text-2:#4F5D6B;
+  --text-3:#6E7C89;
+  --sea:#4A7C94;
+  --sea-soft:#D8E8F0;
+  --sea-link:#2F6F8F;
+  --amber:#9A6B1B;
+  --amber-soft:#F6EBD3;
+  --green:#2F6B52;
+  --green-soft:#D9EDE3;
+  --red:#9B4545;
+  --red-soft:#F4DEDE;
+  --border:#E2D8CA;
+  --border-soft:#EDE6DB;
+  --shadow:0 10px 30px rgba(30,42,54,.07);
+  --shadow-soft:0 2px 10px rgba(30,42,54,.05);
+  --radius:16px;
+  --radius-sm:10px;
+  --radius-pill:999px;
+  --focus:0 0 0 3px rgba(74,124,148,.28);
+  --max:1120px;
+}
+html{font-size:16px}
+body{
+  min-height:100vh;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;
+  color:var(--charcoal);
+  background:
+    radial-gradient(circle at 12% 0%,rgba(201,123,90,.08),transparent 34%),
+    radial-gradient(circle at 88% 8%,rgba(74,124,148,.10),transparent 30%),
+    linear-gradient(180deg,var(--sand) 0%,#F7F2EA 42%,var(--sand-deep) 100%);
+  line-height:1.45;
+  -webkit-font-smoothing:antialiased;
+}
+a{color:var(--sea-link);text-decoration:none}
+a:hover{color:#245A75}
+a:focus-visible,button:focus-visible{outline:none;box-shadow:var(--focus)}
+.wrap{
+  max-width:var(--max);
+  margin:0 auto;
+  padding:20px 16px 40px;
+}
+@media(min-width:720px){
+  .wrap{padding:28px 24px 48px}
+}
+.page-header{
+  margin-bottom:22px;
+  padding:22px 20px 18px;
+  background:linear-gradient(135deg,rgba(255,252,247,.96),rgba(255,255,255,.88));
+  border:1px solid var(--border-soft);
+  border-radius:calc(var(--radius) + 2px);
+  box-shadow:var(--shadow-soft);
+}
+@media(min-width:720px){
+  .page-header{padding:26px 24px 20px;margin-bottom:26px}
+}
+.eyebrow-row{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:10px;
+}
+.ops-badge{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 10px;
+  border-radius:var(--radius-pill);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.06em;
+  text-transform:uppercase;
+  color:var(--sea);
+  background:var(--sea-soft);
+  border:1px solid rgba(74,124,148,.18);
+}
+.ops-badge-dot{width:6px;height:6px;border-radius:50%;background:var(--sea)}
+h1.page-title{
+  margin:0 0 6px;
+  font-size:clamp(1.75rem,4vw,2.2rem);
+  font-weight:800;
+  letter-spacing:-.03em;
+  color:var(--navy);
+  line-height:1.1;
+}
+.sub{
+  color:var(--text-2);
+  margin:0;
+  font-size:15px;
+  max-width:52ch;
+}
+section{margin-bottom:24px}
+h2.section{
+  margin:0 0 10px;
+  font-size:12px;
+  font-weight:800;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.section-note{
+  margin:0 0 12px;
+  font-size:13px;
+  color:var(--text-3);
+  line-height:1.45;
+}
+.cards{
+  display:grid;
+  grid-template-columns:1fr;
+  gap:14px;
+}
+@media(min-width:720px){
+  .cards{grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+}
+.card{
+  background:var(--surface-raised);
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius);
+  box-shadow:var(--shadow-soft);
+  padding:18px 18px 16px;
+  transition:border-color .18s ease,box-shadow .18s ease;
+}
+.card:hover{border-color:rgba(74,124,148,.28);box-shadow:var(--shadow)}
+.card:focus-within{border-color:rgba(74,124,148,.35);box-shadow:var(--shadow),var(--focus)}
+.client-name,.template-card h2{
+  margin:0 0 10px;
+  font-size:1.15rem;
+  font-weight:800;
+  color:var(--navy);
+  letter-spacing:-.02em;
+}
+.client-meta-row,.template-meta-row{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  align-items:center;
+}
+.meta-chip{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:5px 10px;
+  border-radius:var(--radius-pill);
+  background:#F6F1EA;
+  border:1px solid var(--border-soft);
+  font-size:12px;
+  color:var(--text-2);
+}
+.meta-chip-label{
+  font-weight:700;
+  color:var(--text-3);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  font-size:10px;
+}
+.meta-chip-value{font-weight:600;color:var(--charcoal)}
+.meta-chip--status{background:transparent;border:none;padding:0}
+.pill{
+  display:inline-flex;
+  align-items:center;
+  gap:6px;
+  padding:4px 10px;
+  border-radius:var(--radius-pill);
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.03em;
+  text-transform:uppercase;
+  border:1px solid transparent;
+  white-space:nowrap;
+}
+.pill-dot{width:7px;height:7px;border-radius:50%;background:currentColor;opacity:.85}
+.pill--success{color:var(--green);background:var(--green-soft);border-color:rgba(47,107,82,.18)}
+.pill--amber{color:var(--amber);background:var(--amber-soft);border-color:rgba(154,107,27,.18)}
+.pill--sea{color:var(--sea);background:var(--sea-soft);border-color:rgba(74,124,148,.18)}
+.pill--danger{color:var(--red);background:var(--red-soft);border-color:rgba(155,69,69,.18)}
+.pill--neutral{color:var(--text-2);background:#F1ECE5;border-color:var(--border-soft)}
+.env-section{
+  margin-top:14px;
+  padding-top:14px;
+  border-top:1px solid var(--border-soft);
+}
+.env-heading{
+  margin:0 0 10px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.env-list{list-style:none;display:grid;gap:10px}
+.env-row{
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  background:linear-gradient(180deg,#FFFCF8 0%,#FAF6F0 100%);
+  padding:12px;
+}
+.env-row-head{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  flex-wrap:wrap;
+  margin-bottom:6px;
+}
+.env-label{
+  font-size:13px;
+  font-weight:700;
+  color:var(--navy);
+}
+.env-value{font-size:13px;line-height:1.45;word-break:break-word}
+.env-link{
+  color:var(--sea-link);
+  font-weight:600;
+  border-bottom:1px solid rgba(47,111,143,.22);
+}
+.env-link:hover{color:#1F5873;border-bottom-color:rgba(47,111,143,.45)}
+.env-coming-soon{color:var(--text-3);font-style:italic}
+.env-muted .env-label{color:var(--text-2)}
+.env-note{margin-top:6px;font-size:12px;color:var(--text-3)}
+.template-card .badge{display:none}
+.template-status{margin-top:4px}
+.cta-row{
+  display:flex;
+  align-items:center;
+  gap:12px;
+  flex-wrap:wrap;
+  margin-top:14px;
+}
+.btn-disabled{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-height:42px;
+  padding:0 18px;
+  border-radius:var(--radius-sm);
+  font-size:14px;
+  font-weight:700;
+  cursor:not-allowed;
+  color:#F4F7F9;
+  background:linear-gradient(180deg,#A9BEC9 0%,#91A9B6 100%);
+  border:1px solid #8AA0AD;
+}
+.cta-helper{font-size:12px;color:var(--text-3)}
+.onboarding-card{padding:18px}
+.onboarding-form .form-row{margin-bottom:12px}
+.onboarding-form label{
+  display:block;
+  font-size:12px;
+  font-weight:700;
+  color:var(--text-3);
+  text-transform:uppercase;
+  letter-spacing:.04em;
+  margin-bottom:6px;
+}
+.onboarding-form input,.onboarding-form select,.onboarding-form textarea{
+  width:100%;
+  max-width:100%;
+  box-sizing:border-box;
+  padding:10px 12px;
+  border:1px solid var(--border-soft);
+  border-radius:var(--radius-sm);
+  font-size:14px;
+  background:#F8F4EE;
+  color:var(--text-3);
+}
+.form-actions{display:flex;flex-wrap:wrap;gap:10px;margin-top:14px}
+.form-actions .btn-disabled{margin-top:0}
+.onboarding-checklist{
+  margin-top:16px;
+  padding-top:16px;
+  border-top:1px solid var(--border-soft);
+}
+.checklist-heading{
+  margin:0 0 10px;
+  font-size:12px;
+  font-weight:700;
+  letter-spacing:.05em;
+  text-transform:uppercase;
+  color:var(--text-3);
+}
+.checklist{margin:0;padding-left:18px;font-size:13px;color:var(--text-2)}
+.checklist li{margin:8px 0;display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.check-label{margin-right:4px}
+.checklist .badge{display:none}
+.safety{
+  margin-top:20px;
+  padding:14px 16px;
+  border-radius:var(--radius);
+  border:1px solid #E8D2A5;
+  background:linear-gradient(180deg,#FFF8EA 0%,#F8EFD9 100%);
+  color:#6A4E12;
+  font-size:14px;
+  line-height:1.5;
+  box-shadow:var(--shadow-soft);
+}
+.safety strong{color:#4F3910}
+`;
 
 function renderCrowsnestPage() {
   const clients = getCrowsnestClients();
   const templates = getCrowsnestTemplates();
   const clientCards = clients.map(renderClientCard).join('\n      ');
-  const templateCards = templates.map((t) => `<div class="card template-card">
+  const templateCards = templates.map((t) => `<article class="card template-card">
         <h2>${escapeHtml(t.label)}</h2>
-        <span class="badge">${escapeHtml(t.status)}</span>
-      </div>`).join('\n      ');
+        <div class="template-status">${renderStatusPill(t.status)}</div>
+      </article>`).join('\n      ');
   const onboardingSection = renderCrowsnestOnboardingSection();
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Crowsnest</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Crowsnest — Luna Front Desk</title>
   <style>
-    :root { font-family: system-ui, sans-serif; color: #1a1a1a; background: #f4f6f8; }
-    body { margin: 0; padding: 2rem; }
-    .wrap { max-width: 820px; margin: 0 auto; }
-    h1 { margin: 0 0 0.25rem; font-size: 1.75rem; }
-    .sub { color: #555; margin: 0 0 1.5rem; }
-    h2.section { margin: 0 0 0.75rem; font-size: 1.1rem; font-weight: 600; }
-    section { margin-bottom: 1.75rem; }
-    .section-note { margin: -0.35rem 0 0.85rem; font-size: 0.85rem; color: #777; }
-    .cards { display: grid; gap: 0.75rem; }
-    .card {
-      background: #fff; border: 1px solid #dde3ea; border-radius: 8px;
-      padding: 1rem 1.25rem;
-    }
-    .card h2 { margin: 0 0 0.5rem; font-size: 1rem; }
-    .meta .field { margin: 0.25rem 0; font-size: 0.88rem; color: #444; }
-    .field-label { color: #666; font-weight: 500; }
-    .env-section { margin-top: 0.85rem; padding-top: 0.75rem; border-top: 1px solid #e8edf2; }
-    .env-heading { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.02em; }
-    .env-row { display: flex; flex-wrap: wrap; gap: 0.35rem 0.75rem; margin: 0.35rem 0; font-size: 0.86rem; align-items: baseline; }
-    .env-label { min-width: 8.5rem; color: #555; font-weight: 500; }
-    .env-value { flex: 1; }
-    .env-linked a { color: #0b5cab; }
-    .env-muted .env-label, .env-coming-soon { color: #999; }
-    .env-note { margin-left: 0.35rem; color: #888; font-size: 0.8rem; }
-    .badge { display: inline-block; font-size: 0.75rem; color: #888; margin-top: 0.35rem; }
-    .btn-disabled {
-      display: inline-block; margin-top: 0.75rem; padding: 0.5rem 1rem;
-      background: #eef1f4; border: 1px solid #ccd3db; border-radius: 6px;
-      color: #888; font-size: 0.9rem; cursor: not-allowed;
-    }
-    .onboarding-form .form-row { margin-bottom: 0.85rem; }
-    .onboarding-form label { display: block; font-size: 0.88rem; font-weight: 500; color: #555; margin-bottom: 0.25rem; }
-    .onboarding-form input, .onboarding-form select, .onboarding-form textarea {
-      width: 100%; max-width: 28rem; box-sizing: border-box; padding: 0.45rem 0.55rem;
-      border: 1px solid #ccd3db; border-radius: 6px; font-size: 0.9rem;
-      background: #f8f9fb; color: #888;
-    }
-    .form-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
-    .form-actions .btn-disabled { margin-top: 0; }
-    .onboarding-checklist { margin-top: 1.25rem; padding-top: 1rem; border-top: 1px solid #e8edf2; }
-    .checklist-heading { margin: 0 0 0.5rem; font-size: 0.82rem; font-weight: 600; color: #555; text-transform: uppercase; letter-spacing: 0.02em; }
-    .checklist { margin: 0; padding-left: 1.1rem; font-size: 0.88rem; color: #666; }
-    .checklist li { margin: 0.35rem 0; }
-    .check-label { margin-right: 0.35rem; }
-    .safety {
-      margin-top: 1.5rem; padding: 0.75rem 1rem; background: #fff8e6;
-      border: 1px solid #f0d78c; border-radius: 8px; font-size: 0.85rem;
-    }
+${CROWSNEST_CSS}
   </style>
 </head>
 <body>
   <div class="wrap">
-    <h1>Crowsnest</h1>
-    <p class="sub">Internal Luna Front Desk control portal</p>
+    <header class="page-header">
+      <div class="eyebrow-row">
+        <span class="ops-badge"><span class="ops-badge-dot" aria-hidden="true"></span>Internal Ops</span>
+      </div>
+      <h1 class="page-title">Crowsnest</h1>
+      <p class="sub">Internal Luna Front Desk control portal</p>
+    </header>
 
     <section id="clients">
       <h2 class="section">Clients</h2>
@@ -129,7 +429,10 @@ function renderCrowsnestPage() {
       <div class="cards">
       ${clientCards}
       </div>
-      <button type="button" class="btn-disabled" disabled aria-disabled="true">Add new client — Coming soon</button>
+      <div class="cta-row">
+        <button type="button" class="btn-disabled" disabled aria-disabled="true">Add new client</button>
+        <span class="cta-helper">Coming soon</span>
+      </div>
     </section>
 
     ${onboardingSection}
