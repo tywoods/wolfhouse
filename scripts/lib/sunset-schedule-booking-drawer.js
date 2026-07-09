@@ -29,6 +29,8 @@ const {
 
 const { serviceRecordUnitPriceCents } = require('./sunset-stripe-payment-links');
 
+const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
+
 function isUuid(s) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '').trim());
 }
@@ -45,13 +47,46 @@ function normalizeUiPayment(ps) {
   return 'unpaid';
 }
 
-function lineItemLabel(dbType, qty, dateIso, slotTime) {
-  const map = DB_TO_UI_SERVICE_TYPE || {};
-  const ui = map[dbType] || dbType;
+function staffUiServiceType(componentKey) {
+  if (componentKey === 'lesson') return 'lesson';
+  if (componentKey === 'course') return 'course';
+  if (componentKey === 'private_lesson') return 'private_lesson';
+  if (componentKey === 'surfboard') return 'board_rental';
+  return 'wetsuit_rental';
+}
+
+function resolveGuestCount(components) {
+  if (components.private_lesson) return components.private_lesson.surfer_count;
+  if (components.lesson) return components.lesson.quantity;
+  if (components.course) return components.course.quantity;
+  const keys = componentList(components);
+  return Math.max(...keys.map((k) => components[k].quantity));
+}
+
+function bookingHeaderDates(input) {
+  const dates = input.service_dates.slice();
+  if (input.components.private_lesson) {
+    input.components.private_lesson.sessions.forEach((s) => dates.push(s.date));
+  }
+  const sorted = [...new Set(dates)].sort();
+  return { firstDate: sorted[0], lastDate: sorted[sorted.length - 1] };
+}
+function lineItemLabel(dbType, qty, dateIso, slotTime, sr) {
+  const meta = parseMeta(sr && sr.metadata);
+  const component = String(meta.component || sr?.metadata_component || '').toLowerCase();
   const q = Number(qty) || 1;
   const d = String(dateIso || '').slice(0, 10);
+  if (component === 'course') {
+    const label = meta.course_label || sr?.course_label || 'Group Course';
+    return `Group Course · ${label} · ${q} surfer${q !== 1 ? 's' : ''} · ${d}`;
+  }
+  if (component === 'private_lesson') {
+    return `Private Course · ${q} surfer${q !== 1 ? 's' : ''} · ${slotTime || '—'} · ${d}`;
+  }
+  const map = DB_TO_UI_SERVICE_TYPE || {};
+  const ui = map[dbType] || dbType;
   if (ui === 'lesson' || dbType === 'surf_lesson') {
-    return `Lesson · ${q} surfer${q !== 1 ? 's' : ''} · ${slotTime || '—'} · ${d}`;
+    return `Group Course · ${q} surfer${q !== 1 ? 's' : ''} · ${slotTime || '—'} · ${d}`;
   }
   if (dbType === 'surfboard') return `Surfboard · ${q} · ${d}`;
   if (dbType === 'wetsuit') return `Wetsuit · ${q} · ${d}`;
@@ -84,7 +119,12 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
             metadata->>'components' AS metadata_components,
             metadata->>'location_id' AS location_id,
             metadata->>'source' AS metadata_source,
-            metadata->>'staff_manual_schedule' AS staff_manual_schedule
+            metadata->>'staff_manual_schedule' AS staff_manual_schedule,
+            metadata->>'course_id' AS course_id,
+            metadata->>'course_label' AS course_label,
+            service_time_local,
+            service_time_local_end,
+            metadata
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid
       ORDER BY service_date, id`,
@@ -105,20 +145,49 @@ function aggregateComponentsFromServices(services) {
   const components = {};
   let slotTime = null;
   const dates = new Set();
+  const privateSessions = [];
   (services || []).forEach((sr) => {
     dates.add(String(sr.service_date || '').slice(0, 10));
-    const dbType = String(sr.service_type || '').toLowerCase();
-    const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || dbType;
-    const key = ui === 'board_rental' ? 'surfboard'
-      : (ui === 'wetsuit_rental' ? 'wetsuit' : (ui === 'course' ? 'course' : ui));
+    const meta = parseMeta(sr.metadata);
+    const component = String(meta.component || sr.metadata_component || '').toLowerCase();
+    const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[String(sr.service_type || '').toLowerCase()] || component;
+    if (component === 'private_lesson' || ui === 'private_lesson') {
+      privateSessions.push({
+        date: String(sr.service_date || '').slice(0, 10),
+        start: sr.service_time_local || sr.slot_time || meta.slot_time || '10:00',
+        end: sr.service_time_local_end || '',
+      });
+      if (!components.private_lesson) {
+        components.private_lesson = {
+          enabled: true,
+          quantity: 0,
+          surfer_count: Number(sr.quantity) || 1,
+          sessions: [],
+        };
+      }
+      components.private_lesson.quantity += 1;
+      components.private_lesson.surfer_count = Number(sr.quantity) || components.private_lesson.surfer_count;
+      return;
+    }
+    let key = ui === 'board_rental' ? 'surfboard'
+      : (ui === 'wetsuit_rental' ? 'wetsuit' : (ui === 'course' || component === 'course' ? 'course' : ui));
+    if (key === 'lesson' && (meta.course_id || sr.course_id)) key = 'course';
     if (!components[key]) {
       components[key] = {
         quantity: Number(sr.quantity) || 1,
         slot_time: sr.slot_time || null,
       };
     }
+    if (key === 'course') {
+      components[key].course_id = meta.course_id || sr.course_id || components[key].course_id || null;
+      components[key].course_label = meta.course_label || sr.course_label || components[key].course_label || null;
+    }
     if (key === 'lesson') slotTime = sr.slot_time || slotTime;
   });
+  if (components.private_lesson) {
+    components.private_lesson.sessions = privateSessions.sort((a, b) => a.date.localeCompare(b.date));
+    components.private_lesson.quantity = components.private_lesson.sessions.length || components.private_lesson.quantity;
+  }
   const sortedDates = [...dates].filter(Boolean).sort();
   return {
     components,
@@ -144,7 +213,7 @@ function buildPaymentSummary(prices, booking, services, adminSource) {
       quantity: Number(sr.quantity) || 1,
       unit_cents: liveUnit != null && Number(sr.quantity) ? Math.round(lineCents / (Number(sr.quantity) || 1)) : null,
       line_cents: lineCents,
-      label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time),
+      label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time, sr),
       priced_live: usedLive,
     });
   });
@@ -304,12 +373,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const componentKeys = componentList(input.components);
-  const guestCount = input.components.lesson
-    ? input.components.lesson.quantity
-    : Math.max(...componentKeys.map((k) => input.components[k].quantity));
+  const guestCount = resolveGuestCount(input.components);
   const bundleId = meta.bundle_id || crypto.randomBytes(8).toString('hex');
-  const firstDate = input.service_dates[0];
-  const lastDate = input.service_dates[input.service_dates.length - 1];
+  const { firstDate, lastDate } = bookingHeaderDates(input);
+
+  let privateLessonConfig = defaultPrivateLessonApi();
+  if (input.components.private_lesson) {
+    const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId: recordLocationId });
+    privateLessonConfig = plLoad.api || privateLessonConfig;
+  }
 
   await pg.query('BEGIN');
   try {
@@ -350,19 +422,64 @@ async function updateSunsetScheduleBooking(pg, opts) {
     );
 
     const createdRows = [];
+
+    if (input.components.private_lesson) {
+      const pl = input.components.private_lesson;
+      const plLabel = pl.label || privateLessonConfig.label || 'Private Course';
+      for (const session of pl.sessions) {
+        const srMeta = attachLocationToMetadata({
+          source: METADATA_SOURCE_TAG,
+          staff_manual_schedule: true,
+          staff_ui_service_type: 'private_lesson',
+          component: 'private_lesson',
+          components: componentKeys,
+          bundle_id: bundleId,
+          slot_time: session.start,
+          private_lesson_label: plLabel,
+          private_lesson_session_index: session.index,
+          private_lesson_session_count: pl.quantity,
+          price_basis: privateLessonConfig.price_basis || 'per_session',
+          unit_amount_cents: privateLessonConfig.amount_cents || 0,
+          default_duration_minutes: privateLessonConfig.default_duration_minutes || 120,
+          notes: input.notes || null,
+          needs_reply: input.needs_reply,
+          updated_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+        }, recordLocationId);
+        const row = await insertServiceRecord(pg, [
+          clientSlug,
+          bookingId,
+          bundle.booking.booking_code,
+          input.guest_name,
+          UI_TO_DB_SERVICE_TYPE.private_lesson,
+          session.date,
+          pl.surfer_count,
+          srPayment,
+          DB_SOURCE,
+          JSON.stringify(srMeta),
+        ], {
+          service_time_local: session.start,
+          service_time_local_end: session.end,
+        });
+        createdRows.push(row);
+      }
+    }
+
     for (const serviceDate of input.service_dates) {
       for (const componentKey of componentKeys) {
+        if (componentKey === 'private_lesson') continue;
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const srMeta = attachLocationToMetadata({
           source: METADATA_SOURCE_TAG,
           staff_manual_schedule: true,
-          staff_ui_service_type: componentKey === 'lesson' ? 'lesson' : (componentKey === 'surfboard' ? 'board_rental' : 'wetsuit_rental'),
+          staff_ui_service_type: staffUiServiceType(componentKey),
           component: componentKey,
           components: componentKeys,
           bundle_id: bundleId,
           slot_time: componentKey === 'lesson' ? part.slot_time : null,
           lesson_category: componentKey === 'lesson' ? part.category : null,
+          course_id: componentKey === 'course' ? part.course_id : null,
+          course_label: componentKey === 'course' ? part.course_label : null,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
           updated_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
