@@ -145,9 +145,26 @@ def _post_bot(path, payload):
             "error": "LUNA_BOT_INTERNAL_TOKEN is not configured for Agent Luna.",
         }
 
+    payload = dict(payload or {})
+    configured_slug = _clean(os.getenv("LUNA_CLIENT_SLUG"))
+    allowed_locations = {item.strip() for item in os.getenv("LUNA_ALLOWED_LOCATION_IDS", "").split(",") if item.strip()}
+    bound_location = ""
+    try:
+        from sunset_tenant_routing import get_current_location
+        bound_location = _clean(get_current_location())
+    except Exception:
+        pass
+    if configured_slug:
+        payload["client_slug"] = configured_slug
+    if allowed_locations:
+        requested_location = _clean(payload.get("location_id"))
+        if not bound_location or bound_location not in allowed_locations or (requested_location and requested_location != bound_location):
+            return {"success": False, "staff_api_status": "tenant_scope_denied", "staff_review_needed": True,
+                    "error": "Request is outside the configured Luna location scope."}
+        payload["location_id"] = bound_location
     url_path = _normalize_bot_path(path)
     url = url_path if url_path.startswith(("http://", "https://")) else _base_url() + url_path
-    body = json.dumps(payload or {}).encode("utf-8")
+    body = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
         data=body,

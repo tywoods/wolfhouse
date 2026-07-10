@@ -121,6 +121,9 @@ SET_SESSION_ENV_OLD = '''        from gateway.session_context import set_session
         )'''
 
 SET_SESSION_ENV_NEW = '''        from gateway.session_context import set_session_vars
+        if __import__("os").environ.get("HERMES_ROLE") == "sunset-luna":
+            from sunset_tenant_routing import bind_gateway_location
+            bind_gateway_location(context.source)
         # Wolfhouse WhatsApp tools need the guest phone. ContextVars can be lost
         # across some tool execution paths, so also expose a per-turn process-env
         # fallback while this turn is running.
@@ -148,6 +151,9 @@ CLEAR_SESSION_ENV_OLD = '''        from gateway.session_context import clear_ses
         clear_session_vars(tokens)'''
 
 CLEAR_SESSION_ENV_NEW = '''        from gateway.session_context import clear_session_vars
+        if __import__("os").environ.get("HERMES_ROLE") == "sunset-luna":
+            from sunset_tenant_routing import clear_current_location
+            clear_current_location()
         try:
             import os as _wolfhouse_os
             for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE"):

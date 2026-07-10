@@ -1,0 +1,22 @@
+services:
+  hermes-sunset-luna:
+    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    container_name: hermes-sunset-luna
+    restart: unless-stopped
+    command: gateway run
+    ports:
+      - "8092:8092"
+    volumes:
+      - /var/lib/hermes-sunset-luna:/opt/data
+      - /var/lib/hermes-shared:/opt/data/.auth-shared
+      - /opt/wolfhouse/WH/docker/hermes-sunset/SOUL.md:/etc/hermes-sunset/SOUL.md:ro
+    environment:
+      HERMES_HOME: /opt/data
+      HERMES_ROLE: sunset-luna
+      LUNA_TENANT_ID: sunset
+      LUNA_CLIENT_SLUG: sunset
+      LUNA_ALLOWED_LOCATION_IDS: sunset-somo,sunset-sardinero
+      GENERIC_TIMEZONE: Europe/Madrid
+      WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"
+    env_file:
+      - /etc/hermes-sunset-luna.env

@@ -18,6 +18,7 @@ HERMES_HOME="${HERMES_HOME:-/opt/data}"
 mkdir -p "$HERMES_HOME/sessions" "$HERMES_HOME/plugins"
 HERMES_ROLE="${HERMES_ROLE:-luna}"
 STAGING_LUNA_SOUL="/etc/hermes-staging/SOUL.md"
+SUNSET_LUNA_SOUL="/etc/hermes-sunset/SOUL.md"
 STAGING_ORCH_SOUL="/etc/hermes-staging/orchestrator-SOUL.md"
 STAGING_PLUGINS="/etc/hermes-staging/plugins"
 LUNA_SOUL_MARKER="$HERMES_HOME/.luna-guest-soul.version"
@@ -111,6 +112,10 @@ write_luna_env() {
     printf 'API_SERVER_HOST=0.0.0.0\n'
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ]                 && printf 'LUNA_BOT_INTERNAL_TOKEN=%s\n' "$LUNA_BOT_INTERNAL_TOKEN"
+    [ -n "${LUNA_CLIENT_SLUG:-}" ]                        && printf 'LUNA_CLIENT_SLUG=%s\n' "$LUNA_CLIENT_SLUG"
+    [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ]               && printf 'LUNA_ALLOWED_LOCATION_IDS=%s\n' "$LUNA_ALLOWED_LOCATION_IDS"
+    [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ]    && printf 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID"
+    [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && printf 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
     [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
   } > "$HERMES_HOME/.env"
@@ -206,8 +211,19 @@ if [ "$HERMES_ROLE" = "orchestrator" ]; then
   write_orchestrator_env
   link_shared_auth
 else
+  if [ "$HERMES_ROLE" = "sunset-luna" ]; then
+    [ "${LUNA_CLIENT_SLUG:-}" = "sunset" ] || { echo "sunset-luna requires LUNA_CLIENT_SLUG=sunset" >&2; exit 1; }
+    [ -n "${LUNA_ALLOWED_LOCATION_IDS:-}" ] || { echo "sunset-luna requires LUNA_ALLOWED_LOCATION_IDS" >&2; exit 1; }
+    [ -n "${API_SERVER_KEY:-}" ] || { echo "sunset-luna requires API_SERVER_KEY" >&2; exit 1; }
+    [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ] && [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ] || { echo "sunset-luna requires Staff API URL/token" >&2; exit 1; }
+    [ -n "${WHATSAPP_CLOUD_ACCESS_TOKEN:-}" ] || { echo "sunset-luna requires Meta access token" >&2; exit 1; }
+    [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] || { echo "sunset-luna requires both Meta phone IDs" >&2; exit 1; }
+    [ "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID" != "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID" ] || { echo "Sunset phone IDs must be unique" >&2; exit 1; }
+  fi
   write_luna_config
-  if [ -f "$STAGING_LUNA_SOUL" ]; then
+  if [ "$HERMES_ROLE" = "sunset-luna" ] && [ -f "$SUNSET_LUNA_SOUL" ]; then
+    cp "$SUNSET_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
+  elif [ -f "$STAGING_LUNA_SOUL" ]; then
     cp "$STAGING_LUNA_SOUL" "$HERMES_HOME/SOUL.md"
   fi
   install_luna_plugins

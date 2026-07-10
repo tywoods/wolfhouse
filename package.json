@@ -279,6 +279,7 @@
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
     "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
+    "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-catalog-response-preview": "node scripts/verify-sunset-catalog-response-preview.js",
     "verify:sunset-golden": "node scripts/verify-sunset-golden.js",

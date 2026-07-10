@@ -20,6 +20,7 @@ COPY wolfhouse_whatsapp_mirror.py /etc/hermes-staging/wolfhouse_whatsapp_mirror.
 COPY wolfhouse_guest_fresh_start.py /etc/hermes-staging/wolfhouse_guest_fresh_start.py
 COPY wolfhouse /etc/hermes-staging/wolfhouse
 COPY apply_gateway_patches.py /etc/hermes-staging/apply_gateway_patches.py
+COPY sunset_tenant_routing.py /etc/hermes-staging/sunset_tenant_routing.py
 COPY verify_plain_reply_patches.py /etc/hermes-staging/verify_plain_reply_patches.py
 COPY apply_whatsapp_fresh_start_route.py /etc/hermes-staging/apply_whatsapp_fresh_start_route.py
 COPY apply_whatsapp_simulate_route.py /etc/hermes-staging/apply_whatsapp_simulate_route.py
