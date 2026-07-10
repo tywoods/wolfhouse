@@ -279,7 +279,61 @@ async function buildStaffWaiverView(pg, request, baseUrl, guestCount) {
 function multiStudentNote(guestCount) {
   const n = Number(guestCount) || 1;
   if (n <= 1) return null;
-  return `Esta reserva tiene ${n} alumnos. De momento este enlace es el formulario principal de la reserva; formularios por alumno vendrán después.`;
+  return 'Comparte este enlace con el grupo. Cada alumno debe completar el formulario una vez.';
+}
+
+function groupIntentFields(guestCount) {
+  const n = Number(guestCount) || 1;
+  if (n <= 1) return {};
+  return {
+    expected_request_mode: 'group',
+    target_count: n,
+    completed_count: 0,
+    remaining_count: n,
+  };
+}
+
+function enrichWaiverStatusBody(body, guestCount) {
+  const out = body && typeof body === 'object' ? { ...body } : {};
+  const n = Number(guestCount) || 1;
+  out.multi_student_note = multiStudentNote(n);
+  if (n > 1 && !out.waiver) {
+    Object.assign(out, groupIntentFields(n));
+  } else if (out.waiver && out.waiver.request_mode === 'group') {
+    out.expected_request_mode = 'group';
+    out.target_count = out.waiver.target_count != null ? out.waiver.target_count : n;
+    out.completed_count = out.waiver.completed_count != null ? out.waiver.completed_count : 0;
+    out.remaining_count = out.waiver.remaining_count != null
+      ? out.waiver.remaining_count
+      : Math.max(0, Number(out.target_count) - Number(out.completed_count));
+  }
+  return out;
+}
+
+function staffSafeSubmissionRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    submitted_at: row.submitted_at,
+    respondent_name: row.respondent_name || null,
+    respondent_email: row.respondent_email || null,
+    respondent_phone: row.respondent_phone || null,
+    form_version: row.form_version,
+    raw_answers_json: row.raw_answers_json || null,
+  };
+}
+
+async function getAllSubmissionsForRequest(pg, requestId) {
+  const res = await pg.query(
+    `SELECT id::text AS id, request_id::text AS request_id, submitted_at,
+            respondent_name, respondent_email, respondent_phone,
+            form_version, raw_answers_json, form_snapshot_json
+       FROM waiver_form_submissions
+      WHERE tenant_id = $1 AND request_id = $2::uuid
+      ORDER BY submitted_at ASC`,
+    [SUNSET_TENANT_ID, requestId],
+  );
+  return (res.rows || []).map(staffSafeSubmissionRow).filter(Boolean);
 }
 
 async function getBookingWaiverStatus(pg, opts) {
@@ -324,14 +378,13 @@ async function getBookingWaiverStatus(pg, opts) {
       return {
         ok: true,
         status: 200,
-        body: {
+        body: enrichWaiverStatusBody({
           success: true,
           booking_id: bookingId,
           guest_count: guestCount,
-          multi_student_note: multiStudentNote(guestCount),
           waiver: null,
           migration_pending: true,
-        },
+        }, guestCount),
       };
     }
     throw err;
@@ -345,14 +398,13 @@ async function getBookingWaiverStatus(pg, opts) {
   return {
     ok: true,
     status: 200,
-    body: {
+    body: enrichWaiverStatusBody({
       success: true,
       booking_id: bookingId,
       booking_code: loaded.booking.booking_code || null,
       guest_count: guestCount,
-      multi_student_note: multiStudentNote(guestCount),
       waiver,
-    },
+    }, guestCount),
   };
 }
 
@@ -405,14 +457,13 @@ async function createOrGetBookingWaiver(pg, opts) {
     return {
       ok: true,
       status: 200,
-      body: {
+      body: enrichWaiverStatusBody({
         success: true,
         created: false,
         booking_id: bookingId,
         guest_count: guestCount,
-        multi_student_note: multiStudentNote(guestCount),
         waiver,
-      },
+      }, guestCount),
     };
   }
 
@@ -457,14 +508,13 @@ async function createOrGetBookingWaiver(pg, opts) {
   return {
     ok: true,
     status: 201,
-    body: {
+    body: enrichWaiverStatusBody({
       success: true,
       created: true,
       booking_id: bookingId,
       guest_count: guestCount,
-      multi_student_note: multiStudentNote(guestCount),
       waiver,
-    },
+    }, guestCount),
   };
 }
 
@@ -472,24 +522,49 @@ async function getBookingWaiverSubmission(pg, opts) {
   const status = await getBookingWaiverStatus(pg, opts);
   if (!status.ok) return status;
   const waiver = status.body && status.body.waiver;
-  if (!waiver || !waiver.submission) {
+  if (!waiver || !waiver.id) {
     return {
       ok: false,
       status: 404,
       body: { success: false, error: 'submission_not_found' },
     };
   }
+
   if (waiver.request_mode === 'group') {
-    const target = Number(waiver.target_count);
-    const completed = Number(waiver.completed_count);
-    if (Number.isFinite(target) && target > 0 && completed < target) {
+    const completed = Number(waiver.completed_count) || 0;
+    if (completed < 1) {
       return {
         ok: false,
         status: 404,
         body: { success: false, error: 'submission_not_found' },
       };
     }
-  } else if (waiver.status !== 'completed') {
+    const submissions = await getAllSubmissionsForRequest(pg, waiver.id);
+    if (!submissions.length) {
+      return {
+        ok: false,
+        status: 404,
+        body: { success: false, error: 'submission_not_found' },
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        booking_id: status.body.booking_id,
+        waiver_status: waiver.status,
+        request_mode: 'group',
+        public_id: waiver.public_id,
+        completed_count: completed,
+        target_count: waiver.target_count,
+        submissions,
+        submission: submissions[submissions.length - 1],
+      },
+    };
+  }
+
+  if (waiver.status !== 'completed' || !waiver.submission) {
     return {
       ok: false,
       status: 404,
@@ -503,8 +578,10 @@ async function getBookingWaiverSubmission(pg, opts) {
       success: true,
       booking_id: status.body.booking_id,
       waiver_status: waiver.status,
+      request_mode: 'single',
       public_id: waiver.public_id,
       submission: waiver.submission,
+      submissions: [waiver.submission],
     },
   };
 }
@@ -614,6 +691,10 @@ module.exports = {
   resolveGuestCount,
   resolveWaiverRequestParams,
   multiStudentNote,
+  groupIntentFields,
+  enrichWaiverStatusBody,
+  staffSafeSubmissionRow,
+  getAllSubmissionsForRequest,
   getBookingWaiverStatus,
   createOrGetBookingWaiver,
   getBookingWaiverSubmission,

@@ -78,7 +78,7 @@ function buildLunaWaiverInviteMessage(input) {
   ) || 1;
   const note = src.multi_student_note
     || (guestCount > 1
-      ? `Esta reserva tiene ${guestCount} alumnos. De momento este enlace es el formulario principal de la reserva; formularios por alumno vendrán después.`
+      ? 'Comparte este enlace con el grupo. Cada alumno debe completar el formulario una vez.'
       : null);
 
   let msg = 'Perfecto — para terminar la inscripción, Sunset necesita un formulario rápido de seguro y responsabilidad antes de la clase. Ya he rellenado lo que sabemos, así que solo debería llevar unos 2 minutos:';

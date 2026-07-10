@@ -83,7 +83,7 @@ assert('invite Spanish lead-in', invite.includes('formulario rápido de seguro y
 assert('invite has link line', invite.includes(sampleUrl));
 
 const multi = buildLunaWaiverInviteMessage({ public_url: sampleUrl, guest_count: 3 });
-assert('quantity > 1 adds v1 note', multi.includes('3 alumnos') && multi.includes('formularios por alumno'));
+assert('quantity > 1 adds group share note', multi.includes('Comparte este enlace con el grupo'));
 
 const completed = buildLunaWaiverCompletedMessage();
 assert('completed copy', completed.includes('formulario de Sunset está completo'));

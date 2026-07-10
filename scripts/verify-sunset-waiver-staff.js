@@ -63,6 +63,11 @@ assert('Formulario de inscripción title key or text',
   apiSrc.includes('schedule.drawer.waiverTitle') || apiSrc.includes('Formulario de inscripción'));
 assert('Crear enlace', apiSrc.includes('schedule.drawer.waiverCreate') || apiSrc.includes('Crear enlace'));
 assert('Copiar enlace waiver', apiSrc.includes('ps-drawer-waiver-copy') || apiSrc.includes('schedule.drawer.waiverCopy'));
+assert('group create copy keys', apiSrc.includes('schedule.drawer.waiverCreateGroup') && apiSrc.includes('schedule.drawer.waiverCopyGroup'));
+assert('group progress labels', apiSrc.includes('schedule.drawer.waiverGroupLabel') && apiSrc.includes('schedule.drawer.waiverCompletedProgress'));
+assert('group helper scheduleWaiverIsGroup', apiSrc.includes('function scheduleWaiverIsGroup'));
+assert('obsolete v1 note removed', !staffSrc.includes('formularios por alumno') && !apiSrc.includes('formularios por alumno'));
+assert('group share note present', staffSrc.includes('Comparte este enlace con el grupo'));
 assert('pending/completed states',
   apiSrc.includes('schedule.drawer.waiverPending') && apiSrc.includes('schedule.drawer.waiverCompleted'));
 assert('Ver respuestas', apiSrc.includes('schedule.drawer.waiverViewAnswers') || apiSrc.includes('Ver respuestas'));
@@ -70,6 +75,8 @@ assert('no WhatsApp send in drawer waiver block',
   !/ps-drawer-waiver[\s\S]{0,400}whatsapp/i.test(apiSrc));
 assert('i18n EN waiver keys', i18n.includes('schedule.drawer.waiverTitle'));
 assert('i18n ES waiver keys', i18nEs.includes('schedule.drawer.waiverTitle') && i18nEs.includes('Formulario de inscripción'));
+assert('i18n ES group create', i18nEs.includes('Crear enlace de grupo'));
+assert('i18n ES group copy', i18nEs.includes('Copiar enlace de grupo'));
 
 console.log('\n[5] pure helper unit checks');
 const staff = require('./lib/sunset-waiver-staff');
@@ -87,8 +94,20 @@ const groupParams = staff.resolveWaiverRequestParams(20);
 assert('guest_count 20 => group mode', groupParams.requestMode === 'group' && groupParams.targetCount === 20);
 const singleParams = staff.resolveWaiverRequestParams(1);
 assert('guest_count 1 => single mode', singleParams.requestMode === 'single' && singleParams.targetCount == null);
-assert('multi student note', /2 alumnos/.test(staff.multiStudentNote(2) || ''));
+assert('multi student note', /Comparte este enlace con el grupo/.test(staff.multiStudentNote(2) || ''));
+assert('group share note helper', staff.multiStudentNote(20).includes('Cada alumno debe completar el formulario una vez'));
 assert('no note for 1', staff.multiStudentNote(1) == null);
+const groupIntent = staff.enrichWaiverStatusBody({
+  success: true,
+  booking_id: '00000000-0000-4000-8000-000000000001',
+  guest_count: 20,
+  waiver: null,
+}, 20);
+assert('no-waiver group intent expected_request_mode', groupIntent.expected_request_mode === 'group');
+assert('no-waiver group intent target_count', groupIntent.target_count === 20);
+assert('no-waiver group intent completed_count', groupIntent.completed_count === 0);
+assert('no-waiver group intent remaining_count', groupIntent.remaining_count === 20);
+assert('getAllSubmissionsForRequest exported', typeof staff.getAllSubmissionsForRequest === 'function');
 
 const safe = staff.staffSafeWaiver({
   id: 'x',

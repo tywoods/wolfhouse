@@ -23651,19 +23651,56 @@ function scheduleCopyTextFallback(text){
   document.body.removeChild(input);
 }
 
+function scheduleWaiverIsGroup(data){
+  var w = data && data.waiver;
+  var guestCount = Number(data && data.guest_count) || 1;
+  if (w && w.request_mode === 'group') return true;
+  if (data && data.expected_request_mode === 'group') return true;
+  return guestCount > 1;
+}
+
+function scheduleWaiverTargetCount(data){
+  var w = data && data.waiver;
+  if (w && w.target_count != null) return Number(w.target_count);
+  if (data && data.target_count != null) return Number(data.target_count);
+  var guestCount = Number(data && data.guest_count) || 1;
+  return guestCount > 1 ? guestCount : null;
+}
+
+function scheduleWaiverCompletedCount(data){
+  var w = data && data.waiver;
+  if (w && w.completed_count != null) return Number(w.completed_count);
+  if (data && data.completed_count != null) return Number(data.completed_count);
+  return 0;
+}
+
 function scheduleRenderWaiverBoxInner(data){
   var html = '';
-  if (data && data.multi_student_note) {
-    html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(data.multi_student_note) + '</p>';
-  }
+  var isGroup = scheduleWaiverIsGroup(data);
   if (data && data.migration_pending) {
     html += '<p class="portal-schedule-drawer-hint" style="margin:0">' + escHtml(portalT('schedule.drawer.waiverMigrationPending')) + '</p>';
     return html;
   }
   var w = data && data.waiver;
+  var targetCount = scheduleWaiverTargetCount(data);
+  var completedCount = scheduleWaiverCompletedCount(data);
+  if (isGroup) {
+    if (data && data.multi_student_note) {
+      html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(data.multi_student_note) + '</p>';
+    }
+    html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.waiverGroupLabel')) + ':</strong> ' + escHtml(String(targetCount || (data && data.guest_count) || '—')) + ' ' + escHtml(portalT('schedule.drawer.waiverStudents')) + '</p>';
+    if (targetCount != null && targetCount > 0) {
+      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedProgress')) + ':</strong> ' + escHtml(String(completedCount) + ' / ' + String(targetCount)) + '</p>';
+    } else if (completedCount > 0) {
+      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedProgress')) + ':</strong> ' + escHtml(String(completedCount)) + '</p>';
+    }
+  }
   if (!w) {
-    html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px">' + escHtml(portalT('schedule.drawer.waiverNone')) + '</p>';
-    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(portalT('schedule.drawer.waiverCreate')) + '</button>';
+    if (!isGroup) {
+      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px">' + escHtml(portalT('schedule.drawer.waiverNone')) + '</p>';
+    }
+    var createLabel = isGroup ? portalT('schedule.drawer.waiverCreateGroup') : portalT('schedule.drawer.waiverCreate');
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(createLabel) + '</button>';
     html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
     return html;
   }
@@ -23671,16 +23708,19 @@ function scheduleRenderWaiverBoxInner(data){
   if (w.status === 'completed' && w.completed_at) {
     html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedAt')) + ':</strong> ' + escHtml(String(w.completed_at).slice(0, 19).replace('T', ' ')) + '</p>';
   }
+  var showAnswers = isGroup ? completedCount > 0 : w.status === 'completed';
   if (w.public_url) {
     html += '<p class="portal-schedule-drawer-kv" style="word-break:break-all;margin:0 0 8px"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener">' + escHtml(w.public_url) + '</a></p>';
     html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-copy">' + escHtml(portalT('schedule.drawer.waiverCopy')) + '</button>';
-    if (w.status === 'completed') {
+    var copyLabel = isGroup ? portalT('schedule.drawer.waiverCopyGroup') : portalT('schedule.drawer.waiverCopy');
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-copy">' + escHtml(copyLabel) + '</button>';
+    if (showAnswers) {
       html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button>';
     }
     html += '</div>';
   } else if (w.status === 'pending' || w.status === 'needs_review') {
-    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(portalT('schedule.drawer.waiverCreate')) + '</button>';
+    var retryLabel = isGroup ? portalT('schedule.drawer.waiverCreateGroup') : portalT('schedule.drawer.waiverCreate');
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(retryLabel) + '</button>';
   }
   html += '<div id="ps-drawer-waiver-answers" style="display:none;margin-top:10px"></div>';
   html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
@@ -23710,31 +23750,38 @@ function scheduleWireDrawerWaiver(data){
 function scheduleViewDrawerWaiverAnswers(data){
   var box = el('ps-drawer-waiver-answers');
   if (!box) return;
-  var sub = data && data.waiver && data.waiver.submission;
-  if (!sub) {
-    var bookingId = scheduleDrawerState && scheduleDrawerState.ctx && scheduleDrawerState.ctx.booking_id;
-    if (!bookingId) return;
-    fetch('/staff/schedule/bookings/' + encodeURIComponent(bookingId) + '/waiver/submission?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix())
-      .then(function(r){ return r.json(); })
-      .then(function(res){
-        if (!res || !res.success || !res.submission) throw new Error((res && res.error) || 'No submission');
-        scheduleRenderWaiverAnswers(res.submission);
-      })
-      .catch(function(err){
-        var m = el('ps-drawer-waiver-msg');
-        if (m){ m.className = 'state-msg error'; m.textContent = err.message; m.style.display = 'block'; }
-      });
+  var w = data && data.waiver;
+  var isGroup = scheduleWaiverIsGroup(data);
+  var completedCount = scheduleWaiverCompletedCount(data);
+  var sub = w && w.submission;
+  if (!isGroup && sub) {
+    scheduleRenderWaiverAnswers(sub);
     return;
   }
-  scheduleRenderWaiverAnswers(sub);
+  if (isGroup && completedCount < 1) return;
+  var bookingId = scheduleDrawerState && scheduleDrawerState.ctx && scheduleDrawerState.ctx.booking_id;
+  if (!bookingId) return;
+  fetch('/staff/schedule/bookings/' + encodeURIComponent(bookingId) + '/waiver/submission?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix())
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!res || !res.success) throw new Error((res && res.error) || 'No submission');
+      if (res.submissions && res.submissions.length) {
+        scheduleRenderWaiverAnswers(res);
+      } else if (res.submission) {
+        scheduleRenderWaiverAnswers(res.submission);
+      } else {
+        throw new Error('No submission');
+      }
+    })
+    .catch(function(err){
+      var m = el('ps-drawer-waiver-msg');
+      if (m){ m.className = 'state-msg error'; m.textContent = err.message; m.style.display = 'block'; }
+    });
 }
 
-function scheduleRenderWaiverAnswers(sub){
-  var box = el('ps-drawer-waiver-answers');
-  if (!box) return;
+function scheduleRenderWaiverSubmissionBlock(sub){
   var answers = (sub.raw_answers_json && sub.raw_answers_json.answers) || sub.raw_answers_json || {};
-  var html = '<div style="font-size:12px;border-top:1px solid var(--border-soft);padding-top:8px">';
-  html += '<strong>' + escHtml(portalT('schedule.drawer.waiverAnswers')) + '</strong>';
+  var html = '';
   Object.keys(answers).forEach(function(key){
     var a = answers[key];
     if (!a || typeof a !== 'object') return;
@@ -23747,6 +23794,35 @@ function scheduleRenderWaiverAnswers(sub){
     if (val === true) val = 'Sí';
     if (val === false) val = '—';
     html += '<p class="portal-schedule-drawer-kv" style="margin:6px 0 0"><strong>' + escHtml(a.label || key) + ':</strong> ' + escHtml(String(val == null ? '—' : val)) + '</p>';
+  });
+  return html;
+}
+
+function scheduleRenderWaiverAnswers(payload){
+  var box = el('ps-drawer-waiver-answers');
+  if (!box) return;
+  var subs = [];
+  if (payload && payload.submissions && payload.submissions.length) {
+    subs = payload.submissions;
+  } else if (Array.isArray(payload)) {
+    subs = payload;
+  } else if (payload) {
+    subs = [payload];
+  }
+  var html = '<div style="font-size:12px;border-top:1px solid var(--border-soft);padding-top:8px">';
+  html += '<strong>' + escHtml(portalT('schedule.drawer.waiverAnswers')) + '</strong>';
+  subs.forEach(function(sub, idx){
+    if (subs.length > 1) {
+      html += '<div style="margin-top:12px;padding-top:8px;border-top:1px solid var(--border-soft)">';
+      html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 4px"><strong>' + escHtml(portalT('schedule.drawer.waiverStudentLabel')) + ' ' + (idx + 1);
+      if (sub.respondent_name) html += ': ' + escHtml(sub.respondent_name);
+      html += '</strong></p>';
+      if (sub.submitted_at) {
+        html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px;color:var(--text-muted)">' + escHtml(String(sub.submitted_at).slice(0, 19).replace('T', ' ')) + '</p>';
+      }
+    }
+    html += scheduleRenderWaiverSubmissionBlock(sub);
+    if (subs.length > 1) html += '</div>';
   });
   html += '</div>';
   box.innerHTML = html;
