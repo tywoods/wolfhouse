@@ -424,6 +424,67 @@ async function createSunsetScheduleStripeLink(pg, opts) {
   }
 }
 
+async function deleteSunsetScheduleStripeLink(pg, opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+  const bookingId = String(opts.bookingId || '').trim();
+  const bookingCode = String(opts.bookingCode || '').trim();
+  if (!bookingId && !bookingCode) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id or booking_code is required' } };
+  }
+  if (bookingId && !isUuid(bookingId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id must be a valid UUID' } };
+  }
+  const loaded = await loadBookingWithServices(pg, clientSlug, bookingId, bookingCode);
+  if (!loaded) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
+  }
+  const { booking, services } = loaded;
+  const meta = parseMeta(booking.metadata);
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const recordLocationId = resolveRecordLocationId(
+    parseMeta((services[0] && services[0].metadata) || {}),
+    meta,
+  );
+  if (recordLocationId !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
+  if (meta.source !== 'staff_manual_schedule' && !meta.staff_manual_schedule) {
+    return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_staff_manual_schedule_bookings' } };
+  }
+
+  // Void the current link(s): clearing checkout_url removes them from the drawer + short link, and
+  // marking the booking stale lets the next "Create link" mint a fresh Stripe session.
+  const upd = await pg.query(
+    `UPDATE payments
+        SET checkout_url = NULL,
+            metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+      WHERE booking_id = $1::uuid
+        AND checkout_url IS NOT NULL
+        AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)`,
+    [booking.booking_id, JSON.stringify({ voided_by_staff: true, voided_at: new Date().toISOString() })],
+  );
+  await pg.query(
+    `UPDATE bookings
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+      WHERE id = $2::uuid`,
+    [JSON.stringify({ sunset_stripe_link_stale: true, last_payment_link_url: null }), booking.booking_id],
+  );
+  return {
+    ok: true,
+    status: 200,
+    body: {
+      success: true,
+      deleted: true,
+      voided_count: upd.rowCount || 0,
+      booking_id: booking.booking_id,
+      booking_code: booking.booking_code,
+    },
+  };
+}
+
 async function getSunsetSchedulePaymentLink(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -459,6 +520,7 @@ async function getSunsetSchedulePaymentLink(pg, opts) {
 module.exports = {
   SUNSET_CLIENT_SLUG,
   createSunsetScheduleStripeLink,
+  deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
   serviceRecordUnitPriceCents,

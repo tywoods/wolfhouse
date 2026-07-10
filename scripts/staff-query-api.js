@@ -297,6 +297,7 @@ const {
 } = require('./lib/sunset-schedule-booking-writes');
 const {
   createSunsetScheduleStripeLink,
+  deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
 } = require('./lib/sunset-stripe-payment-links');
 const {
@@ -16919,6 +16920,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-manual-pay-grid label,.portal-schedule-manual-pay-note{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-3)}
 .portal-schedule-manual-pay-note{margin-top:8px}
 .portal-schedule-add-session-btn{margin-top:8px;font-size:12px;padding:5px 12px}
+.portal-schedule-refresh-btn{padding:6px 11px;font-size:16px;line-height:1;font-weight:700}
+.portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
 .portal-schedule-drawer-hero h3{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
@@ -18674,6 +18677,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       <button type="button" class="portal-schedule-view-btn" data-ps-view="week" data-i18n="schedule.view.week">Week</button>
       <button type="button" class="portal-schedule-view-btn" data-ps-view="next30" data-i18n="schedule.view.next30">Next 30 days</button>
     </div>
+    <button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-refresh-schedule" data-i18n-title="schedule.refresh" title="Refresh schedule" aria-label="Refresh schedule">&#8635;</button>
     <button type="button" class="btn btn-primary" id="ps-create-booking" data-i18n="schedule.createBooking">Create booking</button>
   </div>
   <div id="ps-state" class="state-msg" style="display:none"></div>
@@ -23769,6 +23773,7 @@ function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
     html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.stripeCopy')) + '</button>';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
+    html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
     html += '</div>';
   } else {
     html += '<p style="margin:0 0 8px;color:var(--text-3)">' + escHtml(portalT('schedule.drawer.stripeNone')) + '</p>';
@@ -24053,6 +24058,41 @@ function scheduleWireDrawerStripeCopyOpen(ctx){
   if (openBtn && url){
     openBtn.onclick = function(){ window.open(url, '_blank', 'noopener'); };
   }
+  var delBtn = el('ps-drawer-stripe-delete');
+  if (delBtn){ delBtn.onclick = function(){ scheduleDeleteDrawerStripeLink(ctx); }; }
+}
+
+// Delete/void the current Stripe link so a fresh one can be created. Refreshes the drawer after.
+function scheduleDeleteDrawerStripeLink(ctx){
+  var bookingId = ctx && ctx.booking_id;
+  if (!bookingId) return;
+  if (typeof window !== 'undefined' && window.confirm && !window.confirm(portalT('schedule.drawer.stripeDeleteConfirm'))) return;
+  var btn = el('ps-drawer-stripe-delete');
+  if (btn) btn.disabled = true;
+  fetch('/staff/schedule/bookings/stripe-link?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId }),
+  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Delete failed');
+      return fetch('/staff/schedule/bookings/detail?client=' + encodeURIComponent(getClient()) + '&booking_id=' + encodeURIComponent(bookingId) + sunsetLocationQuerySuffix())
+        .then(function(r2){ return r2.json(); })
+        .then(function(ctxData){
+          if (ctxData && ctxData.success && scheduleDrawerState && scheduleDrawerState.row){
+            scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctxData);
+            scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
+          }
+          var m2 = el('ps-drawer-stripe-msg');
+          if (m2){ m2.className = 'state-msg success'; m2.textContent = portalT('schedule.drawer.stripeDeleted'); m2.style.display = 'block'; }
+        });
+    })
+    .catch(function(err){
+      var m3 = el('ps-drawer-stripe-msg');
+      if (m3){ m3.className = 'state-msg error'; m3.textContent = portalT('schedule.drawer.stripeDeleteFailed') + ' ' + err.message; m3.style.display = 'block'; }
+      var b2 = el('ps-drawer-stripe-delete');
+      if (b2) b2.disabled = false;
+    });
 }
 
 function scheduleWireDrawerConversation(row, group){
@@ -24542,6 +24582,7 @@ function wireScheduleControls(){
     ['ps-today', function(){ scheduleForwardOffset = 0; loadSchedulePage(); }],
     ['ps-drawer-close', closeScheduleDetailDrawer],
     ['ps-create-booking', openScheduleCreateModal],
+    ['ps-refresh-schedule', function(){ loadSchedulePage(); }],
     ['ps-create-cancel', closeScheduleCreateModal],
     ['ps-create-submit', submitScheduleManualBooking]];
   ids.forEach(function(pair){
@@ -40337,6 +40378,41 @@ async function handleSunsetScheduleStripeLinkCreate(query, req, res, user) {
   }
 }
 
+async function handleSunsetScheduleStripeLinkDelete(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const bookingId = String(body.booking_id || query.booking_id || '').trim();
+  const bookingCode = String(body.booking_code || query.booking_code || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => deleteSunsetScheduleStripeLink(pg, {
+      clientSlug,
+      bookingId,
+      bookingCode,
+      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.stripe_link_delete',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'stripe link delete failed', detail: err.message });
+  }
+}
+
 
 async function handleSunsetScheduleDayGet(query, res, user) {
   const started = Date.now();
@@ -46254,6 +46330,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleStripeLinkCreate(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/stripe-link' && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleStripeLinkDelete(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings/payment-link' && method === 'GET') {
     const auth = await requireAuth(req, res, 'viewer');
