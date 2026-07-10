@@ -105,11 +105,12 @@ Second Luna container for staging infrastructure prep — same image, SOUL, plug
 
 | Topic | Choice |
 |-------|--------|
-| Container | `hermes-wolfhouse-luna` |
-| Host/container port | **8091** |
+| Service / container | `hermes-wolfhouse-luna` |
+| Behavioral role | `HERMES_ROLE: luna` (same Luna guest brain; isolation is container/env/data/port) |
+| Loopback test port | **8091** (`curl http://127.0.0.1:8091/health` on the VM) |
 | Data | `/var/lib/hermes-wolfhouse-luna` |
 | Env | `/etc/hermes-wolfhouse-luna.env` |
-| Live Meta traffic | **None** until a separate deliberate Caddy + Meta cutover step |
+| Public Caddy / Meta | **Must not** receive live traffic during this prep slice — no `/whatsapp/*` → `:8091` |
 
 **Live routing unchanged:** `https://lunabox.lunafrontdesk.com/whatsapp/*` → Caddy → `localhost:8090` → `hermes-luna`.
 
@@ -121,7 +122,17 @@ node scripts/deploy-staging-hermes-vm.js write-env-files   # laptop — generate
 sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d hermes-wolfhouse-luna
 ```
 
-### Verify after deploy (required)
+### Verify (repo + after deploy)
+
+Static layout gate (repo / image build — no running container):
+
+```bash
+python3 docker/hermes-staging/verify_wolfhouse_luna_instance.py
+```
+
+Last line must print **`ALL OK`**. Confirms compose isolation (8091, separate env/data, `HERMES_ROLE: luna`) and that repository Caddy examples still route `/whatsapp/*` to `:8090`, not `:8091`.
+
+After the container is up:
 
 ```bash
 sudo docker exec hermes-wolfhouse-luna python3 /etc/hermes-staging/verify_plain_reply_patches.py

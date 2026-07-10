@@ -116,6 +116,14 @@ function assertI18nGuestCopy() {
   execSync('node scripts/check-i18n-guest-copy.js', { cwd: ROOT, stdio: 'inherit' });
 }
 
+function assertWolfhouseLunaInstance() {
+  console.error('[vm] wolfhouse-luna instance layout (prebuild)...');
+  execSync('python3 docker/hermes-staging/verify_wolfhouse_luna_instance.py', {
+    cwd: ROOT,
+    stdio: 'inherit',
+  });
+}
+
 function assertGoldenSuite() {
   // Pre-deploy regression gate: replay the golden guest conversations against the
   // locally-running hermes-luna container before we build/ship. --gate runs the
@@ -144,6 +152,7 @@ function buildImage() {
   assertSoulClean();
   assertPerGuestSoulContract();
   assertI18nGuestCopy();
+  assertWolfhouseLunaInstance();
   assertGoldenSuite();
   const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
   console.error(`[vm] building staging image on ACR (git ${sha})...`);
