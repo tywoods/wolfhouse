@@ -16559,7 +16559,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
-.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0}
+.btn-logout{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fffaf1;border-radius:20px;padding:5px 16px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s;letter-spacing:.03em;margin-left:0;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .btn-logout:hover{background:rgba(255,255,255,.32)}
 .cc-luna-staff-retired{display:none!important}
 #banner .brand em{color:#FBF7F0;font-style:normal;font-weight:500;opacity:.92}
@@ -16592,7 +16592,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border-left:1px solid var(--border-soft);background:var(--surface);position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:#FFF5F5;border-left-color:#E0A8A8}
-#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2)}
+#tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 #tabs .tabs-global-pause-label{white-space:nowrap}
 #tabs .tabs-global-pause .luna-global-pause-switch{width:34px;height:20px}
 #tabs .tabs-global-pause .luna-global-pause-slider:before{height:16px;width:16px;left:2px;bottom:2px}
@@ -16643,8 +16643,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
-/* Sunset Schedule: single sans family across the page (headings + body) for a consistent look. */
-#tab-portal-home{--sched-heading-serif:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+/* Sunset Schedule: match the menu-bar serif across the whole page (staff request). */
+#tab-portal-home{--sched-heading-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--sched-heading-serif)}
 #tab-portal-home .portal-schedule-page-title,
 #tab-portal-home .portal-schedule-hero-title,
 #tab-portal-home .portal-schedule-card-label,
@@ -16720,7 +16720,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .btn-ghost:hover{background:var(--sched-surface-soft);border-color:var(--sched-border)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-unpaid,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-pending{color:#9C4A42;background:#F6E3E0}
-:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{color:var(--sched-text-3)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-status.is-paid{color:#3F6B4F;background:#E3F0E7}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-staff,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-item-card.source-luna{background:var(--sched-surface-soft);border-color:var(--sched-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-week-forecast-card:hover,
@@ -16912,7 +16912,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-filters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .portal-schedule-filter-btn{font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
-.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;overflow:auto;font-size:13px;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;--sched-drawer-serif:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;overflow:auto;font-size:13px;font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
 .portal-schedule-manual-pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -17119,6 +17119,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-src-chip.is-luna{background:#E4ECF4;color:#3F6288}
 .portal-schedule-src-chip.is-luna i{background:#4A7BA6}
 .portal-schedule-status.is-unpaid,.portal-schedule-status.is-pending{background:#F6E3E0;color:#9C4A42;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
+.portal-schedule-status.is-paid{background:#E3F0E7;color:#3F6B4F;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-status.is-needs-reply{background:#EDE7F4;color:#6B5080;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-empty-slot-group{border-style:dashed;box-shadow:none;background:transparent}
 .portal-schedule-empty-slot-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
@@ -17382,6 +17383,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 /* ── Customers tab typography (Booking Calendar 2026 serif family) ─────────── */
 #tab-customers{--cust-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--cust-serif);-webkit-font-smoothing:antialiased}
 #tab-customers input,#tab-customers textarea,#tab-customers select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+/* Luna Staff (Ask Luna) portal — same serif house style as the rest of the portal. */
+#tab-ask-luna{--luna-staff-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--luna-staff-serif);-webkit-font-smoothing:antialiased}
+#tab-ask-luna input,#tab-ask-luna textarea,#tab-ask-luna select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 #tab-customers .customers-header h2{font-weight:600;letter-spacing:.005em}
 #tab-customers .customers-school-heading{font-weight:900;letter-spacing:-.03em}
 #tab-customers .customers-profile-name,#tab-customers .customers-card-name{font-weight:700;letter-spacing:.01em}
@@ -21565,7 +21569,7 @@ function scheduleRenderStatusBadgeHtml(group, opts){
   var ps = String(group.payment_status || '').toLowerCase();
   var html = '';
   if (ps === 'paid'){
-    if (!opts.row) html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
+    html = '<span class="portal-schedule-status is-paid">' + escHtml(portalT('schedule.status.paid')) + '</span>';
   } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
     html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
   }
@@ -23719,6 +23723,20 @@ function scheduleRenderDrawerManualPaymentHtml(ctx){
   return html;
 }
 
+// Guest-facing short payment link (this domain + /pay/<booking_code>) instead of the long Stripe
+// checkout URL. The /pay route redirects to the stored checkout session. Falls back to the raw
+// checkout URL when there's no booking code to build the short form.
+function scheduleDrawerPaymentShortUrl(ctx){
+  var link = ctx && ctx.stripe_link;
+  var checkout = link && link.checkout_url;
+  if (!checkout) return '';
+  var code = ctx && ctx.booking_code;
+  if (code && typeof window !== 'undefined' && window.location && window.location.origin){
+    return window.location.origin + '/pay/' + encodeURIComponent(String(code));
+  }
+  return checkout;
+}
+
 function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
   var link = ctx && ctx.stripe_link;
   var url = link && link.checkout_url;
@@ -23740,13 +23758,14 @@ function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
       '<div class="ctx-pay-record-stale-note">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</div></div>';
   }
   if (url){
+    var displayUrl = scheduleDrawerPaymentShortUrl(ctx) || url;
     html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeStatus')) + ':</strong> ' +
       escHtml(String((link && link.payment_status) || 'checkout_created')) + '</p>';
     if (link && link.amount_due_cents != null){
       html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeAmount')) + ':</strong> ' +
         escHtml(scheduleDrawerEur(link.amount_due_cents)) + '</p>';
     }
-    html += '<p style="margin:0 0 8px;word-break:break-all"><a id="ps-drawer-stripe-url" href="' + escHtml(url) + '" target="_blank" rel="noopener">' + escHtml(url) + '</a></p>';
+    html += '<p style="margin:0 0 8px;word-break:break-all"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener">' + escHtml(displayUrl) + '</a></p>';
     html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.stripeCopy')) + '</button>';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
@@ -24023,7 +24042,7 @@ function scheduleUpdateDrawerPaymentFromContext(ctx){
 }
 
 function scheduleWireDrawerStripeCopyOpen(ctx){
-  var url = ctx && ctx.stripe_link && ctx.stripe_link.checkout_url;
+  var url = scheduleDrawerPaymentShortUrl(ctx) || (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url);
   var copyBtn = el('ps-drawer-stripe-copy');
   var openBtn = el('ps-drawer-stripe-open');
   if (copyBtn && url){

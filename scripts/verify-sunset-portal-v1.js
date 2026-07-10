@@ -702,7 +702,7 @@ console.log('\n[20] Sunset Schedule visual polish — density + clarity');
 if (apiSrc) {
   assert('lesson group header booked on prep line', apiSrc.includes('portal-schedule-ops-lesson-hdr-prep') && apiSrc.includes("portalT('schedule.slot.booked')"));
   assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
-  assert('row status hides paid', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('opts.row'));
+  assert('row status shows paid pebble', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('portal-schedule-status is-paid'));
   assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no Pending payment in row renderer', !apiSrc.includes('schedule.status.pendingDetail') || apiSrc.includes("schedule.status.unpaid"));
   assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
