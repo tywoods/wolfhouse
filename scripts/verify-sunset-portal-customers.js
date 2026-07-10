@@ -126,7 +126,8 @@ if (apiSrc) {
     && apiSrc.includes('openScheduleCreateModal()'));
   assert('Sunset linked booking opens schedule drawer', apiSrc.includes('function openBookingInSchedule(')
     && apiSrc.includes('isSunsetSurfActive()')
-    && apiSrc.includes('openScheduleDetailDrawer('));
+    && apiSrc.includes('openScheduleDetailDrawer(')
+    && apiSrc.includes('_drawerFromCustomer'));
 
   const panel = extractCustomersPanel(apiSrc);
   if (panel) {

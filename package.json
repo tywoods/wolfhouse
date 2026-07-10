@@ -493,6 +493,7 @@
     "verify:sunset-waiver-form": "node scripts/verify-sunset-waiver-form.js",
     "verify:sunset-waiver-staff": "node scripts/verify-sunset-waiver-staff.js",
     "verify:sunset-waiver-luna": "node scripts/verify-sunset-waiver-luna.js",
+    "verify:sunset-stripe-payment-webhook": "node scripts/verify-sunset-stripe-payment-webhook.js",
     "verify:owner-metadata-accessor-guard": "node scripts/verify-owner-metadata-accessor-guard.js"
   },
   "dependencies": {

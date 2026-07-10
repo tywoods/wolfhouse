@@ -17089,6 +17089,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-next30-forecast{display:block;margin-bottom:22px}
 .portal-schedule-create-drawer{position:fixed;top:0;right:0;width:min(440px,94vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9101;padding:20px 22px;overflow:auto}
 .portal-schedule-drawer-hero{margin-bottom:16px}
+.portal-schedule-drawer-hero-inner{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+.portal-schedule-drawer-hero-text{flex:1;min-width:0}
+.portal-schedule-drawer-hero-actions{display:flex;flex-shrink:0;gap:6px;align-items:flex-start;margin-top:2px}
+.portal-schedule-drawer-booking-code{font-size:13px;font-weight:600;letter-spacing:.02em;color:var(--text-2)}
+.portal-schedule-drawer-topbar{display:none}
 .portal-schedule-drawer-qty{font-size:42px;font-weight:800;line-height:1;color:var(--text)}
 .portal-schedule-drawer-prep{display:flex;flex-wrap:wrap;gap:12px;margin:12px 0;padding:12px;background:var(--surface-soft);border-radius:var(--radius-sm);font-size:13px}
 .portal-schedule-item-card.source-staff,.portal-schedule-item-card.source-luna{background:var(--surface-soft)}
@@ -18750,10 +18755,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 </div>
 <div id="ps-drawer-backdrop" class="portal-schedule-drawer-backdrop" style="display:none"></div>
 <div id="ps-detail-drawer" class="portal-schedule-drawer" style="display:none">
-  <div class="portal-schedule-drawer-topbar">
-    <button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-drawer-refresh" data-i18n-title="schedule.refresh" title="Refresh" aria-label="Refresh">&#8635;</button>
-    <button type="button" class="btn btn-ghost" id="ps-drawer-close" data-i18n="schedule.drawer.close">Close</button>
-  </div>
   <div id="ps-drawer-body"></div>
 </div>
 </div><!-- /tab-portal-home -->
@@ -23706,7 +23707,7 @@ function scheduleRenderWaiverBoxInner(data){
   }
   html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverStatus')) + ':</strong> ' + escHtml(scheduleWaiverStatusLabel(w.status)) + '</p>';
   if (w.status === 'completed' && w.completed_at) {
-    html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedAt')) + ':</strong> ' + escHtml(String(w.completed_at).slice(0, 19).replace('T', ' ')) + '</p>';
+    html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedAt')) + ':</strong> ' + escHtml(scheduleDateOnlyLabel(w.completed_at)) + '</p>';
   }
   var showAnswers = isGroup ? completedCount > 0 : w.status === 'completed';
   if (w.public_url) {
@@ -23818,7 +23819,7 @@ function scheduleRenderWaiverAnswers(payload){
       if (sub.respondent_name) html += ': ' + escHtml(sub.respondent_name);
       html += '</strong></p>';
       if (sub.submitted_at) {
-        html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px;color:var(--text-muted)">' + escHtml(String(sub.submitted_at).slice(0, 19).replace('T', ' ')) + '</p>';
+        html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px;color:var(--text-muted)">' + escHtml(scheduleDateOnlyLabel(sub.submitted_at)) + '</p>';
       }
     }
     html += scheduleRenderWaiverSubmissionBlock(sub);
@@ -23875,14 +23876,41 @@ function scheduleCreateDrawerWaiver(){
     });
 }
 
-function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
-  var comps = (ctx && ctx.components) || {};
+function scheduleDateOnlyLabel(val){
+  if (!val) return '—';
+  var s = String(val).trim();
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
+
+function scheduleRenderDrawerHeroHtml(ctx, row){
+  var code = (ctx && ctx.booking_code) || (row && row.booking_code) || '—';
+  var name = (ctx && ctx.guest_name) || (row && row.guest_name) || 'Guest';
   var html = '<div class="portal-schedule-drawer-hero">';
-  html += '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(ctx.guest_name || row.guest_name || 'Guest') + '</h3>';
+  html += '<div class="portal-schedule-drawer-hero-inner">';
+  html += '<div class="portal-schedule-drawer-hero-text">';
+  html += '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(name) + '</h3>';
+  html += '<p class="portal-schedule-drawer-booking-code" style="margin:0 0 4px">' + escHtml(code) + '</p>';
   if (isSunsetSurfActive()) {
-    html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
+    html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
   }
   html += '</div>';
+  html += '<div class="portal-schedule-drawer-hero-actions">';
+  html += '<button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-drawer-refresh" title="' + escHtml(portalT('schedule.refresh')) + '" aria-label="' + escHtml(portalT('schedule.refresh')) + '">&#8635;</button>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-close">' + escHtml(portalT('schedule.drawer.close')) + '</button>';
+  html += '</div></div></div>';
+  return html;
+}
+
+function scheduleWireDrawerHeaderActions(){
+  var closeBtn = el('ps-drawer-close');
+  if (closeBtn) closeBtn.onclick = closeScheduleDetailDrawer;
+  var refreshBtn = el('ps-drawer-refresh');
+  if (refreshBtn) refreshBtn.onclick = scheduleRefreshDrawer;
+}
+
+function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
+  var comps = (ctx && ctx.components) || {};
+  var html = scheduleRenderDrawerHeroHtml(ctx, row);
   // One consolidated "Booking details" card (guest + dates). "What's included" is omitted here —
   // the payment section right below already lists the same line items.
   html += scheduleDrawerSectionHtml('schedule.drawer.section.booking',
@@ -24074,12 +24102,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   var selectedCourseId = (comps.course && comps.course.course_id) || '';
   var courseQty = (comps.course && comps.course.quantity) || (comps.lesson && comps.lesson.quantity) || 1;
   var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
-  html += '<div class="portal-schedule-drawer-hero">';
-  html += '<h3 style="margin:0;font-size:22px">' + escHtml(ctx.guest_name || row.guest_name || 'Guest') + '</h3>';
-  if (isSunsetSurfActive()) {
-    html += '<p class="portal-schedule-card-sub" style="margin:4px 0 0">' + escHtml(portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
-  }
-  html += '</div>';
+  html += scheduleRenderDrawerHeroHtml(ctx, row);
   // One consolidated "Booking details" card: guest + dates + components + course/surfers + rentals.
   html += '<section class="portal-schedule-drawer-section">';
   html += '<h4 class="portal-schedule-drawer-section-title">' + escHtml(portalT('schedule.drawer.section.booking')) + '</h4>';
@@ -24555,6 +24578,7 @@ function scheduleWireDrawerManualPayment(row){
 
 function scheduleWireViewDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
+  scheduleWireDrawerHeaderActions();
   scheduleWireDrawerStripeCopyOpen(ctx);
   scheduleWireDrawerConversation(row, group);
   scheduleWireDrawerOpenCustomer();
@@ -24570,6 +24594,7 @@ function scheduleWireViewDrawer(row, ctx){
 
 function scheduleWireEditableDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
+  scheduleWireDrawerHeaderActions();
   scheduleDrawerPopulateComponentFields();
   ['ps-drawer-comp-course','ps-drawer-comp-private-lesson','ps-drawer-comp-surfboard','ps-drawer-comp-wetsuit'].forEach(function(id){
     var node = el(id);
@@ -24653,17 +24678,26 @@ function openScheduleDetailDrawer(row){
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
   scheduleLastDrawerRowId = row._scheduleId;
-  if (scheduleDrawerEditableEnabled(row)){
+  var useDrawerApi = scheduleDrawerEditableEnabled(row)
+    || !!(row._drawerFromCustomer && (row.booking_id || row.booking_code));
+  if (useDrawerApi){
     body.innerHTML = '<div class="state-msg">' + escHtml(portalT('schedule.drawer.loading')) + '</div>';
     drawer.style.display = 'block';
     if (backdrop) backdrop.style.display = 'block';
-    var fetchRow = Object.assign({}, row, scheduleRowBookingRef(row, group));
+    var fetchRow = row._drawerFromCustomer
+      ? {
+        booking_id: row.booking_id || null,
+        booking_code: row.booking_code || null,
+        guest_name: row.guest_name || null,
+        _drawerFromCustomer: true,
+      }
+      : Object.assign({}, row, scheduleRowBookingRef(row, group));
     scheduleFetchDrawerContext(fetchRow).then(function(data){
       if (!data || !data.success){
         body.innerHTML = '<div class="state-msg error">' + escHtml(portalT('schedule.drawer.loadFailed')) + '</div>';
         return;
       }
-      scheduleOpenEditableDrawer(row, data);
+      scheduleOpenEditableDrawer(fetchRow, data);
     }).catch(function(){
       body.innerHTML = '<div class="state-msg error">' + escHtml(portalT('schedule.drawer.loadFailed')) + '</div>';
     });
@@ -29377,6 +29411,7 @@ function openBookingInSchedule(booking){
     booking_id: id || null,
     booking_code: code || null,
     guest_name: booking.guest_name || booking.booking_guest_name || '',
+    _drawerFromCustomer: true,
   });
 }
 

@@ -145,7 +145,20 @@ async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
       ORDER BY created_at DESC LIMIT 1`,
     [booking.booking_id],
   );
-  return { booking, services: svcRes.rows, payment_link: payRes.rows[0] || null };
+  const paidSumRes = await pg.query(
+    `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS paid_total
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND status = 'paid'::payment_record_status`,
+    [booking.booking_id],
+  );
+  const payments_paid_cents = Number(paidSumRes.rows[0]?.paid_total || 0);
+  return {
+    booking,
+    services: svcRes.rows,
+    payment_link: payRes.rows[0] || null,
+    payments_paid_cents,
+  };
 }
 
 function aggregateComponentsFromServices(services) {
@@ -204,7 +217,16 @@ function aggregateComponentsFromServices(services) {
   };
 }
 
-function buildPaymentSummary(prices, booking, services, adminSource) {
+function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
+  const paid = Number(paidCents) || 0;
+  const subtotal = Number(subtotalCents) || 0;
+  if (paid > 0 && (subtotal === 0 || paid >= subtotal)) return 'paid';
+  const raw = String(booking && booking.payment_status || '').toLowerCase();
+  if (raw === 'paid' || raw === 'complete' || raw === 'completed') return 'paid';
+  return 'unpaid';
+}
+
+function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents) {
   const lineItems = [];
   let subtotalCents = 0;
   (services || []).forEach((sr) => {
@@ -225,8 +247,12 @@ function buildPaymentSummary(prices, booking, services, adminSource) {
     });
   });
   const storedPaid = Number(booking.amount_paid_cents);
-  const paidCents = Number.isFinite(storedPaid) ? storedPaid : 0;
-  const uiStatus = normalizeUiPayment(booking.payment_status);
+  const ledgerPaid = Number(paymentsPaidCents);
+  const paidCents = Math.max(
+    Number.isFinite(storedPaid) ? storedPaid : 0,
+    Number.isFinite(ledgerPaid) ? ledgerPaid : 0,
+  );
+  const uiStatus = deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents);
   const balanceDue = Math.max(subtotalCents - paidCents, 0);
   const meta = parseMeta(booking.metadata);
   return {
@@ -306,7 +332,13 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   }
   const prices = adminCfg.ok ? (adminCfg.prices || []) : [];
   const agg = aggregateComponentsFromServices(bundle.services);
-  const payment = buildPaymentSummary(prices, bundle.booking, bundle.services, adminCfg.source);
+  const payment = buildPaymentSummary(
+    prices,
+    bundle.booking,
+    bundle.services,
+    adminCfg.source,
+    bundle.payments_paid_cents,
+  );
   const link = bundle.payment_link;
   const linkStale = !!meta.sunset_stripe_link_stale
     || (link && link.amount_due_cents != null && Number(link.amount_due_cents) !== payment.balance_due_cents);
@@ -593,6 +625,7 @@ module.exports = {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
   buildPaymentSummary,
+  deriveDrawerPaymentUiStatus,
   aggregateComponentsFromServices,
   normalizePaymentMethod,
 };

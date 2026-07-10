@@ -39,7 +39,9 @@ function deriveBookingPaymentState(input) {
   const newBkBalance = total > 0 ? Math.max(total - newBkPaid, 0) : 0;
 
   let newBkPayStatus;
-  if (newBkBalance === 0 && total > 0) {
+  // Sunset schedule bookings may have total_amount_cents = 0 until priced; a completed
+  // full_amount Stripe checkout still means the booking is paid when balance is zero.
+  if (newBkBalance === 0 && (total > 0 || (newBkPaid > 0 && paymentKind === 'full_amount'))) {
     newBkPayStatus = 'paid';
   } else if (paymentKind === 'deposit_only') {
     newBkPayStatus = 'deposit_paid';

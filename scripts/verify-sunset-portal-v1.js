@@ -1230,7 +1230,9 @@ if (apiSrc) {
   assert('create booking school context markup', apiSrc.includes('id="ps-create-school-context"') && apiSrc.includes('id="ps-create-school-label"'));
   assert('inbox school context preserved', apiSrc.includes('id="inbox-school-context"') && apiSrc.includes('renderInboxSchoolContext'));
   assert('admin school heading markup', apiSrc.includes('id="admin-school-heading"') && apiSrc.includes('renderAdminSchoolContext'));
-  assert('booking drawer shows school', apiSrc.includes("portalT('schedule.drawer.school')") && apiSrc.includes('scheduleResolveDrawerSchoolLabel'));
+  assert('booking drawer shows school value without label', apiSrc.includes('scheduleResolveDrawerSchoolLabel')
+    && apiSrc.includes('portal-schedule-drawer-booking-code')
+    && !apiSrc.includes("portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel"));
   assert('customers list passes location param', apiSrc.includes('function customersClientQuery(') && apiSrc.includes("'/staff/customers' + customersClientQuery()"));
   assert('customers detail shows active school', apiSrc.includes("t('customers.detail.school')"));
   assert('setSunsetLocation reloads schedule inbox admin customers', apiSrc.includes('loadSchedulePage()') && apiSrc.includes('loadCustomersTab()') && apiSrc.includes('loadAdminTab()') && apiSrc.includes('loadInbox()'));
