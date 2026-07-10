@@ -80,6 +80,13 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         self.assertIn("API_SERVER_KEY", bootstrap)
         self.assertIn("link_shared_auth", bootstrap)
 
+    def test_optional_anthropic_token_cannot_fail_luna_env_write(self):
+        bootstrap = (ROOT / "bootstrap.sh").read_text()
+        self.assertRegex(
+            bootstrap,
+            r'\[ -n "\$\{ANTHROPIC_TOKEN:-\}" \].*ANTHROPIC_TOKEN=.*\|\| true',
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -117,7 +117,7 @@ write_luna_env() {
     [ -n "${SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID:-}" ]    && printf 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID"
     [ -n "${SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID:-}" ] && printf 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID=%s\n' "$SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID"
     # Anthropic OAuth (Claude Max) for Luna's fallback provider — claude setup-token.
-    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"
 }
 
@@ -132,7 +132,7 @@ write_orchestrator_env() {
     printf 'API_SERVER_PORT=8642\n'
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     # Anthropic OAuth (Claude Max) for Opus 4.8 — claude setup-token output.
-    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=%s\n' "$ANTHROPIC_TOKEN"
+    [ -n "${ANTHROPIC_TOKEN:-}" ]                         && printf 'ANTHROPIC_TOKEN=*** "$ANTHROPIC_TOKEN" || true
   } > "$HERMES_HOME/.env"
 }
 
