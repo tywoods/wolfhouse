@@ -79,7 +79,11 @@ function status() {
     vm_exists: vmExists(),
     public_ip: vmExists() ? vmPublicIp() : null,
     image: HERMES_VM.IMAGE,
-    ports: { orchestrator: HERMES_VM.PORT_ORCHESTRATOR, luna_webhook: HERMES_VM.PORT_LUNA_WEBHOOK },
+    ports: {
+      orchestrator: HERMES_VM.PORT_ORCHESTRATOR,
+      luna_webhook: HERMES_VM.PORT_LUNA_WEBHOOK,
+      wolfhouse_luna_webhook: HERMES_VM.PORT_WOLFHOUSE_LUNA_WEBHOOK,
+    },
     compose: HERMES_VM.COMPOSE_FILE,
     aca_app: HERMES_VM.ACA_APP_NAME,
     meta_webhook_url: `https://${HERMES_VM.HOSTNAME}/whatsapp/webhook`,
@@ -169,6 +173,7 @@ function ensureNsgRules() {
     { name: 'allow-https', port: '443', priority: 1001 },
     { name: 'allow-hermes-orchestrator', port: String(HERMES_VM.PORT_ORCHESTRATOR), priority: 1002 },
     { name: 'allow-hermes-luna-webhook', port: String(HERMES_VM.PORT_LUNA_WEBHOOK), priority: 1003 },
+    { name: 'allow-hermes-wolfhouse-luna-webhook', port: String(HERMES_VM.PORT_WOLFHOUSE_LUNA_WEBHOOK), priority: 1005 },
   ];
   for (const r of rules) {
     console.error(`[vm] NSG rule ${r.name} (${r.port})...`);
@@ -227,6 +232,31 @@ function createVm() {
   status();
 }
 
+function lunaEnvVars(apiServerKey, anthropicToken, { webhookPort } = {}) {
+  const vars = {
+    API_SERVER_KEY: apiServerKey,
+    ANTHROPIC_TOKEN: anthropicToken,
+    WHATSAPP_CLOUD_ACCESS_TOKEN: kvSecret('meta-whatsapp-token') || '',
+    WHATSAPP_CLOUD_PHONE_NUMBER_ID: kvSecret('meta-whatsapp-phone-id') || HERMES_VM.WHATSAPP_PHONE_ID,
+    WHATSAPP_CLOUD_APP_SECRET: kvSecret('whatsapp-app-secret') || '',
+    WHATSAPP_CLOUD_VERIFY_TOKEN: HERMES_VM.WHATSAPP_VERIFY_TOKEN,
+    WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,
+    LUNA_BOT_INTERNAL_TOKEN: kvSecret('luna-bot-internal-token') || '',
+  };
+  if (webhookPort != null) {
+    vars.WHATSAPP_CLOUD_WEBHOOK_PORT = String(webhookPort);
+  }
+  return vars;
+}
+
+function envBody(vars) {
+  return Object.entries(vars)
+    .filter(([, v]) => v)
+    .map(([k, v]) => `${k}=${v}`)
+    .join('\n')
+    .concat('\n');
+}
+
 function writeEnvFiles() {
   let apiServerKey = kvSecret('hermes-api-server-key');
   if (!apiServerKey) {
@@ -249,34 +279,23 @@ function writeEnvFiles() {
     ANTHROPIC_TOKEN: anthropicToken,
     WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,
   };
-  const luna = {
-    API_SERVER_KEY: apiServerKey,
-    ANTHROPIC_TOKEN: anthropicToken,
-    WHATSAPP_CLOUD_ACCESS_TOKEN: kvSecret('meta-whatsapp-token') || '',
-    WHATSAPP_CLOUD_PHONE_NUMBER_ID: kvSecret('meta-whatsapp-phone-id') || HERMES_VM.WHATSAPP_PHONE_ID,
-    WHATSAPP_CLOUD_APP_SECRET: kvSecret('whatsapp-app-secret') || '',
-    WHATSAPP_CLOUD_VERIFY_TOKEN: HERMES_VM.WHATSAPP_VERIFY_TOKEN,
-    WOLFHOUSE_STAFF_API_BASE_URL: HERMES_VM.WOLFHOUSE_STAFF_API_BASE_URL,
-    LUNA_BOT_INTERNAL_TOKEN: kvSecret('luna-bot-internal-token') || '',
-  };
+  const luna = lunaEnvVars(apiServerKey, anthropicToken);
+  const wolfhouseLuna = lunaEnvVars(apiServerKey, anthropicToken, {
+    webhookPort: HERMES_VM.PORT_WOLFHOUSE_LUNA_WEBHOOK,
+  });
   fs.mkdirSync(ENV_OUT, { recursive: true });
-  const orchBody = Object.entries(orch)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n')
-    .concat('\n');
-  const lunaBody = Object.entries(luna)
-    .filter(([, v]) => v)
-    .map(([k, v]) => `${k}=${v}`)
-    .join('\n')
-    .concat('\n');
+  const orchBody = envBody(orch);
+  const lunaBody = envBody(luna);
+  const wolfhouseLunaBody = envBody(wolfhouseLuna);
   fs.writeFileSync(path.join(ENV_OUT, 'hermes-orchestrator.env'), orchBody, 'utf8');
   fs.writeFileSync(path.join(ENV_OUT, 'hermes-luna.env'), lunaBody, 'utf8');
+  fs.writeFileSync(path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'), wolfhouseLunaBody, 'utf8');
   console.log(JSON.stringify({
     ok: true,
     orchestrator_env: path.join(ENV_OUT, 'hermes-orchestrator.env'),
     luna_env: path.join(ENV_OUT, 'hermes-luna.env'),
-    note: 'Orchestrator: set DISCORD_BOT_TOKEN (you have it) via env or KV discord-bot-token. Luna: OAuth only — no OPENAI_API_KEY in .env.',
+    wolfhouse_luna_env: path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'),
+    note: 'Orchestrator: set DISCORD_BOT_TOKEN (you have it) via env or KV discord-bot-token. Luna: OAuth only — no OPENAI_API_KEY in .env. hermes-wolfhouse-luna listens on :8091; no live Meta traffic until a separate Caddy/cutover step.',
   }, null, 2));
 }
 
@@ -385,6 +404,7 @@ function bootstrapRemote() {
   };
   scp(path.join(ENV_OUT, 'hermes-orchestrator.env'), '/tmp/hermes-orchestrator.env');
   scp(path.join(ENV_OUT, 'hermes-luna.env'), '/tmp/hermes-luna.env');
+  scp(path.join(ENV_OUT, 'hermes-wolfhouse-luna.env'), '/tmp/hermes-wolfhouse-luna.env');
   scp(path.join(ROOT, 'scripts', 'provision-hermes-vm.sh'), '/tmp/provision-hermes-vm.sh');
   const composeLocal = path.join(ROOT, 'docker', 'hermes-staging', 'docker-compose.vm.yml');
   ssh('mkdir -p /tmp/hermes-staging');
@@ -392,7 +412,7 @@ function bootstrapRemote() {
   ssh('sed -i "s/\\r$//" /tmp/provision-hermes-vm.sh');
   ssh('sudo bash /tmp/provision-hermes-vm.sh');
   ssh('sudo mkdir -p /opt/wolfhouse/WH/docker/hermes-staging && sudo cp /tmp/hermes-staging/docker-compose.vm.yml /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml');
-  ssh('sudo mv /tmp/hermes-orchestrator.env /etc/hermes-orchestrator.env && sudo mv /tmp/hermes-luna.env /etc/hermes-luna.env && sudo chmod 600 /etc/hermes-*.env');
+  ssh('sudo mv /tmp/hermes-orchestrator.env /etc/hermes-orchestrator.env && sudo mv /tmp/hermes-luna.env /etc/hermes-luna.env && sudo mv /tmp/hermes-wolfhouse-luna.env /etc/hermes-wolfhouse-luna.env && sudo chmod 600 /etc/hermes-*.env');
   const acrToken = az(
     `acr login --name ${HERMES_VM.ACR} --expose-token --output tsv --query accessToken`,
     { silent: true },

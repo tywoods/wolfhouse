@@ -86,15 +86,50 @@ Disk: Lunabox was tight (~89% used). After `sync-repo`, run `docker system prune
 | Path | Purpose |
 |------|---------|
 | `/var/lib/hermes-orchestrator` | Orchestrator `HERMES_HOME` (Discord, repo cwd) |
-| `/var/lib/hermes-luna` | Luna `HERMES_HOME` (WhatsApp, sessions) |
+| `/var/lib/hermes-luna` | Luna `HERMES_HOME` (WhatsApp, sessions) — **live Meta webhook on :8090** |
+| `/var/lib/hermes-wolfhouse-luna` | Isolated Wolfhouse Luna `HERMES_HOME` (`:8091`, separate sessions; **no live Meta traffic**) |
 | `/var/lib/hermes-shared/auth.json` | Shared OAuth credential pool (ChatGPT + Anthropic) |
 | `/opt/wolfhouse/WH` | Wolfhouse git repo |
 | `/etc/hermes-orchestrator.env` | Discord token + allowlist |
 | `/etc/hermes-luna.env` | WhatsApp + Staff API secrets (no model API keys) |
+| `/etc/hermes-wolfhouse-luna.env` | Same secret *names* as `hermes-luna` + `WHATSAPP_CLOUD_WEBHOOK_PORT=8091` |
 
 Compose: `docker/hermes-staging/docker-compose.vm.yml`
 
-Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook.
+Ports: **8642** orchestrator, **8090** Luna WhatsApp webhook (live), **8091** isolated Wolfhouse Luna webhook (prep only).
+
+## Isolated Wolfhouse Luna (`hermes-wolfhouse-luna`)
+
+Second Luna container for staging infrastructure prep — same image, SOUL, plugins, and shared
+`auth.json` as `hermes-luna`, but isolated data dir and webhook port.
+
+| Topic | Choice |
+|-------|--------|
+| Container | `hermes-wolfhouse-luna` |
+| Host/container port | **8091** |
+| Data | `/var/lib/hermes-wolfhouse-luna` |
+| Env | `/etc/hermes-wolfhouse-luna.env` |
+| Live Meta traffic | **None** until a separate deliberate Caddy + Meta cutover step |
+
+**Live routing unchanged:** `https://lunabox.lunafrontdesk.com/whatsapp/*` → Caddy → `localhost:8090` → `hermes-luna`.
+
+Deploy the new service (operator, after merge):
+
+```bash
+node scripts/deploy-staging-hermes-vm.js write-env-files   # laptop — generates hermes-wolfhouse-luna.env
+# scp env + provision on VM, or bootstrap-remote
+sudo docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d hermes-wolfhouse-luna
+```
+
+### Verify after deploy (required)
+
+```bash
+sudo docker exec hermes-wolfhouse-luna python3 /etc/hermes-staging/verify_plain_reply_patches.py
+```
+
+Last line must print **`ALL OK`**. Do not trust WhatsApp behavior until this passes (same gate as `hermes-luna`).
+
+Direct health check (no Meta): `curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8091/health` → 200.
 
 ## Captain: after every `hermes-luna` deploy
 

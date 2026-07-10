@@ -21,13 +21,16 @@ const HERMES_VM = Object.freeze({
   REPO_PATH: '/opt/wolfhouse/WH',
   DATA_ORCHESTRATOR: '/var/lib/hermes-orchestrator',
   DATA_LUNA: '/var/lib/hermes-luna',
+  DATA_WOLFHOUSE_LUNA: '/var/lib/hermes-wolfhouse-luna',
   DATA_SHARED: '/var/lib/hermes-shared',
   COMPOSE_FILE: '/opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml',
   ENV_ORCHESTRATOR: '/etc/hermes-orchestrator.env',
   ENV_LUNA: '/etc/hermes-luna.env',
+  ENV_WOLFHOUSE_LUNA: '/etc/hermes-wolfhouse-luna.env',
 
   PORT_ORCHESTRATOR: 8642,
   PORT_LUNA_WEBHOOK: 8090,
+  PORT_WOLFHOUSE_LUNA_WEBHOOK: 8091,
 
   WOLFHOUSE_STAFF_API_BASE_URL: 'https://staff-staging.lunafrontdesk.com',
   WHATSAPP_VERIFY_TOKEN: 'wolfhouse_verify_token',

@@ -103,7 +103,8 @@ write_luna_env() {
     printf 'GATEWAY_ALLOW_ALL_USERS=true\n'
     printf 'WHATSAPP_CLOUD_HOME_CHANNEL=wolfhouse-luna-ops\n'
     printf 'WHATSAPP_CLOUD_HOME_CHANNEL_NAME=Wolfhouse Luna Ops\n'
-    printf 'WHATSAPP_CLOUD_WEBHOOK_PORT=8090\n'
+    _luna_webhook_port="${WHATSAPP_CLOUD_WEBHOOK_PORT:-8090}"
+    printf 'WHATSAPP_CLOUD_WEBHOOK_PORT=%s\n' "$_luna_webhook_port"
     printf 'WHATSAPP_CLOUD_WEBHOOK_PATH=/whatsapp/webhook\n'
     printf 'PYTHONPATH=/etc/hermes-staging\n'
     printf 'API_SERVER_ENABLED=true\n'
