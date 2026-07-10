@@ -16643,8 +16643,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-home-schedule .cc-section-hdr{font-size:15px}
 .portal-home-schedule-note{font-size:12px;color:var(--text-3);margin:8px 0 0;line-height:1.45}
 #tab-portal-home.active{display:block}
-/* Sunset Schedule warm serif for page/section/card headings and course titles (form fields stay sans). */
-#tab-portal-home{--sched-heading-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+/* Sunset Schedule: single sans family across the page (headings + body) for a consistent look. */
+#tab-portal-home{--sched-heading-serif:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 #tab-portal-home .portal-schedule-page-title,
 #tab-portal-home .portal-schedule-hero-title,
 #tab-portal-home .portal-schedule-card-label,
@@ -16675,8 +16675,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
   --sched-text-3:#8A7968;
   --sched-rail-staff:#7DA896;
   --sched-rail-luna:#8499B0;
-  --sched-primary:#2F6B4F;
-  --sched-primary-hover:#275C43;
+  --sched-primary:#7A9279;
+  --sched-primary-hover:#6A8268;
   --sched-unpaid:#B4534A;
   background:var(--sunset-bg);
 }
@@ -16912,7 +16912,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-filters{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
 .portal-schedule-filter-btn{font-size:11px;padding:4px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-filter-btn.active{background:var(--text);color:#fff;border-color:var(--text)}
-.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;overflow:auto;font-size:13px;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;--sched-drawer-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
+.portal-schedule-drawer{position:fixed;top:0;right:0;width:min(420px,92vw);height:100vh;background:var(--surface);border-left:1px solid var(--border-soft);box-shadow:var(--shadow);z-index:9000;padding:16px 18px;overflow:auto;font-size:13px;font-family:'Inter',ui-sans-serif,system-ui,sans-serif;--sched-drawer-serif:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 .portal-schedule-drawer-section{margin-bottom:18px;padding:14px 16px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft)}
 .portal-schedule-drawer-section-title{margin:0 0 10px;font-size:15px;font-weight:800;letter-spacing:-.02em;color:var(--text);font-family:var(--sched-drawer-serif);line-height:1.2}
 .portal-schedule-manual-pay-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
@@ -16922,6 +16922,20 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
 .portal-schedule-drawer-hero h3{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
+/* Payment area revamp: cleaner card, clearer totals, prominent status. */
+.portal-schedule-drawer .ctx-pay-box{max-width:none;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:14px 16px;box-shadow:var(--shadow-soft)}
+.portal-schedule-drawer .ctx-inv-total-row{grid-template-columns:1fr auto;gap:10px;padding:7px 0}
+.portal-schedule-drawer .ctx-inv-total-label{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:var(--text-3)}
+.portal-schedule-drawer .ctx-inv-total-amount{font-size:14px;text-align:right;font-weight:700}
+.portal-schedule-drawer #ps-drawer-pay-status{font-weight:800}
+.portal-schedule-drawer .ctx-inv-total-amount.paid{color:#5C7350}
+.portal-schedule-drawer .ctx-inv-total-amount.owing{color:#9C5742}
+/* Manual payment: quieter secondary treatment so it doesn't compete with the totals. */
+.portal-schedule-drawer #ps-drawer-manual-pay{opacity:.92}
+.portal-schedule-drawer #ps-drawer-manual-pay .portal-schedule-manual-pay-grid input,
+.portal-schedule-drawer #ps-drawer-manual-pay .portal-schedule-manual-pay-note input,
+.portal-schedule-drawer #ps-drawer-manual-pay select{background:var(--surface-soft);border-color:var(--border-soft);font-size:12px}
+.portal-schedule-drawer #ps-drawer-manual-pay .btn{font-size:12px;padding:6px 12px}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section{background:var(--sunset-panel-strong);border-color:var(--sunset-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section-title{color:var(--sched-text)}
 .portal-schedule-drawer-form .portal-schedule-create-field{margin-bottom:10px}
@@ -16979,8 +16993,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-private-sessions{display:flex;flex-direction:column;gap:10px;margin-top:8px}
 .portal-schedule-private-session-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
 @media(max-width:640px){.portal-schedule-private-session-grid{grid-template-columns:1fr}}
-.portal-schedule-private-session-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--text-2)}
-.portal-schedule-private-session-grid input{width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+.portal-schedule-private-session-grid label{display:flex;flex-direction:column;gap:4px;font-size:11px;font-weight:600;color:var(--text-2);min-width:0}
+.portal-schedule-private-session-grid input{width:100%;min-width:0;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius-sm);font-size:13px;background:var(--surface)}
+/* In the narrow booking drawer, native date/time inputs overflow a 3-col grid — put the date on its own row, start/end side by side. */
+.portal-schedule-drawer .portal-schedule-private-session-grid{grid-template-columns:1fr 1fr}
+.portal-schedule-drawer .portal-schedule-private-session-grid label:first-child{grid-column:1 / -1}
 .portal-schedule-ops-lesson-group.portal-schedule-ops-private-group .portal-schedule-ops-lesson-hdr-title{color:var(--text)}
 .portal-schedule-hdr-badge.is-private{background:rgba(124,58,237,.14);color:#7c3aed}
 .portal-schedule-hdr-badge.is-requested{background:rgba(234,179,8,.16);color:#b45309}
@@ -18675,8 +18692,8 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
     <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
       <div class="portal-schedule-create-components">
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox"> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox"> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox" checked> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
+        <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox" checked> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
@@ -21176,7 +21193,7 @@ function scheduleRenderOpsGroupHeader(groupLabel, slotTime, stats, boardsNeeded,
     : scheduleFormatSlotTimeRange(slotTime || '');
   var label = String(groupLabel || '').trim() || time || portalT('schedule.type.lesson');
   var badges = '';
-  if (opts.isCourse) badges += ' <span class="portal-schedule-hdr-badge is-course">' + escHtml(portalT('schedule.badge.course')) + '</span>';
+  // GROUP COURSE tag removed per staff request — the slot title already conveys the course.
   if (opts.isRequested) badges += ' <span class="portal-schedule-hdr-badge is-requested">' + escHtml(portalT('schedule.privateLesson.requestedTime')) + '</span>';
   if (opts.done) badges += ' <span class="portal-schedule-hdr-badge is-done">' + escHtml(portalT('schedule.timeline.done')) + '</span>';
   var timeLine = (time ? time + ' · ' : '') + String(stats.surfers || 0) + ' ' + portalT('schedule.slot.booked');
@@ -21360,7 +21377,8 @@ function scheduleNormalizeApiRow(r){
   if (r._needsReply == null) r._needsReply = false;
   if (!r.phone && meta.guest_phone) r.phone = meta.guest_phone;
   var ps = String(r.payment_status || '').toLowerCase();
-  if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested') r.payment_status = 'unpaid';
+  if (scheduleRowEffectivePaid(r)) r.payment_status = 'paid';
+  else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested') r.payment_status = 'unpaid';
   return r;
 }
 
@@ -21602,6 +21620,17 @@ function scheduleRenderPebblesHtml(group, opts){
   return scheduleRenderStatusBadgeHtml(group, opts);
 }
 
+// Sunset staff bookings don't store a booking total, so record-payment can't flip the stored
+// payment_status to 'paid' — but it does update booking-level amount_paid/balance. Derive an
+// effective paid state from those amounts so the schedule badge + drawer reflect real payments.
+function scheduleRowEffectivePaid(r){
+  if (!r) return false;
+  if (String(r.booking_payment_status || '').toLowerCase() === 'paid') return true;
+  var paid = Number(r.booking_amount_paid_cents || 0);
+  var bal = r.booking_balance_due_cents;
+  return paid > 0 && bal != null && Number(bal) <= 0;
+}
+
 function scheduleBuildDisplayGroups(rows){
   var map = {};
   (rows || []).forEach(function(r){
@@ -21624,6 +21653,7 @@ function scheduleBuildDisplayGroups(rows){
         slot_time: null,
         quantity: 0,
         payment_status: (function(){
+          if (scheduleRowEffectivePaid(r)) return 'paid';
           var p = String(r.payment_status || '').toLowerCase();
           if (p === 'pending' || p === 'waiting_payment' || p === 'not_requested') return 'unpaid';
           return r.payment_status;
@@ -23572,15 +23602,14 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
     html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
   }
   html += '</div>';
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.guest',
+  // One consolidated "Booking details" card (guest + dates + what's included).
+  html += scheduleDrawerSectionHtml('schedule.drawer.section.booking',
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.dates',
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.components',
-    '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(scheduleFormatComponentsView(comps)) + '</p>');
+    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>' +
+    '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.drawer.section.components')) + ':</strong> ' + escHtml(scheduleFormatComponentsView(comps)) + '</p>');
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
@@ -23591,14 +23620,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<div class="portal-schedule-drawer-actions">';
   if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
   html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
-  var stripeAvail = ctx && ctx.stripe_available;
-  var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
-    ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
-  if (stripeAvail){
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(stripeLabel) + '</button>';
-  } else if (canEdit) {
-    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
-  }
+  // Stripe "Create link" button now lives inside the payment area (see stripe subsection).
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
@@ -23662,8 +23684,10 @@ function scheduleRenderDrawerPaymentSectionHtml(ctx, editable){
     '</span><span class="ctx-inv-total-amount paid" id="ps-drawer-paid">' + escHtml(scheduleDrawerEur(pay.paid_cents)) + '</span></div>';
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.drawer.remaining')) +
     '</span><span class="ctx-inv-total-amount owing" id="ps-drawer-remaining">' + escHtml(scheduleDrawerEur(pay.balance_due_cents)) + '</span></div>';
+  var effPaid = (Number(pay.paid_cents || 0) > 0 && pay.balance_due_cents != null && Number(pay.balance_due_cents) <= 0);
+  var effStatus = effPaid ? 'paid' : pay.payment_status;
   html += '<div class="ctx-inv-total-row"><span class="ctx-inv-total-label">' + escHtml(portalT('schedule.col.payment')) +
-    '</span><span class="ctx-inv-total-amount" id="ps-drawer-pay-status">' + escHtml(schedulePaymentStatusLabel(pay.payment_status, ctx && ctx.payment_method)) + '</span></div>';
+    '</span><span class="ctx-inv-total-amount' + (effPaid ? ' paid' : '') + '" id="ps-drawer-pay-status">' + escHtml(schedulePaymentStatusLabel(effStatus, ctx && ctx.payment_method)) + '</span></div>';
   html += '</div>';
   html += scheduleRenderDrawerManualPaymentHtml(ctx);
   html += scheduleRenderDrawerStripeLinkSectionHtml(ctx);
@@ -23684,7 +23708,6 @@ function scheduleRenderDrawerManualPaymentHtml(ctx){
     '<select id="ps-drawer-manual-method">' +
     '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
     '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
-    '<option value="cash">' + escHtml(portalT('schedule.payment.paid')) + '</option>' +
     '</select></label>';
   html += '</div>';
   html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
@@ -23703,6 +23726,14 @@ function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
   var html = '<div id="ps-drawer-stripe-box" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
   html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
     escHtml(portalT('schedule.drawer.stripeSection')) + '</div>';
+  // Create/regenerate Stripe link button lives here in the payment area (moved out of the drawer footer).
+  var stripeAvail = ctx && ctx.stripe_available;
+  var stripeBtnLabel = (url && !stale) ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
+  if (stripeAvail){
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link" style="margin-bottom:10px">' + escHtml(stripeBtnLabel) + '</button>';
+  } else {
+    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '" style="margin-bottom:10px">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
+  }
   if (stale && url){
     html += '<div class="ctx-pay-record ctx-pay-record-stale" style="margin-bottom:8px"><span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">' +
       escHtml(portalT('schedule.drawer.stripeStale')) + '</span>' +
@@ -23742,13 +23773,14 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     html += '<p class="portal-schedule-card-sub" style="margin:4px 0 0">' + escHtml(portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
   }
   html += '</div>';
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.guest',
-    '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>' +
+  // One consolidated "Booking details" card: guest + dates + components + course/surfers + rentals.
+  html += '<section class="portal-schedule-drawer-section">';
+  html += '<h4 class="portal-schedule-drawer-section-title">' + escHtml(portalT('schedule.drawer.section.booking')) + '</h4>';
+  html += '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>' +
     '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-phone">' + escHtml(portalT('schedule.drawer.phone')) + '</label>' +
-    '<input id="ps-drawer-phone" type="tel" value="' + escHtml(ctx.phone || '') + '"></div>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.dates',
-    '<div id="ps-drawer-date-range"' + (privateOn ? ' style="display:none"' : '') + '>' +
+    '<input id="ps-drawer-phone" type="tel" value="' + escHtml(ctx.phone || '') + '"></div>';
+  html += '<div id="ps-drawer-date-range"' + (privateOn ? ' style="display:none"' : '') + '>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-date-from">' + escHtml(portalT('schedule.create.dateFrom')) + '</label>' +
     '<input id="ps-drawer-date-from" type="date" value="' + escHtml(ctx.date_from || '') + '"></div>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-date-to">' + escHtml(portalT('schedule.create.dateTo')) + '</label>' +
@@ -23758,31 +23790,27 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '<span class="portal-schedule-create-label" data-i18n="schedule.create.privateLesson.sessionsHelp">' + escHtml(portalT('schedule.create.privateLesson.sessionsHelp')) + '</span>' +
     '<div id="ps-drawer-private-sessions" class="portal-schedule-private-sessions"></div>' +
     '<button type="button" class="btn btn-ghost portal-schedule-add-session-btn" id="ps-drawer-add-session">' + escHtml(portalT('schedule.create.privateLesson.addSession')) + '</button>' +
-    '</div>');
-  html += scheduleDrawerSectionHtml('schedule.drawer.section.components',
-    '<div class="portal-schedule-create-components">' +
+    '</div>';
+  html += '<div class="portal-schedule-create-components">' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-wetsuit"' + (wetsuitOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.wetsuitRental')) + '</label>' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-surfboard"' + (boardOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.boardRental')) + '</label>' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-course"' + (courseOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.course')) + '</label>' +
     '<label class="portal-schedule-create-check"><input type="checkbox" id="ps-drawer-comp-private-lesson"' + (privateOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.privateCourse')) + '</label>' +
-    '</div>');
-  // Course card only rendered when a course/private course is selected (compact: hidden otherwise).
+    '</div>';
   html += '<div id="ps-drawer-course-section"' + ((courseOn || privateOn) ? '' : ' style="display:none"') + '>' +
-    scheduleDrawerSectionHtml('schedule.drawer.section.course',
     '<div class="portal-schedule-create-field" id="ps-drawer-course-fields"><label for="ps-drawer-course-select">' + escHtml(portalT('schedule.create.courseSelect')) + '</label><select id="ps-drawer-course-select" data-selected="' + escHtml(selectedCourseId) + '"></select></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap"><label for="ps-drawer-course-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '"></div>' +
     '<div id="ps-drawer-private-lesson-fields" style="display:none">' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-private-lesson-surfers">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-private-lesson-surfers" type="number" min="1" max="99" value="' + escHtml(String((comps.private_lesson && comps.private_lesson.surfer_count) || 1)) + '"></div>' +
-    '</div>') + '</div>';
-  // Rentals card only rendered when a rental is selected.
+    '</div></div>';
   html += '<div id="ps-drawer-rentals-section"' + ((boardOn || wetsuitOn) ? '' : ' style="display:none"') + '>' +
-    scheduleDrawerSectionHtml('schedule.drawer.section.rentals',
     '<div class="portal-schedule-create-field" id="ps-drawer-board-qty-wrap"><label for="ps-drawer-board-qty">' + escHtml(portalT('schedule.create.boardQty')) + '</label>' +
     '<input id="ps-drawer-board-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.surfboard && comps.surfboard.quantity) || 1)) + '"></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-wetsuit-qty-wrap"><label for="ps-drawer-wetsuit-qty">' + escHtml(portalT('schedule.create.wetsuitQty')) + '</label>' +
-    '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div>') + '</div>';
+    '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div></div>';
+  html += '</section>';
   html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
     '<div class="portal-schedule-create-field"><label for="ps-drawer-notes">' + escHtml(portalT('schedule.drawer.notes')) + '</label>' +
     '<textarea id="ps-drawer-notes" rows="2">' + escHtml(ctx.notes || '') + '</textarea></div>');
@@ -23793,14 +23821,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   html += '<button type="button" class="btn btn-primary" id="ps-drawer-save">' + escHtml(portalT('schedule.drawer.save')) + '</button>';
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-cancel">' + escHtml(portalT('schedule.drawer.cancel')) + '</button>';
   html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
-  var stripeAvail = ctx && ctx.stripe_available;
-  var stripeLabel = (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url && !ctx.stripe_link_stale)
-    ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
-  if (stripeAvail){
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(stripeLabel) + '</button>';
-  } else {
-    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
-  }
+  // Stripe "Create link" button now lives inside the payment area (see stripe subsection).
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';

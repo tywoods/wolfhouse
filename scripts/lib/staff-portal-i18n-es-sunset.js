@@ -430,7 +430,7 @@ module.exports = {
   'schedule.type.lesson': 'Clase en grupo',
   'schedule.type.course': 'Curso en grupo',
   'schedule.type.privateLesson': 'Curso privado',
-  'schedule.section.privateLessons': 'Cursos privados',
+  'schedule.section.privateLessons': 'Curso privado',
   'schedule.privateLesson.requestedTime': 'Hora solicitada',
   'schedule.create.courseSelect': 'Curso en grupo',
   'schedule.type.rental': 'Alquiler',

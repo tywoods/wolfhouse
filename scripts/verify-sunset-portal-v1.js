@@ -643,7 +643,7 @@ if (apiSrc) {
   assert('create booking group lesson checkbox removed', !apiSrc.includes('id="ps-create-comp-lesson"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
   assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
-  assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('schedule.badge.course'));
+  assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('scheduleRenderOpsGroupHeader('));
   assert('ops group header uses group name', apiSrc.includes('function scheduleRenderOpsGroupHeader(') && apiSrc.includes('portal-schedule-ops-lesson-hdr-time'));
   assert('ops board collapses empty lesson slots', apiSrc.includes('function scheduleRenderTimelineEmptySlot(') && apiSrc.includes('data-ps-add-slot'));
   assert('ops board course groups', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('portal-schedule-ops-course-group'));

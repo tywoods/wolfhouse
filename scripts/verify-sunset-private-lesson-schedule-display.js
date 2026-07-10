@@ -53,8 +53,8 @@ assert('API normalize sets private _scheduleType', /r\._scheduleType = 'private_
 assert('API display group key per private record', /'pl:' \+ String\(r\.service_record_id/.test(api));
 assert('API requested time badge', api.includes('schedule.privateLesson.requestedTime'));
 
-assert('EN private courses section', en.includes("'schedule.section.privateLessons': 'Private Courses'"));
-assert('ES cursos privados section', es.includes("'schedule.section.privateLessons': 'Cursos privados'"));
+assert('EN private course section', en.includes("'schedule.section.privateLessons': 'Private Course'"));
+assert('ES curso privado section', es.includes("'schedule.section.privateLessons': 'Curso privado'"));
 assert('EN requested time', en.includes("'schedule.privateLesson.requestedTime': 'Requested time'"));
 assert('ES hora solicitada', es.includes("'schedule.privateLesson.requestedTime': 'Hora solicitada'"));
 
