@@ -150,6 +150,13 @@ function pageShell(title, bodyHtml) {
     }
     .status-title { font-size: 1.2rem; margin: 0 0 10px; }
     .ok-msg { color: var(--ok); }
+    .group-notice {
+      background: #EEF2F8;
+      border-color: #D4DCE8;
+    }
+    .group-notice p { margin: 0 0 8px; font-size: 0.92rem; }
+    .group-notice p:last-child { margin-bottom: 0; }
+    .group-progress { font-size: 0.95rem; color: var(--navy-soft); }
   </style>
 </head>
 <body>
@@ -194,12 +201,41 @@ function buildAlreadySubmittedHtml() {
   });
 }
 
-function buildSuccessHtml() {
+function buildGroupFullHtml() {
   return buildStatusPageHtml({
     title: 'Formulario completo',
-    message: 'Gracias — tu formulario de Sunset está completo. Puedes volver a WhatsApp.',
+    message: 'Ya se han completado todos los formularios de esta reserva. Puedes volver a WhatsApp.',
     tone: 'ok',
   });
+}
+
+function buildGroupNoticeHtml(summary) {
+  const s = summary && typeof summary === 'object' ? summary : {};
+  const target = s.target_count != null ? Number(s.target_count) : null;
+  const completed = s.completed_count != null ? Number(s.completed_count) : 0;
+  const progress = (target != null && Number.isFinite(target) && target > 0)
+    ? `<p class="group-progress"><strong>Completados: ${esc(completed)} / ${esc(target)}</strong></p>`
+    : '<p class="group-progress">Formulario de grupo</p>';
+  return `
+    <div class="card group-notice">
+      <p>Este enlace es para una reserva de grupo. Cada alumno debe completar el formulario una vez.</p>
+      ${progress}
+    </div>`;
+}
+
+function buildSuccessHtml(summary) {
+  const s = summary && typeof summary === 'object' ? summary : null;
+  let progressHtml = '';
+  if (s && s.request_mode === 'group' && s.target_count != null) {
+    const completed = s.completed_count != null ? s.completed_count : 0;
+    progressHtml = `<p class="muted" style="margin-top:12px">Formularios completados: ${esc(completed)} / ${esc(s.target_count)}</p>`;
+  }
+  return pageShell('Formulario completo', `
+    <div class="card">
+      <p class="status-title ok-msg">Gracias — tu formulario de Sunset está completo. Puedes volver a WhatsApp.</p>
+      ${progressHtml}
+    </div>
+  `);
 }
 
 function fieldLabelHtml(field) {
@@ -286,19 +322,22 @@ function renderCheckbox(field, checked) {
     </div>`;
 }
 
-function renderInscriptionSection(section, prefill, posted) {
+function renderInscriptionSection(section, prefill, posted, opts) {
+  const o = opts || {};
+  const groupMode = !!o.groupMode;
   const p = normalizePrefill(prefill);
   const body = posted || {};
   const fieldsHtml = (section.fields || []).map((field) => {
-    if (field.key === 'phone' && p.phone) return renderSavedRow('phone', p.phone);
-    if (field.key === 'email' && p.email) return renderSavedRow('email', p.email);
+    if (field.key === 'phone' && p.phone && !groupMode) return renderSavedRow('phone', p.phone);
+    if (field.key === 'email' && p.email && !groupMode) return renderSavedRow('email', p.email);
     let value = trimStr(body[field.key]);
-    if (!value) {
+    if (!value && !groupMode) {
       if (field.key === 'full_name') value = p.full_name;
       if (field.key === 'lesson_days') value = p.lesson_days;
       if (field.key === 'phone') value = p.phone;
       if (field.key === 'email') value = p.email;
     }
+    if (!value && groupMode && field.key === 'lesson_days') value = p.lesson_days;
     if (field.input_type === 'single_choice') return renderSingleChoice(field, value);
     return renderTextField(field, value);
   }).join('\n');
@@ -390,6 +429,8 @@ function buildPendingFormHtml(opts) {
   const posted = o.posted || {};
   const errors = Array.isArray(o.errors) ? o.errors : [];
   const actionPath = o.actionPath || '#';
+  const groupMode = !!o.groupMode;
+  const groupSummary = o.groupSummary || null;
   const p = normalizePrefill(prefill);
   const school = cfg.school || {};
   const address = (school.address_lines || []).map((l) => esc(l)).join('<br>');
@@ -408,6 +449,8 @@ function buildPendingFormHtml(opts) {
     ? `<div class="summary">${esc(p.summary)}</div>`
     : '';
 
+  const groupNoticeHtml = groupMode ? buildGroupNoticeHtml(groupSummary) : '';
+
   const body = `
     <header class="card">
       <h1>${esc(cfg.title || 'FICHA DE INSCRIPCIÓN - CLASES DE SURF')}</h1>
@@ -420,9 +463,10 @@ function buildPendingFormHtml(opts) {
       </div>
       ${summaryHtml}
     </header>
+    ${groupNoticeHtml}
     ${errorsHtml}
     <form method="POST" action="${esc(actionPath)}" novalidate>
-      ${renderInscriptionSection(inscription, prefill, posted)}
+      ${renderInscriptionSection(inscription, prefill, posted, { groupMode })}
       ${renderContractSection(contract, posted)}
       ${renderPrivacySection(privacy, posted)}
       <button class="submit" type="submit">Enviar formulario</button>
@@ -435,7 +479,9 @@ function buildPendingFormHtml(opts) {
 /**
  * Build raw_answers_json entries + validate required fields for POST.
  */
-function collectAndValidateAnswers(cfg, prefill, body) {
+function collectAndValidateAnswers(cfg, prefill, body, opts) {
+  const o = opts || {};
+  const groupMode = !!o.groupMode;
   const p = normalizePrefill(prefill);
   const b = body && typeof body === 'object' ? body : {};
   const answers = {};
@@ -459,24 +505,21 @@ function collectAndValidateAnswers(cfg, prefill, body) {
   const sections = cfg.sections || [];
   const inscription = sections.find((s) => s.id === 'inscription') || {};
   for (const field of inscription.fields || []) {
-    if (field.key === 'phone' && p.phone) {
+    if (field.key === 'phone' && p.phone && !groupMode) {
       put(field.key, field.label, p.phone, 'prefill');
       continue;
     }
-    if (field.key === 'email' && p.email) {
+    if (field.key === 'email' && p.email && !groupMode) {
       put(field.key, field.label, p.email, 'prefill');
       continue;
     }
     let value = trimStr(b[field.key]);
-    let source = 'user';
-    if (!value && field.key === 'full_name' && p.full_name && !trimStr(b.full_name)) {
-      // allow posted empty to fail required; only use prefill when user left default
-    }
+    const source = 'user';
     if (!value && field.key === 'full_name') value = trimStr(b.full_name);
     put(field.key, field.label, value, source);
     const requiredVisible = !!field.required
-      && !(field.key === 'phone' && p.phone)
-      && !(field.key === 'email' && p.email);
+      && !(field.key === 'phone' && p.phone && !groupMode)
+      && !(field.key === 'email' && p.email && !groupMode);
     if (requiredVisible && !value) {
       errors.push(`${field.number != null ? field.number + ' - ' : ''}${field.label}`);
     }
@@ -534,9 +577,9 @@ function collectAndValidateAnswers(cfg, prefill, body) {
     errors,
     answers,
     respondent: {
-      name: trimStr((answers.full_name && answers.full_name.value) || p.full_name) || null,
-      email: trimStr((answers.email && answers.email.value) || p.email) || null,
-      phone: trimStr((answers.phone && answers.phone.value) || p.phone) || null,
+      name: trimStr((answers.full_name && answers.full_name.value) || (!groupMode && p.full_name)) || null,
+      email: trimStr((answers.email && answers.email.value) || (!groupMode && p.email)) || null,
+      phone: trimStr((answers.phone && answers.phone.value) || (!groupMode && p.phone)) || null,
     },
   };
 }
@@ -563,6 +606,8 @@ module.exports = {
   buildInvalidLinkHtml,
   buildUnavailableLinkHtml,
   buildAlreadySubmittedHtml,
+  buildGroupFullHtml,
+  buildGroupNoticeHtml,
   buildSuccessHtml,
   buildPendingFormHtml,
   collectAndValidateAnswers,

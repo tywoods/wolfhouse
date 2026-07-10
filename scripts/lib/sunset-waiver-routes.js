@@ -5,6 +5,7 @@
  * GET/POST /forms/waiver/:token
  *
  * Tenant hard-scoped to sunset. No booking/customer ids in HTML.
+ * Group mode: same link accepts multiple student submissions until target_count.
  */
 
 const querystring = require('querystring');
@@ -12,13 +13,16 @@ const {
   SUNSET_TENANT_ID,
   isValidWaiverPublicId,
   getWaiverRequestByPublicId,
+  getWaiverSubmissionSummary,
   recordWaiverSubmission,
   loadWaiverFormConfig,
+  normalizeRequestMode,
 } = require('./sunset-waiver-model');
 const {
   buildInvalidLinkHtml,
   buildUnavailableLinkHtml,
   buildAlreadySubmittedHtml,
+  buildGroupFullHtml,
   buildSuccessHtml,
   buildPendingFormHtml,
   collectAndValidateAnswers,
@@ -56,6 +60,41 @@ function mergePrefill(request) {
   return normalizePrefill(merged);
 }
 
+function isGroupRequest(request) {
+  return normalizeRequestMode(request && request.request_mode) === 'group';
+}
+
+function groupIsFull(summary) {
+  if (!summary || summary.request_mode !== 'group') return false;
+  const target = summary.target_count;
+  if (target == null || !Number.isFinite(Number(target)) || Number(target) < 1) return false;
+  return Number(summary.completed_count || 0) >= Number(target);
+}
+
+/**
+ * Public access decision — never exposes submission PII.
+ * @returns {'form'|'already_submitted'|'group_full'|'unavailable'}
+ */
+function resolvePublicFormAccess(request, summary) {
+  if (!request) return 'unavailable';
+  if (request.status === 'revoked' || request.status === 'expired') return 'unavailable';
+
+  if (isGroupRequest(request)) {
+    if (groupIsFull(summary)) return 'group_full';
+    const target = summary && summary.target_count;
+    const completed = summary ? Number(summary.completed_count || 0) : 0;
+    if (target != null && Number.isFinite(Number(target)) && completed < Number(target)) {
+      return 'form';
+    }
+    if (request.status === 'pending' || request.status === 'needs_review') return 'form';
+    return 'unavailable';
+  }
+
+  if (request.status === 'completed') return 'already_submitted';
+  if (request.status === 'pending' || request.status === 'needs_review') return 'form';
+  return 'unavailable';
+}
+
 function sendWaiverHtml(res, statusCode, html, sendHTML) {
   if (typeof sendHTML === 'function') {
     return sendHTML(res, statusCode, html);
@@ -66,6 +105,18 @@ function sendWaiverHtml(res, statusCode, html, sendHTML) {
     'X-Powered-By': 'luna-sunset-staff-api/waiver-form',
   });
   return res.end(html);
+}
+
+function htmlForAccess(access) {
+  if (access === 'already_submitted') return buildAlreadySubmittedHtml();
+  if (access === 'group_full') return buildGroupFullHtml();
+  if (access === 'unavailable') return buildUnavailableLinkHtml();
+  return null;
+}
+
+async function loadRequestSummary(withPgClient, request) {
+  if (!request || !request.id) return null;
+  return withPgClient((pg) => getWaiverSubmissionSummary(pg, request.id, SUNSET_TENANT_ID));
 }
 
 async function handleWaiverGet(token, req, res, deps) {
@@ -93,21 +144,29 @@ async function handleWaiverGet(token, req, res, deps) {
   }
 
   const request = looked.request;
-  if (request.status === 'revoked' || request.status === 'expired') {
-    return sendWaiverHtml(res, 410, buildUnavailableLinkHtml(), sendHTML);
+  let summary = null;
+  try {
+    summary = await loadRequestSummary(withPgClient, request);
+  } catch (err) {
+    console.error('[sunset-waiver] GET summary failed', err && err.message);
+    return sendWaiverHtml(res, 500, buildInvalidLinkHtml(), sendHTML);
   }
-  if (request.status === 'completed') {
-    return sendWaiverHtml(res, 200, buildAlreadySubmittedHtml(), sendHTML);
-  }
-  if (request.status !== 'pending' && request.status !== 'needs_review') {
-    return sendWaiverHtml(res, 410, buildUnavailableLinkHtml(), sendHTML);
+
+  const access = resolvePublicFormAccess(request, summary);
+  const blockedHtml = htmlForAccess(access);
+  if (blockedHtml) {
+    const code = access === 'unavailable' ? 410 : 200;
+    return sendWaiverHtml(res, code, blockedHtml, sendHTML);
   }
 
   const cfg = loadWaiverFormConfig();
+  const groupMode = isGroupRequest(request);
   const html = buildPendingFormHtml({
     config: cfg,
     prefill: mergePrefill(request),
     actionPath: `/forms/waiver/${encodeURIComponent(token)}`,
+    groupMode,
+    groupSummary: summary,
   });
   return sendWaiverHtml(res, 200, html, sendHTML);
 }
@@ -123,7 +182,6 @@ function parseFormBody(raw, contentType) {
       return {};
     }
   }
-  // application/x-www-form-urlencoded (default for HTML forms)
   return querystring.parse(text);
 }
 
@@ -144,7 +202,6 @@ async function handleWaiverPost(token, req, res, deps) {
     return sendWaiverHtml(res, 400, buildInvalidLinkHtml(), sendHTML);
   }
   const body = parseFormBody(raw, req.headers && req.headers['content-type']);
-  // Never accept client-supplied tenant_id.
   delete body.tenant_id;
   delete body.tenantId;
 
@@ -164,16 +221,25 @@ async function handleWaiverPost(token, req, res, deps) {
   }
 
   const request = looked.request;
-  if (request.status === 'completed') {
-    return sendWaiverHtml(res, 200, buildAlreadySubmittedHtml(), sendHTML);
-  }
-  if (request.status === 'revoked' || request.status === 'expired') {
-    return sendWaiverHtml(res, 410, buildUnavailableLinkHtml(), sendHTML);
+  let summary = null;
+  try {
+    summary = await loadRequestSummary(withPgClient, request);
+  } catch (err) {
+    console.error('[sunset-waiver] POST summary failed', err && err.message);
+    return sendWaiverHtml(res, 500, buildInvalidLinkHtml(), sendHTML);
   }
 
+  const access = resolvePublicFormAccess(request, summary);
+  const blockedHtml = htmlForAccess(access);
+  if (blockedHtml) {
+    const code = access === 'unavailable' ? 410 : 200;
+    return sendWaiverHtml(res, code, blockedHtml, sendHTML);
+  }
+
+  const groupMode = isGroupRequest(request);
   const cfg = loadWaiverFormConfig();
   const prefill = mergePrefill(request);
-  const validated = collectAndValidateAnswers(cfg, prefill, body);
+  const validated = collectAndValidateAnswers(cfg, prefill, body, { groupMode });
   if (!validated.ok) {
     const html = buildPendingFormHtml({
       config: cfg,
@@ -181,6 +247,8 @@ async function handleWaiverPost(token, req, res, deps) {
       posted: body,
       errors: validated.errors,
       actionPath: `/forms/waiver/${encodeURIComponent(token)}`,
+      groupMode,
+      groupSummary: summary,
     });
     return sendWaiverHtml(res, 400, html, sendHTML);
   }
@@ -219,12 +287,18 @@ async function handleWaiverPost(token, req, res, deps) {
     return sendWaiverHtml(res, result.status || 500, buildInvalidLinkHtml(), sendHTML);
   }
 
-  return sendWaiverHtml(res, 200, buildSuccessHtml(), sendHTML);
+  if (result.idempotent) {
+    const postSummary = result.summary || summary;
+    const postAccess = resolvePublicFormAccess(result.request || request, postSummary);
+    const idempotentHtml = htmlForAccess(postAccess);
+    if (idempotentHtml) {
+      return sendWaiverHtml(res, 200, idempotentHtml, sendHTML);
+    }
+  }
+
+  return sendWaiverHtml(res, 200, buildSuccessHtml(result.summary || summary), sendHTML);
 }
 
-/**
- * Router hook: returns true if the request was handled.
- */
 async function tryHandleSunsetWaiverPublicRoute(pathname, method, req, res, deps) {
   const token = matchWaiverPublicPath(pathname);
   if (!token) return false;
@@ -250,4 +324,7 @@ module.exports = {
   tryHandleSunsetWaiverPublicRoute,
   parseFormBody,
   mergePrefill,
+  resolvePublicFormAccess,
+  isGroupRequest,
+  groupIsFull,
 };

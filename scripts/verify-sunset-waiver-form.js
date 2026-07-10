@@ -75,6 +75,9 @@ assert('success message', pageSrc.includes('Gracias — tu formulario de Sunset 
 assert('invalid message', pageSrc.includes('Este enlace no es válido o ha caducado.'));
 assert('unavailable message', pageSrc.includes('Este enlace ya no está disponible. Contacta con Sunset para recibir uno nuevo.'));
 assert('already submitted message', pageSrc.includes('Este formulario ya fue enviado. Puedes volver a WhatsApp.'));
+assert('group notice text', pageSrc.includes('Este enlace es para una reserva de grupo'));
+assert('group completed count text', pageSrc.includes('Completados:'));
+assert('group full message', pageSrc.includes('Ya se han completado todos los formularios de esta reserva'));
 assert('no production default host in page', !pageSrc.includes("https://sunset.lunafrontdesk.com"));
 assert('cream/navy styling', pageSrc.includes('--cream') && pageSrc.includes('--navy'));
 
@@ -83,6 +86,9 @@ assert('GET handler', routesSrc.includes('handleWaiverGet'));
 assert('POST handler', routesSrc.includes('handleWaiverPost'));
 assert('calls recordWaiverSubmission', routesSrc.includes('recordWaiverSubmission'));
 assert('calls getWaiverRequestByPublicId', routesSrc.includes('getWaiverRequestByPublicId'));
+assert('calls getWaiverSubmissionSummary', routesSrc.includes('getWaiverSubmissionSummary'));
+assert('resolvePublicFormAccess exported', routesSrc.includes('resolvePublicFormAccess'));
+assert('group full page wired', routesSrc.includes('buildGroupFullHtml'));
 assert('tenant hard-coded sunset', routesSrc.includes("SUNSET_TENANT_ID") && routesSrc.includes("delete body.tenant_id"));
 assert('WAIVER_PUBLIC_PATH_RE', routesSrc.includes('WAIVER_PUBLIC_PATH_RE'));
 assert('no production default in routes', !routesSrc.includes("https://sunset.lunafrontdesk.com"));
@@ -158,6 +164,87 @@ assert('validation passes with required set + prefilled contact', okish.ok === t
 assert('prefill phone source', okish.answers.phone && okish.answers.phone.source === 'prefill');
 assert('prefill email source', okish.answers.email && okish.answers.email.source === 'prefill');
 assert('user dni source', okish.answers.dni && okish.answers.dni.source === 'user');
+
+console.log('\n[6] group mode page generation');
+const group0Html = page.buildPendingFormHtml({
+  config: cfg,
+  prefill: { phone: '+34600111222', email: 'org@example.com', full_name: 'Organizer Name' },
+  actionPath: '/forms/waiver/waiv_group01',
+  groupMode: true,
+  groupSummary: { request_mode: 'group', target_count: 20, completed_count: 0, remaining_count: 20 },
+});
+assert('group 0/20 notice', group0Html.includes('Completados: 0 / 20'));
+assert('group notice intro', group0Html.includes('Cada alumno debe completar el formulario una vez'));
+assert('group shows editable phone', /<input[^>]*name="phone"[^>]*type="tel"/i.test(group0Html));
+assert('group shows editable email', /<input[^>]*name="email"[^>]*type="email"/i.test(group0Html));
+assert('group does not hide organizer phone as saved row',
+  !group0Html.includes('Teléfono: ya guardado desde WhatsApp'));
+assert('group does not prefill organizer name in input',
+  !group0Html.includes('value="Organizer Name"'));
+
+const group7Html = page.buildPendingFormHtml({
+  config: cfg,
+  prefill: { phone: '+34600111222', email: 'org@example.com' },
+  actionPath: '/forms/waiver/waiv_group01',
+  groupMode: true,
+  groupSummary: { request_mode: 'group', target_count: 20, completed_count: 7, remaining_count: 13 },
+});
+assert('group 7/20 still renders form', group7Html.includes('<form method="POST"'));
+assert('group 7/20 progress', group7Html.includes('Completados: 7 / 20'));
+assert('group 7/20 no leaked student names',
+  !group7Html.includes('Student One') && !group7Html.includes('12345678Z'));
+
+const groupFullHtml = page.buildGroupFullHtml();
+assert('group full page copy', groupFullHtml.includes('Ya se han completado todos los formularios'));
+
+const groupSuccessHtml = page.buildSuccessHtml({
+  request_mode: 'group', target_count: 20, completed_count: 8,
+});
+assert('group success progress line', groupSuccessHtml.includes('Formularios completados: 8 / 20'));
+
+const groupValidate = page.collectAndValidateAnswers(cfg, {
+  phone: '+34600111222',
+  email: 'org@example.com',
+}, {
+  full_name: 'Student One',
+  phone: '+34600999888',
+  email: 'student@example.com',
+  age: '16',
+  dni: '12345678Z',
+  lesson_days: '23 julio',
+  guardian_full_name: 'Parent Test',
+  accident_insurance: 'yes_accident_insurance',
+  accept_contract_conditions: 'yes',
+  express_consent_purposes: ['Realizar labores formativas.'],
+  accept_personal_data_conditions: 'yes',
+}, { groupMode: true });
+assert('group validation uses student phone not organizer prefill',
+  groupValidate.ok === true && groupValidate.answers.phone.value === '+34600999888'
+  && groupValidate.answers.phone.source === 'user');
+assert('group validation uses student email',
+  groupValidate.answers.email.value === 'student@example.com'
+  && groupValidate.answers.email.source === 'user');
+
+assert('resolvePublicFormAccess group partial allows form',
+  routes.resolvePublicFormAccess(
+    { status: 'pending', request_mode: 'group' },
+    { request_mode: 'group', target_count: 20, completed_count: 7 },
+  ) === 'form');
+assert('resolvePublicFormAccess group full blocks',
+  routes.resolvePublicFormAccess(
+    { status: 'completed', request_mode: 'group' },
+    { request_mode: 'group', target_count: 20, completed_count: 20 },
+  ) === 'group_full');
+assert('resolvePublicFormAccess single completed blocks',
+  routes.resolvePublicFormAccess({ status: 'completed', request_mode: 'single' }, null) === 'already_submitted');
+assert('resolvePublicFormAccess group status completed but room left allows form',
+  routes.resolvePublicFormAccess(
+    { status: 'completed', request_mode: 'group' },
+    { request_mode: 'group', target_count: 20, completed_count: 7 },
+  ) === 'form');
+
+assert('routes omit token_hash from HTML builders', !routesSrc.includes('token_hash') || !/buildPendingFormHtml[\s\S]{0,200}token_hash/.test(routesSrc));
+assert('page omit token_hash', !pageSrc.includes('token_hash'));
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
