@@ -2,11 +2,11 @@
   "_meta": {
     "client_slug": "sunset",
     "tenant_id": "sunset",
-    "form_version": "sunset_google_form_v1_draft_from_screenshots",
-    "needs_legal_copy_confirmation": true,
-    "source": "transcribed_from_whatsapp_screenshots",
-    "status": "BLOCKED_FOR_LEGAL_COPY_CONFIRMATION",
-    "status_note": "Draft transcription from WhatsApp screenshots. Do not use for production deploy until Sunset confirms this wording or supplies the original Google Form text export. On confirmation, set form_version to sunset_google_form_v1_confirmed and needs_legal_copy_confirmation to false.",
+    "form_version": "sunset_google_form_v1_confirmed",
+    "needs_legal_copy_confirmation": false,
+    "source": "copy_pasted_from_google_form_cleaned_typos",
+    "status": "confirmed_google_form_copy",
+    "status_note": "Confirmed Google Form copy (copy-pasted), with Google Forms UI junk removed and obvious typos cleaned only. Legal meaning unchanged. Product/legal review note: field 7 guardian authorization (NOMBRE Y APELLIDOS Padre/madre/tutor) is required in the Google Form even under MENORES DE EDAD — preserved as required for now.",
     "language": "es",
     "layout": "one_mobile_friendly_page",
     "google_form_stages_as_sections": 3,
@@ -50,7 +50,7 @@
           "key": "age",
           "number": 2,
           "label": "EDAD",
-          "required": false,
+          "required": true,
           "input_type": "text"
         },
         {
@@ -96,8 +96,9 @@
           {
             "key": "guardian_full_name",
             "label": "NOMBRE Y APELLIDOS (Padre / madre / tutor legal):",
-            "required": false,
-            "input_type": "text"
+            "required": true,
+            "input_type": "text",
+            "required_note": "Required in confirmed Google Form even under MENORES DE EDAD; preserved pending product/legal review."
           },
           {
             "key": "guardian_dni",

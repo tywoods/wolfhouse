@@ -487,6 +487,9 @@ function collectAndValidateAnswers(cfg, prefill, body) {
     for (const field of minor.fields || []) {
       const value = trimStr(b[field.key]);
       put(field.key, field.label, value, 'user');
+      if (field.required && !value) {
+        errors.push(field.label);
+      }
     }
   }
 

@@ -31,7 +31,7 @@ const i18n = fs.readFileSync(I18N, 'utf8');
 const i18nEs = fs.readFileSync(I18N_ES, 'utf8');
 
 console.log('[1] config gate');
-assert('BLOCKED_FOR_LEGAL_COPY_CONFIRMATION', cfg._meta.status === 'BLOCKED_FOR_LEGAL_COPY_CONFIRMATION');
+assert('confirmed_google_form_copy', cfg._meta.status === 'confirmed_google_form_copy');
 
 console.log('\n[2] staff module');
 assert('createOrGetBookingWaiver uses createWaiverRequest', staffSrc.includes('createWaiverRequest'));
@@ -91,7 +91,7 @@ const safe = staff.staffSafeWaiver({
   token_hash: 'SHOULD_NOT_LEAK',
   status: 'pending',
   form_type: 'sunset_lesson_waiver',
-  form_version: 'sunset_google_form_v1_draft_from_screenshots',
+  form_version: 'sunset_google_form_v1_confirmed',
   created_at: '2026-07-10',
 }, null, 'https://sunset-staging.lunafrontdesk.com');
 assert('safe url staging', safe.public_url === 'https://sunset-staging.lunafrontdesk.com/forms/waiver/waiv_test123abc');

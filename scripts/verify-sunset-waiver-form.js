@@ -41,9 +41,9 @@ assert('routes module exists', fs.existsSync(ROUTES));
 assert('staff-query-api.js exists', fs.existsSync(API));
 assert('config exists', fs.existsSync(CONFIG));
 const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
-assert('BLOCKED_FOR_LEGAL_COPY_CONFIRMATION', cfg._meta.status === 'BLOCKED_FOR_LEGAL_COPY_CONFIRMATION');
-assert('needs_legal_copy_confirmation', cfg._meta.needs_legal_copy_confirmation === true);
-assert('draft form_version', cfg._meta.form_version === 'sunset_google_form_v1_draft_from_screenshots');
+assert('confirmed_google_form_copy', cfg._meta.status === 'confirmed_google_form_copy');
+assert('needs_legal_copy_confirmation false', cfg._meta.needs_legal_copy_confirmation === false);
+assert('confirmed form_version', cfg._meta.form_version === 'sunset_google_form_v1_confirmed');
 
 const apiSrc = fs.readFileSync(API, 'utf8');
 const pageSrc = fs.readFileSync(PAGE, 'utf8');
@@ -145,8 +145,10 @@ const okish = page.collectAndValidateAnswers(cfg, {
   email: 'a@b.co',
 }, {
   full_name: 'Test Guest',
+  age: '28',
   dni: '12345678A',
   lesson_days: '23 julio',
+  guardian_full_name: 'Parent Test',
   accident_insurance: 'yes_accident_insurance',
   accept_contract_conditions: 'yes',
   express_consent_purposes: ['Realizar labores formativas.'],
@@ -160,4 +162,4 @@ assert('user dni source', okish.answers.dni && okish.answers.dni.source === 'use
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
 console.log('OK  verify:sunset-waiver-form');
-console.log('\nLegal/product note: express_consent_purposes is required=true in config (Google Form behavior preserved). Review whether opt-in marketing consents should remain mandatory before production.');
+console.log('\nLegal/product notes: (1) express_consent_purposes required=true (Google Form preserved). (2) guardian_full_name required under MENORES DE EDAD (Google Form preserved; product/legal review).');

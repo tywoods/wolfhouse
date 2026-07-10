@@ -47,8 +47,8 @@ const cfg = JSON.parse(fs.readFileSync(CONFIG, 'utf8'));
 const pkg = JSON.parse(fs.readFileSync(PKG, 'utf8'));
 
 console.log('[1] legal gate');
-assert('BLOCKED_FOR_LEGAL_COPY_CONFIRMATION', cfg._meta.status === 'BLOCKED_FOR_LEGAL_COPY_CONFIRMATION');
-assert('needs_legal_copy_confirmation true', cfg._meta.needs_legal_copy_confirmation === true);
+assert('confirmed_google_form_copy', cfg._meta.status === 'confirmed_google_form_copy');
+assert('needs_legal_copy_confirmation false', cfg._meta.needs_legal_copy_confirmation === false);
 
 console.log('\n[2] ensureWaiverForBooking helper');
 assert('ensureWaiverForBooking exported', bookingSrc.includes('function ensureWaiverForBooking'));

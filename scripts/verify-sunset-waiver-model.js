@@ -46,14 +46,14 @@ try {
 }
 if (cfg && cfg._meta) {
   assert(
-    'form_version draft_from_screenshots',
-    cfg._meta.form_version === 'sunset_google_form_v1_draft_from_screenshots',
+    'form_version confirmed',
+    cfg._meta.form_version === 'sunset_google_form_v1_confirmed',
     cfg._meta.form_version,
   );
-  assert('needs_legal_copy_confirmation true', cfg._meta.needs_legal_copy_confirmation === true);
+  assert('needs_legal_copy_confirmation false', cfg._meta.needs_legal_copy_confirmation === false);
   assert(
-    'BLOCKED_FOR_LEGAL_COPY_CONFIRMATION',
-    cfg._meta.status === 'BLOCKED_FOR_LEGAL_COPY_CONFIRMATION',
+    'confirmed_google_form_copy',
+    cfg._meta.status === 'confirmed_google_form_copy',
   );
 }
 
@@ -141,8 +141,8 @@ assert('resolveWaiverPublicBaseUrl respects STAFF_PUBLIC_BASE_URL',
 const loaded = loadWaiverFormConfig();
 assert('loadWaiverFormConfig works', !!(loaded && loaded._meta));
 assert(
-  'getWaiverFormVersionFromConfig draft',
-  getWaiverFormVersionFromConfig(loaded) === 'sunset_google_form_v1_draft_from_screenshots',
+  'getWaiverFormVersionFromConfig confirmed',
+  getWaiverFormVersionFromConfig(loaded) === 'sunset_google_form_v1_confirmed',
 );
 
 assert('createWaiverRequest exported', typeof createWaiverRequest === 'function');
