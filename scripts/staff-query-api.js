@@ -24114,10 +24114,14 @@ function scheduleCreateDrawerStripeLink(row){
         .then(function(r2){ return r2.json(); });
     })
     .then(function(ctxData){
-      if (ctxData && ctxData.success) scheduleUpdateDrawerPaymentFromContext(ctxData);
-      if (msg){ msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.stripeCreated'); msg.style.display = 'block'; }
-      var stripeBtn = el('ps-drawer-stripe-link');
-      if (stripeBtn) stripeBtn.textContent = portalT('schedule.drawer.stripeRegenerate');
+      // Refresh the whole drawer body from fresh context so the new link appears and its
+      // copy/open/regenerate buttons are re-wired (the create button lives in the payment area).
+      if (ctxData && ctxData.success && scheduleDrawerState && scheduleDrawerState.row){
+        scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctxData);
+        scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
+      }
+      var m2 = el('ps-drawer-stripe-msg');
+      if (m2){ m2.className = 'state-msg success'; m2.textContent = portalT('schedule.drawer.stripeCreated'); m2.style.display = 'block'; }
     })
     .catch(function(err){
       if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.stripeFailed') + ' ' + err.message; msg.style.display = 'block'; }
