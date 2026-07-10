@@ -205,14 +205,21 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
       waiver_status: inp.waiver.status,
     });
   } else if (inp.waiver_status || inp.waiver_public_url) {
+    const guestCount = Number(inp.guest_count) || 1;
+    const isGroup = guestCount > 1 || inp.expected_request_mode === 'group';
     waiverBody = attachLunaWaiverFields({
       success: true,
-      guest_count: inp.guest_count || 1,
-      multi_student_note: inp.multi_student_note || null,
+      guest_count: guestCount,
+      expected_request_mode: isGroup ? 'group' : 'single',
+      target_count: inp.target_count != null ? inp.target_count : (isGroup ? guestCount : null),
+      completed_count: inp.completed_count != null ? inp.completed_count : 0,
       waiver_status: inp.waiver_status || 'pending',
       waiver: {
         status: inp.waiver_status || 'pending',
         public_url: inp.waiver_public_url || null,
+        request_mode: isGroup ? 'group' : 'single',
+        target_count: inp.target_count != null ? inp.target_count : (isGroup ? guestCount : null),
+        completed_count: inp.completed_count != null ? inp.completed_count : 0,
       },
     });
   } else if (
@@ -237,7 +244,7 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
         : 'invite'
     );
     proposedReply = composeLunaWaiverReply(waiverBody, mode);
-    proposedNextAction = isLessonReadyForGuest(waiverBody.waiver && waiverBody.waiver.status)
+    proposedNextAction = waiverBody.lesson_ready === true
       ? 'waiver_completed'
       : 'send_waiver_link';
     lessonReady = waiverBody.lesson_ready === true;

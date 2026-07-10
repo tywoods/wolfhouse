@@ -67,46 +67,105 @@ function resolveWaiverLane(waiverStatus) {
   return s;
 }
 
+function resolveWaiverCounts(input) {
+  const src = input || {};
+  const waiver = src.waiver || {};
+  const target = waiver.target_count != null
+    ? Number(waiver.target_count)
+    : (src.target_count != null ? Number(src.target_count) : null);
+  const completed = waiver.completed_count != null
+    ? Number(waiver.completed_count)
+    : (src.completed_count != null ? Number(src.completed_count) : 0);
+  return {
+    target: Number.isFinite(target) ? target : null,
+    completed: Number.isFinite(completed) ? completed : 0,
+  };
+}
+
+function isGroupWaiver(input) {
+  const src = input || {};
+  const waiver = src.waiver || {};
+  if (waiver.request_mode === 'group') return true;
+  if (src.expected_request_mode === 'group') return true;
+  const guestCount = Number(
+    src.guest_count != null ? src.guest_count : waiver.guest_count,
+  ) || 1;
+  return guestCount > 1;
+}
+
 /**
  * Spanish guest copy — invite to complete hosted form.
  */
 function buildLunaWaiverInviteMessage(input) {
   const src = input || {};
   const link = trimStr(src.public_url || src.publicUrl || (src.waiver && src.waiver.public_url));
-  const guestCount = Number(
-    src.guest_count != null ? src.guest_count : (src.waiver && src.guest_count),
-  ) || 1;
-  const note = src.multi_student_note
-    || (guestCount > 1
-      ? 'Comparte este enlace con el grupo. Cada alumno debe completar el formulario una vez.'
-      : null);
+  const isGroup = isGroupWaiver(src);
+  const { target, completed } = resolveWaiverCounts(src);
+
+  if (isGroup) {
+    let msg = 'Perfecto — para este grupo, aquí tienes un solo enlace de Sunset que puedes enviar a todos los alumnos.\n\nCada alumno debe abrir el mismo enlace y completar su formulario antes de la clase:';
+    if (link) msg += `\n${link}`;
+    msg += '\n\nIré controlando cuántos formularios están completos.';
+    if (target != null && target > 0 && completed > 0 && completed < target) {
+      msg += `\n\nVan ${completed} de ${target} formularios completos.`;
+    }
+    return msg;
+  }
 
   let msg = 'Perfecto — para terminar la inscripción, Sunset necesita un formulario rápido de seguro y responsabilidad antes de la clase. Ya he rellenado lo que sabemos, así que solo debería llevar unos 2 minutos:';
   if (link) msg += `\n${link}`;
-  if (note) msg += `\n\n${note}`;
   return msg;
 }
 
-function buildLunaWaiverCompletedMessage() {
+function buildLunaWaiverCompletedMessage(input) {
+  const src = input || {};
+  if (isGroupWaiver(src)) {
+    const { target } = resolveWaiverCounts(src);
+    const guestCount = Number(src.guest_count) || 1;
+    const n = (target != null && target > 0) ? target : guestCount;
+    return `Perfecto, ya están completos los ${n} formularios del grupo. Queda registrado para la clase 🌊`;
+  }
   return 'Perfecto, tu formulario de Sunset está completo. Ya queda registrado para la clase 🌊';
 }
 
 function buildLunaWaiverPendingReminderMessage(input) {
-  const link = trimStr((input && (input.public_url || input.publicUrl))
-    || (input && input.waiver && input.waiver.public_url));
+  const src = input || {};
+  const link = trimStr((src.public_url || src.publicUrl)
+    || (src.waiver && src.waiver.public_url));
+  const isGroup = isGroupWaiver(src);
+  const { target, completed } = resolveWaiverCounts(src);
+
+  if (isGroup) {
+    let msg = 'Todavía faltan formularios del grupo antes de la clase.';
+    if (target != null && target > 0) {
+      msg += ` Van ${completed} de ${target} completos.`;
+    }
+    msg += ' Puedes reenviar este mismo enlace a los alumnos que falten:';
+    if (link) msg += `\n${link}`;
+    return msg;
+  }
+
   let msg = 'Te falta completar el formulario de inscripción de Sunset antes de la clase. Te lo dejo aquí otra vez:';
   if (link) msg += `\n${link}`;
   return msg;
 }
 
+function buildLunaWaiverProgressMessage(input) {
+  const { target, completed } = resolveWaiverCounts(input);
+  if (target == null || target < 1) return null;
+  if (completed >= target) return null;
+  return `Van ${completed} de ${target} formularios completos.`;
+}
+
 /**
  * Gate “ready for lesson” wording — never claim ready while waiver pending.
  */
-function buildLunaLessonReadyMessage(waiverStatus) {
-  if (isLessonReadyForGuest(waiverStatus)) {
-    return buildLunaWaiverCompletedMessage();
-  }
-  return null;
+function buildLunaLessonReadyMessage(waiverOrStatus) {
+  if (!isLessonReadyForGuest(waiverOrStatus)) return null;
+  const payload = (waiverOrStatus && typeof waiverOrStatus === 'object')
+    ? { waiver: waiverOrStatus }
+    : null;
+  return buildLunaWaiverCompletedMessage(payload);
 }
 
 /**
@@ -116,21 +175,25 @@ function buildLunaLessonReadyMessage(waiverStatus) {
 function composeLunaWaiverReply(body, mode) {
   const b = body || {};
   const waiver = b.waiver || null;
-  const status = waiver ? waiver.status : (b.waiver_status || 'missing');
-  const lane = resolveWaiverLane(status);
   const m = String(mode || 'invite').toLowerCase();
   const urlPayload = {
     public_url: waiver && waiver.public_url,
     guest_count: b.guest_count,
-    multi_student_note: b.multi_student_note,
+    expected_request_mode: b.expected_request_mode,
+    target_count: b.target_count,
+    completed_count: b.completed_count,
     waiver,
   };
 
-  if (lane === 'completed') {
-    return buildLunaWaiverCompletedMessage();
+  if (isLessonReadyForGuest(waiver || (b.waiver_status || 'missing'))) {
+    return buildLunaWaiverCompletedMessage(urlPayload);
   }
   if (m === 'reminder') {
     return buildLunaWaiverPendingReminderMessage(urlPayload);
+  }
+  if (m === 'status') {
+    const progress = buildLunaWaiverProgressMessage(urlPayload);
+    if (progress) return progress;
   }
   return buildLunaWaiverInviteMessage(urlPayload);
 }
@@ -183,9 +246,12 @@ module.exports = {
   buildLunaWaiverInviteMessage,
   buildLunaWaiverCompletedMessage,
   buildLunaWaiverPendingReminderMessage,
+  buildLunaWaiverProgressMessage,
   buildLunaLessonReadyMessage,
   composeLunaWaiverReply,
   attachLunaWaiverFields,
+  isGroupWaiver,
+  resolveWaiverCounts,
   multiStudentNote,
   resolveGuestCount,
   getBookingWaiverStatus,

@@ -81,21 +81,65 @@ assert('invite contains /forms/waiver/', invite.includes('/forms/waiver/'));
 assert('invite contains staging hostname', invite.includes('sunset-staging.lunafrontdesk.com'));
 assert('invite Spanish lead-in', invite.includes('formulario rápido de seguro y responsabilidad'));
 assert('invite has link line', invite.includes(sampleUrl));
+assert('single invite no group wording', !invite.includes('un solo enlace') && !invite.includes('todos los alumnos'));
 
-const multi = buildLunaWaiverInviteMessage({ public_url: sampleUrl, guest_count: 3 });
-assert('quantity > 1 adds group share note', multi.includes('Comparte este enlace con el grupo'));
+const groupInvite = buildLunaWaiverInviteMessage({
+  public_url: sampleUrl,
+  guest_count: 20,
+  waiver: { request_mode: 'group', target_count: 20, completed_count: 0 },
+});
+assert('group invite un solo enlace', groupInvite.includes('un solo enlace'));
+assert('group invite enviar a todos los alumnos', groupInvite.includes('enviar a todos los alumnos'));
+assert('group invite mismo enlace', groupInvite.includes('Cada alumno debe abrir el mismo enlace'));
+assert('group invite tracking line', groupInvite.includes('Iré controlando cuántos formularios están completos'));
+assert('group invite has link', groupInvite.includes(sampleUrl));
+assert('group invite 0/20 omits Van line', !groupInvite.includes('Van 0 de 20'));
 
-const completed = buildLunaWaiverCompletedMessage();
-assert('completed copy', completed.includes('formulario de Sunset está completo'));
-assert('completed allows ready wording', /registrado para la clase/i.test(completed));
+const groupPartialInvite = buildLunaWaiverInviteMessage({
+  public_url: sampleUrl,
+  guest_count: 20,
+  waiver: { request_mode: 'group', target_count: 20, completed_count: 7 },
+});
+assert('group partial progress Van 7 de 20', groupPartialInvite.includes('Van 7 de 20 formularios completos'));
 
-const reminder = buildLunaWaiverPendingReminderMessage({ public_url: sampleUrl });
+const groupProgress = composeLunaWaiverReply({
+  guest_count: 20,
+  waiver: { status: 'pending', request_mode: 'group', target_count: 20, completed_count: 7, public_url: sampleUrl },
+}, 'status');
+assert('status mode progress copy', groupProgress === 'Van 7 de 20 formularios completos.');
+
+const completedSingle = buildLunaWaiverCompletedMessage({ guest_count: 1, waiver: { request_mode: 'single' } });
+assert('completed single copy', completedSingle.includes('tu formulario de Sunset está completo'));
+
+const completedGroup = buildLunaWaiverCompletedMessage({
+  guest_count: 20,
+  waiver: { request_mode: 'group', target_count: 20, completed_count: 20 },
+});
+assert('completed group copy', completedGroup.includes('ya están completos los 20 formularios del grupo'));
+assert('completed group ready wording', /Queda registrado para la clase/i.test(completedGroup));
+
+const reminder = buildLunaWaiverPendingReminderMessage({ public_url: sampleUrl, guest_count: 1 });
 assert('pending reminder copy', reminder.includes('Te falta completar') && reminder.includes(sampleUrl));
+assert('single reminder no group wording', !reminder.includes('formularios del grupo'));
+
+const groupReminder = buildLunaWaiverPendingReminderMessage({
+  public_url: sampleUrl,
+  guest_count: 20,
+  waiver: { request_mode: 'group', target_count: 20, completed_count: 7 },
+});
+assert('group reminder same link', groupReminder.includes('reenviar este mismo enlace') && groupReminder.includes(sampleUrl));
+assert('group reminder progress', groupReminder.includes('Van 7 de 20 completos'));
+
+assert('obsolete v1 copy absent in booking helper',
+  !bookingSrc.includes('formulario principal de la reserva')
+  && !bookingSrc.includes('formularios por alumno vendrán después'));
 
 assert('pending is not lesson-ready', isLessonReadyForGuest('pending') === false);
 assert('completed is lesson-ready', isLessonReadyForGuest('completed') === true);
 assert('group partial not lesson-ready',
   isLessonReadyForGuest({ request_mode: 'group', target_count: 20, completed_count: 7, status: 'pending' }) === false);
+assert('group missing target not lesson-ready',
+  isLessonReadyForGuest({ request_mode: 'group', completed_count: 5, status: 'pending' }) === false);
 assert('group full is lesson-ready',
   isLessonReadyForGuest({ request_mode: 'group', target_count: 20, completed_count: 20, status: 'completed' }) === true);
 assert('single completed object is lesson-ready',
@@ -131,8 +175,15 @@ const doneBody = attachLunaWaiverFields({
   guest_count: 1,
   waiver: { status: 'completed', public_url: sampleUrl, request_mode: 'single', completed_count: 1 },
 });
-assert('completed permits ready wording', /Ya queda registrado para la clase/i.test(doneBody.luna_waiver_message));
+assert('completed permits ready wording', /Queda registrado para la clase/i.test(doneBody.luna_waiver_message));
+assert('completed single wording not group plural', !doneBody.luna_waiver_message.includes('formularios del grupo'));
 assert('completed lesson_ready true', doneBody.lesson_ready === true);
+
+const groupDoneReply = composeLunaWaiverReply({
+  guest_count: 20,
+  waiver: { status: 'completed', public_url: sampleUrl, request_mode: 'group', target_count: 20, completed_count: 20 },
+}, 'invite');
+assert('group done reply uses group completed copy', groupDoneReply.includes('formularios del grupo'));
 
 console.log('\n[4] prefill phone/email/name');
 assert('staff prefill includes phone', staffSrc.includes('phone:') || staffSrc.includes('phone ='));
