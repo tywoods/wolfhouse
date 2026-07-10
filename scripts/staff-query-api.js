@@ -16865,6 +16865,9 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-admin.active{display:block}
 #tab-admin{--admin-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--admin-serif);-webkit-font-smoothing:antialiased}
 #tab-admin input,#tab-admin textarea,#tab-admin select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+/* Camps, Lessons and Services tab — same serif house style as Admin/Customers (form inputs stay sans). */
+#tab-services{--svc-serif:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif;font-family:var(--svc-serif);-webkit-font-smoothing:antialiased}
+#tab-services input,#tab-services textarea,#tab-services select{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
 #tab-admin .portal-admin-section-hdr,#tab-admin .portal-admin-subsection-title,#tab-admin .portal-admin-pack-title,#tab-admin .portal-admin-price-title,#tab-admin .portal-admin-lesson-title{font-family:var(--admin-serif)}
 #tab-admin .btn,#tab-admin .portal-admin-pill{font-family:inherit}
 
