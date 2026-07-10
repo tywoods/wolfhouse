@@ -303,6 +303,7 @@ const {
 const {
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
+  cancelSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
 const {
   SUNSET_LOCATIONS,
@@ -16921,6 +16922,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-manual-pay-note{margin-top:8px}
 .portal-schedule-add-session-btn{margin-top:8px;font-size:12px;padding:5px 12px}
 .portal-schedule-refresh-btn{padding:6px 11px;font-size:16px;line-height:1;font-weight:700}
+.portal-schedule-drawer-topbar{display:flex;justify-content:flex-end;gap:8px;margin-bottom:12px}
+.portal-schedule-delete-booking-btn{background:rgba(180,83,74,.10);border:1px solid rgba(180,83,74,.30);color:#9C4A42}
+.portal-schedule-delete-booking-btn:hover{background:rgba(180,83,74,.18);border-color:rgba(180,83,74,.45)}
+.portal-schedule-drawer-danger-row{display:flex;justify-content:flex-end;margin-top:18px;padding-top:14px;border-top:1px solid var(--border-soft)}
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
@@ -18732,7 +18737,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 </div>
 <div id="ps-drawer-backdrop" class="portal-schedule-drawer-backdrop" style="display:none"></div>
 <div id="ps-detail-drawer" class="portal-schedule-drawer" style="display:none">
-  <button type="button" class="btn btn-ghost" id="ps-drawer-close" style="margin-bottom:12px" data-i18n="schedule.drawer.close">Close</button>
+  <div class="portal-schedule-drawer-topbar">
+    <button type="button" class="btn btn-ghost portal-schedule-refresh-btn" id="ps-drawer-refresh" data-i18n-title="schedule.refresh" title="Refresh" aria-label="Refresh">&#8635;</button>
+    <button type="button" class="btn btn-ghost" id="ps-drawer-close" data-i18n="schedule.drawer.close">Close</button>
+  </div>
   <div id="ps-drawer-body"></div>
 </div>
 </div><!-- /tab-portal-home -->
@@ -23439,18 +23447,12 @@ function renderScheduleWeekGrid(profile, weekData, rangeStart){
 
 function renderScheduleNext30Grid(profile, monthData, box, rangeStart){
   if (!box) return;
+  // Same rich cards as the Week view, just 30 of them (staff prefer these over the mini calendar).
   monthData = scheduleFilterFutureWeekData(monthData);
-  box.className = 'portal-schedule-next30-forecast';
-  box.style.gridTemplateColumns = '';
+  box.className = 'portal-schedule-week-forecast';
+  box.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
   var today = scheduleTodayIso();
-  var cellsHtml = '';
-  scheduleWeekdayShortLabels().forEach(function(lbl){
-    cellsHtml += '<div class="portal-schedule-next30-dow">' + escHtml(lbl) + '</div>';
-  });
-  var lead = (rangeStart.getDay() + 6) % 7;
-  for (var b = 0; b < lead; b++){
-    cellsHtml += '<div class="portal-schedule-next30-blank" aria-hidden="true"></div>';
-  }
+  var html = '';
   var rendered = 0;
   for (var i = 0; i < 30; i++){
     var d = scheduleAddDays(rangeStart, i);
@@ -23458,17 +23460,10 @@ function renderScheduleNext30Grid(profile, monthData, box, rangeStart){
     if (iso < today) continue;
     var pack = (monthData || []).find(function(x){ return x.dateIso === iso; }) ||
       { lessons: [], gear: [], rows: [] };
-    cellsHtml += scheduleRenderNext30ForecastCard(pack, iso, scheduleLessonTimesCache);
+    html += scheduleRenderWeekForecastCard(pack, iso, scheduleLessonTimesCache, profile);
     rendered += 1;
   }
-  if (!rendered){
-    box.innerHTML = '<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>';
-    return;
-  }
-  box.innerHTML = '<div class="portal-schedule-next30-wrap">' +
-    '<div class="portal-schedule-next30-grid">' + cellsHtml + '</div>' +
-    scheduleRenderHeatLegend() +
-    '</div>';
+  box.innerHTML = rendered ? html : ('<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>');
   scheduleWireOpsBoardClicks(box);
 }
 
@@ -23566,6 +23561,14 @@ function scheduleDrawerSectionHtml(titleKey, innerHtml){
     innerHtml + '</section>';
 }
 
+// Soft-red "Delete booking" row, pinned bottom-right of the drawer.
+function scheduleRenderDeleteBookingRowHtml(ctx){
+  if (!(ctx && ctx.booking_id)) return '';
+  return '<div class="portal-schedule-drawer-danger-row">' +
+    '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
+    escHtml(portalT('schedule.drawer.deleteBooking')) + '</button></div>';
+}
+
 function scheduleFormatComponentsView(comps){
   if (!comps || typeof comps !== 'object') return '—';
   var parts = [];
@@ -23610,14 +23613,14 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
     html += '<p class="portal-schedule-card-sub" style="margin:0">' + escHtml(portalT('schedule.drawer.school') + ': ' + scheduleResolveDrawerSchoolLabel(ctx, row)) + '</p>';
   }
   html += '</div>';
-  // One consolidated "Booking details" card (guest + dates + what's included).
+  // One consolidated "Booking details" card (guest + dates). "What's included" is omitted here —
+  // the payment section right below already lists the same line items.
   html += scheduleDrawerSectionHtml('schedule.drawer.section.booking',
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.guestName')) + ':</strong> ' + escHtml(ctx.guest_name || '—') + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(row)) + '</p>' +
     '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateFrom')) + ':</strong> ' + escHtml(ctx.date_from || '—') + '</p>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>' +
-    '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.drawer.section.components')) + ':</strong> ' + escHtml(scheduleFormatComponentsView(comps)) + '</p>');
+    '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>');
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
@@ -23632,6 +23635,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+  html += scheduleRenderDeleteBookingRowHtml(ctx);
   return html;
 }
 
@@ -23741,6 +23745,15 @@ function scheduleDrawerPaymentShortUrl(ctx){
   return checkout;
 }
 
+// Friendly link status — no raw enum strings with underscores.
+function scheduleStripeStatusLabel(raw){
+  var s = String(raw || '').toLowerCase();
+  if (s === 'paid') return portalT('schedule.status.paid');
+  if (s === 'checkout_created' || s === 'draft' || s === 'payment_link_sent' || s === '') return portalT('schedule.drawer.stripeStatusActive');
+  if (s === 'expired') return portalT('schedule.drawer.stripeStatusExpired');
+  return s.replace(/_/g, ' ').replace(/^\w/, function(c){ return c.toUpperCase(); });
+}
+
 function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
   var link = ctx && ctx.stripe_link;
   var url = link && link.checkout_url;
@@ -23764,7 +23777,7 @@ function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
   if (url){
     var displayUrl = scheduleDrawerPaymentShortUrl(ctx) || url;
     html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeStatus')) + ':</strong> ' +
-      escHtml(String((link && link.payment_status) || 'checkout_created')) + '</p>';
+      escHtml(scheduleStripeStatusLabel(link && link.payment_status)) + '</p>';
     if (link && link.amount_due_cents != null){
       html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeAmount')) + ':</strong> ' +
         escHtml(scheduleDrawerEur(link.amount_due_cents)) + '</p>';
@@ -23772,7 +23785,6 @@ function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
     html += '<p style="margin:0 0 8px;word-break:break-all"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener">' + escHtml(displayUrl) + '</a></p>';
     html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.stripeCopy')) + '</button>';
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
     html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
     html += '</div>';
   } else {
@@ -23849,6 +23861,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+  html += scheduleRenderDeleteBookingRowHtml(ctx);
   html += '</form>';
   return html;
 }
@@ -24062,6 +24075,31 @@ function scheduleWireDrawerStripeCopyOpen(ctx){
   if (delBtn){ delBtn.onclick = function(){ scheduleDeleteDrawerStripeLink(ctx); }; }
 }
 
+// Soft-delete (cancel) the whole booking, then close the drawer and reload the schedule.
+function scheduleDeleteBookingFromDrawer(){
+  var st = scheduleDrawerState;
+  var bookingId = st && st.ctx && st.ctx.booking_id;
+  if (!bookingId) return;
+  if (typeof window !== 'undefined' && window.confirm && !window.confirm(portalT('schedule.drawer.deleteBookingConfirm'))) return;
+  var btn = el('ps-drawer-delete-booking');
+  if (btn) btn.disabled = true;
+  fetch('/staff/schedule/bookings?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ booking_id: bookingId }),
+  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Delete failed');
+      closeScheduleDetailDrawer();
+      loadSchedulePage();
+    })
+    .catch(function(err){
+      var m = el('ps-drawer-save-msg');
+      if (m){ m.className = 'state-msg error'; m.textContent = portalT('schedule.drawer.deleteBookingFailed') + ' ' + err.message; m.style.display = 'block'; }
+      if (btn) btn.disabled = false;
+    });
+}
+
 // Delete/void the current Stripe link so a fresh one can be created. Refreshes the drawer after.
 function scheduleDeleteDrawerStripeLink(ctx){
   var bookingId = ctx && ctx.booking_id;
@@ -24254,6 +24292,8 @@ function scheduleWireViewDrawer(row, ctx){
   if (editBtn) editBtn.addEventListener('click', function(){ scheduleEnterDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
   if (stripeBtn) stripeBtn.addEventListener('click', function(){ scheduleCreateDrawerStripeLink(row); });
+  var delBookingBtn = el('ps-drawer-delete-booking');
+  if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
 }
 
 function scheduleWireEditableDrawer(row, ctx){
@@ -24275,6 +24315,8 @@ function scheduleWireEditableDrawer(row, ctx){
   if (cancelBtn) cancelBtn.addEventListener('click', function(){ scheduleCancelDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
   if (stripeBtn) stripeBtn.addEventListener('click', function(){ scheduleCreateDrawerStripeLink(row); });
+  var delBookingBtn = el('ps-drawer-delete-booking');
+  if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
 }
 
 function scheduleMountDrawerBody(row, ctx, editing){
@@ -24301,6 +24343,18 @@ function scheduleCancelDrawerEditMode(){
   if (!scheduleDrawerState.row || !scheduleDrawerState.ctx) return;
   scheduleDrawerState.editing = false;
   scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, false);
+}
+
+// Top-right drawer refresh: re-fetch the booking context and re-render, preserving edit mode.
+function scheduleRefreshDrawer(){
+  var st = scheduleDrawerState;
+  if (!st || !st.row) return;
+  scheduleFetchDrawerContext(st.row).then(function(data){
+    if (data && data.success && scheduleDrawerState && scheduleDrawerState.row){
+      scheduleDrawerState.ctx = scheduleCloneDrawerCtx(data);
+      scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
+    }
+  }).catch(function(){});
 }
 
 function scheduleOpenEditableDrawer(row, ctx){
@@ -24581,6 +24635,7 @@ function wireScheduleControls(){
     ['ps-next-week', function(){ var step = scheduleViewMode === 'next30' ? 30 : (scheduleViewMode === 'day' ? 1 : 7); scheduleForwardOffset = (scheduleForwardOffset || 0) + step; loadSchedulePage(); }],
     ['ps-today', function(){ scheduleForwardOffset = 0; loadSchedulePage(); }],
     ['ps-drawer-close', closeScheduleDetailDrawer],
+    ['ps-drawer-refresh', scheduleRefreshDrawer],
     ['ps-create-booking', openScheduleCreateModal],
     ['ps-refresh-schedule', function(){ loadSchedulePage(); }],
     ['ps-create-cancel', closeScheduleCreateModal],
@@ -40305,6 +40360,39 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
   }
 }
 
+async function handleSunsetScheduleBookingDelete(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const bookingId = String(body.booking_id || query.booking_id || '').trim();
+  try {
+    const result = await withPgClient(async (pg) => cancelSunsetScheduleBooking(pg, {
+      clientSlug,
+      bookingId,
+      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.booking_delete',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'delete failed', detail: err.message });
+  }
+}
+
 async function handleSunsetSchedulePaymentLinkGet(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -46350,6 +46438,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingCreate(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings' && method === 'DELETE') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingDelete(parsed.query, req, res, auth.user);
   }
 
   const customerTagsMatch = CUSTOMER_TAGS_RE.exec(pathname);

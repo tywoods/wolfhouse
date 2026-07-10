@@ -540,9 +540,58 @@ async function updateSunsetScheduleBooking(pg, opts) {
   }
 }
 
+// Soft-delete a staff-created schedule booking: mark the booking + its service records cancelled
+// so they drop off the schedule (the day query filters out cancelled bookings/records).
+async function cancelSunsetScheduleBooking(pg, opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  }
+  const bookingId = String(opts.bookingId || opts.body?.booking_id || '').trim();
+  if (!bookingId || !isUuid(bookingId)) {
+    return { ok: false, status: 400, body: { success: false, error: 'booking_id is required' } };
+  }
+  const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, null);
+  if (!bundle) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
+  }
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  if (resolveBundleLocationId(bundle) !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
+  if (!bundleIsStaffManualSchedule(bundle)) {
+    return { ok: false, status: 403, body: { success: false, error: 'delete_limited_to_staff_manual_schedule' } };
+  }
+  await pg.query('BEGIN');
+  try {
+    await pg.query(
+      `UPDATE booking_service_records SET status = 'cancelled'
+        WHERE client_slug = $1 AND booking_id = $2::uuid AND status <> 'cancelled'`,
+      [clientSlug, bookingId],
+    );
+    await pg.query(
+      `UPDATE bookings
+          SET status = 'cancelled'::booking_status,
+              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+        WHERE id = $2::uuid`,
+      [JSON.stringify({ cancelled_by_staff: true, cancelled_at: new Date().toISOString() }), bookingId],
+    );
+    await pg.query('COMMIT');
+    return {
+      ok: true,
+      status: 200,
+      body: { success: true, deleted: true, booking_id: bookingId, booking_code: bundle.booking.booking_code },
+    };
+  } catch (err) {
+    await pg.query('ROLLBACK');
+    throw err;
+  }
+}
+
 module.exports = {
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
+  cancelSunsetScheduleBooking,
   buildPaymentSummary,
   aggregateComponentsFromServices,
   normalizePaymentMethod,
