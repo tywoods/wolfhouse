@@ -21,7 +21,7 @@ HERMES_ROLE="${HERMES_ROLE:-luna}"
 if [ "$HERMES_ROLE" = "orchestrator" ]; then
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
+  default: gpt-5.6-sol
   provider: openai-codex
 agent:
   reasoning_effort: low
@@ -65,7 +65,7 @@ if [ "$HERMES_ROLE" = "seadog" ]; then
   # then set provider: anthropic + a claude model here.
   cat > "$HERMES_HOME/config.yaml" <<'EOF'
 model:
-  default: gpt-5.5
+  default: gpt-5.6-terra
   provider: openai-codex
 agent:
   reasoning_effort: low
