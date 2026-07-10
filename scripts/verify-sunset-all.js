@@ -29,6 +29,10 @@ const CHECKS = [
   { name: 'verify:sunset-portal-v1',               script: 'scripts/verify-sunset-portal-v1.js' },
   { name: 'verify:sunset-portal-customers',       script: 'scripts/verify-sunset-portal-customers.js' },
   { name: 'verify:sunset-portal-slice1-seed-runner', script: 'scripts/verify-sunset-portal-slice1-seed-runner.js' },
+  { name: 'verify:sunset-waiver-model', script: 'scripts/verify-sunset-waiver-model.js' },
+  { name: 'verify:sunset-waiver-form', script: 'scripts/verify-sunset-waiver-form.js' },
+  { name: 'verify:sunset-waiver-staff', script: 'scripts/verify-sunset-waiver-staff.js' },
+  { name: 'verify:sunset-waiver-luna', script: 'scripts/verify-sunset-waiver-luna.js' },
 ];
 
 const SEP = '─'.repeat(64);

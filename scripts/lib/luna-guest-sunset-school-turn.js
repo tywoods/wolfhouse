@@ -2,7 +2,8 @@
 
 /**
  * Sunset guest automation turn (dry-run) — school-aware, isolated from Wolfhouse chain.
- * No outbound WhatsApp/email, no writes, no Stripe sends.
+ * No outbound WhatsApp/email, no Stripe sends.
+ * Waiver ensure only when booking_id + confirm_write/ensure_waiver (DB write to waiver tables).
  */
 
 const { normalizeGuestContextForChain } = require('./luna-guest-context-merge');
@@ -20,6 +21,15 @@ const {
   buildSunsetSchoolPromptHint,
   slimSunsetSchoolContextForChain,
 } = require('./sunset-luna-school-context');
+const {
+  ensureWaiverForBookingSoft,
+  composeLunaWaiverReply,
+  attachLunaWaiverFields,
+  isLessonReadyForGuest,
+  buildLunaWaiverInviteMessage,
+  buildLunaWaiverCompletedMessage,
+  buildLunaWaiverPendingReminderMessage,
+} = require('./sunset-waiver-booking');
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -181,6 +191,58 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
     proposedReply = formatPriceReply(lang, schoolName, catalogResult.result || catalogResult);
   }
 
+  // Waiver status / ensure (Sunset lesson booking). No outbound guest messaging.
+  // - Pass waiver / waiver_status / public_url to compose copy without DB writes.
+  // - Pass booking_id + confirm_write=true + pg to create/reuse a waiver request.
+  let waiverBody = null;
+  let lessonReady = null;
+  if (inp.waiver && typeof inp.waiver === 'object') {
+    waiverBody = attachLunaWaiverFields({
+      success: true,
+      waiver: inp.waiver,
+      guest_count: inp.guest_count || inp.waiver.guest_count || 1,
+      multi_student_note: inp.multi_student_note || null,
+      waiver_status: inp.waiver.status,
+    });
+  } else if (inp.waiver_status || inp.waiver_public_url) {
+    waiverBody = attachLunaWaiverFields({
+      success: true,
+      guest_count: inp.guest_count || 1,
+      multi_student_note: inp.multi_student_note || null,
+      waiver_status: inp.waiver_status || 'pending',
+      waiver: {
+        status: inp.waiver_status || 'pending',
+        public_url: inp.waiver_public_url || null,
+      },
+    });
+  } else if (
+    inp.booking_id
+    && ctx.pg
+    && (inp.confirm_write === true || inp.ensure_waiver === true)
+  ) {
+    const ensured = await ensureWaiverForBookingSoft(ctx.pg, inp.booking_id, {
+      locationId,
+      env,
+      source: inp.waiver_source || 'luna_guest_turn',
+    });
+    if (ensured && ensured.ok && ensured.body) {
+      waiverBody = ensured.body;
+    }
+  }
+
+  if (waiverBody) {
+    const mode = trimStr(inp.waiver_reply_mode) || (
+      String(waiverBody.waiver_lane || '') === 'pending' && inp.waiver_reminder === true
+        ? 'reminder'
+        : 'invite'
+    );
+    proposedReply = composeLunaWaiverReply(waiverBody, mode);
+    proposedNextAction = isLessonReadyForGuest(waiverBody.waiver && waiverBody.waiver.status)
+      ? 'waiver_completed'
+      : 'send_waiver_link';
+    lessonReady = waiverBody.lesson_ready === true;
+  }
+
   const result = {
     success: true,
     message_lane: 'sunset_inquiry',
@@ -194,6 +256,13 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
     sunset_tool_payloads: toolPayloads,
     safe_handoff_required: false,
     handoff_reasons: [],
+    waiver: waiverBody ? (waiverBody.waiver || null) : null,
+    waiver_lane: waiverBody ? waiverBody.waiver_lane : null,
+    luna_waiver_message: waiverBody ? waiverBody.luna_waiver_message : null,
+    lesson_ready: lessonReady,
+    lesson_ready_blocked_reason: (lessonReady === false)
+      ? 'waiver_not_completed'
+      : null,
   };
 
   return {
@@ -218,4 +287,9 @@ async function runSunsetGuestSchoolTurnDryRun(input, context, gate) {
 module.exports = {
   runSunsetGuestSchoolTurnDryRun,
   isSunsetClientSlug,
+  buildLunaWaiverInviteMessage,
+  buildLunaWaiverCompletedMessage,
+  buildLunaWaiverPendingReminderMessage,
+  composeLunaWaiverReply,
+  isLessonReadyForGuest,
 };

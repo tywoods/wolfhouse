@@ -316,6 +316,19 @@ const {
   getSunsetScheduleGearOnDateQuery,
 } = require('./lib/sunset-schedule-queries');
 const {
+  tryHandleSunsetWaiverPublicRoute,
+} = require('./lib/sunset-waiver-routes');
+const {
+  handleStaffBookingWaiverGet,
+  handleStaffBookingWaiverCreate,
+  handleStaffBookingWaiverSubmissionGet,
+  STAFF_BOOKING_WAIVER_RE,
+  STAFF_BOOKING_WAIVER_SUBMISSION_RE,
+} = require('./lib/sunset-waiver-staff');
+const {
+  ensureWaiverForBookingSoft,
+} = require('./lib/sunset-waiver-booking');
+const {
   resolveSunsetInboxChannelConfig,
   attachConversationChannelMetadata,
 } = require('./lib/sunset-inbox-channel-config');
@@ -23605,6 +23618,187 @@ function scheduleRenderDrawerOpenCustomerBtnHtml(ctx){
     escHtml(portalT('schedule.drawer.openCustomer')) + '</button>';
 }
 
+
+function scheduleRenderDrawerWaiverSectionHtml(ctx){
+  if (!isSunsetSurfActive() || getClient() !== 'sunset') return '';
+  if (!(ctx && ctx.booking_id)) return '';
+  return scheduleDrawerSectionHtml('schedule.drawer.waiverTitle',
+    '<div id="ps-drawer-waiver-box"><p class="portal-schedule-drawer-hint" style="margin:0">' +
+    escHtml(portalT('schedule.drawer.waiverLoading')) + '</p></div>');
+}
+
+function scheduleWaiverStatusLabel(status){
+  if (status === 'pending') return portalT('schedule.drawer.waiverPending');
+  if (status === 'completed') return portalT('schedule.drawer.waiverCompleted');
+  if (status === 'needs_review') return portalT('schedule.drawer.waiverNeedsReview');
+  if (status === 'expired') return portalT('schedule.drawer.waiverExpired');
+  if (status === 'revoked') return portalT('schedule.drawer.waiverRevoked');
+  return status || '—';
+}
+
+function scheduleCopyTextFallback(text){
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text);
+      return;
+    }
+  } catch (_) {}
+  var input = document.createElement('input');
+  input.value = text;
+  document.body.appendChild(input);
+  input.select();
+  try { document.execCommand('copy'); } catch (_) {}
+  document.body.removeChild(input);
+}
+
+function scheduleRenderWaiverBoxInner(data){
+  var html = '';
+  if (data && data.multi_student_note) {
+    html += '<p class="portal-schedule-drawer-hint" style="margin:0 0 8px">' + escHtml(data.multi_student_note) + '</p>';
+  }
+  if (data && data.migration_pending) {
+    html += '<p class="portal-schedule-drawer-hint" style="margin:0">' + escHtml(portalT('schedule.drawer.waiverMigrationPending')) + '</p>';
+    return html;
+  }
+  var w = data && data.waiver;
+  if (!w) {
+    html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px">' + escHtml(portalT('schedule.drawer.waiverNone')) + '</p>';
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(portalT('schedule.drawer.waiverCreate')) + '</button>';
+    html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+    return html;
+  }
+  html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverStatus')) + ':</strong> ' + escHtml(scheduleWaiverStatusLabel(w.status)) + '</p>';
+  if (w.status === 'completed' && w.completed_at) {
+    html += '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedAt')) + ':</strong> ' + escHtml(String(w.completed_at).slice(0, 19).replace('T', ' ')) + '</p>';
+  }
+  if (w.public_url) {
+    html += '<p class="portal-schedule-drawer-kv" style="word-break:break-all;margin:0 0 8px"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener">' + escHtml(w.public_url) + '</a></p>';
+    html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-copy">' + escHtml(portalT('schedule.drawer.waiverCopy')) + '</button>';
+    if (w.status === 'completed') {
+      html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button>';
+    }
+    html += '</div>';
+  } else if (w.status === 'pending' || w.status === 'needs_review') {
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(portalT('schedule.drawer.waiverCreate')) + '</button>';
+  }
+  html += '<div id="ps-drawer-waiver-answers" style="display:none;margin-top:10px"></div>';
+  html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  return html;
+}
+
+function scheduleWireDrawerWaiver(data){
+  var createBtn = el('ps-drawer-waiver-create');
+  if (createBtn) {
+    createBtn.onclick = function(){ scheduleCreateDrawerWaiver(); };
+  }
+  var copyBtn = el('ps-drawer-waiver-copy');
+  var url = data && data.waiver && data.waiver.public_url;
+  if (copyBtn && url) {
+    copyBtn.onclick = function(){
+      scheduleCopyTextFallback(url);
+      var m = el('ps-drawer-waiver-msg');
+      if (m){ m.className = 'state-msg success'; m.textContent = portalT('schedule.drawer.waiverCopied'); m.style.display = 'block'; }
+    };
+  }
+  var viewBtn = el('ps-drawer-waiver-view');
+  if (viewBtn) {
+    viewBtn.onclick = function(){ scheduleViewDrawerWaiverAnswers(data); };
+  }
+}
+
+function scheduleViewDrawerWaiverAnswers(data){
+  var box = el('ps-drawer-waiver-answers');
+  if (!box) return;
+  var sub = data && data.waiver && data.waiver.submission;
+  if (!sub) {
+    var bookingId = scheduleDrawerState && scheduleDrawerState.ctx && scheduleDrawerState.ctx.booking_id;
+    if (!bookingId) return;
+    fetch('/staff/schedule/bookings/' + encodeURIComponent(bookingId) + '/waiver/submission?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix())
+      .then(function(r){ return r.json(); })
+      .then(function(res){
+        if (!res || !res.success || !res.submission) throw new Error((res && res.error) || 'No submission');
+        scheduleRenderWaiverAnswers(res.submission);
+      })
+      .catch(function(err){
+        var m = el('ps-drawer-waiver-msg');
+        if (m){ m.className = 'state-msg error'; m.textContent = err.message; m.style.display = 'block'; }
+      });
+    return;
+  }
+  scheduleRenderWaiverAnswers(sub);
+}
+
+function scheduleRenderWaiverAnswers(sub){
+  var box = el('ps-drawer-waiver-answers');
+  if (!box) return;
+  var answers = (sub.raw_answers_json && sub.raw_answers_json.answers) || sub.raw_answers_json || {};
+  var html = '<div style="font-size:12px;border-top:1px solid var(--border-soft);padding-top:8px">';
+  html += '<strong>' + escHtml(portalT('schedule.drawer.waiverAnswers')) + '</strong>';
+  Object.keys(answers).forEach(function(key){
+    var a = answers[key];
+    if (!a || typeof a !== 'object') return;
+    var val = a.value;
+    if (val && typeof val === 'object') {
+      if (Array.isArray(val)) val = val.join(', ');
+      else if (val.option_label) val = val.option_label;
+      else val = JSON.stringify(val);
+    }
+    if (val === true) val = 'Sí';
+    if (val === false) val = '—';
+    html += '<p class="portal-schedule-drawer-kv" style="margin:6px 0 0"><strong>' + escHtml(a.label || key) + ':</strong> ' + escHtml(String(val == null ? '—' : val)) + '</p>';
+  });
+  html += '</div>';
+  box.innerHTML = html;
+  box.style.display = 'block';
+}
+
+function scheduleLoadDrawerWaiver(ctx){
+  var box = el('ps-drawer-waiver-box');
+  if (!box || !(ctx && ctx.booking_id) || getClient() !== 'sunset') return;
+  fetch('/staff/schedule/bookings/' + encodeURIComponent(ctx.booking_id) + '/waiver?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix())
+    .then(function(r){ return r.json(); })
+    .then(function(data){
+      if (!box) return;
+      box.innerHTML = scheduleRenderWaiverBoxInner(data);
+      scheduleWireDrawerWaiver(data);
+    })
+    .catch(function(err){
+      if (!box) return;
+      box.innerHTML = '<p class="state-msg error" style="margin:0">' + escHtml(portalT('schedule.drawer.waiverLoadFailed')) + ' ' + escHtml(err.message || '') + '</p>';
+    });
+}
+
+function scheduleCreateDrawerWaiver(){
+  var ctx = scheduleDrawerState && scheduleDrawerState.ctx;
+  var bookingId = ctx && ctx.booking_id;
+  if (!bookingId) return;
+  var btn = el('ps-drawer-waiver-create');
+  if (btn) btn.disabled = true;
+  fetch('/staff/schedule/bookings/' + encodeURIComponent(bookingId) + '/waiver?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
+    .then(function(res){
+      if (!res.ok || !res.data || res.data.success !== true) {
+        throw new Error((res.data && (res.data.error || res.data.message)) || 'Create failed');
+      }
+      var box = el('ps-drawer-waiver-box');
+      if (box) {
+        box.innerHTML = scheduleRenderWaiverBoxInner(res.data);
+        scheduleWireDrawerWaiver(res.data);
+      }
+      var m = el('ps-drawer-waiver-msg');
+      if (m){ m.className = 'state-msg success'; m.textContent = portalT('schedule.drawer.waiverCreated'); m.style.display = 'block'; }
+    })
+    .catch(function(err){
+      var m = el('ps-drawer-waiver-msg');
+      if (m){ m.className = 'state-msg error'; m.textContent = portalT('schedule.drawer.waiverCreateFailed') + ' ' + err.message; m.style.display = 'block'; }
+      if (btn) btn.disabled = false;
+    });
+}
+
 function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   var comps = (ctx && ctx.components) || {};
   var html = '<div class="portal-schedule-drawer-hero">';
@@ -23626,6 +23820,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
   }
   html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';
@@ -24288,6 +24483,7 @@ function scheduleWireViewDrawer(row, ctx){
   scheduleWireDrawerConversation(row, group);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
+  scheduleLoadDrawerWaiver(ctx);
   var editBtn = el('ps-drawer-edit');
   if (editBtn) editBtn.addEventListener('click', function(){ scheduleEnterDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
@@ -24309,6 +24505,7 @@ function scheduleWireEditableDrawer(row, ctx){
   scheduleWireDrawerConversation(row, group);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
+  scheduleLoadDrawerWaiver(ctx);
   var saveBtn = el('ps-drawer-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ scheduleSaveDrawerBooking(row); });
   var cancelBtn = el('ps-drawer-cancel');
@@ -40567,7 +40764,40 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
       elapsed_ms: Date.now() - started,
     });
     if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
-    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+
+    // After Sunset lesson booking create: ensure waiver + Luna Spanish invite copy.
+    // Soft-fails if migration 036 is not applied — booking create still succeeds.
+    // No live WhatsApp send here.
+    let bodyOut = { ...result.body, elapsed_ms: Date.now() - started };
+    const bookingId = bodyOut.booking_id || (bodyOut.booking && bodyOut.booking.booking_id);
+    if (bookingId) {
+      try {
+        const waiverOut = await withPgClient(async (pg) => ensureWaiverForBookingSoft(pg, bookingId, {
+          locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+          env: process.env,
+          source: 'sunset_schedule_booking_create',
+        }));
+        if (waiverOut && waiverOut.ok && waiverOut.body) {
+          bodyOut.waiver = waiverOut.body.waiver || null;
+          bodyOut.guest_count = waiverOut.body.guest_count;
+          bodyOut.multi_student_note = waiverOut.body.multi_student_note || null;
+          bodyOut.luna_waiver_message = waiverOut.body.luna_waiver_message || null;
+          bodyOut.lesson_ready = waiverOut.body.lesson_ready === true;
+          bodyOut.lesson_ready_blocked_reason = waiverOut.body.lesson_ready_blocked_reason || null;
+          bodyOut.proposed_luna_reply = waiverOut.body.luna_waiver_message || null;
+        } else if (waiverOut && waiverOut.body && waiverOut.body.error === 'migration_pending') {
+          bodyOut.waiver_migration_pending = true;
+          bodyOut.lesson_ready = false;
+          bodyOut.lesson_ready_blocked_reason = 'waiver_migration_pending';
+        }
+      } catch (waiverErr) {
+        console.error('[sunset-waiver] ensure after booking create:', waiverErr && waiverErr.message);
+        bodyOut.waiver_ensure_error = 'ensure_failed';
+        bodyOut.lesson_ready = false;
+        bodyOut.lesson_ready_blocked_reason = 'waiver_ensure_failed';
+      }
+    }
+    return sendJSON(res, result.status, bodyOut);
   } catch (err) {
     console.error('[admin write] write failed:', err && err.code, '|', err && err.message, '|', err && err.detail, '|', err && err.constraint);
     return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
@@ -45163,6 +45393,13 @@ async function router(req, res) {
   const pathname = parsed.pathname.replace(/\/+$/, '') || '/';
   const method   = req.method.toUpperCase();
 
+  // ── Public Sunset waiver form (unauthenticated; same class as /pay) ─────────
+  if (await tryHandleSunsetWaiverPublicRoute(pathname, method, req, res, {
+    withPgClient,
+    sendHTML,
+    readBody,
+  })) return;
+
   // ── Phase 10.6g.5 — Stripe Checkout redirect landing (display only; no auth) ─
   if (method === 'GET') {
     if (isStripeCheckoutSuccessLandingPath(pathname, parsed.query)) {
@@ -46443,6 +46680,31 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingDelete(parsed.query, req, res, auth.user);
+  }
+
+  // Sunset staff waiver (schedule drawer) — auth required
+  const staffWaiverSubMatch = STAFF_BOOKING_WAIVER_SUBMISSION_RE.exec(pathname);
+  if (staffWaiverSubMatch && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleStaffBookingWaiverSubmissionGet(staffWaiverSubMatch[1], parsed.query, res, auth.user, {
+      withPgClient, sendJSON, assertStaffClientAccess,
+    });
+  }
+  const staffWaiverMatch = STAFF_BOOKING_WAIVER_RE.exec(pathname);
+  if (staffWaiverMatch && method === 'GET') {
+    const auth = await requireAuth(req, res, 'viewer');
+    if (!auth.ok) return;
+    return handleStaffBookingWaiverGet(staffWaiverMatch[1], parsed.query, res, auth.user, {
+      withPgClient, sendJSON, assertStaffClientAccess,
+    });
+  }
+  if (staffWaiverMatch && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleStaffBookingWaiverCreate(staffWaiverMatch[1], parsed.query, req, res, auth.user, {
+      withPgClient, sendJSON, assertStaffClientAccess, readBody,
+    });
   }
 
   const customerTagsMatch = CUSTOMER_TAGS_RE.exec(pathname);

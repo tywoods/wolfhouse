@@ -1,0 +1,273 @@
+{
+  "_meta": {
+    "client_slug": "sunset",
+    "tenant_id": "sunset",
+    "form_version": "sunset_google_form_v1_draft_from_screenshots",
+    "needs_legal_copy_confirmation": true,
+    "source": "transcribed_from_whatsapp_screenshots",
+    "status": "BLOCKED_FOR_LEGAL_COPY_CONFIRMATION",
+    "status_note": "Draft transcription from WhatsApp screenshots. Do not use for production deploy until Sunset confirms this wording or supplies the original Google Form text export. On confirmation, set form_version to sunset_google_form_v1_confirmed and needs_legal_copy_confirmation to false.",
+    "language": "es",
+    "layout": "one_mobile_friendly_page",
+    "google_form_stages_as_sections": 3,
+    "public_url_pattern_staging": "https://sunset-staging.lunafrontdesk.com/forms/waiver/{waiver_id}",
+    "public_url_pattern_production_target": "https://sunset.lunafrontdesk.com/forms/waiver/{waiver_id}",
+    "public_url_example_staging": "https://sunset-staging.lunafrontdesk.com/forms/waiver/waiv_abc123"
+  },
+  "title": "FICHA DE INSCRIPCIÓN - CLASES DE SURF",
+  "intro": "Rellene el siguiente formulario de inscripción para poder participar en las clases de surf impartidas por la Escuela de Surf Sunset.",
+  "school": {
+    "name": "ESCUELA DE SURF SUNSET",
+    "address_lines": [
+      "Calle Cabo Mayor, 13 - Somo - Ribamontán al Mar",
+      "Cantabria"
+    ],
+    "phones": "+34 942 51 07 26 / +34 69994 03 54",
+    "email": "reservas@escueladesurfsunset.com"
+  },
+  "prefill": {
+    "_note": "Fields already known from booking/prefill_json may be hidden or shown read-only in the UI, but original labels remain in this config. Known email/phone should not be asked again as mandatory inputs; UI may show a small “Already saved from WhatsApp/booking” row.",
+    "known_from_booking_keys": [
+      "email",
+      "phone"
+    ]
+  },
+  "sections": [
+    {
+      "id": "inscription",
+      "google_form_stage": 1,
+      "title": null,
+      "fields": [
+        {
+          "key": "full_name",
+          "number": 1,
+          "label": "NOMBRE Y APELLIDOS",
+          "required": true,
+          "input_type": "text",
+          "prefill_from": "guest_name"
+        },
+        {
+          "key": "age",
+          "number": 2,
+          "label": "EDAD",
+          "required": false,
+          "input_type": "text"
+        },
+        {
+          "key": "dni",
+          "number": 3,
+          "label": "DNI",
+          "required": true,
+          "input_type": "text"
+        },
+        {
+          "key": "phone",
+          "number": 4,
+          "label": "TELÉFONO DE CONTACTO",
+          "required": true,
+          "input_type": "tel",
+          "prefill_from": "phone",
+          "ui_when_prefilled": "read_only_or_hidden_with_saved_from_booking_note"
+        },
+        {
+          "key": "email",
+          "number": 5,
+          "label": "E-MAIL",
+          "required": true,
+          "input_type": "email",
+          "prefill_from": "email",
+          "ui_when_prefilled": "read_only_or_hidden_with_saved_from_booking_note"
+        },
+        {
+          "key": "lesson_days",
+          "number": 6,
+          "label": "INDICAR DIAS QUE SE INSCRIBE A LAS CLASES DE SURF:",
+          "required": true,
+          "input_type": "text",
+          "example": "23, 24 julio",
+          "prefill_from": "lesson_days"
+        }
+      ],
+      "minor_authorization": {
+        "intro": "MENORES DE EDAD: Indicar la persona que autoriza al alumno del apartado 1 a realizar el curso de surf en las fechas que se especifican en el apartado 6.",
+        "heading": "AUTORIZACIÓN:",
+        "number": 7,
+        "fields": [
+          {
+            "key": "guardian_full_name",
+            "label": "NOMBRE Y APELLIDOS (Padre / madre / tutor legal):",
+            "required": false,
+            "input_type": "text"
+          },
+          {
+            "key": "guardian_dni",
+            "label": "DNI (Padre, madre o tutor legal):",
+            "required": false,
+            "input_type": "text"
+          },
+          {
+            "key": "guardian_relationship",
+            "label": "COMO",
+            "required": false,
+            "input_type": "single_choice",
+            "options": [
+              "Padre",
+              "Madre",
+              "Tutor legal"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "contract_conditions",
+      "google_form_stage": 2,
+      "title": "CONDICIONES GENERALES DEL CONTRATO",
+      "fields": [
+        {
+          "key": "accident_insurance",
+          "label": "CONTRATO SEGURO DE ACCIDENTES",
+          "required": true,
+          "input_type": "single_choice",
+          "options": [
+            {
+              "value": "yes_accident_insurance",
+              "label": "SI, CONTRATO SEGURO DE ACCIDENTES (+10€)"
+            },
+            {
+              "value": "no_accident_insurance",
+              "label": "NO CONTRATO SEGURO DE ACCIDENTES: Responderé de los gastos que genere la Asistencia Sanitaria por los daños resultantes a mi persona o la persona que represento (ALUMNO APARTADO 1), excluyendo a la Escuela de Surf Sunset de dichos gastos."
+            }
+          ]
+        }
+      ],
+      "general_conditions": [
+        {
+          "number": 1,
+          "text": "La ESCUELA DE SURF SUNSET NO ES RESPONSABLE EN NINGÚN CASO DE QUE NO HAYA CONDICIONES EN EL MAR PARA REALIZAR LA CLASE DE SURF (falta de olas)."
+        },
+        {
+          "number": 2,
+          "text": "La duración de la clase de surf de la Escuela de Surf Sunset es de 2 horas. El alumno deberá presentarse 10 minutos antes del comienzo de la clase en la Escuela, y confirmar su asistencia al personal de la Escuela."
+        },
+        {
+          "number": 3,
+          "text": "La falta de asistencia del alumno a las clases por motivos personales, (enfermedad, lesión...etc) NO son clases recuperables."
+        },
+        {
+          "number": 4,
+          "text": "Solo se podrán recuperar aquellas clases suspendidas por parte del personal de la Escuela de Surf Sunset por la falta de olas o de peligros por las condiciones climatológicas o siempre que la clase entrañe algún peligro para el alumno."
+        },
+        {
+          "number": 5,
+          "text": "Voy a asistir a las clases de surf que imparte la Escuela de Surf Sunset por propia cuenta y riesgo. Responderé por todos los daños (materiales, personales y daños resultantes) a mi persona o a terceras personas, a no ser que se paguen por el seguro de responsabilidad civil."
+        },
+        {
+          "number": 6,
+          "text": "En caso de que el alumno no cumpla todas las normas e instrucciones de los monitores de la Escuela de Surf Sunset, será expulsado del cursillo y no le será devuelto el pago del mismo."
+        },
+        {
+          "number": 7,
+          "text": "La Escuela de Surf Sunset no asume ninguna responsabilidad por los objetos que el alumno lleve consigo."
+        },
+        {
+          "number": 8,
+          "text": "Los menores de edad deben rellenar y presentar la autorización en la Escuela, firmada por los padres o tutores."
+        },
+        {
+          "number": 9,
+          "text": "La persona responsable de hacer la reserva es mayor de 18 años. En caso de venir con un grupo, habrá informado antes a todos los compañeros del grupo de las condiciones generales del presente contrato."
+        },
+        {
+          "number": 10,
+          "text": "El pago total del Curso se realizará en cualquier caso antes del comienzo del mismo."
+        },
+        {
+          "number": 11,
+          "text": "El precio del cursillo comprende SOLO las clases de surf y el seguro de R.C. El 20 % del TOTAL DEL CURSO pagado, corresponde al depósito de la reserva. El material, la tabla de surf y el traje de neopreno, lo pone la Escuela de Surf Sunset de forma gratuita a disposición de sus alumnos."
+        },
+        {
+          "number": 12,
+          "text": "Para que la reserva de un cursillo sea efectiva, el cliente tiene que haber realizado el pago total del precio del cursillo. En caso de cancelación por parte del cliente, NO hay devolución del depósito de la reserva, que es el 20% del total pagado, a no ser que se haga la cancelación al menos con 10 días de antelación."
+        },
+        {
+          "number": 13,
+          "text": "La Escuela de Surf Sunset facilita información sobre el posible alojamiento para sus clientes. En ningún caso será responsable de las negligencias del alojamiento."
+        },
+        {
+          "number": 14,
+          "text": "El Alumno manifiesta no tener ninguna enfermedad, problema físico o psíquico que le impida realizar el cursillo de surf poniendo en peligro su integridad o la del resto del grupo de alumnos."
+        },
+        {
+          "number": 15,
+          "text": "Soy responsable y acepto los riesgos de esta actividad. He sido debidamente informado de las normas de la Escuela de Surf Sunset y estoy de acuerdo con el contrato entre la Escuela de Surf Sunset y mi persona, o en su caso, el menor al que represento como padre, madre o tutor/a, en la autorización firmada."
+        }
+      ],
+      "acceptance": {
+        "key": "accept_contract_conditions",
+        "label": "He leído y acepto las condiciones del contrato",
+        "required": true,
+        "input_type": "checkbox"
+      }
+    },
+    {
+      "id": "personal_data_consent",
+      "google_form_stage": 3,
+      "title": "INFORMACIÓN Y CONSENTIMIENTO sin título",
+      "heading": "Tratamiento de datos personales de ALUMNOS",
+      "controller_notice": "SOMO SURF ACADEMY SL CIF/NIF B39838073 responsable del tratamiento informa, de conformidad con lo establecido en el REGLAMENTO (UE) 2016/679 y la Ley Orgánica 3/2018 de protección de datos, que sus datos de carácter personal son tratados con la finalidad de:",
+      "purposes": [
+        "Prestar un servicio o suministrar un producto.",
+        "Enviar información sobre los productos / servicios que tiene contratados."
+      ],
+      "rights_notice": "Podrá ejercer sus derechos de acceso, rectificación, limitación de tratamiento, supresión, portabilidad y oposición al tratamiento de sus datos de carácter personal así como revocar los consentimientos que en su caso haya prestado u obtener más información, dirigiendo su petición a INFO@ESCUELADESURFSUNSET.COM / CALLE CABO MAYOR, 13 - SOMO - RIBAMONTÁN AL MAR (CANTABRIA).",
+      "consent_prompt": {
+        "key": "express_consent_purposes",
+        "label": "Marque la casilla si presta su consentimiento expreso para:",
+        "required": true,
+        "input_type": "multi_choice",
+        "options": [
+          "Utilizar las imágenes para redes sociales, web, etc...",
+          "Realizar labores formativas.",
+          "Compartir sus datos personales en redes sociales. (IG, Facebook...)",
+          "Incluir sus datos personales en grupos, listas de Whatsapp, etc..."
+        ]
+      },
+      "minors_under_14": {
+        "heading": "EN CASO DE MENORES DE 14 AÑOS:",
+        "subheading": "REPRESENTANTE LEGAL",
+        "fields": [
+          {
+            "key": "legal_rep_under_14_identity",
+            "label": "NOMBRE / APELLIDOS / DNI",
+            "required": false,
+            "input_type": "text"
+          }
+        ]
+      },
+      "data_subject_from_14": {
+        "heading": "EL INTERESADO (ALUMNO, A PARTIR DE 14 AÑOS):",
+        "fields": [
+          {
+            "key": "data_subject_from_14_identity",
+            "label": "NOMBRE / APELLIDOS / DNI",
+            "required": false,
+            "input_type": "text"
+          }
+        ]
+      },
+      "acceptance": {
+        "key": "accept_personal_data_conditions",
+        "label": "He leído y acepto las condiciones del tratamiento de datos personales.",
+        "required": true,
+        "input_type": "checkbox",
+        "google_form_option_shown": "Opción 1"
+      }
+    }
+  ],
+  "raw_answers_json": {
+    "_note": "Store answers keyed by field.key values above, and/or include label snapshots with answers so submitted wording stays tied to this form_version.",
+    "include_label_snapshots": true,
+    "include_form_version": true
+  }
+}

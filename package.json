@@ -489,6 +489,10 @@
     "verify:sunset-admin-helper-parity": "node scripts/verify-sunset-admin-helper-parity.js",
     "verify:sunset-package-runtime": "node scripts/verify-sunset-package-runtime.js",
     "verify:sunset-admin-lesson-patch": "node scripts/verify-sunset-admin-lesson-patch.js",
+    "verify:sunset-waiver-model": "node scripts/verify-sunset-waiver-model.js",
+    "verify:sunset-waiver-form": "node scripts/verify-sunset-waiver-form.js",
+    "verify:sunset-waiver-staff": "node scripts/verify-sunset-waiver-staff.js",
+    "verify:sunset-waiver-luna": "node scripts/verify-sunset-waiver-luna.js",
     "verify:owner-metadata-accessor-guard": "node scripts/verify-owner-metadata-accessor-guard.js"
   },
   "dependencies": {
