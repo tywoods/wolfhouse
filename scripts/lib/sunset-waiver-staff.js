@@ -2,7 +2,7 @@
 
 /**
  * Staff-facing Sunset waiver helpers (schedule drawer).
- * One waiver per booking contact for v1. No outbound guest messaging.
+ * Single + group waiver links. No outbound guest messaging.
  * Luna booking path uses ensureWaiverForBooking (sunset-waiver-booking.js).
  */
 
@@ -14,6 +14,9 @@ const {
   buildWaiverPublicUrl,
   resolveWaiverPublicBaseUrl,
   hashWaiverToken,
+  getWaiverSubmissionSummary,
+  countSubmissionsForRequest,
+  normalizeRequestMode,
 } = require('./sunset-waiver-model');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 
@@ -43,14 +46,22 @@ function resolveGuestCount(booking, services) {
   return maxQ;
 }
 
+/**
+ * guest_count > 1 → group waiver; else single.
+ */
+function resolveWaiverRequestParams(guestCount) {
+  const n = Number(guestCount) || 1;
+  if (n > 1) {
+    return { requestMode: 'group', targetCount: n };
+  }
+  return { requestMode: 'single', targetCount: null };
+}
+
 function lessonDaysFromServices(services) {
   const dates = [...new Set((services || []).map((s) => String(s.service_date || '').slice(0, 10)).filter(Boolean))].sort();
   return dates.join(', ');
 }
 
-/**
- * Pure prefill builder for public form + metadata.
- */
 function buildWaiverPrefillFromBooking(booking, services, locationId) {
   const b = booking || {};
   const meta = parseMeta(b.metadata);
@@ -74,7 +85,7 @@ function buildWaiverPrefillFromBooking(booking, services, locationId) {
   };
 }
 
-function staffSafeWaiver(request, submission, baseUrl) {
+function staffSafeWaiver(request, submission, baseUrl, summary) {
   if (!request) return null;
   const publicId = request.public_id;
   let publicUrl = null;
@@ -83,9 +94,15 @@ function staffSafeWaiver(request, submission, baseUrl) {
   } catch (_) {
     publicUrl = null;
   }
+  const sum = summary || {};
+  const requestMode = sum.request_mode || normalizeRequestMode(request.request_mode);
   const out = {
     id: request.id,
-    status: request.status,
+    status: sum.status || request.status,
+    request_mode: requestMode,
+    target_count: sum.target_count != null ? sum.target_count : (request.target_count != null ? Number(request.target_count) : null),
+    completed_count: sum.completed_count != null ? sum.completed_count : 0,
+    remaining_count: sum.remaining_count != null ? sum.remaining_count : null,
     public_id: publicId,
     public_url: publicUrl,
     form_type: request.form_type,
@@ -146,7 +163,8 @@ async function getLatestWaiverRequest(pg, bookingId) {
   const res = await pg.query(
     `SELECT id::text AS id, tenant_id, customer_id::text AS customer_id,
             booking_id::text AS booking_id, participant_key, public_id, token_hash,
-            status, form_type, form_version, sent_to_phone, sent_to_email,
+            status, request_mode, target_count,
+            form_type, form_version, sent_to_phone, sent_to_email,
             prefill_json, metadata, sent_at, completed_at, expires_at,
             created_at, updated_at
        FROM waiver_form_requests
@@ -165,10 +183,97 @@ async function getSubmissionForRequest(pg, requestId) {
             form_version, raw_answers_json, form_snapshot_json
        FROM waiver_form_submissions
       WHERE tenant_id = $1 AND request_id = $2::uuid
+      ORDER BY submitted_at ASC
       LIMIT 1`,
     [SUNSET_TENANT_ID, requestId],
   );
   return res.rows[0] || null;
+}
+
+async function getLatestSubmissionForRequest(pg, requestId) {
+  const res = await pg.query(
+    `SELECT id::text AS id, request_id::text AS request_id, submitted_at,
+            respondent_name, respondent_email, respondent_phone,
+            form_version, raw_answers_json, form_snapshot_json
+       FROM waiver_form_submissions
+      WHERE tenant_id = $1 AND request_id = $2::uuid
+      ORDER BY submitted_at DESC
+      LIMIT 1`,
+    [SUNSET_TENANT_ID, requestId],
+  );
+  return res.rows[0] || null;
+}
+
+/**
+ * Sync target_count from live guest_count while group request has zero submissions.
+ */
+async function maybeSyncWaiverTargetCountBeforeSubmissions(pg, request, liveGuestCount) {
+  if (!request || !request.id) return request;
+  const mode = normalizeRequestMode(request.request_mode);
+  if (mode !== 'group') return request;
+  if (request.status !== 'pending' && request.status !== 'needs_review') return request;
+  const completedCount = await countSubmissionsForRequest(pg, SUNSET_TENANT_ID, request.id);
+  if (completedCount > 0) return request;
+  const liveTarget = Number(liveGuestCount) || 1;
+  if (liveTarget <= 1) return request;
+  const currentTarget = request.target_count != null ? Number(request.target_count) : null;
+  if (currentTarget === liveTarget) return request;
+  const res = await pg.query(
+    `UPDATE waiver_form_requests
+        SET target_count = $3, updated_at = NOW()
+      WHERE tenant_id = $1 AND id = $2::uuid
+      RETURNING id::text AS id, tenant_id, customer_id::text AS customer_id,
+                booking_id::text AS booking_id, participant_key, public_id, token_hash,
+                status, request_mode, target_count,
+                form_type, form_version, sent_to_phone, sent_to_email,
+                prefill_json, metadata, sent_at, completed_at, expires_at,
+                created_at, updated_at`,
+    [SUNSET_TENANT_ID, request.id, liveTarget],
+  );
+  return res.rows[0] || request;
+}
+
+/**
+ * Upgrade legacy single pending request (0 submissions) to group when booking has >1 guests.
+ */
+async function maybeUpgradePendingRequestToGroup(pg, request, guestCount) {
+  if (!request || !request.id) return request;
+  const mode = normalizeRequestMode(request.request_mode);
+  if (mode === 'group') return request;
+  if (guestCount <= 1) return request;
+  if (request.status !== 'pending' && request.status !== 'needs_review') return request;
+  const completedCount = await countSubmissionsForRequest(pg, SUNSET_TENANT_ID, request.id);
+  if (completedCount > 0) return request;
+  const res = await pg.query(
+    `UPDATE waiver_form_requests
+        SET request_mode = 'group', target_count = $3, updated_at = NOW()
+      WHERE tenant_id = $1 AND id = $2::uuid
+      RETURNING id::text AS id, tenant_id, customer_id::text AS customer_id,
+                booking_id::text AS booking_id, participant_key, public_id, token_hash,
+                status, request_mode, target_count,
+                form_type, form_version, sent_to_phone, sent_to_email,
+                prefill_json, metadata, sent_at, completed_at, expires_at,
+                created_at, updated_at`,
+    [SUNSET_TENANT_ID, request.id, guestCount],
+  );
+  return res.rows[0] || request;
+}
+
+async function buildStaffWaiverView(pg, request, baseUrl, guestCount) {
+  if (!request) return null;
+  let row = request;
+  row = await maybeUpgradePendingRequestToGroup(pg, row, guestCount);
+  row = await maybeSyncWaiverTargetCountBeforeSubmissions(pg, row, guestCount);
+  const summary = await getWaiverSubmissionSummary(pg, row.id, SUNSET_TENANT_ID);
+  let submission = null;
+  if (summary && summary.completed_count > 0) {
+    if (summary.request_mode === 'group') {
+      submission = await getLatestSubmissionForRequest(pg, row.id);
+    } else {
+      submission = await getSubmissionForRequest(pg, row.id);
+    }
+  }
+  return staffSafeWaiver(row, submission, baseUrl, summary);
 }
 
 function multiStudentNote(guestCount) {
@@ -191,7 +296,6 @@ async function getBookingWaiverStatus(pg, opts) {
   try {
     loaded = await loadBookingForWaiver(pg, clientSlug, bookingId);
   } catch (err) {
-    // Table missing (migration not applied) — soft fail for staff UI.
     if (err && (err.code === '42P01' || /waiver_form_requests/i.test(err.message || ''))) {
       return {
         ok: true,
@@ -213,12 +317,8 @@ async function getBookingWaiverStatus(pg, opts) {
 
   const guestCount = resolveGuestCount(loaded.booking, loaded.services);
   let request = null;
-  let submission = null;
   try {
     request = await getLatestWaiverRequest(pg, bookingId);
-    if (request && request.status === 'completed') {
-      submission = await getSubmissionForRequest(pg, request.id);
-    }
   } catch (err) {
     if (err && err.code === '42P01') {
       return {
@@ -238,6 +338,10 @@ async function getBookingWaiverStatus(pg, opts) {
   }
 
   const baseUrl = resolveWaiverPublicBaseUrl({ baseUrl: opts.baseUrl, env: opts.env });
+  const waiver = request
+    ? await buildStaffWaiverView(pg, request, baseUrl, guestCount)
+    : null;
+
   return {
     ok: true,
     status: 200,
@@ -247,7 +351,7 @@ async function getBookingWaiverStatus(pg, opts) {
       booking_code: loaded.booking.booking_code || null,
       guest_count: guestCount,
       multi_student_note: multiStudentNote(guestCount),
-      waiver: staffSafeWaiver(request, submission, baseUrl),
+      waiver,
     },
   };
 }
@@ -294,12 +398,10 @@ async function createOrGetBookingWaiver(pg, opts) {
   }
   const baseUrl = resolveWaiverPublicBaseUrl({ baseUrl: opts.baseUrl, env: opts.env });
   const guestCount = resolveGuestCount(loaded.booking, loaded.services);
+  const { requestMode, targetCount } = resolveWaiverRequestParams(guestCount);
 
   if (existing && (existing.status === 'pending' || existing.status === 'needs_review' || existing.status === 'completed')) {
-    let submission = null;
-    if (existing.status === 'completed') {
-      submission = await getSubmissionForRequest(pg, existing.id);
-    }
+    const waiver = await buildStaffWaiverView(pg, existing, baseUrl, guestCount);
     return {
       ok: true,
       status: 200,
@@ -309,7 +411,7 @@ async function createOrGetBookingWaiver(pg, opts) {
         booking_id: bookingId,
         guest_count: guestCount,
         multi_student_note: multiStudentNote(guestCount),
-        waiver: staffSafeWaiver(existing, submission, baseUrl),
+        waiver,
       },
     };
   }
@@ -325,7 +427,9 @@ async function createOrGetBookingWaiver(pg, opts) {
     tenantId: SUNSET_TENANT_ID,
     customerId: loaded.booking.customer_id || null,
     bookingId,
-    participantKey: 'primary',
+    participantKey: guestCount > 1 ? null : 'primary',
+    requestMode,
+    targetCount,
     formVersion,
     sentToPhone: prefill.phone || null,
     sentToEmail: prefill.email || null,
@@ -348,6 +452,8 @@ async function createOrGetBookingWaiver(pg, opts) {
     };
   }
 
+  const waiver = await buildStaffWaiverView(pg, created.request, baseUrl, guestCount);
+
   return {
     ok: true,
     status: 201,
@@ -357,7 +463,7 @@ async function createOrGetBookingWaiver(pg, opts) {
       booking_id: bookingId,
       guest_count: guestCount,
       multi_student_note: multiStudentNote(guestCount),
-      waiver: staffSafeWaiver(created.request, null, baseUrl),
+      waiver,
     },
   };
 }
@@ -366,7 +472,24 @@ async function getBookingWaiverSubmission(pg, opts) {
   const status = await getBookingWaiverStatus(pg, opts);
   if (!status.ok) return status;
   const waiver = status.body && status.body.waiver;
-  if (!waiver || waiver.status !== 'completed' || !waiver.submission) {
+  if (!waiver || !waiver.submission) {
+    return {
+      ok: false,
+      status: 404,
+      body: { success: false, error: 'submission_not_found' },
+    };
+  }
+  if (waiver.request_mode === 'group') {
+    const target = Number(waiver.target_count);
+    const completed = Number(waiver.completed_count);
+    if (Number.isFinite(target) && target > 0 && completed < target) {
+      return {
+        ok: false,
+        status: 404,
+        body: { success: false, error: 'submission_not_found' },
+      };
+    }
+  } else if (waiver.status !== 'completed') {
     return {
       ok: false,
       status: 404,
@@ -385,7 +508,6 @@ async function getBookingWaiverSubmission(pg, opts) {
     },
   };
 }
-
 
 function resolveClientSlug(query, body) {
   return trimStr((query && (query.client || query.client_slug))
@@ -442,7 +564,6 @@ async function handleStaffBookingWaiverCreate(bookingId, query, req, res, user, 
       locationId: (query && query.location) || body.location_id || body.location,
       source: body.source || 'staff_schedule_drawer',
     }));
-    // Attach Luna invite fields when helper is available (no outbound guest messaging).
     let outBody = result.body;
     try {
       const { attachLunaWaiverFields } = require('./sunset-waiver-booking');
@@ -491,6 +612,7 @@ module.exports = {
   buildWaiverPrefillFromBooking,
   staffSafeWaiver,
   resolveGuestCount,
+  resolveWaiverRequestParams,
   multiStudentNote,
   getBookingWaiverStatus,
   createOrGetBookingWaiver,
@@ -498,6 +620,7 @@ module.exports = {
   handleStaffBookingWaiverGet,
   handleStaffBookingWaiverCreate,
   handleStaffBookingWaiverSubmissionGet,
+  maybeSyncWaiverTargetCountBeforeSubmissions,
   STAFF_BOOKING_WAIVER_RE,
   STAFF_BOOKING_WAIVER_SUBMISSION_RE,
   _hashWaiverToken: hashWaiverToken,

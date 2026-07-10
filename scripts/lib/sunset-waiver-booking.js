@@ -39,8 +39,22 @@ async function ensureWaiverForBooking(pg, bookingId, options) {
   return result;
 }
 
-function isLessonReadyForGuest(waiverStatus) {
-  return String(waiverStatus || '').toLowerCase() === 'completed';
+/**
+ * @param {object|string} waiverOrStatus — waiver object (preferred) or legacy status string
+ */
+function isLessonReadyForGuest(waiverOrStatus) {
+  if (waiverOrStatus && typeof waiverOrStatus === 'object') {
+    const w = waiverOrStatus;
+    const mode = w.request_mode || 'single';
+    if (mode === 'group') {
+      const target = Number(w.target_count);
+      const completed = Number(w.completed_count);
+      if (!Number.isFinite(target) || target < 1) return false;
+      return completed >= target;
+    }
+    return String(w.status || '').toLowerCase() === 'completed';
+  }
+  return String(waiverOrStatus || '').toLowerCase() === 'completed';
 }
 
 function resolveWaiverLane(waiverStatus) {
@@ -129,7 +143,7 @@ function attachLunaWaiverFields(body) {
   const waiver = b.waiver || null;
   const status = waiver ? waiver.status : (b.waiver_status || 'missing');
   b.luna_waiver_message = composeLunaWaiverReply(b, 'invite');
-  b.lesson_ready = isLessonReadyForGuest(status);
+  b.lesson_ready = waiver ? isLessonReadyForGuest(waiver) : isLessonReadyForGuest(status);
   b.waiver_lane = resolveWaiverLane(status);
   if (!b.lesson_ready) {
     b.lesson_ready_blocked_reason = 'waiver_not_completed';

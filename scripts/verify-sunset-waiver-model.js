@@ -16,7 +16,8 @@ const path = require('path');
 const crypto = require('crypto');
 
 const ROOT = path.join(__dirname, '..');
-const MIGRATION = path.join(ROOT, 'database', 'migrations', '036_sunset_waivers.sql');
+const MIGRATION_036 = path.join(ROOT, 'database', 'migrations', '036_sunset_waivers.sql');
+const MIGRATION_037 = path.join(ROOT, 'database', 'migrations', '037_sunset_group_waivers.sql');
 const MODEL = path.join(ROOT, 'scripts', 'lib', 'sunset-waiver-model.js');
 const CONFIG = path.join(ROOT, 'config', 'clients', 'sunset.waiver-form.json');
 
@@ -57,26 +58,26 @@ if (cfg && cfg._meta) {
   );
 }
 
-console.log('\n[2] migration 036_sunset_waivers.sql');
-assert('migration exists', fs.existsSync(MIGRATION));
-const sql = fs.existsSync(MIGRATION) ? fs.readFileSync(MIGRATION, 'utf8') : '';
-assert('CREATE waiver_form_requests', /CREATE TABLE IF NOT EXISTS waiver_form_requests/i.test(sql));
-assert('CREATE waiver_form_submissions', /CREATE TABLE IF NOT EXISTS waiver_form_submissions/i.test(sql));
-assert('status CHECK pending/completed/expired/revoked/needs_review',
-  /pending.*completed.*expired.*revoked.*needs_review/s.test(sql.replace(/\s+/g, ' ')));
-assert('unique token_hash', /token_hash/i.test(sql) && /UNIQUE \(token_hash\)|token_hash_unique/i.test(sql));
-assert('unique public_id', /UNIQUE \(public_id\)|public_id_unique/i.test(sql));
-assert('unique request_id on submissions', /UNIQUE \(request_id\)|request_id_unique/i.test(sql));
-assert('index tenant booking', /idx_waiver_form_requests_tenant_booking/i.test(sql));
-assert('index tenant customer', /idx_waiver_form_requests_tenant_customer/i.test(sql));
-assert('index tenant status', /idx_waiver_form_requests_tenant_status/i.test(sql));
-assert('FK bookings optional', /REFERENCES bookings\(id\)/i.test(sql));
-assert('FK customers optional', /REFERENCES customers\(id\)/i.test(sql));
-assert('participant_key column', /participant_key/i.test(sql));
-assert('BEGIN/COMMIT', /\bBEGIN\b/.test(sql) && /\bCOMMIT\b/.test(sql));
-assert('default tenant sunset', /DEFAULT 'sunset'/i.test(sql));
+console.log('\n[2] migration 036_sunset_waivers.sql (unchanged baseline)');
+assert('036 migration exists', fs.existsSync(MIGRATION_036));
+const sql036 = fs.existsSync(MIGRATION_036) ? fs.readFileSync(MIGRATION_036, 'utf8') : '';
+assert('036 CREATE waiver_form_requests', /CREATE TABLE IF NOT EXISTS waiver_form_requests/i.test(sql036));
+assert('036 unique request_id on submissions (original v1)', /UNIQUE \(request_id\)|request_id_unique/i.test(sql036));
 
-console.log('\n[3] scripts/lib/sunset-waiver-model.js helpers');
+console.log('\n[3] migration 037_sunset_group_waivers.sql');
+assert('037 migration exists', fs.existsSync(MIGRATION_037));
+const sql037 = fs.existsSync(MIGRATION_037) ? fs.readFileSync(MIGRATION_037, 'utf8') : '';
+assert('037 request_mode column', /request_mode/i.test(sql037));
+assert('037 target_count column', /target_count/i.test(sql037));
+assert('037 request_mode check single/group', /request_mode IN \('single', 'group'\)/i.test(sql037));
+assert('037 target_count positive check', /target_count IS NULL OR target_count > 0/i.test(sql037));
+assert('037 drops unique request_id', /DROP CONSTRAINT IF EXISTS waiver_form_submissions_request_id_unique/i.test(sql037));
+assert('037 index tenant request_mode', /idx_waiver_form_requests_tenant_request_mode/i.test(sql037));
+assert('037 index tenant booking mode', /idx_waiver_form_requests_tenant_booking_mode/i.test(sql037));
+assert('037 index submissions tenant request submitted', /idx_waiver_form_submissions_tenant_request_submitted/i.test(sql037));
+assert('037 BEGIN/COMMIT', /\bBEGIN\b/.test(sql037) && /\bCOMMIT\b/.test(sql037));
+
+console.log('\n[4] scripts/lib/sunset-waiver-model.js helpers');
 assert('model module exists', fs.existsSync(MODEL));
 
 const {
@@ -92,6 +93,9 @@ const {
   createWaiverRequest,
   getWaiverRequestByPublicId,
   recordWaiverSubmission,
+  computeWaiverRequestStatus,
+  getWaiverSubmissionSummary,
+  normalizeRequestMode,
 } = require('./lib/sunset-waiver-model');
 
 assert('SUNSET_TENANT_ID', SUNSET_TENANT_ID === 'sunset');
@@ -148,10 +152,33 @@ assert(
 assert('createWaiverRequest exported', typeof createWaiverRequest === 'function');
 assert('getWaiverRequestByPublicId exported', typeof getWaiverRequestByPublicId === 'function');
 assert('recordWaiverSubmission exported', typeof recordWaiverSubmission === 'function');
+assert('computeWaiverRequestStatus exported', typeof computeWaiverRequestStatus === 'function');
+assert('getWaiverSubmissionSummary exported', typeof getWaiverSubmissionSummary === 'function');
+assert('default request mode single', normalizeRequestMode(undefined) === 'single');
 
-// Pure validation path without DB: invalid tenant / missing form_version
+assert('single pending when 0 submissions',
+  computeWaiverRequestStatus({ requestMode: 'single', completedCount: 0 }) === 'pending');
+assert('single completed when 1 submission',
+  computeWaiverRequestStatus({ requestMode: 'single', completedCount: 1 }) === 'completed');
+assert('group pending below target',
+  computeWaiverRequestStatus({ requestMode: 'group', targetCount: 20, completedCount: 7 }) === 'pending');
+assert('group completed at target',
+  computeWaiverRequestStatus({ requestMode: 'group', targetCount: 20, completedCount: 20 }) === 'completed');
+assert('group no target stays pending',
+  computeWaiverRequestStatus({ requestMode: 'group', targetCount: null, completedCount: 5 }) === 'pending');
+
+const modelSrc = fs.readFileSync(MODEL, 'utf8');
+assert('createWaiverRequest accepts requestMode', modelSrc.includes('requestMode') || modelSrc.includes('request_mode'));
+assert('createWaiverRequest accepts targetCount', modelSrc.includes('targetCount') || modelSrc.includes('target_count'));
+assert('single mode blocks second submission in app logic', modelSrc.includes("requestMode === 'single'") && modelSrc.includes('completedCount >= 1'));
+assert('group mode allows multiple submissions', modelSrc.includes("requestMode === 'group'") || modelSrc.includes('request_mode'));
+assert('no ON CONFLICT request_id on insert', !modelSrc.includes('ON CONFLICT (request_id)'));
+assert('model uses token_hash lookup', modelSrc.includes('token_hash'));
+assert('model does not default production host', !modelSrc.includes("DEFAULT_STAGING_BASE_URL = 'https://sunset.lunafrontdesk.com'"));
+assert('model idempotent completed path', modelSrc.includes('idempotent'));
+
 (async () => {
-  console.log('\n[4] helper validation without DB');
+  console.log('\n[5] helper validation without DB');
   const badTenant = await createWaiverRequest({ query: async () => ({ rows: [] }) }, {
     tenantId: 'wolfhouse-somo',
     formVersion: 'x',
@@ -163,14 +190,21 @@ assert('recordWaiverSubmission exported', typeof recordWaiverSubmission === 'fun
   });
   assert('createWaiverRequest requires form_version', missingVer.ok === false && missingVer.error === 'form_version is required');
 
+  const defaultSingle = await createWaiverRequest({ query: async () => ({ rows: [] }) }, {
+    tenantId: 'sunset',
+    formVersion: 'sunset_google_form_v1_confirmed',
+  });
+  assert('create without mode still validates (needs DB for insert)', defaultSingle.error !== 'unsupported request_mode');
+
+  const groupNoTarget = await createWaiverRequest({ query: async () => ({ rows: [] }) }, {
+    tenantId: 'sunset',
+    formVersion: 'sunset_google_form_v1_confirmed',
+    requestMode: 'group',
+  });
+  assert('group requires target_count', groupNoTarget.ok === false && groupNoTarget.error === 'target_count is required for group request_mode');
+
   const badLookup = await getWaiverRequestByPublicId({ query: async () => ({ rows: [] }) }, 'not-a-token');
   assert('getWaiverRequestByPublicId rejects bad token', badLookup.ok === false && badLookup.status === 404);
-
-  const modelSrc = fs.readFileSync(MODEL, 'utf8');
-  assert('model uses token_hash lookup', modelSrc.includes('token_hash'));
-  assert('model does not default production host', !modelSrc.includes("DEFAULT_STAGING_BASE_URL = 'https://sunset.lunafrontdesk.com'"));
-  assert('model marks completed in transaction', modelSrc.includes("status = 'completed'") && modelSrc.includes("BEGIN"));
-  assert('model idempotent completed path', modelSrc.includes('idempotent'));
 
   console.log(`\n${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);

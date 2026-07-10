@@ -40,7 +40,8 @@ assert('staffSafeWaiver omits token_hash field assignment to response',
   staffSrc.includes('function staffSafeWaiver')
   && !/staffSafeWaiver[\s\S]*token_hash\s*:/.test(staffSrc.slice(staffSrc.indexOf('function staffSafeWaiver'), staffSrc.indexOf('function staffSafeWaiver') + 800)));
 assert('prefill builder exported', staffSrc.includes('buildWaiverPrefillFromBooking'));
-assert('participant_key primary', staffSrc.includes("participantKey: 'primary'") || staffSrc.includes("participant_key: 'primary'"));
+assert('resolveWaiverRequestParams exported', staffSrc.includes('resolveWaiverRequestParams'));
+assert('guest_count > 1 => group mode in staff', staffSrc.includes("requestMode: 'group'") || staffSrc.includes('requestMode: "group"'));
 assert('no WhatsApp send', !/whatsapp.*send|sendWhatsApp|guest-reply-send/i.test(staffSrc));
 assert('staging default via resolveWaiverPublicBaseUrl', staffSrc.includes('resolveWaiverPublicBaseUrl'));
 assert('no production hostname default', !staffSrc.includes("https://sunset.lunafrontdesk.com"));
@@ -82,6 +83,10 @@ assert('prefill includes email', prefill.email === 'a@b.co');
 assert('prefill includes name', prefill.full_name === 'Ana' || prefill.guest_name === 'Ana');
 assert('prefill lesson days', prefill.lesson_days === '2026-07-23, 2026-07-24');
 assert('guest count 2', staff.resolveGuestCount({ guest_count: 2 }, []) === 2);
+const groupParams = staff.resolveWaiverRequestParams(20);
+assert('guest_count 20 => group mode', groupParams.requestMode === 'group' && groupParams.targetCount === 20);
+const singleParams = staff.resolveWaiverRequestParams(1);
+assert('guest_count 1 => single mode', singleParams.requestMode === 'single' && singleParams.targetCount == null);
 assert('multi student note', /2 alumnos/.test(staff.multiStudentNote(2) || ''));
 assert('no note for 1', staff.multiStudentNote(1) == null);
 
@@ -90,13 +95,25 @@ const safe = staff.staffSafeWaiver({
   public_id: 'waiv_test123abc',
   token_hash: 'SHOULD_NOT_LEAK',
   status: 'pending',
+  request_mode: 'group',
+  target_count: 20,
   form_type: 'sunset_lesson_waiver',
   form_version: 'sunset_google_form_v1_confirmed',
   created_at: '2026-07-10',
-}, null, 'https://sunset-staging.lunafrontdesk.com');
+}, null, 'https://sunset-staging.lunafrontdesk.com', {
+  request_mode: 'group',
+  target_count: 20,
+  completed_count: 7,
+  remaining_count: 13,
+  status: 'pending',
+});
 assert('safe url staging', safe.public_url === 'https://sunset-staging.lunafrontdesk.com/forms/waiver/waiv_test123abc');
 assert('safe has public_id', safe.public_id === 'waiv_test123abc');
 assert('safe omits token_hash', !Object.prototype.hasOwnProperty.call(safe, 'token_hash'));
+assert('safe group request_mode', safe.request_mode === 'group');
+assert('safe target_count', safe.target_count === 20);
+assert('safe completed_count', safe.completed_count === 7);
+assert('safe remaining_count', safe.remaining_count === 13);
 assert('url contains waiv_', /\/forms\/waiver\/waiv_/.test(safe.public_url));
 
 console.log(`\n${pass} passed, ${fail} failed`);

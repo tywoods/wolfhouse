@@ -94,11 +94,17 @@ assert('pending reminder copy', reminder.includes('Te falta completar') && remin
 
 assert('pending is not lesson-ready', isLessonReadyForGuest('pending') === false);
 assert('completed is lesson-ready', isLessonReadyForGuest('completed') === true);
+assert('group partial not lesson-ready',
+  isLessonReadyForGuest({ request_mode: 'group', target_count: 20, completed_count: 7, status: 'pending' }) === false);
+assert('group full is lesson-ready',
+  isLessonReadyForGuest({ request_mode: 'group', target_count: 20, completed_count: 20, status: 'completed' }) === true);
+assert('single completed object is lesson-ready',
+  isLessonReadyForGuest({ request_mode: 'single', status: 'completed', completed_count: 1 }) === true);
 
 const pendingBody = attachLunaWaiverFields({
   success: true,
   guest_count: 2,
-  waiver: { status: 'pending', public_url: sampleUrl },
+  waiver: { status: 'pending', public_url: sampleUrl, request_mode: 'group', target_count: 20, completed_count: 0 },
 });
 assert('pending reply includes public_url', pendingBody.luna_waiver_message.includes(sampleUrl));
 assert('pending lesson_ready false', pendingBody.lesson_ready === false);
@@ -106,10 +112,24 @@ assert('pending blocked reason', pendingBody.lesson_ready_blocked_reason === 'wa
 assert('ready wording not in pending invite',
   !/Ya queda registrado para la clase/i.test(pendingBody.luna_waiver_message));
 
+const groupPartialBody = attachLunaWaiverFields({
+  success: true,
+  guest_count: 20,
+  waiver: { status: 'pending', public_url: sampleUrl, request_mode: 'group', target_count: 20, completed_count: 7 },
+});
+assert('group partial lesson_ready false', groupPartialBody.lesson_ready === false);
+
+const groupDoneBody = attachLunaWaiverFields({
+  success: true,
+  guest_count: 20,
+  waiver: { status: 'completed', public_url: sampleUrl, request_mode: 'group', target_count: 20, completed_count: 20 },
+});
+assert('group full lesson_ready true', groupDoneBody.lesson_ready === true);
+
 const doneBody = attachLunaWaiverFields({
   success: true,
   guest_count: 1,
-  waiver: { status: 'completed', public_url: sampleUrl },
+  waiver: { status: 'completed', public_url: sampleUrl, request_mode: 'single', completed_count: 1 },
 });
 assert('completed permits ready wording', /Ya queda registrado para la clase/i.test(doneBody.luna_waiver_message));
 assert('completed lesson_ready true', doneBody.lesson_ready === true);
