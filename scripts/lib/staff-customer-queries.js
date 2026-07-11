@@ -551,8 +551,29 @@ function getCustomerListQuery(opts) {
     ? `\n    AND COALESCE(b.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}`
     : '';
   const serviceLocClause = locationScoped ? `\n    AND ${sqlLocationMatch('bsr', 'b', locParam)}` : '';
+  // A customer belongs to a location's list if their (sticky, first-touched)
+  // location_id matches OR they have any non-cancelled booking / service in that
+  // location. This lets a guest with bookings in both schools show up in both
+  // customer lists instead of only the one their identity row was first tagged to.
   const custLocClause = locationScoped
-    ? `\n    AND COALESCE(cu.location_id, '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}`
+    ? `\n    AND (
+      COALESCE(cu.location_id, '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}
+      OR EXISTS (
+        SELECT 1 FROM bookings b_loc
+        INNER JOIN clients c_loc ON c_loc.id = b_loc.client_id
+        WHERE c_loc.slug = $1
+          AND b_loc.status NOT IN ('cancelled', 'expired')
+          AND ${sqlCustomerPhoneDigits('b_loc.phone')} = ${sqlCustomerPhoneDigits('cu.phone')}
+          AND COALESCE(b_loc.metadata->>'location_id', '${DEFAULT_SUNSET_LOCATION_ID}') = $${locParam}
+      )
+      OR EXISTS (
+        SELECT 1 FROM booking_service_records bsr_loc
+        INNER JOIN bookings b_loc2 ON b_loc2.id = bsr_loc.booking_id
+        WHERE bsr_loc.client_slug = $1
+          AND ${sqlCustomerPhoneDigits('b_loc2.phone')} = ${sqlCustomerPhoneDigits('cu.phone')}
+          AND ${sqlLocationMatch('bsr_loc', 'b_loc2', locParam)}
+      )
+    )`
     : '';
 
   return `

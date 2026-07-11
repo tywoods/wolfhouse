@@ -17095,10 +17095,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-title{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-time{color:var(--sched-text-2)}
 .portal-schedule-ops-lesson-rows{display:flex;flex-direction:column;gap:0}
-.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto minmax(76px,auto);gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
+.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) 64px 156px;gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
 .portal-schedule-ops-col-hdr span:nth-child(n+3){padding-left:2px}
-.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto minmax(76px,auto);align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
-@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px minmax(0,1fr) minmax(72px,auto)}#tab-portal-home .portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
+.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) 64px 156px;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
+@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px minmax(0,1fr) 150px}#tab-portal-home .portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
 .portal-schedule-ops-row.is-staff,.portal-schedule-ops-row.is-luna{background:transparent}
@@ -17111,7 +17111,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-ops-row-guest-col{display:flex;flex-direction:column;gap:2px;min-width:0}
 .portal-schedule-ops-row-guest{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-schedule-ops-row-equip-sub{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:lowercase;color:var(--text-3);line-height:1.3}
-.portal-schedule-ops-row-status{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px;text-align:right;font-size:11px}
+.portal-schedule-ops-row-status{display:flex;flex-wrap:nowrap;justify-content:flex-end;align-items:center;gap:5px;text-align:right;font-size:11px}
 .portal-schedule-metric-slots{font-size:13px;line-height:1.6;color:var(--text-2)}
 .portal-schedule-metric-slots .portal-schedule-metric-slot{display:block;font-weight:600}
 .portal-schedule-lesson-times{display:flex;flex-direction:column;gap:10px;margin-top:6px;min-height:48px}
@@ -27649,8 +27649,9 @@ function renderCustomerTagsSection(data) {
   var tags = identity.crm_tags || {};
   var autoTags = identity.auto_tags || {};
   var displayTags = customerDisplayTags(identity).length ? customerDisplayTags(identity) : refreshCustomerDisplayTags(identity);
-  var html = '<div class="customers-section" id="cust-tags-section">';
-  html += '<div class="customers-section-hdr">' + escHtml(portalT('customers.tags.title')) + '</div>';
+  var html = '<details class="customers-section customers-collapsible" id="cust-tags-section"' + (customerDetailState.tagsEditing ? ' open' : '') + '>';
+  html += '<summary class="customers-section-hdr customers-collapsible-summary">' + escHtml(portalT('customers.tags.title')) + '<span class="customers-collapsible-count">' + escHtml(String(displayTags.length)) + '</span></summary>';
+  html += '<div class="customers-section-body customers-collapsible-body">';
   if (!customerDetailState.tagsEditing) {
     html += '<div class="customers-tags-view">';
     if (displayTags.length) {
@@ -27685,7 +27686,7 @@ function renderCustomerTagsSection(data) {
     html += '<button type="button" class="btn btn-ghost" id="cust-tags-cancel">' + escHtml(portalT('customers.cancel')) + '</button>';
     html += '</div></div>';
   }
-  html += '<p id="cust-tags-msg" class="state-msg" style="display:none;margin-top:8px"></p></div>';
+  html += '<p id="cust-tags-msg" class="state-msg" style="display:none;margin-top:8px"></p></div></details>';
   return html;
 }
 
@@ -28076,9 +28077,8 @@ function renderCustomerDetail(data) {
   var id = data.identity || {};
   var name = id.display_name || data.phone || 'Guest';
   var html = renderCustomerProfileSection(data, customerDetailState.editing);
-  html += renderCustomerTagsSection(data);
   html += renderCustomerLinkedBookingsSection(data);
-  html += renderCustomerWaiverFormsSection(data);
+  html += renderCustomerTagsSection(data);
 
   var svcBody = '';
   if (data.service_records && data.service_records.length) {
@@ -28102,15 +28102,7 @@ function renderCustomerDetail(data) {
   }
   html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.messages'), count: (data.messages || []).length, body: msgBody });
 
-  var hoBody = '';
-  if (data.open_handoffs && data.open_handoffs.length) {
-    data.open_handoffs.forEach(function(h) {
-      hoBody += '<div class="customers-msg"><strong>' + escHtml(h.reason_code || 'handoff') + '</strong> — ' + escHtml(h.summary || '') + '</div>';
-    });
-  } else {
-    hoBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noHandoffs')) + '</div>';
-  }
-  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.handoffs'), count: (data.open_handoffs || []).length, body: hoBody });
+  html += renderCustomerWaiverFormsSection(data);
 
   box.innerHTML = html;
   wireCustomerProfileActions(data);
