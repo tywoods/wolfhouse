@@ -16567,11 +16567,11 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-two-col{border-color:var(--border-soft)}
 /* ── Reset + base ───────────────────────────────────────────────────────── */
 *{box-sizing:border-box;margin:0;padding:0}
-body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;background:var(--cream);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased}
+body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;font-size:14px;background:var(--cream);color:var(--text);line-height:1.5;-webkit-font-smoothing:antialiased;height:100dvh;overflow:hidden;display:flex;flex-direction:column;min-height:0}
 ::selection{background:var(--teal);color:var(--text)}
 :focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:6px}
 /* ── Top banner ─────────────────────────────────────────────────────────── */
-#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:60px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box}
+#banner{background:linear-gradient(90deg,#2b241f 0%,#4e5f53 38%,#9db9bd 100%);border-bottom:1px solid rgba(74,55,37,.25);color:#fff;height:60px;padding:0 24px;display:flex;align-items:center;gap:16px;box-shadow:0 2px 12px rgba(43,36,31,.14);min-height:0;box-sizing:border-box;flex:0 0 60px}
 #banner .brand{font-size:16px;font-weight:700;letter-spacing:.02em;flex:0 0 auto;display:flex;align-items:stretch;align-self:stretch;min-height:0;line-height:0;text-decoration:none;color:inherit;background:transparent;padding:0}
 #banner .brand-logo{height:100%;width:auto;max-width:min(520px,calc(100vw - 340px));object-fit:contain;object-position:left center;display:block;flex-shrink:0;background:transparent;border:none;box-shadow:none;vertical-align:middle}
 #banner .banner-actions{display:flex;align-items:center;gap:10px;margin-left:auto;flex-shrink:0;color:#fffaf1}
@@ -16605,7 +16605,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-theme-toggle.is-dark .staff-theme-icon-moon{display:none}
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
-#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
+#tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch;flex:0 0 auto}
 #tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:transparent;position:sticky;right:0;z-index:2}
 #tabs .tabs-global-pause.luna-global-paused{background:transparent;border:0}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
@@ -16625,6 +16625,7 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 #tab-conversations.active #wrap{flex:1;min-height:0;overflow:hidden;width:100%;max-width:1200px;align-self:stretch}
 .tab-panel{display:none}
 .tab-panel.active{display:block}
+body > .tab-panel.active{flex:1;min-height:0;overflow:auto}
 /* Slice 2B — neutral shell until client portal profile is applied */
 body.portal-profile-pending #tabs,
 body.portal-profile-pending .tab-panel{display:none!important}
@@ -17260,7 +17261,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 
 
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
-#tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100dvh - 104px);overflow:hidden}
+#tab-customers.active{display:flex;flex-direction:column;flex:1;min-height:0;height:auto;overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
 .customers-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
@@ -17274,13 +17275,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-wrap{position:relative;flex:0 0 auto}
 .customers-filters-trigger{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:12px;font-weight:600;white-space:nowrap}
 .customers-filters-trigger.has-active{border-color:var(--tan);color:var(--text)}
-.customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;min-width:min(320px,92vw);max-height:min(70vh,420px);overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px 0;display:none}
+.customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;width:min(320px,calc(100vw - 40px));max-width:100%;max-height:min(70dvh,420px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px;display:none}
 .customers-filters-menu.open{display:block}
-.customers-filters-chip-field{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px}
+.customers-filters-chip-field{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;width:100%}
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:inline-flex;align-items:center;width:auto;margin:3px;padding:2px 7px;min-height:20px;border:1px solid var(--border);border-radius:999px;background:transparent;text-align:left;font:600 11px/1.25 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer}
+.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;overflow-wrap:anywhere}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
 .customers-filters-option.active{color:#0f766e;border-color:#0d9488;font-weight:600;background:rgba(13,148,136,.12)}
 .customers-filters-option[data-tag-tone="dnc"].active{color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
@@ -17301,7 +17302,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-add-panel{width:100%;padding:12px 14px;margin-bottom:8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
-.customers-tag-toggle{display:inline-flex;align-items:center;font:600 11px/1.25 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:2px 7px;min-height:20px;border:1px solid var(--border);border-radius:999px;background:transparent}
+.customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
 .customers-tag-toggle:has(input:checked){color:#0f766e;border-color:#0d9488;background:rgba(13,148,136,.12)}
 .customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
 .customers-tag-toggle[data-tag-tone="warm"]:has(input:checked){color:#b45309;border-color:#d97706;background:rgba(217,119,6,.12)}
@@ -17310,7 +17311,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
 .customers-badge-dnc{background:#f3e8e8;color:#8b4545;border:1px solid #e6cfcf}
 .customers-two-col{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;flex:1;min-height:0;overflow:hidden}
-@media(max-width:900px){.customers-two-col{grid-template-columns:1fr;overflow:auto}.customers-add-btn{margin-left:0}.customers-toolbar-main{align-items:stretch}.customers-filters-wrap,.customers-add-btn{flex:1 1 auto}.customers-bulk-bar .btn-primary{margin-left:0;width:100%;justify-content:center}}
+@media(max-width:900px){body{height:auto;min-height:100dvh;overflow:auto;display:block}#tab-customers.active{overflow:visible}.customers-two-col{grid-template-columns:1fr;overflow:auto}.customers-add-btn{margin-left:0}.customers-toolbar-main{align-items:stretch}.customers-filters-wrap,.customers-add-btn{flex:1 1 auto}.customers-bulk-bar .btn-primary{margin-left:0;width:100%;justify-content:center}}
 .customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:6px}
 .customers-card{position:relative;padding:9px 34px 9px 11px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:4px;transition:background .12s,border-color .12s,box-shadow .12s}
@@ -27282,6 +27283,11 @@ function renderCustomerTagsSection(data) {
     html += '</div>';
   } else {
     html += '<div class="customers-tags-edit">';
+    if (displayTags.length) {
+      html += '<div class="customers-tags-applied"><div class="customers-tags-chips">' + displayTags.map(function(tagKey) {
+        return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, identity) });
+      }).join('') + '</div></div>';
+    }
     html += '<div class="customers-tags-system-hdr">' + escHtml(portalT('customers.tags.manualHeading')) + '</div>';
     html += '<div class="customers-tags-grid">';
     CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
@@ -27289,16 +27295,7 @@ function renderCustomerTagsSection(data) {
       html += '<label class="customers-tag-toggle" data-tag-tone="' + customerTagTone(key) + '"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
     });
     html += '</div>';
-    var autoActive = CUSTOMER_AUTO_TAG_KEYS.filter(function(key) { return autoTags[key]; });
-    if (autoActive.length) {
-      html += '<div class="customers-tags-system">';
-      html += '<div class="customers-tags-system-hdr">' + escHtml(portalT('customers.tags.systemHeading')) + '</div>';
-      html += '<div class="customers-tags-chips">' + autoActive.map(function(tagKey) {
-        return customerTagChipHtml(tagKey, { auto: true });
-      }).join('') + '</div>';
-      html += '<p class="customers-tags-system-note">' + escHtml(portalT('customers.tags.systemNote')) + '</p>';
-      html += '</div>';
-    }
+
     html += '<div class="customers-profile-actions">';
     html += '<button type="button" class="btn btn-primary" id="cust-tags-save">' + escHtml(portalT('customers.tags.save')) + '</button>';
     html += '<button type="button" class="btn btn-ghost" id="cust-tags-cancel">' + escHtml(portalT('customers.cancel')) + '</button>';
