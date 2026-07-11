@@ -16972,6 +16972,36 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-drawer #ps-drawer-manual-pay .portal-schedule-manual-pay-note input,
 .portal-schedule-drawer #ps-drawer-manual-pay select{background:var(--surface-soft);border-color:var(--border-soft);font-size:12px}
 .portal-schedule-drawer #ps-drawer-manual-pay .btn{font-size:12px;padding:6px 12px}
+/* ── Redesigned Sunset booking drawer (money-first, one card per question) ── */
+.portal-schedule-drawer .ps-money-card{margin-bottom:18px}
+.ps-money-headline{font-size:23px;font-weight:800;letter-spacing:-.015em;line-height:1.1;margin:0 0 2px}
+.ps-money-headline.is-due{color:#B4534A}
+.ps-money-headline.is-partial{color:#9C5742}
+.ps-money-headline.is-paid{color:#3F6B4F}
+.ps-money-sub{font-size:12px;color:var(--text-3);margin:0 0 12px}
+.ps-money-actions{display:flex;flex-wrap:wrap;gap:8px}
+.ps-money-linkmeta{margin:8px 0 0;font-size:12px;color:var(--text-3)}
+.ps-money-linkactive{color:#3F6B4F;font-weight:600}
+.ps-overflow-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.ps-drawer-details{margin-top:10px}
+.ps-drawer-details>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);list-style:none;display:inline-flex;align-items:center;gap:6px;user-select:none;padding:2px 0}
+.ps-drawer-details>summary::-webkit-details-marker{display:none}
+.ps-drawer-details>summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
+.ps-drawer-details[open]>summary::before{transform:rotate(90deg)}
+.ps-drawer-details>summary:hover{color:var(--text)}
+.ps-svc-summary-row{display:flex;justify-content:space-between;gap:10px;align-items:baseline;padding:5px 0;font-size:13px}
+.ps-svc-summary-row+.ps-svc-summary-row{border-top:1px solid var(--border-soft)}
+.ps-svc-name{color:var(--text);font-weight:600}
+.ps-svc-detail{color:var(--text-3);font-weight:400;font-size:12px}
+.ps-svc-amt{color:var(--text);font-weight:700;white-space:nowrap}
+.ps-day-group{margin-top:8px}
+.ps-day-group:first-child{margin-top:2px}
+.ps-day-header{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:8px 0 3px}
+.ps-day-row{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:2px 0;color:var(--text)}
+.ps-day-amt{color:var(--text-2);white-space:nowrap}
+.ps-reg-progress{height:6px;border-radius:999px;background:var(--border-soft);overflow:hidden;margin:2px 0 8px}
+.ps-reg-progress-bar{height:100%;background:#7DA896;border-radius:999px;transition:width .2s}
+.ps-reg-progress-bar.is-complete{background:#5C7350}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section{background:var(--sunset-panel-strong);border-color:var(--sunset-border-soft)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-section-title{color:var(--sched-text)}
 .portal-schedule-drawer-form .portal-schedule-create-field{margin-bottom:10px}
@@ -23720,6 +23750,9 @@ function scheduleRenderWaiverBoxInner(data){
     }
     html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.waiverGroupLabel')) + ':</strong> ' + escHtml(String(targetCount || (data && data.guest_count) || '—')) + ' ' + escHtml(portalT('schedule.drawer.waiverStudents')) + '</p>';
     if (targetCount != null && targetCount > 0) {
+      var pct = Math.max(0, Math.min(100, Math.round((completedCount / targetCount) * 100)));
+      var complete = completedCount >= targetCount;
+      html += '<div class="ps-reg-progress"><div class="ps-reg-progress-bar' + (complete ? ' is-complete' : '') + '" style="width:' + pct + '%"></div></div>';
       html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedProgress')) + ':</strong> ' + escHtml(String(completedCount) + ' / ' + String(targetCount)) + '</p>';
     } else if (completedCount > 0) {
       html += '<p class="portal-schedule-drawer-kv" style="margin:0 0 10px"><strong>' + escHtml(portalT('schedule.drawer.waiverCompletedProgress')) + ':</strong> ' + escHtml(String(completedCount)) + '</p>';
@@ -24012,7 +24045,182 @@ function scheduleWireDrawerHeaderActions(){
   if (refreshBtn) refreshBtn.onclick = scheduleRefreshDrawer;
 }
 
+// ── Redesigned Sunset booking drawer (view mode): money-first, one card per
+// question (paid? → waiver? → what's booked?), each fact stated once. ──────────
+function scheduleDrawerStripLabelDate(label){
+  return String(label == null ? '' : label).replace(/\s*[·\-–—]\s*\d{4}-\d{2}-\d{2}\s*$/, '').trim();
+}
+function scheduleDrawerServiceTypeLabel(t){
+  var s = String(t || '').toLowerCase();
+  if (s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0) return portalT('schedule.type.course');
+  if (s.indexOf('board') >= 0) return portalT('schedule.type.boardRental');
+  if (s.indexOf('suit') >= 0) return portalT('schedule.type.wetsuitRental');
+  return String(t || '—');
+}
+function scheduleDrawerDayHeaderLabel(iso){
+  var s = scheduleDateOnlyLabel(iso);
+  if (!s || s === '—') return '—';
+  try { return scheduleParseIso(s).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' }); }
+  catch (_) { return s; }
+}
+
+// Big money headline + subtotal/paid line, colour = signal.
+function scheduleRenderMoneyHeadlineHtml(pay){
+  var paid = Number(pay.paid_cents || 0);
+  var sub = Number(pay.subtotal_cents || 0);
+  var due = (pay.balance_due_cents != null) ? Number(pay.balance_due_cents) : Math.max(sub - paid, 0);
+  var fullyPaid = pay.payment_status === 'paid' || (sub > 0 && due <= 0 && paid > 0);
+  var cls = fullyPaid ? 'is-paid' : (paid > 0 ? 'is-partial' : 'is-due');
+  var big = fullyPaid ? portalT('schedule.drawer.paidInFull')
+    : (scheduleDrawerEur(due) + ' ' + portalT('schedule.drawer.dueSuffix'));
+  return '<div class="ps-money-headline ' + cls + '">' + escHtml(big) + '</div>' +
+    '<div class="ps-money-sub">' + escHtml(portalT('schedule.drawer.subtotal') + ' ' + scheduleDrawerEur(sub) +
+      ' · ' + portalT('schedule.drawer.paid') + ' ' + scheduleDrawerEur(paid)) + '</div>';
+}
+
+// Primary payment-link action + overflow (open/regenerate/delete) via native <details>.
+function scheduleRenderSunsetMoneyActionsHtml(ctx){
+  var stripeAvail = ctx && ctx.stripe_available;
+  var link = ctx && ctx.stripe_link;
+  var url = link && link.checkout_url;
+  var stale = !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
+  var displayUrl = scheduleDrawerPaymentShortUrl(ctx) || url;
+  var html = '<div class="ps-money-actions">';
+  if (url){
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.copyPaymentLink')) + '</button>';
+  } else if (stripeAvail){
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button>';
+  } else {
+    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button>';
+  }
+  html += '</div>';
+  if (url){
+    html += '<p class="ps-money-linkmeta"><span class="ps-money-linkactive">' + escHtml(portalT('schedule.drawer.paymentLinkActive')) + '</span></p>';
+    if (stale){ html += '<p class="portal-schedule-drawer-hint" style="color:#9C5742;margin:2px 0 0">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</p>'; }
+    html += '<a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" style="display:none"></a>';
+    html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreActions')) + '</summary><div class="ps-overflow-actions">';
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
+    if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.stripeRegenerate')) + '</button>';
+    html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
+    html += '</div></details>';
+  }
+  return html;
+}
+
+// Collapsible "Record payment" — the manual-pay form, hidden until opened. Keeps all wired IDs.
+function scheduleRenderSunsetRecordPaymentHtml(ctx){
+  if (!(ctx && ctx.booking_id)) return '';
+  var html = '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.recordPayment')) + '</summary>';
+  html += '<div id="ps-drawer-manual-pay" style="margin-top:8px">';
+  html += '<div class="portal-schedule-manual-pay-grid">';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
+    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
+    '<select id="ps-drawer-manual-method">' +
+    '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
+    '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
+    '</select></label>';
+  html += '</div>';
+  html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
+    '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
+    escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
+  html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
+  html += '</div></details>';
+  return html;
+}
+
+// Money card (Sunset view): headline → primary action → record-payment. Box id preserved for refresh.
+function scheduleRenderSunsetMoneyCardHtml(ctx){
+  var pay = (ctx && ctx.payment) || {};
+  var html = '<div class="ctx-pay-box ps-money-card" id="ps-drawer-payment-box" style="margin-top:0">';
+  html += scheduleRenderMoneyHeadlineHtml(pay);
+  html += scheduleRenderSunsetMoneyActionsHtml(ctx);
+  html += scheduleRenderSunsetRecordPaymentHtml(ctx);
+  html += '</div>';
+  return html;
+}
+
+// Booking card: single day → clean item rows; multi-day → per-service summary + expandable daily.
+function scheduleRenderSunsetBookingCardHtml(ctx){
+  var pay = (ctx && ctx.payment) || {};
+  var items = pay.line_items || [];
+  var comps = (ctx && ctx.components) || {};
+  if (!items.length){
+    var summary = scheduleFormatComponentsView(comps);
+    if (!summary || summary === '—') return '';
+    return scheduleDrawerSectionHtml('schedule.drawer.section.booking',
+      '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(summary) + '</p>');
+  }
+  var dayMap = {};
+  items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
+  var dayKeys = Object.keys(dayMap).sort();
+  var dayCount = dayKeys.length;
+  var body = '';
+  if (dayCount <= 1){
+    items.forEach(function(li){
+      body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
+        '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
+    });
+  } else {
+    var byType = {}, order = [];
+    items.forEach(function(li){
+      var t = String(li.service_type || '');
+      if (!byType[t]){ byType[t] = { name: scheduleDrawerServiceTypeLabel(t), days: {}, cents: 0 }; order.push(t); }
+      byType[t].cents += Number(li.line_cents || 0);
+      var d = String(li.service_date || '').slice(0, 10); if (d) byType[t].days[d] = true;
+    });
+    var courseLabel = (comps.course && comps.course.course_label) || '';
+    order.forEach(function(t){
+      var b = byType[t];
+      var n = Object.keys(b.days).length;
+      var detail = String(t).indexOf('lesson') >= 0 && courseLabel ? courseLabel : '';
+      var det = n + ' ' + portalT('schedule.drawer.daysWord') + (detail ? ' · ' + detail : '');
+      body += '<div class="ps-svc-summary-row"><span class="ps-svc-name">' + escHtml(b.name) +
+        ' <span class="ps-svc-detail">· ' + escHtml(det) + '</span></span>' +
+        '<span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(b.cents)) + '</span></div>';
+    });
+    var daily = '';
+    dayKeys.forEach(function(d){
+      daily += '<div class="ps-day-group"><div class="ps-day-header">' + escHtml(scheduleDrawerDayHeaderLabel(d)) + '</div>';
+      items.forEach(function(li){
+        if (String(li.service_date || '').slice(0, 10) !== d) return;
+        daily += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
+          '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
+      });
+      daily += '</div>';
+    });
+    body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
+  }
+  var title = portalT('schedule.drawer.section.booking') + (dayCount > 1 ? ' · ' + dayCount + ' ' + portalT('schedule.drawer.daysWord') : '');
+  return '<section class="portal-schedule-drawer-section"><h4 class="portal-schedule-drawer-section-title">' +
+    escHtml(title) + '</h4>' + body + '</section>';
+}
+
+function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
+  var html = scheduleRenderDrawerHeroHtml(ctx, row);
+  // Money first — an owner opens a booking to check "are they paid?".
+  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
+  html += scheduleRenderSunsetBookingCardHtml(ctx);
+  if (ctx.notes) {
+    html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
+      '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
+  }
+  html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  html += '<div class="portal-schedule-drawer-actions">';
+  if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
+  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
+  html += '</div>';
+  html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+  html += scheduleRenderDeleteBookingRowHtml(ctx);
+  return html;
+}
+
 function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
+  if (isSunsetSurfActive()) return scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit);
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
   // Booking details: phone, dates, booked items (Sunset view mode). Source lives in the hero metadata line.
   html += scheduleDrawerSectionHtml('schedule.drawer.section.booking', scheduleRenderDrawerViewBookingDetailsHtml(ctx, row));
@@ -24064,6 +24272,8 @@ function scheduleRenderDrawerPaymentSelectHtml(ctx){
 }
 
 function scheduleRenderDrawerPaymentSectionHtml(ctx, editable){
+  // Sunset view mode uses the redesigned money-first card; edit mode + other clients keep the classic layout.
+  if (isSunsetSurfActive() && !editable) return scheduleRenderSunsetMoneyCardHtml(ctx);
   var pay = (ctx && ctx.payment) || {};
   var items = pay.line_items || [];
   var html = '<div class="ctx-pay-box" id="ps-drawer-payment-box" style="margin-top:14px">';

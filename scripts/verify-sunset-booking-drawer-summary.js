@@ -115,6 +115,33 @@ console.log('\n[5] i18n — booked items EN/ES parity');
 assert('EN bookedItems key', i18nSrc.includes("'schedule.drawer.bookedItems': 'Booked items'"));
 assert('ES bookedItems key', i18nEsSrc.includes("'schedule.drawer.bookedItems'"));
 
+console.log('\n[6] Redesigned money-first drawer');
+
+const sunsetViewFn = fnBody(apiSrc, 'scheduleRenderSunsetViewDrawerHtml');
+const bookingCardFn = fnBody(apiSrc, 'scheduleRenderSunsetBookingCardHtml');
+const moneyCardFn = fnBody(apiSrc, 'scheduleRenderSunsetMoneyCardHtml');
+const recordFn = fnBody(apiSrc, 'scheduleRenderSunsetRecordPaymentHtml');
+
+assert('sunset view drawer helper exists', apiSrc.includes('function scheduleRenderSunsetViewDrawerHtml('));
+assert('money card helper exists', apiSrc.includes('function scheduleRenderSunsetMoneyCardHtml('));
+assert('booking card helper exists', apiSrc.includes('function scheduleRenderSunsetBookingCardHtml('));
+assert('view drawer branches to sunset renderer', apiSrc.includes('if (isSunsetSurfActive()) return scheduleRenderSunsetViewDrawerHtml('));
+assert('money rendered before booking card', sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)') > -1 &&
+  sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)') < sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml('));
+assert('payment section branches to money card for sunset view', apiSrc.includes('if (isSunsetSurfActive() && !editable) return scheduleRenderSunsetMoneyCardHtml('));
+assert('date-strip helper exists', apiSrc.includes('function scheduleDrawerStripLabelDate('));
+assert('daily rows strip the ISO date', bookingCardFn.includes('scheduleDrawerStripLabelDate(li.label)'));
+assert('record-payment collapsible keeps manual IDs', recordFn.includes('id="ps-drawer-manual-submit"') && recordFn.includes('id="ps-drawer-manual-amount"'));
+assert('money card preserves payment-box id', moneyCardFn.includes('id="ps-drawer-payment-box"'));
+assert('money card keeps stripe copy/delete ids', apiSrc.includes('id="ps-drawer-stripe-copy"') && apiSrc.includes('id="ps-drawer-stripe-delete"'));
+assert('progress bar for group waiver', apiSrc.includes('ps-reg-progress-bar'));
+
+console.log('\n[7] i18n — redesign keys EN/ES parity');
+['schedule.drawer.paidInFull', 'schedule.drawer.createPaymentLink', 'schedule.drawer.copyPaymentLink', 'schedule.drawer.recordPayment', 'schedule.drawer.showDaily', 'schedule.drawer.daysWord'].forEach(function (k) {
+  assert('EN key ' + k, i18nSrc.includes("'" + k + "'"));
+  assert('ES key ' + k, i18nEsSrc.includes("'" + k + "'"));
+});
+
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
 if (fail > 0) {
