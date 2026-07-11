@@ -17275,13 +17275,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-wrap{position:relative;flex:0 0 auto}
 .customers-filters-trigger{display:inline-flex;align-items:center;gap:6px;padding:8px 12px;font-size:12px;font-weight:600;white-space:nowrap}
 .customers-filters-trigger.has-active{border-color:var(--tan);color:var(--text)}
-.customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;width:min(320px,calc(100vw - 40px));max-width:100%;max-height:min(70dvh,420px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px;display:none}
+.customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;width:min(360px,calc(100vw - 24px));max-width:none;max-height:min(70dvh,420px);box-sizing:border-box;overflow-x:hidden;overflow-y:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:10px;display:none}
 .customers-filters-menu.open{display:block}
 .customers-filters-chip-field{display:flex;flex-wrap:wrap;align-items:center;gap:4px;min-width:0;width:100%}
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;overflow-wrap:anywhere}
+.customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
 .customers-filters-option.active{color:#0f766e;border-color:#0d9488;font-weight:600;background:rgba(13,148,136,.12)}
 .customers-filters-option[data-tag-tone="dnc"].active{color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
@@ -17302,6 +17302,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-add-panel{width:100%;padding:12px 14px;margin-bottom:8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.customers-tags-unified-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
 .customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
 .customers-tag-toggle:has(input:checked){color:#0f766e;border-color:#0d9488;background:rgba(13,148,136,.12)}
 .customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
@@ -27283,16 +27284,19 @@ function renderCustomerTagsSection(data) {
     html += '</div>';
   } else {
     html += '<div class="customers-tags-edit">';
-    if (displayTags.length) {
-      html += '<div class="customers-tags-applied"><div class="customers-tags-chips">' + displayTags.map(function(tagKey) {
-        return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, identity) });
-      }).join('') + '</div></div>';
-    }
-    html += '<div class="customers-tags-system-hdr">' + escHtml(portalT('customers.tags.manualHeading')) + '</div>';
-    html += '<div class="customers-tags-grid">';
+    html += '<div class="customers-tags-unified-row">';
     CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
+      if (customerTagIsAuto(key, identity)) {
+        html += customerTagChipHtml(key, { auto: true });
+        return;
+      }
       var checked = tags[key] ? ' checked' : '';
       html += '<label class="customers-tag-toggle" data-tag-tone="' + customerTagTone(key) + '"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
+    });
+    displayTags.forEach(function(tagKey) {
+      if (customerTagIsAuto(tagKey, identity) && CUSTOMER_CRM_TAG_KEYS.indexOf(tagKey) === -1) {
+        html += customerTagChipHtml(tagKey, { auto: true });
+      }
     });
     html += '</div>';
 
