@@ -633,6 +633,12 @@ const {
   deriveBookingPaymentState,
 } = require('./lib/luna-booking-payment-totals');
 const {
+  STRIPE_BOOKING_PAYMENT_EVENT_TYPES,
+  lookupPaymentForStripeSession,
+  validateStripeBookingPaymentEvent,
+  bookingMetadataPatchForStripePayment,
+} = require('./lib/stripe-webhook-payment-truth');
+const {
   getPauseState,
   getGlobalPauseState,
   pauseConversation,
@@ -13579,7 +13585,7 @@ async function handleStripeWebhook(req, res) {
 
   // ── 3. Route event type ───────────────────────────────────────────────────
   const eventType = event && event.type;
-  if (eventType !== 'checkout.session.completed') {
+  if (!STRIPE_BOOKING_PAYMENT_EVENT_TYPES.includes(eventType)) {
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:ignored',
       category: 'stripe_webhook', event_type: eventType || 'unknown',
@@ -13594,48 +13600,11 @@ async function handleStripeWebhook(req, res) {
 
   const sessionId      = session.id;
   const metaPaymentId  = session.metadata && session.metadata.payment_id;
-  const metaBookingId  = session.metadata && session.metadata.booking_id;
 
-  // ── 4. Look up payment + booking from DB ──────────────────────────────────
+  // ── 4. Look up payment + booking from DB (session id is authoritative) ────
   let pm;
   try {
-    pm = await withPgClient(async (pg) => {
-      const q = `
-        SELECT p.id                     AS payment_id,
-               p.booking_id,
-               p.client_id,
-               p.booking_guest_id,
-               p.status                 AS payment_status,
-               p.payment_kind,
-               p.currency,
-               p.amount_due_cents,
-               p.amount_paid_cents      AS pm_amount_paid,
-               p.stripe_checkout_session_id,
-               p.metadata                 AS payment_metadata,
-               b.booking_code,
-               b.total_amount_cents     AS bk_total,
-               b.amount_paid_cents      AS bk_amount_paid,
-               b.balance_due_cents      AS bk_balance,
-               b.deposit_required_cents AS bk_deposit,
-               b.guest_name,
-               b.primary_room_code,
-               (SELECT bb.room_code
-                  FROM booking_beds bb
-                 WHERE bb.booking_id = b.id
-                 ORDER BY bb.created_at ASC
-                 LIMIT 1)              AS assigned_room_code,
-               COALESCE(
-                 NULLIF(TRIM(b.metadata->'guest'->>'phone'), ''),
-                 NULLIF(TRIM(b.phone), '')
-               )                        AS guest_phone,
-               cl.slug                  AS client_slug
-          FROM payments p
-          JOIN bookings b  ON b.id  = p.booking_id
-          JOIN clients  cl ON cl.id = p.client_id
-         WHERE ${metaPaymentId ? 'p.id = $1' : 'p.stripe_checkout_session_id = $1'}`;
-      const r = await pg.query(q, [metaPaymentId || sessionId]);
-      return r.rows[0] || null;
-    });
+    pm = await withPgClient(async (pg) => lookupPaymentForStripeSession(pg, session));
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
@@ -13852,6 +13821,24 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 200, addonBody);
   }
 
+  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType);
+  if (validationReasons.length > 0) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:validation_failed',
+      category: 'stripe_webhook', event_type: eventType,
+      session_id: sessionId, payment_id: pm.payment_id, booking_id: pm.booking_id,
+      reasons: validationReasons,
+    });
+    return sendJSON(res, 422, {
+      success: false,
+      error: 'Stripe session/payment validation failed',
+      reasons: validationReasons,
+      payment_id: pm.payment_id,
+      booking_id: pm.booking_id,
+      session_id: sessionId,
+    });
+  }
+
   // ── 7–9. Derive amounts from completed payment rows + atomic DB update ─────
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   let newPmPaidCents;
@@ -13868,12 +13855,18 @@ async function handleStripeWebhook(req, res) {
         prevCompletedPaidCents: prevCompletedPaid,
         stripePaidCents,
         paymentKind: pm.payment_kind,
+        amountDueCents: pm.amount_due_cents,
       });
       newPmPaidCents = derived.newPmPaidCents;
       newBkPaid = derived.newBkPaid;
       newBkBalance = derived.newBkBalance;
       newBkPayStatus = derived.newBkPayStatus;
       confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
+      const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, newBkPayStatus);
+      const bookingMetaMerge = {};
+      if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
+      if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
+      const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
 
       await pg.query('BEGIN');
       try {
@@ -13883,6 +13876,7 @@ async function handleStripeWebhook(req, res) {
                  amount_paid_cents        = $1,
                  paid_at                  = NOW(),
                  stripe_payment_intent_id = $2,
+                 stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6),
                  metadata                 = metadata || $3::jsonb
            WHERE id = $4
              AND client_id = $5`,
@@ -13899,19 +13893,19 @@ async function handleStripeWebhook(req, res) {
             }),
             pm.payment_id,
             pm.client_id,
+            sessionId,
           ]
         );
         // Promote hold → confirmed when deposit or full payment received.
         const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
         await pg.query(
-          confirmationDraft
+          hasBookingMetaMerge
             ? `UPDATE bookings
                  SET amount_paid_cents = $1,
                      balance_due_cents = $2,
                      payment_status    = $3::payment_status,
                      status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
-                     metadata          = COALESCE(metadata, '{}'::jsonb)
-                                         || jsonb_build_object('confirmation_draft', $5::jsonb)
+                     metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
                WHERE id = $4`
             : `UPDATE bookings
                  SET amount_paid_cents = $1,
@@ -13919,8 +13913,8 @@ async function handleStripeWebhook(req, res) {
                      payment_status    = $3::payment_status,
                      status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
                WHERE id = $4`,
-          confirmationDraft
-            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(confirmationDraft), promotesToConfirmed]
+          hasBookingMetaMerge
+            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
             : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed]
         );
         if (pm.booking_guest_id) {

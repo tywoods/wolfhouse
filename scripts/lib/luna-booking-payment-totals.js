@@ -24,7 +24,7 @@ async function sumCompletedPaymentCentsForBooking(pg, bookingId, excludePaymentI
 }
 
 /**
- * @param {{ bkTotal: number, prevCompletedPaidCents: number, stripePaidCents: number, paymentKind?: string }} input
+ * @param {{ bkTotal: number, prevCompletedPaidCents: number, stripePaidCents: number, paymentKind?: string, amountDueCents?: number }} input
  */
 function deriveBookingPaymentState(input) {
   const src = input || {};
@@ -32,16 +32,25 @@ function deriveBookingPaymentState(input) {
   const total = Number(src.bkTotal || 0);
   const prevPaid = Number(src.prevCompletedPaidCents || 0);
   const paymentKind = String(src.paymentKind || '').trim();
+  const amountDue = Number(src.amountDueCents || 0);
 
-  const newBkPaid = total > 0
+  const fullLinkPaid = paymentKind === 'full_amount'
+    && amountDue > 0
+    && stripePaid >= amountDue;
+
+  let newBkPaid = total > 0
     ? Math.min(prevPaid + stripePaid, total)
     : prevPaid + stripePaid;
-  const newBkBalance = total > 0 ? Math.max(total - newBkPaid, 0) : 0;
+  let newBkBalance = total > 0 ? Math.max(total - newBkPaid, 0) : 0;
 
   let newBkPayStatus;
-  // Sunset schedule bookings may have total_amount_cents = 0 until priced; a completed
-  // full_amount Stripe checkout still means the booking is paid when balance is zero.
-  if (newBkBalance === 0 && (total > 0 || (newBkPaid > 0 && paymentKind === 'full_amount'))) {
+  // A satisfied full_amount Checkout Session clears the payment-row obligation even when
+  // booking.total_amount_cents is stale or zero (Sunset schedule manual bookings).
+  if (fullLinkPaid) {
+    newBkPaid = total > 0 ? Math.max(newBkPaid, Math.min(prevPaid + stripePaid, total)) : prevPaid + stripePaid;
+    newBkBalance = 0;
+    newBkPayStatus = 'paid';
+  } else if (newBkBalance === 0 && (total > 0 || (newBkPaid > 0 && paymentKind === 'full_amount'))) {
     newBkPayStatus = 'paid';
   } else if (paymentKind === 'deposit_only') {
     newBkPayStatus = 'deposit_paid';
