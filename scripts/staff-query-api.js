@@ -24275,8 +24275,8 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
   html += scheduleRenderSunsetBookingCardHtml(ctx);
-  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   html += scheduleRenderDrawerPaymentSectionHtml(ctx);
+  html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
