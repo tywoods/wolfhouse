@@ -1,13 +1,7 @@
 'use strict';
 
 /**
- * verify:sunset-booking-drawer-summary
- *
- * Offline checks for Sunset booking drawer header + view-mode summary cleanup.
- * Static source assertions only — no Staff API, DB, or network.
- *
- * Run:
- *   node scripts/verify-sunset-booking-drawer-summary.js
+ * verify:sunset-booking-drawer-summary — extended UX redesign checks
  */
 
 const fs = require('fs');
@@ -49,30 +43,17 @@ function fnBody(src, name) {
   return '';
 }
 
-console.log('\nverify:sunset-booking-drawer-summary — drawer header + summary checks\n');
+console.log('\nverify:sunset-booking-drawer-summary — drawer UX redesign checks\n');
 
 const apiSrc = fs.existsSync(STAFF_API_PATH) ? fs.readFileSync(STAFF_API_PATH, 'utf8') : '';
 const i18nSrc = fs.existsSync(I18N_PATH) ? fs.readFileSync(I18N_PATH, 'utf8') : '';
 const i18nEsSrc = fs.existsSync(I18N_ES_SUNSET_PATH) ? fs.readFileSync(I18N_ES_SUNSET_PATH, 'utf8') : '';
 
-console.log('[1] Hero + view summary helpers');
-
-assert('scheduleRenderDrawerHeroMetadataLine helper', apiSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
-assert('scheduleRenderDrawerViewBookingDetailsHtml helper', apiSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
-assert('scheduleRenderDrawerViewDateRow helper', apiSrc.includes('function scheduleRenderDrawerViewDateRow('));
-assert('scheduleRenderDrawerBookedItemsHtml helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsHtml('));
-assert('scheduleDrawerSameDay helper', apiSrc.includes('function scheduleDrawerSameDay('));
-assert('hero metadata CSS class', apiSrc.includes('portal-schedule-drawer-hero-meta'));
-assert('hero title CSS class', apiSrc.includes('portal-schedule-drawer-hero-title'));
-assert('icon close button class', apiSrc.includes('portal-schedule-drawer-close-btn'));
-assert('booked items list CSS class', apiSrc.includes('portal-schedule-drawer-booked-list'));
-assert('compact section CSS class', apiSrc.includes('portal-schedule-drawer-section-compact'));
-
-console.log('\n[2] View mode — no duplicate guest/source/dates; scannable booked items');
-
 const viewFn = fnBody(apiSrc, 'scheduleRenderViewDrawerHtml');
 const viewDetailsFn = fnBody(apiSrc, 'scheduleRenderDrawerViewBookingDetailsHtml');
-const dateRowFn = fnBody(apiSrc, 'scheduleRenderDrawerViewDateRow');
+const heroFn = fnBody(apiSrc, 'scheduleRenderDrawerHeroHtml');
+const bookedFn = fnBody(apiSrc, 'scheduleRenderDrawerBookedItemsHtml');
+const sunsetPayFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerPaymentSectionHtml');
 const sunsetDetailsBranch = (function () {
   const marker = 'if (!isSunsetSurfActive())';
   const idx = viewDetailsFn.indexOf(marker);
@@ -82,62 +63,54 @@ const sunsetDetailsBranch = (function () {
   return ret ? ret[1] : '';
 })();
 
-assert('view drawer uses booking details helper', viewFn.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
-assert('view drawer uses compact section for Sunset', viewFn.includes('compact: true'));
-assert('view drawer scroll + sticky footer (Sunset)', viewFn.includes('portal-schedule-drawer-scroll') && viewFn.includes('portal-schedule-drawer-footer-sticky'));
-assert('view details omit guest name row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.create.guestName')"));
-assert('view details omit source row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.drawer.source')"));
-assert('view details omit date row (Sunset branch)', !sunsetDetailsBranch.includes('scheduleRenderDrawerViewDateRow'));
-assert('view details show phone', viewDetailsFn.includes("portalT('schedule.drawer.phone')"));
-assert('view details include booked items list', viewDetailsFn.includes('scheduleRenderDrawerBookedItemsHtml'));
-assert('booked items use line-item amounts (Sunset)', apiSrc.includes('portal-schedule-drawer-booked-amount'));
-assert('same-day date label key (hero metadata)', dateRowFn.includes("'schedule.create.date'"));
-assert('multi-day dates label key (hero metadata)', dateRowFn.includes("'schedule.drawer.section.dates'"));
-assert('same-day uses scheduleDrawerSameDay', dateRowFn.includes('scheduleDrawerSameDay(ctx)'));
+console.log('[1] Information hierarchy');
 
-console.log('\n[3] Hero — metadata line + accessible controls');
+assert('phone in hero via scheduleRenderDrawerHeroPhoneHtml', heroFn.includes('scheduleRenderDrawerHeroPhoneHtml(ctx)'));
+assert('phone not in Sunset booking card branch', !sunsetDetailsBranch.includes("portalT('schedule.drawer.phone')"));
+assert('Sunset view uses booking code heading not section.booking key', viewFn.includes('heading: code') && viewFn.includes('scheduleDrawerSectionHtml(null, scheduleRenderDrawerViewBookingDetailsHtml'));
+assert('booking code not duplicated in hero (Sunset)', !heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
+assert('copy booking code control', apiSrc.includes('id="ps-drawer-copy-code"'));
+assert('pricing disclaimer sentence absent from Sunset payment render', !sunsetPayFn.includes("portalT('schedule.drawer.livePricingNote')"));
+assert('pricing disclaimer string absent from rendered Sunset HTML path', !viewFn.includes('Totals use current Admin prices'));
+assert('livePricingNote i18n exists but unused in Sunset payment', i18nSrc.includes("'schedule.drawer.livePricingNote'"));
 
-const heroFn = fnBody(apiSrc, 'scheduleRenderDrawerHeroHtml');
-assert('hero metadata line helper used', heroFn.includes('scheduleRenderDrawerHeroMetadataLine(ctx, row)'));
-assert('hero school in metadata via scheduleResolveDrawerSchoolLabel', apiSrc.includes('scheduleResolveDrawerSchoolLabel(ctx, row)'));
-assert('hero source in metadata via scheduleRowSourceDrawerLabel', apiSrc.includes('scheduleRowSourceDrawerLabel(row)'));
-assert('refresh retains aria-label', heroFn.includes('id="ps-drawer-refresh"') && heroFn.includes('aria-label'));
-assert('close retains aria-label (Sunset icon)', heroFn.includes('id="ps-drawer-close"') && heroFn.includes('aria-label'));
-assert('close retains title', heroFn.includes('schedule.drawer.close'));
-assert('booking code subdued class', heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
-assert('hero title line-clamp CSS', apiSrc.includes('-webkit-line-clamp:2'));
+console.log('\n[2] Booked items by date');
 
-console.log('\n[4] Payment — balance headline, collapsed manual pay, hidden URLs');
+assert('scheduleDrawerGroupLineItemsByDate helper', apiSrc.includes('function scheduleDrawerGroupLineItemsByDate('));
+assert('scheduleDrawerCompactDateHeading helper', apiSrc.includes('function scheduleDrawerCompactDateHeading('));
+assert('date group CSS class', apiSrc.includes('portal-schedule-drawer-date-group'));
+assert('date heading CSS class', apiSrc.includes('portal-schedule-drawer-date-heading'));
+assert('booked items grouped by date in renderer', bookedFn.includes('scheduleDrawerGroupLineItemsByDate(lineItems)'));
+assert('undated fallback group', bookedFn.includes("portalT('schedule.drawer.otherItems')"));
+assert('row display strips ISO dates from labels', bookedFn.includes('scheduleDrawerParseBookedItemDisplay(li)') && apiSrc.includes("parts = parts.filter(function(p){ return !/^\\d{4}-\\d{2}-\\d{2}$/.test(p); })"));
+assert('no flat li.label dump in Sunset line_items branch', !bookedFn.includes('escHtml(li.label)'));
 
-const sunsetPayFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerPaymentSectionHtml');
-const sunsetStripeFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerStripeHtml');
-const sunsetManualFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerManualPaymentHtml');
-const legacyPayFn = fnBody(apiSrc, 'scheduleRenderDrawerPaymentSectionHtml');
+console.log('\n[3] Drawer mechanics — scroll ownership');
 
-assert('Sunset payment section helper', apiSrc.includes('function scheduleRenderSunsetDrawerPaymentSectionHtml('));
-assert('Sunset payment branches from main helper', legacyPayFn.includes('if (isSunsetSurfActive()) return scheduleRenderSunsetDrawerPaymentSectionHtml'));
-assert('dominant balance headline id', sunsetPayFn.includes('id="ps-drawer-balance-headline"'));
-assert('balance due i18n key', i18nSrc.includes("'schedule.drawer.balanceDue'"));
-assert('paid in full i18n key', i18nSrc.includes("'schedule.drawer.paidInFull'"));
-assert('Sunset payment omits visible remaining row', !sunsetPayFn.includes("portalT('schedule.drawer.remaining')"));
-assert('Sunset payment omits duplicate line items block', !sunsetPayFn.includes('ps-drawer-line-items'));
-assert('manual payment collapsed by default', sunsetManualFn.includes('aria-expanded="false"') && sunsetManualFn.includes('hidden'));
-assert('manual payment disclosure toggle id', sunsetManualFn.includes('id="ps-drawer-manual-pay-toggle"'));
-assert('stripe url visually hidden (Sunset)', sunsetStripeFn.includes('portal-schedule-drawer-visually-hidden') && sunsetStripeFn.includes('id="ps-drawer-stripe-url"'));
-assert('stripe delete in danger zone', sunsetStripeFn.includes('portal-schedule-drawer-stripe-danger'));
-assert('stripe open button wired in markup', sunsetStripeFn.includes('id="ps-drawer-stripe-open"'));
+assert('drawer shell uses 100dvh', apiSrc.includes('height:100dvh;max-height:100dvh'));
+assert('Sunset #ps-drawer-body flex column min-height 0', apiSrc.includes('portal-schedule-drawer-sunset #ps-drawer-body'));
+assert('scroll region min-height 0 overflow-y auto', apiSrc.includes('flex:1 1 auto;min-height:0;overflow-y:auto'));
+assert('fixed header region', apiSrc.includes('portal-schedule-drawer-header'));
+assert('header outside scroll in Sunset view', viewFn.includes("'<header class=\"portal-schedule-drawer-header\">'"));
+assert('scroll-end padding spacer', apiSrc.includes('portal-schedule-drawer-scroll-endpad'));
+assert('footer safe-area padding', apiSrc.includes('env(safe-area-inset-bottom'));
+assert('scroll lock on open', apiSrc.includes('scheduleLockDrawerPageScroll()'));
+assert('scroll unlock on close', apiSrc.includes('scheduleUnlockDrawerPageScroll()'));
+assert('no horizontal overflow on scroll', apiSrc.includes('overflow-x:hidden'));
 
-console.log('\n[5] Registration form — concise summary, no raw URL');
+console.log('\n[4] Actions — placement and button levels');
 
-const sunsetWaiverFn = fnBody(apiSrc, 'scheduleRenderSunsetWaiverBoxInner');
-assert('Sunset waiver box helper', apiSrc.includes('function scheduleRenderSunsetWaiverBoxInner('));
-assert('waiver branches to Sunset renderer', fnBody(apiSrc, 'scheduleRenderWaiverBoxInner').includes('scheduleRenderSunsetWaiverBoxInner(data)'));
-assert('waiver summary line class', sunsetWaiverFn.includes('portal-schedule-drawer-waiver-summary'));
-assert('waiver progress i18n key', i18nSrc.includes("'schedule.drawer.waiverSummaryProgress'"));
-assert('waiver omits visible raw URL paragraph', !sunsetWaiverFn.includes('word-break:break-all'));
-assert('waiver open button preserved', sunsetWaiverFn.includes('id="ps-drawer-waiver-open"'));
+assert('footer primary Edit booking', viewFn.includes('btn btn-primary" id="ps-drawer-edit"'));
+assert('footer secondary Start conversation', viewFn.includes('btn btn-secondary" id="ps-drawer-conversation-btn"'));
+assert('open customer quiet tertiary', apiSrc.includes('btn btn-quiet" id="ps-drawer-open-customer"'));
+assert('close in header with 44px target', apiSrc.includes('min-width:44px;min-height:44px'));
+assert('refresh quiet in header', apiSrc.includes('portal-schedule-refresh-btn'));
+assert('stripe actions in payment section', fnBody(apiSrc, 'scheduleRenderSunsetDrawerStripeHtml').includes('ps-drawer-stripe-link'));
+assert('waiver actions in waiver section', fnBody(apiSrc, 'scheduleRenderSunsetWaiverBoxInner').includes('ps-drawer-waiver-copy'));
+assert('dialog role on drawer shell', apiSrc.includes('role="dialog"'));
+assert('accessible guest title id', apiSrc.includes('id="ps-drawer-guest-title"'));
 
-console.log('\n[6] Preserved drawer IDs + Wolfhouse fallback');
+console.log('\n[5] Preserved IDs + Wolfhouse fallback');
 
 assert('ps-drawer-refresh id preserved', apiSrc.includes('id="ps-drawer-refresh"'));
 assert('ps-drawer-close id preserved', apiSrc.includes('id="ps-drawer-close"'));
@@ -147,17 +120,15 @@ assert('ps-drawer-stripe-link id preserved', apiSrc.includes('id="ps-drawer-stri
 assert('ps-drawer-stripe-copy id preserved', apiSrc.includes('id="ps-drawer-stripe-copy"'));
 assert('ps-drawer-stripe-delete id preserved', apiSrc.includes('id="ps-drawer-stripe-delete"'));
 assert('ps-drawer-manual-submit id preserved', apiSrc.includes('id="ps-drawer-manual-submit"'));
-assert('non-Sunset view fallback keeps legacy rows', viewDetailsFn.includes('!isSunsetSurfActive()'));
-assert('non-Sunset payment keeps legacy totals', legacyPayFn.includes("portalT('schedule.drawer.remaining')") && legacyPayFn.includes('scheduleRenderDrawerStripeLinkSectionHtml'));
-assert('drawer-scoped mobile CSS', apiSrc.includes('@media(max-width:420px){.portal-schedule-drawer-hero-inner'));
-assert('Sunset drawer layout class toggled on mount', apiSrc.includes('portal-schedule-drawer-sunset'));
+assert('non-Sunset view keeps legacy section.booking', viewFn.includes("scheduleDrawerSectionHtml('schedule.drawer.section.booking'"));
+assert('non-Sunset payment keeps legacy totals', fnBody(apiSrc, 'scheduleRenderDrawerPaymentSectionHtml').includes("portalT('schedule.drawer.remaining')"));
 
-console.log('\n[7] i18n — EN/ES parity for new labels');
+console.log('\n[6] i18n — EN/ES parity');
 
-assert('EN bookedItems key', i18nSrc.includes("'schedule.drawer.bookedItems': 'Booked items'"));
-assert('ES bookedItems key', i18nEsSrc.includes("'schedule.drawer.bookedItems'"));
-assert('ES balanceDue key', i18nEsSrc.includes("'schedule.drawer.balanceDue'"));
-assert('ES manualPayToggle key', i18nEsSrc.includes("'schedule.drawer.manualPayToggle'"));
+assert('EN otherItems key', i18nSrc.includes("'schedule.drawer.otherItems'"));
+assert('ES otherItems key', i18nEsSrc.includes("'schedule.drawer.otherItems'"));
+assert('EN copyCode key', i18nSrc.includes("'schedule.drawer.copyCode'"));
+assert('ES copyCode key', i18nEsSrc.includes("'schedule.drawer.copyCode'"));
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);
