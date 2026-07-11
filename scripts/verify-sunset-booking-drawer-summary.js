@@ -60,13 +60,15 @@ console.log('[1] Hero + view summary helpers');
 assert('scheduleRenderDrawerHeroMetadataLine helper', apiSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
 assert('scheduleRenderDrawerViewBookingDetailsHtml helper', apiSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
 assert('scheduleRenderDrawerViewDateRow helper', apiSrc.includes('function scheduleRenderDrawerViewDateRow('));
-assert('scheduleRenderDrawerBookedItemsRow helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsRow('));
+assert('scheduleRenderDrawerBookedItemsHtml helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsHtml('));
 assert('scheduleDrawerSameDay helper', apiSrc.includes('function scheduleDrawerSameDay('));
 assert('hero metadata CSS class', apiSrc.includes('portal-schedule-drawer-hero-meta'));
 assert('hero title CSS class', apiSrc.includes('portal-schedule-drawer-hero-title'));
 assert('icon close button class', apiSrc.includes('portal-schedule-drawer-close-btn'));
+assert('booked items list CSS class', apiSrc.includes('portal-schedule-drawer-booked-list'));
+assert('compact section CSS class', apiSrc.includes('portal-schedule-drawer-section-compact'));
 
-console.log('\n[2] View mode — no duplicate guest/source; dates + booked items');
+console.log('\n[2] View mode — no duplicate guest/source/dates; scannable booked items');
 
 const viewFn = fnBody(apiSrc, 'scheduleRenderViewDrawerHtml');
 const viewDetailsFn = fnBody(apiSrc, 'scheduleRenderDrawerViewBookingDetailsHtml');
@@ -81,13 +83,15 @@ const sunsetDetailsBranch = (function () {
 })();
 
 assert('view drawer uses booking details helper', viewFn.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
+assert('view drawer uses compact section for Sunset', viewFn.includes('compact: true'));
 assert('view details omit guest name row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.create.guestName')"));
 assert('view details omit source row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.drawer.source')"));
+assert('view details omit date row (Sunset branch)', !sunsetDetailsBranch.includes('scheduleRenderDrawerViewDateRow'));
 assert('view details show phone', viewDetailsFn.includes("portalT('schedule.drawer.phone')"));
-assert('view details include booked items row', viewDetailsFn.includes('scheduleRenderDrawerBookedItemsRow'));
-assert('booked items uses scheduleFormatComponentsView', apiSrc.includes('scheduleFormatComponentsView(comps)'));
-assert('same-day date label key', dateRowFn.includes("'schedule.create.date'"));
-assert('multi-day dates label key', dateRowFn.includes("'schedule.drawer.section.dates'"));
+assert('view details include booked items list', viewDetailsFn.includes('scheduleRenderDrawerBookedItemsHtml'));
+assert('booked items render as list markup', apiSrc.includes('portal-schedule-drawer-booked-list'));
+assert('same-day date label key (hero metadata)', dateRowFn.includes("'schedule.create.date'"));
+assert('multi-day dates label key (hero metadata)', dateRowFn.includes("'schedule.drawer.section.dates'"));
 assert('same-day uses scheduleDrawerSameDay', dateRowFn.includes('scheduleDrawerSameDay(ctx)'));
 
 console.log('\n[3] Hero — metadata line + accessible controls');
@@ -100,6 +104,7 @@ assert('refresh retains aria-label', heroFn.includes('id="ps-drawer-refresh"') &
 assert('close retains aria-label (Sunset icon)', heroFn.includes('id="ps-drawer-close"') && heroFn.includes('aria-label'));
 assert('close retains title', heroFn.includes('schedule.drawer.close'));
 assert('booking code subdued class', heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
+assert('hero title line-clamp CSS', apiSrc.includes('-webkit-line-clamp:2'));
 
 console.log('\n[4] Preserved drawer IDs + Wolfhouse fallback');
 

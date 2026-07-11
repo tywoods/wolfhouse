@@ -1294,7 +1294,7 @@ console.log('\n[38] Sunset booking drawer — header + view summary cleanup');
 if (apiSrc) {
   assert('drawer hero metadata line helper', apiSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
   assert('drawer view booking details helper', apiSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
-  assert('drawer booked items row helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsRow('));
+  assert('drawer booked items list helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsHtml('));
   assert('drawer hero meta CSS class', apiSrc.includes('portal-schedule-drawer-hero-meta'));
   assert('drawer icon close button class', apiSrc.includes('portal-schedule-drawer-close-btn'));
   assert('view drawer delegates booking details', apiSrc.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
