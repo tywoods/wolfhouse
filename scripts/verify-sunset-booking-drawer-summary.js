@@ -131,6 +131,8 @@ assert('booking card rendered before money (owner reorder)', sunsetViewFn.indexO
 assert('payment section branches to money card for sunset view', apiSrc.includes('if (isSunsetSurfActive() && !editable) return scheduleRenderSunsetMoneyCardHtml('));
 assert('date-strip helper exists', apiSrc.includes('function scheduleDrawerStripLabelDate('));
 assert('daily rows strip the ISO date', bookingCardFn.includes('scheduleDrawerStripLabelDate(li.label)'));
+assert('drawer daily labels come from compact lineItemLabel', fs.existsSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-drawer.js'))
+  && fs.readFileSync(path.join(ROOT, 'scripts/lib/sunset-schedule-booking-drawer.js'), 'utf8').includes('formatSunsetDrawerDailyItemLabel'));
 assert('record-payment collapsible keeps manual IDs', recordFn.includes('id="ps-drawer-manual-submit"') && recordFn.includes('id="ps-drawer-manual-amount"'));
 assert('money card preserves payment-box id', moneyCardFn.includes('id="ps-drawer-payment-box"'));
 assert('money card keeps stripe copy/delete ids', apiSrc.includes('id="ps-drawer-stripe-copy"') && apiSrc.includes('id="ps-drawer-stripe-delete"'));
