@@ -24075,13 +24075,21 @@ function scheduleDrawerExtractDateFromLabel(label){
 
 function scheduleDrawerParseBookedItemDisplay(li){
   var label = String((li && li.label) || '');
-  var parts = label.split(' · ').map(function(p){ return p.trim(); }).filter(Boolean);
-  if (parts.length && /^\d{4}-\d{2}-\d{2}$/.test(parts[parts.length - 1])) parts.pop();
+  var parts = label.split(/\s*[·•]\s*/).map(function(p){ return p.trim(); }).filter(Boolean);
+  parts = parts.filter(function(p){ return !/^\d{4}-\d{2}-\d{2}$/.test(p); });
   var name = parts[0] || label || '—';
   var detail = parts.length > 1 ? parts.slice(1).join(' · ') : '';
   var qty = Number(li && li.quantity) || 0;
-  if (qty > 0 && name.indexOf('×') < 0 && !/·\s*\d+\s*$/.test(name)) {
-    name = name + ' · ' + qty;
+  if (detail && /^\d+$/.test(detail) && qty === Number(detail)) detail = '';
+  else if (qty > 0 && name.indexOf('×') < 0 && !/·\s*\d+\s*$/.test(name) && !/\b\d+\s*surfer/i.test(name)) {
+    var segs = name.split(' · ');
+    var lastSeg = segs[segs.length - 1];
+    if (lastSeg !== String(qty)) name = name + ' · ' + qty;
+  }
+  if (detail) {
+    detail = detail.split(' · ').filter(function(p){
+      return p && !/^\d{4}-\d{2}-\d{2}$/.test(p);
+    }).join(' · ');
   }
   return { name: name, detail: detail };
 }
