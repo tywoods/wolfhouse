@@ -223,6 +223,7 @@ const {
   createCustomerConversation,
   normalizeCustomerPhone,
 } = require('./lib/staff-customer-queries');
+const { parseCustomerDeleteBody, deleteCustomerProfiles } = require('./lib/staff-customer-profile-delete');
 const {
   listCustomerMessageTemplates,
   createCustomerMessageTemplate,
@@ -17287,11 +17288,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filter-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;font-weight:500;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);line-height:1.3}
 .customers-filter-chip button{border:none;background:transparent;color:var(--text-3);cursor:pointer;padding:0 2px;font-size:13px;line-height:1}
 .customers-filter-chip button:hover{color:var(--text)}
-.customers-bulk-bar{display:none;align-items:center;flex-wrap:wrap;gap:8px;padding:8px 12px;margin-bottom:10px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm)}
+.customers-bulk-bar{display:none;align-items:center;flex-wrap:wrap;gap:6px;padding:6px 8px;margin:0 0 8px auto;width:max-content;max-width:100%;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-pill);box-shadow:0 3px 12px rgba(0,0,0,.06)}
 .customers-bulk-bar.is-visible{display:flex}
 .customers-selected-count{font-size:12px;font-weight:600;color:var(--text-2);white-space:nowrap;margin-right:4px}
 .customers-bulk-bar .btn{font-size:12px;padding:7px 12px}
 .customers-bulk-bar .btn-primary{margin-left:auto}
+.customers-bulk-bar .btn-danger{color:#9b3030;border-color:#e3bcbc;background:#fff7f7}
 .customers-add-panel{width:100%;padding:12px 14px;margin-bottom:8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:6px}
@@ -17304,6 +17306,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:6px}
 .customers-card{position:relative;padding:9px 34px 9px 11px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:4px;transition:background .12s,border-color .12s,box-shadow .12s}
+.customers-card-heading{display:flex;align-items:baseline;gap:7px;min-width:0}.customers-card-phone{font-size:11px;color:var(--text-3);white-space:nowrap}
 .customers-card:hover{background:var(--surface-soft)}
 .customers-card.selected{border-color:var(--border);background:var(--surface-soft);box-shadow:inset 3px 0 0 var(--tan)}
 .customers-card.bulk-selected{background:rgba(180,160,130,.08);border-color:rgba(180,160,130,.35)}
@@ -18783,6 +18786,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <span id="cust-selected-count" class="customers-selected-count">0 selected</span>
     <button type="button" id="cust-select-all-shown" class="btn btn-ghost" data-i18n="customers.bulk.selectAllShown">Select all shown</button>
     <button type="button" id="cust-clear-selection" class="btn btn-ghost" data-i18n="customers.bulk.clearSelection">Clear selection</button>
+    <button type="button" id="cust-delete-selected-btn" class="btn btn-danger" disabled data-i18n="customers.bulk.delete">Delete</button>
     <button type="button" id="cust-message-selected-btn" class="btn btn-primary" disabled data-i18n="customers.outreach.messageSelected">Message selected</button>
   </div>
   <div id="cust-add-panel" class="customers-add-panel" style="display:none" aria-hidden="true">
@@ -26612,6 +26616,7 @@ function updateCustomersBulkSelectionUI() {
   var count = getCustomersBulkSelectedPhones().length;
   var countEl = el('cust-selected-count');
   var btn = el('cust-message-selected-btn');
+  var deleteBtn = el('cust-delete-selected-btn');
   var bar = el('cust-bulk-bar');
   if (bar) {
     bar.classList.toggle('is-visible', count > 0);
@@ -26625,6 +26630,24 @@ function updateCustomersBulkSelectionUI() {
     var label = portalT('customers.outreach.messageSelected');
     btn.textContent = count > 0 ? (label + ' (' + String(count) + ')') : label;
   }
+  if (deleteBtn) deleteBtn.disabled = count < 1;
+}
+
+function deleteSelectedCustomerProfiles() {
+  var phones = getCustomersBulkSelectedPhones();
+  if (!phones.length) return;
+  if (!window.confirm(portalT('customers.bulk.deleteConfirm').replace('{count}', String(phones.length)))) return;
+  var button = el('cust-delete-selected-btn');
+  if (button) button.disabled = true;
+  fetch('/staff/customers/bulk-delete?client=' + encodeURIComponent(getClient()), {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ phones: phones })
+  }).then(function(response) { return response.json().then(function(data) { if (!response.ok || !data.success) throw new Error(data.error || 'Delete failed'); return data; }); })
+    .then(function(data) {
+      customersBulkSelected = {}; selectedCustomerPhone = null;
+      customerDetailState = { phone: null, data: null, editing: false, tagsEditing: false };
+      window.alert(portalT('customers.bulk.deleteSuccess').replace('{count}', String(data.deleted_count)));
+      return loadCustomersList();
+    }).catch(function(err) { window.alert(portalT('customers.bulk.deleteFailed') + ' ' + err.message); updateCustomersBulkSelectionUI(); });
 }
 
 function buildCustomersOutreachPlan() {
@@ -27215,10 +27238,8 @@ function renderCustomersList(rows) {
     return '<div class="customers-card' + sel + bulkSel + '" data-phone="' + escHtml(c.phone) + '">' +
       '<label class="customers-card-check" title="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"><input type="checkbox" class="cust-bulk-check" data-phone="' + escHtml(c.phone) + '"' + bulkChecked + ' aria-label="' + escHtml(portalT('customers.outreach.selectCustomer')) + '"></label>' +
       '<div class="customers-card-body">' +
-      '<div class="customers-card-name">' + escHtml(name) + '</div>' +
-      '<div class="customers-card-contact">' + escHtml(contact.join(' · ') || portalT('customers.contact.unknown')) + '</div>' +
-      (c.last_service_summary ? '<div class="customers-card-preview">' + escHtml(c.last_service_summary) + '</div>' : (c.last_message_preview ? '<div class="customers-card-preview">' + escHtml(c.last_message_preview) + '</div>' : '')) +
-      '<div class="customers-card-meta">' + escHtml(portalT('customers.lastContact')) + ': ' + escHtml(formatCustomerWhen(c.last_contact_at)) + '</div>' +
+      '<div class="customers-card-heading"><div class="customers-card-name">' + escHtml(name) + '</div><span class="customers-card-phone">' + escHtml(c.phone || '') + '</span></div>' +
+      (c.email ? '<div class="customers-card-contact">' + escHtml(c.email) + '</div>' : '') +
       (tagChips ? '<div class="customers-badges">' + tagChips + '</div>' : '') +
       '</div></div>';
   }).join('');
@@ -27810,6 +27831,11 @@ function wireCustomersTab() {
   if (clearBtn && !clearBtn.dataset.wired) {
     clearBtn.dataset.wired = '1';
     clearBtn.addEventListener('click', function() { clearCustomersBulkSelection(); });
+  }
+  var deleteBtn = el('cust-delete-selected-btn');
+  if (deleteBtn && !deleteBtn.dataset.wired) {
+    deleteBtn.dataset.wired = '1';
+    deleteBtn.addEventListener('click', deleteSelectedCustomerProfiles);
   }
   var search = el('cust-search');
   if (search && !search.dataset.wired) {
@@ -41094,6 +41120,26 @@ async function handleCustomerCreate(query, req, res, user) {
   }
 }
 
+async function handleCustomerBulkDelete(query, req, res, user) {
+  const clientSlug = String(query.client || DEFAULT_CLIENT).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body;
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid json body'); }
+  const parsed = parseCustomerDeleteBody(body);
+  if (!parsed.ok) return send400(res, parsed.error);
+  try {
+    const result = await withPgClient((pg) => deleteCustomerProfiles(pg, clientSlug, parsed.phones));
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:customers.delete', category: 'customer_api', client_slug: clientSlug,
+      staff_user_id: user && user.staff_user_id, deleted_count: result.deleted_count, success: true });
+    return sendJSON(res, 200, { success: true, ...result });
+  } catch (err) {
+    appendAuditLog({ ts: new Date().toISOString(), intent: 'api:customers.delete', category: 'customer_api', client_slug: clientSlug,
+      staff_user_id: user && user.staff_user_id, success: false, error: err.message });
+    return sendJSON(res, 500, { success: false, error: 'customer profile deletion failed' });
+  }
+}
+
 async function handleCustomerTagsUpdate(phoneRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -46879,6 +46925,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleCustomerCreate(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/customers/bulk-delete' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleCustomerBulkDelete(parsed.query, req, res, auth.user);
   }
 
   // ── All other routes: GET only ────────────────────────────────────────────

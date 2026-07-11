@@ -321,6 +321,14 @@ if (fs.existsSync(I18N_PATH)) {
 console.log('\n[10] Outreach drawer shell — no sends');
 
 if (apiSrc) {
+  assert('bulk profile delete route + auth handler', apiSrc.includes("pathname === '/staff/customers/bulk-delete'")
+    && apiSrc.includes('handleCustomerBulkDelete') && apiSrc.includes("requireAuth(req, res, 'operator')"));
+  assert('bulk delete selection UI + explicit count confirmation', apiSrc.includes('cust-delete-selected-btn')
+    && apiSrc.includes('deleteSelectedCustomerProfiles') && apiSrc.includes("replace('{count}', String(phones.length))"));
+  assert('compact card puts phone beside name', apiSrc.includes('customers-card-heading') && apiSrc.includes('customers-card-phone'));
+  assert('compact card omits last-contact and preview rows', !/function renderCustomersList[\s\S]*?customers-card-meta[\s\S]*?function renderCustomerTagsSection/.test(apiSrc)
+    && !/function renderCustomersList[\s\S]*?customers-card-preview[\s\S]*?function renderCustomerTagsSection/.test(apiSrc));
+  assert('customer card tags preserved', apiSrc.includes("(tagChips ? '<div class=\"customers-badges\">'"));
   assert('selection checkboxes in list', apiSrc.includes('cust-bulk-check'));
   assert('message selected toolbar button', apiSrc.includes('cust-message-selected-btn'));
   assert('customers outreach drawer', apiSrc.includes('customers-outreach-drawer'));
