@@ -16984,6 +16984,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-money-linkactive{color:#3F6B4F;font-weight:600}
 .ps-money-link{margin:4px 0 0;font-size:12px;word-break:break-all}
 .ps-money-link a{color:var(--luna-blue-text,#2d5a78)}
+.ps-card-eyebrow{font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3);margin:0 0 8px}
+.ps-card-subtitle{font-size:12px;color:var(--text-2);margin:2px 0 12px;letter-spacing:.01em}
+.ps-money-link-row{display:flex;align-items:center;gap:8px;margin:4px 0 0}
+.ps-money-link-a{flex:1 1 auto;min-width:0;font-size:12px;word-break:break-all;color:var(--luna-blue-text,#2d5a78)}
+.ps-copy-icon{flex:0 0 auto;padding:5px 9px;font-size:14px;line-height:1;min-width:34px}
+.ps-overflow-row{flex-direction:row;flex-wrap:wrap}
+.ps-overflow-row .btn{flex:1 1 auto;font-size:12px;padding:6px 8px;white-space:nowrap}
 .ps-overflow-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .ps-drawer-details{margin-top:10px}
 .ps-drawer-details>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);list-style:none;display:inline-flex;align-items:center;gap:6px;user-select:none;padding:2px 0}
@@ -23775,14 +23782,10 @@ function scheduleRenderWaiverBoxInner(data){
   }
   var showAnswers = isGroup ? completedCount > 0 : w.status === 'completed';
   if (w.public_url) {
-    html += '<p class="portal-schedule-drawer-kv" style="word-break:break-all;margin:0 0 8px"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener">' + escHtml(w.public_url) + '</a></p>';
-    html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
-    var copyLabel = isGroup ? portalT('schedule.drawer.waiverCopyGroup') : portalT('schedule.drawer.waiverCopy');
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-copy">' + escHtml(copyLabel) + '</button>';
+    html += '<div class="ps-money-link-row"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(w.public_url) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-waiver-copy') + '</div>';
     if (showAnswers) {
-      html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button>';
+      html += '<div class="portal-schedule-drawer-actions" style="margin-top:8px"><button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button></div>';
     }
-    html += '</div>';
   } else if (w.status === 'pending' || w.status === 'needs_review') {
     var retryLabel = isGroup ? portalT('schedule.drawer.waiverCreateGroup') : portalT('schedule.drawer.waiverCreate');
     html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' + escHtml(retryLabel) + '</button>';
@@ -24050,13 +24053,26 @@ function scheduleWireDrawerHeaderActions(){
 // ── Redesigned Sunset booking drawer (view mode): money-first, one card per
 // question (paid? → waiver? → what's booked?), each fact stated once. ──────────
 function scheduleDrawerStripLabelDate(label){
-  // Remove any ISO date (grouped by day already), then trim a now-dangling trailing separator —
-  // codepoint-independent so it can't regress on a different bullet char.
+  // NB: regex literals with \d/\s break when this client JS is embedded in the /staff/ui
+  // template bundle (backslashes are eaten). Use [0-9] classes — no backslashes — so it survives.
   return String(label == null ? '' : label)
-    .replace(/\d{4}-\d{2}-\d{2}/g, '')
-    .replace(/[^0-9A-Za-z)À-ɏ]+$/u, '')
-    .replace(/\s{2,}/g, ' ')
+    .replace(/[0-9]{4}-[0-9]{2}-[0-9]{2}/g, '')
+    .replace(/[^0-9A-Za-z)]+$/, '')
+    .replace(/  +/g, ' ')
     .trim();
+}
+
+// DD-MM-YY from an ISO date (no backslash regex — safe in the embedded bundle).
+function scheduleDrawerDDMMYY(iso){
+  var s = scheduleDateOnlyLabel(iso);
+  if (!s || s === '—' || s.length < 10) return '';
+  return s.slice(8, 10) + '-' + s.slice(5, 7) + '-' + s.slice(2, 4);
+}
+
+// Small copy-icon button. Wiring (by id) copies the relevant link from ctx.
+function scheduleDrawerCopyIconBtnHtml(id){
+  return '<button type="button" class="btn btn-ghost ps-copy-icon" id="' + id + '" title="' +
+    escHtml(portalT('schedule.drawer.copyLink')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyLink')) + '">&#10697;</button>';
 }
 function scheduleDrawerServiceTypeLabel(t){
   var s = String(t || '').toLowerCase();
@@ -24093,24 +24109,20 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
   var url = link && link.checkout_url;
   var stale = !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
   var displayUrl = scheduleDrawerPaymentShortUrl(ctx) || url;
-  var html = '<div class="ps-money-actions">';
-  if (url){
-    html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.copyPaymentLink')) + '</button>';
-  } else if (stripeAvail){
-    html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button>';
-  } else {
-    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button>';
-  }
-  html += '</div>';
+  var html = '';
   if (url){
     html += '<p class="ps-money-linkmeta"><span class="ps-money-linkactive">' + escHtml(portalT('schedule.drawer.paymentLinkActive')) + '</span></p>';
     if (stale){ html += '<p class="portal-schedule-drawer-hint" style="color:#9C5742;margin:2px 0 0">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</p>'; }
-    html += '<p class="ps-money-link"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener">' + escHtml(displayUrl) + '</a></p>';
-    html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreActions')) + '</summary><div class="ps-overflow-actions">';
+    html += '<div class="ps-money-link-row"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(displayUrl) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-stripe-copy') + '</div>';
+    html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreStripeOptions')) + '</summary><div class="ps-overflow-actions ps-overflow-row">';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
-    if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.stripeRegenerate')) + '</button>';
+    if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createNewLink')) + '</button>';
     html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
     html += '</div></details>';
+  } else if (stripeAvail){
+    html += '<div class="ps-money-actions"><button type="button" class="btn btn-primary" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button></div>';
+  } else {
+    html += '<div class="ps-money-actions"><button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' + escHtml(portalT('schedule.drawer.createPaymentLink')) + '</button></div>';
   }
   return html;
 }
@@ -24142,6 +24154,7 @@ function scheduleRenderSunsetRecordPaymentHtml(ctx){
 function scheduleRenderSunsetMoneyCardHtml(ctx){
   var pay = (ctx && ctx.payment) || {};
   var html = '<div class="ctx-pay-box ps-money-card" id="ps-drawer-payment-box" style="margin-top:0">';
+  html += '<div class="ps-card-eyebrow">' + escHtml(portalT('schedule.drawer.paymentsTitle')) + '</div>';
   html += scheduleRenderMoneyHeadlineHtml(pay);
   html += scheduleRenderSunsetMoneyActionsHtml(ctx);
   html += scheduleRenderSunsetRecordPaymentHtml(ctx);
@@ -24163,7 +24176,19 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
   var dayMap = {};
   items.forEach(function(li){ var d = String(li.service_date || '').slice(0, 10); if (d) dayMap[d] = true; });
   var dayKeys = Object.keys(dayMap).sort();
-  var dayCount = dayKeys.length;
+  var dayCount = dayKeys.length || 1;
+  // Surfers: course/private/lesson quantity, else max lesson line qty, else guest count.
+  var surfers = (comps.course && comps.course.quantity)
+    || (comps.private_lesson && (comps.private_lesson.surfer_count || comps.private_lesson.quantity))
+    || (comps.lesson && comps.lesson.quantity) || 0;
+  if (!surfers){ items.forEach(function(li){ var t = String(li.service_type || ''); if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) surfers = Math.max(surfers, Number(li.quantity) || 0); }); }
+  if (!surfers) surfers = Number(ctx && ctx.guest_count) || 1;
+  var title = surfers + ' ' + portalT('schedule.drawer.surfersWord') + ' · ' + dayCount + ' ' + portalT('schedule.drawer.daysWordCap');
+  var from = scheduleDrawerDDMMYY(ctx && ctx.date_from);
+  var to = scheduleDrawerDDMMYY((ctx && ctx.date_to) || (ctx && ctx.date_from));
+  var subtitle = from ? (portalT('schedule.drawer.dateLabel') + ': ' + from + (to && to !== from ? ' - ' + to : '')) : '';
+  var head = '<h4 class="portal-schedule-drawer-section-title">' + escHtml(title) + '</h4>' +
+    (subtitle ? '<p class="ps-card-subtitle">' + escHtml(subtitle) + '</p>' : '');
   var body = '';
   if (dayCount <= 1){
     items.forEach(function(li){
@@ -24174,19 +24199,16 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
     var byType = {}, order = [];
     items.forEach(function(li){
       var t = String(li.service_type || '');
-      if (!byType[t]){ byType[t] = { name: scheduleDrawerServiceTypeLabel(t), days: {}, cents: 0 }; order.push(t); }
+      if (!byType[t]){ byType[t] = { name: scheduleDrawerServiceTypeLabel(t), cents: 0 }; order.push(t); }
       byType[t].cents += Number(li.line_cents || 0);
-      var d = String(li.service_date || '').slice(0, 10); if (d) byType[t].days[d] = true;
     });
     var courseLabel = (comps.course && comps.course.course_label) || '';
     order.forEach(function(t){
       var b = byType[t];
-      var n = Object.keys(b.days).length;
       var detail = String(t).indexOf('lesson') >= 0 && courseLabel ? courseLabel : '';
-      var det = n + ' ' + portalT('schedule.drawer.daysWord') + (detail ? ' · ' + detail : '');
       body += '<div class="ps-svc-summary-row"><span class="ps-svc-name">' + escHtml(b.name) +
-        ' <span class="ps-svc-detail">· ' + escHtml(det) + '</span></span>' +
-        '<span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(b.cents)) + '</span></div>';
+        (detail ? ' <span class="ps-svc-detail">· ' + escHtml(detail) + '</span>' : '') +
+        '</span><span class="ps-svc-amt">' + escHtml(scheduleDrawerEur(b.cents)) + '</span></div>';
     });
     var daily = '';
     dayKeys.forEach(function(d){
@@ -24200,16 +24222,14 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
     });
     body += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.showDaily')) + '</summary>' + daily + '</details>';
   }
-  var title = portalT('schedule.drawer.section.booking') + (dayCount > 1 ? ' · ' + dayCount + ' ' + portalT('schedule.drawer.daysWord') : '');
-  return '<section class="portal-schedule-drawer-section"><h4 class="portal-schedule-drawer-section-title">' +
-    escHtml(title) + '</h4>' + body + '</section>';
+  return '<section class="portal-schedule-drawer-section">' + head + body + '</section>';
 }
 
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
   html += scheduleRenderSunsetBookingCardHtml(ctx);
-  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
   html += scheduleRenderDrawerWaiverSectionHtml(ctx);
+  html += scheduleRenderDrawerPaymentSectionHtml(ctx);
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
