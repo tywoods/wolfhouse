@@ -17283,10 +17283,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
 .customers-filters-option{display:inline-flex;align-items:center;max-width:100%;min-width:0;width:auto;margin:0;padding:3px 8px;min-height:22px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft);text-align:left;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;white-space:nowrap;overflow-wrap:normal}
 .customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
-.customers-filters-option.active{color:#0f766e;border-color:#0d9488;font-weight:600;background:rgba(13,148,136,.12)}
-.customers-filters-option[data-tag-tone="dnc"].active{color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
-.customers-filters-option[data-tag-tone="warm"].active{color:#b45309;border-color:#d97706;background:rgba(217,119,6,.12)}
-.customers-filters-option[data-tag-tone="surf"].active{color:#1d4ed8;border-color:#2563eb;background:rgba(37,99,235,.1)}
+.customers-filters-option.active{color:var(--text-2);border-color:#6e6e6e;font-weight:600;background:rgba(255,255,255,.04)}
+.customers-filters-option[data-tag-tone="dnc"].active{color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
+.customers-filters-option[data-tag-tone="hot"].active{color:#b5cfc0;border-color:#6fa783;background:rgba(111,167,131,.18)}
+.customers-filters-option[data-tag-tone="warm"].active{color:#c4b8a8;border-color:#8b7355;background:rgba(180,160,130,.12)}
+.customers-filters-option[data-tag-tone="surf"].active{color:#a8c4d0;border-color:#7aaabb;background:rgba(122,170,187,.16)}
 .customers-filters-option input[type=checkbox]{position:absolute;opacity:0;pointer-events:none}
 .customers-add-btn{margin-left:auto;flex:0 0 auto;white-space:nowrap}
 .customers-filter-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:0}
@@ -17304,10 +17305,11 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
 .customers-tags-unified-row{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin-top:6px}
 .customers-tag-toggle{display:inline-flex;align-items:center;max-width:100%;min-width:0;font:700 10px/1.2 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:1px 6px;min-height:18px;border:1px solid var(--border);border-radius:999px;background:var(--surface-soft)}
-.customers-tag-toggle:has(input:checked){color:#0f766e;border-color:#0d9488;background:rgba(13,148,136,.12)}
-.customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
-.customers-tag-toggle[data-tag-tone="warm"]:has(input:checked){color:#b45309;border-color:#d97706;background:rgba(217,119,6,.12)}
-.customers-tag-toggle[data-tag-tone="surf"]:has(input:checked){color:#1d4ed8;border-color:#2563eb;background:rgba(37,99,235,.1)}
+.customers-tag-toggle:has(input:checked){color:var(--text-2);border-color:#6e6e6e;background:rgba(255,255,255,.04)}
+.customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#d4a0a0;border-color:#a85a5a;background:rgba(180,90,90,.14)}
+.customers-tag-toggle[data-tag-tone="hot"]:has(input:checked){color:#b5cfc0;border-color:#6fa783;background:rgba(111,167,131,.18)}
+.customers-tag-toggle[data-tag-tone="warm"]:has(input:checked){color:#c4b8a8;border-color:#8b7355;background:rgba(180,160,130,.12)}
+.customers-tag-toggle[data-tag-tone="surf"]:has(input:checked){color:#a8c4d0;border-color:#7aaabb;background:rgba(122,170,187,.16)}
 .customers-tag-toggle input{position:absolute;opacity:0;pointer-events:none}
 .customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
 .customers-badge-dnc{background:#f3e8e8;color:#8b4545;border:1px solid #e6cfcf}
@@ -26477,9 +26479,10 @@ function customerFilterLabel(def) {
 
 function customerTagTone(tagKey) {
   if (tagKey === 'do_not_contact') return 'dnc';
+  if (tagKey === 'hot_lead' || tagKey === 'hot_leads') return 'hot';
   if (tagKey === 'warm_lead' || tagKey === 'warm_leads') return 'warm';
   if (tagKey === 'surf_school') return 'surf';
-  return 'semantic';
+  return 'neutral';
 }
 
 function getActiveCustomersTagFilterIds() {
