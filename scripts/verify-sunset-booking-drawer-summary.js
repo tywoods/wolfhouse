@@ -93,7 +93,7 @@ assert('same-day uses scheduleDrawerSameDay', dateRowFn.includes('scheduleDrawer
 console.log('\n[3] Hero — metadata line + accessible controls');
 
 const heroFn = fnBody(apiSrc, 'scheduleRenderDrawerHeroHtml');
-assert('hero metadata line helper used', heroFn.includes('scheduleRenderDrawerHeroMetadataLine(ctx, row)'));
+assert('hero metadata line removed from Sunset hero', !heroFn.includes('portal-schedule-drawer-hero-meta'));
 assert('hero school in metadata via scheduleResolveDrawerSchoolLabel', apiSrc.includes('scheduleResolveDrawerSchoolLabel(ctx, row)'));
 assert('hero source in metadata via scheduleRowSourceDrawerLabel', apiSrc.includes('scheduleRowSourceDrawerLabel(row)'));
 assert('refresh retains aria-label', heroFn.includes('id="ps-drawer-refresh"') && heroFn.includes('aria-label'));
@@ -126,8 +126,8 @@ assert('sunset view drawer helper exists', apiSrc.includes('function scheduleRen
 assert('money card helper exists', apiSrc.includes('function scheduleRenderSunsetMoneyCardHtml('));
 assert('booking card helper exists', apiSrc.includes('function scheduleRenderSunsetBookingCardHtml('));
 assert('view drawer branches to sunset renderer', apiSrc.includes('if (isSunsetSurfActive()) return scheduleRenderSunsetViewDrawerHtml('));
-assert('money rendered before booking card', sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)') > -1 &&
-  sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)') < sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml('));
+assert('booking card rendered before money (owner reorder)', sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml(') > -1 &&
+  sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml(') < sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)'));
 assert('payment section branches to money card for sunset view', apiSrc.includes('if (isSunsetSurfActive() && !editable) return scheduleRenderSunsetMoneyCardHtml('));
 assert('date-strip helper exists', apiSrc.includes('function scheduleDrawerStripLabelDate('));
 assert('daily rows strip the ISO date', bookingCardFn.includes('scheduleDrawerStripLabelDate(li.label)'));

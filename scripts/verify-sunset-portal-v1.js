@@ -812,7 +812,7 @@ if (apiSrc) {
   assert('drawer line item labels', apiSrc.includes('schedule.drawer.paymentSection'));
   assert('drawer totals paid remaining', apiSrc.includes('schedule.drawer.remaining') && apiSrc.includes('ps-drawer-paid'));
   assert('create test stripe link button', apiSrc.includes('ps-drawer-stripe-link') && apiSrc.includes('schedule.drawer.stripeLink'));
-  assert('stripe no auto send message', apiSrc.includes('schedule.drawer.stripeCreated'));
+  assert('stripe link create is create-only (no guest send)', apiSrc.includes("'/staff/schedule/bookings/stripe-link?client='"));
   assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
   assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
   assert('drawer payment refresh helper', apiSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));

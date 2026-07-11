@@ -16982,6 +16982,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-money-actions{display:flex;flex-wrap:wrap;gap:8px}
 .ps-money-linkmeta{margin:8px 0 0;font-size:12px;color:var(--text-3)}
 .ps-money-linkactive{color:#3F6B4F;font-weight:600}
+.ps-money-link{margin:4px 0 0;font-size:12px;word-break:break-all}
+.ps-money-link a{color:var(--luna-blue-text,#2d5a78)}
 .ps-overflow-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
 .ps-drawer-details{margin-top:10px}
 .ps-drawer-details>summary{cursor:pointer;font-size:12px;font-weight:600;color:var(--text-2);list-style:none;display:inline-flex;align-items:center;gap:6px;user-select:none;padding:2px 0}
@@ -24019,7 +24021,7 @@ function scheduleRenderDrawerHeroHtml(ctx, row){
     : '';
   html += '<h3 class="portal-schedule-drawer-hero-title"' + titleAttr + '>' + escHtml(name) + '</h3>';
   if (sunset) {
-    html += '<p class="portal-schedule-drawer-hero-meta">' + escHtml(scheduleRenderDrawerHeroMetadataLine(ctx, row)) + '</p>';
+    // Meta line (school · dates · source) removed — dates live in the booking card; source is rarely needed.
     if (code !== '—') {
       html += '<p class="portal-schedule-drawer-booking-code portal-schedule-drawer-booking-code-subtle">' + escHtml(code) + '</p>';
     }
@@ -24048,7 +24050,13 @@ function scheduleWireDrawerHeaderActions(){
 // ── Redesigned Sunset booking drawer (view mode): money-first, one card per
 // question (paid? → waiver? → what's booked?), each fact stated once. ──────────
 function scheduleDrawerStripLabelDate(label){
-  return String(label == null ? '' : label).replace(/\s*[·\-–—]\s*\d{4}-\d{2}-\d{2}\s*$/, '').trim();
+  // Remove any ISO date (grouped by day already), then trim a now-dangling trailing separator —
+  // codepoint-independent so it can't regress on a different bullet char.
+  return String(label == null ? '' : label)
+    .replace(/\d{4}-\d{2}-\d{2}/g, '')
+    .replace(/[^0-9A-Za-z)À-ɏ]+$/u, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
 }
 function scheduleDrawerServiceTypeLabel(t){
   var s = String(t || '').toLowerCase();
@@ -24097,7 +24105,7 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
   if (url){
     html += '<p class="ps-money-linkmeta"><span class="ps-money-linkactive">' + escHtml(portalT('schedule.drawer.paymentLinkActive')) + '</span></p>';
     if (stale){ html += '<p class="portal-schedule-drawer-hint" style="color:#9C5742;margin:2px 0 0">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</p>'; }
-    html += '<a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" style="display:none"></a>';
+    html += '<p class="ps-money-link"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener">' + escHtml(displayUrl) + '</a></p>';
     html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreActions')) + '</summary><div class="ps-overflow-actions">';
     html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
     if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.stripeRegenerate')) + '</button>';
@@ -24199,10 +24207,9 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
 
 function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   var html = scheduleRenderDrawerHeroHtml(ctx, row);
-  // Money first — an owner opens a booking to check "are they paid?".
+  html += scheduleRenderSunsetBookingCardHtml(ctx);
   html += scheduleRenderDrawerPaymentSectionHtml(ctx);
   html += scheduleRenderDrawerWaiverSectionHtml(ctx);
-  html += scheduleRenderSunsetBookingCardHtml(ctx);
   if (ctx.notes) {
     html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
       '<p class="portal-schedule-drawer-kv" style="margin:0">' + escHtml(ctx.notes) + '</p>');
@@ -24818,8 +24825,7 @@ function scheduleCreateDrawerStripeLink(row){
         scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctxData);
         scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
       }
-      var m2 = el('ps-drawer-stripe-msg');
-      if (m2){ m2.className = 'state-msg success'; m2.textContent = portalT('schedule.drawer.stripeCreated'); m2.style.display = 'block'; }
+      // No confirmation text — the refreshed drawer (Copy link + visible URL) is the confirmation.
     })
     .catch(function(err){
       if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.stripeFailed') + ' ' + err.message; msg.style.display = 'block'; }
