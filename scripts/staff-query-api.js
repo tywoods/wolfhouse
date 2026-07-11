@@ -24073,23 +24073,32 @@ function scheduleDrawerExtractDateFromLabel(label){
   return null;
 }
 
+function scheduleDrawerDotSplit(label){
+  return String(label || '').split('\u00B7').map(function(p){ return p.trim(); }).filter(Boolean);
+}
+
+function scheduleDrawerEndsWithQty(name, qty){
+  if (!name || !qty) return false;
+  var parts = scheduleDrawerDotSplit(name);
+  var last = parts[parts.length - 1];
+  return last === String(qty);
+}
+
 function scheduleDrawerParseBookedItemDisplay(li){
   var label = String((li && li.label) || '');
-  var parts = label.split(/\s*[·•]\s*/).map(function(p){ return p.trim(); }).filter(Boolean);
+  var parts = scheduleDrawerDotSplit(label);
   parts = parts.filter(function(p){ return !/^\d{4}-\d{2}-\d{2}$/.test(p); });
   var name = parts[0] || label || '—';
-  var detail = parts.length > 1 ? parts.slice(1).join(' · ') : '';
+  var detail = parts.length > 1 ? parts.slice(1).join(' \u00B7 ') : '';
   var qty = Number(li && li.quantity) || 0;
   if (detail && /^\d+$/.test(detail) && qty === Number(detail)) detail = '';
-  else if (qty > 0 && name.indexOf('×') < 0 && !/·\s*\d+\s*$/.test(name) && !/\b\d+\s*surfer/i.test(name)) {
-    var segs = name.split(' · ');
-    var lastSeg = segs[segs.length - 1];
-    if (lastSeg !== String(qty)) name = name + ' · ' + qty;
+  else if (qty > 0 && name.indexOf('\u00D7') < 0 && !scheduleDrawerEndsWithQty(name, qty) && !/\b\d+\s*surfer/i.test(name)) {
+    if (!scheduleDrawerEndsWithQty(name, qty)) name = name + ' \u00B7 ' + qty;
   }
   if (detail) {
-    detail = detail.split(' · ').filter(function(p){
+    detail = scheduleDrawerDotSplit(detail).filter(function(p){
       return p && !/^\d{4}-\d{2}-\d{2}$/.test(p);
-    }).join(' · ');
+    }).join(' \u00B7 ');
   }
   return { name: name, detail: detail };
 }
