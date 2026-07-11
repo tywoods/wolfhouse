@@ -16989,6 +16989,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .ps-money-link-row{display:flex;align-items:center;gap:8px;margin:4px 0 0}
 .ps-money-link-a{flex:1 1 auto;min-width:0;font-size:12px;word-break:break-all;color:var(--luna-blue-text,#2d5a78)}
 .ps-copy-icon{flex:0 0 auto;padding:5px 9px;font-size:14px;line-height:1;min-width:34px}
+.ps-copy-icon.is-copied{color:#3F6B4F;border-color:#B9CDBD}
+.ps-code-row{display:flex;align-items:center;gap:6px}
+.ps-code-row>span{min-width:0}
+.ps-code-copy{padding:3px 7px;font-size:12px;min-width:0}
 .ps-overflow-row{flex-direction:row;flex-wrap:wrap}
 .ps-overflow-row .btn{flex:1 1 auto;font-size:12px;padding:6px 8px;white-space:nowrap}
 .ps-overflow-actions{display:flex;flex-direction:column;gap:6px;margin-top:8px}
@@ -23803,11 +23807,7 @@ function scheduleWireDrawerWaiver(data){
   var copyBtn = el('ps-drawer-waiver-copy');
   var url = data && data.waiver && data.waiver.public_url;
   if (copyBtn && url) {
-    copyBtn.onclick = function(){
-      scheduleCopyTextFallback(url);
-      var m = el('ps-drawer-waiver-msg');
-      if (m){ m.className = 'state-msg success'; m.textContent = portalT('schedule.drawer.waiverCopied'); m.style.display = 'block'; }
-    };
+    copyBtn.onclick = function(){ scheduleCopyTextFallback(url); scheduleDrawerFlashCopied(copyBtn); };
   }
   var viewBtn = el('ps-drawer-waiver-view');
   if (viewBtn) {
@@ -24026,7 +24026,9 @@ function scheduleRenderDrawerHeroHtml(ctx, row){
   if (sunset) {
     // Meta line (school · dates · source) removed — dates live in the booking card; source is rarely needed.
     if (code !== '—') {
-      html += '<p class="portal-schedule-drawer-booking-code portal-schedule-drawer-booking-code-subtle">' + escHtml(code) + '</p>';
+      html += '<div class="portal-schedule-drawer-booking-code portal-schedule-drawer-booking-code-subtle ps-code-row">' +
+        '<span>' + escHtml(code) + '</span>' +
+        '<button type="button" class="btn btn-ghost ps-copy-icon ps-code-copy" id="ps-drawer-copy-code" data-copy="' + escHtml(code) + '" title="' + escHtml(portalT('schedule.drawer.copyCode')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyCode')) + '">&#10697;</button></div>';
     }
   } else {
     html += '<p class="portal-schedule-drawer-booking-code">' + escHtml(code) + '</p>';
@@ -24048,6 +24050,8 @@ function scheduleWireDrawerHeaderActions(){
   if (closeBtn) closeBtn.onclick = closeScheduleDetailDrawer;
   var refreshBtn = el('ps-drawer-refresh');
   if (refreshBtn) refreshBtn.onclick = scheduleRefreshDrawer;
+  var codeBtn = el('ps-drawer-copy-code');
+  if (codeBtn) codeBtn.onclick = function(){ scheduleCopyTextFallback(codeBtn.getAttribute('data-copy') || ''); scheduleDrawerFlashCopied(codeBtn); };
 }
 
 // ── Redesigned Sunset booking drawer (view mode): money-first, one card per
@@ -24073,6 +24077,25 @@ function scheduleDrawerDDMMYY(iso){
 function scheduleDrawerCopyIconBtnHtml(id){
   return '<button type="button" class="btn btn-ghost ps-copy-icon" id="' + id + '" title="' +
     escHtml(portalT('schedule.drawer.copyLink')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyLink')) + '">&#10697;</button>';
+}
+
+// Brief "copied" feedback: swap the icon to a checkmark for ~1.2s.
+function scheduleDrawerFlashCopied(btn){
+  if (!btn || btn.getAttribute('data-flash') === '1') return;
+  var orig = btn.innerHTML;
+  btn.setAttribute('data-flash', '1');
+  btn.classList.add('is-copied');
+  btn.innerHTML = '&#10003;';
+  setTimeout(function(){ btn.innerHTML = orig; btn.classList.remove('is-copied'); btn.removeAttribute('data-flash'); }, 1200);
+}
+
+// Short, lowercase paid-method label for the "Paid in full · <method>" headline.
+function scheduleDrawerPaidMethodLabel(method){
+  var m = String(method || '').toLowerCase();
+  if (m === 'bank_transfer') return portalT('schedule.drawer.methodBankTransfer');
+  if (m === 'in_store') return portalT('schedule.drawer.methodInShop');
+  if (m === 'link') return portalT('schedule.drawer.methodCard');
+  return '';
 }
 function scheduleDrawerServiceTypeLabel(t){
   var s = String(t || '').toLowerCase();
@@ -24102,14 +24125,20 @@ function scheduleDrawerDayHeaderLabel(iso){
 }
 
 // Big money headline + subtotal/paid line, colour = signal.
-function scheduleRenderMoneyHeadlineHtml(pay){
+function scheduleRenderMoneyHeadlineHtml(ctx){
+  var pay = (ctx && ctx.payment) || {};
   var paid = Number(pay.paid_cents || 0);
   var sub = Number(pay.subtotal_cents || 0);
   var due = (pay.balance_due_cents != null) ? Number(pay.balance_due_cents) : Math.max(sub - paid, 0);
   var fullyPaid = pay.payment_status === 'paid' || (sub > 0 && due <= 0 && paid > 0);
   var cls = fullyPaid ? 'is-paid' : (paid > 0 ? 'is-partial' : 'is-due');
-  var big = fullyPaid ? portalT('schedule.drawer.paidInFull')
-    : (scheduleDrawerEur(due) + ' ' + portalT('schedule.drawer.dueSuffix'));
+  var big;
+  if (fullyPaid){
+    var method = scheduleDrawerPaidMethodLabel(ctx && ctx.payment_method);
+    big = portalT('schedule.drawer.paidInFull') + (method ? ' · ' + method : '');
+  } else {
+    big = scheduleDrawerEur(due) + ' ' + portalT('schedule.drawer.dueSuffix');
+  }
   return '<div class="ps-money-headline ' + cls + '">' + escHtml(big) + '</div>' +
     '<div class="ps-money-sub">' + escHtml(portalT('schedule.drawer.subtotal') + ' ' + scheduleDrawerEur(sub) +
       ' · ' + portalT('schedule.drawer.paid') + ' ' + scheduleDrawerEur(paid)) + '</div>';
@@ -24167,7 +24196,7 @@ function scheduleRenderSunsetMoneyCardHtml(ctx){
   var pay = (ctx && ctx.payment) || {};
   var html = '<div class="ctx-pay-box ps-money-card" id="ps-drawer-payment-box" style="margin-top:0">';
   html += '<div class="ps-card-eyebrow">' + escHtml(portalT('schedule.drawer.paymentsTitle')) + '</div>';
-  html += scheduleRenderMoneyHeadlineHtml(pay);
+  html += scheduleRenderMoneyHeadlineHtml(ctx);
   html += scheduleRenderSunsetMoneyActionsHtml(ctx);
   html += scheduleRenderSunsetRecordPaymentHtml(ctx);
   html += '</div>';
@@ -24195,7 +24224,12 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
     || (comps.lesson && comps.lesson.quantity) || 0;
   if (!surfers){ items.forEach(function(li){ var t = String(li.service_type || ''); if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) surfers = Math.max(surfers, Number(li.quantity) || 0); }); }
   if (!surfers) surfers = Number(ctx && ctx.guest_count) || 1;
-  var title = surfers + ' ' + portalT('schedule.drawer.surfersWord') + ' · ' + dayCount + ' ' + portalT('schedule.drawer.daysWordCap');
+  var hasCourse = !!(comps.course || comps.private_lesson || comps.lesson);
+  if (!hasCourse){ items.forEach(function(li){ var t = String(li.service_type || ''); if (t.indexOf('lesson') >= 0 || t.indexOf('course') >= 0) hasCourse = true; }); }
+  var daysLabel = dayCount + ' ' + (dayCount === 1 ? portalT('schedule.drawer.dayWordCap') : portalT('schedule.drawer.daysWordCap'));
+  var title = hasCourse
+    ? (surfers + ' ' + (surfers === 1 ? portalT('schedule.drawer.surferWord') : portalT('schedule.drawer.surfersWord')) + ' · ' + daysLabel)
+    : daysLabel;
   var from = scheduleDrawerDDMMYY(ctx && ctx.date_from);
   var to = scheduleDrawerDDMMYY((ctx && ctx.date_to) || (ctx && ctx.date_from));
   var subtitle = from ? (portalT('schedule.drawer.dateLabel') + ': ' + from + (to && to !== from ? ' - ' + to : '')) : '';
@@ -24704,9 +24738,7 @@ function scheduleWireDrawerStripeCopyOpen(ctx){
   var copyBtn = el('ps-drawer-stripe-copy');
   var openBtn = el('ps-drawer-stripe-open');
   if (copyBtn && url){
-    copyBtn.onclick = function(){
-      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(url);
-    };
+    copyBtn.onclick = function(){ scheduleCopyTextFallback(url); scheduleDrawerFlashCopied(copyBtn); };
   }
   if (openBtn && url){
     openBtn.onclick = function(){ window.open(url, '_blank', 'noopener'); };
