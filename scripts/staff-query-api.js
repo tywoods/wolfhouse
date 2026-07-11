@@ -24084,20 +24084,24 @@ function scheduleDrawerEndsWithQty(name, qty){
   return last === String(qty);
 }
 
+var SCHEDULE_DRAWER_ISO_DATE_RE = new RegExp('^\\d{4}-\\d{2}-\\d{2}$');
+var SCHEDULE_DRAWER_DIGITS_RE = new RegExp('^\\d+$');
+var SCHEDULE_DRAWER_SURFER_RE = new RegExp('\\b\\d+\\s*surfer', 'i');
+
 function scheduleDrawerParseBookedItemDisplay(li){
   var label = String((li && li.label) || '');
   var parts = scheduleDrawerDotSplit(label);
-  parts = parts.filter(function(p){ return !/^\d{4}-\d{2}-\d{2}$/.test(p); });
+  parts = parts.filter(function(p){ return !SCHEDULE_DRAWER_ISO_DATE_RE.test(p); });
   var name = parts[0] || label || '—';
   var detail = parts.length > 1 ? parts.slice(1).join(' \u00B7 ') : '';
   var qty = Number(li && li.quantity) || 0;
-  if (detail && /^\d+$/.test(detail) && qty === Number(detail)) detail = '';
-  else if (qty > 0 && name.indexOf('\u00D7') < 0 && !scheduleDrawerEndsWithQty(name, qty) && !/\b\d+\s*surfer/i.test(name)) {
+  if (detail && SCHEDULE_DRAWER_DIGITS_RE.test(detail) && qty === Number(detail)) detail = '';
+  else if (qty > 0 && name.indexOf('\u00D7') < 0 && !scheduleDrawerEndsWithQty(name, qty) && !SCHEDULE_DRAWER_SURFER_RE.test(name)) {
     if (!scheduleDrawerEndsWithQty(name, qty)) name = name + ' \u00B7 ' + qty;
   }
   if (detail) {
     detail = scheduleDrawerDotSplit(detail).filter(function(p){
-      return p && !/^\d{4}-\d{2}-\d{2}$/.test(p);
+      return p && !SCHEDULE_DRAWER_ISO_DATE_RE.test(p);
     }).join(' \u00B7 ');
   }
   return { name: name, detail: detail };
@@ -24731,26 +24735,26 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
   html += scheduleRenderDeleteBookingRowHtml(ctx);
-  html += '<div class=" portal-schedule-drawer-scroll-endpad\ aria-hidden=	rue\></div>';
- html += '</form>';
- if (isSunsetSurfActive()) {
- var hero = scheduleRenderDrawerHeroHtml(ctx, row);
- var formBody = html.replace('<form id=\ps-drawer-edit-form\ class=\portal-schedule-drawer-form\ autocomplete=\off\>', '').replace('</form>', '');
- formBody = formBody.replace(hero, '');
- var footerStack = scheduleSunsetDrawerFooterStackClass();
- var actions = '<div class=\portal-schedule-drawer-footer portal-schedule-drawer-footer-sticky + footerStack + \>' +
- '<button type=utton\ class=tn btn-primary\ id=\ps-drawer-save\>' + escHtml(portalT('schedule.drawer.save')) + '</button>' +
- '<button type=utton\ class=tn btn-secondary\ id=\ps-drawer-cancel\>' + escHtml(portalT('schedule.drawer.cancel')) + '</button>' +
- scheduleRenderDrawerOpenCustomerBtnHtml(ctx) +
- '<button type=utton\ class=tn btn-quiet\ id=\ps-drawer-conversation-btn\>' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
- '</div><p id=\ps-drawer-conversation-hint\ class=\portal-schedule-drawer-hint\ style=\display:none\></p>';
- formBody = formBody.replace(/<div class=\portal-schedule-drawer-actions\>[\s\S]*?<\/div>/, '');
- formBody = formBody.replace('<p id=\ps-drawer-conversation-hint\ class=\portal-schedule-drawer-hint\ style=\display:none\></p>', '');
- return '<form id=\ps-drawer-edit-form\ class=\portal-schedule-drawer-form\ autocomplete=\off\>' +
- '<header class=\portal-schedule-drawer-header\>' + hero + '</header>' +
- '<div class=\portal-schedule-drawer-scroll\>' + formBody + '</div>' + actions + '</form>';
- }
- return html;
+  html += '<div class="portal-schedule-drawer-scroll-endpad" aria-hidden="true"></div>';
+  html += '</form>';
+  if (isSunsetSurfActive()) {
+    var hero = scheduleRenderDrawerHeroHtml(ctx, row);
+    var formBody = html.replace('<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">', '').replace('</form>', '');
+    formBody = formBody.replace(hero, '');
+    var footerStack = scheduleSunsetDrawerFooterStackClass();
+    var actions = '<div class="portal-schedule-drawer-footer portal-schedule-drawer-footer-sticky' + footerStack + '">' +
+      '<button type="button" class="btn btn-primary" id="ps-drawer-save">' + escHtml(portalT('schedule.drawer.save')) + '</button>' +
+      '<button type="button" class="btn btn-secondary" id="ps-drawer-cancel">' + escHtml(portalT('schedule.drawer.cancel')) + '</button>' +
+      scheduleRenderDrawerOpenCustomerBtnHtml(ctx) +
+      '<button type="button" class="btn btn-quiet" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
+      '</div><p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
+    formBody = formBody.replace(new RegExp('<div class="portal-schedule-drawer-actions">[\\s\\S]*?<\\/div>'), '');
+    formBody = formBody.replace('<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>', '');
+    return '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">' +
+      '<header class="portal-schedule-drawer-header">' + hero + '</header>' +
+      '<div class="portal-schedule-drawer-scroll">' + formBody + '</div>' + actions + '</form>';
+  }
+  return html;
 }
 
 function scheduleDrawerPopulateComponentFields(){

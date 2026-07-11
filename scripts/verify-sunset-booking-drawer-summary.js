@@ -82,7 +82,7 @@ assert('date group CSS class', apiSrc.includes('portal-schedule-drawer-date-grou
 assert('date heading CSS class', apiSrc.includes('portal-schedule-drawer-date-heading'));
 assert('booked items grouped by date in renderer', bookedFn.includes('scheduleDrawerGroupLineItemsByDate(lineItems)'));
 assert('undated fallback group', bookedFn.includes("portalT('schedule.drawer.otherItems')"));
-assert('row display strips ISO dates from labels', bookedFn.includes('scheduleDrawerParseBookedItemDisplay(li)') && apiSrc.includes("parts = parts.filter(function(p){ return !/^\\d{4}-\\d{2}-\\d{2}$/.test(p); })"));
+assert('row display strips ISO dates from labels', bookedFn.includes('scheduleDrawerParseBookedItemDisplay(li)') && apiSrc.includes('SCHEDULE_DRAWER_ISO_DATE_RE'));
 assert('no flat li.label dump in Sunset line_items branch', !bookedFn.includes('escHtml(li.label)'));
 
 console.log('\n[3] Drawer mechanics — scroll ownership');
