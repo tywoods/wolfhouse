@@ -17434,13 +17434,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-section-hdr{font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:.01em}
 .customers-section-body{font-size:12px;color:var(--text-2);line-height:1.5}
 .customers-section-empty{font-size:12px;color:var(--text-3);font-style:italic}
-.customers-waivers{border:1px solid var(--border-soft);border-radius:var(--radius);padding:8px 12px;background:var(--surface)}
-.customers-waivers>.customers-waivers-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;margin-bottom:0;user-select:none}
-.customers-waivers>.customers-waivers-summary::-webkit-details-marker{display:none}
-.customers-waivers>.customers-waivers-summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
-.customers-waivers[open]>.customers-waivers-summary::before{transform:rotate(90deg)}
-.customers-waivers-count{margin-left:auto;font-size:11px;font-weight:700;color:var(--text-3);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:999px;padding:1px 8px}
-.customers-waivers-body{margin-top:8px}
+.customers-collapsible{border:1px solid var(--border-soft);border-radius:var(--radius);padding:8px 12px;background:var(--surface)}
+.customers-collapsible>.customers-collapsible-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;margin-bottom:0;user-select:none}
+.customers-collapsible>.customers-collapsible-summary::-webkit-details-marker{display:none}
+.customers-collapsible>.customers-collapsible-summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
+.customers-collapsible[open]>.customers-collapsible-summary::before{transform:rotate(90deg)}
+.customers-collapsible-count{margin-left:auto;font-size:11px;font-weight:700;color:var(--text-3);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:999px;padding:1px 8px}
+.customers-collapsible[open]>.customers-collapsible-body{margin-top:8px}
 .customers-waiver-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft)}
 .customers-waiver-row:first-child{border-top:none}
 .customers-waiver-meta{display:flex;align-items:center;gap:8px;min-width:0;flex:1;flex-wrap:wrap}
@@ -27845,14 +27845,26 @@ function customerWaiverFormUrl(publicId) {
   return base + '/forms/waiver/' + encodeURIComponent(publicId);
 }
 
+// Shared collapsed <details> section used across the customer detail card so
+// Waivers / Previous services / Recent messages / Open handoffs all look + behave
+// identically. Collapsed by default.
+function renderCollapsibleCustomerSection(opts) {
+  opts = opts || {};
+  var countHtml = (opts.count != null)
+    ? '<span class="customers-collapsible-count">' + escHtml(String(opts.count)) + '</span>'
+    : '';
+  return '<details class="customers-section customers-collapsible"' +
+    (opts.id ? ' id="' + escHtml(opts.id) + '"' : '') + (opts.open ? ' open' : '') + '>' +
+    '<summary class="customers-section-hdr customers-collapsible-summary">' +
+    escHtml(opts.title || '') + countHtml + '</summary>' +
+    '<div class="customers-section-body customers-collapsible-body">' + (opts.body || '') + '</div>' +
+    '</details>';
+}
+
 function renderCustomerWaiverFormsSection(data) {
   if (!isSunsetSurfActive()) return '';
   var waivers = (data && data.waivers) || [];
-  var html = '<details class="customers-section customers-waivers" id="cust-waivers-section">';
-  html += '<summary class="customers-section-hdr customers-waivers-summary">' +
-    escHtml(portalT('customers.detail.waiverForms')) +
-    '<span class="customers-waivers-count">' + escHtml(String(waivers.length)) + '</span></summary>';
-  html += '<div class="customers-section-body customers-waivers-body">';
+  var body = '';
   if (waivers.length) {
     waivers.forEach(function(w) {
       if (!w || !w.public_id) return;
@@ -27860,7 +27872,7 @@ function renderCustomerWaiverFormsSection(data) {
       var st = String(w.status || '').toLowerCase();
       var done = st === 'completed';
       var stLabel = done ? portalT('customers.detail.waiverSigned') : portalT('customers.detail.waiverPending');
-      html += '<div class="customers-waiver-row">' +
+      body += '<div class="customers-waiver-row">' +
         '<div class="customers-waiver-meta">' +
         '<span class="customers-waiver-code">' + escHtml(String(w.booking_code || '—')) + '</span>' +
         (w.participant_key ? '<span class="customers-waiver-part">' + escHtml(String(w.participant_key)) + '</span>' : '') +
@@ -27871,15 +27883,20 @@ function renderCustomerWaiverFormsSection(data) {
         '</div>';
     });
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noWaivers')) + '</div>';
+    body = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noWaivers')) + '</div>';
   }
-  html += '</div></details>';
-  return html;
+  return renderCollapsibleCustomerSection({
+    id: 'cust-waivers-section',
+    title: portalT('customers.detail.waiverForms'),
+    count: waivers.length,
+    body: body,
+  });
 }
 
 function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
+  var lastSetup = (data && data.last_setup_summary) || '';
   var displayName = id.display_name || data.phone || 'Guest';
   var convId = customerResolveConversationId(data);
   var convLabel = convId ? portalT('customers.conversation.open') : portalT('customers.conversation.start');
@@ -27904,6 +27921,7 @@ function renderCustomerProfileSection(data, editing) {
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.email')) + '</span><span class="customers-profile-field-value' + (id.email ? '' : ' is-muted') + '">' + escHtml(id.email || '—') + '</span></div>' +
       (isSunsetSurfActive() ? '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(t('customers.detail.school')) + '</span><span class="customers-profile-field-value">' + escHtml(getSunsetLocationLabel()) + '</span></div>' : '') +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.language')) + '</span><span class="customers-profile-field-value' + (id.language ? '' : ' is-muted') + '">' + escHtml(id.language || '—') + '</span></div>' +
+      '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.lastSetup')) + '</span><span class="customers-profile-field-value' + (lastSetup ? '' : ' is-muted') + '">' + escHtml(lastSetup || portalT('customers.detail.noServices')) + '</span></div>' +
       '<div class="customers-profile-field"><span class="customers-profile-field-label">' + escHtml(portalT('customers.detail.notes')) + '</span><span class="customers-profile-field-value' + (notes ? '' : ' is-muted') + '">' + escHtml(notes || portalT('customers.detail.noNotes')) + '</span></div>' +
       '</div>' +
       '<p id="cust-profile-msg" class="state-msg" style="display:none;margin-top:8px"></p>' +
@@ -28062,40 +28080,37 @@ function renderCustomerDetail(data) {
   html += renderCustomerLinkedBookingsSection(data);
   html += renderCustomerWaiverFormsSection(data);
 
-  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.lastSetup')) + '</div><div class="customers-section-body">' +
-    escHtml(data.last_setup_summary || portalT('customers.detail.noServices')) + '</div></div>';
-
-  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.services')) + '</div>';
+  var svcBody = '';
   if (data.service_records && data.service_records.length) {
-    html += '<table class="customers-row-table"><thead><tr><th>Date</th><th>Service</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
+    svcBody = '<table class="customers-row-table"><thead><tr><th>Date</th><th>Service</th><th>Qty</th><th>Status</th></tr></thead><tbody>';
     data.service_records.forEach(function(r) {
-      html += '<tr><td>' + escHtml(String(r.service_date || '—')) + '</td><td>' + escHtml(String(r.service_type || '—').replace(/_/g, ' ')) + '</td><td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td><td>' + escHtml(String(r.service_status || '—')) + '</td></tr>';
+      svcBody += '<tr><td>' + escHtml(String(r.service_date || '—')) + '</td><td>' + escHtml(String(r.service_type || '—').replace(/_/g, ' ')) + '</td><td>' + escHtml(String(r.quantity != null ? r.quantity : '—')) + '</td><td>' + escHtml(String(r.service_status || '—')) + '</td></tr>';
     });
-    html += '</tbody></table>';
+    svcBody += '</tbody></table>';
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noServices')) + '</div>';
+    svcBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noServices')) + '</div>';
   }
-  html += '</div>';
+  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.services'), count: (data.service_records || []).length, body: svcBody });
 
-  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.messages')) + '</div>';
+  var msgBody = '';
   if (data.messages && data.messages.length) {
     data.messages.forEach(function(m) {
-      html += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(m.message_text || '') + '</div></div>';
+      msgBody += '<div class="customers-msg"><div class="customers-msg-dir">' + escHtml(m.direction || '') + ' · ' + escHtml(formatCustomerWhen(m.created_at)) + '</div><div>' + escHtml(m.message_text || '') + '</div></div>';
     });
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noMessages')) + '</div>';
+    msgBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noMessages')) + '</div>';
   }
-  html += '</div>';
+  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.messages'), count: (data.messages || []).length, body: msgBody });
 
-  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.handoffs')) + '</div>';
+  var hoBody = '';
   if (data.open_handoffs && data.open_handoffs.length) {
     data.open_handoffs.forEach(function(h) {
-      html += '<div class="customers-msg"><strong>' + escHtml(h.reason_code || 'handoff') + '</strong> — ' + escHtml(h.summary || '') + '</div>';
+      hoBody += '<div class="customers-msg"><strong>' + escHtml(h.reason_code || 'handoff') + '</strong> — ' + escHtml(h.summary || '') + '</div>';
     });
   } else {
-    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noHandoffs')) + '</div>';
+    hoBody = '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noHandoffs')) + '</div>';
   }
-  html += '</div>';
+  html += renderCollapsibleCustomerSection({ title: portalT('customers.detail.handoffs'), count: (data.open_handoffs || []).length, body: hoBody });
 
   box.innerHTML = html;
   wireCustomerProfileActions(data);
