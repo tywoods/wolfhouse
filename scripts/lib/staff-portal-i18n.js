@@ -767,6 +767,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.methodCard': 'card',
     'schedule.drawer.dateLabel': 'Date',
     'schedule.drawer.paymentsTitle': 'Payments',
+    'schedule.drawer.editTitle': 'Edit booking',
     'schedule.drawer.copyLink': 'Copy link',
     'schedule.drawer.moreStripeOptions': 'More stripe link options',
     'schedule.drawer.createNewLink': 'Create new link',

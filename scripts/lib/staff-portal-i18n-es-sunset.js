@@ -474,6 +474,7 @@ module.exports = {
     'schedule.drawer.methodCard': 'tarjeta',
     'schedule.drawer.dateLabel': 'Fecha',
     'schedule.drawer.paymentsTitle': 'Pagos',
+    'schedule.drawer.editTitle': 'Editar reserva',
     'schedule.drawer.copyLink': 'Copiar enlace',
     'schedule.drawer.moreStripeOptions': 'Más opciones del enlace Stripe',
     'schedule.drawer.createNewLink': 'Crear enlace nuevo',

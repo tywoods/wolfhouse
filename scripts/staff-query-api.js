@@ -24484,9 +24484,9 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   var courseQty = (comps.course && comps.course.quantity) || (comps.lesson && comps.lesson.quantity) || 1;
   var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
   html += scheduleRenderDrawerHeroHtml(ctx, row);
-  // One consolidated "Booking details" card: guest + dates + components + course/surfers + rentals.
+  // One consolidated "Edit booking" card: guest + dates + components + course/surfers + rentals.
   html += '<section class="portal-schedule-drawer-section">';
-  html += '<h4 class="portal-schedule-drawer-section-title">' + escHtml(portalT('schedule.drawer.section.booking')) + '</h4>';
+  html += '<h4 class="portal-schedule-drawer-section-title">' + escHtml(portalT('schedule.drawer.editTitle')) + '</h4>';
   html += '<div class="portal-schedule-create-field"><label for="ps-drawer-guest">' + escHtml(portalT('schedule.create.guestName')) + '</label>' +
     '<input id="ps-drawer-guest" type="text" value="' + escHtml(ctx.guest_name || '') + '"></div>' +
     '<div class="portal-schedule-create-field"><label for="ps-drawer-phone">' + escHtml(portalT('schedule.drawer.phone')) + '</label>' +
@@ -24522,21 +24522,17 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '<div class="portal-schedule-create-field" id="ps-drawer-wetsuit-qty-wrap"><label for="ps-drawer-wetsuit-qty">' + escHtml(portalT('schedule.create.wetsuitQty')) + '</label>' +
     '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div></div>';
   html += '</section>';
+  // Payment: edit mode only sets the status (line items / manual payment / Stripe link live in the view).
+  html += '<section class="portal-schedule-drawer-section"><div class="ps-card-eyebrow">' +
+    escHtml(portalT('schedule.drawer.paymentsTitle')) + '</div>' + scheduleRenderDrawerPaymentSelectHtml(ctx) + '</section>';
   html += scheduleDrawerSectionHtml('schedule.drawer.section.notes',
     '<div class="portal-schedule-create-field"><label for="ps-drawer-notes">' + escHtml(portalT('schedule.drawer.notes')) + '</label>' +
     '<textarea id="ps-drawer-notes" rows="2">' + escHtml(ctx.notes || '') + '</textarea></div>');
-  html += scheduleRenderDrawerPaymentSectionHtml(ctx, true);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
-  html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<div class="portal-schedule-drawer-actions">';
   html += '<button type="button" class="btn btn-primary" id="ps-drawer-save">' + escHtml(portalT('schedule.drawer.save')) + '</button>';
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-cancel">' + escHtml(portalT('schedule.drawer.cancel')) + '</button>';
-  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
-  // Stripe "Create link" button now lives inside the payment area (see stripe subsection).
-  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
-  html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
-  html += scheduleRenderDeleteBookingRowHtml(ctx);
   html += '</form>';
   return html;
 }
