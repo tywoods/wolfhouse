@@ -639,6 +639,9 @@ const {
   bookingMetadataPatchForStripePayment,
 } = require('./lib/stripe-webhook-payment-truth');
 const {
+  reconcilePendingStripePaymentsForDate,
+} = require('./lib/stripe-payment-reconcile');
+const {
   getPauseState,
   getGlobalPauseState,
   pauseConversation,
@@ -41231,6 +41234,18 @@ async function handleSunsetScheduleDayGet(query, res, user) {
   if (SQL_INJECT_RE.test(clientSlug) || !isIsoDateStaff(dateIso)) return send400(res, 'invalid client or date');
   if (clientSlug !== SUNSET_CLIENT_SLUG) return sendJSON(res, 403, { success: false, error: 'sunset only' });
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  // Best-effort: pull Stripe truth for this date's pending payments BEFORE reading
+  // the schedule, so a paid link shows paid even when the Stripe webhook never
+  // reached this deployment. Advisory only — never blocks or breaks the read.
+  if (STRIPE_SECRET_KEY) {
+    try {
+      const stripe = require('stripe')(STRIPE_SECRET_KEY);
+      await withPgClient((pg) => reconcilePendingStripePaymentsForDate(pg, stripe, {
+        clientSlug, dateIso, limit: 25,
+      }));
+    } catch (_) { /* reconcile is advisory; schedule read proceeds regardless */ }
+  }
 
   try {
     const rows = await withPgClient(async (pg) => {
