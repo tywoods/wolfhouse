@@ -17,6 +17,10 @@ SELECT
   COALESCE(b.payment_status::text, '')        AS booking_payment_status,
   COALESCE(b.amount_paid_cents, 0)::int       AS booking_amount_paid_cents,
   b.balance_due_cents                         AS booking_balance_due_cents,
+  EXISTS (
+    SELECT 1 FROM waiver_form_requests wr
+    WHERE wr.booking_id = b.id AND wr.status = 'completed'
+  )                                           AS waiver_signed,
   sr.id::text                                 AS service_record_id,
   sr.metadata->>'slot_time'                   AS slot_time,
   sr.metadata->>'notes'                       AS notes,
@@ -59,6 +63,10 @@ SELECT
   COALESCE(b.payment_status::text, '')        AS booking_payment_status,
   COALESCE(b.amount_paid_cents, 0)::int       AS booking_amount_paid_cents,
   b.balance_due_cents                         AS booking_balance_due_cents,
+  EXISTS (
+    SELECT 1 FROM waiver_form_requests wr
+    WHERE wr.booking_id = b.id AND wr.status = 'completed'
+  )                                           AS waiver_signed,
   sr.id::text                                 AS service_record_id,
   sr.metadata->>'slot_time'                   AS slot_time,
   sr.metadata->>'notes'                       AS notes,

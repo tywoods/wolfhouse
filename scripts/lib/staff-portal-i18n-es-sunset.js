@@ -425,6 +425,7 @@ module.exports = {
   'schedule.status.pending': 'Pendiente',
   'schedule.status.pendingDetail': 'Pago pendiente',
   'schedule.status.unpaid': 'Sin pagar',
+  'schedule.status.waiverSigned': 'Waiver firmado',
   'schedule.summary.boardShort': 'tabla',
   'schedule.summary.boards': 'tablas',
   'schedule.summary.wetsuitShort': 'neopreno',

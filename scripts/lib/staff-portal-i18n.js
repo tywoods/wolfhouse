@@ -714,6 +714,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.status.pending': 'Pending',
     'schedule.status.pendingDetail': 'Pending payment',
     'schedule.status.unpaid': 'Unpaid',
+    'schedule.status.waiverSigned': 'Waiver signed',
 
     'schedule.source.staff': 'Staff',
     'schedule.source.demo': 'Demo',

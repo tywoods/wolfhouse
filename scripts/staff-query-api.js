@@ -17091,10 +17091,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-title{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-time{color:var(--sched-text-2)}
 .portal-schedule-ops-lesson-rows{display:flex;flex-direction:column;gap:0}
-.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto 76px;gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
+.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto minmax(76px,auto);gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
 .portal-schedule-ops-col-hdr span:nth-child(n+3){padding-left:2px}
-.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto 76px;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
-@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px 1fr 72px}.portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
+.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto minmax(76px,auto);align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
+@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px minmax(0,1fr) minmax(72px,auto)}.portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
 .portal-schedule-ops-row.is-staff,.portal-schedule-ops-row.is-luna{background:transparent}
@@ -17107,7 +17107,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-ops-row-guest-col{display:flex;flex-direction:column;gap:2px;min-width:0}
 .portal-schedule-ops-row-guest{font-size:14px;font-weight:700;color:var(--text);line-height:1.2;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-schedule-ops-row-equip-sub{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:lowercase;color:var(--text-3);line-height:1.3}
-.portal-schedule-ops-row-status{text-align:right;font-size:11px}
+.portal-schedule-ops-row-status{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:4px;text-align:right;font-size:11px}
 .portal-schedule-metric-slots{font-size:13px;line-height:1.6;color:var(--text-2)}
 .portal-schedule-metric-slots .portal-schedule-metric-slot{display:block;font-weight:600}
 .portal-schedule-lesson-times{display:flex;flex-direction:column;gap:10px;margin-top:6px;min-height:48px}
@@ -17199,6 +17199,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-src-chip.is-luna i{background:#4A7BA6}
 .portal-schedule-status.is-unpaid,.portal-schedule-status.is-pending{background:#F6E3E0;color:#9C4A42;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-status.is-paid{background:#E3F0E7;color:#3F6B4F;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
+.portal-schedule-status.is-waiver{background:#D8EDDB;color:#256B41;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
+[data-theme="dark"] .portal-schedule-status.is-waiver{background:rgba(90,190,120,.16);color:#8fe0a5}
 .portal-schedule-status.is-needs-reply{background:#EDE7F4;color:#6B5080;border-radius:999px;padding:2px 9px;font-size:10.5px;font-weight:700}
 .portal-schedule-empty-slot-group{border-style:dashed;box-shadow:none;background:transparent}
 .portal-schedule-empty-slot-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 16px}
@@ -17403,6 +17405,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-profile-summary-hdr{display:flex;align-items:flex-start;gap:12px;margin-bottom:12px}
 .customers-profile-hdr-actions{display:flex;flex-wrap:wrap;gap:6px;flex:0 0 auto;align-items:center}
 .customers-profile-hdr-actions .btn{font-size:12px;padding:6px 10px}
+@media(max-width:640px){.customers-profile-summary-hdr{flex-wrap:wrap}.customers-profile-hdr-actions{width:100%;margin-top:4px}.customers-profile-hdr-actions .btn{flex:1 1 auto;justify-content:center;min-height:36px}}
 .customers-profile-avatar{flex:0 0 auto;width:40px;height:40px;border-radius:10px;background:var(--surface-soft);border:1px solid var(--border-soft);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:800;color:var(--text-2);letter-spacing:.02em}
 .customers-profile-identity{min-width:0;flex:1}
 .customers-profile-name{margin:0 0 2px;font-size:16px;font-weight:800;color:var(--text);line-height:1.25;letter-spacing:-.01em}
@@ -21666,6 +21669,9 @@ function scheduleRenderStatusBadgeHtml(group, opts){
   } else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested' || ps){
     html = '<span class="portal-schedule-status is-unpaid">' + escHtml(portalT('schedule.status.unpaid')) + '</span>';
   }
+  if (group.waiver_signed){
+    html += (html ? ' ' : '') + '<span class="portal-schedule-status is-waiver">' + escHtml(portalT('schedule.status.waiverSigned')) + '</span>';
+  }
   if (group._needsReply){
     html += (html ? ' ' : '') + '<span class="portal-schedule-status is-needs-reply">' + escHtml(portalT('schedule.drawer.needsReply')) + '</span>';
   }
@@ -21760,6 +21766,7 @@ function scheduleBuildDisplayGroups(rows){
         _isDbManual: !!r._isDbManual,
         _isLuna: !!r._isLuna,
         _needsReply: !!r._needsReply,
+        waiver_signed: !!r.waiver_signed,
         notes: r.notes || null,
       };
     }
@@ -21790,6 +21797,7 @@ function scheduleBuildDisplayGroups(rows){
     if (r._isLuna) g._isLuna = true;
     if (r._isDemo) g._isDemo = true;
     if (r._needsReply) g._needsReply = true;
+    if (r.waiver_signed) g.waiver_signed = true;
     if (!g.notes && r.notes) g.notes = r.notes;
     if (!g.phone && r.phone) g.phone = r.phone;
   });
