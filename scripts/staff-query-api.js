@@ -38719,6 +38719,12 @@ function renderBookingContextDrawer(data){
     '" id="bc-drawer-tab-overview" data-tab="overview" role="tabpanel">';
   html += '<div class="bc-drawer-overview-panel">';
 
+  var isSunset = getClient() === 'sunset';
+
+  if (isSunset) {
+    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+  }
+
   html += '<div class="bc-drawer-overview-card" id="bc-drawer-card-booking">';
   html += '<h3 class="bc-drawer-card-title">' + escHtml(t('drawer.bookingDetails')) + '</h3>';
   html += bcRenderFieldEditSectionsHtml(data, 'before-addons');
@@ -38747,7 +38753,9 @@ function renderBookingContextDrawer(data){
     html += '</div></div>';
   }
 
-  html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+  if (!isSunset) {
+    html += bcRenderPaymentSummaryBriefHtml(bk, svcRows, pmt, data.transfers || [], data.guest_accommodation_lines || []);
+  }
 
   html += bcRenderPendingManualServicesOverviewHtml(data.pending_manual_services || []);
 
