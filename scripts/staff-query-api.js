@@ -17434,6 +17434,22 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-section-hdr{font-size:12px;font-weight:700;color:var(--text);margin-bottom:6px;letter-spacing:.01em}
 .customers-section-body{font-size:12px;color:var(--text-2);line-height:1.5}
 .customers-section-empty{font-size:12px;color:var(--text-3);font-style:italic}
+.customers-waivers{border:1px solid var(--border-soft);border-radius:var(--radius);padding:8px 12px;background:var(--surface)}
+.customers-waivers>.customers-waivers-summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;margin-bottom:0;user-select:none}
+.customers-waivers>.customers-waivers-summary::-webkit-details-marker{display:none}
+.customers-waivers>.customers-waivers-summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
+.customers-waivers[open]>.customers-waivers-summary::before{transform:rotate(90deg)}
+.customers-waivers-count{margin-left:auto;font-size:11px;font-weight:700;color:var(--text-3);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:999px;padding:1px 8px}
+.customers-waivers-body{margin-top:8px}
+.customers-waiver-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft)}
+.customers-waiver-row:first-child{border-top:none}
+.customers-waiver-meta{display:flex;align-items:center;gap:8px;min-width:0;flex:1;flex-wrap:wrap}
+.customers-waiver-code{font-weight:700;color:var(--text);font-size:12px}
+.customers-waiver-part{font-size:11px;color:var(--text-3)}
+.customers-waiver-status{font-size:10.5px;font-weight:700;color:#9C4A42;background:#F6E3E0;border-radius:999px;padding:1px 8px}
+.customers-waiver-status.is-done{color:#256B41;background:#D8EDDB}
+.customers-waiver-link{flex:0 0 auto;font-size:12px;font-weight:600;color:var(--sched-primary,#7A9279);text-decoration:none;white-space:nowrap}
+.customers-waiver-link:hover{text-decoration:underline}
 .customers-msg{border-top:1px solid var(--border-soft);padding:7px 0}
 .customers-msg-dir{font-size:10px;font-weight:700;text-transform:uppercase;color:var(--text-3)}
 .customers-row-table{width:100%;border-collapse:collapse;font-size:11px}
@@ -27824,6 +27840,43 @@ function wireCustomerLinkedBookingsActions() {
   });
 }
 
+function customerWaiverFormUrl(publicId) {
+  var base = (typeof window !== 'undefined' && window.location) ? window.location.origin : '';
+  return base + '/forms/waiver/' + encodeURIComponent(publicId);
+}
+
+function renderCustomerWaiverFormsSection(data) {
+  if (!isSunsetSurfActive()) return '';
+  var waivers = (data && data.waivers) || [];
+  var html = '<details class="customers-section customers-waivers" id="cust-waivers-section">';
+  html += '<summary class="customers-section-hdr customers-waivers-summary">' +
+    escHtml(portalT('customers.detail.waiverForms')) +
+    '<span class="customers-waivers-count">' + escHtml(String(waivers.length)) + '</span></summary>';
+  html += '<div class="customers-section-body customers-waivers-body">';
+  if (waivers.length) {
+    waivers.forEach(function(w) {
+      if (!w || !w.public_id) return;
+      var url = customerWaiverFormUrl(w.public_id);
+      var st = String(w.status || '').toLowerCase();
+      var done = st === 'completed';
+      var stLabel = done ? portalT('customers.detail.waiverSigned') : portalT('customers.detail.waiverPending');
+      html += '<div class="customers-waiver-row">' +
+        '<div class="customers-waiver-meta">' +
+        '<span class="customers-waiver-code">' + escHtml(String(w.booking_code || '—')) + '</span>' +
+        (w.participant_key ? '<span class="customers-waiver-part">' + escHtml(String(w.participant_key)) + '</span>' : '') +
+        '<span class="customers-waiver-status' + (done ? ' is-done' : '') + '">' + escHtml(stLabel) + '</span>' +
+        '</div>' +
+        '<a class="customers-waiver-link" href="' + escHtml(url) + '" target="_blank" rel="noopener">' +
+        escHtml(portalT('customers.detail.openWaiver')) + '</a>' +
+        '</div>';
+    });
+  } else {
+    html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noWaivers')) + '</div>';
+  }
+  html += '</div></details>';
+  return html;
+}
+
 function renderCustomerProfileSection(data, editing) {
   var id = data.identity || {};
   var notes = customerProfileNotes(data);
@@ -28007,6 +28060,7 @@ function renderCustomerDetail(data) {
   var html = renderCustomerProfileSection(data, customerDetailState.editing);
   html += renderCustomerTagsSection(data);
   html += renderCustomerLinkedBookingsSection(data);
+  html += renderCustomerWaiverFormsSection(data);
 
   html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.lastSetup')) + '</div><div class="customers-section-body">' +
     escHtml(data.last_setup_summary || portalT('customers.detail.noServices')) + '</div></div>';
@@ -28022,11 +28076,6 @@ function renderCustomerDetail(data) {
     html += '<div class="customers-section-empty">' + escHtml(portalT('customers.detail.noServices')) + '</div>';
   }
   html += '</div>';
-
-  html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.notes')) + '</div><div class="customers-section-body">';
-  var notes = (data.notes && (data.notes.human_notes || data.notes.internal_staff_notes)) || '';
-  html += escHtml(notes || portalT('customers.detail.noNotes'));
-  html += '</div></div>';
 
   html += '<div class="customers-section"><div class="customers-section-hdr">' + escHtml(portalT('customers.detail.messages')) + '</div>';
   if (data.messages && data.messages.length) {
@@ -41445,12 +41494,35 @@ async function handleCustomerContext(phoneRaw, query, res, user) {
       display_tags: tagBundle.display_tags,
     };
 
+    // Waiver form links for the booking creator's bookings (Sunset only).
+    // Best-effort: a missing waiver table or query error never breaks the card.
+    let waivers = [];
+    if (clientSlug === SUNSET_CLIENT_SLUG && data.bookings && data.bookings.length) {
+      try {
+        const bkIds = data.bookings.map((b) => b.booking_id).filter(Boolean);
+        if (bkIds.length) {
+          const wrows = (await withPgClient((pg) => pg.query(
+            `SELECT wr.booking_id::text AS booking_id, wr.public_id,
+                    wr.status::text AS status, wr.participant_key, wr.created_at
+               FROM waiver_form_requests wr
+              WHERE wr.booking_id = ANY($1::uuid[])
+              ORDER BY wr.created_at ASC`,
+            [bkIds],
+          ))).rows;
+          const codeById = {};
+          data.bookings.forEach((b) => { if (b.booking_id) codeById[b.booking_id] = b.booking_code; });
+          waivers = wrows.map((w) => ({ ...w, booking_code: codeById[w.booking_id] || null }));
+        }
+      } catch (_) { waivers = []; }
+    }
+
     const elapsed = Date.now() - started;
     appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
     return sendJSON(res, 200, {
       success: true,
       phone,
       identity,
+      waivers,
       conversation_summary: data.identity ? {
         conversation_id: data.identity.conversation_id,
         last_message_preview: data.identity.last_message_preview,
