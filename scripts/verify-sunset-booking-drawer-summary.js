@@ -84,12 +84,13 @@ const sunsetDetailsBranch = (function () {
 
 assert('view drawer uses booking details helper', viewFn.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
 assert('view drawer uses compact section for Sunset', viewFn.includes('compact: true'));
+assert('view drawer scroll + sticky footer (Sunset)', viewFn.includes('portal-schedule-drawer-scroll') && viewFn.includes('portal-schedule-drawer-footer-sticky'));
 assert('view details omit guest name row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.create.guestName')"));
 assert('view details omit source row (Sunset branch)', !sunsetDetailsBranch.includes("portalT('schedule.drawer.source')"));
 assert('view details omit date row (Sunset branch)', !sunsetDetailsBranch.includes('scheduleRenderDrawerViewDateRow'));
 assert('view details show phone', viewDetailsFn.includes("portalT('schedule.drawer.phone')"));
 assert('view details include booked items list', viewDetailsFn.includes('scheduleRenderDrawerBookedItemsHtml'));
-assert('booked items render as list markup', apiSrc.includes('portal-schedule-drawer-booked-list'));
+assert('booked items use line-item amounts (Sunset)', apiSrc.includes('portal-schedule-drawer-booked-amount'));
 assert('same-day date label key (hero metadata)', dateRowFn.includes("'schedule.create.date'"));
 assert('multi-day dates label key (hero metadata)', dateRowFn.includes("'schedule.drawer.section.dates'"));
 assert('same-day uses scheduleDrawerSameDay', dateRowFn.includes('scheduleDrawerSameDay(ctx)'));
@@ -106,19 +107,57 @@ assert('close retains title', heroFn.includes('schedule.drawer.close'));
 assert('booking code subdued class', heroFn.includes('portal-schedule-drawer-booking-code-subtle'));
 assert('hero title line-clamp CSS', apiSrc.includes('-webkit-line-clamp:2'));
 
-console.log('\n[4] Preserved drawer IDs + Wolfhouse fallback');
+console.log('\n[4] Payment — balance headline, collapsed manual pay, hidden URLs');
+
+const sunsetPayFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerPaymentSectionHtml');
+const sunsetStripeFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerStripeHtml');
+const sunsetManualFn = fnBody(apiSrc, 'scheduleRenderSunsetDrawerManualPaymentHtml');
+const legacyPayFn = fnBody(apiSrc, 'scheduleRenderDrawerPaymentSectionHtml');
+
+assert('Sunset payment section helper', apiSrc.includes('function scheduleRenderSunsetDrawerPaymentSectionHtml('));
+assert('Sunset payment branches from main helper', legacyPayFn.includes('if (isSunsetSurfActive()) return scheduleRenderSunsetDrawerPaymentSectionHtml'));
+assert('dominant balance headline id', sunsetPayFn.includes('id="ps-drawer-balance-headline"'));
+assert('balance due i18n key', i18nSrc.includes("'schedule.drawer.balanceDue'"));
+assert('paid in full i18n key', i18nSrc.includes("'schedule.drawer.paidInFull'"));
+assert('Sunset payment omits visible remaining row', !sunsetPayFn.includes("portalT('schedule.drawer.remaining')"));
+assert('Sunset payment omits duplicate line items block', !sunsetPayFn.includes('ps-drawer-line-items'));
+assert('manual payment collapsed by default', sunsetManualFn.includes('aria-expanded="false"') && sunsetManualFn.includes('hidden'));
+assert('manual payment disclosure toggle id', sunsetManualFn.includes('id="ps-drawer-manual-pay-toggle"'));
+assert('stripe url visually hidden (Sunset)', sunsetStripeFn.includes('portal-schedule-drawer-visually-hidden') && sunsetStripeFn.includes('id="ps-drawer-stripe-url"'));
+assert('stripe delete in danger zone', sunsetStripeFn.includes('portal-schedule-drawer-stripe-danger'));
+assert('stripe open button wired in markup', sunsetStripeFn.includes('id="ps-drawer-stripe-open"'));
+
+console.log('\n[5] Registration form — concise summary, no raw URL');
+
+const sunsetWaiverFn = fnBody(apiSrc, 'scheduleRenderSunsetWaiverBoxInner');
+assert('Sunset waiver box helper', apiSrc.includes('function scheduleRenderSunsetWaiverBoxInner('));
+assert('waiver branches to Sunset renderer', fnBody(apiSrc, 'scheduleRenderWaiverBoxInner').includes('scheduleRenderSunsetWaiverBoxInner(data)'));
+assert('waiver summary line class', sunsetWaiverFn.includes('portal-schedule-drawer-waiver-summary'));
+assert('waiver progress i18n key', i18nSrc.includes("'schedule.drawer.waiverSummaryProgress'"));
+assert('waiver omits visible raw URL paragraph', !sunsetWaiverFn.includes('word-break:break-all'));
+assert('waiver open button preserved', sunsetWaiverFn.includes('id="ps-drawer-waiver-open"'));
+
+console.log('\n[6] Preserved drawer IDs + Wolfhouse fallback');
 
 assert('ps-drawer-refresh id preserved', apiSrc.includes('id="ps-drawer-refresh"'));
 assert('ps-drawer-close id preserved', apiSrc.includes('id="ps-drawer-close"'));
 assert('ps-drawer-edit id preserved', apiSrc.includes('id="ps-drawer-edit"'));
 assert('ps-drawer-conversation-btn id preserved', apiSrc.includes('id="ps-drawer-conversation-btn"'));
+assert('ps-drawer-stripe-link id preserved', apiSrc.includes('id="ps-drawer-stripe-link"'));
+assert('ps-drawer-stripe-copy id preserved', apiSrc.includes('id="ps-drawer-stripe-copy"'));
+assert('ps-drawer-stripe-delete id preserved', apiSrc.includes('id="ps-drawer-stripe-delete"'));
+assert('ps-drawer-manual-submit id preserved', apiSrc.includes('id="ps-drawer-manual-submit"'));
 assert('non-Sunset view fallback keeps legacy rows', viewDetailsFn.includes('!isSunsetSurfActive()'));
+assert('non-Sunset payment keeps legacy totals', legacyPayFn.includes("portalT('schedule.drawer.remaining')") && legacyPayFn.includes('scheduleRenderDrawerStripeLinkSectionHtml'));
 assert('drawer-scoped mobile CSS', apiSrc.includes('@media(max-width:420px){.portal-schedule-drawer-hero-inner'));
+assert('Sunset drawer layout class toggled on mount', apiSrc.includes('portal-schedule-drawer-sunset'));
 
-console.log('\n[5] i18n — booked items EN/ES parity');
+console.log('\n[7] i18n — EN/ES parity for new labels');
 
 assert('EN bookedItems key', i18nSrc.includes("'schedule.drawer.bookedItems': 'Booked items'"));
 assert('ES bookedItems key', i18nEsSrc.includes("'schedule.drawer.bookedItems'"));
+assert('ES balanceDue key', i18nEsSrc.includes("'schedule.drawer.balanceDue'"));
+assert('ES manualPayToggle key', i18nEsSrc.includes("'schedule.drawer.manualPayToggle'"));
 
 console.log('\n' + '─'.repeat(48));
 console.log(`Results: ${pass} passed, ${fail} failed`);

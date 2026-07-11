@@ -16984,6 +16984,36 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #tab-portal-home .portal-schedule-drawer-actions{margin-top:12px}
 #tab-portal-home .portal-schedule-drawer-actions #ps-drawer-edit{font-weight:700}
 @media(max-width:420px){.portal-schedule-drawer-hero-inner{gap:8px}.portal-schedule-drawer-hero-actions{gap:4px}.portal-schedule-drawer-hero-title{font-size:20px}.portal-schedule-drawer-kv strong{min-width:88px}#tab-portal-home .portal-schedule-drawer{padding:12px 14px}#tab-portal-home .portal-schedule-drawer-hero-title{font-size:18px;-webkit-line-clamp:3}#tab-portal-home .portal-schedule-drawer-section-compact{padding:8px 10px}}
+#tab-portal-home .portal-schedule-drawer.portal-schedule-drawer-sunset{display:flex;flex-direction:column;padding:0;overflow:hidden}
+#tab-portal-home .portal-schedule-drawer-scroll{flex:1;overflow:auto;padding:14px 16px;-webkit-overflow-scrolling:touch}
+#tab-portal-home .portal-schedule-drawer-footer-sticky{flex-shrink:0;display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px 12px;border-top:1px solid var(--border-soft);background:var(--surface);box-shadow:0 -4px 16px rgba(0,0,0,.04)}
+#tab-portal-home .portal-schedule-drawer-footer-sticky .btn-primary{flex:1;min-width:120px;font-weight:700}
+#tab-portal-home .portal-schedule-drawer-pay-headline{font-size:22px;font-weight:800;line-height:1.2;margin:0 0 10px;color:var(--text);font-family:var(--sched-drawer-serif)}
+#tab-portal-home .portal-schedule-drawer-pay-headline.is-due{color:#9C5742}
+#tab-portal-home .portal-schedule-drawer-pay-headline.is-paid{color:#5C7350}
+#tab-portal-home .portal-schedule-drawer-pay-breakdown{margin:0 0 10px;font-size:13px;line-height:1.45}
+#tab-portal-home .portal-schedule-drawer-pay-breakdown-row{display:flex;justify-content:space-between;gap:10px;padding:3px 0;color:var(--text-2)}
+#tab-portal-home .portal-schedule-drawer-pay-breakdown-row strong{font-weight:600;color:var(--text-3);font-size:12px}
+#tab-portal-home .portal-schedule-drawer-pay-breakdown-row span{font-weight:700;color:var(--text);font-variant-numeric:tabular-nums}
+#tab-portal-home .portal-schedule-drawer-booked-row{display:flex;justify-content:space-between;align-items:flex-start;gap:10px}
+#tab-portal-home .portal-schedule-drawer-booked-amount{font-weight:700;font-variant-numeric:tabular-nums;color:var(--text);flex-shrink:0}
+#tab-portal-home .portal-schedule-drawer-stripe{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)}
+#tab-portal-home .portal-schedule-drawer-stripe-status{font-size:12px;color:var(--text-2);margin:0 0 8px}
+#tab-portal-home .portal-schedule-drawer-stripe-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+#tab-portal-home .portal-schedule-drawer-stripe-danger{margin-top:8px;display:flex;justify-content:flex-end}
+#tab-portal-home .portal-schedule-drawer-manual-disclosure{margin-top:10px;padding-top:10px;border-top:1px solid var(--border-soft)}
+#tab-portal-home .portal-schedule-drawer-disclosure-btn{width:100%;text-align:left;background:transparent;border:none;padding:8px 0;font-size:13px;font-weight:600;color:var(--text-2);cursor:pointer;font-family:inherit}
+#tab-portal-home .portal-schedule-drawer-disclosure-btn:hover{color:var(--text)}
+#tab-portal-home .portal-schedule-drawer-disclosure-panel{padding:8px 0 0}
+#tab-portal-home .portal-schedule-drawer-waiver-summary{font-size:14px;font-weight:600;color:var(--text);margin:0 0 8px;line-height:1.4}
+#tab-portal-home .portal-schedule-drawer-waiver-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:0}
+#tab-portal-home .portal-schedule-drawer-visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-footer-sticky{background:var(--cream);border-color:var(--sunset-border-soft)}
+:root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-drawer-pay-headline.is-due{color:#9C5742}
+[data-theme="dark"] #tab-portal-home .portal-schedule-drawer-footer-sticky{background:var(--surface);box-shadow:0 -4px 16px rgba(0,0,0,.18)}
+[data-theme="dark"] #tab-portal-home .portal-schedule-drawer-pay-headline.is-due{color:#ffb896}
+[data-theme="dark"] #tab-portal-home .portal-schedule-drawer-pay-headline.is-paid{color:#9ee0a8}
+@media(max-width:420px){#tab-portal-home .portal-schedule-drawer-scroll{padding:12px 14px}#tab-portal-home .portal-schedule-drawer-footer-sticky{padding:8px 12px 10px}#tab-portal-home .portal-schedule-drawer-pay-headline{font-size:20px}#tab-portal-home .portal-schedule-drawer-booked-row{flex-direction:row;align-items:flex-start}}
 /* Payment area revamp: cleaner card, clearer totals, prominent status. */
 .portal-schedule-drawer .ctx-pay-box{max-width:none;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);padding:14px 16px;box-shadow:var(--shadow-soft)}
 .portal-schedule-drawer .ctx-inv-total-row{grid-template-columns:1fr auto;gap:10px;padding:7px 0}
@@ -23682,7 +23712,8 @@ function scheduleRenderDrawerWaiverSectionHtml(ctx){
   if (!(ctx && ctx.booking_id)) return '';
   return scheduleDrawerSectionHtml('schedule.drawer.waiverTitle',
     '<div id="ps-drawer-waiver-box"><p class="portal-schedule-drawer-hint" style="margin:0">' +
-    escHtml(portalT('schedule.drawer.waiverLoading')) + '</p></div>');
+    escHtml(portalT('schedule.drawer.waiverLoading')) + '</p></div>',
+    { compact: true });
 }
 
 function scheduleWaiverStatusLabel(status){
@@ -23733,6 +23764,7 @@ function scheduleWaiverCompletedCount(data){
 }
 
 function scheduleRenderWaiverBoxInner(data){
+  if (isSunsetSurfActive()) return scheduleRenderSunsetWaiverBoxInner(data);
   var html = '';
   var isGroup = scheduleWaiverIsGroup(data);
   if (data && data.migration_pending) {
@@ -23785,6 +23817,19 @@ function scheduleRenderWaiverBoxInner(data){
   return html;
 }
 
+function scheduleWireSunsetDrawerDisclosures(){
+  if (!isSunsetSurfActive()) return;
+  var toggle = el('ps-drawer-manual-pay-toggle');
+  var panel = el('ps-drawer-manual-pay-panel');
+  if (toggle && panel) {
+    toggle.onclick = function(){
+      var open = toggle.getAttribute('aria-expanded') !== 'true';
+      toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      panel.hidden = !open;
+    };
+  }
+}
+
 function scheduleWireDrawerWaiver(data){
   var createBtn = el('ps-drawer-waiver-create');
   if (createBtn) {
@@ -23798,6 +23843,10 @@ function scheduleWireDrawerWaiver(data){
       var m = el('ps-drawer-waiver-msg');
       if (m){ m.className = 'state-msg success'; m.textContent = portalT('schedule.drawer.waiverCopied'); m.style.display = 'block'; }
     };
+  }
+  var openBtn = el('ps-drawer-waiver-open');
+  if (openBtn && url) {
+    openBtn.onclick = function(){ window.open(url, '_blank', 'noopener'); };
   }
   var viewBtn = el('ps-drawer-waiver-view');
   if (viewBtn) {
@@ -23982,7 +24031,20 @@ function scheduleRenderDrawerViewDateRow(ctx){
     escHtml(portalT(labelKey)) + ':</strong> ' + escHtml(value) + '</p>';
 }
 
-function scheduleRenderDrawerBookedItemsHtml(comps){
+function scheduleRenderDrawerBookedItemsHtml(comps, ctx){
+  var pay = ctx && ctx.payment;
+  var lineItems = pay && pay.line_items;
+  if (isSunsetSurfActive() && lineItems && lineItems.length) {
+    var html = '<div class="portal-schedule-drawer-booked-wrap"><div class="portal-schedule-drawer-booked-heading">' +
+      escHtml(portalT('schedule.drawer.bookedItems')) + '</div><ul class="portal-schedule-drawer-booked-list">';
+    lineItems.forEach(function(li){
+      html += '<li class="portal-schedule-drawer-booked-row"><span class="portal-schedule-drawer-booked-label">' +
+        escHtml(li.label) + '</span><span class="portal-schedule-drawer-booked-amount">' +
+        escHtml(scheduleDrawerEur(li.line_cents)) + '</span></li>';
+    });
+    html += '</ul></div>';
+    return html;
+  }
   if (!comps || typeof comps !== 'object') return '';
   var items = [];
   if (comps.course){
@@ -24027,7 +24089,7 @@ function scheduleRenderDrawerViewBookingDetailsHtml(ctx, row){
       '<p class="portal-schedule-drawer-kv" style="margin:0"><strong>' + escHtml(portalT('schedule.create.dateTo')) + ':</strong> ' + escHtml(ctx.date_to || ctx.date_from || '—') + '</p>';
   }
   return '<p class="portal-schedule-drawer-kv portal-schedule-drawer-summary-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(ctx.phone || '—') + '</p>' +
-    scheduleRenderDrawerBookedItemsHtml((ctx && ctx.components) || {});
+    scheduleRenderDrawerBookedItemsHtml((ctx && ctx.components) || {}, ctx);
 }
 
 function scheduleRenderDrawerHeroHtml(ctx, row){
@@ -24081,14 +24143,19 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += scheduleRenderDrawerWaiverSectionHtml(ctx);
   html += '<p id="ps-drawer-save-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
   html += '<p id="ps-drawer-stripe-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
-  html += '<div class="portal-schedule-drawer-actions">';
-  if (canEdit) html += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
-  html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
-  // Stripe "Create link" button now lives inside the payment area (see stripe subsection).
-  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
-  html += '</div>';
+  var actionsCls = isSunsetSurfActive() ? 'portal-schedule-drawer-footer portal-schedule-drawer-footer-sticky' : 'portal-schedule-drawer-actions';
+  var actionsHtml = '<div class="' + actionsCls + '">';
+  if (canEdit) actionsHtml += '<button type="button" class="btn btn-primary" id="ps-drawer-edit">' + escHtml(portalT('schedule.drawer.edit')) + '</button>';
+  actionsHtml += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
+  actionsHtml += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
+  actionsHtml += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
-  html += scheduleRenderDeleteBookingRowHtml(ctx);
+  var deleteHtml = scheduleRenderDeleteBookingRowHtml(ctx);
+  if (isSunsetSurfActive()) {
+    return '<div class="portal-schedule-drawer-scroll">' + html + '</div>' + actionsHtml + deleteHtml;
+  }
+  html += actionsHtml;
+  html += deleteHtml;
   return html;
 }
 
@@ -24120,7 +24187,179 @@ function scheduleRenderDrawerPaymentSelectHtml(ctx){
     '</select></div>';
 }
 
+function scheduleDrawerI18n(key, vars){
+  var s = portalT(key);
+  if (vars) Object.keys(vars).forEach(function(k){ s = s.split('{{' + k + '}}').join(String(vars[k])); });
+  return s;
+}
+
+function scheduleSunsetDrawerEffectivePaid(ctx){
+  var pay = (ctx && ctx.payment) || {};
+  var paid = Number(pay.paid_cents || 0);
+  var bal = pay.balance_due_cents;
+  if (paid > 0 && bal != null && Number(bal) <= 0) return true;
+  return String(pay.payment_status || '').toLowerCase() === 'paid' && (bal == null || Number(bal) <= 0);
+}
+
+function scheduleSunsetDrawerBalanceHeadline(ctx){
+  if (scheduleSunsetDrawerEffectivePaid(ctx)) return portalT('schedule.drawer.paidInFull');
+  var pay = (ctx && ctx.payment) || {};
+  return scheduleDrawerI18n('schedule.drawer.balanceDue', { amount: scheduleDrawerEur(pay.balance_due_cents) });
+}
+
+function scheduleSunsetWaiverSummaryLine(data){
+  var w = data && data.waiver;
+  if (data && data.migration_pending) return portalT('schedule.drawer.waiverMigrationPending');
+  var isGroup = scheduleWaiverIsGroup(data);
+  var targetCount = scheduleWaiverTargetCount(data);
+  var completedCount = scheduleWaiverCompletedCount(data);
+  if (!w) return portalT('schedule.drawer.waiverNoneShort');
+  if (w.status === 'completed' && !isGroup) return portalT('schedule.drawer.waiverSummaryDone');
+  var statusLabel = scheduleWaiverStatusLabel(w.status);
+  if (isGroup && targetCount != null && targetCount > 0) {
+    return scheduleDrawerI18n('schedule.drawer.waiverSummaryProgress', {
+      completed: completedCount,
+      target: targetCount,
+      status: statusLabel,
+    });
+  }
+  return statusLabel;
+}
+
+function scheduleRenderSunsetWaiverBoxInner(data){
+  var html = '';
+  var w = data && data.waiver;
+  var isGroup = scheduleWaiverIsGroup(data);
+  var completedCount = scheduleWaiverCompletedCount(data);
+  html += '<p class="portal-schedule-drawer-waiver-summary">' + escHtml(scheduleSunsetWaiverSummaryLine(data)) + '</p>';
+  if (!w) {
+    var createLabel = isGroup ? portalT('schedule.drawer.waiverCreateGroup') : portalT('schedule.drawer.waiverCreate');
+    html += '<div class="portal-schedule-drawer-waiver-actions"><button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' +
+      escHtml(createLabel) + '</button></div>';
+    html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+    return html;
+  }
+  var showAnswers = isGroup ? completedCount > 0 : w.status === 'completed';
+  if (w.public_url) {
+    html += '<a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener" class="portal-schedule-drawer-visually-hidden" tabindex="-1" aria-hidden="true">' + escHtml(portalT('schedule.drawer.waiverOpen')) + '</a>';
+    html += '<div class="portal-schedule-drawer-waiver-actions">';
+    var copyLabel = isGroup ? portalT('schedule.drawer.waiverCopyGroup') : portalT('schedule.drawer.waiverCopy');
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-waiver-copy">' + escHtml(copyLabel) + '</button>';
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-open">' + escHtml(portalT('schedule.drawer.waiverOpen')) + '</button>';
+    if (showAnswers) {
+      html += '<button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button>';
+    }
+    html += '</div>';
+  } else if (w.status === 'pending' || w.status === 'needs_review') {
+    var retryLabel = isGroup ? portalT('schedule.drawer.waiverCreateGroup') : portalT('schedule.drawer.waiverCreate');
+    html += '<div class="portal-schedule-drawer-waiver-actions"><button type="button" class="btn btn-primary" id="ps-drawer-waiver-create">' +
+      escHtml(retryLabel) + '</button></div>';
+  }
+  html += '<div id="ps-drawer-waiver-answers" style="display:none;margin-top:10px"></div>';
+  html += '<p id="ps-drawer-waiver-msg" class="state-msg" style="display:none;margin-top:8px"></p>';
+  return html;
+}
+
+function scheduleRenderSunsetDrawerManualPaymentHtml(ctx){
+  if (!(ctx && ctx.booking_id)) return '';
+  var html = '<div class="portal-schedule-drawer-manual-disclosure" id="ps-drawer-manual-pay">';
+  html += '<button type="button" class="portal-schedule-drawer-disclosure-btn" id="ps-drawer-manual-pay-toggle" aria-expanded="false" aria-controls="ps-drawer-manual-pay-panel">' +
+    escHtml(portalT('schedule.drawer.manualPayToggle')) + '</button>';
+  html += '<div id="ps-drawer-manual-pay-panel" class="portal-schedule-drawer-disclosure-panel" hidden>';
+  html += '<div class="portal-schedule-manual-pay-grid">';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
+    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
+  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
+    '<select id="ps-drawer-manual-method">' +
+    '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
+    '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
+    '</select></label></div>';
+  html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
+    '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
+  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
+    escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
+  html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
+  html += '</div></div>';
+  return html;
+}
+
+function scheduleRenderSunsetDrawerStripeHtml(ctx){
+  var link = ctx && ctx.stripe_link;
+  var url = link && link.checkout_url;
+  var stale = !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
+  var paidInFull = scheduleSunsetDrawerEffectivePaid(ctx);
+  var displayUrl = url ? (scheduleDrawerPaymentShortUrl(ctx) || url) : '';
+  var html = '<div id="ps-drawer-stripe-box" class="portal-schedule-drawer-stripe">';
+  if (stale && url) {
+    html += '<div class="ctx-pay-record ctx-pay-record-stale" style="margin-bottom:8px"><span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">' +
+      escHtml(portalT('schedule.drawer.stripeStale')) + '</span>' +
+      '<div class="ctx-pay-record-stale-note">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</div></div>';
+  }
+  if (paidInFull) {
+    html += '</div>';
+    return html;
+  }
+  var stripeAvail = ctx && ctx.stripe_available;
+  html += '<div class="portal-schedule-drawer-stripe-actions">';
+  if (url && !stale) {
+    html += '<p class="portal-schedule-drawer-stripe-status">' + escHtml(portalT('schedule.drawer.stripeLinkActive')) + '</p>';
+    html += '<a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" class="portal-schedule-drawer-visually-hidden" tabindex="-1" aria-hidden="true">' +
+      escHtml(portalT('schedule.drawer.stripeOpen')) + '</a>';
+    html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.stripePrimaryCopy')) + '</button>';
+    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
+    if (stripeAvail) {
+      html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.stripeRegenerate')) + '</button>';
+    }
+  } else {
+    var primaryLabel = stale ? portalT('schedule.drawer.stripePrimaryUpdate') : portalT('schedule.drawer.stripePrimaryCreate');
+    if (stripeAvail) {
+      html += '<button type="button" class="btn btn-primary" id="ps-drawer-stripe-link">' + escHtml(primaryLabel) + '</button>';
+    } else {
+      html += '<button type="button" class="btn btn-primary" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '">' +
+        escHtml(portalT('schedule.drawer.stripePrimaryCreate')) + '</button>';
+    }
+    if (!url) {
+      html += '<p class="portal-schedule-drawer-stripe-status">' + escHtml(portalT('schedule.drawer.stripeNone')) + '</p>';
+    }
+  }
+  html += '</div>';
+  if (url) {
+    html += '<div class="portal-schedule-drawer-stripe-danger"><button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' +
+      escHtml(portalT('schedule.drawer.stripeDelete')) + '</button></div>';
+  }
+  html += '</div>';
+  return html;
+}
+
+function scheduleRenderSunsetDrawerPaymentSectionHtml(ctx, editable){
+  var pay = (ctx && ctx.payment) || {};
+  var effPaid = scheduleSunsetDrawerEffectivePaid(ctx);
+  var effStatus = effPaid ? 'paid' : pay.payment_status;
+  var html = '<div class="portal-schedule-drawer-pay ctx-pay-box" id="ps-drawer-payment-box">';
+  html += '<div class="portal-schedule-drawer-pay-headline' + (effPaid ? ' is-paid' : ' is-due') + '" id="ps-drawer-balance-headline">' +
+    escHtml(scheduleSunsetDrawerBalanceHeadline(ctx)) + '</div>';
+  html += '<span id="ps-drawer-pay-status" class="portal-schedule-drawer-visually-hidden">' +
+    escHtml(schedulePaymentStatusLabel(effStatus, ctx && ctx.payment_method)) + '</span>';
+  html += '<span id="ps-drawer-remaining" class="portal-schedule-drawer-visually-hidden">' +
+    escHtml(scheduleDrawerEur(pay.balance_due_cents)) + '</span>';
+  if (editable) html += scheduleRenderDrawerPaymentSelectHtml(ctx);
+  if (pay.pricing_note) {
+    html += '<p style="font-size:11px;color:var(--text-3);margin:0 0 8px">' + escHtml(portalT('schedule.drawer.livePricingNote')) + '</p>';
+  }
+  html += '<div class="portal-schedule-drawer-pay-breakdown">';
+  html += '<div class="portal-schedule-drawer-pay-breakdown-row"><strong>' + escHtml(portalT('schedule.drawer.total')) +
+    '</strong><span id="ps-drawer-subtotal">' + escHtml(scheduleDrawerEur(pay.subtotal_cents)) + '</span></div>';
+  html += '<div class="portal-schedule-drawer-pay-breakdown-row"><strong>' + escHtml(portalT('schedule.drawer.paid')) +
+    '</strong><span class="paid" id="ps-drawer-paid">' + escHtml(scheduleDrawerEur(pay.paid_cents)) + '</span></div>';
+  html += '</div>';
+  html += scheduleRenderSunsetDrawerStripeHtml(ctx);
+  html += scheduleRenderSunsetDrawerManualPaymentHtml(ctx);
+  html += '</div>';
+  return html;
+}
+
 function scheduleRenderDrawerPaymentSectionHtml(ctx, editable){
+  if (isSunsetSurfActive()) return scheduleRenderSunsetDrawerPaymentSectionHtml(ctx, editable);
   var pay = (ctx && ctx.payment) || {};
   var items = pay.line_items || [];
   var html = '<div class="ctx-pay-box" id="ps-drawer-payment-box" style="margin-top:14px">';
@@ -24503,6 +24742,7 @@ function scheduleUpdateDrawerPaymentFromContext(ctx){
   var fresh = tmp.firstChild;
   if (fresh) box.parentNode.replaceChild(fresh, box);
   scheduleWireDrawerStripeCopyOpen(ctx);
+  scheduleWireSunsetDrawerDisclosures();
   var row = scheduleDrawerState && scheduleDrawerState.row;
   if (row) scheduleWireDrawerManualPayment(row);
 }
@@ -24734,6 +24974,7 @@ function scheduleWireViewDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
   scheduleWireDrawerHeaderActions();
   scheduleWireDrawerStripeCopyOpen(ctx);
+  scheduleWireSunsetDrawerDisclosures();
   scheduleWireDrawerConversation(row, group);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
@@ -24757,6 +24998,7 @@ function scheduleWireEditableDrawer(row, ctx){
   var addSessionBtn = el('ps-drawer-add-session');
   if (addSessionBtn) addSessionBtn.addEventListener('click', scheduleDrawerAddPrivateSession);
   scheduleWireDrawerStripeCopyOpen(ctx);
+  scheduleWireSunsetDrawerDisclosures();
   scheduleWireDrawerConversation(row, group);
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
@@ -24776,6 +25018,7 @@ function scheduleMountDrawerBody(row, ctx, editing){
   var backdrop = el('ps-drawer-backdrop');
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
+  if (drawer.classList) drawer.classList.toggle('portal-schedule-drawer-sunset', isSunsetSurfActive());
   var canEdit = scheduleDrawerEditableEnabled(row);
   body.innerHTML = editing ? scheduleRenderEditableDrawerHtml(row, ctx) : scheduleRenderViewDrawerHtml(row, ctx, canEdit);
   drawer.style.display = 'block';
