@@ -324,9 +324,12 @@ def _wolfhouse_is_whatsapp_internal_status_text(text):
     return bool(_WOLFHOUSE_WHATSAPP_SUPPRESS_STATUS_RE.search(str(text or "").strip()))
 '''
 
-SESSION_STALE_TAG = "# Wolfhouse: stale routing when SQLite session was deleted or ended."
+SESSION_STALE_TAG = "# Wolfhouse: stale routing when SQLite session row was deleted/pruned."
+SESSION_STALE_TAG_OLD = "# Wolfhouse: stale routing when SQLite session was deleted or ended."
 SESSION_STALE_PATCH = '''
-            # Wolfhouse: stale routing when SQLite session was deleted or ended.
+            # Wolfhouse: stale routing when SQLite session row was deleted/pruned.
+            # Do NOT treat ended_at as stale — agent_close sets ended_at after every
+            # gateway turn; reusing the same session_key/session_id is normal.
             if not force_new and session_key in self._entries and self._db:
                 _wh_e = self._entries[session_key]
                 if _wh_e and getattr(_wh_e, "session_id", None):
@@ -334,11 +337,13 @@ SESSION_STALE_PATCH = '''
                         _wh_row = self._db.get_session(_wh_e.session_id)
                     except Exception:
                         _wh_row = None
-                    if _wh_row is None or _wh_row.get("ended_at"):
+                    if _wh_row is None:
                         del self._entries[session_key]
                         self._save()
                         force_new = True
 '''
+SESSION_STALE_ENDED_AT_OLD = "                    if _wh_row is None or _wh_row.get(\"ended_at\"):"
+SESSION_STALE_ENDED_AT_NEW = "                    if _wh_row is None:"
 
 LUNA_SOUL_RELOAD_TAG = "# Wolfhouse Luna: rebuild agent each turn so SOUL.md changes apply."
 LUNA_SOUL_RELOAD_PATCH = '''
@@ -519,15 +524,28 @@ def apply_session_store_patch(session_path: Path) -> dict:
         + SESSION_STALE_PATCH
         + "\n            if session_key in self._entries and not force_new:"
     )
+    upgraded_ended_at = False
+    if SESSION_STALE_ENDED_AT_OLD in s:
+        s = s.replace(SESSION_STALE_ENDED_AT_OLD, SESSION_STALE_ENDED_AT_NEW, 1)
+        session_path.write_text(s, encoding="utf-8")
+        upgraded_ended_at = True
+        s = session_path.read_text(encoding="utf-8")
+    if SESSION_STALE_TAG_OLD in s:
+        s = s.replace(SESSION_STALE_TAG_OLD, SESSION_STALE_TAG, 1)
+        session_path.write_text(s, encoding="utf-8")
+        s = session_path.read_text(encoding="utf-8")
     if SESSION_STALE_TAG not in s:
         if anchor not in s:
             raise RuntimeError("gateway.session get_or_create_session anchor not found")
         s = s.replace(anchor, replacement, 1)
         session_path.write_text(s, encoding="utf-8")
     _compile_check(session_path)
+    final = session_path.read_text(encoding="utf-8")
     return {
         "path": str(session_path),
-        "session_stale_routing_skip": SESSION_STALE_TAG in s,
+        "session_stale_routing_skip": SESSION_STALE_TAG in final,
+        "session_stale_ignores_agent_close": SESSION_STALE_ENDED_AT_OLD not in final,
+        "session_stale_upgraded_ended_at": upgraded_ended_at,
     }
 
 

@@ -29,6 +29,7 @@ COPY apply_guest_send_guard_patches.py /etc/hermes-staging/apply_guest_send_guar
 COPY verify_stt_patches.py /etc/hermes-staging/verify_stt_patches.py
 COPY verify_guest_send_guard_patches.py /etc/hermes-staging/verify_guest_send_guard_patches.py
 COPY verify_gateway_patch_idempotency.py /etc/hermes-staging/verify_gateway_patch_idempotency.py
+COPY verify_discord_session_continuity.py /etc/hermes-staging/verify_discord_session_continuity.py
 COPY verify_wolfhouse_luna_instance.py /etc/hermes-staging/verify_wolfhouse_luna_instance.py
 COPY docker-compose.vm.yml /etc/hermes-staging/docker-compose.vm.yml
 COPY lunabox-caddyfile.reference /etc/hermes-staging/lunabox-caddyfile.reference
@@ -43,4 +44,5 @@ RUN sed -i 's/\r$//' /etc/cont-init.d/99-wh-staging-bootstrap \
  && python /etc/hermes-staging/verify_guest_send_guard_patches.py \
  && python /etc/hermes-staging/verify_plain_reply_patches.py \
  && python /etc/hermes-staging/verify_gateway_patch_idempotency.py \
+ && python /etc/hermes-staging/verify_discord_session_continuity.py \
  && python /etc/hermes-staging/verify_wolfhouse_luna_instance.py
