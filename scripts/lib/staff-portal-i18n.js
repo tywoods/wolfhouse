@@ -900,6 +900,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.section.guest': 'Guest',
     'schedule.drawer.section.dates': 'Dates',
     'schedule.drawer.section.booking': 'Booking details',
+    'schedule.drawer.bookedItems': 'Booked items',
     'schedule.drawer.section.components': 'What\'s included',
     'schedule.drawer.section.course': 'Course',
     'schedule.drawer.section.rentals': 'Rentals',
