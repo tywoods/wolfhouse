@@ -24081,6 +24081,19 @@ function scheduleDrawerServiceTypeLabel(t){
   if (s.indexOf('suit') >= 0) return portalT('schedule.type.wetsuitRental');
   return String(t || '—');
 }
+// Fixed display order: course/private lesson first, then board, then wetsuit.
+function scheduleDrawerServiceOrder(t){
+  var s = String(t || '').toLowerCase();
+  if (s.indexOf('lesson') >= 0 || s.indexOf('course') >= 0 || s.indexOf('private') >= 0) return 0;
+  if (s.indexOf('board') >= 0) return 1;
+  if (s.indexOf('suit') >= 0) return 2;
+  return 3;
+}
+function scheduleDrawerSortItems(items){
+  return (items || []).slice().sort(function(a, b){
+    return scheduleDrawerServiceOrder(a.service_type) - scheduleDrawerServiceOrder(b.service_type);
+  });
+}
 function scheduleDrawerDayHeaderLabel(iso){
   var s = scheduleDateOnlyLabel(iso);
   if (!s || s === '—') return '—';
@@ -24115,7 +24128,6 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
     if (stale){ html += '<p class="portal-schedule-drawer-hint" style="color:#9C5742;margin:2px 0 0">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</p>'; }
     html += '<div class="ps-money-link-row"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(displayUrl) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-stripe-copy') + '</div>';
     html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreStripeOptions')) + '</summary><div class="ps-overflow-actions ps-overflow-row">';
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-open">' + escHtml(portalT('schedule.drawer.stripeOpen')) + '</button>';
     if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createNewLink')) + '</button>';
     html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
     html += '</div></details>';
@@ -24191,7 +24203,7 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
     (subtitle ? '<p class="ps-card-subtitle">' + escHtml(subtitle) + '</p>' : '');
   var body = '';
   if (dayCount <= 1){
-    items.forEach(function(li){
+    scheduleDrawerSortItems(items).forEach(function(li){
       body += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
         '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
     });
@@ -24202,6 +24214,7 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
       if (!byType[t]){ byType[t] = { name: scheduleDrawerServiceTypeLabel(t), cents: 0 }; order.push(t); }
       byType[t].cents += Number(li.line_cents || 0);
     });
+    order.sort(function(a, b){ return scheduleDrawerServiceOrder(a) - scheduleDrawerServiceOrder(b); });
     var courseLabel = (comps.course && comps.course.course_label) || '';
     order.forEach(function(t){
       var b = byType[t];
@@ -24213,8 +24226,7 @@ function scheduleRenderSunsetBookingCardHtml(ctx){
     var daily = '';
     dayKeys.forEach(function(d){
       daily += '<div class="ps-day-group"><div class="ps-day-header">' + escHtml(scheduleDrawerDayHeaderLabel(d)) + '</div>';
-      items.forEach(function(li){
-        if (String(li.service_date || '').slice(0, 10) !== d) return;
+      scheduleDrawerSortItems(items.filter(function(li){ return String(li.service_date || '').slice(0, 10) === d; })).forEach(function(li){
         daily += '<div class="ps-day-row"><span>' + escHtml(scheduleDrawerStripLabelDate(li.label)) +
           '</span><span class="ps-day-amt">' + escHtml(scheduleDrawerEur(li.line_cents)) + '</span></div>';
       });
