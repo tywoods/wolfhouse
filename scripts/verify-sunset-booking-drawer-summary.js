@@ -136,6 +136,19 @@ assert('money card preserves payment-box id', moneyCardFn.includes('id="ps-drawe
 assert('money card keeps stripe copy/delete ids', apiSrc.includes('id="ps-drawer-stripe-copy"') && apiSrc.includes('id="ps-drawer-stripe-delete"'));
 assert('progress bar for group waiver', apiSrc.includes('ps-reg-progress-bar'));
 
+console.log('\n[6b] Sunset booking-context overview order');
+
+const bcDrawerFn = fnBody(apiSrc, 'renderBookingContextDrawer');
+const bcPayIdx = bcDrawerFn.indexOf('bcRenderPaymentSummaryBriefHtml');
+const bcCardIdx = bcDrawerFn.indexOf('bc-drawer-card-booking');
+assert('Sunset booking-context payment summary precedes booking card',
+  bcDrawerFn.includes("var isSunset = getClient() === 'sunset'") &&
+  bcDrawerFn.includes('if (isSunset) {') &&
+  bcDrawerFn.includes('if (!isSunset) {') &&
+  bcPayIdx > -1 && bcCardIdx > -1 && bcPayIdx < bcCardIdx);
+assert('non-Sunset booking-context keeps payment summary after booking card',
+  bcDrawerFn.lastIndexOf('bcRenderPaymentSummaryBriefHtml') > bcCardIdx);
+
 console.log('\n[7] i18n — redesign keys EN/ES parity');
 ['schedule.drawer.paidInFull', 'schedule.drawer.createPaymentLink', 'schedule.drawer.copyPaymentLink', 'schedule.drawer.recordPayment', 'schedule.drawer.showDaily', 'schedule.drawer.daysWord'].forEach(function (k) {
   assert('EN key ' + k, i18nSrc.includes("'" + k + "'"));
