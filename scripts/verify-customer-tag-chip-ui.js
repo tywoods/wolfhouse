@@ -1,0 +1,17 @@
+'use strict';
+const fs = require('fs');
+const assert = require('assert');
+const src = fs.readFileSync(require.resolve('./staff-query-api.js'), 'utf8');
+assert.match(src, /customers-filters-option\{display:inline-flex/);
+assert.match(src, /customers-filters-chip-field\{display:flex;flex-wrap:wrap/);
+assert.ok(src.includes('var html = \'<div class="customers-filters-chip-field">\';'), 'filters render one unified chip field');
+assert.ok(!src.includes("customers.filters.statusHeading')) + '</div>';"), 'no separate status filter heading');
+assert.ok(!src.includes("customers.filters.tagsHeading')) + '</div>';"), 'no separate tag filter heading');
+assert.match(src, /min-height:20px;border:1px/);
+assert.match(src, /customers-tag-toggle:has\(input:checked\)/);
+assert.ok(src.includes('data-tag-tone="\' + customerTagTone'), 'renderers assign semantic tag tones');
+assert.match(src, /#tab-customers\.active\{[^}]*height:calc\(100dvh - 104px\)/);
+assert.match(src, /#tabs \.tabs-global-pause\{[^}]*border:0;background:transparent/);
+assert.match(src, /#tabs \.tabs-global-pause\.luna-global-paused\{background:transparent;border:0/);
+assert.doesNotMatch(src, /#tabs \.tabs-global-pause\.luna-global-paused\{background:#FFF5F5/);
+console.log('customer tag chip UI static verifier: PASS');

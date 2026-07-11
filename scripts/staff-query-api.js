@@ -16501,7 +16501,7 @@ ${getStaffPortalThemeEarlyScript()}
 [data-theme="dark"] .inbox-switch-orange input:checked + .inbox-switch-slider{background:#c47a2a;border-color:#a86520}
 [data-theme="dark"] .inbox-switch-red input:checked + .inbox-switch-slider{background:#a94444;border-color:#8a3333}
 [data-theme="dark"] .luna-global-pause-switch input:checked + .luna-global-pause-slider{background:#a94444}
-[data-theme="dark"] .luna-global-pause-card.luna-global-paused,[data-theme="dark"] #tabs .tabs-global-pause.luna-global-paused{border-color:#6a4040;background:#2a2020;border-left-color:#6a4040}
+[data-theme="dark"] .luna-global-pause-card.luna-global-paused,[data-theme="dark"] #tabs .tabs-global-pause.luna-global-paused{border:0;background:transparent}
 [data-theme="dark"] .al-hero{background:linear-gradient(135deg,#252526 0%,#2d2d2d 100%);border-color:#3c3c3c}
 [data-theme="dark"] .al-hero-title{color:#cccccc}
 [data-theme="dark"] .al-hero-sub{color:#9d9d9d}
@@ -16606,8 +16606,8 @@ body{font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-s
 .staff-theme-toggle.is-dark .staff-theme-icon-sun{display:block}
 /* ── Tabs ───────────────────────────────────────────────────────────────── */
 #tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 12px 0 28px;box-shadow:var(--shadow-soft);min-height:0;gap:0;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;-webkit-overflow-scrolling:touch}
-#tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border-left:1px solid var(--border-soft);background:var(--surface);position:sticky;right:0;z-index:2}
-#tabs .tabs-global-pause.luna-global-paused{background:#FFF5F5;border-left-color:#E0A8A8}
+#tabs .tabs-global-pause{margin-left:auto;flex:0 0 auto;display:inline-flex;align-items:center;align-self:stretch;padding:0 0 0 16px;border:0;background:transparent;position:sticky;right:0;z-index:2}
+#tabs .tabs-global-pause.luna-global-paused{background:transparent;border:0}
 #tabs .tabs-global-pause-toggle{display:inline-flex;align-items:center;gap:8px;cursor:pointer;white-space:nowrap;line-height:1;margin:0;padding:10px 12px 10px 0;font-size:12px;font-weight:600;color:var(--text-2);font-family:"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif}
 #tabs .tabs-global-pause-label{white-space:nowrap}
 #tabs .tabs-global-pause .luna-global-pause-switch{width:34px;height:20px}
@@ -17260,7 +17260,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 
 
 /* ── Customers tab (shared CRM) ───────────────────────────────────────────── */
-#tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100vh - 104px);overflow:hidden}
+#tab-customers.active{display:flex;flex-direction:column;min-height:0;height:calc(100dvh - 104px);overflow:hidden}
 .customers-wrap{max-width:1200px;width:100%;margin:0 auto;padding:16px 20px 12px;display:flex;flex-direction:column;flex:1;min-height:0;box-sizing:border-box}
 .customers-header{margin-bottom:12px}
 .customers-school-heading{font-size:26px;font-weight:900;letter-spacing:-.03em;color:var(--text);line-height:1.1;margin:0;font-family:var(--cust-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif)}
@@ -17276,13 +17276,17 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-filters-trigger.has-active{border-color:var(--tan);color:var(--text)}
 .customers-filters-menu{position:absolute;top:calc(100% + 6px);left:0;z-index:200;min-width:min(320px,92vw);max-height:min(70vh,420px);overflow:auto;background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px 0;display:none}
 .customers-filters-menu.open{display:block}
+.customers-filters-chip-field{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:8px}
 .customers-filters-group{padding:4px 0 8px;border-bottom:1px solid var(--border-soft)}
 .customers-filters-group:last-child{border-bottom:none;padding-bottom:4px}
 .customers-filters-group-hdr{padding:6px 14px 4px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-3)}
-.customers-filters-option{display:flex;align-items:center;gap:8px;width:100%;padding:8px 14px;border:none;background:transparent;text-align:left;font-size:12px;font-weight:500;color:var(--text-2);cursor:pointer}
-.customers-filters-option:hover{background:var(--surface-soft);color:var(--text)}
-.customers-filters-option.active{color:var(--text);font-weight:600;background:var(--surface-soft)}
-.customers-filters-option input[type=checkbox]{margin:0;flex-shrink:0}
+.customers-filters-option{display:inline-flex;align-items:center;width:auto;margin:3px;padding:2px 7px;min-height:20px;border:1px solid var(--border);border-radius:999px;background:transparent;text-align:left;font:600 11px/1.25 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer}
+.customers-filters-option:hover{background:transparent;border-color:var(--text-2);color:var(--text-2)}
+.customers-filters-option.active{color:#0f766e;border-color:#0d9488;font-weight:600;background:rgba(13,148,136,.12)}
+.customers-filters-option[data-tag-tone="dnc"].active{color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
+.customers-filters-option[data-tag-tone="warm"].active{color:#b45309;border-color:#d97706;background:rgba(217,119,6,.12)}
+.customers-filters-option[data-tag-tone="surf"].active{color:#1d4ed8;border-color:#2563eb;background:rgba(37,99,235,.1)}
+.customers-filters-option input[type=checkbox]{position:absolute;opacity:0;pointer-events:none}
 .customers-add-btn{margin-left:auto;flex:0 0 auto;white-space:nowrap}
 .customers-filter-chips{display:flex;flex-wrap:wrap;gap:6px;min-height:0}
 .customers-filter-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;font-size:11px;font-weight:500;color:var(--text-2);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-pill);line-height:1.3}
@@ -17296,9 +17300,13 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-bulk-bar .btn-danger{color:#9b3030;border-color:#e3bcbc;background:#fff7f7}
 .customers-add-panel{width:100%;padding:12px 14px;margin-bottom:8px;background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:var(--radius-sm);box-sizing:border-box}
 .customers-add-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
-.customers-tags-grid{display:flex;flex-wrap:wrap;gap:8px 12px;margin-top:6px}
-.customers-tag-toggle{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--text-2);cursor:pointer;padding:4px 8px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface)}
-.customers-tag-toggle input{margin:0}
+.customers-tags-grid{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.customers-tag-toggle{display:inline-flex;align-items:center;font:600 11px/1.25 "Iowan Old Style",Palatino,Georgia,serif;color:var(--text-3);cursor:pointer;padding:2px 7px;min-height:20px;border:1px solid var(--border);border-radius:999px;background:transparent}
+.customers-tag-toggle:has(input:checked){color:#0f766e;border-color:#0d9488;background:rgba(13,148,136,.12)}
+.customers-tag-toggle[data-tag-tone="dnc"]:has(input:checked){color:#b91c1c;border-color:#dc2626;background:rgba(220,38,38,.1)}
+.customers-tag-toggle[data-tag-tone="warm"]:has(input:checked){color:#b45309;border-color:#d97706;background:rgba(217,119,6,.12)}
+.customers-tag-toggle[data-tag-tone="surf"]:has(input:checked){color:#1d4ed8;border-color:#2563eb;background:rgba(37,99,235,.1)}
+.customers-tag-toggle input{position:absolute;opacity:0;pointer-events:none}
 .customers-badge-tag{background:var(--surface-soft);color:var(--text-2);border:1px solid var(--border-soft)}
 .customers-badge-dnc{background:#f3e8e8;color:#8b4545;border:1px solid #e6cfcf}
 .customers-two-col{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;flex:1;min-height:0;overflow:hidden}
@@ -26465,6 +26473,13 @@ function customerFilterLabel(def) {
   return portalT(def.i18n);
 }
 
+function customerTagTone(tagKey) {
+  if (tagKey === 'do_not_contact') return 'dnc';
+  if (tagKey === 'warm_lead' || tagKey === 'warm_leads') return 'warm';
+  if (tagKey === 'surf_school') return 'surf';
+  return 'semantic';
+}
+
 function getActiveCustomersTagFilterIds() {
   return Object.keys(customersTagFilters).filter(function(k) { return customersTagFilters[k]; });
 }
@@ -26514,17 +26529,16 @@ function renderCustomersFiltersMenu() {
   if (!menu) return;
   var profile = getPortalProfile(getClient());
   var showCheckedIn = !profile.is_surf_vertical;
-  var html = '<div class="customers-filters-group"><div class="customers-filters-group-hdr">' + escHtml(portalT('customers.filters.statusHeading')) + '</div>';
+  var html = '<div class="customers-filters-chip-field">';
   CUSTOMERS_STATUS_FILTER_DEFS.forEach(function(def) {
     if (def.lodgingOnly && !showCheckedIn) return;
     var active = customersFilter === def.id;
     var title = def.title ? ' title="' + escHtml(portalT(def.title)) + '"' : '';
     html += '<button type="button" class="customers-filters-option' + (active ? ' active' : '') + '" data-cust-status-filter="' + escHtml(def.id) + '"' + title + ' role="menuitemradio" aria-checked="' + (active ? 'true' : 'false') + '">' + escHtml(customerFilterLabel(def)) + '</button>';
   });
-  html += '</div><div class="customers-filters-group"><div class="customers-filters-group-hdr">' + escHtml(portalT('customers.filters.tagsHeading')) + '</div>';
   CUSTOMERS_TAG_FILTER_DEFS.forEach(function(def) {
     var checked = !!customersTagFilters[def.id];
-    html += '<label class="customers-filters-option' + (checked ? ' active' : '') + '" role="menuitemcheckbox"><input type="checkbox" data-cust-tag-filter="' + escHtml(def.id) + '"' + (checked ? ' checked' : '') + '> ' + escHtml(customerFilterLabel(def)) + '</label>';
+    html += '<label class="customers-filters-option' + (checked ? ' active' : '') + '" data-tag-tone="' + customerTagTone(def.tag || def.id) + '" role="menuitemcheckbox"><input type="checkbox" data-cust-tag-filter="' + escHtml(def.id) + '"' + (checked ? ' checked' : '') + '> ' + escHtml(customerFilterLabel(def)) + '</label>';
   });
   html += '</div>';
   if (customersHasActiveFilters()) {
@@ -27272,7 +27286,7 @@ function renderCustomerTagsSection(data) {
     html += '<div class="customers-tags-grid">';
     CUSTOMER_CRM_TAG_KEYS.forEach(function(key) {
       var checked = tags[key] ? ' checked' : '';
-      html += '<label class="customers-tag-toggle"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
+      html += '<label class="customers-tag-toggle" data-tag-tone="' + customerTagTone(key) + '"><input type="checkbox" data-crm-tag="' + escHtml(key) + '"' + checked + '> ' + escHtml(portalT('customers.tags.' + key)) + '</label>';
     });
     html += '</div>';
     var autoActive = CUSTOMER_AUTO_TAG_KEYS.filter(function(key) { return autoTags[key]; });
