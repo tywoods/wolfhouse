@@ -16955,11 +16955,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
+.portal-schedule-addon-field{margin-bottom:12px}
 .portal-schedule-addon-field{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;column-gap:8px;row-gap:6px;padding:10px 12px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);min-height:44px;box-sizing:border-box;width:100%;max-width:100%}
 .portal-schedule-addon-field.is-multi-date{display:flex;flex-wrap:wrap;align-items:flex-start;padding-bottom:8px}
-.portal-schedule-addon-field .portal-schedule-addon-toggle{grid-column:1;grid-row:1;display:flex;align-items:center;gap:8px;min-width:0;margin:0;padding:0;border:none;background:transparent;box-shadow:none;cursor:pointer;overflow:hidden}
+.portal-schedule-addon-field .portal-schedule-addon-toggle{grid-column:1;grid-row:1;display:flex;flex-direction:row;align-items:center;gap:8px;min-width:0;margin:0;padding:0;border:none;background:transparent;box-shadow:none;cursor:pointer;overflow:hidden;text-transform:none;font-weight:400;letter-spacing:normal;margin-bottom:0}
 .portal-schedule-addon-field.is-multi-date .portal-schedule-addon-toggle{flex:1 1 100%;margin:0}
-.portal-schedule-addon-field .portal-schedule-addon-toggle input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--primary);margin:0}
+.portal-schedule-addon-field .portal-schedule-addon-toggle input[type=checkbox]{width:18px;height:18px;min-width:18px;max-width:18px;flex:0 0 18px;accent-color:var(--primary);margin:0;padding:0;border:none;border-radius:0;background:transparent;box-sizing:border-box}
 .portal-schedule-addon-field .portal-schedule-addon-toggle span{flex:1 1 auto;min-width:0;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);font-family:var(--sched-drawer-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif);line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .portal-schedule-addon-rows{display:contents}
 .portal-schedule-addon-field.is-multi-date .portal-schedule-addon-rows{display:flex;flex-direction:column;gap:2px;flex-basis:100%;width:100%;margin-top:6px}
@@ -16971,7 +16972,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-addon-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface)}
 .portal-schedule-addon-step{width:24px;height:24px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:14px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .portal-schedule-addon-step:hover{background:var(--border-soft);color:var(--text)}
-.portal-schedule-addon-field .portal-schedule-addon-stepper input{width:28px;height:24px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:12px;font-weight:600;color:var(--text);background:var(--surface);-moz-appearance:textfield;box-sizing:border-box}
+.portal-schedule-addon-field .portal-schedule-addon-stepper input{width:28px;height:24px;min-width:28px;max-width:28px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:12px;font-weight:600;color:var(--text);background:var(--surface);-moz-appearance:textfield;box-sizing:border-box}
 .portal-schedule-addon-stepper input::-webkit-outer-spin-button,.portal-schedule-addon-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 .portal-schedule-addon-amt{flex:0 0 auto;min-width:44px;text-align:right;font-size:12px;font-weight:700;color:var(--text);white-space:nowrap}
 .portal-schedule-addon-summary{grid-column:1/-1;width:100%;font-size:12px;font-weight:600;color:var(--text-2)}
@@ -18858,7 +18859,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
     </div>
-    <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
+    <div class="portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
       <label class="portal-schedule-addon-toggle"><input id="ps-create-comp-fullday" type="checkbox"> <span data-i18n="schedule.type.fullDayEquipment">Full-day equipment</span></label>
       <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>
       <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
