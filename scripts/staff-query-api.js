@@ -29788,10 +29788,9 @@ function initStaffPortalSession(){
   return Promise.race([sessionFetch, sessionTimeout])
     .then(function(data){
       if (!data || !data.success){
-        populateClientSelect(null);
-        applyClientPortalProfile(getClient());
-        finishPortalProfileStartup();
-        switchToTab(portalStartupFallbackTab(), null);
+        // Fail closed: never render a tenant portal when the auth session is
+        // missing, expired, or scoped to another deployment.
+        window.location.replace('/staff/login');
         return;
       }
       staffPortalSession = {
@@ -29809,10 +29808,8 @@ function initStaffPortalSession(){
       refreshInboxIfConversationsTabActive();
     })
     .catch(function(){
-      populateClientSelect(null);
-      applyClientPortalProfile(getClient());
-      finishPortalProfileStartup();
-      switchToTab(portalStartupFallbackTab(), null);
+      // Network/session failures must not expose the default tenant UI.
+      window.location.replace('/staff/login');
     });
 }
 
