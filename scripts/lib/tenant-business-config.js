@@ -60,6 +60,8 @@ function flattenOfferingPrices(offerings, category, currency) {
         active: true,
         effective_state: offering.pricing_status === 'confirmed' ? 'confirmed' : (offering.pricing_status || 'unverified_seed'),
         source: 'config',
+        seed_source: offering.seed_source || null,
+        seed_source_url: offering.seed_source_url || null,
       });
     }
   }

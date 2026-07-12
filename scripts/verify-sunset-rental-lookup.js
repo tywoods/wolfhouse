@@ -128,6 +128,18 @@ assertOk(
 );
 
 assertOk(
+  'natural tool args board + 1 day normalize to configured keys',
+  lookupSunsetRentalPrice({ item: 'board', duration: '1 day', require_confirmed: false }),
+  { amount_eur: 15, item: 'board_rental', duration: '1_day' },
+);
+
+assertOk(
+  'natural tool args board+wetsuit + half day normalize to configured keys',
+  lookupSunsetRentalPrice({ item: 'board+wetsuit', duration: 'half day', require_confirmed: false }),
+  { amount_eur: 15, item: 'board_and_suit_rental', duration: 'half_day' },
+);
+
+assertOk(
   'board_rental half_day = 10 EUR',
   lookupSunsetRentalPrice({ item: 'board', duration: 'half_day', require_confirmed: false }),
   { amount_eur: 10 },
