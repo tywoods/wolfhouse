@@ -28,18 +28,19 @@ const STAGING_PORTAL_HOST_CLIENT = {
 };
 
 /**
- * Resolve the portal's deployment-default client slug from request hostname,
- * then DEFAULT_CLIENT_SLUG, then Wolfhouse legacy default.
+ * Resolve the portal's deployment-default client slug from trusted deployment
+ * configuration first, then an exact allowlisted canonical hostname, then the
+ * Wolfhouse legacy default. Never trust arbitrary Host / X-Forwarded-Host values.
  */
 function resolvePortalDeployClient(options) {
   const opts = options && typeof options === 'object' ? options : {};
-  const host = String(opts.host || opts.hostname || '').split(':')[0].toLowerCase().trim();
-  if (host && STAGING_PORTAL_HOST_CLIENT[host]) {
-    return STAGING_PORTAL_HOST_CLIENT[host];
-  }
   const envSlug = process.env.DEFAULT_CLIENT_SLUG;
   if (envSlug != null && String(envSlug).trim()) {
     return String(envSlug).trim();
+  }
+  const host = String(opts.host || opts.hostname || '').split(':')[0].toLowerCase().trim();
+  if (host && STAGING_PORTAL_HOST_CLIENT[host]) {
+    return STAGING_PORTAL_HOST_CLIENT[host];
   }
   return 'wolfhouse-somo';
 }

@@ -36,19 +36,88 @@ function assert(label, condition, detail) {
   fail += 1;
 }
 
+function withEnv(key, value, fn) {
+  const prev = process.env[key];
+  if (value == null) delete process.env[key];
+  else process.env[key] = value;
+  try {
+    return fn();
+  } finally {
+    if (prev == null) delete process.env[key];
+    else process.env[key] = prev;
+  }
+}
+
+/** Mirrors staff-query-api.js portalPickClientSlug (deploy tenant is authoritative). */
+function simulatePortalPickClientSlug(list, preferredSlug, deployClient, savedClient) {
+  if (!list || !list.length) return 'wolfhouse-somo';
+  const saved = savedClient || null;
+  const deployPref = deployClient || 'wolfhouse-somo';
+  const deployMatch = list.some((c) => c.slug === deployPref) ? deployPref : null;
+  if (saved && deployMatch && saved !== deployMatch && list.some((c) => c.slug === deployMatch)) {
+    return deployMatch;
+  }
+  let pick = preferredSlug || deployMatch || saved || list[0].slug;
+  if (!list.some((c) => c.slug === pick)) {
+    pick = deployMatch || list[0].slug;
+  }
+  return pick;
+}
+
+function simulatePortalStartupFallbackTab(deployClient) {
+  const profile = loadClientPortalProfile(deployClient);
+  let tab = profile.default_tab || 'bed-calendar';
+  if (profile.is_surf_vertical && tab === 'bed-calendar') tab = 'portal-home';
+  return tab;
+}
+
 console.log('\nverify:sunset-portal-calendar-tenant — offline tenant/calendar gate\n');
 
-console.log('[1] Hostname → deploy client resolution');
-assert('sunset-staging host maps to sunset',
-  resolvePortalDeployClient({ host: 'sunset-staging.lunafrontdesk.com' }) === 'sunset');
-assert('staff-staging host maps to wolfhouse-somo',
-  resolvePortalDeployClient({ host: 'staff-staging.lunafrontdesk.com' }) === 'wolfhouse-somo');
-assert('unknown host falls back to DEFAULT_CLIENT_SLUG or wolfhouse',
-  typeof resolvePortalDeployClient({ host: 'localhost' }) === 'string');
+console.log('[1] Deployment tenant authority (DEFAULT_CLIENT_SLUG beats Host spoofing)');
+withEnv('DEFAULT_CLIENT_SLUG', 'sunset', () => {
+  assert('DEFAULT_CLIENT_SLUG=sunset + spoofed Wolfhouse Host still resolves sunset',
+    resolvePortalDeployClient({ host: 'staff-staging.lunafrontdesk.com' }) === 'sunset');
+});
+withEnv('DEFAULT_CLIENT_SLUG', 'wolfhouse-somo', () => {
+  assert('DEFAULT_CLIENT_SLUG=wolfhouse-somo + spoofed Sunset Host still resolves wolfhouse-somo',
+    resolvePortalDeployClient({ host: 'sunset-staging.lunafrontdesk.com' }) === 'wolfhouse-somo');
+});
+withEnv('DEFAULT_CLIENT_SLUG', null, () => {
+  assert('no configured default + exact Sunset hostname resolves sunset',
+    resolvePortalDeployClient({ host: 'sunset-staging.lunafrontdesk.com' }) === 'sunset');
+  assert('no configured default + exact Wolfhouse hostname resolves wolfhouse-somo',
+    resolvePortalDeployClient({ host: 'staff-staging.lunafrontdesk.com' }) === 'wolfhouse-somo');
+  assert('unknown hostname does not become Sunset',
+    resolvePortalDeployClient({ host: 'evil-sunset-staging.lunafrontdesk.com' }) === 'wolfhouse-somo');
+  assert('mixed-case hostname normalizes safely',
+    resolvePortalDeployClient({ host: 'Sunset-Staging.LunaFrontDesk.com' }) === 'sunset');
+  assert('hostname with allowed port normalizes safely',
+    resolvePortalDeployClient({ host: 'sunset-staging.lunafrontdesk.com:443' }) === 'sunset');
+  assert('prefix lookalike does not match',
+    resolvePortalDeployClient({ host: 'x-sunset-staging.lunafrontdesk.com' }) === 'wolfhouse-somo');
+  assert('suffix lookalike does not match',
+    resolvePortalDeployClient({ host: 'sunset-staging.lunafrontdesk.com.evil.com' }) === 'wolfhouse-somo');
+});
 assert('staging host map includes sunset only once',
   STAGING_PORTAL_HOST_CLIENT['sunset-staging.lunafrontdesk.com'] === 'sunset');
 
-console.log('\n[2] Portal profiles — schedule vs bed-calendar default');
+console.log('\n[2] localStorage preference cannot override authorized deployment tenant');
+const clientList = [
+  { slug: 'sunset', name: 'Sunset' },
+  { slug: 'wolfhouse-somo', name: 'Wolfhouse' },
+];
+assert('stale localStorage wolfhouse-somo cannot override trusted Sunset deployment',
+  simulatePortalPickClientSlug(clientList, null, 'sunset', 'wolfhouse-somo') === 'sunset');
+assert('stale localStorage sunset cannot override trusted Wolfhouse deployment',
+  simulatePortalPickClientSlug(clientList, null, 'wolfhouse-somo', 'sunset') === 'wolfhouse-somo');
+
+console.log('\n[3] Session failure uses authorized tenant profile fallback tab');
+assert('Sunset session failure uses portal-home fallback',
+  simulatePortalStartupFallbackTab('sunset') === 'portal-home');
+assert('Wolfhouse session failure uses bed-calendar fallback',
+  simulatePortalStartupFallbackTab('wolfhouse-somo') === 'bed-calendar');
+
+console.log('\n[4] Portal profiles — schedule vs bed-calendar default');
 const sunsetProfile = loadClientPortalProfile('sunset');
 const wolfProfile = loadClientPortalProfile('wolfhouse-somo');
 assert('Sunset default_tab is portal-home (surf schedule)', sunsetProfile.default_tab === 'portal-home', sunsetProfile.default_tab);
@@ -63,7 +132,7 @@ if (fs.existsSync(STAFF_API_PATH)) {
   apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
 }
 
-console.log('\n[3] staff-query-api.js — tenant routing + startup tab selection');
+console.log('\n[5] staff-query-api.js — tenant routing + startup tab selection');
 if (apiSrc) {
   assert('resolvePortalDeployClient imported', apiSrc.includes('resolvePortalDeployClient'));
   assert('PORTAL_DEFAULT_CLIENT injected from server', apiSrc.includes('window.PORTAL_DEFAULT_CLIENT'));
@@ -94,7 +163,7 @@ if (apiSrc) {
   assert('staff-query-api.js exists', false);
 }
 
-console.log('\n[4] Location isolation markers (Somo vs Sardinero)');
+console.log('\n[6] Location isolation markers (Somo vs Sardinero)');
 if (apiSrc) {
   assert('Sunset school switcher wired', apiSrc.includes('wireSunsetSchoolSwitcher'));
   assert('setSunsetLocation reloads schedule', apiSrc.includes('setSunsetLocation(') && apiSrc.includes('loadSchedulePage()'));
