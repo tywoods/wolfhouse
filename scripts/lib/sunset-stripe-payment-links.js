@@ -19,6 +19,10 @@ const LESSON_UNIT_KEY = 'single_lesson';
 const BOARD_OFFERING_KEY = 'board_rental';
 const WETSUIT_OFFERING_KEY = 'wetsuit_rental';
 const RENTAL_UNIT_KEY = '1_day';
+// Full-day equipment extension add-on (per person, per day). Price is config/DB backed:
+// tenant_price_rules item_type='rental', item_code='full_day_equipment_extension__day', unit='day'.
+const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
+const FULL_DAY_EQUIPMENT_ADDON_UNIT = 'day';
 
 function isUuid(s) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '').trim());
@@ -80,6 +84,14 @@ async function createStripeCheckoutSessionViaFetch(opts) {
   return data;
 }
 
+function isFullDayEquipmentAddon(sr) {
+  const dbType = String(sr && sr.service_type || '').toLowerCase();
+  if (dbType !== 'addon_service') return false;
+  const meta = parseMeta(sr && sr.metadata);
+  const key = String(meta.service_key || meta.component || '').toLowerCase();
+  return key === FULL_DAY_EQUIPMENT_ADDON_KEY;
+}
+
 function serviceRecordUnitPriceCents(prices, sr) {
   const dbType = String(sr.service_type || '').toLowerCase();
   const qty = Number(sr.quantity) || 1;
@@ -90,6 +102,9 @@ function serviceRecordUnitPriceCents(prices, sr) {
     unitCents = findPriceCents(prices, 'rental', BOARD_OFFERING_KEY, RENTAL_UNIT_KEY);
   } else if (dbType === 'wetsuit') {
     unitCents = findPriceCents(prices, 'rental', WETSUIT_OFFERING_KEY, RENTAL_UNIT_KEY);
+  } else if (dbType === 'addon_service' && isFullDayEquipmentAddon(sr)) {
+    // Per person, per day: authoritative price × quantity(people). Never metadata.unit_amount_cents.
+    unitCents = findPriceCents(prices, 'rental', FULL_DAY_EQUIPMENT_ADDON_KEY, FULL_DAY_EQUIPMENT_ADDON_UNIT);
   }
   if (unitCents == null || unitCents <= 0) return null;
   return unitCents * qty;
@@ -525,5 +540,8 @@ module.exports = {
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
   serviceRecordUnitPriceCents,
+  isFullDayEquipmentAddon,
   findPriceCents,
+  FULL_DAY_EQUIPMENT_ADDON_KEY,
+  FULL_DAY_EQUIPMENT_ADDON_UNIT,
 };
