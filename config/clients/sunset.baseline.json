@@ -120,7 +120,7 @@
         "board_rental": {
           "label": "Surfboard rental",
           "inventory_model": "unlimited",
-          "pricing_status": "unverified_seed",
+          "pricing_status": "confirmed",
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
@@ -135,7 +135,7 @@
         "wetsuit_rental": {
           "label": "Wetsuit rental",
           "inventory_model": "unlimited",
-          "pricing_status": "unverified_seed",
+          "pricing_status": "confirmed",
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
@@ -150,7 +150,7 @@
         "board_and_suit_rental": {
           "label": "Board + wetsuit rental (bundle)",
           "inventory_model": "unlimited",
-          "pricing_status": "unverified_seed",
+          "pricing_status": "confirmed",
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {
@@ -165,7 +165,7 @@
         "sup_rental": {
           "label": "SUP (stand-up paddleboard) rental",
           "inventory_model": "unlimited",
-          "pricing_status": "unverified_seed",
+          "pricing_status": "confirmed",
           "seed_source": "public_site",
           "seed_source_url": "https://escueladesurfsunset.com/en/rentals/",
           "prices_eur": {

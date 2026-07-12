@@ -84,39 +84,13 @@ assertBlocked(
   'tenant_mismatch',
 );
 
-// ─── Section 2: default require_confirmed=true blocks unverified_seed ────────
-console.log('\n[2] Live mode (require_confirmed=true default) blocks unverified_seed');
+// ─── Section 2: owner-managed rental prices are confirmed for live quotes ────
+console.log('\n[2] Live mode uses owner-managed confirmed rental prices');
 
-assertBlocked(
-  'board 1_day (unverified_seed) blocked in live mode',
-  lookupSunsetRentalPrice({ item: 'board', duration: '1_day' }),
-  'price_unverified',
-);
-
-assertBlocked(
-  'wetsuit 7_days (unverified_seed) blocked in live mode',
-  lookupSunsetRentalPrice({ item: 'wetsuit', duration: '7_days' }),
-  'price_unverified',
-);
-
-assertBlocked(
-  'board_suit 5_days (unverified_seed) blocked in live mode',
-  lookupSunsetRentalPrice({ item: 'board_suit', duration: '5_days' }),
-  'price_unverified',
-);
-
-{
-  const r = lookupSunsetRentalPrice({ item: 'board', duration: '1_day' });
-  assert(
-    'blocked result includes pricing_status=unverified_seed',
-    r.ok === false && r.pricing_status === 'unverified_seed',
-    `pricing_status=${r.pricing_status}`,
-  );
-  assert(
-    'blocked result includes live_quote_allowed=false',
-    r.ok === false && r.live_quote_allowed === false,
-  );
-}
+assertOk('board 1_day live = 15 EUR', lookupSunsetRentalPrice({ item: 'board', duration: '1_day' }), { amount_eur: 15, pricing_status: 'confirmed' });
+assertOk('wetsuit 7_days live = 45 EUR', lookupSunsetRentalPrice({ item: 'wetsuit', duration: '7_days' }), { amount_eur: 45, pricing_status: 'confirmed' });
+assertOk('board+suit 5_days live = 65 EUR', lookupSunsetRentalPrice({ item: 'board_suit', duration: '5_days' }), { amount_eur: 65, pricing_status: 'confirmed' });
+assertOk('SUP 1_day live = 30 EUR', lookupSunsetRentalPrice({ item: 'sup', duration: '1_day' }), { amount_eur: 30, pricing_status: 'confirmed' });
 
 // ─── Section 3: dry-run mode (require_confirmed=false) returns seed prices ──
 console.log('\n[3] Dry-run / preview mode (require_confirmed=false)');
@@ -252,7 +226,7 @@ console.log('\n[6] Result metadata');
   assert('result has pricing_status',       typeof r.pricing_status === 'string');
   assert('result has source (public_site)', r.source === 'public_site');
   assert('result has source_url',           typeof r.source_url === 'string' && r.source_url.startsWith('http'));
-  assert('result live_quote_allowed=false (seed)', r.live_quote_allowed === false);
+  assert('result live_quote_allowed=true (owner-managed confirmed)', r.live_quote_allowed === true);
 }
 
 // ─── Section 7: explicit client_slug=sunset accepted ────────────────────────
