@@ -16891,6 +16891,15 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
 .portal-schedule-range{font-size:17px;font-weight:700;color:var(--text);min-width:180px}
 .portal-schedule-view-toggle{display:flex;gap:4px;margin-left:auto}
+@media(max-width:720px){
+  .portal-schedule-toolbar{gap:8px}
+  .portal-schedule-toolbar .portal-schedule-range{order:-1;flex:1 1 100%;min-width:0;margin:0 0 2px}
+  .portal-schedule-toolbar>#ps-prev-week,.portal-schedule-toolbar>#ps-today,.portal-schedule-toolbar>#ps-next-week{flex:1 1 0;min-width:0;text-align:center}
+  .portal-schedule-toolbar .portal-schedule-view-toggle{margin-left:0;flex:1 1 100%}
+  .portal-schedule-toolbar .portal-schedule-view-btn{flex:1 1 0;text-align:center;white-space:nowrap;padding:7px 6px}
+  .portal-schedule-toolbar>#ps-create-booking{flex:1 1 auto}
+  .portal-schedule-toolbar>.portal-schedule-refresh-btn{flex:0 0 auto}
+}
 .portal-schedule-view-btn{font-size:11px;padding:5px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-view-btn.active{background:var(--surface-soft);border-color:var(--text-2);font-weight:600;color:var(--text)}
 .portal-schedule-week{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:8px;margin-bottom:16px}
@@ -17515,6 +17524,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .toolbar{display:flex;align-items:center;gap:14px;margin-bottom:18px;flex-wrap:wrap}
 .toolbar h2{font-size:16px;font-weight:700;color:var(--text);flex:1;letter-spacing:.01em}
 .btn{border:none;border-radius:var(--radius-sm);padding:9px 18px;font-size:12px;font-weight:600;cursor:pointer;transition:background .18s,box-shadow .18s,transform .04s;letter-spacing:.01em}
+.btn:disabled,.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
 .btn:active{transform:translateY(1px)}
 .btn-primary{background:var(--primary);color:#fff;box-shadow:0 1px 3px rgba(68,80,74,.14)}
 .btn-primary:hover{background:var(--primary-hover)}
