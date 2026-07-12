@@ -100,6 +100,54 @@ function parseQuantity(raw, fallback) {
   return quantity;
 }
 
+function normalizeRentalDuration(raw) {
+  const compact = String(raw || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
+  if (compact === 'half_day' || compact === 'halfday') return 'half_day';
+  return compact;
+}
+
+function normalizeRentalPricing(raw, components) {
+  if (raw == null || raw === '') return { ok: true, skip: true };
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    return { ok: false, error: 'rental_pricing must be an object' };
+  }
+  const offering_key = String(raw.offering_key || '').trim();
+  if (!offering_key) return { ok: false, error: 'rental_pricing.offering_key is required' };
+  const duration = normalizeRentalDuration(raw.duration);
+  if (!duration) return { ok: false, error: 'rental_pricing.duration is required' };
+  const quantity = parseInt(String(raw.quantity), 10);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+    return { ok: false, error: 'rental_pricing.quantity must be 1–99' };
+  }
+  const quotedRaw = raw.quoted_total_cents;
+  const quoted_total_cents = quotedRaw == null || quotedRaw === ''
+    ? null
+    : parseInt(String(quotedRaw), 10);
+  if (quoted_total_cents != null && (!Number.isInteger(quoted_total_cents) || quoted_total_cents < 0)) {
+    return { ok: false, error: 'rental_pricing.quoted_total_cents must be a non-negative integer' };
+  }
+  if (offering_key === 'board_and_suit_rental') {
+    const comps = components && typeof components === 'object' ? components : {};
+    if (!comps.surfboard || !comps.wetsuit) {
+      return { ok: false, error: 'board_and_suit_rental requires surfboard and wetsuit components' };
+    }
+    const boardQty = parseQuantity(comps.surfboard.quantity, 1);
+    const suitQty = parseQuantity(comps.wetsuit.quantity, 1);
+    if (boardQty !== quantity || suitQty !== quantity) {
+      return { ok: false, error: 'board_and_suit_rental component quantities must match rental_pricing.quantity' };
+    }
+  }
+  return {
+    ok: true,
+    value: {
+      offering_key,
+      duration,
+      quantity,
+      quoted_total_cents,
+    },
+  };
+}
+
 function parsePrivateLessonQuantity(raw) {
   const quantity = parseInt(String(raw == null ? 1 : raw), 10);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > PRIVATE_LESSON_MAX_SESSIONS) return null;
@@ -347,6 +395,8 @@ function validateScheduleBookingBody(body) {
   const notes = b.notes != null ? String(b.notes).trim().slice(0, 2000) : '';
   const needs_reply = b.needs_reply === true || b.needs_reply === 'true' || b.needs_reply === 1;
   const idempotency_key = b.idempotency_key != null ? String(b.idempotency_key).trim().slice(0, 120) : '';
+  const rentalPricing = normalizeRentalPricing(b.rental_pricing, components.value);
+  if (!rentalPricing.ok) return rentalPricing;
 
   return {
     ok: true,
@@ -359,6 +409,7 @@ function validateScheduleBookingBody(body) {
       notes,
       needs_reply,
       idempotency_key: idempotency_key || null,
+      rental_pricing: rentalPricing.skip ? null : rentalPricing.value,
     },
   };
 }
@@ -728,6 +779,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           components: componentKeys,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
+          rental_pricing: input.rental_pricing || null,
         }),
       ],
     );
@@ -801,6 +853,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
           idempotency_key: input.idempotency_key,
+          rental_pricing: input.rental_pricing || null,
         };
         const row = await insertServiceRecord(pg, [
           clientSlug,
@@ -881,6 +934,8 @@ module.exports = {
   normalizePrivateLessonSessions,
   isFullDayEquipmentAddonEnabled,
   normalizeFullDayEquipmentAddon,
+  normalizeRentalDuration,
+  normalizeRentalPricing,
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
   validateScheduleBookingBody,
