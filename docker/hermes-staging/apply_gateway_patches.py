@@ -159,7 +159,11 @@ CLEAR_SESSION_ENV_NEW = '''        from gateway.session_context import clear_ses
             clear_current_location()
         try:
             import os as _wolfhouse_os
-            for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE", "SUNSET_INGRESS_LOCATION_ID"):
+            # Clear only turn-scoped guest phone fallbacks. The Sunset ingress
+            # binding is runtime-scoped (one WhatsApp number = one school) and must
+            # survive every turn; deleting it caused the first quote to work and
+            # every later tool call to lose location_id.
+            for _wolfhouse_key in ("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE"):
                 _wolfhouse_os.environ.pop(_wolfhouse_key, None)
         except Exception:
             pass
