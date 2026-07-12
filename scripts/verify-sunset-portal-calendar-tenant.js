@@ -144,8 +144,12 @@ if (apiSrc) {
   assert('portalStartupFallbackTab respects surf profile',
     apiSrc.includes('function portalStartupFallbackTab(')
     && apiSrc.includes("profile.is_surf_vertical ? 'portal-home' : 'bed-calendar'"));
-  assert('session failure does not hardcode bed-calendar only',
-    apiSrc.includes('switchToTab(portalStartupFallbackTab(), null)'));
+  assert('failed auth session redirects to login',
+    apiSrc.includes('Fail closed: never render a tenant portal') && apiSrc.includes("window.location.replace('/staff/login')"));
+  assert('failed auth session does not render fallback tenant UI',
+    !apiSrc.includes("if (!data || !data.success){\n        populateClientSelect(null);"));
+  assert('auth fetch failure redirects to login',
+    apiSrc.includes("Network/session failures must not expose the default tenant UI."));
   assert('buildUiHtml passes hostname deploy client', apiSrc.includes('resolvePortalDeployClient({ host })'));
   assert('login page uses hostname deploy client', apiSrc.includes('buildLoginHtml(req)'));
   assert('portal-home tab gated for surf vertical only',
