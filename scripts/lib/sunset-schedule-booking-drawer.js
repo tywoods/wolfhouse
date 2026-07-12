@@ -78,26 +78,34 @@ function bookingHeaderDates(input) {
   const sorted = [...new Set(dates)].sort();
   return { firstDate: sorted[0], lastDate: sorted[sorted.length - 1] };
 }
-function lineItemLabel(dbType, qty, dateIso, slotTime, sr) {
+function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
   const meta = parseMeta(sr && sr.metadata);
   const component = String(meta.component || sr?.metadata_component || '').toLowerCase();
   const q = Number(qty) || 1;
-  const d = String(dateIso || '').slice(0, 10);
+  const sep = ' · ';
   if (component === 'course') {
-    const label = meta.course_label || sr?.course_label || 'Group Course';
-    return `Group Course · ${label} · ${q} surfer${q !== 1 ? 's' : ''} · ${d}`;
+    const name = meta.course_label || sr?.course_label;
+    if (name) return `${name}${sep}${q}`;
+    const map = DB_TO_UI_SERVICE_TYPE || {};
+    return `${map[dbType] || dbType || 'Course'}${sep}${q}`;
   }
   if (component === 'private_lesson') {
-    return `Private Course · ${q} surfer${q !== 1 ? 's' : ''} · ${slotTime || '—'} · ${d}`;
+    const name = meta.private_lesson_label || 'Private Course';
+    return `${name}${sep}${q}`;
   }
+  if (dbType === 'surfboard') return `Surfboard${sep}${q}`;
+  if (dbType === 'wetsuit') return `Wetsuit${sep}${q}`;
   const map = DB_TO_UI_SERVICE_TYPE || {};
   const ui = map[dbType] || dbType;
   if (ui === 'lesson' || dbType === 'surf_lesson') {
-    return `Group Course · ${q} surfer${q !== 1 ? 's' : ''} · ${slotTime || '—'} · ${d}`;
+    const name = meta.course_label || sr?.course_label || 'Group Course';
+    return `${name}${sep}${q}`;
   }
-  if (dbType === 'surfboard') return `Surfboard · ${q} · ${d}`;
-  if (dbType === 'wetsuit') return `Wetsuit · ${q} · ${d}`;
-  return `${ui} · ${q} · ${d}`;
+  return `${ui || 'Item'}${sep}${q}`;
+}
+
+function lineItemLabel(dbType, qty, dateIso, slotTime, sr) {
+  return formatSunsetDrawerDailyItemLabel(dbType, qty, sr);
 }
 
 async function loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode) {
@@ -628,4 +636,5 @@ module.exports = {
   deriveDrawerPaymentUiStatus,
   aggregateComponentsFromServices,
   normalizePaymentMethod,
+  formatSunsetDrawerDailyItemLabel,
 };

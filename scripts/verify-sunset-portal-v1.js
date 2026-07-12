@@ -812,7 +812,7 @@ if (apiSrc) {
   assert('drawer line item labels', apiSrc.includes('schedule.drawer.paymentSection'));
   assert('drawer totals paid remaining', apiSrc.includes('schedule.drawer.remaining') && apiSrc.includes('ps-drawer-paid'));
   assert('create test stripe link button', apiSrc.includes('ps-drawer-stripe-link') && apiSrc.includes('schedule.drawer.stripeLink'));
-  assert('stripe no auto send message', apiSrc.includes('schedule.drawer.stripeCreated'));
+  assert('stripe link create is create-only (no guest send)', apiSrc.includes("'/staff/schedule/bookings/stripe-link?client='"));
   assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
   assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
   assert('drawer payment refresh helper', apiSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));
@@ -1294,7 +1294,7 @@ console.log('\n[38] Sunset booking drawer — header + view summary cleanup');
 if (apiSrc) {
   assert('drawer hero metadata line helper', apiSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
   assert('drawer view booking details helper', apiSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
-  assert('drawer booked items list helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsHtml('));
+  assert('drawer booked items row helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsRow('));
   assert('drawer hero meta CSS class', apiSrc.includes('portal-schedule-drawer-hero-meta'));
   assert('drawer icon close button class', apiSrc.includes('portal-schedule-drawer-close-btn'));
   assert('view drawer delegates booking details', apiSrc.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));

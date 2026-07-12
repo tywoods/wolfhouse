@@ -13,6 +13,7 @@ RUN npm ci --omit=dev
 COPY scripts ./scripts
 COPY database ./database
 COPY config ./config
+COPY public ./public
 
 # Sunset isolated staging: explicit Sunset-only portal access (no all_clients_emails).
 RUN cp config/clients/staff-portal-access.sunset-staging.json config/clients/staff-portal-access.json \

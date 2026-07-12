@@ -62,6 +62,7 @@ async function createStripeCheckoutSessionViaFetch(opts) {
   params.append('line_items[0][price_data][product_data][description]', opts.productDesc);
   for (const [key, value] of Object.entries(opts.metadata || {})) {
     params.append(`metadata[${key}]`, String(value == null ? '' : value));
+    params.append(`payment_intent_data[metadata][${key}]`, String(value == null ? '' : value));
   }
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
