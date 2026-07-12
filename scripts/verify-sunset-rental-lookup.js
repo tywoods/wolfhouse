@@ -114,6 +114,12 @@ assertOk(
 );
 
 assertOk(
+  'model-emitted board+suit bundle normalizes to combined rental',
+  lookupSunsetRentalPrice({ item: 'board+suit bundle', duration: 'half day' }),
+  { amount_eur: 15, item: 'board_and_suit_rental', duration: 'half_day', pricing_status: 'confirmed' },
+);
+
+assertOk(
   'board_rental half_day = 10 EUR',
   lookupSunsetRentalPrice({ item: 'board', duration: 'half_day', require_confirmed: false }),
   { amount_eur: 10 },
