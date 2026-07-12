@@ -301,6 +301,8 @@ const {
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
+  priceSunsetBookingServices,
+  loadBookingWithServices,
 } = require('./lib/sunset-stripe-payment-links');
 const {
   getSunsetScheduleBookingDrawerContext,
@@ -42066,6 +42068,276 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sunset Luna WRITE / MONEY bot endpoints (Phase 2 — booking + payment link +
+// status + waiver). Staging only, test keys only, tenant-locked to sunset.
+//
+// Every handler:
+//   - is behind requireBotAuth (X-Luna-Bot-Token) at the router,
+//   - FORCES client_slug=sunset (never trusted from the body),
+//   - validates location_id against the Sunset whitelist (sunsetBotResolveLocation),
+//   - is gated by the relevant feature flag → returns { disabled: <reason> } when off,
+//   - reuses the SAME staff-side creators (createSunsetScheduleBooking /
+//     createSunsetScheduleStripeLink / reconcile / waiver) — no bespoke money code,
+//   - recomputes totals server-side (never trusts a client total),
+//   - rejects any accommodation/room/bed field (Sunset surf-school has none).
+//
+// A Sunset bot token can therefore only ever write Sunset. No WhatsApp send.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Accommodation is a Wolfhouse concept — the Sunset surf-school booking creator
+// has no room/bed/nights. If a caller smuggles one of these fields in, reject
+// with a clear signal instead of silently ignoring it, so a Wolfhouse-shaped
+// payload can never quietly create a malformed Sunset booking.
+const SUNSET_FORBIDDEN_BOOKING_FIELDS = [
+  'room_type', 'room_preference', 'room_code', 'bed_code', 'selected_bed_codes',
+  'package_code', 'guest_packages', 'check_in', 'check_out', 'nights',
+  'gender_preference', 'group_gender',
+];
+
+function sunsetBotRejectAccommodationFields(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  const hit = SUNSET_FORBIDDEN_BOOKING_FIELDS.filter((f) => b[f] !== undefined && b[f] !== null && b[f] !== '');
+  return hit.length ? hit : null;
+}
+
+async function handleBotSunsetBookingCreate(req, res) {
+  const started = Date.now();
+  if (!BOT_BOOKING_ENABLED) {
+    return sendJSON(res, 200, {
+      ok: false, success: false, disabled: 'bot_booking_disabled',
+      reason: 'Bot booking creation is disabled. Set BOT_BOOKING_ENABLED=true to enable.',
+    });
+  }
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const forbidden = sunsetBotRejectAccommodationFields(body);
+  if (forbidden) {
+    return sendJSON(res, 400, {
+      ok: false, success: false, reason: 'accommodation_fields_not_supported',
+      forbidden_fields: forbidden,
+      detail: 'Sunset is a surf school (courses/rentals/lessons), not accommodation. Remove room/bed/package/nights fields.',
+    });
+  }
+  try {
+    const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,              // forced — body cannot override tenant
+      body,
+      locationId: loc.location_id,
+      actor: { source: 'agent_luna_whatsapp_bot' },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.sunset.booking_create',
+      category: 'schedule_api',
+      client_slug: SUNSET_CLIENT_SLUG,
+      success: !!(result && result.ok),
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) {
+      return sendJSON(res, result.status, { ...result.body, success: false, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+    }
+    // Authoritative server-side total (never trust a client-supplied total).
+    let totalCents = null;
+    const bookingId = result.body && result.body.booking_id;
+    if (bookingId) {
+      try {
+        const priced = await withPgClient((pg) => priceSunsetBookingServices(pg, SUNSET_CLIENT_SLUG, bookingId));
+        if (priced && priced.ok) totalCents = priced.total_cents;
+      } catch (_) { /* pricing is advisory here; booking already exists */ }
+    }
+    return sendJSON(res, result.status, {
+      ...result.body,
+      success: true,
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: loc.location_id,
+      total_cents: totalCents,
+      currency: 'EUR',
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    console.error('[bot sunset booking] write failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
+async function handleBotSunsetPaymentLink(req, res) {
+  const started = Date.now();
+  if (!STRIPE_LINKS_ENABLED) {
+    return sendJSON(res, 200, {
+      ok: false, success: false, disabled: 'stripe_links_disabled',
+      reason: 'Stripe link creation is disabled. Set STRIPE_LINKS_ENABLED=true to enable.',
+    });
+  }
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const bookingId = String(body.booking_id || '').trim();
+  const bookingCode = String(body.booking_code || '').trim();
+  if (!bookingId && !bookingCode) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'booking_id_or_code_required' });
+  }
+  try {
+    const result = await withPgClient(async (pg) => createSunsetScheduleStripeLink(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,              // forced
+      bookingId,
+      bookingCode,
+      locationId: loc.location_id,
+      idempotencyKey: String(body.idempotency_key || '').trim(),
+      actor: { source: 'agent_luna_whatsapp_bot' },
+      // The reusable creator BLOCKS sk_live_ keys internally (assertStripeEnv) —
+      // keep that guard live; we do not bypass it.
+      staffActionsEnabled: STAFF_ACTIONS_ENABLED,
+      stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+      stripeSecretKey: STRIPE_SECRET_KEY,
+      stripeSuccessUrl: stripeCheckoutSessionSuccessUrl(),
+      stripeCancelUrl: stripeCheckoutSessionCancelUrl(),
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.sunset.payment_link_create',
+      category: 'schedule_api',
+      client_slug: SUNSET_CLIENT_SLUG,
+      success: !!(result && result.ok),
+      elapsed_ms: Date.now() - started,
+    });
+    const status = result.ok ? result.status : result.status;
+    return sendJSON(res, status, { ...result.body, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[bot sunset payment-link] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'stripe link create failed' });
+  }
+}
+
+// READ-ONLY payment truth: pull Stripe truth for the booking's service dates via
+// the API-pull reconcile (Sunset lacks verified webhooks), then read the booking's
+// payment_status + balance. No writes beyond the reconcile's own truth apply.
+async function handleBotSunsetPaymentStatus(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const bookingId = String(body.booking_id || '').trim();
+  const bookingCode = String(body.booking_code || '').trim();
+  if (!bookingId && !bookingCode) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'booking_id_or_code_required' });
+  }
+  try {
+    const out = await withPgClient(async (pg) => {
+      const link = await getSunsetSchedulePaymentLink(pg, { clientSlug: SUNSET_CLIENT_SLUG, bookingId, bookingCode });
+      if (!link.ok) return { status: link.status, body: { ...link.body, success: false } };
+      const loaded = await loadBookingWithServices(pg, SUNSET_CLIENT_SLUG, link.body.booking_id, '');
+      // Best-effort reconcile: pull Stripe truth for each service date so a paid
+      // link shows paid even when the webhook never reached this deployment.
+      if (STRIPE_SECRET_KEY && loaded && Array.isArray(loaded.services)) {
+        const dates = [...new Set(loaded.services.map((s) => s.service_date).filter(Boolean))];
+        try {
+          const stripe = require('stripe')(STRIPE_SECRET_KEY);
+          for (const dateIso of dates) {
+            await reconcilePendingStripePaymentsForDate(pg, stripe, { clientSlug: SUNSET_CLIENT_SLUG, dateIso, limit: 25 });
+          }
+        } catch (_) { /* reconcile is advisory; status read proceeds regardless */ }
+      }
+      // Re-read booking payment truth after reconcile.
+      const bkRes = await pg.query(
+        `SELECT b.payment_status::text AS payment_status, b.total_amount_cents, b.amount_paid_cents, b.balance_due_cents
+           FROM bookings b INNER JOIN clients c ON c.id = b.client_id
+          WHERE c.slug = $1 AND b.id = $2::uuid LIMIT 1`,
+        [SUNSET_CLIENT_SLUG, link.body.booking_id],
+      );
+      const bk = bkRes.rows[0] || {};
+      const paymentStatus = String(bk.payment_status || 'unpaid');
+      const paid = ['paid', 'deposit_paid', 'fully_paid'].includes(paymentStatus)
+        || Number(bk.amount_paid_cents || 0) > 0;
+      return {
+        status: 200,
+        body: {
+          success: true,
+          booking_id: link.body.booking_id,
+          booking_code: link.body.booking_code,
+          payment_status: paymentStatus,
+          paid,
+          unpaid: !paid,
+          total_amount_cents: bk.total_amount_cents != null ? Number(bk.total_amount_cents) : null,
+          amount_paid_cents: Number(bk.amount_paid_cents || 0),
+          balance_due_cents: bk.balance_due_cents != null ? Number(bk.balance_due_cents) : null,
+          currency: 'EUR',
+        },
+      };
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.sunset.payment_status',
+      category: 'schedule_api',
+      client_slug: SUNSET_CLIENT_SLUG,
+      success: !!(out && out.body && out.body.success),
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, out.status, { ...out.body, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[bot sunset payment-status] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'read failed' });
+  }
+}
+
+async function handleBotSunsetWaiverLink(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const bookingId = String(body.booking_id || '').trim();
+  const bookingCode = String(body.booking_code || '').trim();
+  if (!bookingId && !bookingCode) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'booking_id_or_code_required' });
+  }
+  try {
+    const out = await withPgClient(async (pg) => {
+      // Resolve booking id (waiver ensure keys on the UUID).
+      const loaded = await loadBookingWithServices(pg, SUNSET_CLIENT_SLUG, bookingId, bookingCode);
+      if (!loaded) return { status: 404, body: { success: false, error: 'booking not found' } };
+      const waiverOut = await ensureWaiverForBookingSoft(pg, loaded.booking.booking_id, {
+        locationId: loc.location_id,
+        env: process.env,
+        source: 'bot_sunset_waiver_link',
+      });
+      if (waiverOut && waiverOut.body && waiverOut.body.error === 'migration_pending') {
+        return { status: 200, body: { success: false, waiver_migration_pending: true, reason: 'waiver_migration_pending' } };
+      }
+      const w = (waiverOut && waiverOut.body && waiverOut.body.waiver) || null;
+      const publicUrl = w && w.public_url ? String(w.public_url) : null;
+      return {
+        status: 200,
+        body: {
+          success: !!publicUrl,
+          booking_id: loaded.booking.booking_id,
+          booking_code: loaded.booking.booking_code,
+          waiver_url: publicUrl,
+          waiver_public_url: publicUrl,
+          waiver_status: w ? w.status : null,
+          lesson_ready: waiverOut && waiverOut.body ? !!waiverOut.body.lesson_ready : false,
+        },
+      };
+    });
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.sunset.waiver_link',
+      category: 'schedule_api',
+      client_slug: SUNSET_CLIENT_SLUG,
+      success: !!(out && out.body && out.body.success),
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, out.status, { ...out.body, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[bot sunset waiver-link] failed:', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'waiver link failed' });
+  }
+}
+
 async function handleCustomerList(query, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -47239,6 +47511,46 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotSunsetLessonAvailability(req, res);
+  }
+
+  // ── Sunset Luna WRITE / MONEY bot endpoints (Phase 2) ──────────────────────
+  // Forced client_slug=sunset; location whitelist; behind feature flags; test
+  // Stripe keys only (sk_live_ blocked in the reusable creator). No WhatsApp.
+  if (pathname === '/staff/bot/sunset/booking-create') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/booking-create' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetBookingCreate(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/payment-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/payment-link' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetPaymentLink(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/payment-status') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/payment-status' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetPaymentStatus(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/waiver-link') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/waiver-link' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetWaiverLink(req, res);
   }
 
   // ── Luna owner-only business intelligence over WhatsApp (sender-phone gated) ─

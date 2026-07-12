@@ -1448,6 +1448,229 @@ def _schema(name, description, properties, required=None):
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sunset Luna WRITE / MONEY tools (Phase 2). Thin wrappers around the Sunset
+# Staff API /staff/bot/sunset/{booking-create,payment-link,payment-status,
+# waiver-link} routes. Tenant (client_slug=sunset) + location scope are enforced
+# by _post_bot from the container env — a Sunset bot token can ONLY write Sunset.
+# The Staff API recomputes totals server-side and blocks live Stripe keys; these
+# wrappers never build money locally and never send WhatsApp.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def create_sunset_booking(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    guest_name = _clean(payload.get("guest_name") or payload.get("name"))
+    if not guest_name:
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_booking",
+            "error": "guest_name_required",
+            "staff_review_needed": False,
+            "guest_safe_next_action": "What name should I put the booking under?",
+        })
+    body["guest_name"] = guest_name
+    phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
+    if phone:
+        body["guest_phone"] = phone
+    # Service components — pass through verbatim (Staff API validates + prices).
+    if isinstance(payload.get("components"), dict):
+        body["components"] = payload["components"]
+    elif payload.get("booking_type"):
+        body["booking_type"] = payload.get("booking_type")
+        if payload.get("quantity") is not None:
+            body["quantity"] = payload.get("quantity")
+    # Dates.
+    if isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
+        body["service_dates"] = payload["service_dates"]
+    elif payload.get("service_date"):
+        body["service_date"] = payload.get("service_date")
+    elif payload.get("date_from") and payload.get("date_to"):
+        body["date_from"] = payload.get("date_from")
+        body["date_to"] = payload.get("date_to")
+    for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
+        if payload.get(opt) not in (None, ""):
+            body[opt] = payload.get(opt)
+    data = _post_bot("/sunset/booking-create", body)
+    if data.get("disabled"):
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_booking",
+            "disabled": data.get("disabled"),
+            "staff_review_needed": True,
+            "guest_safe_next_action": "Let me get the team to set that up for you 😊",
+        })
+    ok = bool(data.get("success"))
+    return _json_result({
+        "success": ok,
+        "tool": "create_sunset_booking",
+        "write_performed": ok,
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "idempotent": bool(data.get("idempotent")),
+        "total_cents": data.get("total_cents"),
+        "amount_eur": (round(data.get("total_cents") / 100, 2) if isinstance(data.get("total_cents"), (int, float)) else None),
+        "currency": data.get("currency") or "EUR",
+        "location_id": data.get("location_id"),
+        "reason": data.get("reason") or data.get("error") if not ok else None,
+        "next_action": "create_sunset_payment_link" if ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": None if ok else "Let me confirm that booking with the team and get right back to you 😊",
+    })
+
+
+def create_sunset_payment_link(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    booking_id = _clean(payload.get("booking_id"))
+    booking_code = _clean(payload.get("booking_code"))
+    if not booking_id and not booking_code:
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_payment_link",
+            "error": "booking_id_or_code_required",
+            "staff_review_needed": True,
+        })
+    body = {}
+    if booking_id:
+        body["booking_id"] = booking_id
+    if booking_code:
+        body["booking_code"] = booking_code
+    for opt in ("idempotency_key", "location_id"):
+        if payload.get(opt) not in (None, ""):
+            body[opt] = payload.get(opt)
+    data = _post_bot("/sunset/payment-link", body)
+    if data.get("disabled"):
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_payment_link",
+            "disabled": data.get("disabled"),
+            "staff_review_needed": True,
+        })
+    # checkout_url is returned verbatim by the Staff API (Stripe test-mode link).
+    checkout_url = _clean(data.get("checkout_url") or data.get("payment_link_url"))
+    ok = bool(data.get("success")) and bool(checkout_url)
+    return _json_result({
+        "success": ok,
+        "tool": "create_sunset_payment_link",
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "payment_id": data.get("payment_id"),
+        "payment_status": data.get("payment_status"),
+        "amount_due_cents": data.get("amount_due_cents"),
+        "currency": data.get("currency") or "EUR",
+        "secure_payment_url": checkout_url or None,
+        "idempotent": bool(data.get("idempotent")),
+        "next_action": "send_secure_payment_link" if ok else None,
+        "reason": data.get("reason") or data.get("error") if not ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": None if ok else "Let me sort the payment link with the team 😊",
+    })
+
+
+def get_sunset_payment_status(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    booking_id = _clean(payload.get("booking_id"))
+    booking_code = _clean(payload.get("booking_code"))
+    if not booking_id and not booking_code:
+        return _json_result({
+            "success": False,
+            "tool": "get_sunset_payment_status",
+            "error": "booking_id_or_code_required",
+            "staff_review_needed": True,
+        })
+    body = {}
+    if booking_id:
+        body["booking_id"] = booking_id
+    if booking_code:
+        body["booking_code"] = booking_code
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/payment-status", body)
+    ok = bool(data.get("success"))
+    paid = bool(data.get("paid"))
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_payment_status",
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "payment_status": data.get("payment_status"),
+        # Payment truth via Stripe API-pull reconcile — never mark paid from guest text.
+        "payment_confirmed": paid,
+        "paid": paid,
+        "unpaid": bool(data.get("unpaid")) if data.get("unpaid") is not None else (not paid),
+        "total_amount_cents": data.get("total_amount_cents"),
+        "amount_paid_cents": data.get("amount_paid_cents"),
+        "balance_due_cents": data.get("balance_due_cents"),
+        "currency": data.get("currency") or "EUR",
+        "reason": data.get("reason") or data.get("error") if not ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": None,
+    })
+
+
+def get_sunset_waiver_link(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    booking_id = _clean(payload.get("booking_id"))
+    booking_code = _clean(payload.get("booking_code"))
+    if not booking_id and not booking_code:
+        return _json_result({
+            "success": False,
+            "tool": "get_sunset_waiver_link",
+            "error": "booking_id_or_code_required",
+            "staff_review_needed": True,
+        })
+    body = {}
+    if booking_id:
+        body["booking_id"] = booking_id
+    if booking_code:
+        body["booking_code"] = booking_code
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/waiver-link", body)
+    waiver_url = _clean(data.get("waiver_url") or data.get("waiver_public_url"))
+    ok = bool(data.get("success")) and bool(waiver_url)
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_waiver_link",
+        "booking_id": data.get("booking_id"),
+        "booking_code": data.get("booking_code"),
+        "waiver_url": waiver_url or None,
+        "waiver_status": data.get("waiver_status"),
+        "lesson_ready": bool(data.get("lesson_ready")),
+        "waiver_migration_pending": bool(data.get("waiver_migration_pending")),
+        "next_action": "send_waiver_link" if ok else None,
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok and not data.get("waiver_migration_pending"),
+        "guest_safe_next_action": None,
+    })
+
+
+def _sunset_write_tools():
+    loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
+    return [
+        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has accepted the plan. Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
+            "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
+            "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
+            "components": {"type": "object", "description": "Service components, e.g. {\"lesson\":{\"quantity\":2,\"slot_time\":\"10:00\"}}, {\"course\":{\"course_id\":\"...\",\"quantity\":2}}, {\"private_lesson\":{...}}, {\"surfboard\":{\"quantity\":1}}, {\"wetsuit\":{\"quantity\":1}}, and the full-day add-on part."},
+            "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
+            "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
+            "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to)."},
+            "date_to": {"type": "string", "description": "Range end YYYY-MM-DD (with date_from)."},
+            "notes": {"type": "string"},
+            "idempotency_key": {"type": "string", "description": "Optional idempotency key to avoid duplicate bookings."},
+            **loc,
+        }, ["guest_name"]),
+        ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
+        ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
+        ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
+    ]
+
+
 def _is_sunset_tenant():
     return _clean(os.getenv("LUNA_CLIENT_SLUG")).lower() == "sunset"
 
@@ -1509,12 +1732,13 @@ def register(ctx):
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call when you hand off for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string"}}, []),
     ]
-    # SUNSET tenant: register ONLY the Sunset read-only price/availability tools.
-    # The Wolfhouse accommodation booking/write/payment tools are irrelevant for
-    # Sunset and are not registered, keeping the Sunset toolset read-only. All
-    # existing Wolfhouse behavior is unchanged for any other tenant.
+    # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
+    # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +
+    # waiver). The Wolfhouse accommodation booking/write/payment tools are irrelevant
+    # for Sunset and are not registered. All existing Wolfhouse behavior is unchanged
+    # for any other tenant — the swap only happens under the sunset tenant.
     if _is_sunset_tenant():
-        tools = _sunset_tools()
+        tools = _sunset_tools() + _sunset_write_tools()
 
     for name, description, handler, properties, required in tools:
         ctx.register_tool(

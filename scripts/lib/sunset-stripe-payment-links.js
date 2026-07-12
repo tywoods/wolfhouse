@@ -539,6 +539,7 @@ module.exports = {
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
+  loadBookingWithServices,
   serviceRecordUnitPriceCents,
   isFullDayEquipmentAddon,
   findPriceCents,
