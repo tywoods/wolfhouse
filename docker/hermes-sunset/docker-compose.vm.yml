@@ -16,6 +16,8 @@ services:
       LUNA_TENANT_ID: sunset
       LUNA_CLIENT_SLUG: sunset
       LUNA_ALLOWED_LOCATION_IDS: sunset-somo,sunset-sardinero
+      # This WhatsApp runtime is bound to Somo; Sardinero will use a separate number/runtime.
+      SUNSET_INGRESS_LOCATION_ID: sunset-somo
       GENERIC_TIMEZONE: Europe/Madrid
       WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"
     env_file:

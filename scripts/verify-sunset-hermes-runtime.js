@@ -29,7 +29,7 @@ const compose = fs.readFileSync(path.join(runtime, 'docker-compose.vm.yml'), 'ut
 for (const expected of [
   'hermes-sunset-luna:', '"8092:8092"', '/var/lib/hermes-sunset-luna:/opt/data',
   '/etc/hermes-sunset-luna.env', 'HERMES_ROLE: sunset-luna', 'LUNA_TENANT_ID: sunset',
-  'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"',
+  'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"', 'SUNSET_INGRESS_LOCATION_ID: sunset-somo',
 ]) assert.ok(compose.includes(expected), `compose missing ${expected}`);
 assert.ok(!compose.includes('/var/lib/hermes-luna:/opt/data'), 'must not share Wolfhouse data');
 
