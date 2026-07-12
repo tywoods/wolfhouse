@@ -210,10 +210,113 @@ async function enrichPendingManualServiceAmounts(pg, opts) {
   return updated;
 }
 
+const SUNSET_FULL_DAY_ADDON_KEY = 'full_day_equipment_extension';
+
+function isIsoDate(s) {
+  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(s || '').trim());
+}
+
+// Attach the Sunset "Material el resto del día" add-on to an existing booking (per person, per date).
+// Fail-closed (ok:false) on: non-Sunset tenant, cross-tenant booking, disabled add-on, ineligible
+// booking/date, invalid quantity, missing price. Price is strictly taken from the tool quote — never
+// invented here. Writes one addon_service row per date; quantity=people; amount_due_cents snapshotted.
+// Idempotent per booking + date (skips a date that already has an add-on row).
+async function attachSunsetFullDayEquipmentAddon(pg, opts) {
+  const o = opts || {};
+  const clientSlug = trimStr(o.clientSlug);
+  if (clientSlug !== 'sunset') return { ok: false, reason: 'invalid_tenant', received_tenant: clientSlug || null };
+  const bookingId = trimStr(o.bookingId);
+  if (!pg || !bookingId) return { ok: false, reason: 'missing_booking' };
+
+  const quote = o.quote || {};
+  const unitCents = Number(quote.unit_amount_cents);
+  if (!Number.isInteger(unitCents) || unitCents <= 0) return { ok: false, reason: 'missing_price' };
+  const quantity = Number(quote.quantity);
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) return { ok: false, reason: 'invalid_quantity' };
+  const dates = Array.isArray(quote.dates) ? quote.dates.filter(isIsoDate) : [];
+  if (!dates.length) return { ok: false, reason: 'no_eligible_dates' };
+
+  // Confirm the booking belongs to this tenant (cross-tenant guard) and gather its eligible dates.
+  const bookingRes = await pg.query(
+    `SELECT b.id::text AS booking_id, b.booking_code, b.guest_name, b.metadata,
+            c.slug AS client_slug
+       FROM bookings b INNER JOIN clients c ON c.id = b.client_id
+      WHERE b.id = $1::uuid LIMIT 1`,
+    [bookingId],
+  );
+  const booking = bookingRes.rows[0];
+  if (!booking) return { ok: false, reason: 'booking_not_found' };
+  if (String(booking.client_slug) !== 'sunset') return { ok: false, reason: 'cross_tenant_booking' };
+
+  // Eligible dates = service dates of the booking's non-add-on records.
+  const eligibleRes = await pg.query(
+    `SELECT DISTINCT service_date::text AS service_date
+       FROM booking_service_records
+      WHERE booking_id = $1::uuid AND service_type <> 'addon_service' AND status <> 'cancelled'`,
+    [bookingId],
+  );
+  const eligible = new Set(eligibleRes.rows.map((r) => String(r.service_date).slice(0, 10)));
+  for (const iso of dates) {
+    if (!eligible.has(iso)) return { ok: false, reason: 'ineligible_date', date: iso };
+  }
+
+  const bookingCode = booking.booking_code || trimStr(o.bookingCode);
+  const guestName = booking.guest_name || trimStr(o.guestName) || 'Guest';
+  const bookingMeta = (booking.metadata && typeof booking.metadata === 'object')
+    ? booking.metadata
+    : (() => { try { return JSON.parse(booking.metadata || '{}'); } catch (_) { return {}; } })();
+  const locationId = bookingMeta.location_id || o.locationId || null;
+
+  const attached = [];
+  for (const serviceDate of dates.slice().sort()) {
+    const existing = await pg.query(
+      `SELECT id FROM booking_service_records
+        WHERE booking_id = $1::uuid AND service_type = 'addon_service' AND service_date = $2::date
+          AND metadata->>'service_key' = $3 LIMIT 1`,
+      [bookingId, serviceDate, SUNSET_FULL_DAY_ADDON_KEY],
+    );
+    if (existing.rows.length) continue;
+    const amountDue = unitCents * quantity;
+    const metadata = {
+      source: 'luna_guest',
+      attach_origin: ADDON_ATTACH_ORIGIN,
+      staff_ui_service_type: SUNSET_FULL_DAY_ADDON_KEY,
+      component: SUNSET_FULL_DAY_ADDON_KEY,
+      service_key: SUNSET_FULL_DAY_ADDON_KEY,
+      billing_unit: 'person_per_day',
+      unit_amount_cents: unitCents,
+      location_id: locationId,
+      settle_at_checkout: true,
+      paid_now_optional: true,
+    };
+    await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+         quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
+       ) VALUES (
+         $1, $2::uuid, $3, $4, 'addon_service', $5::date,
+         $6, 'confirmed', $7, 0, 'pending', 'luna_guest', $8::jsonb
+       )`,
+      [clientSlug, bookingId, bookingCode, guestName, serviceDate, quantity, amountDue, JSON.stringify(metadata)],
+    );
+    attached.push({ service_date: serviceDate, quantity, amount_due_cents: amountDue });
+  }
+
+  return {
+    ok: true,
+    booking_id: bookingId,
+    addon_key: SUNSET_FULL_DAY_ADDON_KEY,
+    attached_dates: attached,
+    unit_amount_cents: unitCents,
+    currency: quote.currency || 'EUR',
+  };
+}
+
 module.exports = {
   ADDON_ATTACH_ORIGIN,
   attachPricedGuestAddonServices,
   attachAllGuestAddonServices,
+  attachSunsetFullDayEquipmentAddon,
   enrichPendingManualServiceAmounts,
   mapGuestAttachRow,
 };

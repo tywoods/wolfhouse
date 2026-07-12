@@ -10,7 +10,7 @@
  * Tenant guard: only accepts client_slug === 'sunset'.
  */
 
-const { lookupSunsetRentalPrice } = require('./sunset-rental-price-lookup');
+const { lookupSunsetRentalPrice, lookupSunsetFullDayEquipmentAddon } = require('./sunset-rental-price-lookup');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 const { resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
@@ -31,7 +31,16 @@ const SUNSET_CATALOG_READ_TOOLS = Object.freeze({
     params: [],
     optional_params: ['location_id'],
   },
+  get_sunset_full_day_equipment_addon: {
+    description: 'Read Sunset "Material el resto del día" add-on: active state, config price (per person, per day), and a quote for given eligible dates + quantity.',
+    params: [],
+    optional_params: ['location_id', 'dates', 'quantity'],
+  },
 });
+
+function isIsoDate(s) {
+  return /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(s || '').trim());
+}
 
 function trimStr(v) {
   return v == null ? '' : String(v).trim();
@@ -153,6 +162,58 @@ function executeSunsetCatalogTool(toolId, ctx) {
       tool_id: id,
       location_id: locationId,
       result: catalogItem,
+    };
+  }
+
+  if (id === 'get_sunset_full_day_equipment_addon') {
+    const lookup = lookupSunsetFullDayEquipmentAddon({
+      client_slug: clientSlug,
+      location_id: locationId,
+    });
+    if (!lookup.ok) {
+      return {
+        ok: false,
+        tool_id: id,
+        reason: lookup.reason,
+        detail: lookup,
+        location_id: locationId,
+      };
+    }
+    // Optional quote: eligible dates (subset the caller already validated as eligible) + quantity(people).
+    // Server (booking write) revalidates eligibility/dates/quantity/price — this is an advisory quote only.
+    let quote = null;
+    const rawDates = Array.isArray(args.dates) ? args.dates : null;
+    if (rawDates && rawDates.length) {
+      const dates = [];
+      for (const d of rawDates) {
+        const iso = trimStr(d);
+        if (!isIsoDate(iso)) {
+          return { ok: false, tool_id: id, reason: 'invalid_args', detail: `date must be YYYY-MM-DD: ${iso}`, location_id: locationId };
+        }
+        if (dates.indexOf(iso) < 0) dates.push(iso);
+      }
+      let quantity = 1;
+      if (args.quantity != null) {
+        quantity = parseInt(String(args.quantity), 10);
+        if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) {
+          return { ok: false, tool_id: id, reason: 'invalid_args', detail: 'quantity must be an integer 1–99', location_id: locationId };
+        }
+      }
+      const perDateCents = lookup.amount_cents * quantity;
+      quote = {
+        dates: dates.sort(),
+        quantity,
+        unit_amount_cents: lookup.amount_cents,
+        per_date_amount_cents: perDateCents,
+        total_amount_cents: perDateCents * dates.length,
+        currency: lookup.currency,
+      };
+    }
+    return {
+      ok: true,
+      tool_id: id,
+      location_id: locationId,
+      result: quote ? { ...lookup, quote } : lookup,
     };
   }
 
