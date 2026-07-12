@@ -17378,6 +17378,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-badge-dnc{background:#f3e8e8;color:#8b4545;border:1px solid #e6cfcf}
 .customers-two-col{display:grid;grid-template-columns:minmax(260px,340px) minmax(0,1fr);gap:14px;flex:1;min-height:0;overflow:hidden}
 @media(max-width:900px){body{height:auto;min-height:100dvh;overflow:auto;display:block}#tab-customers.active{overflow:visible}.customers-two-col{grid-template-columns:1fr;overflow:auto}.customers-add-btn{margin-left:0}.customers-toolbar-main{align-items:stretch}.customers-filters-wrap,.customers-add-btn{flex:1 1 auto}.customers-bulk-bar .btn-primary{margin-left:0;width:100%;justify-content:center}}
+@media(max-width:640px){
+  .customers-toolbar-main .customers-search{flex:1 1 100%}
+  .customers-toolbar-main .customers-filters-wrap,.customers-toolbar-main .customers-add-btn{flex:1 1 0;min-width:0}
+  .customers-toolbar-main .customers-filters-trigger,.customers-toolbar-main .customers-add-btn{width:100%;justify-content:center}
+  .customers-filters-menu{width:min(360px,calc(100vw - 16px))}
+}
 .customers-list-col{background:var(--surface);border:1px solid var(--border-soft);border-radius:var(--radius);display:flex;flex-direction:column;min-height:0;overflow:hidden}
 .customers-list-scroll{overflow-y:auto;flex:1;min-height:0;padding:6px}
 .customers-card{position:relative;padding:9px 34px 9px 11px;border-radius:var(--radius-sm);border:1px solid transparent;cursor:pointer;margin-bottom:4px;transition:background .12s,border-color .12s,box-shadow .12s}
