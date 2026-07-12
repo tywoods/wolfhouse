@@ -16955,6 +16955,23 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
+.portal-schedule-addon-field{display:flex;flex-wrap:nowrap;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);min-height:44px;box-sizing:border-box}
+.portal-schedule-addon-field.is-multi-date{flex-wrap:wrap;align-items:flex-start;padding-bottom:8px}
+.portal-schedule-addon-field .portal-schedule-addon-toggle{flex:0 0 auto;min-width:0;margin:0;padding:0;border:none;background:transparent;box-shadow:none;display:flex;align-items:center;gap:10px;cursor:pointer;white-space:nowrap}
+.portal-schedule-addon-field .portal-schedule-addon-toggle span{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);font-family:var(--sched-drawer-serif,"Iowan Old Style",Palatino,"Palatino Linotype","Book Antiqua",Georgia,serif);line-height:1.25}
+.portal-schedule-addon-rows{display:flex;flex-direction:column;gap:2px;flex:0 0 auto;margin-left:auto}
+.portal-schedule-addon-field.is-multi-date .portal-schedule-addon-rows,.portal-schedule-addon-rows.is-multi{flex-basis:100%;width:100%;margin-left:0;margin-top:6px}
+.portal-schedule-addon-row{display:flex;align-items:center;gap:10px;padding:0}
+.portal-schedule-addon-rows.is-multi .portal-schedule-addon-row{padding:2px 0}
+.portal-schedule-addon-row .portal-schedule-addon-date{flex:1 1 auto;min-width:0;font-size:12px;font-weight:600;color:var(--text-2)}
+.portal-schedule-addon-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface)}
+.portal-schedule-addon-step{width:26px;height:26px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:15px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.portal-schedule-addon-step:hover{background:var(--border-soft);color:var(--text)}
+.portal-schedule-addon-field .portal-schedule-addon-stepper input{width:32px;height:26px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);-moz-appearance:textfield;box-sizing:border-box}
+.portal-schedule-addon-stepper input::-webkit-outer-spin-button,.portal-schedule-addon-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.portal-schedule-addon-amt{flex:0 0 auto;min-width:52px;text-align:right;font-size:13px;font-weight:700;color:var(--text)}
+.portal-schedule-addon-summary{flex-basis:100%;width:100%;font-size:12px;font-weight:600;color:var(--text-2)}
+.portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:2px 0}
 .portal-schedule-drawer-hero h3,.portal-schedule-drawer-hero-title{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
 .portal-schedule-drawer-hero-title{margin:0 0 6px;font-size:22px;line-height:1.15;word-wrap:break-word;overflow-wrap:anywhere;color:var(--text)}
 .portal-schedule-drawer-hero-meta{margin:0 0 6px;font-size:12px;font-weight:500;line-height:1.45;color:var(--text-2);letter-spacing:.01em}
@@ -18835,6 +18852,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
+    </div>
+    <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
+      <label class="portal-schedule-create-check portal-schedule-addon-toggle"><input id="ps-create-comp-fullday" type="checkbox"> <span data-i18n="schedule.type.fullDayEquipment">Full-day equipment</span></label>
+      <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>
+      <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
     </div>
     <div id="ps-create-private-lesson-fields" style="display:none">
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
@@ -22130,6 +22152,198 @@ function scheduleRowBookingRef(row, group){
   return { booking_id: bookingId, booking_code: bookingCode };
 }
 
+var scheduleFullDayAddonUnitCents = null;
+var scheduleFullDayAddonEnabled = false;
+
+function scheduleSetFullDayAddonFromConfig(prices){
+  scheduleFullDayAddonUnitCents = null;
+  scheduleFullDayAddonEnabled = false;
+  var list = Array.isArray(prices) ? prices : [];
+  for (var i=0;i<list.length;i++){
+    var p = list[i]; if (!p || p.active === false) continue;
+    var cat = String(p.category || '').toLowerCase();
+    if (cat !== 'rental') continue;
+    var key = String(p.offering_key || p.item_code || '');
+    var unit = String(p.unit || '');
+    var match = (key === 'full_day_equipment_extension' && (!unit || unit === 'day'))
+      || key === 'full_day_equipment_extension__day';
+    if (!match) continue;
+    var cents = null;
+    if (p.amount_cents != null && !isNaN(Number(p.amount_cents))) cents = Math.round(Number(p.amount_cents));
+    else if (p.amount != null && !isNaN(Number(p.amount))) cents = Math.round(Number(p.amount) * 100);
+    if (cents != null && cents > 0){
+      scheduleFullDayAddonUnitCents = cents;
+      scheduleFullDayAddonEnabled = true;
+    }
+    break;
+  }
+}
+
+function scheduleEnumerateDates(fromIso, toIso){
+  var out = [];
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(fromIso||'')) ) return out;
+  var to = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(toIso||'')) ? toIso : fromIso;
+  var cur = new Date(fromIso + 'T12:00:00');
+  var end = new Date(to + 'T12:00:00');
+  if (end < cur) return out;
+  var guard = 0;
+  while (cur <= end && guard < 400){
+    out.push(cur.toISOString().slice(0,10));
+    cur.setDate(cur.getDate()+1);
+    guard += 1;
+  }
+  return out;
+}
+
+function scheduleReadFullDayAddonRows(containerId){
+  var out = {};
+  var box = el(containerId);
+  if (!box) return out;
+  var rows = box.querySelectorAll('[data-addon-date]');
+  for (var i=0;i<rows.length;i++){
+    var iso = rows[i].getAttribute('data-addon-date');
+    var input = rows[i].querySelector('[data-addon-qty]');
+    var qty = input ? (parseInt(input.value,10)||0) : 0;
+    if (iso && qty > 0){ out[iso] = qty; }
+  }
+  return out;
+}
+
+function scheduleAddonEur(cents){
+  if (cents == null || isNaN(Number(cents))) return '—';
+  return '€' + (Number(cents)/100).toFixed(2);
+}
+
+function scheduleAddonDateLabel(iso){
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso||''))) return String(iso||'');
+  var d = new Date(iso + 'T12:00:00');
+  if (isNaN(d.getTime())) return String(iso);
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  var dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  return dow + ', ' + d.getDate() + ' ' + mon;
+}
+
+function scheduleRenderFullDayAddonRows(containerId, summaryId, dates, defaultQty, existing, onChange){
+  var box = el(containerId);
+  if (!box) return;
+  var unit = scheduleFullDayAddonUnitCents;
+  var prev = existing || scheduleReadFullDayAddonRows(containerId);
+  var multi = dates.length > 1;
+  box.className = 'portal-schedule-addon-rows' + (multi ? ' is-multi' : '');
+  var field = box.closest('.portal-schedule-addon-field');
+  if (field){
+    if (multi) field.classList.add('is-multi-date');
+    else field.classList.remove('is-multi-date');
+  }
+  var html = '';
+  if (!dates.length){
+    box.innerHTML = '<div class="portal-schedule-addon-empty" data-i18n="schedule.addon.noEligibleDates">No eligible dates yet.</div>';
+  } else {
+    for (var i=0;i<dates.length;i++){
+      var iso = dates[i];
+      var q = (prev[iso] != null) ? prev[iso] : (defaultQty || 1);
+      html += '<div class="portal-schedule-addon-row" data-addon-date="'+iso+'">'
+        + (multi ? '<span class="portal-schedule-addon-date">'+escHtml(scheduleAddonDateLabel(iso))+'</span>' : '')
+        + '<span class="portal-schedule-addon-stepper">'
+        + '<button type="button" class="portal-schedule-addon-step" data-addon-dec aria-label="minus">−</button>'
+        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" inputmode="numeric">'
+        + '<button type="button" class="portal-schedule-addon-step" data-addon-inc aria-label="plus">+</button>'
+        + '</span>'
+        + '<span class="portal-schedule-addon-amt" data-addon-subtotal>'+scheduleAddonEur(unit != null ? unit*q : null)+'</span>'
+        + '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('[data-addon-date]');
+    for (var r=0;r<rows.length;r++){
+      (function(row){
+        var input = row.querySelector('[data-addon-qty]');
+        var dec = row.querySelector('[data-addon-dec]');
+        var inc = row.querySelector('[data-addon-inc]');
+        var sub = row.querySelector('[data-addon-subtotal]');
+        function refresh(){
+          var v = parseInt(input.value,10)||1;
+          if (v < 1) v = 1; if (v > 99) v = 99;
+          input.value = v;
+          if (sub) sub.textContent = scheduleAddonEur(unit != null ? unit*v : null);
+          if (typeof onChange === 'function') onChange();
+        }
+        if (dec) dec.addEventListener('click', function(){ input.value = (parseInt(input.value,10)||1)-1; refresh(); });
+        if (inc) inc.addEventListener('click', function(){ input.value = (parseInt(input.value,10)||1)+1; refresh(); });
+        input.addEventListener('input', refresh);
+        input.addEventListener('change', refresh);
+      })(rows[r]);
+    }
+  }
+  scheduleUpdateFullDayAddonSummary(containerId, summaryId);
+}
+
+function scheduleUpdateFullDayAddonSummary(containerId, summaryId){
+  var summary = el(summaryId);
+  if (!summary) return;
+  var unit = scheduleFullDayAddonUnitCents;
+  var map = scheduleReadFullDayAddonRows(containerId);
+  var total = 0; var count = 0;
+  for (var iso in map){ if (map.hasOwnProperty(iso)){ count += 1; total += (unit != null ? unit*map[iso] : 0); } }
+  if (unit == null){
+    summary.style.display = 'none';
+    return;
+  }
+  summary.style.display = count > 1 ? '' : 'none';
+  summary.textContent = (portalT('schedule.addon.combinedSubtotal') || 'Add-on subtotal') + ': ' + scheduleAddonEur(total);
+}
+
+function scheduleRefreshCreateFullDayAddon(){
+  var field = el('ps-create-addon-fullday-field');
+  if (!field) return;
+  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
+  var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
+  var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
+  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn;
+  var eligibleDates = [];
+  var defaultQty = 1;
+  if (privateOn){
+    var sessions = scheduleReadPrivateLessonSessionsFromDom();
+    var seen = {};
+    for (var i=0;i<sessions.length;i++){ var d = sessions[i].date; if (d && !seen[d]){ seen[d]=1; eligibleDates.push(d); } }
+    eligibleDates.sort();
+    defaultQty = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
+  } else {
+    var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+    var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+    eligibleDates = scheduleEnumerateDates(from, to || from);
+    var qtys = [];
+    if (courseOn) qtys.push(parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value)||'1',10)||1);
+    if (boardOn) qtys.push(parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value)||'1',10)||1);
+    if (wetsuitOn) qtys.push(parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value)||'1',10)||1);
+    defaultQty = qtys.length ? Math.max.apply(null, qtys) : 1;
+  }
+  var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
+  field.style.display = show ? '' : 'none';
+  var checkbox = el('ps-create-comp-fullday');
+  var rows = el('ps-create-fullday-rows');
+  var summary = el('ps-create-fullday-summary');
+  if (!show){
+    if (checkbox) checkbox.checked = false;
+    if (rows) rows.style.display = 'none';
+    if (summary) summary.style.display = 'none';
+    field.classList.remove('is-multi-date');
+    return;
+  }
+  var on = !!(checkbox && checkbox.checked);
+  if (rows) rows.style.display = on ? '' : 'none';
+  if (on){
+    scheduleRenderFullDayAddonRows('ps-create-fullday-rows', 'ps-create-fullday-summary', eligibleDates, defaultQty, null, scheduleUpdateCreateTotalPreview);
+  } else if (summary){
+    summary.style.display = 'none';
+    field.classList.remove('is-multi-date');
+  }
+}
+
+function scheduleUpdateCreateTotalPreview(){
+  scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
+}
+
 function schedulePopulateCreateComponentFields(){
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
@@ -22152,6 +22366,7 @@ function schedulePopulateCreateComponentFields(){
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
   }
+  scheduleRefreshCreateFullDayAddon();
 }
 
 function scheduleReadCreatePayload(){
@@ -22196,6 +22411,12 @@ function scheduleReadCreatePayload(){
       surfer_count: plSurfers,
       sessions: plSessions,
     };
+  }
+  if (el('ps-create-comp-fullday') && el('ps-create-comp-fullday').checked){
+    var addonDates = scheduleReadFullDayAddonRows('ps-create-fullday-rows');
+    if (Object.keys(addonDates).length){
+      components.full_day_equipment_extension = { enabled: true, dates: addonDates };
+    }
   }
   return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
 }
@@ -22249,6 +22470,7 @@ function scheduleFetchLessonTimesConfig(client){
         scheduleLessonTimesFallback = true;
       }
       scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
+      scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
@@ -25410,6 +25632,19 @@ function wireScheduleControls(){
     plAddSession.dataset.wired = '1';
     plAddSession.addEventListener('click', scheduleAddPrivateLessonSession);
   }
+  var fulldayToggle = el('ps-create-comp-fullday');
+  if (fulldayToggle && !fulldayToggle.dataset.wired){
+    fulldayToggle.dataset.wired = '1';
+    fulldayToggle.addEventListener('change', scheduleRefreshCreateFullDayAddon);
+  }
+  ['ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-board-qty','ps-create-wetsuit-qty','ps-create-private-lesson-surfers'].forEach(function(id){
+    var node = el(id);
+    if (node && !node.dataset.addonWired){
+      node.dataset.addonWired = '1';
+      node.addEventListener('change', scheduleRefreshCreateFullDayAddon);
+      node.addEventListener('input', scheduleRefreshCreateFullDayAddon);
+    }
+  });
 }
 
 function loadPortalHome(){ loadSchedulePage(); }
