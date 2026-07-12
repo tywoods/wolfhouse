@@ -404,5 +404,81 @@ check("G8 per-guest create exposes per_person", isinstance(created.get("per_pers
 check("G9 next_action asks link choice", created.get("next_action") == "ask_per_guest_or_whole_payment_link")
 
 
+print("\n== Sunset Phase 1: read-only price/availability tools ==")
+
+# Sunset rental price — hits /sunset/rental-price, surfaces amount_eur, no writes.
+sun_rental_fake = with_fake({
+    "/sunset/rental-price": {
+        "ok": True, "success": True,
+        "location_id": "sunset-somo",
+        "result": {"item": "board_rental", "duration": "1_day", "amount_eur": 15,
+                   "amount_cents": 1500, "currency": "EUR", "pricing_status": "confirmed"},
+    },
+})
+srp = json.loads(mod.get_sunset_rental_price({"item": "board", "duration": "1 day"}))
+check("S1 rental price hits /sunset/rental-price route",
+      any("/sunset/rental-price" in c[0] for c in sun_rental_fake.calls))
+check("S2 rental price returns amount_eur", srp.get("amount_eur") == 15 and srp.get("success") is True)
+check("S3 rental price is read-only (no write/money routes)",
+      not any(w in c[0] for c in sun_rental_fake.calls
+              for w in ("booking-create", "create-stripe-link", "transfers", "addon-requests")))
+
+# Full-day add-on — €10/person/day, quote passthrough.
+sun_addon_fake = with_fake({
+    "/sunset/full-day-addon": {
+        "ok": True, "success": True, "location_id": "sunset-somo",
+        "result": {"active": True, "amount_eur": 10, "amount_cents": 1000,
+                   "billing_unit": "person_per_day", "currency": "EUR",
+                   "quote": {"total_amount_cents": 2000, "quantity": 2}},
+    },
+})
+addon = json.loads(mod.get_sunset_full_day_equipment_addon({"dates": ["2026-07-20"], "quantity": 2}))
+check("S4 full-day add-on hits /sunset/full-day-addon route",
+      any("/sunset/full-day-addon" in c[0] for c in sun_addon_fake.calls))
+check("S5 full-day add-on is €10/person/day", addon.get("amount_eur") == 10)
+check("S6 full-day add-on quote passthrough", (addon.get("quote") or {}).get("total_amount_cents") == 2000)
+
+# Private lesson.
+sun_pl_fake = with_fake({
+    "/sunset/private-lesson": {"ok": True, "success": True, "location_id": "sunset-somo",
+                               "result": {"name": "Private lesson", "amount_eur": 45, "currency": "EUR"}},
+})
+pl = json.loads(mod.get_sunset_private_lesson({}))
+check("S7 private lesson hits /sunset/private-lesson route",
+      any("/sunset/private-lesson" in c[0] for c in sun_pl_fake.calls))
+check("S8 private lesson returns amount_eur", pl.get("amount_eur") == 45)
+
+# Lesson availability — take_request when capacity unknown/full; never invents a seat.
+sun_avail_fake = with_fake({
+    "/sunset/lesson-availability": {"ok": True, "success": True, "date": "2026-07-20",
+                                    "location_id": "sunset-somo", "capacity_known": False,
+                                    "take_request": True, "reason": "capacity_not_configured"},
+})
+avail = json.loads(mod.get_sunset_lesson_availability({"date": "2026-07-20"}))
+check("S9 availability hits /sunset/lesson-availability route",
+      any("/sunset/lesson-availability" in c[0] for c in sun_avail_fake.calls))
+check("S10 availability take_request=true when capacity unknown", avail.get("take_request") is True)
+check("S11 availability requires a date",
+      json.loads(mod.get_sunset_lesson_availability({})).get("success") is False)
+
+# Sunset tenant gate registers ONLY the read tools.
+prev_slug = os.environ.get("LUNA_CLIENT_SLUG")
+os.environ["LUNA_CLIENT_SLUG"] = "sunset"
+try:
+    check("S12 _is_sunset_tenant true when LUNA_CLIENT_SLUG=sunset", mod._is_sunset_tenant() is True)
+    sunset_tool_names = [t[0] for t in mod._sunset_tools()]
+    check("S13 sunset toolset is exactly the 4 read tools",
+          sunset_tool_names == ["get_sunset_rental_price", "get_sunset_full_day_equipment_addon",
+                                "get_sunset_private_lesson", "get_sunset_lesson_availability"])
+    check("S14 sunset toolset excludes wolfhouse write tools",
+          "create_booking_from_plan" not in sunset_tool_names and "create_payment_link" not in sunset_tool_names)
+finally:
+    if prev_slug is None:
+        os.environ.pop("LUNA_CLIENT_SLUG", None)
+    else:
+        os.environ["LUNA_CLIENT_SLUG"] = prev_slug
+check("S15 _is_sunset_tenant false when not sunset", mod._is_sunset_tenant() is False)
+
+
 print("\n== Summary: {} passed, {} failed ==".format(PASSED, FAILED))
 sys.exit(1 if FAILED else 0)

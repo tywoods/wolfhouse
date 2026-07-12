@@ -1295,6 +1295,147 @@ def get_house_info(params, **kwargs):
     })
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# Sunset Luna READ-ONLY price/availability tools (Phase 1).
+#
+# Thin wrappers around the Sunset Staff API /staff/bot/sunset/* routes. Tenant
+# (client_slug=sunset) and location scope are enforced by _post_bot from the
+# container env (LUNA_CLIENT_SLUG / LUNA_ALLOWED_LOCATION_IDS) and the bound
+# gateway location — a Sunset bot token can only ever read Sunset. No writes,
+# no money, no booking creation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+def get_sunset_rental_price(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    item = _clean(payload.get("item"))
+    duration = _clean(payload.get("duration"))
+    if not item or not duration:
+        return _json_result({
+            "success": False,
+            "tool": "get_sunset_rental_price",
+            "error": "item_and_duration_required",
+            "staff_review_needed": False,
+            "guest_safe_next_action": "Which gear (board, wetsuit, board + wetsuit, or SUP) and for how long (1 hour, half day, 1 day, 2 days, 5 days, 7 days)?",
+        })
+    data = _post_bot("/sunset/rental-price", {
+        "item": item,
+        "duration": duration,
+        **({"location_id": payload["location_id"]} if payload.get("location_id") else {}),
+    })
+    ok = bool(data.get("ok"))
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_rental_price",
+        "item": result.get("item") or item,
+        "duration": result.get("duration") or duration,
+        "location_id": data.get("location_id"),
+        "amount_eur": result.get("amount_eur"),
+        "amount_cents": result.get("amount_cents"),
+        "currency": result.get("currency") or "EUR",
+        "pricing_status": result.get("pricing_status"),
+        "reason": data.get("reason") if not ok else None,
+        # No confirmed price → don't invent one; let staff confirm.
+        "staff_review_needed": not ok and bool(data.get("staff_review_needed")),
+        "guest_safe_next_action": None if ok else "Let me double-check that price with the team and get right back to you 😊",
+    })
+
+
+def get_sunset_full_day_equipment_addon(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    if isinstance(payload.get("dates"), list) and payload.get("dates"):
+        body["dates"] = payload["dates"]
+    if payload.get("quantity") is not None:
+        body["quantity"] = payload["quantity"]
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/full-day-addon", body)
+    ok = bool(data.get("ok"))
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    quote = result.get("quote") if isinstance(result.get("quote"), dict) else None
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_full_day_equipment_addon",
+        "active": result.get("active"),
+        "location_id": data.get("location_id"),
+        "amount_eur": result.get("amount_eur"),
+        "amount_cents": result.get("amount_cents"),
+        "billing_unit": result.get("billing_unit"),
+        "currency": result.get("currency") or "EUR",
+        "quote": quote,
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": False,
+        "guest_safe_next_action": None,
+    })
+
+
+def get_sunset_private_lesson(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/private-lesson", body)
+    ok = bool(data.get("ok"))
+    result = data.get("result") if isinstance(data.get("result"), dict) else {}
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_private_lesson",
+        "location_id": data.get("location_id"),
+        "name": result.get("name") or result.get("display_name"),
+        "amount_eur": result.get("amount_eur") or result.get("price_eur"),
+        "amount_cents": result.get("amount_cents"),
+        "currency": result.get("currency") or "EUR",
+        "duration": result.get("duration") or result.get("duration_minutes"),
+        "detail": result or None,
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok and bool(data.get("staff_review_needed")),
+        "guest_safe_next_action": None if ok else "Let me confirm the private lesson details with the team 😊",
+    })
+
+
+def get_sunset_lesson_availability(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    date = _clean(payload.get("date"))
+    if not date:
+        return _json_result({
+            "success": False,
+            "tool": "get_sunset_lesson_availability",
+            "error": "date_required",
+            "guest_safe_next_action": "What date were you thinking for the lesson?",
+        })
+    body = {"date": date}
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/lesson-availability", body)
+    ok = bool(data.get("ok"))
+    # take_request=true means capacity is unknown or full — Luna must take the
+    # request and let staff confirm the exact slot; never invent a seat.
+    take_request = bool(data.get("take_request")) or not ok
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_lesson_availability",
+        "date": data.get("date") or date,
+        "location_id": data.get("location_id"),
+        "capacity_known": bool(data.get("capacity_known")),
+        "has_seats": bool(data.get("has_seats")),
+        "seats_available": data.get("seats_available"),
+        "take_request": take_request,
+        "reason": data.get("reason"),
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "guest_safe_next_action": (
+            "Let me take your request — the team will confirm the exact lesson time for that day 😊"
+            if take_request else None
+        ),
+    })
+
+
 def _schema(name, description, properties, required=None):
     return {
         "name": name,
@@ -1305,6 +1446,20 @@ def _schema(name, description, properties, required=None):
             "required": required or [],
         },
     }
+
+
+def _is_sunset_tenant():
+    return _clean(os.getenv("LUNA_CLIENT_SLUG")).lower() == "sunset"
+
+
+def _sunset_tools():
+    loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
+    return [
+        ("get_sunset_rental_price", "Get a Sunset rental price before quoting ANY rental. Pass item (board, wetsuit, board+suit bundle, or SUP) and duration (1 hour, half day, 1 day, 2 days, 5 days, 7 days). Returns amount_eur. If success is false there is no confirmed price — do not invent one; tell the guest you'll confirm with the team.", get_sunset_rental_price, {"item": {"type": "string", "description": "board / wetsuit / board+suit bundle / SUP"}, "duration": {"type": "string", "description": "1 hour, half day, 1 day, 2 days, 5 days, 7 days"}, **loc}, ["item", "duration"]),
+        ("get_sunset_full_day_equipment_addon", "Get the live price for the 'keep the gear for the rest of the day' add-on ('Material el resto del día', per person per day). Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. Use amount_eur before offering or confirming it.", get_sunset_full_day_equipment_addon, {"dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."}, "quantity": {"type": "integer", "description": "Number of people."}, **loc}, []),
+        ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
+        ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
+    ]
 
 
 def register(ctx):
@@ -1354,6 +1509,13 @@ def register(ctx):
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
         ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call when you hand off for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string"}}, []),
     ]
+    # SUNSET tenant: register ONLY the Sunset read-only price/availability tools.
+    # The Wolfhouse accommodation booking/write/payment tools are irrelevant for
+    # Sunset and are not registered, keeping the Sunset toolset read-only. All
+    # existing Wolfhouse behavior is unchanged for any other tenant.
+    if _is_sunset_tenant():
+        tools = _sunset_tools()
+
     for name, description, handler, properties, required in tools:
         ctx.register_tool(
             name=name,

@@ -311,12 +311,16 @@ const {
   SUNSET_LOCATIONS,
   DEFAULT_SUNSET_LOCATION_ID,
   normalizeSunsetLocationId,
+  isSunsetLocationId,
   resolveRecordLocationId,
 } = require('./lib/sunset-school-locations');
 const {
   getSunsetScheduleLessonsOnDateQuery,
   getSunsetScheduleGearOnDateQuery,
 } = require('./lib/sunset-schedule-queries');
+const {
+  executeSunsetCatalogTool,
+} = require('./lib/sunset-catalog-tool-executor');
 const {
   tryHandleSunsetWaiverPublicRoute,
 } = require('./lib/sunset-waiver-routes');
@@ -41847,6 +41851,148 @@ function isIsoDateStaff(s) {
   return /^\d{4}-\d{2}-\d{2}$/.test(String(s || '').trim());
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Sunset Luna READ-ONLY bot price endpoints (Phase 1 — no writes, no money).
+//
+// These force client_slug=sunset, validate location_id against the Sunset
+// whitelist, and return prices by calling the existing executeSunsetCatalogTool.
+// Tenant is NEVER trusted from the request body — a Sunset bot token can only
+// ever read Sunset. No DB writes, no Stripe, no WhatsApp, no feature-flag flips.
+//
+// Auth: requireBotAuth (X-Luna-Bot-Token). Fail-closed on unknown location /
+// missing price (ok:false, reason).
+// ─────────────────────────────────────────────────────────────────────────────
+
+function sunsetBotResolveLocation(body) {
+  const raw = String((body && (body.location_id || body.location)) || '').trim();
+  // Fail-closed: only the two known Sunset locations are accepted. An empty
+  // value is allowed (defaults to sunset-somo); any other non-empty value is
+  // rejected so a caller cannot smuggle a foreign scope through location_id.
+  if (raw && !isSunsetLocationId(raw)) {
+    return { ok: false, location_id: null, raw };
+  }
+  return { ok: true, location_id: normalizeSunsetLocationId(raw || DEFAULT_SUNSET_LOCATION_ID), raw };
+}
+
+async function handleBotSunsetRentalPrice(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const result = executeSunsetCatalogTool('get_sunset_rental_price', {
+    client_slug: SUNSET_CLIENT_SLUG,            // forced — body cannot override tenant
+    location_id: loc.location_id,
+    dry_run: body.dry_run === true,
+    args: { item: body.item, duration: body.duration, require_confirmed: body.require_confirmed },
+  });
+  return sendJSON(res, result.ok ? 200 : 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+}
+
+async function handleBotSunsetFullDayAddon(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const result = executeSunsetCatalogTool('get_sunset_full_day_equipment_addon', {
+    client_slug: SUNSET_CLIENT_SLUG,
+    location_id: loc.location_id,
+    args: { dates: body.dates, quantity: body.quantity },
+  });
+  return sendJSON(res, 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+}
+
+async function handleBotSunsetPrivateLesson(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const result = executeSunsetCatalogTool('get_sunset_private_lesson', {
+    client_slug: SUNSET_CLIENT_SLUG,
+    location_id: loc.location_id,
+    args: {},
+  });
+  return sendJSON(res, 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
+}
+
+// Read lesson capacity for a date+location by counting confirmed lesson service
+// records against the configured per-day capacity. READ-ONLY. When capacity is
+// unknown (not configured) or already met/over, return take_request=true so Luna
+// collects the request and lets staff schedule — never invents a seat.
+async function handleBotSunsetLessonAvailability(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const dateIso = String(body.date || '').trim();
+  if (!isIsoDateStaff(dateIso)) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'invalid_date', detail: 'date must be YYYY-MM-DD' });
+  }
+  const clientSlug = SUNSET_CLIENT_SLUG;   // forced — never from body
+
+  // Resolve configured daily capacity from tenant business config (DB or baseline).
+  let dailyCap = null;
+  try {
+    const cfg = resolveTenantBusinessConfig(clientSlug, loc.location_id);
+    const cap = cfg && cfg.lesson_capacity;
+    if (cap && typeof cap === 'object') {
+      const overrides = cap.overrides && typeof cap.overrides === 'object' ? cap.overrides : {};
+      if (overrides[dateIso] != null && Number.isFinite(Number(overrides[dateIso]))) {
+        dailyCap = Number(overrides[dateIso]);
+      } else if (cap.default_daily_cap != null && Number.isFinite(Number(cap.default_daily_cap))) {
+        dailyCap = Number(cap.default_daily_cap);
+      }
+    }
+  } catch (_) { /* capacity unknown → take_request below */ }
+
+  // Count booked lesson seats for the date+location (READ-ONLY query).
+  let seatsBooked = 0;
+  try {
+    const rows = await withPgClient(async (pg) => {
+      const r = await pg.query(getSunsetScheduleLessonsOnDateQuery(), [clientSlug, dateIso, loc.location_id]);
+      return r.rows || [];
+    });
+    for (const row of rows) {
+      const qty = Number(row.quantity);
+      seatsBooked += Number.isFinite(qty) && qty > 0 ? qty : 1;
+    }
+  } catch (err) {
+    // DB error is not fatal for a read — fail-closed to take_request.
+    return sendJSON(res, 200, {
+      ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
+      capacity_known: false, take_request: true, reason: 'capacity_unavailable',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  if (dailyCap == null || !Number.isFinite(dailyCap) || dailyCap <= 0) {
+    // No configured capacity → Luna must take the request, not invent a seat.
+    return sendJSON(res, 200, {
+      ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
+      capacity_known: false, seats_booked: seatsBooked, take_request: true, reason: 'capacity_not_configured',
+      elapsed_ms: Date.now() - started,
+    });
+  }
+
+  const seatsAvailable = dailyCap - seatsBooked;
+  const hasSeats = seatsAvailable > 0;
+  return sendJSON(res, 200, {
+    ok: true, success: true, client_slug: clientSlug, location_id: loc.location_id, date: dateIso,
+    capacity_known: true,
+    daily_capacity: dailyCap,
+    seats_booked: seatsBooked,
+    seats_available: Math.max(0, seatsAvailable),
+    has_seats: hasSeats,
+    // Over-capacity / full → don't invent a seat; take the request.
+    take_request: !hasSeats,
+    reason: hasSeats ? null : 'no_seats_available',
+    elapsed_ms: Date.now() - started,
+  });
+}
+
 async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -47054,6 +47200,45 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotCatalogServiceLookup(req, res, auth.user);
+  }
+
+  // ── Sunset Luna READ-ONLY price/availability bot endpoints (Phase 1) ────────
+  // Forced client_slug=sunset; location whitelist; no writes, no money.
+  if (pathname === '/staff/bot/sunset/rental-price') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/rental-price' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetRentalPrice(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/full-day-addon') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/full-day-addon' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetFullDayAddon(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/private-lesson') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/private-lesson' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetPrivateLesson(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/lesson-availability') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/lesson-availability' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetLessonAvailability(req, res);
   }
 
   // ── Luna owner-only business intelligence over WhatsApp (sender-phone gated) ─
