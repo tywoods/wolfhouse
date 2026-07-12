@@ -68,11 +68,40 @@ function buildSunsetCatalogResponsePreview(input) {
     return _previewRentalPrice(clientSlug, toolId, toolResult.result);
   }
 
+  if (toolId === 'get_sunset_full_day_equipment_addon') {
+    return _previewFullDayAddon(clientSlug, toolId, toolResult.result);
+  }
+
   return {
     ok: false,
     client_slug: clientSlug,
     tool_id: toolId,
     reason: 'no_preview_handler',
+  };
+}
+
+// Luna-facing preview for the "Material el resto del día" add-on. The Spanish offer copy carries the
+// price from the tool response (never invented). Offer once after an eligible selection; do not re-upsell
+// after a decline; do not claim it was added until the attach tool confirms.
+function _previewFullDayAddon(clientSlug, toolId, r) {
+  const eur = (Number(r.amount_cents) / 100);
+  const eurText = Number.isInteger(eur) ? String(eur) : eur.toFixed(2);
+  const offerText = `También puedes quedarte con el material el resto del día por ${eurText} € más por persona. ¿Te gustaría añadirlo?`;
+  let previewText = `[PREVIEW] Full-day equipment add-on: €${r.amount_eur} ${r.currency} per person, per day (active). ` +
+    `Offer copy: "${offerText}"`;
+  if (r.quote) {
+    previewText += ` Quote: ${r.quote.quantity} person(s) × ${r.quote.dates.length} day(s) = €${(r.quote.total_amount_cents / 100)} ${r.quote.currency}.`;
+  }
+  return {
+    ok: true,
+    client_slug: clientSlug,
+    tool_id: toolId,
+    preview_text: previewText,
+    offer_text_es: offerText,
+    active: r.active === true,
+    amount_cents: r.amount_cents,
+    live_send_allowed: r.active === true,
+    source: 'sunset_catalog_tool_executor',
   };
 }
 
