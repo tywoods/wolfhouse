@@ -102,10 +102,18 @@ function parseRentalPricingMeta(meta) {
   const quoted_total_cents = quotedRaw == null || quotedRaw === ''
     ? null
     : parseInt(String(quotedRaw), 10);
+  const pricing_group_id = String(rp.pricing_group_id || '').trim() || null;
+  const service_date = String(rp.service_date || '').trim() || null;
+  const components = Array.isArray(rp.components)
+    ? rp.components.map((c) => String(c || '').trim()).filter(Boolean)
+    : [];
   return {
     offering_key,
     duration,
     quantity,
+    pricing_group_id,
+    service_date,
+    components,
     quoted_total_cents: quoted_total_cents != null && Number.isInteger(quoted_total_cents) && quoted_total_cents >= 0
       ? quoted_total_cents
       : null,
@@ -124,10 +132,54 @@ function configuredRentalBundleTotalCents(prices, rentalPricing) {
   return unitCents * rentalPricing.quantity;
 }
 
+function serviceRowPricingGroupId(sr) {
+  return String(parseMeta(sr && sr.metadata).pricing_group_id || '').trim();
+}
+
 function isBundleRentalServiceRow(sr, rentalPricing) {
   if (!rentalPricing || rentalPricing.offering_key !== BOARD_AND_SUIT_OFFERING_KEY) return false;
+  const groupId = rentalPricing.pricing_group_id;
+  if (!groupId) return false;
   const dbType = String(sr.service_type || '').toLowerCase();
-  return dbType === 'surfboard' || dbType === 'wetsuit';
+  if (dbType !== 'surfboard' && dbType !== 'wetsuit') return false;
+  return serviceRowPricingGroupId(sr) === groupId;
+}
+
+function validateBundleRentalGroup(svcRows, rentalPricing) {
+  if (!rentalPricing || rentalPricing.offering_key !== BOARD_AND_SUIT_OFFERING_KEY) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const groupId = rentalPricing.pricing_group_id;
+  if (!groupId) return { ok: false, error: 'rental_pricing_group_invalid' };
+  const groupRows = svcRows.filter((sr) => serviceRowPricingGroupId(sr) === groupId);
+  const boards = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'surfboard');
+  const suits = groupRows.filter((sr) => String(sr.service_type || '').toLowerCase() === 'wetsuit');
+  if (groupRows.length !== 2 || boards.length !== 1 || suits.length !== 1) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const board = boards[0];
+  const suit = suits[0];
+  if (Number(board.quantity) !== rentalPricing.quantity || Number(suit.quantity) !== rentalPricing.quantity) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  if (rentalPricing.service_date) {
+    const expected = String(rentalPricing.service_date);
+    if (String(board.service_date || '') !== expected || String(suit.service_date || '') !== expected) {
+      return { ok: false, error: 'rental_pricing_group_invalid' };
+    }
+  }
+  const boardLoc = normalizeSunsetLocationId(parseMeta(board.metadata).location_id);
+  const suitLoc = normalizeSunsetLocationId(parseMeta(suit.metadata).location_id);
+  if (boardLoc !== suitLoc) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  const expectedComponents = rentalPricing.components && rentalPricing.components.length
+    ? rentalPricing.components
+    : ['surfboard', 'wetsuit'];
+  if (expectedComponents.indexOf('surfboard') < 0 || expectedComponents.indexOf('wetsuit') < 0) {
+    return { ok: false, error: 'rental_pricing_group_invalid' };
+  }
+  return { ok: true, bundleRows: [board, suit] };
 }
 
 function isFullDayEquipmentAddon(sr) {
@@ -194,11 +246,9 @@ async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing) {
       quoted_total_cents: rentalPricing.quoted_total_cents,
     };
   }
-  const bundleRows = svcRows.filter((sr) => isBundleRentalServiceRow(sr, rentalPricing));
-  if (bundleRows.length < 2) {
-    return { ok: false, error: 'rental_bundle_components_missing' };
-  }
-  bundleRows.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  const validated = validateBundleRentalGroup(svcRows, rentalPricing);
+  if (!validated.ok) return validated;
+  const bundleRows = validated.bundleRows.slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
   let applied = 0;
   for (let i = 0; i < bundleRows.length; i += 1) {
     const due = i === 0 ? configuredTotal : 0;
@@ -208,7 +258,7 @@ async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing) {
     );
     applied += due;
   }
-  return { ok: true, total_cents: applied, configured_total_cents: configuredTotal };
+  return { ok: true, total_cents: applied, configured_total_cents: configuredTotal, bundleRowIds: bundleRows.map((r) => String(r.id)) };
 }
 
 async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
@@ -229,7 +279,8 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   const prices = adminCfg.prices || [];
   const rentalPricing = parseRentalPricingMeta(bookingMeta);
   const svcRes = await pg.query(
-    `SELECT id, service_type::text AS service_type, quantity, amount_due_cents, metadata
+    `SELECT id, service_type::text AS service_type, service_date::text AS service_date,
+            quantity, amount_due_cents, metadata
        FROM booking_service_records
       WHERE client_slug = $1 AND booking_id = $2::uuid`,
     [clientSlug, bookingId],
@@ -240,9 +291,7 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
     const bundlePriced = await applyBundleRentalPricing(pg, prices, svcRes.rows, rentalPricing);
     if (!bundlePriced.ok) return bundlePriced;
     totalCents += bundlePriced.total_cents;
-    svcRes.rows.filter((sr) => isBundleRentalServiceRow(sr, rentalPricing)).forEach((sr) => {
-      bundleRowIds.add(String(sr.id));
-    });
+    (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
   }
   for (const sr of svcRes.rows) {
     if (bundleRowIds.has(String(sr.id))) continue;
@@ -634,6 +683,8 @@ module.exports = {
   parseRentalPricingMeta,
   configuredRentalBundleTotalCents,
   isBundleRentalServiceRow,
+  validateBundleRentalGroup,
+  serviceRowPricingGroupId,
   applyBundleRentalPricing,
   BOARD_AND_SUIT_OFFERING_KEY,
   FULL_DAY_EQUIPMENT_ADDON_KEY,

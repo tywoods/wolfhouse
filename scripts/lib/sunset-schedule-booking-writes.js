@@ -148,6 +148,24 @@ function normalizeRentalPricing(raw, components) {
   };
 }
 
+function buildRentalPricingDescriptor(rentalPricing, serviceDates) {
+  if (!rentalPricing) return null;
+  const service_date = Array.isArray(serviceDates) && serviceDates.length ? serviceDates[0] : null;
+  const pricing_group_id = crypto.randomBytes(8).toString('hex');
+  const components = rentalPricing.offering_key === 'board_and_suit_rental'
+    ? ['surfboard', 'wetsuit']
+    : [];
+  return {
+    pricing_group_id,
+    offering_key: rentalPricing.offering_key,
+    duration: rentalPricing.duration,
+    quantity: rentalPricing.quantity,
+    service_date,
+    components,
+    quoted_total_cents: rentalPricing.quoted_total_cents,
+  };
+}
+
 function parsePrivateLessonQuantity(raw) {
   const quantity = parseInt(String(raw == null ? 1 : raw), 10);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > PRIVATE_LESSON_MAX_SESSIONS) return null;
@@ -397,6 +415,9 @@ function validateScheduleBookingBody(body) {
   const idempotency_key = b.idempotency_key != null ? String(b.idempotency_key).trim().slice(0, 120) : '';
   const rentalPricing = normalizeRentalPricing(b.rental_pricing, components.value);
   if (!rentalPricing.ok) return rentalPricing;
+  if (!rentalPricing.skip && serviceDates.value.length > 1) {
+    return { ok: false, error: 'rental_pricing requires exactly one service date' };
+  }
 
   return {
     ok: true,
@@ -748,6 +769,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
+  const rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const { firstDate } = bookingHeaderDates(input);
@@ -779,7 +801,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           components: componentKeys,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
-          rental_pricing: input.rental_pricing || null,
+          rental_pricing: rentalPricingDescriptor || null,
         }),
       ],
     );
@@ -853,8 +875,13 @@ async function createSunsetScheduleBooking(pg, opts) {
           location_id: locationId || null,
           created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
           idempotency_key: input.idempotency_key,
-          rental_pricing: input.rental_pricing || null,
         };
+        if (rentalPricingDescriptor
+          && (componentKey === 'surfboard' || componentKey === 'wetsuit')
+          && serviceDate === rentalPricingDescriptor.service_date) {
+          metadata.pricing_group_id = rentalPricingDescriptor.pricing_group_id;
+          metadata.rental_pricing_role = componentKey;
+        }
         const row = await insertServiceRecord(pg, [
           clientSlug,
           bookingId,
@@ -936,6 +963,7 @@ module.exports = {
   normalizeFullDayEquipmentAddon,
   normalizeRentalDuration,
   normalizeRentalPricing,
+  buildRentalPricingDescriptor,
   resolveFullDayEquipmentAddonUnitCents,
   insertFullDayEquipmentAddonRows,
   validateScheduleBookingBody,
