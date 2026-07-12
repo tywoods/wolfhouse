@@ -19,6 +19,10 @@ const ITEM_ALIASES = {
   wetsuit: 'wetsuit_rental',
   wetsuit_rental: 'wetsuit_rental',
   board_suit: 'board_and_suit_rental',
+  'board+suit': 'board_and_suit_rental',
+  'board+wetsuit': 'board_and_suit_rental',
+  'board + suit': 'board_and_suit_rental',
+  'board + wetsuit': 'board_and_suit_rental',
   board_and_suit: 'board_and_suit_rental',
   board_and_suit_rental: 'board_and_suit_rental',
   bundle: 'board_and_suit_rental',
@@ -29,12 +33,18 @@ const ITEM_ALIASES = {
 
 const DURATION_ALIASES = {
   '1h': '1_hour',
+  '1 hour': '1_hour',
   '1_hour': '1_hour',
+  'half day': 'half_day',
   half_day: 'half_day',
+  '1 day': '1_day',
   '1_day': '1_day',
   day: '1_day',
+  '2 days': '2_days',
   '2_days': '2_days',
+  '5 days': '5_days',
   '5_days': '5_days',
+  '7 days': '7_days',
   '7_days': '7_days',
   week: '7_days',
 };
@@ -89,6 +99,12 @@ function lookupSunsetRentalPrice(opts) {
   }
 
   const itemCode = resolveItemCode(rawItem);
+  if (!Object.values(ITEM_ALIASES).includes(itemCode)) {
+    return { ok: false, reason: 'unknown_item', client_slug: clientSlug, tenant_id: clientSlug, location_id: locationId, item: itemCode, duration };
+  }
+  if (!duration) {
+    return { ok: false, reason: 'price_not_configured', client_slug: clientSlug, tenant_id: clientSlug, location_id: locationId, item: itemCode, duration };
+  }
   const rule = findAdminPriceRule(adminCfg, itemCode, duration);
   if (!rule) {
     return {
@@ -101,7 +117,11 @@ function lookupSunsetRentalPrice(opts) {
     };
   }
 
-  const amountCents = Number(rule.amount_cents);
+  // Config-backed rules expose amount in EUR; DB-backed rules expose
+  // amount_cents. Normalize both into one authoritative cents value.
+  const amountCents = Number.isFinite(Number(rule.amount_cents))
+    ? Math.round(Number(rule.amount_cents))
+    : (Number.isFinite(Number(rule.amount)) ? Math.round(Number(rule.amount) * 100) : NaN);
   if (!Number.isFinite(amountCents)) {
     return {
       ok: false,
@@ -142,7 +162,8 @@ function lookupSunsetRentalPrice(opts) {
     currency: rule.currency || 'EUR',
     pricing_status: pricingStatus,
     live_quote_allowed: liveQuoteAllowed,
-    source: 'admin_config',
+    source: rule.seed_source || rule.source || 'admin_config',
+    source_url: rule.seed_source_url || null,
   };
 }
 

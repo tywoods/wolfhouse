@@ -41,10 +41,10 @@ for (const expected of [
 ]) assert.ok(bootstrap.includes(expected), `bootstrap missing ${expected}`);
 
 const soul = fs.readFileSync(path.join(runtime, 'SOUL.md'), 'utf8');
-for (const expected of ['Sunset Surf School', 'tenant_id is `sunset`', 'sunset-somo', 'sunset-sardinero']) {
+for (const expected of ['Sunset Surf School', 'Your tenant is `sunset`', 'sunset-somo', 'sunset-sardinero']) {
   assert.ok(soul.includes(expected), `SOUL missing ${expected}`);
 }
-for (const forbidden of ['Wolf-House front-desk host', 'Cami']) {
+for (const forbidden of ['Wolf-House front-desk host', '24-year-old Italian surfer girl']) {
   assert.ok(!soul.includes(forbidden), `Sunset SOUL leaked ${forbidden}`);
 }
 

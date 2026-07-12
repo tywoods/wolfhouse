@@ -154,6 +154,10 @@ def _post_bot(path, payload):
         bound_location = _clean(get_current_location())
     except Exception:
         pass
+    # Hermes may execute tools outside the gateway ContextVar context. The
+    # gateway binds and clears this authoritative ingress value for the turn.
+    if not bound_location:
+        bound_location = _clean(os.getenv("SUNSET_INGRESS_LOCATION_ID"))
     if configured_slug:
         payload["client_slug"] = configured_slug
     if allowed_locations:
