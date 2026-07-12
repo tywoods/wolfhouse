@@ -16956,6 +16956,17 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-stripe-delete-btn{color:#9C4A42}
 .portal-schedule-private-session-row{padding:2px 0}
 .portal-schedule-create-check{padding:7px 12px}
+.portal-schedule-addon-rows{display:flex;flex-direction:column;gap:2px;margin-top:6px}
+.portal-schedule-addon-row{display:flex;align-items:center;gap:10px;padding:3px 0}
+.portal-schedule-addon-date{flex:1 1 auto;min-width:0;font-size:12px;font-weight:600;color:var(--text-2)}
+.portal-schedule-addon-stepper{display:inline-flex;align-items:center;flex:0 0 auto;border:1px solid var(--border-soft);border-radius:8px;overflow:hidden;background:var(--surface)}
+.portal-schedule-addon-step{width:28px;height:28px;padding:0;border:none;background:var(--surface-soft);color:var(--text-2);font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.portal-schedule-addon-step:hover{background:var(--border-soft);color:var(--text)}
+.portal-schedule-addon-stepper input{width:34px;height:28px;padding:0;border:none;border-left:1px solid var(--border-soft);border-right:1px solid var(--border-soft);text-align:center;font-size:13px;font-weight:600;color:var(--text);background:var(--surface);-moz-appearance:textfield}
+.portal-schedule-addon-stepper input::-webkit-outer-spin-button,.portal-schedule-addon-stepper input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.portal-schedule-addon-amt{flex:0 0 auto;min-width:56px;text-align:right;font-size:13px;font-weight:700;color:var(--text)}
+.portal-schedule-addon-summary{margin-top:6px;font-size:12px;font-weight:600;color:var(--text-2)}
+.portal-schedule-addon-empty{font-size:12px;color:var(--text-3);font-style:italic;padding:2px 0}
 .portal-schedule-drawer-hero h3,.portal-schedule-drawer-hero-title{font-family:var(--sched-drawer-serif);font-weight:900;letter-spacing:-.02em}
 .portal-schedule-drawer-hero-title{margin:0 0 6px;font-size:22px;line-height:1.15;word-wrap:break-word;overflow-wrap:anywhere;color:var(--text)}
 .portal-schedule-drawer-hero-meta{margin:0 0 6px;font-size:12px;font-weight:500;line-height:1.45;color:var(--text-2);letter-spacing:.01em}
@@ -22334,6 +22345,16 @@ function scheduleAddonEur(cents){
   return '€' + (Number(cents)/100).toFixed(2);
 }
 
+// Compact date label for add-on rows, e.g. "Sat, 12 Jul" (no raw ISO).
+function scheduleAddonDateLabel(iso){
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(iso||''))) return String(iso||'');
+  var d = new Date(iso + 'T12:00:00');
+  if (isNaN(d.getTime())) return String(iso);
+  var mon = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'][d.getMonth()];
+  var dow = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'][d.getDay()];
+  return dow + ', ' + d.getDate() + ' ' + mon;
+}
+
 // Render per-date stepper rows into a container for the given eligible dates.
 // existing: optional { iso: qty } map to preserve prior selections; defaultQty seeds new rows.
 function scheduleRenderFullDayAddonRows(containerId, summaryId, dates, defaultQty, existing, onChange){
@@ -22348,15 +22369,14 @@ function scheduleRenderFullDayAddonRows(containerId, summaryId, dates, defaultQt
     for (var i=0;i<dates.length;i++){
       var iso = dates[i];
       var q = (prev[iso] != null) ? prev[iso] : (defaultQty || 1);
-      html += '<div class="portal-schedule-addon-row" data-addon-date="'+iso+'" style="display:flex;align-items:center;gap:8px;min-height:44px">'
-        + '<span class="portal-schedule-addon-date">'+iso+'</span>'
-        + '<span class="portal-schedule-addon-stepper" style="display:inline-flex;align-items:center;gap:4px">'
-        + '<button type="button" class="btn btn-ghost" data-addon-dec aria-label="minus" style="min-width:44px;min-height:44px">−</button>'
-        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" style="width:56px;min-height:44px;text-align:center" inputmode="numeric">'
-        + '<button type="button" class="btn btn-ghost" data-addon-inc aria-label="plus" style="min-width:44px;min-height:44px">+</button>'
+      html += '<div class="portal-schedule-addon-row" data-addon-date="'+iso+'">'
+        + '<span class="portal-schedule-addon-date">'+escHtml(scheduleAddonDateLabel(iso))+'</span>'
+        + '<span class="portal-schedule-addon-stepper">'
+        + '<button type="button" class="portal-schedule-addon-step" data-addon-dec aria-label="minus">−</button>'
+        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" inputmode="numeric">'
+        + '<button type="button" class="portal-schedule-addon-step" data-addon-inc aria-label="plus">+</button>'
         + '</span>'
-        + '<span class="portal-schedule-addon-unit">'+scheduleAddonEur(unit)+'</span>'
-        + '<span class="portal-schedule-addon-subtotal" data-addon-subtotal>'+scheduleAddonEur(unit != null ? unit*q : null)+'</span>'
+        + '<span class="portal-schedule-addon-amt" data-addon-subtotal>'+scheduleAddonEur(unit != null ? unit*q : null)+'</span>'
         + '</div>';
     }
     box.innerHTML = html;

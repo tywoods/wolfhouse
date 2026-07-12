@@ -550,6 +550,14 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
   const dates = opts.addonDates || {};
   const unitCents = Number(opts.addonUnitCents) || 0;
   const sortedDates = Object.keys(dates).sort();
+  if (sortedDates.length) {
+    // Idempotently allow service_type='addon_service' before inserting — covers DBs
+    // where migration 029 was never applied (else the CHECK rejects the insert and the
+    // whole booking write fails). No-op once the constraint already includes it.
+    // Deferred require to avoid an eager require cycle (see note above).
+    const { ensureBookingServiceGenericType } = require('./tenant-services-writes');
+    await ensureBookingServiceGenericType(pg);
+  }
   for (const serviceDate of sortedDates) {
     const qty = parseQuantity(dates[serviceDate], 1) || 1;
     const amountDueCents = unitCents * qty;
