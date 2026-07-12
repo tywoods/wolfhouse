@@ -254,6 +254,7 @@ const {
   buildSessionClientProfilesMap,
   staffPortalDevTabsEnabled,
   STAFF_PORTAL_DEV_TAB_IDS,
+  resolvePortalDeployClient,
 } = require('./lib/staff-portal-clients');
 const {
   resolveTenantBusinessConfig,
@@ -16417,7 +16418,8 @@ async function handleManualBookingCreate(req, res, user) {
 //   - No global read-only / shadow-mode banner (Phase 10.6d.2)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildUiHtml(port) {
+function buildUiHtml(port, portalDeployClient) {
+  const portalDefaultClient = portalDeployClient || resolvePortalDeployClient();
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
   const rentalDayRatesJson = JSON.stringify(loadWolfhouseRentalDayRates());
   const portalBodyOpen = '<body class="portal-profile-pending"' + (portalDevTabsEnabled ? '' : ' portal-no-dev-tabs') + '>';
@@ -16431,7 +16433,7 @@ function buildUiHtml(port) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
-<script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify((process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim()) || 'wolfhouse-somo')};</script>
+<script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify(portalDefaultClient)};</script>
 ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
@@ -29723,6 +29725,39 @@ function staffNotificationSettingsSave(){
     });
 }
 
+function portalDeployDefaultClient(){
+  return (typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT)
+    ? String(window.PORTAL_DEFAULT_CLIENT).trim() : 'wolfhouse-somo';
+}
+
+function portalPickClientSlug(list, preferredSlug){
+  if (!list || !list.length) return 'wolfhouse-somo';
+  var saved = null;
+  try { saved = localStorage.getItem('staff_portal_client'); } catch (_) { /* ignore */ }
+  var deployPref = portalDeployDefaultClient();
+  var deployMatch = list.some(function(c){ return c.slug === deployPref; }) ? deployPref : null;
+  // Isolated staging hosts must not inherit another tenant's saved client (e.g. wolfhouse-somo).
+  if (saved && deployMatch && saved !== deployMatch && list.some(function(c){ return c.slug === deployMatch; })) {
+    try { localStorage.setItem('staff_portal_client', deployMatch); } catch (_) { /* ignore */ }
+    saved = deployMatch;
+  }
+  var pick = preferredSlug || deployMatch || saved || list[0].slug;
+  if (!list.some(function(c){ return c.slug === pick; })) {
+    pick = deployMatch || list[0].slug;
+    if (saved && saved !== pick) {
+      try { localStorage.setItem('staff_portal_client', pick); } catch (_) { /* ignore */ }
+    }
+  }
+  return pick;
+}
+
+function portalStartupFallbackTab(){
+  var profile = getPortalProfile(getClient());
+  var tab = profile.default_tab || 'bed-calendar';
+  if (isTabHiddenForClient(tab, getClient())) tab = profile.is_surf_vertical ? 'portal-home' : 'bed-calendar';
+  return tab;
+}
+
 function populateClientSelect(clients, preferredSlug){
   var sel = el('c-client');
   if (!sel) return;
@@ -29739,20 +29774,7 @@ function populateClientSelect(clients, preferredSlug){
     return '<option value="' + escHtml(c.slug) + '">' + escHtml(c.name || c.slug) + '</option>';
   }).join('');
   sel.innerHTML = html;
-  var saved = null;
-  try { saved = localStorage.getItem('staff_portal_client'); } catch (_) { /* ignore */ }
-  // Prefer this deployment's default client (DEFAULT_CLIENT_SLUG, injected server-side)
-  // when there's no explicit or saved choice — so Sunset defaults to Sunset, not Wolfhouse.
-  var deployPref = (typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT)
-    ? String(window.PORTAL_DEFAULT_CLIENT).trim() : 'wolfhouse-somo';
-  var deployMatch = list.some(function(c){ return c.slug === deployPref; }) ? deployPref : null;
-  var pick = preferredSlug || saved || deployMatch || list[0].slug;
-  if (!list.some(function(c){ return c.slug === pick; })) {
-    pick = list[0].slug;
-    if (saved && saved !== pick) {
-      try { localStorage.setItem('staff_portal_client', pick); } catch (_) { /* ignore */ }
-    }
-  }
+  var pick = portalPickClientSlug(list, preferredSlug);
   sel.value = pick;
   syncBcClientFromInbox();
 }
@@ -29769,7 +29791,7 @@ function initStaffPortalSession(){
         populateClientSelect(null);
         applyClientPortalProfile(getClient());
         finishPortalProfileStartup();
-        switchToTab('bed-calendar', null);
+        switchToTab(portalStartupFallbackTab(), null);
         return;
       }
       staffPortalSession = {
@@ -29790,7 +29812,7 @@ function initStaffPortalSession(){
       populateClientSelect(null);
       applyClientPortalProfile(getClient());
       finishPortalProfileStartup();
-      switchToTab('bed-calendar', null);
+      switchToTab(portalStartupFallbackTab(), null);
     });
 }
 
@@ -40375,8 +40397,9 @@ function lgsCreateStripeLink(){
 </html>`;
 }
 
-function handleUI(res, port) {
-  const html = buildUiHtml(port);
+function handleUI(res, port, req) {
+  const host = req && req.headers ? req.headers.host : '';
+  const html = buildUiHtml(port, resolvePortalDeployClient({ host }));
   res.writeHead(200, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -40389,10 +40412,9 @@ function handleUI(res, port) {
 // Route: GET /staff/login  (Stage 7.3e — Luna Front Desk login page)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function buildLoginHtml() {
-  const loginDefaultClient = (process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim())
-    ? String(process.env.DEFAULT_CLIENT_SLUG).trim()
-    : 'wolfhouse-somo';
+function buildLoginHtml(req) {
+  const host = req && req.headers ? req.headers.host : '';
+  const loginDefaultClient = resolvePortalDeployClient({ host });
   return buildStaffLoginHtml(loginDefaultClient, STAFF_PORTAL_LOCALES, renderStaffLangSwitchButtons(true));
 }
 
@@ -40438,8 +40460,8 @@ function handleStaffPortalLoginBg(res) {
   });
 }
 
-function handleLoginPage(res) {
-  const html = buildLoginHtml();
+function handleLoginPage(res, req) {
+  const html = buildLoginHtml(req);
   res.writeHead(200, {
     'Content-Type':  'text/html; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -48543,7 +48565,7 @@ async function router(req, res) {
       res.writeHead(405, { Allow: 'GET' });
       return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use GET' }));
     }
-    return handleLoginPage(res);
+    return handleLoginPage(res, req);
   }
 
   // Deep-link entry for staff inbox notifications → portal UI with query params preserved.
@@ -48557,7 +48579,7 @@ async function router(req, res) {
     if (await browserLoginRedirect(req, res)) return;
     const auth = await requireAuth(req, res, 'viewer');
     if (!auth.ok) return;
-    return handleUI(res, PORT);
+    return handleUI(res, PORT, req);
   }
 
   if (pathname === '/staff/intents') {

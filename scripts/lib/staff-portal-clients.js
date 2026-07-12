@@ -21,6 +21,29 @@ const SURF_VERTICALS = new Set([
 
 const DEFAULT_LODGING_VERTICAL = 'lodging_surf_house';
 
+/** Staging portal hostnames → authoritative deploy client (isolated staging only). */
+const STAGING_PORTAL_HOST_CLIENT = {
+  'sunset-staging.lunafrontdesk.com': 'sunset',
+  'staff-staging.lunafrontdesk.com': 'wolfhouse-somo',
+};
+
+/**
+ * Resolve the portal's deployment-default client slug from request hostname,
+ * then DEFAULT_CLIENT_SLUG, then Wolfhouse legacy default.
+ */
+function resolvePortalDeployClient(options) {
+  const opts = options && typeof options === 'object' ? options : {};
+  const host = String(opts.host || opts.hostname || '').split(':')[0].toLowerCase().trim();
+  if (host && STAGING_PORTAL_HOST_CLIENT[host]) {
+    return STAGING_PORTAL_HOST_CLIENT[host];
+  }
+  const envSlug = process.env.DEFAULT_CLIENT_SLUG;
+  if (envSlug != null && String(envSlug).trim()) {
+    return String(envSlug).trim();
+  }
+  return 'wolfhouse-somo';
+}
+
 /** Staff Portal dev-only tabs (staging/local). Hidden when NODE_ENV=production unless STAFF_PORTAL_DEV_TABS=true. */
 const STAFF_PORTAL_DEV_TAB_IDS = ['query-tools', 'luna-guest-simulator'];
 
@@ -336,4 +359,6 @@ module.exports = {
   STAFF_PORTAL_DEV_TAB_IDS,
   isSurfVertical,
   SURF_VERTICALS,
+  STAGING_PORTAL_HOST_CLIENT,
+  resolvePortalDeployClient,
 };
