@@ -10,7 +10,11 @@
  * Tenant guard: only accepts client_slug === 'sunset'.
  */
 
-const { lookupSunsetRentalPrice, lookupSunsetFullDayEquipmentAddon } = require('./sunset-rental-price-lookup');
+const {
+  lookupSunsetRentalPrice,
+  lookupSunsetRentalPriceAsync,
+  lookupSunsetFullDayEquipmentAddon,
+} = require('./sunset-rental-price-lookup');
 const { normalizeSunsetLocationId } = require('./sunset-school-locations');
 const { resolveTenantBusinessConfig } = require('./tenant-business-config');
 const {
@@ -224,8 +228,76 @@ function executeSunsetCatalogTool(toolId, ctx) {
   };
 }
 
+/**
+ * Async, DB-authoritative variant for LIVE bot routes. Only get_sunset_rental_price
+ * currently has a DB-backed price path; every other catalog read tool keeps the
+ * existing synchronous behavior. The live bot rental-price route MUST await this
+ * so the owner-managed portal price — not the repo baseline seed — is returned.
+ */
+async function executeSunsetCatalogToolAsync(toolId, ctx) {
+  const id = trimStr(toolId);
+  if (id !== 'get_sunset_rental_price') {
+    return executeSunsetCatalogTool(toolId, ctx);
+  }
+
+  const clientSlug = trimStr((ctx && ctx.client_slug) || '');
+  if (!clientSlug || clientSlug !== SUNSET_TENANT) {
+    return {
+      ok: false,
+      tool_id: id,
+      reason: 'invalid_tenant',
+      expected_tenant: SUNSET_TENANT,
+      received_tenant: clientSlug || null,
+    };
+  }
+
+  const args = (ctx && ctx.args) || {};
+  const locationId = normalizeSunsetLocationId(
+    args.location_id || (ctx && ctx.location_id) || null,
+  );
+  const item = trimStr(args.item);
+  const duration = trimStr(args.duration);
+  if (!item) {
+    return { ok: false, tool_id: id, reason: 'invalid_args', detail: 'missing required arg: item' };
+  }
+  if (!duration) {
+    return { ok: false, tool_id: id, reason: 'invalid_args', detail: 'missing required arg: duration' };
+  }
+
+  const requireConfirmed = ctx && ctx.dry_run === true
+    ? false
+    : (args.require_confirmed !== false);
+
+  const lookup = await lookupSunsetRentalPriceAsync({
+    client_slug: clientSlug,
+    location_id: locationId,
+    item,
+    duration,
+    require_confirmed: requireConfirmed,
+    pgClient: ctx && ctx.pgClient,
+    loadRule: ctx && ctx.loadRule,
+  });
+
+  if (!lookup.ok) {
+    return {
+      ok: false,
+      tool_id: id,
+      reason: lookup.reason,
+      detail: lookup,
+      location_id: locationId,
+    };
+  }
+  return {
+    ok: true,
+    tool_id: id,
+    location_id: locationId,
+    result: lookup,
+  };
+}
+
 module.exports = {
   SUNSET_CATALOG_READ_TOOLS,
   SUNSET_TENANT,
   executeSunsetCatalogTool,
+  executeSunsetCatalogToolAsync,
 };

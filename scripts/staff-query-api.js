@@ -323,6 +323,7 @@ const {
 } = require('./lib/sunset-schedule-queries');
 const {
   executeSunsetCatalogTool,
+  executeSunsetCatalogToolAsync,
 } = require('./lib/sunset-catalog-tool-executor');
 const {
   tryHandleSunsetWaiverPublicRoute,
@@ -41908,7 +41909,9 @@ async function handleBotSunsetRentalPrice(req, res) {
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
-  const result = executeSunsetCatalogTool('get_sunset_rental_price', {
+  // Await the async DB-authoritative resolver: the owner-managed portal price in
+  // tenant_price_rules wins over the repository baseline seed when DB reads are on.
+  const result = await executeSunsetCatalogToolAsync('get_sunset_rental_price', {
     client_slug: SUNSET_CLIENT_SLUG,            // forced — body cannot override tenant
     location_id: loc.location_id,
     dry_run: body.dry_run === true,

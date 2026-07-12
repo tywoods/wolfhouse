@@ -436,7 +436,12 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
     if (!priced.ok) {
       await pg.query('ROLLBACK');
-      return { ok: false, status: 422, body: { success: false, error: priced.error } };
+      const failBody = { success: false, error: priced.error };
+      // Surface the integrity numbers so a stale-quote mismatch is diagnosable
+      // (portal-configured total vs the quote the guest was shown).
+      if (priced.configured_total_cents != null) failBody.configured_total_cents = priced.configured_total_cents;
+      if (priced.quoted_total_cents != null) failBody.quoted_total_cents = priced.quoted_total_cents;
+      return { ok: false, status: 422, body: failBody };
     }
 
     const amountDueCents = priced.total_cents;
