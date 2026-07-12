@@ -777,6 +777,7 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.drawer.copyLink': 'Copy link',
     'schedule.drawer.moreStripeOptions': 'More stripe link options',
     'schedule.drawer.createNewLink': 'Create new link',
+    'schedule.drawer.deleteLinkFirst': 'Delete the current link first to create a new one',
     'schedule.drawer.stripeDeleted': 'Link deleted. You can create a fresh one.',
     'schedule.drawer.stripeDeleteFailed': 'Could not delete link:',
     'schedule.drawer.stripeDeleteConfirm': 'Delete this payment link? Any link already shared with the guest will stop working.',

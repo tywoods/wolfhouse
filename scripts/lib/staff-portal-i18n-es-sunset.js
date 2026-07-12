@@ -506,6 +506,7 @@ module.exports = {
     'schedule.drawer.copyLink': 'Copiar enlace',
     'schedule.drawer.moreStripeOptions': 'Más opciones del enlace Stripe',
     'schedule.drawer.createNewLink': 'Crear enlace nuevo',
+    'schedule.drawer.deleteLinkFirst': 'Elimina el enlace actual para crear uno nuevo',
     'schedule.drawer.stripeDeleted': 'Enlace eliminado. Puedes crear uno nuevo.',
     'schedule.drawer.stripeDeleteFailed': 'No se pudo eliminar el enlace:',
     'schedule.drawer.stripeDeleteConfirm': '¿Eliminar este enlace de pago? Cualquier enlace ya enviado al huésped dejará de funcionar.',

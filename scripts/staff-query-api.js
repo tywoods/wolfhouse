@@ -16889,7 +16889,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-rentals-hdr{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin:4px 0 6px}
 .portal-schedule-slot-fallback{font-size:10px;color:var(--text-3);font-style:italic;margin-bottom:6px}
 .portal-schedule-toolbar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:14px}
-.portal-schedule-range{font-size:14px;font-weight:700;color:var(--text);min-width:180px}
+.portal-schedule-range{font-size:17px;font-weight:700;color:var(--text);min-width:180px}
 .portal-schedule-view-toggle{display:flex;gap:4px;margin-left:auto}
 .portal-schedule-view-btn{font-size:11px;padding:5px 10px;border-radius:var(--radius-sm);border:1px solid var(--border-soft);background:var(--surface);cursor:pointer;font-family:inherit}
 .portal-schedule-view-btn.active{background:var(--surface-soft);border-color:var(--text-2);font-weight:600;color:var(--text)}
@@ -17095,10 +17095,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-title{color:var(--sched-text)}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-ops-lesson-hdr-time{color:var(--sched-text-2)}
 .portal-schedule-ops-lesson-rows{display:flex;flex-direction:column;gap:0}
-.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) 64px 156px;gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
+.portal-schedule-ops-col-hdr{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto auto;gap:10px;padding:6px 12px 4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--text-3);border-bottom:1px solid var(--border-soft);background:var(--surface-soft)}
 .portal-schedule-ops-col-hdr span:nth-child(n+3){padding-left:2px}
-.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) 64px 156px;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
-@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px minmax(0,1fr) 150px}#tab-portal-home .portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
+.portal-schedule-ops-row{display:grid;grid-template-columns:4px 36px minmax(0,1fr) auto auto;align-items:center;gap:10px;padding:7px 12px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .12s}
+@media(max-width:720px){.portal-schedule-ops-col-hdr,.portal-schedule-ops-row{grid-template-columns:4px 32px minmax(0,1fr) auto}#tab-portal-home .portal-schedule-src-chip{display:none}.portal-schedule-ops-row-status{grid-column:4;grid-row:1}.portal-schedule-ops-row-guest-col{grid-column:3;grid-row:1}}
 .portal-schedule-ops-row:last-child{border-bottom:none}
 .portal-schedule-ops-row:hover{background:rgba(255,255,255,.04)}
 .portal-schedule-ops-row.is-staff,.portal-schedule-ops-row.is-luna{background:transparent}
@@ -17440,6 +17440,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .customers-collapsible>.customers-collapsible-summary::before{content:"\\25B8";font-size:10px;color:var(--text-3);transition:transform .15s}
 .customers-collapsible[open]>.customers-collapsible-summary::before{transform:rotate(90deg)}
 .customers-collapsible-count{margin-left:auto;font-size:11px;font-weight:700;color:var(--text-3);background:var(--surface-soft);border:1px solid var(--border-soft);border-radius:999px;padding:1px 8px}
+.customers-tags-summary-chips{margin-left:auto;display:flex;flex-wrap:wrap;gap:4px;justify-content:flex-end;align-items:center;padding-left:8px}
+.customers-tags-summary-chips .customers-badge,.customers-tags-summary-chips .customers-tag-chip{font-size:10.5px}
 .customers-collapsible[open]>.customers-collapsible-body{margin-top:8px}
 .customers-waiver-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-top:1px solid var(--border-soft)}
 .customers-waiver-row:first-child{border-top:none}
@@ -18777,7 +18779,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
   </div>
   <div class="portal-schedule-toolbar">
     <button type="button" class="btn btn-ghost" id="ps-prev-week" data-i18n="schedule.nav.prev">Previous</button>
-    <button type="button" class="btn btn-primary" id="ps-today" data-i18n="schedule.nav.today">Today</button>
+    <button type="button" class="btn btn-ghost" id="ps-today" data-i18n="schedule.nav.today">Today</button>
     <button type="button" class="btn btn-ghost" id="ps-next-week" data-i18n="schedule.nav.next">Next</button>
     <span class="portal-schedule-range" id="ps-range-label">—</span>
     <span class="portal-schedule-legend" aria-hidden="true">
@@ -21626,8 +21628,9 @@ function scheduleRenderRentalPickupBlock(groups, titleKey, emptyKey){
   var html = '<div class="portal-schedule-ops-rental-pickups-block">' +
     '<div class="portal-schedule-ops-rental-pickups-subhdr">' + escHtml(portalT(titleKey) + ' — ' + String((groups || []).length)) + '</div>';
   if (groups && groups.length){
-    html += scheduleRenderOpsColumnHeader();
+    html += '<div class="portal-schedule-ops-lesson-rows">' + scheduleRenderOpsColumnHeader();
     groups.forEach(function(g){ html += scheduleRenderOpsBookingRow(g); });
+    html += '</div>';
   } else {
     html += '<div class="portal-schedule-ops-rental-pickups-empty">' + escHtml(portalT(emptyKey)) + '</div>';
   }
@@ -24180,7 +24183,7 @@ function scheduleRenderSunsetMoneyActionsHtml(ctx){
     if (stale){ html += '<p class="portal-schedule-drawer-hint" style="color:#9C5742;margin:2px 0 0">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</p>'; }
     html += '<div class="ps-money-link-row"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(displayUrl) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-stripe-copy') + '</div>';
     html += '<details class="ps-drawer-details"><summary>' + escHtml(portalT('schedule.drawer.moreStripeOptions')) + '</summary><div class="ps-overflow-actions ps-overflow-row">';
-    if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link">' + escHtml(portalT('schedule.drawer.createNewLink')) + '</button>';
+    if (stripeAvail) html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link" disabled title="' + escHtml(portalT('schedule.drawer.deleteLinkFirst')) + '">' + escHtml(portalT('schedule.drawer.createNewLink')) + '</button>';
     html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
     html += '</div></details>';
   } else if (stripeAvail){
@@ -25299,6 +25302,14 @@ function loadSchedulePage(){
   var span = scheduleViewMode === 'next30' ? 29 : (scheduleViewMode === 'day' ? 0 : 6);
   var rangeEnd = scheduleAddDays(rangeStart, span);
   setText('ps-range-label', scheduleFormatRangeLabel(rangeStart, rangeEnd, scheduleViewMode));
+  // Highlight the Today button (green) only while the visible range includes today.
+  var psTodayBtn = el('ps-today');
+  if (psTodayBtn){
+    var tIso = dsTodayIso();
+    var showsToday = tIso >= scheduleIsoDate(rangeStart) && tIso <= scheduleIsoDate(rangeEnd);
+    psTodayBtn.classList.toggle('btn-primary', showsToday);
+    psTodayBtn.classList.toggle('btn-ghost', !showsToday);
+  }
   var convP = fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
   var configP = scheduleFetchLessonTimesConfig(client);
@@ -27650,7 +27661,13 @@ function renderCustomerTagsSection(data) {
   var autoTags = identity.auto_tags || {};
   var displayTags = customerDisplayTags(identity).length ? customerDisplayTags(identity) : refreshCustomerDisplayTags(identity);
   var html = '<details class="customers-section customers-collapsible" id="cust-tags-section"' + (customerDetailState.tagsEditing ? ' open' : '') + '>';
-  html += '<summary class="customers-section-hdr customers-collapsible-summary">' + escHtml(portalT('customers.tags.title')) + '<span class="customers-collapsible-count">' + escHtml(String(displayTags.length)) + '</span></summary>';
+  html += '<summary class="customers-section-hdr customers-collapsible-summary">' + escHtml(portalT('customers.tags.title')) +
+    (displayTags.length
+      ? '<span class="customers-tags-summary-chips">' + displayTags.map(function(tagKey) {
+          return customerTagChipHtml(tagKey, { auto: customerTagIsAuto(tagKey, identity) });
+        }).join('') + '</span>'
+      : '<span class="customers-collapsible-count">0</span>') +
+    '</summary>';
   html += '<div class="customers-section-body customers-collapsible-body">';
   if (!customerDetailState.tagsEditing) {
     html += '<div class="customers-tags-view">';
