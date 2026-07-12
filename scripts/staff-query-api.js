@@ -18836,6 +18836,11 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
     </div>
+    <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
+      <label class="portal-schedule-create-check portal-schedule-addon-toggle" style="min-height:44px;display:flex;align-items:center"><input id="ps-create-comp-fullday" type="checkbox"> <span data-i18n="schedule.type.fullDayEquipment">Full-day equipment</span></label>
+      <div id="ps-create-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>
+      <div id="ps-create-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>
+    </div>
     <div id="ps-create-private-lesson-fields" style="display:none">
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-qty" data-i18n="schedule.create.privateLesson.sessionCount">Sessions</label><input id="ps-create-private-lesson-qty" type="number" min="1" max="30" value="1"></div>
       <div class="portal-schedule-create-field"><label for="ps-create-private-lesson-surfers" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-private-lesson-surfers" type="number" min="1" max="99" value="1"></div>
@@ -22152,6 +22157,60 @@ function schedulePopulateCreateComponentFields(){
   if (privateOn) {
     scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
   }
+  scheduleRefreshCreateFullDayAddon();
+}
+
+// Compute eligible dates + default people for the create-drawer full-day add-on, and re-render rows.
+// Add-on only appears after an eligible base component + at least one eligible date exists.
+function scheduleRefreshCreateFullDayAddon(){
+  var field = el('ps-create-addon-fullday-field');
+  if (!field) return;
+  var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
+  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
+  var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
+  var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
+  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn;
+  var eligibleDates = [];
+  var defaultQty = 1;
+  if (privateOn){
+    var sessions = scheduleReadPrivateLessonSessionsFromDom();
+    var seen = {};
+    for (var i=0;i<sessions.length;i++){ var d = sessions[i].date; if (d && !seen[d]){ seen[d]=1; eligibleDates.push(d); } }
+    eligibleDates.sort();
+    defaultQty = parseInt((el('ps-create-private-lesson-surfers') && el('ps-create-private-lesson-surfers').value) || '1', 10) || 1;
+  } else {
+    var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+    var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+    eligibleDates = scheduleEnumerateDates(from, to || from);
+    var qtys = [];
+    if (courseOn) qtys.push(parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value)||'1',10)||1);
+    if (boardOn) qtys.push(parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value)||'1',10)||1);
+    if (wetsuitOn) qtys.push(parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value)||'1',10)||1);
+    defaultQty = qtys.length ? Math.max.apply(null, qtys) : 1;
+  }
+  var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
+  field.style.display = show ? '' : 'none';
+  var checkbox = el('ps-create-comp-fullday');
+  var rows = el('ps-create-fullday-rows');
+  var summary = el('ps-create-fullday-summary');
+  if (!show){
+    if (checkbox) checkbox.checked = false;
+    if (rows) rows.style.display = 'none';
+    if (summary) summary.style.display = 'none';
+    return;
+  }
+  var on = !!(checkbox && checkbox.checked);
+  if (rows) rows.style.display = on ? '' : 'none';
+  if (on){
+    scheduleRenderFullDayAddonRows('ps-create-fullday-rows', 'ps-create-fullday-summary', eligibleDates, defaultQty, null, scheduleUpdateCreateTotalPreview);
+  } else if (summary){
+    summary.style.display = 'none';
+  }
+}
+
+// Live create-drawer total preview hook (best-effort; server remains authoritative).
+function scheduleUpdateCreateTotalPreview(){
+  scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
 }
 
 function scheduleReadCreatePayload(){
@@ -22197,7 +22256,146 @@ function scheduleReadCreatePayload(){
       sessions: plSessions,
     };
   }
+  // Full-day equipment add-on: per-date people map read from the stepper rows.
+  if (el('ps-create-comp-fullday') && el('ps-create-comp-fullday').checked){
+    var addonDates = scheduleReadFullDayAddonRows('ps-create-fullday-rows');
+    if (Object.keys(addonDates).length){
+      components.full_day_equipment_extension = { enabled: true, dates: addonDates };
+    }
+  }
   return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
+}
+
+// Full-day equipment add-on unit price (cents), set from admin config on drawer open. Never hard-coded.
+var scheduleFullDayAddonUnitCents = null;
+var scheduleFullDayAddonEnabled = false;
+
+// Read the add-on unit price + enabled state from the /staff/admin/config prices array.
+// Matches offering_key 'full_day_equipment_extension' (config baseline) or the DB
+// combined form 'full_day_equipment_extension__day'. Disabled when no active row.
+function scheduleSetFullDayAddonFromConfig(prices){
+  scheduleFullDayAddonUnitCents = null;
+  scheduleFullDayAddonEnabled = false;
+  var list = Array.isArray(prices) ? prices : [];
+  for (var i=0;i<list.length;i++){
+    var p = list[i]; if (!p || p.active === false) continue;
+    var cat = String(p.category || '').toLowerCase();
+    if (cat !== 'rental') continue;
+    var key = String(p.offering_key || p.item_code || '');
+    var unit = String(p.unit || '');
+    var match = (key === 'full_day_equipment_extension' && (!unit || unit === 'day'))
+      || key === 'full_day_equipment_extension__day';
+    if (!match) continue;
+    var cents = null;
+    if (p.amount_cents != null && !isNaN(Number(p.amount_cents))) cents = Math.round(Number(p.amount_cents));
+    else if (p.amount != null && !isNaN(Number(p.amount))) cents = Math.round(Number(p.amount) * 100);
+    if (cents != null && cents > 0){
+      scheduleFullDayAddonUnitCents = cents;
+      scheduleFullDayAddonEnabled = true;
+    }
+    break;
+  }
+}
+
+function scheduleEnumerateDates(fromIso, toIso){
+  var out = [];
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(fromIso||'')) ) return out;
+  var to = /^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(String(toIso||'')) ? toIso : fromIso;
+  var cur = new Date(fromIso + 'T12:00:00');
+  var end = new Date(to + 'T12:00:00');
+  if (end < cur) return out;
+  var guard = 0;
+  while (cur <= end && guard < 400){
+    out.push(cur.toISOString().slice(0,10));
+    cur.setDate(cur.getDate()+1);
+    guard += 1;
+  }
+  return out;
+}
+
+// Read the per-date { 'YYYY-MM-DD': people } map from a stepper container.
+function scheduleReadFullDayAddonRows(containerId){
+  var out = {};
+  var box = el(containerId);
+  if (!box) return out;
+  var rows = box.querySelectorAll('[data-addon-date]');
+  for (var i=0;i<rows.length;i++){
+    var iso = rows[i].getAttribute('data-addon-date');
+    var input = rows[i].querySelector('[data-addon-qty]');
+    var qty = input ? (parseInt(input.value,10)||0) : 0;
+    if (iso && qty > 0){ out[iso] = qty; }
+  }
+  return out;
+}
+
+function scheduleAddonEur(cents){
+  if (cents == null || isNaN(Number(cents))) return '—';
+  return '€' + (Number(cents)/100).toFixed(2);
+}
+
+// Render per-date stepper rows into a container for the given eligible dates.
+// existing: optional { iso: qty } map to preserve prior selections; defaultQty seeds new rows.
+function scheduleRenderFullDayAddonRows(containerId, summaryId, dates, defaultQty, existing, onChange){
+  var box = el(containerId);
+  if (!box) return;
+  var unit = scheduleFullDayAddonUnitCents;
+  var prev = existing || scheduleReadFullDayAddonRows(containerId);
+  var html = '';
+  if (!dates.length){
+    box.innerHTML = '<div class="portal-schedule-addon-empty" data-i18n="schedule.addon.noEligibleDates">No eligible dates yet.</div>';
+  } else {
+    for (var i=0;i<dates.length;i++){
+      var iso = dates[i];
+      var q = (prev[iso] != null) ? prev[iso] : (defaultQty || 1);
+      html += '<div class="portal-schedule-addon-row" data-addon-date="'+iso+'" style="display:flex;align-items:center;gap:8px;min-height:44px">'
+        + '<span class="portal-schedule-addon-date">'+iso+'</span>'
+        + '<span class="portal-schedule-addon-stepper" style="display:inline-flex;align-items:center;gap:4px">'
+        + '<button type="button" class="btn btn-ghost" data-addon-dec aria-label="minus" style="min-width:44px;min-height:44px">−</button>'
+        + '<input data-addon-qty type="number" min="1" max="99" value="'+q+'" style="width:56px;min-height:44px;text-align:center" inputmode="numeric">'
+        + '<button type="button" class="btn btn-ghost" data-addon-inc aria-label="plus" style="min-width:44px;min-height:44px">+</button>'
+        + '</span>'
+        + '<span class="portal-schedule-addon-unit">'+scheduleAddonEur(unit)+'</span>'
+        + '<span class="portal-schedule-addon-subtotal" data-addon-subtotal>'+scheduleAddonEur(unit != null ? unit*q : null)+'</span>'
+        + '</div>';
+    }
+    box.innerHTML = html;
+    var rows = box.querySelectorAll('[data-addon-date]');
+    for (var r=0;r<rows.length;r++){
+      (function(row){
+        var input = row.querySelector('[data-addon-qty]');
+        var dec = row.querySelector('[data-addon-dec]');
+        var inc = row.querySelector('[data-addon-inc]');
+        var sub = row.querySelector('[data-addon-subtotal]');
+        function refresh(){
+          var v = parseInt(input.value,10)||1;
+          if (v < 1) v = 1; if (v > 99) v = 99;
+          input.value = v;
+          if (sub) sub.textContent = scheduleAddonEur(unit != null ? unit*v : null);
+          if (typeof onChange === 'function') onChange();
+        }
+        if (dec) dec.addEventListener('click', function(){ input.value = (parseInt(input.value,10)||1)-1; refresh(); });
+        if (inc) inc.addEventListener('click', function(){ input.value = (parseInt(input.value,10)||1)+1; refresh(); });
+        input.addEventListener('input', refresh);
+        input.addEventListener('change', refresh);
+      })(rows[r]);
+    }
+  }
+  scheduleUpdateFullDayAddonSummary(containerId, summaryId);
+}
+
+function scheduleUpdateFullDayAddonSummary(containerId, summaryId){
+  var summary = el(summaryId);
+  if (!summary) return;
+  var unit = scheduleFullDayAddonUnitCents;
+  var map = scheduleReadFullDayAddonRows(containerId);
+  var total = 0; var count = 0;
+  for (var iso in map){ if (map.hasOwnProperty(iso)){ count += 1; total += (unit != null ? unit*map[iso] : 0); } }
+  if (unit == null){
+    summary.style.display = 'none';
+    return;
+  }
+  summary.style.display = count ? '' : 'none';
+  summary.textContent = (portalT('schedule.addon.combinedSubtotal') || 'Add-on subtotal') + ': ' + scheduleAddonEur(total);
 }
 
 function scheduleNormalizeSlotTime(raw){
@@ -22249,6 +22447,7 @@ function scheduleFetchLessonTimesConfig(client){
         scheduleLessonTimesFallback = true;
       }
       scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
+      scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
@@ -24559,6 +24758,14 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '<input id="ps-drawer-board-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.surfboard && comps.surfboard.quantity) || 1)) + '"></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-wetsuit-qty-wrap"><label for="ps-drawer-wetsuit-qty">' + escHtml(portalT('schedule.create.wetsuitQty')) + '</label>' +
     '<input id="ps-drawer-wetsuit-qty" type="number" min="1" max="99" value="' + escHtml(String((comps.wetsuit && comps.wetsuit.quantity) || 1)) + '"></div></div>';
+  // Full-day equipment add-on (per person, per date). Seeded from ctx.components; rendered by JS after config load.
+  var addonSeed = (comps.full_day_equipment_extension && comps.full_day_equipment_extension.dates) || {};
+  var addonOn = Object.keys(addonSeed).length > 0;
+  html += '<div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-drawer-addon-fullday-field" style="display:none" data-addon-seed="' + escHtml(JSON.stringify(addonSeed)) + '">' +
+    '<label class="portal-schedule-create-check portal-schedule-addon-toggle" style="min-height:44px;display:flex;align-items:center"><input type="checkbox" id="ps-drawer-comp-fullday"' + (addonOn ? ' checked' : '') + '> ' + escHtml(portalT('schedule.type.fullDayEquipment')) + '</label>' +
+    '<div id="ps-drawer-fullday-rows" class="portal-schedule-addon-rows" style="display:none"></div>' +
+    '<div id="ps-drawer-fullday-summary" class="portal-schedule-addon-summary" style="display:none" aria-live="polite"></div>' +
+    '</div>';
   html += '</section>';
   // Payment: edit mode only sets the status (line items / manual payment / Stripe link live in the view).
   html += '<section class="portal-schedule-drawer-section"><div class="ps-card-eyebrow">' +
@@ -24602,6 +24809,71 @@ function scheduleDrawerPopulateComponentFields(){
   if (sessionsWrap) sessionsWrap.style.display = privateOn ? '' : 'none';
   if (privateOn) scheduleDrawerSyncPrivateSessions();
   if (courseOn) scheduleDrawerPopulateCourseSelect();
+  scheduleRefreshDrawerFullDayAddon();
+}
+
+// Edit-drawer full-day add-on: compute eligible dates + default people, preserve prior selections, re-render.
+function scheduleRefreshDrawerFullDayAddon(){
+  var field = el('ps-drawer-addon-fullday-field');
+  if (!field) return;
+  var courseOn = !!(el('ps-drawer-comp-course') && el('ps-drawer-comp-course').checked);
+  var privateOn = !!(el('ps-drawer-comp-private-lesson') && el('ps-drawer-comp-private-lesson').checked);
+  var boardOn = !!(el('ps-drawer-comp-surfboard') && el('ps-drawer-comp-surfboard').checked);
+  var wetsuitOn = !!(el('ps-drawer-comp-wetsuit') && el('ps-drawer-comp-wetsuit').checked);
+  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn;
+  var eligibleDates = [];
+  var defaultQty = 1;
+  if (privateOn){
+    var sessions = scheduleDrawerReadPrivateSessionsFromDom();
+    var seen = {};
+    for (var i=0;i<sessions.length;i++){ var d = sessions[i].date; if (d && !seen[d]){ seen[d]=1; eligibleDates.push(d); } }
+    eligibleDates.sort();
+    defaultQty = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
+  } else {
+    var from = el('ps-drawer-date-from') ? el('ps-drawer-date-from').value : '';
+    var to = el('ps-drawer-date-to') ? el('ps-drawer-date-to').value : from;
+    eligibleDates = scheduleEnumerateDates(from, to || from);
+    var qtys = [];
+    if (courseOn) qtys.push(parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value)||'1',10)||1);
+    if (boardOn) qtys.push(parseInt((el('ps-drawer-board-qty') && el('ps-drawer-board-qty').value)||'1',10)||1);
+    if (wetsuitOn) qtys.push(parseInt((el('ps-drawer-wetsuit-qty') && el('ps-drawer-wetsuit-qty').value)||'1',10)||1);
+    defaultQty = qtys.length ? Math.max.apply(null, qtys) : 1;
+  }
+  var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
+  var checkbox = el('ps-drawer-comp-fullday');
+  var rows = el('ps-drawer-fullday-rows');
+  var summary = el('ps-drawer-fullday-summary');
+  // Seed prior selections: current DOM rows, else the ctx seed embedded on the field.
+  var seed = null;
+  var domSeed = scheduleReadFullDayAddonRows('ps-drawer-fullday-rows');
+  if (Object.keys(domSeed).length) seed = domSeed;
+  else {
+    try { seed = JSON.parse(field.getAttribute('data-addon-seed') || '{}'); } catch(_) { seed = {}; }
+  }
+  // Historical add-on rows may include dates no longer eligible; disabled add-on still shows existing rows.
+  var seedDates = seed ? Object.keys(seed) : [];
+  if (!scheduleFullDayAddonEnabled && seedDates.length) show = true;
+  var mergedDates = eligibleDates.slice();
+  for (var s=0;s<seedDates.length;s++){ if (mergedDates.indexOf(seedDates[s]) < 0) mergedDates.push(seedDates[s]); }
+  mergedDates.sort();
+  field.style.display = show ? '' : 'none';
+  if (!show){
+    if (checkbox) checkbox.checked = false;
+    if (rows) rows.style.display = 'none';
+    if (summary) summary.style.display = 'none';
+    return;
+  }
+  var on = !!(checkbox && checkbox.checked);
+  if (rows) rows.style.display = on ? '' : 'none';
+  if (on){
+    scheduleRenderFullDayAddonRows('ps-drawer-fullday-rows', 'ps-drawer-fullday-summary', mergedDates, defaultQty, seed, scheduleUpdateDrawerTotalPreview);
+  } else if (summary){
+    summary.style.display = 'none';
+  }
+}
+
+function scheduleUpdateDrawerTotalPreview(){
+  scheduleUpdateFullDayAddonSummary('ps-drawer-fullday-rows', 'ps-drawer-fullday-summary');
 }
 
 function scheduleDrawerOnComponentChange(changedId){
@@ -24738,6 +25010,13 @@ function scheduleReadDrawerEditPayload(){
   }
   if (el('ps-drawer-comp-wetsuit') && el('ps-drawer-comp-wetsuit').checked){
     components.wetsuit = { quantity: parseInt((el('ps-drawer-wetsuit-qty') && el('ps-drawer-wetsuit-qty').value) || '1', 10) || 1 };
+  }
+  // Full-day equipment add-on: per-date people map. When unchecked, omit so the row is dropped on save.
+  if (el('ps-drawer-comp-fullday') && el('ps-drawer-comp-fullday').checked){
+    var addonDates = scheduleReadFullDayAddonRows('ps-drawer-fullday-rows');
+    if (Object.keys(addonDates).length){
+      components.full_day_equipment_extension = { enabled: true, dates: addonDates };
+    }
   }
   return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: pm.status, payment_method: pm.method, notes: notes, components: components };
 }
@@ -25007,10 +25286,19 @@ function scheduleWireViewDrawer(row, ctx){
 function scheduleWireEditableDrawer(row, ctx){
   var group = scheduleFindGroupForRow(row) || row;
   scheduleWireDrawerHeaderActions();
+  // Ensure the add-on price/enabled state is loaded before component fields render its control.
+  scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleRefreshDrawerFullDayAddon(); });
   scheduleDrawerPopulateComponentFields();
   ['ps-drawer-comp-course','ps-drawer-comp-private-lesson','ps-drawer-comp-surfboard','ps-drawer-comp-wetsuit'].forEach(function(id){
     var node = el(id);
     if (node) node.addEventListener('change', function(){ scheduleDrawerOnComponentChange(id); });
+  });
+  // Full-day add-on: toggle + inputs affecting eligible dates / default people.
+  var drawerFulldayToggle = el('ps-drawer-comp-fullday');
+  if (drawerFulldayToggle) drawerFulldayToggle.addEventListener('change', scheduleRefreshDrawerFullDayAddon);
+  ['ps-drawer-date-from','ps-drawer-date-to','ps-drawer-course-qty','ps-drawer-board-qty','ps-drawer-wetsuit-qty','ps-drawer-private-lesson-surfers'].forEach(function(id){
+    var node = el(id);
+    if (node){ node.addEventListener('change', scheduleRefreshDrawerFullDayAddon); node.addEventListener('input', scheduleRefreshDrawerFullDayAddon); }
   });
   var addSessionBtn = el('ps-drawer-add-session');
   if (addSessionBtn) addSessionBtn.addEventListener('click', scheduleDrawerAddPrivateSession);
@@ -25172,6 +25460,8 @@ function openScheduleCreateModal(){
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
   scheduleApplyCreatePrefill();
+  // Load admin config so the full-day add-on price/enabled state is known, then reveal the control.
+  scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleRefreshCreateFullDayAddon(); });
 }
 
 function scheduleUpdateCreateLessonExtras(){
@@ -25397,6 +25687,20 @@ function wireScheduleControls(){
     if (node && !node.dataset.wired){
       node.dataset.wired = '1';
       node.addEventListener('change', function(){ scheduleOnCreateComponentChange(id); });
+    }
+  });
+  // Full-day add-on: toggle + inputs that change eligible dates / default people.
+  var fulldayToggle = el('ps-create-comp-fullday');
+  if (fulldayToggle && !fulldayToggle.dataset.wired){
+    fulldayToggle.dataset.wired = '1';
+    fulldayToggle.addEventListener('change', scheduleRefreshCreateFullDayAddon);
+  }
+  ['ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-board-qty','ps-create-wetsuit-qty','ps-create-private-lesson-surfers'].forEach(function(id){
+    var node = el(id);
+    if (node && !node.dataset.addonWired){
+      node.dataset.addonWired = '1';
+      node.addEventListener('change', scheduleRefreshCreateFullDayAddon);
+      node.addEventListener('input', scheduleRefreshCreateFullDayAddon);
     }
   });
   var plQty = el('ps-create-private-lesson-qty');
