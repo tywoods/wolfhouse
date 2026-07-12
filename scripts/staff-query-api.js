@@ -25263,6 +25263,8 @@ function closeScheduleDetailDrawer(){
 
 function setScheduleView(mode){
   scheduleViewMode = mode || 'day';
+  // Switching Today/Week/Month always re-anchors to today, not the day you were on.
+  scheduleForwardOffset = 0;
   document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
     btn.classList.toggle('active', btn.getAttribute('data-ps-view') === scheduleViewMode);
   });
