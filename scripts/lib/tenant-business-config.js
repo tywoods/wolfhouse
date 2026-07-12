@@ -55,6 +55,7 @@ function flattenOfferingPrices(offerings, category, currency) {
         currency,
         unit: unitKey,
         amount,
+        addon: offering.addon === true,
         pricing_status: offering.pricing_status || null,
         active: true,
         effective_state: offering.pricing_status === 'confirmed' ? 'confirmed' : (offering.pricing_status || 'unverified_seed'),
@@ -465,7 +466,18 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
 }
 
 function mergeDbWithConfig(configBaseline, dbResult) {
-  const prices = dbResult.prices.length ? dbResult.prices : configBaseline.prices;
+  let prices = dbResult.prices.length ? dbResult.prices : configBaseline.prices;
+  // Baseline add-on offerings (e.g. full-day equipment) must survive the DB overlay so
+  // a config-seeded add-on resolves before any DB price row exists. A DB row still wins
+  // per offering (matched ignoring the trailing `__unit` suffix on item_code).
+  if (dbResult.prices.length) {
+    const stripUnit = (k) => String(k || '').replace(/__[a-z]+$/i, '');
+    const dbKeys = new Set(dbResult.prices.map((p) => stripUnit(p.offering_key || p.item_code)));
+    const baselineAddons = (configBaseline.prices || []).filter(
+      (p) => p && p.addon === true && !dbKeys.has(stripUnit(p.offering_key || p.item_code)),
+    );
+    if (baselineAddons.length) prices = prices.concat(baselineAddons);
+  }
   const lesson_capacity = dbResult.lesson_capacity.fromDb
     ? {
       default_daily_cap: dbResult.lesson_capacity.default_daily_cap,

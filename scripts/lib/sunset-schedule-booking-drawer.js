@@ -21,10 +21,13 @@ const {
   DB_TO_UI_SERVICE_TYPE,
   UI_TO_SR_PAYMENT,
   UI_TO_BOOKING_PAYMENT,
+  FULL_DAY_EQUIPMENT_ADDON_KEY,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,
   insertServiceRecord,
+  resolveFullDayEquipmentAddonUnitCents,
+  insertFullDayEquipmentAddonRows,
 } = require('./sunset-schedule-booking-writes');
 
 const { serviceRecordUnitPriceCents } = require('./sunset-stripe-payment-links');
@@ -66,8 +69,9 @@ function resolveGuestCount(components) {
   if (components.private_lesson) return components.private_lesson.surfer_count;
   if (components.lesson) return components.lesson.quantity;
   if (components.course) return components.course.quantity;
-  const keys = componentList(components);
-  return Math.max(...keys.map((k) => components[k].quantity));
+  const keys = componentList(components).filter((k) => k !== FULL_DAY_EQUIPMENT_ADDON_KEY);
+  const counts = keys.map((k) => Number(components[k] && components[k].quantity)).filter((n) => Number.isFinite(n));
+  return counts.length ? Math.max(...counts) : 1;
 }
 
 function bookingHeaderDates(input) {
@@ -81,8 +85,14 @@ function bookingHeaderDates(input) {
 function formatSunsetDrawerDailyItemLabel(dbType, qty, sr) {
   const meta = parseMeta(sr && sr.metadata);
   const component = String(meta.component || sr?.metadata_component || '').toLowerCase();
+  const serviceKey = String(meta.service_key || '').toLowerCase();
   const q = Number(qty) || 1;
   const sep = ' · ';
+  if (dbType === 'addon_service' && (component === FULL_DAY_EQUIPMENT_ADDON_KEY || serviceKey === FULL_DAY_EQUIPMENT_ADDON_KEY)) {
+    // Compact "Name · quantity" only. Localized name resolved by the UI (i18n key
+    // schedule.type.fullDayEquipment); server label falls back to the Spanish product name.
+    return `Material el resto del día${sep}${q}`;
+  }
   if (component === 'course') {
     const name = meta.course_label || sr?.course_label;
     if (name) return `${name}${sep}${q}`;
@@ -175,10 +185,22 @@ function aggregateComponentsFromServices(services) {
   const dates = new Set();
   const privateSessions = [];
   (services || []).forEach((sr) => {
-    dates.add(String(sr.service_date || '').slice(0, 10));
+    const dbType = String(sr.service_type || '').toLowerCase();
     const meta = parseMeta(sr.metadata);
     const component = String(meta.component || sr.metadata_component || '').toLowerCase();
-    const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[String(sr.service_type || '').toLowerCase()] || component;
+    const serviceKey = String(meta.service_key || '').toLowerCase();
+    // Full-day equipment add-on: per-date quantity map; its dates do NOT expand the booking date range.
+    if (dbType === 'addon_service'
+      && (component === FULL_DAY_EQUIPMENT_ADDON_KEY || serviceKey === FULL_DAY_EQUIPMENT_ADDON_KEY)) {
+      if (!components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+        components[FULL_DAY_EQUIPMENT_ADDON_KEY] = { enabled: true, dates: {} };
+      }
+      const iso = String(sr.service_date || '').slice(0, 10);
+      if (iso) components[FULL_DAY_EQUIPMENT_ADDON_KEY].dates[iso] = Number(sr.quantity) || 1;
+      return;
+    }
+    dates.add(String(sr.service_date || '').slice(0, 10));
+    const ui = sr.staff_ui_service_type || DB_TO_UI_SERVICE_TYPE[dbType] || component;
     if (component === 'private_lesson' || ui === 'private_lesson') {
       privateSessions.push({
         date: String(sr.service_date || '').slice(0, 10),
@@ -435,6 +457,15 @@ async function updateSunsetScheduleBooking(pg, opts) {
     privateLessonConfig = plLoad.api || privateLessonConfig;
   }
 
+  // Re-snapshot the add-on unit price on edit (new rows get the current admin price).
+  let addonUnitCents = null;
+  if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    addonUnitCents = await resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, recordLocationId);
+    if (addonUnitCents == null) {
+      return { ok: false, status: 409, body: { success: false, error: 'full_day_equipment_extension_price_unavailable' } };
+    }
+  }
+
   await pg.query('BEGIN');
   try {
     await pg.query(
@@ -520,6 +551,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
     for (const serviceDate of input.service_dates) {
       for (const componentKey of componentKeys) {
         if (componentKey === 'private_lesson') continue;
+        if (componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const srMeta = attachLocationToMetadata({
@@ -551,6 +583,29 @@ async function updateSunsetScheduleBooking(pg, opts) {
         ]);
         createdRows.push(row);
       }
+    }
+
+    // Full-day equipment add-on: re-insert one row per selected date (delete-and-reinsert edit model).
+    // Removing a date simply omits it here, dropping only that date's row. Price re-snapshotted above.
+    if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      const addonRows = await insertFullDayEquipmentAddonRows(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode: bundle.booking.booking_code,
+        guestName: input.guest_name,
+        addonDates: input.components[FULL_DAY_EQUIPMENT_ADDON_KEY].dates,
+        addonUnitCents,
+        componentKeys,
+        bundleId,
+        locationId: recordLocationId,
+        srPayment,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        guestPhone: guest_phone || null,
+        actorEmail: opts.actor && opts.actor.email ? opts.actor.email : null,
+        idempotencyKey: null,
+      });
+      addonRows.forEach((r) => createdRows.push(r));
     }
 
     if (input.payment_status === 'paid') {

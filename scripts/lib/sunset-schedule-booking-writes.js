@@ -8,13 +8,44 @@
 const crypto = require('crypto');
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
 
+// Resolve the per-person-per-day add-on unit price from school-scoped admin config (config/DB backed).
+// Returns integer cents or null when unconfigured/disabled. Never hard-codes €10.
+// Requires are deferred to avoid an eager require cycle with tenant-business-config/stripe-links.
+async function resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, locationId) {
+  const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+  const {
+    findPriceCents,
+    FULL_DAY_EQUIPMENT_ADDON_KEY: addonKey,
+    FULL_DAY_EQUIPMENT_ADDON_UNIT: addonUnit,
+  } = require('./sunset-stripe-payment-links');
+  let adminCfg;
+  try {
+    adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, { pgClient: pg, locationId });
+  } catch (_) {
+    adminCfg = null;
+  }
+  const prices = adminCfg && adminCfg.ok ? (adminCfg.prices || []) : [];
+  const cents = findPriceCents(prices, 'rental', addonKey, addonUnit);
+  return cents != null && cents > 0 ? cents : null;
+}
+
 const SUNSET_CLIENT_SLUG = 'sunset';
 const METADATA_SOURCE_TAG = 'staff_manual_schedule';
 const DB_SOURCE = 'staff_manual';
 const DEFAULT_LESSON_CATEGORY = 'Adult (Over 12)';
 const PRIVATE_LESSON_MAX_SESSIONS = 30;
 
-const UI_COMPONENT_KEYS = new Set(['lesson', 'course', 'surfboard', 'wetsuit', 'private_lesson']);
+// Add-on: "Material el resto del día" (full-day equipment extension). Per person, per date.
+// Distinct shape from the per-booking components above: it carries a per-date { date -> quantity } map
+// and eligibility is derived from the eligible course/rental dates on the booking.
+const FULL_DAY_EQUIPMENT_ADDON_KEY = 'full_day_equipment_extension';
+const FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT = 'person_per_day';
+// Components whose service dates make a booking eligible for the full-day equipment add-on.
+const FULL_DAY_ADDON_ELIGIBLE_COMPONENTS = new Set(['lesson', 'course', 'private_lesson', 'surfboard', 'wetsuit']);
+
+const UI_COMPONENT_KEYS = new Set([
+  'lesson', 'course', 'surfboard', 'wetsuit', 'private_lesson', FULL_DAY_EQUIPMENT_ADDON_KEY,
+]);
 const LEGACY_UI_SERVICE_TYPES = new Set(['lesson', 'board_rental', 'wetsuit_rental']);
 const UI_PAYMENT_STATUSES = new Set(['unpaid', 'paid', 'pending']);
 
@@ -26,6 +57,7 @@ const UI_TO_DB_SERVICE_TYPE = {
   wetsuit: 'wetsuit',
   board_rental: 'surfboard',
   wetsuit_rental: 'wetsuit',
+  [FULL_DAY_EQUIPMENT_ADDON_KEY]: 'addon_service',
 };
 
 const DB_TO_UI_SERVICE_TYPE = {
@@ -135,12 +167,54 @@ function normalizePrivateLessonPart(part) {
   };
 }
 
+function isFullDayEquipmentAddonEnabled(part) {
+  if (!part || typeof part !== 'object') return false;
+  return part.enabled === true || part.enabled === 'true' || part.enabled === 1;
+}
+
+// Normalize the full-day equipment add-on part: { enabled, dates: { 'YYYY-MM-DD': quantity } }.
+// Also accepts an array form [{ date, quantity }]. Quantity = people (positive int 1–99).
+function normalizeFullDayEquipmentAddon(part) {
+  if (!isFullDayEquipmentAddonEnabled(part)) return { ok: true, skip: true };
+  const rawDates = part.dates;
+  const map = {};
+  if (Array.isArray(rawDates)) {
+    for (const entry of rawDates) {
+      const e = entry && typeof entry === 'object' ? entry : {};
+      const iso = String(e.date || '').trim();
+      if (!isIsoDate(iso)) {
+        return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY}.dates[].date must be YYYY-MM-DD` };
+      }
+      const qty = parseQuantity(e.quantity != null ? e.quantity : e.people, 1);
+      if (!qty) return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY} quantity must be 1–99` };
+      map[iso] = qty;
+    }
+  } else if (rawDates && typeof rawDates === 'object') {
+    for (const [iso, rawQty] of Object.entries(rawDates)) {
+      const date = String(iso || '').trim();
+      if (!isIsoDate(date)) {
+        return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY}.dates keys must be YYYY-MM-DD` };
+      }
+      const qty = parseQuantity(rawQty, 1);
+      if (!qty) return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY} quantity must be 1–99` };
+      map[date] = qty;
+    }
+  } else {
+    return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY}.dates is required when enabled` };
+  }
+  if (!Object.keys(map).length) {
+    return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY}.dates must include at least one date` };
+  }
+  return { ok: true, value: { enabled: true, dates: map } };
+}
+
 function normalizeComponents(body) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.components && typeof b.components === 'object') {
     const out = {};
     for (const key of UI_COMPONENT_KEYS) {
       if (key === 'private_lesson') continue;
+      if (key === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
       const part = b.components[key];
       if (!part) continue;
       const qty = parseQuantity(part.quantity != null ? part.quantity : part.count, 1);
@@ -167,6 +241,18 @@ function normalizeComponents(body) {
     }
     if (!Object.keys(out).length) {
       return { ok: false, error: 'components must include at least one of lesson, course, private_lesson, surfboard, wetsuit' };
+    }
+    // Full-day equipment add-on is only valid alongside an eligible base component.
+    if (b.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      const addon = normalizeFullDayEquipmentAddon(b.components[FULL_DAY_EQUIPMENT_ADDON_KEY]);
+      if (!addon.ok) return addon;
+      if (!addon.skip) {
+        const hasEligibleBase = Object.keys(out).some((k) => FULL_DAY_ADDON_ELIGIBLE_COMPONENTS.has(k));
+        if (!hasEligibleBase) {
+          return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY} requires an eligible lesson/course/rental component` };
+        }
+        out[FULL_DAY_EQUIPMENT_ADDON_KEY] = addon.value;
+      }
     }
     return { ok: true, value: out };
   }
@@ -240,6 +326,20 @@ function validateScheduleBookingBody(body) {
   if (!components.ok) return components;
   const serviceDates = normalizeServiceDates(b, components.value);
   if (!serviceDates.ok) return serviceDates;
+  // Add-on dates must be a subset of the booking's eligible service dates (course/rental/lesson dates,
+  // plus any private-lesson session dates). Server-side revalidation — never trust the browser.
+  const addonPart = components.value[FULL_DAY_EQUIPMENT_ADDON_KEY];
+  if (addonPart && addonPart.dates) {
+    const eligible = new Set(serviceDates.value);
+    if (components.value.private_lesson && components.value.private_lesson.sessions) {
+      components.value.private_lesson.sessions.forEach((s) => { if (s.date) eligible.add(s.date); });
+    }
+    for (const iso of Object.keys(addonPart.dates)) {
+      if (!eligible.has(iso)) {
+        return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY} date ${iso} is not an eligible booking date` };
+      }
+    }
+  }
   const payment_status = String(b.payment_status || 'unpaid').trim().toLowerCase();
   if (!UI_PAYMENT_STATUSES.has(payment_status)) {
     return { ok: false, error: 'payment_status must be unpaid, paid, or pending' };
@@ -442,6 +542,86 @@ async function insertServiceRecord(pg, params, timeOpts) {
   return svcIns.rows[0];
 }
 
+// Insert full-day equipment add-on rows (one per selected date). service_type='addon_service'
+// (allowed by migration 029). quantity = people. amount_due_cents = snapshot(unit × qty).
+// Metadata carries service_key/component for the shared price resolver + drawer label.
+async function insertFullDayEquipmentAddonRows(pg, opts) {
+  const rows = [];
+  const dates = opts.addonDates || {};
+  const unitCents = Number(opts.addonUnitCents) || 0;
+  const sortedDates = Object.keys(dates).sort();
+  if (sortedDates.length) {
+    // Idempotently allow service_type='addon_service' before inserting — covers DBs
+    // where migration 029 was never applied (else the CHECK rejects the insert and the
+    // whole booking write fails). No-op once the constraint already includes it.
+    // Deferred require to avoid an eager require cycle (see note above).
+    const { ensureBookingServiceGenericType } = require('./tenant-services-writes');
+    await ensureBookingServiceGenericType(pg);
+  }
+  for (const serviceDate of sortedDates) {
+    const qty = parseQuantity(dates[serviceDate], 1) || 1;
+    const amountDueCents = unitCents * qty;
+    const metadata = {
+      source: METADATA_SOURCE_TAG,
+      staff_manual_schedule: true,
+      staff_ui_service_type: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      component: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      service_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+      billing_unit: FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT,
+      unit_amount_cents: unitCents,
+      components: opts.componentKeys,
+      bundle_id: opts.bundleId,
+      location_id: opts.locationId || null,
+      notes: opts.notes || null,
+      needs_reply: opts.needsReply,
+      guest_phone: opts.guestPhone,
+      created_by_staff: opts.actorEmail || null,
+      updated_by_staff: opts.actorEmail || null,
+      idempotency_key: opts.idempotencyKey || null,
+    };
+    const ins = await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name, service_type, service_date,
+         quantity, status, amount_due_cents, amount_paid_cents, payment_status, source, metadata
+       ) VALUES (
+         $1, $2::uuid, $3, $4, 'addon_service', $5::date,
+         $6, 'confirmed', $7, 0, $8, $9, $10::jsonb
+       )
+       RETURNING id::text AS service_record_id,
+                 booking_id::text AS booking_id,
+                 booking_code,
+                 guest_name,
+                 service_type::text AS service_type,
+                 service_date::text AS service_date,
+                 quantity,
+                 amount_due_cents,
+                 payment_status::text AS payment_status,
+                 source AS record_source,
+                 metadata->>'slot_time' AS slot_time,
+                 metadata->>'notes' AS notes,
+                 metadata->>'staff_ui_service_type' AS staff_ui_service_type,
+                 metadata->>'source' AS metadata_source,
+                 metadata->>'component' AS metadata_component,
+                 metadata->>'bundle_id' AS bundle_id,
+                 metadata->>'components' AS metadata_components`,
+      [
+        opts.clientSlug,
+        opts.bookingId,
+        opts.bookingCode,
+        opts.guestName,
+        serviceDate,
+        qty,
+        amountDueCents,
+        opts.srPayment,
+        DB_SOURCE,
+        JSON.stringify(metadata),
+      ],
+    );
+    rows.push(ins.rows[0]);
+  }
+  return rows;
+}
+
 function bookingHeaderDates(input) {
   const dates = input.service_dates.slice();
   if (input.components.private_lesson) {
@@ -455,8 +635,9 @@ function resolveGuestCount(components) {
   if (components.private_lesson) return components.private_lesson.surfer_count;
   if (components.lesson) return components.lesson.quantity;
   if (components.course) return components.course.quantity;
-  const keys = componentList(components);
-  return Math.max(...keys.map((k) => components[k].quantity));
+  const keys = componentList(components).filter((k) => k !== FULL_DAY_EQUIPMENT_ADDON_KEY);
+  const counts = keys.map((k) => Number(components[k] && components[k].quantity)).filter((n) => Number.isFinite(n));
+  return counts.length ? Math.max(...counts) : 1;
 }
 
 async function createSunsetScheduleBooking(pg, opts) {
@@ -500,6 +681,15 @@ async function createSunsetScheduleBooking(pg, opts) {
   if (input.components.private_lesson) {
     const plLoad = await loadPrivateLessonFromDb(pg, { clientSlug, locationId });
     privateLessonConfig = plLoad.api || privateLessonConfig;
+  }
+
+  // Snapshot the add-on unit price at insert so later admin price edits don't rewrite history.
+  let addonUnitCents = null;
+  if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+    addonUnitCents = await resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, locationId);
+    if (addonUnitCents == null) {
+      return { ok: false, status: 409, body: { success: false, error: 'full_day_equipment_extension_price_unavailable' } };
+    }
   }
 
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
@@ -591,6 +781,7 @@ async function createSunsetScheduleBooking(pg, opts) {
     for (const serviceDate of input.service_dates) {
       for (const componentKey of componentKeys) {
         if (componentKey === 'private_lesson') continue;
+        if (componentKey === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const metadata = {
@@ -627,6 +818,28 @@ async function createSunsetScheduleBooking(pg, opts) {
       }
     }
 
+    // Full-day equipment add-on: one row per selected date, quantity = people, price snapshotted.
+    if (input.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      const addonRows = await insertFullDayEquipmentAddonRows(pg, {
+        clientSlug,
+        bookingId,
+        bookingCode,
+        guestName: input.guest_name,
+        addonDates: input.components[FULL_DAY_EQUIPMENT_ADDON_KEY].dates,
+        addonUnitCents,
+        componentKeys,
+        bundleId,
+        locationId,
+        srPayment,
+        notes: input.notes || null,
+        needsReply: input.needs_reply,
+        guestPhone: input.guest_phone,
+        actorEmail: opts.actor && opts.actor.email ? opts.actor.email : null,
+        idempotencyKey: input.idempotency_key,
+      });
+      addonRows.forEach((r) => createdRows.push(r));
+    }
+
     await pg.query('COMMIT');
     return {
       ok: true,
@@ -657,12 +870,19 @@ module.exports = {
   DB_TO_UI_SERVICE_TYPE,
   UI_TO_SR_PAYMENT,
   UI_TO_BOOKING_PAYMENT,
+  FULL_DAY_EQUIPMENT_ADDON_KEY,
+  FULL_DAY_EQUIPMENT_ADDON_BILLING_UNIT,
+  FULL_DAY_ADDON_ELIGIBLE_COMPONENTS,
   isIsoDate,
   isTimeHm,
   timeToMinutes,
   isPrivateLessonEnabled,
   normalizePrivateLessonPart,
   normalizePrivateLessonSessions,
+  isFullDayEquipmentAddonEnabled,
+  normalizeFullDayEquipmentAddon,
+  resolveFullDayEquipmentAddonUnitCents,
+  insertFullDayEquipmentAddonRows,
   validateScheduleBookingBody,
   bookingStatusFromPayment,
   componentList,

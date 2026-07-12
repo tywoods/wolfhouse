@@ -8,8 +8,11 @@ const path = require('path');
 const vm = require('vm');
 
 const i18nPath = path.join(__dirname, 'lib', 'staff-portal-i18n.js');
+// Only the EN base is needed here; stub out every `= require('./staff-portal-i18n-es*')` (base + Sunset
+// override) with `= {}` so this generator does not need require() available inside the vm sandbox.
+// Preserves the const names, so the later `Object.assign({}, BASE, SUNSET)` still resolves.
 const src = fs.readFileSync(i18nPath, 'utf8')
-  .replace("const STAFF_PORTAL_ES = require('./staff-portal-i18n-es');", 'const STAFF_PORTAL_ES = {};');
+  .replace(/=\s*require\('\.\/staff-portal-i18n-es[^']*'\);/g, '= {};');
 const ctx = { module: { exports: {} }, exports: {} };
 vm.runInNewContext(src + '\nmodule.exports = STAFF_PORTAL_STRINGS;', ctx);
 const en = ctx.module.exports.en;
@@ -384,6 +387,9 @@ const ES_OVERRIDES = {
   'drawer.payments.noPayments': 'Sin pagos registrados.',
   'drawer.payments.session': 'Sesión',
   'drawer.payments.intent': 'Intent',
+  'schedule.type.fullDayEquipment': 'Material el resto del día',
+  'schedule.addon.combinedSubtotal': 'Subtotal del extra',
+  'schedule.addon.noEligibleDates': 'Aún no hay fechas elegibles.',
 };
 
 const es = {};
