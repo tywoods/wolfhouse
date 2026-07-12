@@ -1486,6 +1486,52 @@ def create_sunset_booking(params, **kwargs):
         body["booking_type"] = payload.get("booking_type")
         if payload.get("quantity") is not None:
             body["quantity"] = payload.get("quantity")
+    # If the model emits board + wetsuit components without the additive pricing
+    # descriptor, resolve the authoritative bundle quote here before any write.
+    # This keeps the Staff API contract fail-closed while avoiding model-schema drift.
+    rental_pricing = payload.get("rental_pricing")
+    components = body.get("components") if isinstance(body.get("components"), dict) else {}
+    board = components.get("surfboard") if isinstance(components.get("surfboard"), dict) else None
+    suit = components.get("wetsuit") if isinstance(components.get("wetsuit"), dict) else None
+    if not isinstance(rental_pricing, dict) and board and suit:
+        board_duration = _clean(board.get("duration"))
+        suit_duration = _clean(suit.get("duration"))
+        try:
+            board_qty = int(board.get("quantity", 1))
+            suit_qty = int(suit.get("quantity", 1))
+        except (TypeError, ValueError):
+            board_qty = suit_qty = 0
+        if not board_duration or board_duration != suit_duration or board_qty < 1 or board_qty != suit_qty:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": "rental_pricing_required",
+                "staff_review_needed": False,
+                "guest_safe_next_action": "Let me confirm that rental bundle price first 😊",
+            })
+        quote_body = {"item": "board_and_suit_rental", "duration": board_duration}
+        if payload.get("location_id"):
+            quote_body["location_id"] = payload.get("location_id")
+        quote_data = _post_bot("/sunset/rental-price", quote_body)
+        quote_result = quote_data.get("result") if isinstance(quote_data.get("result"), dict) else {}
+        unit_cents = quote_result.get("amount_cents")
+        if not quote_data.get("ok") or not isinstance(unit_cents, int) or unit_cents <= 0:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": "rental_bundle_price_unavailable",
+                "staff_review_needed": True,
+                "guest_safe_next_action": "Let me double-check that rental price with the team 😊",
+            })
+        rental_pricing = {
+            "offering_key": quote_result.get("item") or "board_and_suit_rental",
+            "duration": quote_result.get("duration") or board_duration,
+            "quantity": board_qty,
+            "quoted_total_cents": unit_cents * board_qty,
+        }
+    if isinstance(rental_pricing, dict):
+        body["rental_pricing"] = rental_pricing
+
     # Dates.
     if isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
         body["service_dates"] = payload["service_dates"]
