@@ -32,6 +32,8 @@ for (const expected of [
   'WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"', 'SUNSET_INGRESS_LOCATION_ID: sunset-somo',
 ]) assert.ok(compose.includes(expected), `compose missing ${expected}`);
 assert.ok(!compose.includes('/var/lib/hermes-luna:/opt/data'), 'must not share Wolfhouse data');
+const gatewayPatch = fs.readFileSync(path.join(__dirname, '..', 'docker', 'hermes-staging', 'apply_gateway_patches.py'), 'utf8');
+assert.ok(!gatewayPatch.includes('("WOLFHOUSE_WHATSAPP_GUEST_PHONE", "WHATSAPP_GUEST_PHONE", "SUNSET_INGRESS_LOCATION_ID")'), 'turn cleanup must not delete fixed Sunset ingress binding');
 
 const bootstrap = fs.readFileSync(path.join(runtime, 'bootstrap.sh'), 'utf8');
 for (const expected of [
