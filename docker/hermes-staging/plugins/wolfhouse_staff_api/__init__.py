@@ -1494,7 +1494,7 @@ def create_sunset_booking(params, **kwargs):
     elif payload.get("date_from") and payload.get("date_to"):
         body["date_from"] = payload.get("date_from")
         body["date_to"] = payload.get("date_to")
-    for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
+    for opt in ("payment_status", "notes", "idempotency_key", "location_id", "rental_pricing"):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
     data = _post_bot("/sunset/booking-create", body)
@@ -1657,10 +1657,11 @@ def get_sunset_waiver_link(params, **kwargs):
 def _sunset_write_tools():
     loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
     return [
-        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has accepted the plan. Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
+        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has accepted the plan. Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. For board+wetsuit bundle bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price (e.g. board_and_suit_rental / half_day / qty 2 / 3000). NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
             "components": {"type": "object", "description": "Service components, e.g. {\"lesson\":{\"quantity\":2,\"slot_time\":\"10:00\"}}, {\"course\":{\"course_id\":\"...\",\"quantity\":2}}, {\"private_lesson\":{...}}, {\"surfboard\":{\"quantity\":1}}, {\"wetsuit\":{\"quantity\":1}}, and the full-day add-on part."},
+            "rental_pricing": {"type": "object", "description": "Required for board+wetsuit bundle rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
             "date_from": {"type": "string", "description": "Range start YYYY-MM-DD (with date_to)."},
