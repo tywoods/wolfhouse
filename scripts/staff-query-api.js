@@ -26842,6 +26842,10 @@ var CUSTOMERS_STATUS_FILTER_DEFS = [
   { id: 'warm_leads', i18n: 'customers.filter.warmLeads', title: 'customers.filter.warmLeadsTitle', lodgingOnly: false },
   { id: 'hot_leads', i18n: 'customers.filter.hotLeads', title: 'customers.filter.hotLeadsTitle' },
   { id: 'checked_in_now', i18n: 'customers.filter.checkedInNow', title: 'customers.filter.checkedInNowTitle', lodgingOnly: true },
+  { id: 'lesson_today', i18n: 'customers.filter.lessonToday', title: 'customers.filter.lessonTodayTitle', surfOnly: true },
+  { id: 'upcoming', i18n: 'customers.filter.upcoming', title: 'customers.filter.upcomingTitle', surfOnly: true },
+  { id: 'unpaid', i18n: 'customers.filter.unpaid', title: 'customers.filter.unpaidTitle', surfOnly: true },
+  { id: 'waiver_pending', i18n: 'customers.filter.waiverPending', title: 'customers.filter.waiverPendingTitle', surfOnly: true },
   { id: 'do_not_contact', i18n: 'customers.filter.doNotContact', title: 'customers.filter.doNotContactTitle' },
   { id: 'needs_attention', i18n: 'customers.filter.needsAttention' },
 ];
@@ -26935,9 +26939,11 @@ function renderCustomersFiltersMenu() {
   if (!menu) return;
   var profile = getPortalProfile(getClient());
   var showCheckedIn = !profile.is_surf_vertical;
+  var showSurf = !!profile.is_surf_vertical;
   var html = '<div class="customers-filters-chip-field">';
   CUSTOMERS_STATUS_FILTER_DEFS.forEach(function(def) {
     if (def.lodgingOnly && !showCheckedIn) return;
+    if (def.surfOnly && !showSurf) return;
     var active = customersFilter === def.id;
     var title = def.title ? ' title="' + escHtml(portalT(def.title)) + '"' : '';
     html += '<button type="button" class="customers-filters-option' + (active ? ' active' : '') + '" data-cust-status-filter="' + escHtml(def.id) + '"' + title + ' role="menuitemradio" aria-checked="' + (active ? 'true' : 'false') + '">' + escHtml(customerFilterLabel(def)) + '</button>';

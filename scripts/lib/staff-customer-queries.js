@@ -38,6 +38,10 @@ const ALLOWED_FILTERS = new Set([
   'hot_leads',
   'checked_in_now',
   'do_not_contact',
+  'lesson_today',
+  'upcoming',
+  'unpaid',
+  'waiver_pending',
 ]);
 
 function isAccommodationCrmClient(clientSlug) {
@@ -509,6 +513,7 @@ function getCustomerListQuery(opts) {
   const hasSearch = !!(opts && opts.hasSearch);
   const locationScoped = !!(opts && opts.locationScoped);
   const accommodationCrm = !!(opts && opts.accommodationCrm);
+  const surfCrm = !!(opts && opts.surfCrm);
   const { limitParam, offsetParam, searchParam } = customerListLimitOffsetParams(opts);
 
   let filterClause = '';
@@ -535,6 +540,14 @@ function getCustomerListQuery(opts) {
     filterClause = `AND COALESCE((crm.crm_tags->>'do_not_contact')::boolean, FALSE) = TRUE`;
   } else if (filter === 'needs_attention') {
     filterClause = 'AND (lc.needs_human OR COALESCE(ho.has_open_handoff, FALSE))';
+  } else if (filter === 'lesson_today') {
+    filterClause = 'AND COALESCE(sa.has_service_today, FALSE) = TRUE';
+  } else if (filter === 'upcoming') {
+    filterClause = 'AND COALESCE(sa.has_future_service, FALSE) = TRUE';
+  } else if (filter === 'unpaid') {
+    filterClause = 'AND COALESCE(ba.has_balance_due, FALSE) = TRUE';
+  } else if (filter === 'waiver_pending') {
+    filterClause = surfCrm ? 'AND COALESCE(wp.waiver_pending, FALSE) = TRUE' : 'AND FALSE';
   }
 
   const searchClause = hasSearch
@@ -574,6 +587,29 @@ function getCustomerListQuery(opts) {
           AND ${sqlLocationMatch('bsr_loc', 'b_loc2', locParam)}
       )
     )`
+    : '';
+
+  // Waiver-pending aggregate is Sunset-only (needs the waiver_form_requests table).
+  const waiverPendingCte = surfCrm ? `,
+waiver_pending_agg AS (
+  SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits, TRUE AS waiver_pending
+  FROM bookings b
+  INNER JOIN clients c ON c.id = b.client_id
+  WHERE c.slug = $1
+    AND b.phone IS NOT NULL
+    AND b.status NOT IN ('cancelled', 'expired')
+    AND EXISTS (
+      SELECT 1 FROM booking_service_records sr
+       WHERE sr.booking_id = b.id AND sr.service_type = 'surf_lesson' AND sr.status <> 'cancelled'
+    )
+    AND NOT EXISTS (
+      SELECT 1 FROM waiver_form_requests wr
+       WHERE wr.booking_id = b.id AND wr.status = 'completed'
+    )${bookingLocClause}
+  GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
+)` : '';
+  const waiverPendingJoin = surfCrm
+    ? '\nLEFT JOIN waiver_pending_agg wp ON wp.phone_digits = cu.phone_digits'
     : '';
 
   return `
@@ -647,6 +683,7 @@ latest_conv AS (
 booking_agg AS (
   SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits,
     COUNT(*)::int AS booking_count,
+    bool_or(COALESCE(b.balance_due_cents, 0) > 0) AS has_balance_due,
     MAX(b.check_in) AS last_check_in
   FROM bookings b
   INNER JOIN clients c ON c.id = b.client_id
@@ -658,6 +695,8 @@ booking_agg AS (
 service_agg AS (
   SELECT ${sqlCustomerPhoneDigits('b.phone')} AS phone_digits,
     COUNT(bsr.id)::int AS service_count,
+    bool_or(bsr.service_date = CURRENT_DATE AND bsr.status::text <> 'cancelled') AS has_service_today,
+    bool_or(bsr.service_date > CURRENT_DATE AND bsr.status::text <> 'cancelled') AS has_future_service,
     MAX(bsr.service_date) AS last_service_date
   FROM booking_service_records bsr
   INNER JOIN bookings b ON b.id = bsr.booking_id
@@ -702,7 +741,7 @@ checked_in_agg AS (
     AND b.check_in <= CURRENT_DATE
     AND b.check_out > CURRENT_DATE${bookingLocClause}
   GROUP BY ${sqlCustomerPhoneDigits('b.phone')}
-)
+)${waiverPendingCte}
 SELECT
   cu.phone,
   lc.conversation_id,
@@ -731,7 +770,7 @@ LEFT JOIN booking_agg ba ON ba.phone_digits = cu.phone_digits
 LEFT JOIN service_agg sa ON sa.phone_digits = cu.phone_digits
 LEFT JOIN handoff_open ho ON ho.phone_digits = cu.phone_digits
 LEFT JOIN last_service ls ON ls.phone_digits = cu.phone_digits
-LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits
+LEFT JOIN checked_in_agg cia ON cia.phone_digits = cu.phone_digits${waiverPendingJoin}
 WHERE 1=1
 ${searchClause}
 ${filterClause}
@@ -1110,6 +1149,7 @@ function buildCustomerListParams(clientSlug, query) {
   if (hasSearch) params.push(`%${q.replace(/%/g, '\\%').replace(/_/g, '\\_')}%`);
   params.push(limit, offset);
   const accommodationCrm = isAccommodationCrmClient(clientSlug);
+  const surfCrm = !accommodationCrm;
   return {
     filter,
     limit,
@@ -1118,8 +1158,9 @@ function buildCustomerListParams(clientSlug, query) {
     locationScoped,
     locationId,
     accommodationCrm,
+    surfCrm,
     params,
-    sql: getCustomerListQuery({ filter, hasSearch, locationScoped, accommodationCrm }),
+    sql: getCustomerListQuery({ filter, hasSearch, locationScoped, accommodationCrm, surfCrm }),
   };
 }
 
