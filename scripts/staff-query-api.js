@@ -25297,7 +25297,7 @@ function scheduleWireEditableDrawer(row, ctx){
   // Full-day add-on: toggle + inputs affecting eligible dates / default people.
   var drawerFulldayToggle = el('ps-drawer-comp-fullday');
   if (drawerFulldayToggle) drawerFulldayToggle.addEventListener('change', scheduleRefreshDrawerFullDayAddon);
-  ['ps-drawer-date-from','ps-drawer-date-to','ps-drawer-course-qty','ps-drawer-board-qty','ps-drawer-wetsuit-qty','ps-drawer-private-lesson-surfers'].forEach(function(id){
+  ['ps-drawer-comp-course','ps-drawer-comp-surfboard','ps-drawer-comp-wetsuit','ps-drawer-comp-private-lesson','ps-drawer-date-from','ps-drawer-date-to','ps-drawer-course-qty','ps-drawer-board-qty','ps-drawer-wetsuit-qty','ps-drawer-private-lesson-surfers'].forEach(function(id){
     var node = el(id);
     if (node){ node.addEventListener('change', scheduleRefreshDrawerFullDayAddon); node.addEventListener('input', scheduleRefreshDrawerFullDayAddon); }
   });
@@ -25696,7 +25696,7 @@ function wireScheduleControls(){
     fulldayToggle.dataset.wired = '1';
     fulldayToggle.addEventListener('change', scheduleRefreshCreateFullDayAddon);
   }
-  ['ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-board-qty','ps-create-wetsuit-qty','ps-create-private-lesson-surfers'].forEach(function(id){
+  ['ps-create-comp-course','ps-create-comp-surfboard','ps-create-comp-wetsuit','ps-create-comp-private-lesson','ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-board-qty','ps-create-wetsuit-qty','ps-create-private-lesson-surfers'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.addonWired){
       node.dataset.addonWired = '1';
