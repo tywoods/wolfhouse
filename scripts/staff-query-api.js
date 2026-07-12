@@ -272,6 +272,7 @@ const {
   validateLessonTimeCreateBody,
   validateLessonTimePatchBody,
   createRentalPriceRule,
+  putFullDayEquipmentAddonRule,
   deactivatePriceRule,
   patchPriceRule,
   putLessonCapacityDefault,
@@ -26570,6 +26571,68 @@ function renderAdminPrivateLessonCard(cfg, writes){
   html += '</article></div>';
   return html;
 }
+// Read the full-day equipment add-on state from admin config prices (config baseline or DB row).
+function adminReadFullDayAddonFromConfig(cfg){
+  var out = { enabled: false, amount_cents: 1000, currency: 'EUR' };
+  var list = (cfg && Array.isArray(cfg.prices)) ? cfg.prices : [];
+  for (var i=0;i<list.length;i++){
+    var p = list[i]; if (!p) continue;
+    var cat = String(p.category || '').toLowerCase();
+    if (cat !== 'rental') continue;
+    var key = String(p.offering_key || p.item_code || '');
+    var unit = String(p.unit || '');
+    var match = (key === 'full_day_equipment_extension' && (!unit || unit === 'day'))
+      || key === 'full_day_equipment_extension__day';
+    if (!match) continue;
+    var cents = null;
+    if (p.amount_cents != null && !isNaN(Number(p.amount_cents))) cents = Math.round(Number(p.amount_cents));
+    else if (p.amount != null && !isNaN(Number(p.amount))) cents = Math.round(Number(p.amount) * 100);
+    if (cents != null) out.amount_cents = cents;
+    out.currency = p.currency || 'EUR';
+    out.enabled = (p.active !== false) && cents != null && cents > 0;
+    break;
+  }
+  return out;
+}
+
+function adminFmtEur(cents){
+  if (cents == null || isNaN(Number(cents))) return '—';
+  return (Number(cents)/100).toFixed(2).replace('.', ',') + ' €';
+}
+
+// "Material el resto del día — 10,00 € por persona y día [Enabled]" — human-readable, no raw keys.
+function renderAdminFullDayAddonCard(cfg, writes){
+  var addon = adminReadFullDayAddonFromConfig(cfg);
+  var editing = writes && adminEditTarget === 'full-day-addon';
+  var html = '<div class="portal-admin-subsection" data-admin-fullday-addon="1"><div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+  html += '<h3 class="portal-admin-subsection-title">' + escHtml(portalT('admin.fullDayAddon.title')) + '</h3>';
+  if (writes && !editing && !adminLessonSectionEditing() && !adminPackSectionEditing()){
+    html += '<div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-full-day-addon" aria-label="' + escHtml(portalT('admin.action.edit')) + '">✎</button></div>';
+  }
+  html += '</div></div><p class="portal-admin-muted">' + escHtml(portalT('admin.fullDayAddon.help')) + '</p>';
+  html += '<article class="portal-admin-lesson-card" data-admin-fullday-addon-card="1">';
+  if (editing){
+    html += '<div class="portal-admin-edit-form" data-admin-fullday-addon-form="1">' +
+      '<div class="portal-admin-edit-field"><label class="portal-admin-check"><input type="checkbox" id="admin-fullday-addon-enabled"' + (addon.enabled ? ' checked' : '') + '> ' + escHtml(portalT('admin.fullDayAddon.enabled')) + '</label></div>' +
+      '<div class="portal-admin-edit-field"><label for="admin-fullday-addon-price">' + escHtml(portalT('admin.fullDayAddon.price')) + '</label>' +
+      '<input id="admin-fullday-addon-price" type="number" min="0" step="0.01" inputmode="decimal" value="' + escHtml((Number(addon.amount_cents)/100).toFixed(2)) + '"></div>' +
+      '<p id="admin-fullday-addon-msg" class="state-msg" style="display:none;margin-top:6px"></p>' +
+      '<div class="portal-admin-edit-actions">' +
+      '<button type="button" class="btn btn-primary" data-admin-action="save-full-day-addon">' + escHtml(portalT('admin.action.save')) + '</button>' +
+      '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
+      '</div></div>';
+  } else {
+    var enabledText = addon.enabled ? portalT('admin.fullDayAddon.enabledYes') : portalT('admin.fullDayAddon.enabledNo');
+    var priceText = adminFmtEur(addon.amount_cents) + ' ' + portalT('admin.fullDayAddon.perPersonPerDay');
+    html += '<div class="portal-admin-lesson-facts">' +
+      '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.fullDayAddon.enabled')) + '<strong>' + escHtml(enabledText) + '</strong></div>' +
+      '<div class="portal-admin-lesson-fact">' + escHtml(portalT('admin.fullDayAddon.price')) + '<strong>' + escHtml(priceText) + '</strong></div>' +
+      '</div>';
+  }
+  html += '</article></div>';
+  return html;
+}
+
 function renderAdminSectionLessonTimesFromConfig(cfg){
   var box = el('admin-times-body');
   if (!box) return;
@@ -26578,7 +26641,7 @@ function renderAdminSectionLessonTimesFromConfig(cfg){
   var packs = (cfg && cfg.surf_packs) ? cfg.surf_packs : [];
   var defaultCap = (cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null)
     ? cfg.lesson_capacity.default_daily_cap : SUNSET_SCHEDULE_LESSON_DAY_CAP;
-  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes);
+  box.innerHTML = renderAdminPackCards(packs, writes, defaultCap) + renderAdminPrivateLessonCard(cfg, writes) + renderAdminFullDayAddonCard(cfg, writes);
 }
 
 function renderAdminSectionBusinessInfoFromConfig(cfg){
@@ -26722,7 +26785,7 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'edit-full-day-addon' || action === 'save-full-day-addon'){
       if (!adminCfgWritesEnabled(cfg)) return;
     }
     if (action === 'edit-capacity'){
@@ -26986,6 +27049,40 @@ function wireAdminTab(){
       adminEditTarget = 'private-lesson';
       adminShowMessage('', '');
       renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'edit-full-day-addon'){
+      adminEditTarget = 'full-day-addon';
+      adminShowMessage('', '');
+      renderAdminFromConfig(cfg);
+      return;
+    }
+    if (action === 'save-full-day-addon'){
+      var addonEnabledEl = el('admin-fullday-addon-enabled');
+      var addonPriceEl = el('admin-fullday-addon-price');
+      var addonPriceParsed = adminParseEurosToCents(addonPriceEl && addonPriceEl.value);
+      if (!addonPriceParsed.ok){ adminShowMessage('error', addonPriceParsed.error || portalT('admin.edit.amountInvalid')); return; }
+      var addonPayload = {
+        enabled: !!(addonEnabledEl && addonEnabledEl.checked),
+        amount_cents: addonPriceParsed.value,
+        currency: 'EUR',
+      };
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('PUT', '/staff/admin/config/full-day-equipment-addon' + adminClientQuery(), addonPayload)
+        .then(function(res){
+          adminSaveBusy = false;
+          if (res.status !== 200 || !res.data || res.data.success !== true){
+            adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+            return;
+          }
+          adminEditTarget = null;
+          adminShowMessage('success', portalT('admin.fullDayAddon.saved'));
+          adminReloadConfig();
+        }).catch(function(err){
+          adminSaveBusy = false;
+          adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        });
       return;
     }
     if (action === 'save-private-lesson'){
@@ -41204,6 +41301,59 @@ async function handleAdminConfigPrivateLessonPut(query, req, res, user) {
   }
 }
 
+// PUT the "Material el resto del día" add-on price + enabled state via the audited config write path.
+async function handleAdminConfigFullDayAddonPut(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  // Accept integer cents directly, or a euros amount to convert. Server owns the integer math.
+  let amountCents = null;
+  if (body.amount_cents != null) amountCents = Number.parseInt(body.amount_cents, 10);
+  else if (body.amount_eur != null) amountCents = Math.round(Number(body.amount_eur) * 100);
+  if (!Number.isInteger(amountCents) || amountCents < 0) return send400(res, 'amount_cents or amount_eur is required');
+  const enabled = !(body.enabled === false || body.enabled === 'false' || body.enabled === 0);
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const result = await withPgClient(async (pg) => putFullDayEquipmentAddonRule(pg, {
+      clientSlug,
+      locationId,
+      amountCents,
+      currency: body.currency || 'EUR',
+      enabled,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.full_day_equipment_addon_put',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin.config.full_day_equipment_addon_put] write failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigLessonTimePost(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -47560,6 +47710,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigPrivateLessonPut(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/full-day-equipment-addon' && method === 'PUT') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigFullDayAddonPut(parsed.query, req, res, auth.user);
   }
 
 

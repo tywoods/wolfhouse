@@ -614,6 +614,47 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
   });
 }
 
+const FULL_DAY_EQUIPMENT_ADDON_OFFERING_KEY = 'full_day_equipment_extension';
+const FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE = 'full_day_equipment_extension__day';
+const FULL_DAY_EQUIPMENT_ADDON_DB_UNIT = 'day';
+const FULL_DAY_EQUIPMENT_ADDON_DISPLAY = 'Material el resto del día';
+
+// Upsert the "Material el resto del día" add-on price rule via the audited config write path.
+// Per person, per day: item_type='rental', item_code='full_day_equipment_extension__day', unit='day'.
+// amount_cents is integer cents. enabled=false sets active=false (disabling blocks new additions but
+// leaves historical booking_service_records untouched — those snapshot their own price).
+async function putFullDayEquipmentAddonRule(client, {
+  clientSlug, locationId, amountCents, currency, enabled, actor,
+}) {
+  const tablesExist = await adminConfigTablesExist(client);
+  if (!tablesExist) {
+    return { ok: false, status: 503, body: { success: false, error: 'admin_db_tables_missing' } };
+  }
+  const cents = Number.parseInt(amountCents, 10);
+  if (!Number.isInteger(cents) || cents < 0 || cents > 1000000) {
+    return { ok: false, status: 400, body: { success: false, error: 'amount_cents must be an integer 0–1000000' } };
+  }
+  const loc = normalizeSunsetLocationId(locationId);
+  const patch = {
+    display_name: FULL_DAY_EQUIPMENT_ADDON_DISPLAY,
+    amount_cents: cents,
+    currency: currency || 'EUR',
+  };
+  if (enabled === false || enabled === 'false' || enabled === 0) patch.active = false;
+  else patch.active = true;
+  return upsertConfigPriceRule(client, {
+    clientSlug,
+    locationId: loc,
+    category: 'rental',
+    offeringKey: FULL_DAY_EQUIPMENT_ADDON_OFFERING_KEY,
+    unit: FULL_DAY_EQUIPMENT_ADDON_DB_UNIT,
+    patch,
+    actor,
+    forceItemCode: FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
+    forceDbUnit: FULL_DAY_EQUIPMENT_ADDON_DB_UNIT,
+  });
+}
+
 function parseConfigSlotTimes(slotTime) {
   const text = String(slotTime || '').trim();
   if (!text) return { timeLocal: null, timeLocalEnd: null };
@@ -1380,6 +1421,9 @@ module.exports = {
   validateLessonTimePatchBody,
   validatePriceCreateBody,
   createRentalPriceRule,
+  putFullDayEquipmentAddonRule,
+  FULL_DAY_EQUIPMENT_ADDON_ITEM_CODE,
+  FULL_DAY_EQUIPMENT_ADDON_OFFERING_KEY,
   deactivatePriceRule,
   parseItemCodeParts,
   patchPriceRule,
