@@ -16431,6 +16431,7 @@ function buildUiHtml(port) {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Luna Front Desk</title>
+<script>window.PORTAL_DEFAULT_CLIENT=${JSON.stringify((process.env.DEFAULT_CLIENT_SLUG != null && String(process.env.DEFAULT_CLIENT_SLUG).trim()) || 'wolfhouse-somo')};</script>
 ${getStaffPortalThemeEarlyScript()}
 <style>
 /* ── Palette (soft boutique-hospitality) ────────────────────────────────── */
@@ -20927,14 +20928,17 @@ function wireSunsetSchoolSwitcher(){
 function getClient(){
   var sel = el('c-client');
   if (sel && sel.value) return sel.value.trim();
+  // Prefer this deployment's default client (DEFAULT_CLIENT_SLUG, injected server-side)
+  // instead of hardcoding Wolfhouse — so the Sunset portal loads the surf-school profile.
+  var pref = (typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT)
+    ? String(window.PORTAL_DEFAULT_CLIENT).trim() : 'wolfhouse-somo';
   if (staffPortalSession && staffPortalSession.clients && staffPortalSession.clients.length) {
-    // Prefer Wolfhouse on this staging portal when no explicit selection is set.
     for (var i = 0; i < staffPortalSession.clients.length; i++) {
-      if (staffPortalSession.clients[i].slug === 'wolfhouse-somo') return 'wolfhouse-somo';
+      if (staffPortalSession.clients[i].slug === pref) return pref;
     }
     return staffPortalSession.clients[0].slug;
   }
-  return 'wolfhouse-somo';
+  return pref;
 }
 
 function syncBcClientFromInbox(){
@@ -29737,9 +29741,12 @@ function populateClientSelect(clients, preferredSlug){
   sel.innerHTML = html;
   var saved = null;
   try { saved = localStorage.getItem('staff_portal_client'); } catch (_) { /* ignore */ }
-  // Prefer Wolfhouse on this staging portal when there's no explicit or saved choice.
-  var wolfPref = list.some(function(c){ return c.slug === 'wolfhouse-somo'; }) ? 'wolfhouse-somo' : null;
-  var pick = preferredSlug || saved || wolfPref || list[0].slug;
+  // Prefer this deployment's default client (DEFAULT_CLIENT_SLUG, injected server-side)
+  // when there's no explicit or saved choice — so Sunset defaults to Sunset, not Wolfhouse.
+  var deployPref = (typeof window !== 'undefined' && window.PORTAL_DEFAULT_CLIENT)
+    ? String(window.PORTAL_DEFAULT_CLIENT).trim() : 'wolfhouse-somo';
+  var deployMatch = list.some(function(c){ return c.slug === deployPref; }) ? deployPref : null;
+  var pick = preferredSlug || saved || deployMatch || list[0].slug;
   if (!list.some(function(c){ return c.slug === pick; })) {
     pick = list[0].slug;
     if (saved && saved !== pick) {
