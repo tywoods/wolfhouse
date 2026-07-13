@@ -28,6 +28,7 @@ from wolfhouse.staging_guard import assert_staging_environment, assert_stripe_te
 from wolfhouse.output_guard import guard_reply
 
 SIMULATE_PATH = "/wolfhouse/simulate-guest-turn"
+SIMULATE_BURST_PATH = "/wolfhouse/simulate-guest-burst"
 _CAPTURE: Optional["SimulateCapture"] = None
 
 
@@ -84,9 +85,15 @@ def _detect_language(text: str, hint: Optional[str]) -> str:
     return "en"
 
 
-def build_meta_webhook_payload(*, digits: str, text: str, contact_name: str = "Simulate Guest") -> Dict[str, Any]:
+def build_meta_webhook_payload(
+    *,
+    digits: str,
+    text: str,
+    contact_name: str = "Simulate Guest",
+    message_id: Optional[str] = None,
+) -> Dict[str, Any]:
     phone_number_id = (os.getenv("WHATSAPP_CLOUD_PHONE_NUMBER_ID") or "1152900101233109").strip()
-    msg_id = f"wamid.simulate.{uuid.uuid4().hex[:16]}"
+    msg_id = message_id or f"wamid.simulate.{uuid.uuid4().hex[:16]}"
     ts = str(int(time.time()))
     return {
         "object": "whatsapp_business_account",
@@ -375,6 +382,166 @@ async def run_simulated_turn(
     }
 
 
+@dataclass
+class BurstSimulateCapture(SimulateCapture):
+    replies: List[str] = field(default_factory=list)
+    agent_invocation_count: int = 0
+
+
+async def run_simulated_burst(
+    *,
+    thread: str,
+    messages: List[Dict[str, Any]],
+    lang: Optional[str] = None,
+    allow_writes: bool = False,
+    timeout_sec: float = 180.0,
+) -> Dict[str, Any]:
+    """Inject an ordered burst of synthetic WhatsApp messages (staging only).
+
+    Each entry: ``{"delay_ms": 0, "text": "..."}``. Outbound WhatsApp is
+    suppressed; booking/payment writes remain blocked when allow_writes=false.
+    """
+    assert_staging_environment()
+    digits = thread_to_digits(thread)
+    if not messages:
+        raise ValueError("messages is required")
+
+    cap = BurstSimulateCapture(allow_writes=allow_writes)
+    first_text = str((messages[0] or {}).get("text") or "")
+    cap.language_detected = _detect_language(first_text, lang)
+
+    os.environ["WOLFHOUSE_SIMULATE_GUEST_TURN"] = "1"
+    os.environ["WOLFHOUSE_SIMULATE_ALLOW_WRITES"] = "1" if allow_writes else "0"
+    os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = f"+{digits}"
+    os.environ["WHATSAPP_GUEST_PHONE"] = f"+{digits}"
+
+    _install_outbound_capture(cap)
+    _install_tool_capture(cap)
+
+    # Capture every outbound reply for consolidated-turn accounting.
+    try:
+        import gateway.platforms.whatsapp_cloud as wh_mod
+
+        if cap.patched_send and cap.orig_send is not None:
+            inner = wh_mod.WhatsAppCloudAdapter.send
+
+            async def _multi_send(self, chat_id, content, reply_to=None, metadata=None):
+                result = await inner(self, chat_id, content, reply_to=reply_to, metadata=metadata)
+                text = str(content or "").strip()
+                if text:
+                    cap.replies.append(text)
+                    cap.agent_invocation_count = len(cap.replies)
+                    cap.reply_text = text
+                    cap.reply_event.set()
+                return result
+
+            wh_mod.WhatsAppCloudAdapter.send = _multi_send
+    except Exception:
+        cap.warnings.append("burst_reply_capture_partial")
+
+    webhook_path = (os.getenv("WHATSAPP_CLOUD_WEBHOOK_PATH") or "/whatsapp/webhook").strip()
+    port = int(os.getenv("WHATSAPP_CLOUD_WEBHOOK_PORT") or "8090")
+    url = f"http://127.0.0.1:{port}{webhook_path}"
+
+    source_messages: List[Dict[str, Any]] = []
+    t0 = time.monotonic()
+    try:
+        import aiohttp
+
+        async with aiohttp.ClientSession() as session:
+            for idx, item in enumerate(messages):
+                delay_ms = int(item.get("delay_ms") or 0)
+                text = str(item.get("text") or "").strip()
+                if not text:
+                    continue
+                elapsed_ms = int((time.monotonic() - t0) * 1000)
+                wait_ms = max(0, delay_ms - elapsed_ms)
+                if wait_ms:
+                    await asyncio.sleep(wait_ms / 1000.0)
+                msg_id = f"wamid.simulate.burst.{uuid.uuid4().hex[:12]}"
+                payload = build_meta_webhook_payload(
+                    digits=digits, text=text, message_id=msg_id
+                )
+                body_bytes = json.dumps(payload).encode("utf-8")
+                headers = _sign_webhook_body(body_bytes)
+                source_messages.append(
+                    {
+                        "index": idx,
+                        "delay_ms": delay_ms,
+                        "text": text,
+                        "wamid": msg_id,
+                    }
+                )
+                async with session.post(url, data=body_bytes, headers=headers, timeout=30) as resp:
+                    await resp.read()
+                    if resp.status >= 400:
+                        cap.warnings.append(f"webhook_http_{resp.status}")
+    except Exception as exc:
+        _remove_patches(cap)
+        raise RuntimeError(f"burst webhook inject failed: {exc}") from exc
+
+    # Wait for at least one reply; allow debounce quiet window (+ agent time).
+    debounce_ms = int(os.getenv("WHATSAPP_BURST_DEBOUNCE_MS") or "5000")
+    wait_budget = timeout_sec + (debounce_ms / 1000.0) + 5.0
+    try:
+        await asyncio.wait_for(cap.reply_event.wait(), timeout=wait_budget)
+        # Brief settle for a possible second consolidated turn.
+        await asyncio.sleep(0.5)
+    except asyncio.TimeoutError as exc:
+        _remove_patches(cap)
+        raise RuntimeError("timed out waiting for Luna burst replies") from exc
+    finally:
+        _remove_patches(cap)
+        os.environ.pop("WOLFHOUSE_SIMULATE_GUEST_TURN", None)
+
+    session_id = _resolve_session_id(digits)
+    burst_snap: Dict[str, Any] = {}
+    try:
+        from wolfhouse.whatsapp_burst_coalesce import get_coalescer
+
+        coalescer = get_coalescer()
+        if coalescer is not None:
+            burst_snap = coalescer.snapshot()
+    except Exception:
+        pass
+
+    raw_reply = cap.reply_text or (cap.replies[-1] if cap.replies else "")
+    safe_reply, guard_findings = guard_reply(
+        raw_reply, guest_lang=cap.language_detected, tool_calls=cap.tool_calls,
+    )
+
+    agent_count = int(
+        (burst_snap.get("stats") or {}).get("agent_invocations")
+        or cap.agent_invocation_count
+        or len(cap.replies)
+        or 0
+    )
+    return {
+        "ok": True,
+        "thread": thread,
+        "guest_phone": f"+{digits}",
+        "source_messages": source_messages,
+        "consolidated_turns": [
+            {
+                "reply_text": r,
+                "index": i,
+            }
+            for i, r in enumerate(cap.replies or ([safe_reply] if safe_reply else []))
+        ],
+        "agent_invocation_count": agent_count,
+        "tool_calls": cap.tool_calls,
+        "replies": cap.replies or ([safe_reply] if safe_reply else []),
+        "reply_text": safe_reply,
+        "guard_findings": guard_findings,
+        "session_id": session_id,
+        "language_detected": cap.language_detected,
+        "allow_writes": False if not allow_writes else True,
+        "whatsapp_suppressed": True,
+        "burst_stats": burst_snap.get("stats"),
+        "warnings": cap.warnings,
+    }
+
+
 def register_simulate_route(app) -> None:
     """Register POST /wolfhouse/simulate-guest-turn on the WhatsApp aiohttp app."""
 
@@ -395,6 +562,27 @@ def register_simulate_route(app) -> None:
             from aiohttp import web
 
             return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+
+        # Burst payload: ordered messages array (staging rapid-fire harness).
+        if isinstance(body.get("messages"), list) and body.get("messages"):
+            try:
+                result = await run_simulated_burst(
+                    thread=str(body.get("thread") or body.get("guest_phone") or ""),
+                    messages=list(body.get("messages") or []),
+                    lang=body.get("lang") or body.get("language"),
+                    allow_writes=bool(body.get("allow_writes")),
+                )
+            except SystemExit as exc:
+                from aiohttp import web
+
+                return web.json_response({"ok": False, "error": str(exc)}, status=403)
+            except Exception as exc:
+                from aiohttp import web
+
+                return web.json_response({"ok": False, "error": str(exc)}, status=500)
+            from aiohttp import web
+
+            return web.json_response(result)
 
         try:
             result = await run_simulated_turn(
@@ -417,3 +605,4 @@ def register_simulate_route(app) -> None:
         return web.json_response(result)
 
     app.router.add_post(SIMULATE_PATH, _handle_simulate_guest_turn)
+    app.router.add_post(SIMULATE_BURST_PATH, _handle_simulate_guest_turn)

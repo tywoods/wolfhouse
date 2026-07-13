@@ -890,7 +890,13 @@ async def _patched_whatsapp_cloud_send(self, chat_id, content, reply_to=None, me
 
 def install_runtime_whatsapp_patches() -> dict:
     """Apply in-process WhatsApp patches (gateway process, not bootstrap-only)."""
-    applied = {"status_filter": False, "plain_reply_send": False, "pause_webhook": False, "pause_send": False}
+    applied = {
+        "status_filter": False,
+        "plain_reply_send": False,
+        "pause_webhook": False,
+        "pause_send": False,
+        "burst_coalesce": False,
+    }
     try:
         import gateway.run as _gw_run_mod
         if not getattr(_gw_run_mod, "_wh_status_filter_applied", False):
@@ -915,6 +921,11 @@ def install_runtime_whatsapp_patches() -> dict:
     try:
         from wolfhouse.pause_gate import install_whatsapp_pause_webhook_patch
         applied["pause_webhook"] = bool(install_whatsapp_pause_webhook_patch())
+    except Exception:
+        pass
+    try:
+        from wolfhouse.whatsapp_burst_coalesce import install_whatsapp_burst_coalesce_patch
+        applied["burst_coalesce"] = bool(install_whatsapp_burst_coalesce_patch())
     except Exception:
         pass
     return applied

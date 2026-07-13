@@ -72,6 +72,17 @@ check('C5 orig_post_bot skipped when blocked', /is_simulate_write_blocked\(guard
 check('C6 lesson-quote not in Sunset write block list', /sunset\/lesson-quote/.test(writeGuards)
   && !/blocked_sunset.*lesson-quote/.test(writeGuards));
 
+check('D1 burst coalesce module', fs.existsSync(path.join(WOLF, 'whatsapp_burst_coalesce.py')));
+check('D2 burst simulate path', /simulate-guest-burst/.test(core) && /run_simulated_burst/.test(core));
+check('D3 burst accepts messages array', /body\.get\("messages"\)/.test(core));
+check('D4 burst coalesce patch installed from gateway patches',
+  fs.readFileSync(path.join(H, 'apply_gateway_patches.py'), 'utf8').includes('install_whatsapp_burst_coalesce_patch'));
+check('D5 sunset compose enables coalesce',
+  fs.readFileSync(path.join(ROOT, 'docker', 'hermes-sunset', 'docker-compose.vm.yml'), 'utf8')
+    .includes('WHATSAPP_BURST_COALESCE_ENABLED'));
+check('D6 bootstrap writes coalesce env for sunset-luna',
+  /sunset-luna/.test(bootstrap) && /WHATSAPP_BURST_DEBOUNCE_MS/.test(bootstrap));
+
 try {
   execSync(`python3 ${path.join(WOLF, 'test_simulate_write_guards.py')}`, {
     cwd: ROOT,
@@ -82,6 +93,18 @@ try {
 } catch (err) {
   const out = String((err && err.stdout) || '') + String((err && err.stderr) || '');
   check('C7 python guard regressions', false, out.split('\n').slice(-3).join(' '));
+}
+
+try {
+  execSync(`python3 ${path.join(WOLF, 'test_whatsapp_burst_coalesce.py')}`, {
+    cwd: ROOT,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+  check('D7 burst coalesce unit tests', true);
+} catch (err) {
+  const out = String((err && err.stdout) || '') + String((err && err.stderr) || '');
+  check('D7 burst coalesce unit tests', false, out.split('\n').slice(-5).join(' '));
 }
 
 check('B1 thread_to_digits never uses wall clock', /never wall-clock/.test(core) && /Hash the full thread id/.test(core));

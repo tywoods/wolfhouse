@@ -20,5 +20,10 @@ services:
       SUNSET_INGRESS_LOCATION_ID: sunset-somo
       GENERIC_TIMEZONE: Europe/Madrid
       WHATSAPP_CLOUD_WEBHOOK_PORT: "8092"
+      # Coalesce rapid guest WhatsApp bursts (quiet window) before agent run.
+      WHATSAPP_BURST_COALESCE_ENABLED: "true"
+      WHATSAPP_BURST_DEBOUNCE_MS: "5000"
+      WHATSAPP_BURST_MAX_MESSAGES: "20"
+      WHATSAPP_BURST_MAX_CHARS: "8000"
     env_file:
       - /etc/hermes-sunset-luna.env

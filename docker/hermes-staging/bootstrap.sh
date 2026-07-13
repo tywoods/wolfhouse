@@ -116,6 +116,17 @@ write_luna_env() {
     printf 'PYTHONPATH=/etc/hermes-staging\n'
     printf 'API_SERVER_ENABLED=true\n'
     printf 'API_SERVER_HOST=0.0.0.0\n'
+    # Sunset staging only: coalesce rapid WhatsApp bursts before agent runs.
+    # Disabled for Wolfhouse Luna / other roles unless explicitly exported.
+    if [ "${HERMES_ROLE:-}" = "sunset-luna" ]; then
+      printf 'WHATSAPP_BURST_COALESCE_ENABLED=%s\n' "${WHATSAPP_BURST_COALESCE_ENABLED:-true}"
+      printf 'WHATSAPP_BURST_DEBOUNCE_MS=%s\n' "${WHATSAPP_BURST_DEBOUNCE_MS:-5000}"
+      printf 'WHATSAPP_BURST_MAX_MESSAGES=%s\n' "${WHATSAPP_BURST_MAX_MESSAGES:-20}"
+      printf 'WHATSAPP_BURST_MAX_CHARS=%s\n' "${WHATSAPP_BURST_MAX_CHARS:-8000}"
+    elif [ -n "${WHATSAPP_BURST_COALESCE_ENABLED:-}" ]; then
+      printf 'WHATSAPP_BURST_COALESCE_ENABLED=%s\n' "$WHATSAPP_BURST_COALESCE_ENABLED"
+      [ -n "${WHATSAPP_BURST_DEBOUNCE_MS:-}" ] && printf 'WHATSAPP_BURST_DEBOUNCE_MS=%s\n' "$WHATSAPP_BURST_DEBOUNCE_MS"
+    fi
     [ -n "${WOLFHOUSE_STAFF_API_BASE_URL:-}" ]            && printf 'WOLFHOUSE_STAFF_API_BASE_URL=%s\n' "$WOLFHOUSE_STAFF_API_BASE_URL"
     [ -n "${LUNA_BOT_INTERNAL_TOKEN:-}" ]                 && printf 'LUNA_BOT_INTERNAL_TOKEN=%s\n' "$LUNA_BOT_INTERNAL_TOKEN"
     [ -n "${LUNA_CLIENT_SLUG:-}" ]                        && printf 'LUNA_CLIENT_SLUG=%s\n' "$LUNA_CLIENT_SLUG"

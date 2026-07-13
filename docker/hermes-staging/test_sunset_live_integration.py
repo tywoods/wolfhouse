@@ -110,6 +110,9 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         self.assertNotIn("98-sunset-bootstrap", compose)
         self.assertIn("API_SERVER_KEY", bootstrap)
         self.assertIn("link_shared_auth", bootstrap)
+        self.assertIn("WHATSAPP_BURST_COALESCE_ENABLED", bootstrap)
+        self.assertIn("WHATSAPP_BURST_DEBOUNCE_MS", compose)
+        self.assertIn('WHATSAPP_BURST_COALESCE_ENABLED: "true"', compose)
 
     def test_shared_cami_contract_rejects_canned_robot_voice(self):
         sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
