@@ -47,6 +47,12 @@ fallback_providers:
 # Luna is a guest-facing booking agent, not a general Hermes operator.
 toolsets:
   - wolfhouse_staff_api
+# Messaging-platform tool selection is separate from the top-level toolsets list.
+# WhatsApp guests must never receive shell/code approval cards or access general
+# operator tools; Luna only needs the tenant-scoped Staff API plugin.
+platform_toolsets:
+  whatsapp_cloud:
+    - wolfhouse_staff_api
 plugins:
   enabled:
     - wolfhouse-staff-api
