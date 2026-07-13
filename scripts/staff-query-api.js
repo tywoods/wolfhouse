@@ -324,6 +324,7 @@ const {
 const {
   executeSunsetCatalogTool,
   executeSunsetCatalogToolAsync,
+  resolveSunsetBotBodyLocation,
 } = require('./lib/sunset-catalog-tool-executor');
 const {
   tryHandleSunsetWaiverPublicRoute,
@@ -41893,14 +41894,7 @@ function isIsoDateStaff(s) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function sunsetBotResolveLocation(body) {
-  const raw = String((body && (body.location_id || body.location)) || '').trim();
-  // Fail-closed: only the two known Sunset locations are accepted. An empty
-  // value is allowed (defaults to sunset-somo); any other non-empty value is
-  // rejected so a caller cannot smuggle a foreign scope through location_id.
-  if (raw && !isSunsetLocationId(raw)) {
-    return { ok: false, location_id: null, raw };
-  }
-  return { ok: true, location_id: normalizeSunsetLocationId(raw || DEFAULT_SUNSET_LOCATION_ID), raw };
+  return resolveSunsetBotBodyLocation(body);
 }
 
 async function handleBotSunsetRentalPrice(req, res) {
