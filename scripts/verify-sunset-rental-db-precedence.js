@@ -54,6 +54,8 @@ const DB_BUNDLE_HALFDAY_SOMO = 2000;
 const DB_BUNDLE_HALFDAY_SARDI = 1000;
 const BASELINE_BUNDLE_HALFDAY = 1500;
 
+const FIXED_NOW = new Date('2026-07-15T12:00:00Z');
+
 function schemaRowsForLocation(loc, amountCents) {
   const rows = [
     {
@@ -106,61 +108,110 @@ function schemaRowsForLocation(loc, amountCents) {
 }
 
 /**
- * PG mock that inspects SQL parameters against real portal row shape.
- * Returns a row only when item_code matches the combined offering__duration code
- * and does NOT require unit=half_day (billing unit is session).
+ * Faithful PG mock: column presence from parameterized information_schema queries,
+ * effective-window filtering, and deterministic ordering matching production SQL.
  */
-function makeSchemaPg(locationsConfig) {
+function makeSchemaPg(opts = {}) {
+  const locationsConfig = opts.locationsConfig || {};
+  const extraRows = opts.extraRows || [];
+  const columnPresence = {
+    location_id: true,
+    effective_from: true,
+    effective_to: true,
+    updated_at: true,
+    ...(opts.columnPresence || {}),
+  };
+  const fixedNow = opts.fixedNow || FIXED_NOW;
+
   const capturedQueries = [];
+  const columnQueries = [];
   const allRows = [];
   for (const [loc, amount] of Object.entries(locationsConfig)) {
     if (amount != null) allRows.push(...schemaRowsForLocation(loc, amount));
+  }
+  allRows.push(...extraRows);
+
+  function columnPresent(tableName, columnName) {
+    if (tableName !== 'tenant_price_rules') return false;
+    return columnPresence[columnName] === true;
+  }
+
+  function withinEffectiveWindow(row) {
+    const from = row.effective_from ? new Date(row.effective_from) : null;
+    const to = row.effective_to ? new Date(row.effective_to) : null;
+    if (from && from > fixedNow) return false;
+    if (to && to < fixedNow) return false;
+    return true;
+  }
+
+  function orderCandidates(rows) {
+    return rows.slice().sort((a, b) => {
+      const aFrom = a.effective_from ? new Date(a.effective_from).getTime() : Number.NEGATIVE_INFINITY;
+      const bFrom = b.effective_from ? new Date(b.effective_from).getTime() : Number.NEGATIVE_INFINITY;
+      if (bFrom !== aFrom) return bFrom - aFrom;
+      const aUp = a.updated_at ? new Date(a.updated_at).getTime() : Number.NEGATIVE_INFINITY;
+      const bUp = b.updated_at ? new Date(b.updated_at).getTime() : Number.NEGATIVE_INFINITY;
+      if (bUp !== aUp) return bUp - aUp;
+      return String(b.id).localeCompare(String(a.id)) * -1;
+    });
   }
 
   function matchPriceQuery(sql, params) {
     const clientSlug = params[0];
     const itemType = params[1];
     const itemCode = params[2];
-    let unitFilter = null;
+    let billingUnit = null;
     let locationId = null;
-    if (/unit = \$4/i.test(sql)) {
-      unitFilter = params[3];
-      locationId = /location_id = \$5/i.test(sql) ? params[4] : null;
+    if (/unit = \$4/i.test(sql) && /location_id = \$5/i.test(sql)) {
+      billingUnit = params[3];
+      locationId = params[4];
     } else if (/location_id = \$4/i.test(sql)) {
       locationId = params[3];
     }
-    return allRows.filter((r) => r.client_slug === clientSlug
+    let matched = allRows.filter((r) => r.client_slug === clientSlug
       && r.item_type === itemType
       && r.item_code === itemCode
-      && (unitFilter == null || r.unit === unitFilter)
+      && (billingUnit == null || r.unit === billingUnit)
       && r.active === true
-      && (locationId == null || r.location_id === locationId));
+      && (locationId == null || r.location_id === locationId)
+      && withinEffectiveWindow(r));
+    matched = orderCandidates(matched);
+    return matched[0] || null;
   }
 
   return {
     capturedQueries,
+    columnQueries,
     query: async (sql, params) => {
       const s = String(sql);
       capturedQueries.push({ sql: s, params: params ? [...params] : [] });
       if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_price_rules' }] };
-      if (/information_schema\.columns/i.test(s) && /location_id/i.test(s)) return { rows: [{ '?column?': 1 }] };
-      if (/information_schema\.columns/i.test(s) && /effective_from/i.test(s)) return { rows: [{ '?column?': 1 }] };
-      if (/information_schema\.columns/i.test(s) && /effective_to/i.test(s)) return { rows: [{ '?column?': 1 }] };
-      if (/information_schema\.columns/i.test(s) && /updated_at/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/information_schema\.columns/i.test(s)) {
+        if (/column_name = \$2/i.test(s)) {
+          const tableName = params[0];
+          const columnName = params[1];
+          columnQueries.push({ tableName, columnName });
+          return { rows: columnPresent(tableName, columnName) ? [{ '?column?': 1 }] : [] };
+        }
+        if (/column_name = 'location_id'/i.test(s)) {
+          const tableName = params[0];
+          columnQueries.push({ tableName, columnName: 'location_id' });
+          return { rows: columnPresent(tableName, 'location_id') ? [{ '?column?': 1 }] : [] };
+        }
+      }
       if (/FROM tenant_price_rules/i.test(s)) {
-        const matched = matchPriceQuery(s, params);
-        const row = matched[0] || null;
-        const selectCols = row
-          ? {
+        const row = matchPriceQuery(s, params);
+        if (!row) return { rows: [] };
+        return {
+          rows: [{
             amount_cents: row.amount_cents,
             currency: row.currency,
             item_type: row.item_type,
             item_code: row.item_code,
             unit: row.unit,
             location_id: row.location_id,
-          }
-          : null;
-        return { rows: row ? [selectCols] : [] };
+          }],
+        };
       }
       return { rows: [] };
     },
@@ -177,7 +228,7 @@ async function main() {
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 
   console.log('[A] DB rule wins over baseline seed (real item_code + billing unit)');
-  const pgSomo = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI });
+  const pgSomo = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI } });
   const somo = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: 'sunset-somo',
@@ -188,8 +239,10 @@ async function main() {
   const somoQueries = priceQueries(pgSomo);
   assert('resolver queries combined item_code board_and_suit_rental__half_day',
     somoQueries.some((q) => q.params[2] === PERSISTED_ITEM_CODE), JSON.stringify(somoQueries));
-  assert('resolver does not filter unit=half_day (duration is not billing unit)',
-    !somoQueries.some((q) => /unit\s*=\s*\$4/i.test(q.sql) && q.params.includes(GUEST_DURATION)));
+  assert('resolver filters billing unit=session separately from guest duration',
+    somoQueries.some((q) => /unit\s*=\s*\$4/i.test(q.sql) && q.params[3] === BILLING_UNIT));
+  assert('resolver does not use guest duration half_day as billing unit',
+    !somoQueries.some((q) => /unit\s*=\s*\$4/i.test(q.sql) && q.params[3] === GUEST_DURATION));
   assert('effective lookup returns the DB amount, not the baseline',
     somo.ok === true && somo.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(somo));
   assert('guest-facing duration remains half_day',
@@ -201,7 +254,7 @@ async function main() {
   assert('live quote allowed for owner rule', somo.live_quote_allowed === true);
 
   console.log('\n[B] Location isolation — Somo and elSardi never cross');
-  const pgSardi = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI });
+  const pgSardi = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI } });
   const sardi = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: 'sunset-sardinero',
@@ -211,7 +264,7 @@ async function main() {
   });
   assert('Sardinero returns only Sardinero price', sardi.ok === true && sardi.amount_cents === DB_BUNDLE_HALFDAY_SARDI, JSON.stringify(sardi));
   assert('Somo ≠ Sardinero (no silent substitution)', somo.amount_cents !== sardi.amount_cents);
-  const pgSomoOnly = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO });
+  const pgSomoOnly = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
   const sardiMissing = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: 'sunset-sardinero',
@@ -231,7 +284,7 @@ async function main() {
   assert('unknown location fails closed', unknownLoc.ok === false && unknownLoc.reason === 'unknown_location');
 
   console.log('\n[C] Missing rule (tables exist) → price_not_configured, never baseline');
-  const pgEmpty = makeSchemaPg({});
+  const pgEmpty = makeSchemaPg({ locationsConfig: {} });
   const missing = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: 'sunset-somo',
@@ -244,7 +297,7 @@ async function main() {
     missing.amount_cents == null || missing.amount_cents !== BASELINE_BUNDLE_HALFDAY);
 
   console.log('\n[C2] Inactive historical rows cannot win over the single active row');
-  const pgVersioned = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO });
+  const pgVersioned = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
   const versioned = await lookupSunsetRentalPriceAsync({
     client_slug: 'sunset',
     location_id: 'sunset-somo',
@@ -254,6 +307,237 @@ async function main() {
   });
   assert('active row amount wins over higher inactive amounts',
     versioned.ok === true && versioned.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(versioned));
+
+  console.log('\n[H] Billing-unit isolation — session wins over newer higher day row');
+  const SESSION_AMOUNT = 2100;
+  const DAY_AMOUNT = 9900;
+  const pgBilling = makeSchemaPg({
+    locationsConfig: {},
+    extraRows: [
+      {
+        id: 'sess-authoritative',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        display_name: 'Bundle session',
+        currency: 'EUR',
+        amount_cents: SESSION_AMOUNT,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-01-01',
+        effective_to: null,
+        updated_at: '2026-05-01',
+      },
+      {
+        id: 'day-higher-newer',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        display_name: 'Bundle day (wrong unit)',
+        currency: 'EUR',
+        amount_cents: DAY_AMOUNT,
+        unit: 'day',
+        active: true,
+        effective_from: '2026-06-01',
+        effective_to: null,
+        updated_at: '2026-06-15',
+      },
+    ],
+  });
+  const billingIso = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgBilling,
+  });
+  const billingQueries = priceQueries(pgBilling);
+  assert('billing isolation selects session row amount',
+    billingIso.ok === true && billingIso.amount_cents === SESSION_AMOUNT, JSON.stringify(billingIso));
+  assert('billing isolation SQL filters unit=session',
+    billingQueries.some((q) => /unit\s*=\s*\$4/i.test(q.sql) && q.params[3] === BILLING_UNIT));
+  assert('billing isolation never returns day row through ORDER BY',
+    billingIso.ok === true && billingIso.amount_cents !== DAY_AMOUNT);
+
+  console.log('\n[I] Billing-unit absence — no session row fails closed');
+  const pgNoSession = makeSchemaPg({
+    locationsConfig: {},
+    extraRows: [{
+      id: 'day-only',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      display_name: 'Bundle day only',
+      currency: 'EUR',
+      amount_cents: DAY_AMOUNT,
+      unit: 'day',
+      active: true,
+      effective_from: '2026-01-01',
+      effective_to: null,
+      updated_at: '2026-06-01',
+    }],
+  });
+  const noSession = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgNoSession,
+  });
+  assert('missing session row → price_not_configured',
+    noSession.ok === false && noSession.reason === 'price_not_configured', JSON.stringify(noSession));
+  assert('missing session row does NOT return day/person row',
+    noSession.amount_cents == null || noSession.amount_cents !== DAY_AMOUNT);
+  assert('missing session row does NOT fall back to baseline',
+    noSession.amount_cents == null || noSession.amount_cents !== BASELINE_BUNDLE_HALFDAY);
+
+  console.log('\n[J] Missing location_id column — fail closed before tenant-wide SELECT');
+  const pgNoLocCol = makeSchemaPg({
+    locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI },
+    columnPresence: { location_id: false },
+  });
+  const noLocCol = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-sardinero',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgNoLocCol,
+  });
+  assert('missing location_id column → price_not_configured',
+    noLocCol.ok === false && noLocCol.reason === 'price_not_configured', JSON.stringify(noLocCol));
+  assert('missing location_id column → no price SELECT issued',
+    priceQueries(pgNoLocCol).length === 0, String(priceQueries(pgNoLocCol).length));
+  assert('missing location_id column → no Somo substitution for Sardinero request',
+    noLocCol.ok === false && (noLocCol.amount_cents == null || noLocCol.amount_cents !== DB_BUNDLE_HALFDAY_SOMO));
+
+  console.log('\n[K] Effective windows — only currently effective session row wins');
+  const EFFECTIVE_AMOUNT = 2200;
+  const pgWindows = makeSchemaPg({
+    locationsConfig: {},
+    extraRows: [
+      {
+        id: 'expired-session',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: 8800,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2025-01-01',
+        effective_to: '2026-01-01',
+        updated_at: '2025-12-01',
+      },
+      {
+        id: 'future-session',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: 7700,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2027-01-01',
+        effective_to: null,
+        updated_at: '2027-01-02',
+      },
+      {
+        id: 'current-session',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: EFFECTIVE_AMOUNT,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-03-01',
+        effective_to: null,
+        updated_at: '2026-04-01',
+      },
+    ],
+  });
+  const windowed = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgWindows,
+  });
+  assert('effective window returns only currently effective session row',
+    windowed.ok === true && windowed.amount_cents === EFFECTIVE_AMOUNT, JSON.stringify(windowed));
+
+  console.log('\n[L] Deterministic ordering — newest effective session row wins, not highest amount');
+  const ORDER_WIN = 2300;
+  const ORDER_LOSE = 9500;
+  const pgOrder = makeSchemaPg({
+    locationsConfig: {},
+    extraRows: [
+      {
+        id: 'aaa-older-effective',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: ORDER_LOSE,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-01-01',
+        effective_to: null,
+        updated_at: '2026-02-01',
+      },
+      {
+        id: 'zzz-newer-effective',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: ORDER_WIN,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-06-01',
+        effective_to: null,
+        updated_at: '2026-06-02',
+      },
+    ],
+  });
+  const ordered = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgOrder,
+  });
+  const orderSql = priceQueries(pgOrder).map((q) => q.sql).join('\n');
+  assert('deterministic ordering returns newer effective_from row',
+    ordered.ok === true && ordered.amount_cents === ORDER_WIN, JSON.stringify(ordered));
+  assert('deterministic ordering does NOT pick higher amount merely because it is higher',
+    ordered.ok === true && ordered.amount_cents !== ORDER_LOSE);
+  assert('deterministic ordering SQL includes effective_from and updated_at ordering',
+    /effective_from DESC NULLS LAST/i.test(orderSql) && /updated_at DESC NULLS LAST/i.test(orderSql));
+
+  console.log('\n[M] Faithful column introspection — parameterized column_name checks');
+  const pgCols = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgCols,
+  });
+  const asked = new Set(pgCols.columnQueries.map((q) => q.columnName));
+  assert('column introspection queries location_id by parameter',
+    asked.has('location_id') && pgCols.columnQueries.some((q) => q.columnName === 'location_id' && q.tableName === 'tenant_price_rules'));
+  assert('column introspection queries effective_from by parameter', asked.has('effective_from'));
+  assert('column introspection queries effective_to by parameter', asked.has('effective_to'));
+  assert('column introspection queries updated_at by parameter', asked.has('updated_at'));
 
   console.log('\n[D] Query failure → typed failure, never baseline');
   const boom = {

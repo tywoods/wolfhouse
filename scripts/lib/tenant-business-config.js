@@ -522,17 +522,17 @@ function mergeDbWithConfig(configBaseline, dbResult) {
  * fail-closed — it must NOT fall back to the repository baseline seed when the
  * DB is the source of truth. Caller decides what to do with each status.
  *
- * Scoping: client_slug + item_type + item_code (offering__duration) + active=true,
- * and location_id when that column exists (never silently crossing locations).
- * Guest-facing duration is encoded in item_code; tenant_price_rules.unit is billing
- * granularity (session/day/person) and is NOT filtered by duration.
+ * Scoping: client_slug + item_type + exact item_code (offering__duration) +
+ * exact billing unit + active=true + exact location_id. Guest-facing duration is
+ * encoded in item_code; tenant_price_rules.unit is billing granularity (session).
  * effective_from/effective_to are honored when present.
  *
  * @param {import('pg').PoolClient} client
- * @param {{ clientSlug:string, locationId:string, itemType:string, itemCode:string, unit:string }} params
- *   params.itemCode — offering key (e.g. board_and_suit_rental)
- *   params.unit     — guest duration key (e.g. half_day), appended to item_code
- * @returns {Promise<{status:'found'|'not_found'|'tables_missing', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
+ * @param {{ clientSlug:string, locationId:string, itemType:string, itemCode:string, duration:string, billingUnit:string }} params
+ *   params.itemCode    — offering key (e.g. board_and_suit_rental)
+ *   params.duration    — guest duration key (e.g. half_day), appended to item_code
+ *   params.billingUnit — persisted billing unit (e.g. session)
+ * @returns {Promise<{status:'found'|'not_found'|'tables_missing'|'billing_unit_required'|'location_scope_unavailable', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
  */
 async function loadTenantPriceRuleFromDb(client, params) {
   const clientSlug = String((params && params.clientSlug) || '').trim();
@@ -541,9 +541,14 @@ async function loadTenantPriceRuleFromDb(client, params) {
   }
   const itemType = String((params && params.itemType) || '').trim();
   const offeringKey = String((params && params.itemCode) || '').trim();
-  const durationKey = String((params && params.unit) || '').trim();
+  const durationKey = String((params && params.duration) || '').trim();
+  const billingUnit = String((params && params.billingUnit) || '').trim();
   const persistedItemCode = durationKey ? `${offeringKey}__${durationKey}` : offeringKey;
   const loc = normalizeSunsetLocationId(params && params.locationId);
+
+  if (!billingUnit) {
+    return { status: 'billing_unit_required', location_id: loc };
+  }
 
   const reg = await client.query("SELECT to_regclass('public.tenant_price_rules') AS reg");
   if (!reg.rows[0] || reg.rows[0].reg == null) {
@@ -551,16 +556,23 @@ async function loadTenantPriceRuleFromDb(client, params) {
   }
 
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  if (!hasLoc) {
+    return { status: 'location_scope_unavailable', location_id: loc };
+  }
+
   const hasFrom = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_from');
   const hasTo = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_to');
   const hasUpdated = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'updated_at');
 
-  const where = ['client_slug = $1', 'item_type = $2', 'item_code = $3', 'active = true'];
-  const vals = [clientSlug, itemType, persistedItemCode];
-  if (hasLoc) {
-    vals.push(loc);
-    where.push(`location_id = $${vals.length}`);
-  }
+  const where = [
+    'client_slug = $1',
+    'item_type = $2',
+    'item_code = $3',
+    'unit = $4',
+    'active = true',
+    'location_id = $5',
+  ];
+  const vals = [clientSlug, itemType, persistedItemCode, billingUnit, loc];
   if (hasFrom) where.push('(effective_from IS NULL OR effective_from <= NOW())');
   if (hasTo) where.push('(effective_to IS NULL OR effective_to >= NOW())');
 
@@ -570,7 +582,7 @@ async function loadTenantPriceRuleFromDb(client, params) {
   orderParts.push('id DESC');
   const orderBy = orderParts.join(', ');
 
-  const selectCols = `amount_cents, currency, item_type, item_code, unit${hasLoc ? ', location_id' : ''}`;
+  const selectCols = 'amount_cents, currency, item_type, item_code, unit, location_id';
   const res = await client.query(
     `SELECT ${selectCols}
        FROM tenant_price_rules
@@ -589,8 +601,8 @@ async function loadTenantPriceRuleFromDb(client, params) {
     currency: String(row.currency || 'EUR').trim() || 'EUR',
     item_type: row.item_type || itemType,
     item_code: row.item_code || persistedItemCode,
-    unit: row.unit || null,
-    location_id: hasLoc ? normalizeSunsetLocationId(row.location_id) : loc,
+    unit: row.unit || billingUnit,
+    location_id: normalizeSunsetLocationId(row.location_id),
   };
 }
 

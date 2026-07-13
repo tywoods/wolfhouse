@@ -177,6 +177,13 @@ function lookupSunsetRentalPrice(opts) {
   };
 }
 
+function resolveRentalBillingUnit(durationKey) {
+  const key = String(durationKey || '').trim();
+  if (/hour|half_day|lesson/i.test(key)) return 'session';
+  if (/^(1|2|5|7)_days?$/.test(key) || key === '1_day') return 'day';
+  return null;
+}
+
 async function defaultLoadRentalRule(params) {
   const { loadTenantPriceRuleFromDb } = require('./tenant-business-config');
   if (params.pgClient) {
@@ -242,6 +249,20 @@ async function lookupSunsetRentalPriceAsync(opts) {
     });
   }
 
+  const billingUnit = resolveRentalBillingUnit(duration);
+  if (!billingUnit) {
+    return {
+      ok: false,
+      reason: 'price_not_configured',
+      client_slug: clientSlug,
+      tenant_id: clientSlug,
+      location_id: locationId,
+      item: itemCode,
+      duration,
+      source: 'db',
+    };
+  }
+
   const loadRule = options.loadRule || defaultLoadRentalRule;
   let dbRes;
   try {
@@ -250,7 +271,8 @@ async function lookupSunsetRentalPriceAsync(opts) {
       locationId,
       itemType: 'rental',
       itemCode,
-      unit: duration,
+      duration,
+      billingUnit,
       pgClient: options.pgClient,
     });
   } catch (err) {
@@ -280,6 +302,21 @@ async function lookupSunsetRentalPriceAsync(opts) {
   }
 
   if (dbRes.status !== 'found') {
+    const failClosed = dbRes.status === 'billing_unit_required'
+      || dbRes.status === 'location_scope_unavailable'
+      || dbRes.status === 'not_found';
+    if (!failClosed) {
+      return {
+        ok: false,
+        reason: 'price_lookup_failed',
+        client_slug: clientSlug,
+        tenant_id: clientSlug,
+        location_id: locationId,
+        item: itemCode,
+        duration,
+        detail: dbRes.status,
+      };
+    }
     return {
       ok: false,
       reason: 'price_not_configured',
