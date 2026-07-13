@@ -42149,6 +42149,14 @@ async function handleBotSunsetBookingCreate(req, res) {
       detail: 'Sunset is a surf school (courses/rentals/lessons), not accommodation. Remove room/bed/package/nights fields.',
     });
   }
+  if (body.guest_confirmed_booking !== true) {
+    return sendJSON(res, 400, {
+      ok: false,
+      success: false,
+      reason: 'guest_confirmed_booking_required',
+      detail: 'guest_confirmed_booking must be the literal boolean true before creating a booking.',
+    });
+  }
   const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
   if (!dateNorm.ok) {
     return sendJSON(res, 400, {

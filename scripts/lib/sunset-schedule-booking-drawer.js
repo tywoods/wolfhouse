@@ -352,6 +352,11 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   if (!bundle) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
   }
+  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
+  const recordLocationId = resolveBundleLocationId(bundle);
+  if (recordLocationId !== activeLocationId) {
+    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
+  }
   let paymentReconcile = null;
   if (opts.stripe && bundle.booking && bundle.booking.booking_id) {
     paymentReconcile = await reconcilePendingStripePaymentsForBooking(pg, opts.stripe, {
@@ -363,11 +368,6 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     }
   }
   const meta = parseMeta(bundle.booking.metadata);
-  const activeLocationId = normalizeSunsetLocationId(opts.locationId);
-  const recordLocationId = resolveBundleLocationId(bundle);
-  if (recordLocationId !== activeLocationId) {
-    return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
-  }
   if (!bundleIsStaffManualSchedule(bundle)) {
     return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
   }
@@ -424,6 +424,34 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
   };
 }
 
+function resolveBookingEditAttribution(bundle, actor) {
+  const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
+  const originallyLuna = meta.source === LUNA_METADATA_SOURCE_TAG
+    || meta.luna_guest_booking === true
+    || (meta.actor_source && isLunaTrustedActor({ source: meta.actor_source }))
+    || (bundle && bundle.services || []).some((sr) => String(sr.record_source || sr.source || '').toLowerCase() === LUNA_DB_SOURCE);
+  if (originallyLuna) {
+    return {
+      dbSource: LUNA_DB_SOURCE,
+      metadataSource: LUNA_METADATA_SOURCE_TAG,
+      staffManualSchedule: false,
+      lunaGuestBooking: true,
+      actorSource: meta.actor_source || null,
+      createdByStaff: null,
+      lastEditedByStaff: actor && actor.email ? actor.email : null,
+    };
+  }
+  return {
+    dbSource: DB_SOURCE,
+    metadataSource: METADATA_SOURCE_TAG,
+    staffManualSchedule: true,
+    lunaGuestBooking: false,
+    actorSource: null,
+    createdByStaff: actor && actor.email ? actor.email : null,
+    lastEditedByStaff: actor && actor.email ? actor.email : null,
+  };
+}
+
 async function updateSunsetScheduleBooking(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -466,6 +494,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
   const paymentMethod = input.payment_status === 'paid'
     ? normalizePaymentMethod(opts.body && opts.body.payment_method)
     : null;
+  const editAttribution = resolveBookingEditAttribution(bundle, opts.actor);
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const bundleId = meta.bundle_id || crypto.randomBytes(8).toString('hex');
@@ -514,6 +543,11 @@ async function updateSunsetScheduleBooking(pg, opts) {
           sunset_payment_method: paymentMethod,
           sunset_stripe_link_stale: true,
           sunset_updated_at: new Date().toISOString(),
+          source: editAttribution.metadataSource,
+          staff_manual_schedule: editAttribution.staffManualSchedule,
+          luna_guest_booking: editAttribution.lunaGuestBooking,
+          actor_source: editAttribution.actorSource,
+          last_edited_by_staff: editAttribution.lastEditedByStaff,
         }, recordLocationId)),
         bookingId,
       ],
@@ -521,8 +555,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
 
     await pg.query(
       `DELETE FROM booking_service_records
-        WHERE client_slug = $1 AND booking_id = $2::uuid AND source = $3`,
-      [clientSlug, bookingId, DB_SOURCE],
+        WHERE client_slug = $1 AND booking_id = $2::uuid AND source = ANY($3::text[])`,
+      [clientSlug, bookingId, [DB_SOURCE, LUNA_DB_SOURCE]],
     );
 
     const createdRows = [];
@@ -532,8 +566,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
       const plLabel = pl.label || privateLessonConfig.label || 'Private Course';
       for (const session of pl.sessions) {
         const srMeta = attachLocationToMetadata({
-          source: METADATA_SOURCE_TAG,
-          staff_manual_schedule: true,
+          source: editAttribution.metadataSource,
+          staff_manual_schedule: editAttribution.staffManualSchedule,
           staff_ui_service_type: 'private_lesson',
           component: 'private_lesson',
           components: componentKeys,
@@ -547,7 +581,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
           default_duration_minutes: privateLessonConfig.default_duration_minutes || 120,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
-          updated_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+          updated_by_staff: editAttribution.lastEditedByStaff,
+          last_edited_by_staff: editAttribution.lastEditedByStaff,
         }, recordLocationId);
         const row = await insertServiceRecord(pg, [
           clientSlug,
@@ -558,7 +593,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
           session.date,
           pl.surfer_count,
           srPayment,
-          DB_SOURCE,
+          editAttribution.dbSource,
           JSON.stringify(srMeta),
         ], {
           service_time_local: session.start,
@@ -575,8 +610,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const srMeta = attachLocationToMetadata({
-          source: METADATA_SOURCE_TAG,
-          staff_manual_schedule: true,
+          source: editAttribution.metadataSource,
+          staff_manual_schedule: editAttribution.staffManualSchedule,
           staff_ui_service_type: staffUiServiceType(componentKey),
           component: componentKey,
           components: componentKeys,
@@ -587,7 +622,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
           course_label: componentKey === 'course' ? part.course_label : null,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
-          updated_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+          updated_by_staff: editAttribution.lastEditedByStaff,
+          last_edited_by_staff: editAttribution.lastEditedByStaff,
         }, recordLocationId);
         const row = await insertServiceRecord(pg, [
           clientSlug,
@@ -598,7 +634,7 @@ async function updateSunsetScheduleBooking(pg, opts) {
           serviceDate,
           part.quantity,
           srPayment,
-          DB_SOURCE,
+          editAttribution.dbSource,
           JSON.stringify(srMeta),
         ]);
         createdRows.push(row);
@@ -622,8 +658,9 @@ async function updateSunsetScheduleBooking(pg, opts) {
         notes: input.notes || null,
         needsReply: input.needs_reply,
         guestPhone: guest_phone || null,
-        actorEmail: opts.actor && opts.actor.email ? opts.actor.email : null,
+        actorEmail: editAttribution.lastEditedByStaff,
         idempotencyKey: null,
+        attribution: editAttribution,
       });
       addonRows.forEach((r) => createdRows.push(r));
     }
@@ -704,6 +741,7 @@ async function cancelSunsetScheduleBooking(pg, opts) {
 }
 
 module.exports = {
+  resolveBookingEditAttribution,
   getSunsetScheduleBookingDrawerContext,
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,

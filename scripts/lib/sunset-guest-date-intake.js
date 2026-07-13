@@ -15,6 +15,7 @@ const MONTH_MAP = {
 };
 
 const MADRID_TZ = 'Europe/Madrid';
+const DEFAULT_MAX_BOOKING_HORIZON_DAYS = 730;
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -33,6 +34,41 @@ function madridCalendarParts(refDate) {
     if (p.type !== 'literal') bag[p.type] = Number(p.value);
   }
   return { year: bag.year, month: bag.month, day: bag.day };
+}
+
+function isoToComparable(iso) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return Number(m[1]) * 10000 + Number(m[2]) * 100 + Number(m[3]);
+}
+
+function madridTodayComparable(refDate) {
+  const ref = madridCalendarParts(refDate);
+  return ref.year * 10000 + ref.month * 100 + ref.day;
+}
+
+function addDaysToIso(iso, days) {
+  const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  const dt = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  dt.setUTCDate(dt.getUTCDate() + days);
+  return `${dt.getUTCFullYear()}-${pad2(dt.getUTCMonth() + 1)}-${pad2(dt.getUTCDate())}`;
+}
+
+function resolveSunsetMaxBookingHorizonDays(envValue) {
+  const raw = envValue != null ? envValue : process.env.SUNSET_MAX_BOOKING_HORIZON_DAYS;
+  if (raw == null || raw === '') return DEFAULT_MAX_BOOKING_HORIZON_DAYS;
+  const parsed = parseInt(String(raw), 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 3650) {
+    return DEFAULT_MAX_BOOKING_HORIZON_DAYS;
+  }
+  return parsed;
+}
+
+function madridHorizonIso(refDate, horizonDays) {
+  const ref = madridCalendarParts(refDate);
+  const todayIso = `${ref.year}-${pad2(ref.month)}-${pad2(ref.day)}`;
+  return addDaysToIso(todayIso, horizonDays);
 }
 
 function isValidGregorianDate(year, month, day) {
@@ -61,7 +97,33 @@ function toIsoDate(year, month, day) {
   return `${year}-${pad2(month)}-${pad2(day)}`;
 }
 
-function parseIsoDateStrict(value) {
+function validateSunsetGuestDateBounds(iso, refDate, opts) {
+  opts = opts || {};
+  const comparable = isoToComparable(iso);
+  const today = madridTodayComparable(refDate);
+  if (comparable == null) {
+    return { ok: false, reason: 'invalid_iso_format' };
+  }
+  if (opts.explicit && comparable < today) {
+    return { ok: false, reason: 'explicit_past_date', needs_clarification: true, iso };
+  }
+  const horizonDays = resolveSunsetMaxBookingHorizonDays(opts.horizonDays);
+  const horizonIso = madridHorizonIso(refDate, horizonDays);
+  const horizonComparable = isoToComparable(horizonIso);
+  if (comparable > horizonComparable) {
+    return {
+      ok: false,
+      reason: 'booking_horizon_exceeded',
+      needs_clarification: true,
+      iso,
+      horizon_days: horizonDays,
+      max_date: horizonIso,
+    };
+  }
+  return { ok: true, iso, horizon_days: horizonDays, max_date: horizonIso };
+}
+
+function parseIsoDateStrict(value, refDate, opts) {
   const m = String(value || '').trim().match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!m) return { ok: false, reason: 'invalid_iso_format' };
   const year = Number(m[1]);
@@ -70,13 +132,16 @@ function parseIsoDateStrict(value) {
   if (!isValidGregorianDate(year, month, day)) {
     return { ok: false, reason: 'invalid_calendar_date', needs_clarification: true };
   }
-  return { ok: true, iso: toIsoDate(year, month, day), explicit_year: true };
+  const iso = toIsoDate(year, month, day);
+  const bounded = validateSunsetGuestDateBounds(iso, refDate, { ...opts, explicit: true });
+  if (!bounded.ok) return bounded;
+  return { ok: true, iso, explicit_year: true, ...bounded };
 }
 
-function parseNamedGuestDate(text, refDate) {
+function parseNamedGuestDate(text, refDate, opts) {
   const raw = String(text || '').trim();
   if (!raw) return { ok: false, reason: 'empty_date' };
-  const explicitYear = parseExplicitYear(raw);
+  const explicitYearInText = parseExplicitYear(raw);
   const patterns = [
     /\b(\d{1,2})(?:st|nd|rd|th)?\s+(?:of\s+)?([a-záéíóúüñ]+)(?:,?\s+(20\d{2}))?\b/i,
     /\b([a-záéíóúüñ]+)\s+(\d{1,2})(?:st|nd|rd|th)?(?:,?\s+(20\d{2}))?\b/i,
@@ -87,7 +152,7 @@ function parseNamedGuestDate(text, refDate) {
     if (!m) continue;
     let day;
     let monthName;
-    let year = explicitYear;
+    let year = explicitYearInText;
     if (/^\d/.test(m[1])) {
       day = Number(m[1]);
       monthName = m[2];
@@ -99,20 +164,22 @@ function parseNamedGuestDate(text, refDate) {
     }
     const month = monthFromName(monthName);
     if (!month) continue;
+    const explicitYear = !!year;
     const resolvedYear = year || inferSunsetGuestYear(month, day, refDate);
     const iso = toIsoDate(resolvedYear, month, day);
     if (!iso) {
       return { ok: false, reason: 'invalid_calendar_date', needs_clarification: true, month, day, year: resolvedYear };
     }
-    const ref = madridCalendarParts(refDate);
-    if (year && year < ref.year) {
-      return { ok: false, reason: 'explicit_past_year', needs_clarification: true, iso };
-    }
+    const bounded = validateSunsetGuestDateBounds(iso, refDate, {
+      ...opts,
+      explicit: explicitYear,
+    });
+    if (!bounded.ok) return bounded;
     return {
       ok: true,
       iso,
-      explicit_year: !!year,
-      inferred_year: !year,
+      explicit_year: explicitYear,
+      inferred_year: !explicitYear,
       month,
       day,
       year: resolvedYear,
@@ -124,32 +191,43 @@ function parseNamedGuestDate(text, refDate) {
 /**
  * Normalize one guest date field to canonical YYYY-MM-DD.
  */
-function normalizeSunsetGuestDateField(value, refDate) {
+function normalizeSunsetGuestDateField(value, refDate, opts) {
   const raw = String(value || '').trim();
   if (!raw) return { ok: false, reason: 'empty_date' };
-  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return parseIsoDateStrict(raw);
-  return parseNamedGuestDate(raw, refDate);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return parseIsoDateStrict(raw, refDate, opts);
+  return parseNamedGuestDate(raw, refDate, opts);
 }
 
-function normalizeDateList(values, refDate) {
+function normalizeDateList(values, refDate, opts) {
   const out = [];
   for (const value of values || []) {
-    const parsed = normalizeSunsetGuestDateField(value, refDate);
+    const parsed = normalizeSunsetGuestDateField(value, refDate, opts);
     if (!parsed.ok) return parsed;
     out.push(parsed.iso);
   }
   return { ok: true, dates: out };
 }
 
+function validateDateRangeBounds(dateFrom, dateTo, refDate, opts) {
+  const fromParsed = parseIsoDateStrict(dateFrom, refDate, opts);
+  if (!fromParsed.ok) return fromParsed;
+  const toParsed = parseIsoDateStrict(dateTo, refDate, opts);
+  if (!toParsed.ok) return toParsed;
+  if (isoToComparable(toParsed.iso) < isoToComparable(fromParsed.iso)) {
+    return { ok: false, reason: 'date_range_invalid', needs_clarification: true };
+  }
+  return { ok: true, date_from: fromParsed.iso, date_to: toParsed.iso };
+}
+
 /**
  * Normalize booking-create body date fields in place (returns new body).
  */
-function normalizeSunsetBookingDatesInBody(body, refDate) {
+function normalizeSunsetBookingDatesInBody(body, refDate, opts) {
   const b = body && typeof body === 'object' ? { ...body } : {};
   const ref = refDate || new Date();
 
-  if (b.service_date != null && String(b.service_date).trim() && !/^\d{4}-\d{2}-\d{2}$/.test(String(b.service_date).trim())) {
-    const parsed = normalizeSunsetGuestDateField(b.service_date, ref);
+  if (b.service_date != null && String(b.service_date).trim()) {
+    const parsed = normalizeSunsetGuestDateField(b.service_date, ref, opts);
     if (!parsed.ok) return { ok: false, body: b, ...parsed };
     b.service_date = parsed.iso;
   }
@@ -157,13 +235,7 @@ function normalizeSunsetBookingDatesInBody(body, refDate) {
   if (Array.isArray(b.service_dates)) {
     const normalized = [];
     for (const d of b.service_dates) {
-      if (/^\d{4}-\d{2}-\d{2}$/.test(String(d || '').trim())) {
-        const strict = parseIsoDateStrict(d);
-        if (!strict.ok) return { ok: false, body: b, ...strict };
-        normalized.push(strict.iso);
-        continue;
-      }
-      const parsed = normalizeSunsetGuestDateField(d, ref);
+      const parsed = normalizeSunsetGuestDateField(d, ref, opts);
       if (!parsed.ok) return { ok: false, body: b, ...parsed };
       normalized.push(parsed.iso);
     }
@@ -171,18 +243,23 @@ function normalizeSunsetBookingDatesInBody(body, refDate) {
   }
 
   for (const key of ['date_from', 'date_to']) {
-    if (b[key] != null && String(b[key]).trim() && !/^\d{4}-\d{2}-\d{2}$/.test(String(b[key]).trim())) {
-      const parsed = normalizeSunsetGuestDateField(b[key], ref);
+    if (b[key] != null && String(b[key]).trim()) {
+      const parsed = normalizeSunsetGuestDateField(b[key], ref, opts);
       if (!parsed.ok) return { ok: false, body: b, ...parsed };
       b[key] = parsed.iso;
     }
   }
 
+  if (b.date_from && b.date_to) {
+    const range = validateDateRangeBounds(b.date_from, b.date_to, ref, opts);
+    if (!range.ok) return { ok: false, body: b, ...range };
+  }
+
   if (b.components && b.components.private_lesson && Array.isArray(b.components.private_lesson.sessions)) {
     const sessions = b.components.private_lesson.sessions.map((s) => ({ ...s }));
     for (const session of sessions) {
-      if (session.date && !/^\d{4}-\d{2}-\d{2}$/.test(String(session.date).trim())) {
-        const parsed = normalizeSunsetGuestDateField(session.date, ref);
+      if (session.date) {
+        const parsed = normalizeSunsetGuestDateField(session.date, ref, opts);
         if (!parsed.ok) return { ok: false, body: b, ...parsed };
         session.date = parsed.iso;
       }
@@ -190,15 +267,34 @@ function normalizeSunsetBookingDatesInBody(body, refDate) {
     b.components = { ...b.components, private_lesson: { ...b.components.private_lesson, sessions } };
   }
 
+  if (b.components && b.components.full_day_equipment_extension) {
+    const addon = { ...b.components.full_day_equipment_extension };
+    if (addon.dates && typeof addon.dates === 'object' && !Array.isArray(addon.dates)) {
+      const nextDates = {};
+      for (const [rawDate, qty] of Object.entries(addon.dates)) {
+        const parsed = normalizeSunsetGuestDateField(rawDate, ref, opts);
+        if (!parsed.ok) return { ok: false, body: b, ...parsed };
+        nextDates[parsed.iso] = qty;
+      }
+      addon.dates = nextDates;
+      b.components = { ...b.components, full_day_equipment_extension: addon };
+    }
+  }
+
   return { ok: true, body: b };
 }
 
 module.exports = {
   MADRID_TZ,
+  DEFAULT_MAX_BOOKING_HORIZON_DAYS,
   madridCalendarParts,
   inferSunsetGuestYear,
+  resolveSunsetMaxBookingHorizonDays,
+  validateSunsetGuestDateBounds,
   normalizeSunsetGuestDateField,
   normalizeSunsetBookingDatesInBody,
   parseNamedGuestDate,
+  parseIsoDateStrict,
   isValidGregorianDate,
+  madridHorizonIso,
 };

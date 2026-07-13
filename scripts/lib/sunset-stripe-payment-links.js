@@ -91,6 +91,20 @@ function findPriceCents(prices, category, offeringKey, unit) {
   return Math.round(Number(row.amount) * 100);
 }
 
+function buildStripeCheckoutIdempotencyKey(opts) {
+  const clientSlug = String(opts.clientSlug || '').trim();
+  const bookingId = String(opts.bookingId || '').trim();
+  const paymentKind = String(opts.paymentKind || 'full_amount').trim();
+  const idempotencyKey = String(opts.idempotencyKey || '').trim();
+  const amountDueCents = Number(opts.amountDueCents || 0);
+  const currency = String(opts.currency || 'EUR').trim().toUpperCase();
+  const digest = crypto.createHash('sha256')
+    .update([clientSlug, bookingId, paymentKind, idempotencyKey, String(amountDueCents), currency].join('|'))
+    .digest('hex')
+    .slice(0, 32);
+  return `sunset-checkout-${digest}`;
+}
+
 async function createStripeCheckoutSessionViaFetch(opts) {
   const params = new URLSearchParams();
   params.append('mode', 'payment');
@@ -105,12 +119,16 @@ async function createStripeCheckoutSessionViaFetch(opts) {
     params.append(`metadata[${key}]`, String(value == null ? '' : value));
     params.append(`payment_intent_data[metadata][${key}]`, String(value == null ? '' : value));
   }
+  const headers = {
+    Authorization: `Bearer ${opts.secretKey}`,
+    'Content-Type': 'application/x-www-form-urlencoded',
+  };
+  if (opts.idempotencyKey) {
+    headers['Idempotency-Key'] = String(opts.idempotencyKey);
+  }
   const res = await fetch('https://api.stripe.com/v1/checkout/sessions', {
     method: 'POST',
-    headers: {
-      Authorization: `Bearer ${opts.secretKey}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
+    headers,
     body: params.toString(),
   });
   const data = await res.json().catch(() => ({}));
@@ -403,6 +421,33 @@ function assertStripeEnv(env) {
   return { ok: true };
 }
 
+async function findIdempotentPaymentRow(pg, bookingId, idempotencyKey) {
+  const res = await pg.query(
+    `SELECT id::text AS payment_id, checkout_url, stripe_checkout_session_id,
+            status::text AS payment_status, amount_due_cents, metadata
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND metadata->>'idempotency_key' = $2
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [bookingId, idempotencyKey],
+  );
+  return res.rows[0] || null;
+}
+
+async function lockBookingForPaymentLink(pg, clientSlug, bookingId) {
+  const res = await pg.query(
+    `SELECT b.id::text AS booking_id
+       FROM bookings b
+       INNER JOIN clients c ON c.id = b.client_id
+      WHERE c.slug = $1
+        AND b.id = $2::uuid
+      FOR UPDATE`,
+    [clientSlug, bookingId],
+  );
+  return res.rows[0] || null;
+}
+
 async function createSunsetScheduleStripeLink(pg, opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
@@ -465,34 +510,19 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     };
   }
 
+  const paymentKind = 'full_amount';
+
   await pg.query('BEGIN');
   try {
-    const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
-    if (!priced.ok) {
+    const locked = await lockBookingForPaymentLink(pg, clientSlug, booking.booking_id);
+    if (!locked) {
       await pg.query('ROLLBACK');
-      const failBody = { success: false, error: priced.error };
-      // Surface the integrity numbers so a stale-quote mismatch is diagnosable
-      // (portal-configured total vs the quote the guest was shown).
-      if (priced.configured_total_cents != null) failBody.configured_total_cents = priced.configured_total_cents;
-      if (priced.quoted_total_cents != null) failBody.quoted_total_cents = priced.quoted_total_cents;
-      return { ok: false, status: 422, body: failBody };
+      return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
     }
 
-    const amountDueCents = priced.total_cents;
-    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-    if (!clientId) throw new Error('client not found');
-
-    const idem = await pg.query(
-      `SELECT id::text AS payment_id, checkout_url, status::text AS payment_status, amount_due_cents
-         FROM payments
-        WHERE booking_id = $1::uuid AND metadata->>'idempotency_key' = $2
-        LIMIT 1`,
-      [booking.booking_id, idempotencyKey],
-    );
-    if (idem.rows[0] && idem.rows[0].checkout_url) {
+    const idemRow = await findIdempotentPaymentRow(pg, booking.booking_id, idempotencyKey);
+    if (idemRow && idemRow.checkout_url) {
       await pg.query('COMMIT');
-      const row = idem.rows[0];
       return {
         ok: true,
         status: 200,
@@ -501,13 +531,99 @@ async function createSunsetScheduleStripeLink(pg, opts) {
           idempotent: true,
           booking_id: booking.booking_id,
           booking_code: booking.booking_code,
-          payment_id: row.payment_id,
-          payment_status: row.payment_status,
-          amount_due_cents: Number(row.amount_due_cents),
+          payment_id: idemRow.payment_id,
+          payment_status: idemRow.payment_status,
+          amount_due_cents: Number(idemRow.amount_due_cents),
           stripe_mutation: false,
-        }, booking.booking_code, row.checkout_url, null, opts),
+        }, booking.booking_code, idemRow.checkout_url, idemRow.stripe_checkout_session_id, opts),
       };
     }
+
+    const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
+    if (!priced.ok) {
+      await pg.query('ROLLBACK');
+      const failBody = { success: false, error: priced.error };
+      if (priced.configured_total_cents != null) failBody.configured_total_cents = priced.configured_total_cents;
+      if (priced.quoted_total_cents != null) failBody.quoted_total_cents = priced.quoted_total_cents;
+      return { ok: false, status: 422, body: failBody };
+    }
+
+    const amountDueCents = priced.total_cents;
+    const stripeIdempotencyKey = buildStripeCheckoutIdempotencyKey({
+      clientSlug,
+      bookingId: booking.booking_id,
+      paymentKind,
+      idempotencyKey,
+      amountDueCents,
+      currency: 'EUR',
+    });
+
+    if (idemRow && !idemRow.checkout_url && idemRow.stripe_checkout_session_id) {
+      const idemMeta = parseMeta(idemRow.metadata);
+      const recoveredUrl = idemMeta.payment_link_url
+        || (idemMeta.stripe_session_id ? `https://checkout.stripe.com/c/pay/${idemMeta.stripe_session_id}` : null);
+      if (!recoveredUrl) {
+        await pg.query('ROLLBACK');
+        return { ok: false, status: 409, body: { success: false, error: 'stripe_session_recovery_failed' } };
+      }
+      const expiresAt = null;
+      await pg.query(
+        `UPDATE payments
+            SET status = 'checkout_created'::payment_record_status,
+                stripe_checkout_session_id = $1,
+                checkout_url = $2,
+                expires_at = $3,
+                metadata = metadata || $4::jsonb
+          WHERE id = $5::uuid`,
+        [
+          idemRow.stripe_checkout_session_id,
+          recoveredUrl,
+          expiresAt,
+          JSON.stringify({
+            stripe_session_id: idemRow.stripe_checkout_session_id,
+            payment_link_url: recoveredUrl,
+          }),
+          idemRow.payment_id,
+        ],
+      );
+      await pg.query('COMMIT');
+      await pg.query('BEGIN');
+      try {
+        await pg.query(
+          `UPDATE bookings
+              SET payment_status = 'payment_link_sent'::payment_status,
+                  metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+            WHERE id = $2::uuid`,
+          [JSON.stringify({
+            last_stripe_payment_id: idemRow.payment_id,
+            last_payment_link_url: recoveredUrl,
+            sunset_stripe_link_stale: false,
+          }), booking.booking_id],
+        );
+        await pg.query('COMMIT');
+      } catch (err) {
+        await pg.query('ROLLBACK');
+        throw err;
+      }
+      return {
+        ok: true,
+        status: 200,
+        body: attachGuestPaymentFields({
+          success: true,
+          idempotent: true,
+          booking_id: booking.booking_id,
+          booking_code: booking.booking_code,
+          payment_id: idemRow.payment_id,
+          payment_status: 'checkout_created',
+          amount_due_cents: amountDueCents,
+          stripe_mutation: false,
+        }, booking.booking_code, recoveredUrl, idemRow.stripe_checkout_session_id, opts),
+      };
+    }
+
+    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
+    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
+    if (!clientId) throw new Error('client not found');
 
     const pmMeta = {
       source: 'sunset_schedule_stripe_link',
@@ -518,18 +634,23 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       staff_portal: true,
     };
 
-    const ins = await pg.query(
-      `INSERT INTO payments (
-         client_id, booking_id, status, payment_kind, currency,
-         amount_due_cents, amount_paid_cents, metadata
-       ) VALUES (
-         $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-         $3, 0, $4::jsonb
-       )
-       RETURNING id::text AS payment_id`,
-      [clientId, booking.booking_id, amountDueCents, JSON.stringify(pmMeta)],
-    );
-    const paymentId = ins.rows[0].payment_id;
+    let paymentId;
+    if (idemRow && !idemRow.checkout_url) {
+      paymentId = idemRow.payment_id;
+    } else {
+      const ins = await pg.query(
+        `INSERT INTO payments (
+           client_id, booking_id, status, payment_kind, currency,
+           amount_due_cents, amount_paid_cents, metadata
+         ) VALUES (
+           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
+           $3, 0, $4::jsonb
+         )
+         RETURNING id::text AS payment_id`,
+        [clientId, booking.booking_id, amountDueCents, JSON.stringify(pmMeta)],
+      );
+      paymentId = ins.rows[0].payment_id;
+    }
 
     const productName = `Sunset booking ${booking.booking_code} — ${booking.guest_name || 'Guest'}`;
     const productDesc = `Surf school services | ${booking.check_in || ''} | ${clientSlug}`;
@@ -548,7 +669,24 @@ async function createSunsetScheduleStripeLink(pg, opts) {
         source: 'sunset_schedule_stripe_link',
         idempotency_key: idempotencyKey,
       },
+      idempotencyKey: stripeIdempotencyKey,
     });
+
+    await pg.query(
+      `UPDATE payments
+          SET stripe_checkout_session_id = $1,
+              metadata = metadata || $2::jsonb
+        WHERE id = $3::uuid`,
+      [
+        session.id,
+        JSON.stringify({
+          stripe_session_id: session.id,
+          stripe_livemode: session.livemode,
+          payment_link_url: session.url,
+        }),
+        paymentId,
+      ],
+    );
 
     const expiresAt = session.expires_at
       ? new Date(session.expires_at * 1000).toISOString()
@@ -575,19 +713,26 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       ],
     );
 
-    await pg.query(
-      `UPDATE bookings
-          SET payment_status = 'payment_link_sent'::payment_status,
-              metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
-        WHERE id = $2::uuid`,
-      [JSON.stringify({
-        last_stripe_payment_id: paymentId,
-        last_payment_link_url: session.url,
-        sunset_stripe_link_stale: false,
-      }), booking.booking_id],
-    );
-
     await pg.query('COMMIT');
+
+    await pg.query('BEGIN');
+    try {
+      await pg.query(
+        `UPDATE bookings
+            SET payment_status = 'payment_link_sent'::payment_status,
+                metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
+          WHERE id = $2::uuid`,
+        [JSON.stringify({
+          last_stripe_payment_id: paymentId,
+          last_payment_link_url: session.url,
+          sunset_stripe_link_stale: false,
+        }), booking.booking_id],
+      );
+      await pg.query('COMMIT');
+    } catch (err) {
+      await pg.query('ROLLBACK');
+      throw err;
+    }
 
     return {
       ok: true,
@@ -710,6 +855,9 @@ module.exports = {
   bookingEligibleForScheduleStripeLink,
   sunsetPaymentLinkObservability,
   attachGuestPaymentFields,
+  buildStripeCheckoutIdempotencyKey,
+  findIdempotentPaymentRow,
+  lockBookingForPaymentLink,
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,

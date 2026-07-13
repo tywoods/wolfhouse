@@ -1558,7 +1558,15 @@ def _canonicalize_sunset_full_day_addon(payload, raw_components):
 def create_sunset_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    body = {}
+    if payload.get("guest_confirmed_booking") is not True:
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_booking",
+            "error": "guest_confirmed_booking_required",
+            "staff_review_needed": False,
+            "guest_safe_next_action": "Shall I go ahead and book that for you?",
+        })
+    body = {"guest_confirmed_booking": True}
     guest_name = _clean(payload.get("guest_name") or payload.get("name"))
     if not guest_name:
         return _json_result({
@@ -1826,7 +1834,8 @@ def get_sunset_waiver_link(params, **kwargs):
 def _sunset_write_tools():
     loc = {"location_id": {"type": "string", "description": "sunset-somo or sunset-sardinero. Usually inferred from the school; only pass if the guest specifies."}}
     return [
-        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has accepted the plan. Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. For board+wetsuit bundle bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price (e.g. board_and_suit_rental / half_day / qty 2 / 3000). NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
+        ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has explicitly confirmed they want to book. Requires guest_confirmed_booking:true (literal boolean — quote-only interest is not consent). Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. For board+wetsuit bundle bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price (e.g. board_and_suit_rental / half_day / qty 2 / 3000). NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
+            "guest_confirmed_booking": {"type": "boolean", "description": "Must be literal true — the guest has explicitly confirmed they want to book. Quote-only interest, a name alone, or ambiguous assent must not pass."},
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
             "components": {"type": "object", "description": "Service components. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Examples: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
@@ -1838,7 +1847,7 @@ def _sunset_write_tools():
             "notes": {"type": "string"},
             "idempotency_key": {"type": "string", "description": "Optional idempotency key to avoid duplicate bookings."},
             **loc,
-        }, ["guest_name"]),
+        }, ["guest_confirmed_booking", "guest_name"]),
         ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
         ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
         ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),

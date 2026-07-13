@@ -28,6 +28,36 @@ const {
 // Payment ledger statuses still awaiting Stripe truth (mirror of the webhook's
 // ELIGIBLE_PAYMENT_LEDGER_STATUSES; 'paid' rows are already settled).
 const RECONCILE_PENDING_STATUSES = ['draft', 'checkout_created', 'pending'];
+const BOOKING_RECONCILE_MAX = 20;
+const STRIPE_SESSION_ID_RE = /^cs_[a-zA-Z0-9_]+$/;
+
+function isValidStripeSessionId(sid) {
+  return typeof sid === 'string' && STRIPE_SESSION_ID_RE.test(sid.trim());
+}
+
+async function listDuplicatePaidFullPaymentSessions(pg, bookingId) {
+  const res = await pg.query(
+    `SELECT DISTINCT stripe_checkout_session_id AS sid, id::text AS payment_id, amount_paid_cents
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND status = 'paid'::payment_record_status
+        AND payment_kind = 'full_amount'::payment_kind
+        AND stripe_checkout_session_id IS NOT NULL`,
+    [bookingId],
+  );
+  const sessions = (res.rows || []).filter((r) => isValidStripeSessionId(r.sid));
+  if (sessions.length <= 1) return { duplicate: false, sessions };
+  return {
+    duplicate: true,
+    sessions,
+    diagnostic: {
+      reason: 'duplicate_full_payment_sessions',
+      staff_review_required: true,
+      session_count: sessions.length,
+      session_ids: sessions.map((s) => s.sid),
+    },
+  };
+}
 
 function buildReconcileConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance) {
   if (newBkPayStatus !== 'deposit_paid' && newBkPayStatus !== 'paid') return null;
@@ -70,10 +100,20 @@ async function reconcilePaidStripeSession(pg, session, meta) {
 
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
+  const duplicateCheck = await listDuplicatePaidFullPaymentSessions(pg, pm.booking_id);
+  let duplicateDiagnostic = null;
+  let cappedStripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
+  if (duplicateCheck.duplicate) {
+    duplicateDiagnostic = duplicateCheck.diagnostic;
+    const bookingTotal = Number(pm.bk_total || 0);
+    const alreadyPaid = Number(prevCompletedPaid || 0);
+    const remaining = Math.max(bookingTotal - alreadyPaid, 0);
+    cappedStripePaidCents = Math.min(cappedStripePaidCents, remaining);
+  }
   const derived = deriveBookingPaymentState({
     bkTotal: pm.bk_total,
     prevCompletedPaidCents: prevCompletedPaid,
-    stripePaidCents,
+    stripePaidCents: cappedStripePaidCents,
     paymentKind: pm.payment_kind,
     amountDueCents: pm.amount_due_cents,
   });
@@ -84,6 +124,9 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   const bookingMetaMerge = {};
   if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
   if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
+  if (duplicateDiagnostic) {
+    bookingMetaMerge.duplicate_full_payment_diagnostic = duplicateDiagnostic;
+  }
   const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
   const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
 
@@ -155,6 +198,7 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     booking_code: pm.booking_code,
     new_bk_payment_status: newBkPayStatus,
     amount_paid_cents: newPmPaidCents,
+    duplicate_full_payment_diagnostic: duplicateDiagnostic,
   };
 }
 
@@ -220,6 +264,7 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
   opts = opts || {};
   const clientSlug = opts.clientSlug;
   const bookingId = opts.bookingId;
+  const limit = Math.min(Number(opts.limit || BOOKING_RECONCILE_MAX), BOOKING_RECONCILE_MAX);
   if (!pg || !stripe || !clientSlug || !bookingId) {
     return {
       ok: false,
@@ -229,25 +274,51 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
       results: [],
       errors: [{ reason: 'missing_inputs' }],
       had_errors: true,
+      rows_selected: 0,
+      unique_sessions_checked: 0,
+      skipped_malformed: 0,
+      truncated_pending_count: 0,
     };
   }
 
   const sel = await pg.query(
-    `SELECT p.stripe_checkout_session_id AS sid, p.id::text AS payment_id
+    `SELECT p.stripe_checkout_session_id AS sid, p.id::text AS payment_id, p.created_at
        FROM payments p
        JOIN bookings b ON b.id = p.booking_id
        JOIN clients cl ON cl.id = p.client_id
       WHERE cl.slug = $1
         AND b.id = $2::uuid
         AND p.stripe_checkout_session_id IS NOT NULL
-        AND p.status::text = ANY($3)`,
+        AND p.status::text = ANY($3)
+      ORDER BY p.created_at ASC, p.id ASC`,
     [clientSlug, bookingId, RECONCILE_PENDING_STATUSES],
   );
+
+  const allRows = sel.rows || [];
+  let skippedMalformed = 0;
+  const seenSessions = new Set();
+  const selected = [];
+  let eligibleBeyondLimit = 0;
+  for (const row of allRows) {
+    const sid = String(row.sid || '').trim();
+    if (!isValidStripeSessionId(sid)) {
+      skippedMalformed += 1;
+      continue;
+    }
+    if (seenSessions.has(sid)) continue;
+    seenSessions.add(sid);
+    if (selected.length < limit) {
+      selected.push({ ...row, sid });
+    } else {
+      eligibleBeyondLimit += 1;
+    }
+  }
+  const truncatedPendingCount = eligibleBeyondLimit;
 
   const results = [];
   const errors = [];
   let reconciled = 0;
-  for (const row of sel.rows) {
+  for (const row of selected) {
     const sid = row.sid;
     try {
       const session = await stripe.checkout.sessions.retrieve(sid);
@@ -259,6 +330,14 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
       results.push({ session_id: sid, payment_id: row.payment_id, ...res });
       if (!res.ok || (res.reason && res.reason !== 'already_paid' && !res.reconciled)) {
         errors.push({ session_id: sid, payment_id: row.payment_id, reason: res.reason, reasons: res.reasons || null });
+      }
+      if (res.duplicate_full_payment_diagnostic) {
+        errors.push({
+          session_id: sid,
+          payment_id: row.payment_id,
+          reason: 'duplicate_full_payment_sessions',
+          diagnostic: res.duplicate_full_payment_diagnostic,
+        });
       }
     } catch (e) {
       const err = {
@@ -275,16 +354,23 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
   }
   return {
     ok: true,
-    checked: sel.rows.length,
+    checked: selected.length,
     reconciled,
     results,
     errors,
     had_errors: errors.length > 0,
+    rows_selected: allRows.length,
+    unique_sessions_checked: selected.length,
+    skipped_malformed: skippedMalformed,
+    truncated_pending_count: truncatedPendingCount,
   };
 }
 
 module.exports = {
   RECONCILE_PENDING_STATUSES,
+  BOOKING_RECONCILE_MAX,
+  isValidStripeSessionId,
+  listDuplicatePaidFullPaymentSessions,
   reconcilePaidStripeSession,
   reconcilePendingStripePaymentsForDate,
   reconcilePendingStripePaymentsForBooking,

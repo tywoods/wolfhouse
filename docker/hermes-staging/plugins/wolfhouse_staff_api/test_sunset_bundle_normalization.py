@@ -69,7 +69,12 @@ BOOKING_OK = {"success": True, "booking_id": "bk-1", "booking_code": "SUNSET-1",
 
 
 def base_payload(**over):
-    p = {"guest_name": "Robin", "service_date": "2026-07-21", "location_id": "sunset-somo"}
+    p = {
+        "guest_name": "Robin",
+        "service_date": "2026-07-21",
+        "location_id": "sunset-somo",
+        "guest_confirmed_booking": True,
+    }
     p.update(over)
     return p
 
@@ -203,6 +208,23 @@ mod.create_sunset_booking(base_payload(
 body = fake.body_for("/sunset/booking-create")
 check("[12] date range booking POST made", fake.called("/sunset/booking-create"))
 check("[12] date range add-on expands inclusively", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 1, "2026-07-22": 1}}, body and body.get("components"))
+
+# [13] Booking consent boundary — quote-only must not POST without literal true.
+for label, consent in [
+    ("omitted", None),
+    ("false", False),
+    ("string true", "true"),
+    ("numeric 1", 1),
+]:
+    fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+    payload = base_payload()
+    if consent is None:
+        payload.pop("guest_confirmed_booking", None)
+    else:
+        payload["guest_confirmed_booking"] = consent
+    out = json.loads(mod.create_sunset_booking(payload))
+    check(f"[13] {label} → no booking POST", not fake.called("/sunset/booking-create"))
+    check(f"[13] {label} → consent error", out.get("error") == "guest_confirmed_booking_required", out)
 
 print("\n── test_sunset_bundle_normalization %s (%d/%d) ──\n" % (
     "FAILED" if FAILED else "PASSED", PASSED, PASSED + FAILED))
