@@ -121,7 +121,7 @@ class BurstCoalesceTests(unittest.TestCase):
 
         self.dispatch = dispatch
         self.coalescer = BurstCoalescer(
-            debounce_ms=2500,
+            debounce_ms=5000,
             max_messages=5,
             max_chars=200,
             stale_buffer_ms=60_000,
@@ -180,8 +180,8 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 self.adapter, _event(text="Queremos clases grupales", sender=a, wamid="wamid.a3")
             )
-            # Quiet window measured from LAST message (700ms timeline + 2500ms).
-            await self.clock.advance(2.499)
+            # Quiet window measured from LAST message (700ms timeline + 5000ms).
+            await self.clock.advance(4.999)
             self.assertEqual(len(self.invocations), 0)
             await self.clock.advance(0.002)
             await self.clock.drain()
@@ -207,7 +207,7 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 self.adapter, _event(text="hola B", sender=b, wamid="wamid.b")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(len(self.invocations), 2)
             self.assertEqual(set(self.invocations), {"hola A", "hola B"})
@@ -221,7 +221,7 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 self.adapter, _event(text="first", sender=a, wamid="wamid.1")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await asyncio.sleep(0)
             self.assertEqual(len(self.invocations), 1)
             key = self.coalescer.key_for_adapter_event(
@@ -241,7 +241,7 @@ class BurstCoalesceTests(unittest.TestCase):
             self._hold.set()
             await self.clock.drain()
             # Pending quiet window arms after run completion.
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(len(self.invocations), 2)
             self.assertEqual(self.invocations[1], "during-1\nduring-2")
@@ -255,7 +255,7 @@ class BurstCoalesceTests(unittest.TestCase):
             ev = _event(text="mismo", sender=a, wamid="wamid.dup")
             await self.coalescer.ingest(self.adapter, ev)
             await self.coalescer.ingest(self.adapter, ev)
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(len(self.invocations), 1)
             self.assertEqual(self.invocations[0], "mismo")
@@ -269,12 +269,12 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 self.adapter, _event(text="turn1", sender=a, wamid="wamid.t1")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             await self.coalescer.ingest(
                 self.adapter, _event(text="turn2", sender=a, wamid="wamid.t2")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(self.invocations, ["turn1", "turn2"])
 
@@ -287,7 +287,7 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 self.adapter, _event(text="a", sender=a, wamid="wamid.1")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await asyncio.sleep(0)
             await self.coalescer.ingest(
                 self.adapter, _event(text="b", sender=a, wamid="wamid.2")
@@ -295,7 +295,7 @@ class BurstCoalesceTests(unittest.TestCase):
             self.assertEqual(self.max_active, 1)
             self._hold.set()
             await self.clock.drain()
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(self.max_active, 1)
 
@@ -353,7 +353,7 @@ class BurstCoalesceTests(unittest.TestCase):
                     raw={"type": "reaction", "reaction": {"emoji": "👍"}},
                 ),
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(self.invocations, [])
 
@@ -396,7 +396,7 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.clock.drain()
             self.assertEqual(len(self.invocations), 1)
             self.assertEqual(self.invocations[0], "m0\nm1\nm2\nm3\nm4")
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(len(self.invocations), 2)
             self.assertEqual(self.invocations[1], "m5")
@@ -455,7 +455,7 @@ class BurstCoalesceTests(unittest.TestCase):
             await self.coalescer.ingest(
                 ad_b, _event(text="school B", sender=a, wamid="wamid.b")
             )
-            await self.clock.advance(2.500)
+            await self.clock.advance(5.000)
             await self.clock.drain()
             self.assertEqual(set(self.invocations), {"school A", "school B"})
 
@@ -482,6 +482,89 @@ class BurstCoalesceTests(unittest.TestCase):
             classify_event(_event(text="hola", sender="1", wamid="t")),
             "coalesce",
         )
+
+    def test_adapter_bound_dispatch_not_overwritten(self):
+        async def run() -> None:
+            from wolfhouse.whatsapp_burst_coalesce import AdapterDispatch
+
+            seen: list[str] = []
+
+            async def dispatch_a(event):
+                seen.append(f"A:{getattr(event, 'text', '')}")
+
+            async def dispatch_b(event):
+                seen.append(f"B:{getattr(event, 'text', '')}")
+
+            c = BurstCoalescer(
+                debounce_ms=5000,
+                now_fn=self.clock.monotonic,
+                schedule_fn=self.clock.schedule,
+                cancel_fn=self.clock.cancel,
+            )
+            ad_a = _adapter("pnid-a")
+            ad_b = _adapter("pnid-b")
+            await c.ingest(
+                ad_a,
+                _event(text="from-a", sender="34911110001", wamid="wamid.a1"),
+                adapter_dispatch=AdapterDispatch(adapter=ad_a, dispatch_fn=dispatch_a),
+            )
+            await c.ingest(
+                ad_b,
+                _event(text="from-b", sender="34911110002", wamid="wamid.b1"),
+                adapter_dispatch=AdapterDispatch(adapter=ad_b, dispatch_fn=dispatch_b),
+            )
+            await self.clock.advance(5.000)
+            await self.clock.drain()
+            self.assertEqual(sorted(seen), ["A:from-a", "B:from-b"])
+
+        asyncio.run(run())
+
+    def test_structured_not_flattened_into_text_while_active(self):
+        async def run() -> None:
+            self._hold = asyncio.Event()
+            a = "34911110001"
+            await self.coalescer.ingest(
+                self.adapter, _event(text="hello", sender=a, wamid="wamid.t1")
+            )
+            await self.clock.advance(5.000)
+            # First run started and is held.
+            self.assertEqual(len(self.invocations), 1)
+            loc = _event(
+                text="[location]",
+                sender=a,
+                wamid="wamid.loc2",
+                message_type="location",
+                raw={"type": "location"},
+            )
+            await self.coalescer.ingest(self.adapter, loc)
+            await self.coalescer.ingest(
+                self.adapter, _event(text="after", sender=a, wamid="wamid.t2")
+            )
+            self._hold.set()
+            await self.clock.drain()
+            # Ordered: text burst, structured, then pending text (quiet window).
+            self.assertEqual(self.invocations[0], "hello")
+            self.assertEqual(self.invocations[1], "[location]")
+            await self.clock.advance(5.000)
+            await self.clock.drain()
+            self.assertEqual(self.invocations[2], "after")
+
+        asyncio.run(run())
+
+    def test_snapshot_omits_raw_guest_text_by_default(self):
+        async def run() -> None:
+            a = "34911110001"
+            await self.coalescer.ingest(
+                self.adapter, _event(text="secret guest text", sender=a, wamid="wamid.s1")
+            )
+            await self.clock.advance(5.000)
+            await self.clock.drain()
+            snap = self.coalescer.snapshot()
+            dumped = str(snap)
+            self.assertNotIn("secret guest text", dumped)
+            self.assertEqual(snap["debounce_ms"], 5000)
+
+        asyncio.run(run())
 
 
 class CurrentHermesInboundPathDocTest(unittest.TestCase):

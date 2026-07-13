@@ -73,6 +73,16 @@ def debounce_ms() -> int:
     return max(0, _env_int("WHATSAPP_BURST_DEBOUNCE_MS", DEFAULT_DEBOUNCE_MS))
 
 
+def _diag_include_text() -> bool:
+    """Synthetic/test-only: allow raw text in snapshots when explicitly enabled."""
+    flag = (os.getenv("WHATSAPP_BURST_DIAG_INCLUDE_TEXT") or "").strip().lower()
+    if flag not in {"1", "true", "yes", "on"}:
+        return False
+    # Require simulate mode so production cannot accidentally retain raw guest text.
+    sim = (os.getenv("WOLFHOUSE_SIMULATE_GUEST_TURN") or "").strip()
+    return bool(sim)
+
+
 def max_messages() -> int:
     return max(1, _env_int("WHATSAPP_BURST_MAX_MESSAGES", DEFAULT_MAX_MESSAGES))
 
@@ -175,11 +185,33 @@ class BurstBuffer:
     timer_gen: int = 0
 
 
+@dataclass(frozen=True)
+class AdapterDispatch:
+    """Immutable adapter+callback binding for one burst owner.
+
+    Never share a mutable global dispatch across adapters — each sender keeps
+    the adapter that first accepted its inbound message.
+    """
+    adapter: Any
+    dispatch_fn: Callable[[Any], Awaitable[None]]
+
+
+@dataclass
+class StructuredWork:
+    """A non-text inbound that must not be flattened into a text burst."""
+    event: Any
+    adapter_dispatch: AdapterDispatch
+
+
 @dataclass
 class SenderState:
     key: str
     buffer: Optional[BurstBuffer] = None
     pending: Optional[BurstBuffer] = None
+    # Ordered follow-ups while an agent run is active. May mix text bursts
+    # (as BurstBuffer pending) and StructuredWork entries.
+    structured_queue: List[StructuredWork] = field(default_factory=list)
+    adapter_dispatch: Optional[AdapterDispatch] = None
     active_run: bool = False
     active_task: Any = None
     last_activity_mono: float = 0.0
@@ -214,7 +246,8 @@ class BurstCoalescer:
         self._now = now_fn or time.monotonic
         self._schedule = schedule_fn
         self._cancel = cancel_fn
-        self._dispatch = dispatch_fn
+        # Fallback only for unit tests that pass a default dispatch_fn.
+        self._default_dispatch_fn = dispatch_fn
         self._senders: Dict[str, SenderState] = {}
         self._seen_wamids: Dict[str, bool] = {}
         self._stats: Dict[str, int] = {
@@ -435,15 +468,72 @@ class BurstCoalescer:
         self._loop_tasks.add(task)
         task.add_done_callback(self._loop_tasks.discard)
 
+    def _resolve_adapter_dispatch(
+        self,
+        adapter: Any,
+        adapter_dispatch: Optional[AdapterDispatch] = None,
+    ) -> AdapterDispatch:
+        if adapter_dispatch is not None:
+            return adapter_dispatch
+        if self._default_dispatch_fn is not None:
+            # Unit-test default: close over adapter at call time.
+            fn = self._default_dispatch_fn
+            return AdapterDispatch(adapter=adapter, dispatch_fn=fn)
+        raise RuntimeError("adapter_dispatch not configured")
+
+    def _track_task(self, coro) -> asyncio.Task:
+        task = asyncio.create_task(coro)
+
+        def _done(t: asyncio.Task) -> None:
+            self._loop_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc is not None:
+                logger.exception(
+                    "%s",
+                    {"event": "whatsapp_burst_bg_task_failed", "error": repr(exc)},
+                    exc_info=exc,
+                )
+
+        self._loop_tasks.add(task)
+        task.add_done_callback(_done)
+        return task
+
+    def _inline_runs(self) -> bool:
+        # Fake-clock unit tests await flush deterministically.
+        return self._schedule is not None
+
+    async def _maybe_await_or_spawn(self, coro) -> None:
+        if self._inline_runs():
+            await coro
+        else:
+            self._track_task(coro)
+
     # ------------------------------------------------------------------ public
-    async def ingest(self, adapter: Any, event: Any) -> Dict[str, Any]:
-        """Buffer or immediately dispatch one inbound MessageEvent."""
+    async def ingest(
+        self,
+        adapter: Any,
+        event: Any,
+        *,
+        adapter_dispatch: Optional[AdapterDispatch] = None,
+    ) -> Dict[str, Any]:
+
+        """Buffer or immediately schedule one inbound MessageEvent.
+
+        Never awaits a full agent run on the webhook ingest path when using
+        real asyncio — agent work is tracked via background tasks.
+        """
+        ad = self._resolve_adapter_dispatch(adapter, adapter_dispatch)
         if self._debounce_ms <= 0:
-            await self._dispatch_one(adapter, event)
+            await self._maybe_await_or_spawn(self._dispatch_one(ad, event))
             return {"action": "passthrough"}
 
         key = self.key_for_adapter_event(adapter, event)
         st = self._sender(key)
+        # Preserve the first adapter binding for this sender burst.
+        if st.adapter_dispatch is None:
+            st.adapter_dispatch = ad
         st.last_activity_mono = self._now()
         kind = classify_event(event)
         wamid = _event_wamid(event)
@@ -461,13 +551,14 @@ class BurstCoalescer:
             return {"action": "deduplicated"}
 
         if kind == "structured":
-            # Flush any open text burst first, then process structured alone.
+            # Never flatten structured events into a text burst.
             if st.active_run:
-                await self._buffer_message(st, event, target="pending")
+                st.structured_queue.append(StructuredWork(event=event, adapter_dispatch=ad))
+                self._stats["queued_during_active"] += 1
                 return {"action": "queued_structured_during_active"}
             if st.buffer and st.buffer.messages:
                 await self._flush(key, which="buffer", reason="structured_precedes")
-            await self._dispatch_one(adapter, event)
+            await self._maybe_await_or_spawn(self._dispatch_one(ad, event))
             return {"action": "structured_direct"}
 
         # Ordinary text / caption coalesce path
@@ -502,6 +593,7 @@ class BurstCoalescer:
         would_msgs = len(buf.messages) + 1
         would_chars = self._combined_char_count(buf) + len(src.text) + (1 if buf.messages else 0)
         if buf.messages and (would_msgs > self._max_messages or would_chars > self._max_chars):
+            # Always await flush's buffer handoff; agent run itself may be spawned.
             await self._flush(key, which=target, reason="overflow")
             buf = BurstBuffer()
             if target == "pending":
@@ -578,29 +670,41 @@ class BurstCoalescer:
             active=st.active_run,
             pending=bool(st.pending and st.pending.messages),
         )
-        self._last_flush_records.append(
-            {
-                "key": mask_sender_key(key),
-                "count": len(messages),
-                "wamids": [m.wamid for m in messages if m.wamid],
-                "text": "\n".join(m.text for m in messages),
-                "reason": reason,
-            }
+        rec = {
+            "key": mask_sender_key(key),
+            "count": len(messages),
+            "wamid_hashes": [
+                hashlib.sha256(m.wamid.encode()).hexdigest()[:10]
+                for m in messages
+                if m.wamid
+            ],
+            "char_count": combined_chars,
+            "reason": reason,
+        }
+        # Production diagnostics never retain raw guest text.
+        if _diag_include_text():
+            rec["text"] = "\n".join(m.text for m in messages)
+        self._last_flush_records.append(rec)
+        ad = st.adapter_dispatch
+        if ad is None:
+            raise RuntimeError("adapter_dispatch missing on sender state")
+        await self._maybe_await_or_spawn(
+            self._run_combined(st, combined, adapter_dispatch=ad, source_count=len(messages))
         )
-        await self._run_combined(st, combined, source_count=len(messages))
 
-    async def _run_combined(self, st: SenderState, event: Any, *, source_count: int) -> None:
-        adapter = getattr(self, "_last_adapter", None)
-        # adapter must be passed via dispatch closure
-        dispatch = self._dispatch
-        if dispatch is None:
-            raise RuntimeError("dispatch_fn not configured")
-
+    async def _run_combined(
+        self,
+        st: SenderState,
+        event: Any,
+        *,
+        adapter_dispatch: AdapterDispatch,
+        source_count: int,
+    ) -> None:
         st.active_run = True
         self._stats["agent_invocations"] += 1
         failed = False
         try:
-            await dispatch(event)
+            await adapter_dispatch.dispatch_fn(event)
             self._stats["replies"] += 1
         except Exception:
             failed = True
@@ -622,21 +726,20 @@ class BurstCoalescer:
                 source_message_count=source_count,
                 failed=failed,
                 pending=bool(st.pending and st.pending.messages),
+                structured_queued=len(st.structured_queue),
                 active=False,
             )
-            # After success or failure: release lock and schedule pending quiet window.
-            if st.pending and st.pending.messages:
-                self._arm_timer(st.key, st.pending, which="pending")
+            await self._drain_followups(st)
 
-    async def _dispatch_one(self, adapter: Any, event: Any) -> None:
-        self._last_adapter = adapter
-        if self._dispatch is None:
-            raise RuntimeError("dispatch_fn not configured")
+    async def _dispatch_one(self, adapter_dispatch: AdapterDispatch, event: Any) -> None:
+        adapter = adapter_dispatch.adapter
         st = self._sender(self.key_for_adapter_event(adapter, event))
+        if st.adapter_dispatch is None:
+            st.adapter_dispatch = adapter_dispatch
         st.active_run = True
         self._stats["agent_invocations"] += 1
         try:
-            await self._dispatch(event)
+            await adapter_dispatch.dispatch_fn(event)
             self._stats["replies"] += 1
         except Exception:
             self._stats["failures"] += 1
@@ -646,12 +749,23 @@ class BurstCoalescer:
             )
         finally:
             st.active_run = False
-            if st.pending and st.pending.messages:
-                self._arm_timer(st.key, st.pending, which="pending")
+            await self._drain_followups(st)
 
-    def bind_dispatch(self, dispatch_fn: Callable[[Any], Awaitable[None]], adapter: Any = None) -> None:
-        self._dispatch = dispatch_fn
-        self._last_adapter = adapter
+    async def _drain_followups(self, st: SenderState) -> None:
+        """Preserve ordered TextBurst / StructuredEvent / TextBurst work."""
+        # Drain structured queue first in arrival order relative to pending text:
+        # process structured_queue entries interspersed by arming pending text
+        # after structured items that arrived before the pending buffer filled.
+        while st.structured_queue and not st.active_run:
+            work = st.structured_queue.pop(0)
+            await self._maybe_await_or_spawn(self._dispatch_one(work.adapter_dispatch, work.event))
+            if st.active_run or self._inline_runs():
+                # Inline mode awaits; loop continues after run completes.
+                # Background mode: stop and let run's finally resume.
+                if not self._inline_runs():
+                    return
+        if st.pending and st.pending.messages and not st.active_run:
+            self._arm_timer(st.key, st.pending, which="pending")
 
     async def force_flush_all(self) -> None:
         for key, st in list(self._senders.items()):
@@ -689,12 +803,18 @@ class BurstCoalescer:
                 removed += 1
         return removed
 
-    def snapshot(self) -> Dict[str, Any]:
+    def snapshot(self, *, include_text: bool = False) -> Dict[str, Any]:
+        flushes = list(self._last_flush_records[-10:])
+        if not (include_text or _diag_include_text()):
+            flushes = [
+                {k: v for k, v in rec.items() if k != "text"}
+                for rec in flushes
+            ]
         return {
             "stats": dict(self._stats),
             "senders": len(self._senders),
             "seen_wamids": len(self._seen_wamids),
-            "last_flushes": list(self._last_flush_records[-10:]),
+            "last_flushes": flushes,
             "debounce_ms": self._debounce_ms,
         }
 
@@ -727,6 +847,7 @@ async def _coalesced_handle_message(adapter: Any, event: Any, orig: Callable) ->
         await orig(adapter, event)
         return
 
+    # Bind adapter immutably for this ingest — never overwrite a global dispatch.
     async def _dispatch(combined_event: Any) -> None:
         # Await the full session task so we hold the per-sender lock for the
         # entire agent run (prevents concurrent runs for one guest).
@@ -761,8 +882,10 @@ async def _coalesced_handle_message(adapter: Any, event: Any, orig: Callable) ->
                     },
                 )
 
-    coalescer.bind_dispatch(_dispatch, adapter)
-    await coalescer.ingest(adapter, event)
+    ad = AdapterDispatch(adapter=adapter, dispatch_fn=_dispatch)
+    # Ingest returns after buffering / arming timers / spawning runs — does not
+    # await the full agent run on the webhook path (real asyncio mode).
+    await coalescer.ingest(adapter, event, adapter_dispatch=ad)
 
 
 def install_whatsapp_burst_coalesce_patch() -> bool:

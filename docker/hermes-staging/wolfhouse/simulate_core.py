@@ -399,14 +399,16 @@ async def run_simulated_burst(
     """Inject an ordered burst of synthetic WhatsApp messages (staging only).
 
     Each entry: ``{"delay_ms": 0, "text": "..."}``. Outbound WhatsApp is
-    suppressed; booking/payment writes remain blocked when allow_writes=false.
+    always suppressed; booking/payment/waiver writes are always blocked.
     """
     assert_staging_environment()
     digits = thread_to_digits(thread)
     if not messages:
         raise ValueError("messages is required")
 
-    cap = BurstSimulateCapture(allow_writes=allow_writes)
+    # Hard fail-closed — ignore caller intent for the burst simulator.
+    allow_writes = False
+    cap = BurstSimulateCapture(allow_writes=False)
     first_text = str((messages[0] or {}).get("text") or "")
     cap.language_detected = _detect_language(first_text, lang)
 
@@ -535,10 +537,13 @@ async def run_simulated_burst(
         "guard_findings": guard_findings,
         "session_id": session_id,
         "language_detected": cap.language_detected,
-        "allow_writes": False if not allow_writes else True,
+        # Burst simulator always fail-closed: writes and WhatsApp outbound suppressed.
+        "allow_writes": False,
         "whatsapp_suppressed": True,
+        "write_guard_enforced": True,
         "burst_stats": burst_snap.get("stats"),
         "warnings": cap.warnings,
+        "debounce_ms": debounce_ms,
     }
 
 
@@ -570,7 +575,8 @@ def register_simulate_route(app) -> None:
                     thread=str(body.get("thread") or body.get("guest_phone") or ""),
                     messages=list(body.get("messages") or []),
                     lang=body.get("lang") or body.get("language"),
-                    allow_writes=bool(body.get("allow_writes")),
+                    # Burst endpoint always fail-closed — ignore caller allow_writes.
+                    allow_writes=False,
                 )
             except SystemExit as exc:
                 from aiohttp import web
