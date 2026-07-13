@@ -182,6 +182,28 @@ for label, extra in [
     check(f"[10] {label} → no booking POST", not fake.called("/sunset/booking-create"))
     check(f"[10] {label} → typed error", out.get("error") == "full_day_equipment_addon_invalid", out)
 
+# [11] Non-bundle rentals use the same add-on canonicalization.
+fake = with_fake({"/sunset/booking-create": {**BOOKING_OK, "total_cents": 4000}})
+mod.create_sunset_booking(base_payload(components={
+    "surfboard": {"quantity": 2},
+    "full_day_equipment_addon": {"quantity": 2},
+}))
+body = fake.body_for("/sunset/booking-create")
+check("[11] single rental alias removed", bool(body) and "full_day_equipment_addon" not in body.get("components", {}), body and body.get("components"))
+check("[11] single rental canonical add-on inserted", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 2}}, body and body.get("components"))
+
+# [12] Advertised date_from/date_to form expands inclusively.
+fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+mod.create_sunset_booking(base_payload(
+    service_date=None,
+    date_from="2026-07-21",
+    date_to="2026-07-22",
+    components={"surfboard": {"quantity": 1}, "full_day_equipment_addon": {"quantity": 1}},
+))
+body = fake.body_for("/sunset/booking-create")
+check("[12] date range booking POST made", fake.called("/sunset/booking-create"))
+check("[12] date range add-on expands inclusively", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 1, "2026-07-22": 1}}, body and body.get("components"))
+
 print("\n── test_sunset_bundle_normalization %s (%d/%d) ──\n" % (
     "FAILED" if FAILED else "PASSED", PASSED, PASSED + FAILED))
 sys.exit(1 if FAILED else 0)

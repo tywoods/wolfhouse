@@ -1532,6 +1532,19 @@ def _canonicalize_sunset_full_day_addon(payload, raw_components):
         dates = [_clean(v) for v in raw_dates if _clean(v)]
     elif payload.get("service_date"):
         dates = [_clean(payload.get("service_date"))]
+    elif payload.get("date_from") and payload.get("date_to"):
+        try:
+            from datetime import date, timedelta
+            start = date.fromisoformat(_clean(payload.get("date_from")))
+            end = date.fromisoformat(_clean(payload.get("date_to")))
+            if end < start or (end - start).days >= 31:
+                return None, "full_day_equipment_addon_invalid"
+            cur = start
+            while cur <= end:
+                dates.append(cur.isoformat())
+                cur += timedelta(days=1)
+        except (TypeError, ValueError):
+            return None, "full_day_equipment_addon_invalid"
     if not dates:
         return None, "full_day_equipment_addon_invalid"
     components.pop(alias_key, None)
@@ -1628,7 +1641,9 @@ def create_sunset_booking(params, **kwargs):
             "quoted_total_cents": unit_cents * qty,
         }
     elif isinstance(payload.get("components"), dict):
-        body["components"] = payload["components"]
+        # Use the validated/canonicalized components, never the original model
+        # payload (which may contain the full-day add-on alias).
+        body["components"] = raw_components
         if rp_in:
             body["rental_pricing"] = rp_in
     elif payload.get("booking_type"):
