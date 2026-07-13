@@ -1,0 +1,97 @@
+{
+  "_schema": "sunset-golden-draft-v1",
+  "id": "sunset-golden-08-group-lessons-morning-mon-thu-spanish-whatsapp",
+  "status": "draft",
+  "active": false,
+  "tenant_id": "sunset",
+  "channel": "whatsapp",
+  "label": "Spanish: 1 adult wants group classes Mon–Thu mornings — treat as 4 dated lessons unless configured course selected; never group_lesson component; no price inventing; no writes in simulation",
+  "spec_refs": ["docs/LUNA-GUEST-BEHAVIOR-SPEC.md §0, §6.1", "docker/hermes-sunset/SOUL.md booking flow"],
+  "contact_name": "Francisco",
+  "reference_date": "2026-07-13",
+  "turns": [
+    {
+      "message": "Quiero tomar clases de surf",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "language": "es",
+          "asks_one_next_question": true
+        }
+      }
+    },
+    {
+      "message": "Soy yo solo, para la semana que viene. Desde el lunes hasta el jueves. Tengo 38 años",
+      "expect": {
+        "behavior": {
+          "language": "es",
+          "resolves_relative_dates": true,
+          "expected_service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
+          "participant_count": 1,
+          "must_not_ask_surf_level": true,
+          "asks_one_next_question": true
+        }
+      }
+    },
+    {
+      "message": "Por la mañana está bien",
+      "expect": {
+        "behavior": {
+          "language": "es",
+          "time_preference": "morning",
+          "asks_one_next_question": true
+        }
+      }
+    },
+    {
+      "message": "Está bien con las clases grupales",
+      "expect": {
+        "behavior": {
+          "language": "es",
+          "lesson_kind": "group",
+          "must_check_availability_per_date": true,
+          "must_not_confirm_without_tool_result": true,
+          "asks_one_next_question": true
+        }
+      }
+    },
+    {
+      "message": "Esos 4 días con curso a la mañana",
+      "expect": {
+        "behavior": {
+          "language": "es",
+          "distinguishes_course_vs_lessons": true,
+          "must_not_invent_course_id": true,
+          "treats_as_dated_lessons_unless_configured_course_selected": true,
+          "asks_one_next_question": true
+        }
+      }
+    },
+    {
+      "message": "Francisco",
+      "expect": {
+        "behavior": {
+          "language": "es",
+          "booking_name_captured": true,
+          "must_get_authoritative_quote_before_price": true,
+          "write_mode": "no_send_simulation",
+          "must_not_perform_write_in_simulation": true,
+          "tool_payload_shape": {
+            "components_key": "lesson",
+            "must_not_use_components_key": ["group_lesson"],
+            "course_requires_course_id": true,
+            "quantity_means_surfers_not_days": true,
+            "preserves_time_preference": true
+          }
+        }
+      }
+    }
+  ],
+  "final_expect": {
+    "no_outbound_whatsapp": true,
+    "no_booking_write_in_simulation": true,
+    "no_price_invented": true,
+    "canonical_component_for_dated_group_lessons": "lesson"
+  }
+}
+
