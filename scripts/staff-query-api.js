@@ -23904,18 +23904,36 @@ function renderScheduleBookingList(filter){
 
 var scheduleDrawerState = { row: null, ctx: null, editing: false };
 
-function scheduleDrawerEditableEnabled(row){
+function scheduleDrawerTrustedPersistedSource(row){
+  if (!row) return null;
+  if (row._isDbManual || row.record_source === 'staff_manual') return 'staff_manual';
+  if (row.record_source === 'luna_guest') return 'luna_guest';
+  return null;
+}
+
+function scheduleDrawerGroupHasTrustedPersistedSource(group){
+  if (!(group && group.records && group.records.length)) return false;
+  for (var i = 0; i < group.records.length; i++){
+    if (scheduleDrawerTrustedPersistedSource(group.records[i])) return true;
+  }
+  return false;
+}
+
+// Can this row use the canonical booking-backed drawer renderer + API?
+// This is intentionally separate from edit/delete permissions.
+function scheduleDrawerCanLoadCanonical(row){
   if (!row || row._isDemo) return false;
   var group = scheduleFindGroupForRow(row);
-  var manual = !!(row._isDbManual || row.record_source === 'staff_manual');
-  if (group && group.records){
-    manual = manual || group.records.some(function(r){
-      return !!(r._isDbManual || r.record_source === 'staff_manual');
-    });
-  }
-  if (!manual) return false;
+  var trusted = !!scheduleDrawerTrustedPersistedSource(row) || scheduleDrawerGroupHasTrustedPersistedSource(group);
+  if (!trusted) return false;
   var ref = scheduleRowBookingRef(row, group);
   return !!(ref.booking_id || ref.booking_code);
+}
+
+// Can this row show edit / payment / destructive controls (within the canonical drawer)?
+function scheduleDrawerCanEdit(row){
+  if (!row || row._isDemo) return false;
+  return scheduleDrawerCanLoadCanonical(row);
 }
 
 function scheduleCloneDrawerCtx(ctx){
@@ -25367,7 +25385,7 @@ function scheduleMountDrawerBody(row, ctx, editing){
   var backdrop = el('ps-drawer-backdrop');
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
-  var canEdit = scheduleDrawerEditableEnabled(row);
+  var canEdit = scheduleDrawerCanEdit(row);
   body.innerHTML = editing ? scheduleRenderEditableDrawerHtml(row, ctx) : scheduleRenderViewDrawerHtml(row, ctx, canEdit);
   drawer.style.display = 'block';
   if (backdrop) backdrop.style.display = 'block';
@@ -25423,7 +25441,7 @@ function openScheduleDetailDrawer(row){
   var body = el('ps-drawer-body');
   if (!drawer || !body) return;
   scheduleLastDrawerRowId = row._scheduleId;
-  var useDrawerApi = scheduleDrawerEditableEnabled(row)
+  var useDrawerApi = scheduleDrawerCanLoadCanonical(row)
     || !!(row._drawerFromCustomer && (row.booking_id || row.booking_code));
   if (useDrawerApi){
     body.innerHTML = '<div class="state-msg">' + escHtml(portalT('schedule.drawer.loading')) + '</div>';
