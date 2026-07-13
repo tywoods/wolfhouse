@@ -5,9 +5,9 @@
   "active": false,
   "tenant_id": "sunset",
   "channel": "whatsapp",
-  "label": "Spanish: 1 adult wants group classes Mon–Thu mornings — treat as 4 dated lessons unless configured course selected; never group_lesson component; no price inventing; no writes in simulation",
+  "label": "Draft incident fixture (runner not_wired): Spanish 1 adult wants group classes Mon–Thu mornings — treat as 4 dated lessons unless configured course selected",
   "spec_refs": ["docs/LUNA-GUEST-BEHAVIOR-SPEC.md §0, §6.1", "docker/hermes-sunset/SOUL.md booking flow"],
-  "contact_name": "Francisco",
+  "contact_name": "Mateo Test",
   "reference_date": "2026-07-13",
   "turns": [
     {
@@ -68,7 +68,7 @@
       }
     },
     {
-      "message": "Francisco",
+      "message": "Mateo Test",
       "expect": {
         "behavior": {
           "language": "es",
@@ -94,4 +94,3 @@
     "canonical_component_for_dated_group_lessons": "lesson"
   }
 }
-

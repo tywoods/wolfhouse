@@ -136,6 +136,13 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
             self.assertNotIn(canned, sunset)
             self.assertNotIn(canned, wolfhouse)
 
+    def test_sunset_soul_group_lesson_component_rules(self):
+        sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
+        self.assertIn("components.lesson", sunset)
+        self.assertIn("surfers, not days", sunset)
+        self.assertIn("Never send `group_lesson`", sunset)
+        self.assertIn("course_id", sunset)
+
     def test_optional_anthropic_token_cannot_fail_luna_env_write(self):
         bootstrap = (ROOT / "bootstrap.sh").read_text()
         self.assertRegex(

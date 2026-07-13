@@ -85,4 +85,3 @@ const pg = {
   console.error('verify-sunset-multi-date-lesson-pricing crashed:', err && err.message);
   process.exit(1);
 });
-

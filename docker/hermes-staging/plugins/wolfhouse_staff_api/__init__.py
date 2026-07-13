@@ -1471,11 +1471,15 @@ def _canon_rental_duration(raw):
 
 
 def _bundle_quantity(v):
+    if isinstance(v, bool):
+        return None
     try:
+        if isinstance(v, float) and not v.is_integer():
+            return None
         n = int(v)
     except (TypeError, ValueError):
         return None
-    return n if n >= 1 else None
+    return n if 1 <= n <= 99 else None
 
 
 def _resolve_sunset_bundle_shape(rp_in, combined, board, suit):
@@ -1555,13 +1559,40 @@ def _canonicalize_sunset_full_day_addon(payload, raw_components):
     return components, None
 
 
-def _sunset_has_service_dates(payload):
-    if isinstance(payload.get("service_dates"), list):
-        return any(_clean(v) for v in (payload.get("service_dates") or []))
-    if _clean(payload.get("service_date")):
+def _parse_iso_calendar_date(value):
+    s = _clean(value)
+    if not s:
+        return None
+    try:
+        from datetime import date
+        return date.fromisoformat(s)
+    except (TypeError, ValueError):
+        return None
+
+
+def _validate_sunset_service_dates(payload):
+    """Prove one accepted date form is syntactically valid (real YYYY-MM-DD calendar dates)."""
+    p = payload or {}
+    if isinstance(p.get("service_dates"), list):
+        raw = p.get("service_dates") or []
+        if not raw:
+            return False
+        for v in raw:
+            if _parse_iso_calendar_date(v) is None:
+                return False
         return True
-    if _clean(payload.get("date_from")) and _clean(payload.get("date_to")):
-        return True
+    if p.get("service_date") not in (None, ""):
+        return _parse_iso_calendar_date(p.get("service_date")) is not None
+    df = _clean(p.get("date_from"))
+    dt = _clean(p.get("date_to"))
+    if df or dt:
+        if not df or not dt:
+            return False
+        start = _parse_iso_calendar_date(df)
+        end = _parse_iso_calendar_date(dt)
+        if start is None or end is None:
+            return False
+        return end >= start
     return False
 
 
@@ -1584,8 +1615,8 @@ def _canonicalize_sunset_group_lesson_alias(payload, raw_components):
         return None, "group_lesson_invalid"
     if _clean(part.get("course_id")):
         return None, "group_lesson_ambiguous_course_id"
-    if not _sunset_has_service_dates(payload):
-        return None, "group_lesson_requires_service_dates"
+    if not _validate_sunset_service_dates(payload):
+        return None, "group_lesson_requires_valid_service_dates"
     qty = _bundle_quantity(part.get("quantity") if part.get("quantity") is not None else part.get("count"))
     if qty is None:
         return None, "group_lesson_invalid"
@@ -1598,26 +1629,46 @@ def _canonicalize_sunset_group_lesson_alias(payload, raw_components):
     return components, None
 
 
-def _normalize_sunset_lesson_time_preference_into_notes(payload, components):
-    """Persist lesson time preference in staff-visible notes (backend ignores it today)."""
+_TIME_PREF_NOTE_MARKERS = (
+    "Guest requested morning sessions",
+    "Guest requested afternoon sessions",
+    "has no morning/afternoon preference",
+)
+
+
+def _sunset_time_preference_note_line(tp_norm):
+    if tp_norm == "morning":
+        return "Luna: Guest requested morning sessions; exact time to be confirmed by staff."
+    if tp_norm == "afternoon":
+        return "Luna: Guest requested afternoon sessions; exact time to be confirmed by staff."
+    if tp_norm == "any":
+        return "Luna: Guest has no morning/afternoon preference; exact time to be confirmed by staff."
+    return None
+
+
+def _apply_sunset_lesson_time_preference_notes(payload, components):
+    """Move lesson time_preference into staff-visible notes; strip from backend component."""
     if not isinstance(components, dict):
-        return payload
+        return payload, components, None
     lesson = components.get("lesson")
     if not isinstance(lesson, dict):
-        return payload
-    tp = _clean(lesson.get("time_preference"))
-    if not tp:
-        return payload
-    tp_norm = tp.strip().lower()
-    if tp_norm not in ("morning", "afternoon", "any"):
-        return payload
+        return payload, components, None
+    tp_raw = lesson.get("time_preference")
+    if tp_raw is None or tp_raw == "":
+        return payload, components, None
+    tp_norm = _clean(tp_raw).strip().lower()
+    line = _sunset_time_preference_note_line(tp_norm)
+    if not line:
+        return payload, components, "lesson_time_preference_invalid"
+    lesson_out = dict(lesson)
+    lesson_out.pop("time_preference", None)
+    components_out = dict(components)
+    components_out["lesson"] = lesson_out
     base = _clean(payload.get("notes")) or ""
-    if "time_preference:" in base.lower():
-        return payload
-    line = f"[Luna] time_preference: {tp_norm} (guest request; exact time confirmed by staff)"
     out = dict(payload)
-    out["notes"] = (base + ("\n" if base else "") + line).strip()
-    return out
+    if not any(marker in base for marker in _TIME_PREF_NOTE_MARKERS):
+        out["notes"] = (base + ("\n" if base else "") + line).strip()
+    return out, components_out, None
 
 
 def create_sunset_booking(params, **kwargs):
@@ -1666,7 +1717,7 @@ def create_sunset_booking(params, **kwargs):
         })
     raw_components, gl_error = _canonicalize_sunset_group_lesson_alias(payload, raw_components)
     if gl_error:
-        next_action = "Which date(s) should I book the group lesson for?" if gl_error == "group_lesson_requires_service_dates" else (
+        next_action = "Which date(s) should I book the group lesson for?" if gl_error == "group_lesson_requires_valid_service_dates" else (
             "Just to confirm — is this for specific group lesson dates, or a specific configured course product?"
             if gl_error in ("group_lesson_ambiguous_with_course", "group_lesson_ambiguous_course_id")
             else "How many surfers is the lesson for?"
@@ -1742,7 +1793,15 @@ def create_sunset_booking(params, **kwargs):
     elif isinstance(payload.get("components"), dict):
         # Use the validated/canonicalized components, never the original model
         # payload (which may contain the full-day add-on alias).
-        payload = _normalize_sunset_lesson_time_preference_into_notes(payload, raw_components)
+        payload, raw_components, tp_error = _apply_sunset_lesson_time_preference_notes(payload, raw_components)
+        if tp_error:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": tp_error,
+                "staff_review_needed": False,
+                "guest_safe_next_action": "Would you prefer a morning or afternoon session?",
+            })
         body["components"] = raw_components
         if rp_in:
             body["rental_pricing"] = rp_in
