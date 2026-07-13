@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import json
 import pathlib
 import sys
@@ -87,9 +86,7 @@ class WrappedPostBotTests(unittest.TestCase):
     def test_wrapped_post_bot_never_calls_orig_for_sunset_writes(self):
         import types
 
-        spec = importlib.util.spec_from_file_location("simulate_core", ROOT / "simulate_core.py")
-        core = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(core)
+        import wolfhouse.simulate_core as core
 
         orig_calls = []
 
