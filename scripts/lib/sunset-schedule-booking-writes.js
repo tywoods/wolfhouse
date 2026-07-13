@@ -32,6 +32,43 @@ async function resolveFullDayEquipmentAddonUnitCents(pg, clientSlug, locationId)
 const SUNSET_CLIENT_SLUG = 'sunset';
 const METADATA_SOURCE_TAG = 'staff_manual_schedule';
 const DB_SOURCE = 'staff_manual';
+const LUNA_DB_SOURCE = 'luna_guest';
+const LUNA_METADATA_SOURCE_TAG = 'luna_guest_whatsapp';
+
+const LUNA_TRUSTED_ACTOR_SOURCES = new Set([
+  'agent_luna_whatsapp_bot',
+  'agent_luna_whatsapp',
+]);
+
+function isLunaTrustedActor(actor) {
+  const src = String(actor && actor.source || '').trim().toLowerCase();
+  if (!src) return false;
+  if (LUNA_TRUSTED_ACTOR_SOURCES.has(src)) return true;
+  return /^agent_luna/.test(src);
+}
+
+/** Canonical write-time attribution from trusted server-side actor only — never from request body. */
+function resolveScheduleBookingAttribution(actor) {
+  if (isLunaTrustedActor(actor)) {
+    const actorSource = String(actor.source || '').trim();
+    return {
+      dbSource: LUNA_DB_SOURCE,
+      metadataSource: LUNA_METADATA_SOURCE_TAG,
+      staffManualSchedule: false,
+      lunaGuestBooking: true,
+      actorSource,
+      createdByStaff: null,
+    };
+  }
+  return {
+    dbSource: DB_SOURCE,
+    metadataSource: METADATA_SOURCE_TAG,
+    staffManualSchedule: true,
+    lunaGuestBooking: false,
+    actorSource: null,
+    createdByStaff: actor && actor.email ? actor.email : null,
+  };
+}
 const DEFAULT_LESSON_CATEGORY = 'Adult (Over 12)';
 const PRIVATE_LESSON_MAX_SESSIONS = 30;
 
@@ -625,6 +662,7 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
   const rows = [];
   const dates = opts.addonDates || {};
   const unitCents = Number(opts.addonUnitCents) || 0;
+  const attribution = opts.attribution || resolveScheduleBookingAttribution(null);
   const sortedDates = Object.keys(dates).sort();
   if (sortedDates.length) {
     // Idempotently allow service_type='addon_service' before inserting — covers DBs
@@ -638,8 +676,9 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
     const qty = parseQuantity(dates[serviceDate], 1) || 1;
     const amountDueCents = unitCents * qty;
     const metadata = {
-      source: METADATA_SOURCE_TAG,
-      staff_manual_schedule: true,
+      source: attribution.metadataSource,
+      staff_manual_schedule: attribution.staffManualSchedule,
+      actor_source: attribution.actorSource || null,
       staff_ui_service_type: FULL_DAY_EQUIPMENT_ADDON_KEY,
       component: FULL_DAY_EQUIPMENT_ADDON_KEY,
       service_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
@@ -651,8 +690,8 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
       notes: opts.notes || null,
       needs_reply: opts.needsReply,
       guest_phone: opts.guestPhone,
-      created_by_staff: opts.actorEmail || null,
-      updated_by_staff: opts.actorEmail || null,
+      created_by_staff: attribution.createdByStaff || opts.actorEmail || null,
+      updated_by_staff: attribution.createdByStaff || opts.actorEmail || null,
       idempotency_key: opts.idempotencyKey || null,
     };
     const ins = await pg.query(
@@ -689,7 +728,7 @@ async function insertFullDayEquipmentAddonRows(pg, opts) {
         qty,
         amountDueCents,
         opts.srPayment,
-        DB_SOURCE,
+        attribution.dbSource,
         JSON.stringify(metadata),
       ],
     );
@@ -728,6 +767,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   }
   const input = validated.value;
   const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
+  const attribution = resolveScheduleBookingAttribution(opts.actor);
 
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
@@ -799,8 +839,10 @@ async function createSunsetScheduleBooking(pg, opts) {
         firstDate,
         guestCount,
         JSON.stringify({
-          source: METADATA_SOURCE_TAG,
-          staff_manual_schedule: true,
+          source: attribution.metadataSource,
+          staff_manual_schedule: attribution.staffManualSchedule,
+          luna_guest_booking: attribution.lunaGuestBooking,
+          actor_source: attribution.actorSource,
           bundle_id: bundleId,
           components: componentKeys,
           guest_phone: input.guest_phone,
@@ -817,8 +859,9 @@ async function createSunsetScheduleBooking(pg, opts) {
       const plLabel = pl.label || privateLessonConfig.label || 'Private lesson';
       for (const session of pl.sessions) {
         const metadata = {
-          source: METADATA_SOURCE_TAG,
-          staff_manual_schedule: true,
+          source: attribution.metadataSource,
+          staff_manual_schedule: attribution.staffManualSchedule,
+          actor_source: attribution.actorSource || null,
           staff_ui_service_type: 'private_lesson',
           component: 'private_lesson',
           components: componentKeys,
@@ -834,7 +877,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           needs_reply: input.needs_reply,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
-          created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+          created_by_staff: attribution.createdByStaff,
           idempotency_key: input.idempotency_key,
         };
         const row = await insertServiceRecord(pg, [
@@ -846,7 +889,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           session.date,
           pl.surfer_count,
           srPayment,
-          DB_SOURCE,
+          attribution.dbSource,
           JSON.stringify(metadata),
         ], {
           service_time_local: session.start,
@@ -863,8 +906,9 @@ async function createSunsetScheduleBooking(pg, opts) {
         const part = input.components[componentKey];
         const dbServiceType = UI_TO_DB_SERVICE_TYPE[componentKey];
         const metadata = {
-          source: METADATA_SOURCE_TAG,
-          staff_manual_schedule: true,
+          source: attribution.metadataSource,
+          staff_manual_schedule: attribution.staffManualSchedule,
+          actor_source: attribution.actorSource || null,
           staff_ui_service_type: staffUiServiceType(componentKey),
           component: componentKey,
           components: componentKeys,
@@ -877,7 +921,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           needs_reply: input.needs_reply,
           guest_phone: input.guest_phone,
           location_id: locationId || null,
-          created_by_staff: opts.actor && opts.actor.email ? opts.actor.email : null,
+          created_by_staff: attribution.createdByStaff,
           idempotency_key: input.idempotency_key,
         };
         if (rentalPricingDescriptor
@@ -895,7 +939,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           serviceDate,
           part.quantity,
           srPayment,
-          DB_SOURCE,
+          attribution.dbSource,
           JSON.stringify(metadata),
         ]);
         createdRows.push(row);
@@ -918,8 +962,9 @@ async function createSunsetScheduleBooking(pg, opts) {
         notes: input.notes || null,
         needsReply: input.needs_reply,
         guestPhone: input.guest_phone,
-        actorEmail: opts.actor && opts.actor.email ? opts.actor.email : null,
+        actorEmail: attribution.createdByStaff,
         idempotencyKey: input.idempotency_key,
+        attribution,
       });
       addonRows.forEach((r) => createdRows.push(r));
     }
@@ -946,6 +991,10 @@ module.exports = {
   SUNSET_CLIENT_SLUG,
   METADATA_SOURCE_TAG,
   DB_SOURCE,
+  LUNA_DB_SOURCE,
+  LUNA_METADATA_SOURCE_TAG,
+  isLunaTrustedActor,
+  resolveScheduleBookingAttribution,
   DEFAULT_LESSON_CATEGORY,
   PRIVATE_LESSON_MAX_SESSIONS,
   UI_COMPONENT_KEYS,

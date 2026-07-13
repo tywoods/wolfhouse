@@ -1,0 +1,253 @@
+'use strict';
+
+/**
+ * verify:sunset-schedule-booking-attribution
+ *
+ * Persistence tests for Sunset schedule booking write attribution.
+ * Luna bot actor → luna_guest; staff portal actor → staff_manual.
+ *
+ * Run: node scripts/verify-sunset-schedule-booking-attribution.js
+ */
+
+const { rowSourceLabel } = require('./lib/sunset-schedule-ops');
+const {
+  createSunsetScheduleBooking,
+  scheduleRowFromDb,
+  resolveScheduleBookingAttribution,
+  LUNA_DB_SOURCE,
+  LUNA_METADATA_SOURCE_TAG,
+  DB_SOURCE,
+  METADATA_SOURCE_TAG,
+  isLunaTrustedActor,
+} = require('./lib/sunset-schedule-booking-writes');
+
+let pass = 0;
+let fail = 0;
+function assert(label, cond, detail) {
+  if (cond) { console.log(`  PASS  ${label}`); pass += 1; }
+  else { console.error(`  FAIL  ${label}${detail ? ' — ' + detail : ''}`); fail += 1; }
+}
+
+function parseMeta(raw) {
+  if (!raw) return {};
+  if (typeof raw === 'object') return raw;
+  try { return JSON.parse(raw); } catch (_) { return {}; }
+}
+
+function buildMockPg() {
+  const state = {
+    clientId: '11111111-1111-1111-1111-111111111111',
+    bookings: [],
+    serviceRecords: [],
+    idempotency: new Map(),
+  };
+
+  const pg = {
+    state,
+    query: async (sql, params) => {
+      const q = String(sql);
+      if (/SELECT id FROM clients WHERE slug/i.test(q)) {
+        return { rows: [{ id: state.clientId }] };
+      }
+      if (/BEGIN|COMMIT|ROLLBACK/i.test(q)) return { rows: [] };
+      if (/INSERT INTO bookings/i.test(q)) {
+        const meta = parseMeta(params[8]);
+        const row = {
+          id: `bk-${state.bookings.length + 1}`,
+          booking_code: params[1],
+          metadata: meta,
+        };
+        state.bookings.push(row);
+        return { rows: [{ id: row.id, booking_code: row.booking_code }] };
+      }
+      if (/INSERT INTO booking_service_records/i.test(q)) {
+        const meta = parseMeta(params[9]);
+        const row = {
+          service_record_id: `sr-${state.serviceRecords.length + 1}`,
+          booking_id: params[1],
+          booking_code: params[2],
+          guest_name: params[3],
+          service_type: params[4],
+          service_date: params[5],
+          quantity: params[6],
+          payment_status: params[7],
+          record_source: params[8],
+          metadata: meta,
+          metadata_source: meta.source,
+          staff_manual_schedule: meta.staff_manual_schedule,
+        };
+        state.serviceRecords.push(row);
+        if (meta.idempotency_key) {
+          const list = state.idempotency.get(meta.idempotency_key) || [];
+          list.push(row);
+          state.idempotency.set(meta.idempotency_key, list);
+        }
+        return {
+          rows: [{
+            ...row,
+            slot_time: meta.slot_time || null,
+            notes: meta.notes || null,
+            needs_reply: meta.needs_reply || false,
+            staff_ui_service_type: meta.staff_ui_service_type || null,
+            lesson_category: meta.lesson_category || null,
+            course_id: meta.course_id || null,
+            course_label: meta.course_label || null,
+            metadata_component: meta.component || null,
+            bundle_id: meta.bundle_id || null,
+            metadata_components: meta.components ? meta.components.join(',') : null,
+          }],
+        };
+      }
+      if (/metadata->>'idempotency_key'/i.test(q)) {
+        const key = params[1];
+        const rows = state.idempotency.get(key) || [];
+        return { rows: rows.length ? rows : [] };
+      }
+      if (/tenant_price_rules|full_day_equipment/i.test(q)) return { rows: [] };
+      if (/ALTER TABLE booking_service_records/i.test(q)) return { rows: [] };
+      return { rows: [] };
+    },
+  };
+  return pg;
+}
+
+function assertNoStaffAttribution(rows, label) {
+  for (const row of rows) {
+    const meta = parseMeta(row.metadata);
+    assert(`${label}: sr ${row.service_record_id} source not staff_manual`, row.record_source !== DB_SOURCE, row.record_source);
+    assert(`${label}: sr ${row.service_record_id} meta.source not staff_manual_schedule`, meta.source !== METADATA_SOURCE_TAG, meta.source);
+    assert(`${label}: sr ${row.service_record_id} is luna_guest`, row.record_source === LUNA_DB_SOURCE);
+    assert(`${label}: sr ${row.service_record_id} meta is luna`, meta.source === LUNA_METADATA_SOURCE_TAG);
+    const ui = scheduleRowFromDb(row);
+    assert(`${label}: classifier Luna for ${row.service_record_id}`, rowSourceLabel(ui) === 'Luna', rowSourceLabel(ui));
+  }
+}
+
+console.log('\nverify:sunset-schedule-booking-attribution\n');
+
+console.log('[1] resolveScheduleBookingAttribution unit');
+const lunaAttr = resolveScheduleBookingAttribution({ source: 'agent_luna_whatsapp_bot' });
+assert('Luna actor → luna_guest db', lunaAttr.dbSource === LUNA_DB_SOURCE);
+assert('Luna actor → luna_guest_whatsapp meta', lunaAttr.metadataSource === LUNA_METADATA_SOURCE_TAG);
+assert('Luna actor not staff_manual_schedule', lunaAttr.staffManualSchedule === false);
+assert('Luna actor preserves actor_source', lunaAttr.actorSource === 'agent_luna_whatsapp_bot');
+
+const staffAttr = resolveScheduleBookingAttribution({ email: 'ops@sunset.test' });
+assert('Staff actor → staff_manual db', staffAttr.dbSource === DB_SOURCE);
+assert('Staff actor → staff_manual_schedule meta', staffAttr.metadataSource === METADATA_SOURCE_TAG);
+assert('Staff actor staff_manual_schedule flag', staffAttr.staffManualSchedule === true);
+assert('Staff actor created_by_staff', staffAttr.createdByStaff === 'ops@sunset.test');
+assert('isLunaTrustedActor bot', isLunaTrustedActor({ source: 'agent_luna_whatsapp_bot' }));
+assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.com' }));
+
+(async () => {
+  console.log('\n[2] Luna rental persistence');
+  const pgRental = buildMockPg();
+  const rental = await createSunsetScheduleBooking(pgRental, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Frankie',
+      components: { surfboard: { quantity: 1 } },
+      service_date: '2026-08-02',
+      idempotency_key: 'luna-rental-1',
+    },
+  });
+  assert('rental create ok', rental.ok === true);
+  assertNoStaffAttribution(pgRental.state.serviceRecords, 'rental');
+  const bkMeta = parseMeta(pgRental.state.bookings[0].metadata);
+  assert('rental booking meta luna', bkMeta.source === LUNA_METADATA_SOURCE_TAG);
+
+  console.log('\n[3] Luna lesson + course + private lesson + addon + multi-date');
+  const pgCombo = buildMockPg();
+  const combo = await createSunsetScheduleBooking(pgCombo, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Group',
+      service_dates: ['2026-08-02', '2026-08-03'],
+      components: {
+        course: { quantity: 2, course_id: 'c5', course_label: '5-day' },
+        full_day_equipment_extension: { enabled: true, dates: { '2026-08-02': 2 } },
+      },
+      idempotency_key: 'luna-combo-1',
+    },
+  });
+  assert('combo create ok', combo.ok === true, combo.body && combo.body.error);
+  assertNoStaffAttribution(pgCombo.state.serviceRecords, 'combo');
+  assert('multi-date rows > 1', pgCombo.state.serviceRecords.length >= 2);
+
+  const pgPrivate = buildMockPg();
+  const pl = await createSunsetScheduleBooking(pgPrivate, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Coach',
+      components: {
+        private_lesson: {
+          enabled: true,
+          quantity: 1,
+          surfer_count: 1,
+          sessions: [{ date: '2026-08-02', start: '10:00', end: '12:00' }],
+        },
+      },
+      idempotency_key: 'luna-pl-1',
+    },
+  });
+  assert('private lesson create ok', pl.ok === true, pl.body && pl.body.error);
+  assertNoStaffAttribution(pgPrivate.state.serviceRecords, 'private');
+
+  console.log('\n[4] Idempotent replay preserves Luna attribution');
+  const pgIdem = buildMockPg();
+  const first = await createSunsetScheduleBooking(pgIdem, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Replay',
+      components: { lesson: { quantity: 1 } },
+      service_date: '2026-08-02',
+      idempotency_key: 'idem-luna-1',
+    },
+  });
+  const second = await createSunsetScheduleBooking(pgIdem, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { source: 'agent_luna_whatsapp_bot' },
+    body: {
+      guest_name: 'Replay',
+      components: { lesson: { quantity: 1 } },
+      service_date: '2026-08-02',
+      idempotency_key: 'idem-luna-1',
+    },
+  });
+  assert('idempotent replay ok', second.ok && second.body.idempotent === true);
+  assertNoStaffAttribution(pgIdem.state.serviceRecords, 'idem');
+
+  console.log('\n[5] Staff manual creation stays Staff');
+  const pgStaff = buildMockPg();
+  const staff = await createSunsetScheduleBooking(pgStaff, {
+    clientSlug: 'sunset',
+    locationId: 'sunset-somo',
+    actor: { email: 'staff@sunset.test' },
+    body: {
+      guest_name: 'Portal',
+      components: { wetsuit: { quantity: 1 } },
+      service_date: '2026-08-02',
+    },
+  });
+  assert('staff create ok', staff.ok === true);
+  for (const row of pgStaff.state.serviceRecords) {
+    const meta = parseMeta(row.metadata);
+    assert('staff sr source staff_manual', row.record_source === DB_SOURCE);
+    assert('staff meta staff_manual_schedule', meta.source === METADATA_SOURCE_TAG);
+    const ui = scheduleRowFromDb(row);
+    assert('staff classifier Staff', rowSourceLabel(ui) === 'Staff', rowSourceLabel(ui));
+  }
+
+  console.log(`\n── verify:sunset-schedule-booking-attribution ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
+  if (fail > 0) process.exit(1);
+})();
