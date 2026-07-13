@@ -9,7 +9,12 @@
  * WITHOUT hard-coding any business price (test values demonstrate precedence, not
  * a coded constant).
  *
- * No real DB / network: PG is mocked, the rule loader is injected.
+ * Mock rows mirror the real Sunset portal schema:
+ *   item_code = board_and_suit_rental__half_day
+ *   unit      = session  (billing granularity — NOT guest duration)
+ *
+ * No real DB / network: PG is mocked; the rule loader runs through
+ * loadTenantPriceRuleFromDb against captured SQL parameters.
  *
  * Run:
  *   node scripts/verify-sunset-rental-db-precedence.js
@@ -39,46 +44,156 @@ function assert(label, condition, detail) {
   fail += 1;
 }
 
+const PERSISTED_ITEM_CODE = 'board_and_suit_rental__half_day';
+const BILLING_UNIT = 'session';
+const GUEST_DURATION = 'half_day';
+
 // Test-only owner prices. NOT the baseline seed (half_day bundle = 1500 in
 // config); the point is to show the DB value wins, whatever it is.
-const DB_BUNDLE_HALFDAY_SOMO = 2000; // €20 owner-managed
-const DB_BUNDLE_HALFDAY_SARDI = 3400; // €34 — deliberately different per location
-const BASELINE_BUNDLE_HALFDAY = 1500; // config/clients/sunset.baseline.json (public_site seed)
+const DB_BUNDLE_HALFDAY_SOMO = 2000;
+const DB_BUNDLE_HALFDAY_SARDI = 1000;
+const BASELINE_BUNDLE_HALFDAY = 1500;
 
-// Injected rule loader — stands in for tenant_price_rules. Fails closed on an
-// unconfigured location; never returns the baseline seed.
-function makeRuleLoader(rules) {
-  return async (params) => {
-    if (params.locationId === 'sunset-somo' && rules.somo != null) {
-      return {
-        status: 'found', amount_cents: rules.somo, currency: 'EUR',
-        item_code: params.itemCode, unit: params.unit, location_id: 'sunset-somo',
-      };
+function schemaRowsForLocation(loc, amountCents) {
+  const rows = [
+    {
+      id: 'hist-inactive-old',
+      client_slug: 'sunset',
+      location_id: loc,
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      display_name: 'Bundle half day (retired)',
+      currency: 'EUR',
+      amount_cents: amountCents + 5000,
+      unit: BILLING_UNIT,
+      active: false,
+      effective_from: '2020-01-01',
+      effective_to: null,
+      updated_at: '2020-06-01',
+    },
+    {
+      id: 'hist-inactive-recent',
+      client_slug: 'sunset',
+      location_id: loc,
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      display_name: 'Bundle half day (superseded)',
+      currency: 'EUR',
+      amount_cents: amountCents + 3000,
+      unit: BILLING_UNIT,
+      active: false,
+      effective_from: '2024-01-01',
+      effective_to: null,
+      updated_at: '2024-06-01',
+    },
+    {
+      id: 'active-authoritative',
+      client_slug: 'sunset',
+      location_id: loc,
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      display_name: 'Board + wetsuit rental (bundle)',
+      currency: 'EUR',
+      amount_cents: amountCents,
+      unit: BILLING_UNIT,
+      active: true,
+      effective_from: '2026-01-01',
+      effective_to: null,
+      updated_at: '2026-06-01',
+    },
+  ];
+  return rows;
+}
+
+/**
+ * PG mock that inspects SQL parameters against real portal row shape.
+ * Returns a row only when item_code matches the combined offering__duration code
+ * and does NOT require unit=half_day (billing unit is session).
+ */
+function makeSchemaPg(locationsConfig) {
+  const capturedQueries = [];
+  const allRows = [];
+  for (const [loc, amount] of Object.entries(locationsConfig)) {
+    if (amount != null) allRows.push(...schemaRowsForLocation(loc, amount));
+  }
+
+  function matchPriceQuery(sql, params) {
+    const clientSlug = params[0];
+    const itemType = params[1];
+    const itemCode = params[2];
+    let unitFilter = null;
+    let locationId = null;
+    if (/unit = \$4/i.test(sql)) {
+      unitFilter = params[3];
+      locationId = /location_id = \$5/i.test(sql) ? params[4] : null;
+    } else if (/location_id = \$4/i.test(sql)) {
+      locationId = params[3];
     }
-    if (params.locationId === 'sunset-sardinero' && rules.sardi != null) {
-      return {
-        status: 'found', amount_cents: rules.sardi, currency: 'EUR',
-        item_code: params.itemCode, unit: params.unit, location_id: 'sunset-sardinero',
-      };
-    }
-    return { status: 'not_found', location_id: params.locationId };
+    return allRows.filter((r) => r.client_slug === clientSlug
+      && r.item_type === itemType
+      && r.item_code === itemCode
+      && (unitFilter == null || r.unit === unitFilter)
+      && r.active === true
+      && (locationId == null || r.location_id === locationId));
+  }
+
+  return {
+    capturedQueries,
+    query: async (sql, params) => {
+      const s = String(sql);
+      capturedQueries.push({ sql: s, params: params ? [...params] : [] });
+      if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_price_rules' }] };
+      if (/information_schema\.columns/i.test(s) && /location_id/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/information_schema\.columns/i.test(s) && /effective_from/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/information_schema\.columns/i.test(s) && /effective_to/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/information_schema\.columns/i.test(s) && /updated_at/i.test(s)) return { rows: [{ '?column?': 1 }] };
+      if (/FROM tenant_price_rules/i.test(s)) {
+        const matched = matchPriceQuery(s, params);
+        const row = matched[0] || null;
+        const selectCols = row
+          ? {
+            amount_cents: row.amount_cents,
+            currency: row.currency,
+            item_type: row.item_type,
+            item_code: row.item_code,
+            unit: row.unit,
+            location_id: row.location_id,
+          }
+          : null;
+        return { rows: row ? [selectCols] : [] };
+      }
+      return { rows: [] };
+    },
   };
+}
+
+function priceQueries(pg) {
+  return pg.capturedQueries.filter((q) => /FROM tenant_price_rules/i.test(q.sql));
 }
 
 async function main() {
   console.log('\nverify:sunset-rental-db-precedence — portal DB prices are authoritative\n');
 
-  // ─────────────────────────────────────────────────────────────────────────
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
-  const bothLocations = makeRuleLoader({ somo: DB_BUNDLE_HALFDAY_SOMO, sardi: DB_BUNDLE_HALFDAY_SARDI });
 
-  console.log('[A] DB rule wins over baseline seed');
+  console.log('[A] DB rule wins over baseline seed (real item_code + billing unit)');
+  const pgSomo = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI });
   const somo = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-somo',
-    item: 'board+suit bundle', duration: 'half day', loadRule: bothLocations,
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgSomo,
   });
+  const somoQueries = priceQueries(pgSomo);
+  assert('resolver queries combined item_code board_and_suit_rental__half_day',
+    somoQueries.some((q) => q.params[2] === PERSISTED_ITEM_CODE), JSON.stringify(somoQueries));
+  assert('resolver does not filter unit=half_day (duration is not billing unit)',
+    !somoQueries.some((q) => /unit\s*=\s*\$4/i.test(q.sql) && q.params.includes(GUEST_DURATION)));
   assert('effective lookup returns the DB amount, not the baseline',
     somo.ok === true && somo.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(somo));
+  assert('guest-facing duration remains half_day',
+    somo.ok === true && somo.duration === GUEST_DURATION, JSON.stringify(somo));
   assert('DB amount differs from public_site baseline seed',
     DB_BUNDLE_HALFDAY_SOMO !== BASELINE_BUNDLE_HALFDAY);
   assert('source is db (not public_site)', somo.source === 'db', somo.source);
@@ -86,40 +201,70 @@ async function main() {
   assert('live quote allowed for owner rule', somo.live_quote_allowed === true);
 
   console.log('\n[B] Location isolation — Somo and elSardi never cross');
+  const pgSardi = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO, 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI });
   const sardi = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-sardinero',
-    item: 'board+suit bundle', duration: 'half day', loadRule: bothLocations,
+    client_slug: 'sunset',
+    location_id: 'sunset-sardinero',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgSardi,
   });
   assert('Sardinero returns only Sardinero price', sardi.ok === true && sardi.amount_cents === DB_BUNDLE_HALFDAY_SARDI, JSON.stringify(sardi));
   assert('Somo ≠ Sardinero (no silent substitution)', somo.amount_cents !== sardi.amount_cents);
-  const somoOnly = makeRuleLoader({ somo: DB_BUNDLE_HALFDAY_SOMO });
+  const pgSomoOnly = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO });
   const sardiMissing = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-sardinero',
-    item: 'board+suit bundle', duration: 'half day', loadRule: somoOnly,
+    client_slug: 'sunset',
+    location_id: 'sunset-sardinero',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgSomoOnly,
   });
   assert('Sardinero with only a Somo rule fails closed (no cross-location)',
     sardiMissing.ok === false && sardiMissing.reason === 'price_not_configured');
   const unknownLoc = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-nope',
-    item: 'board+suit bundle', duration: 'half day', loadRule: bothLocations,
+    client_slug: 'sunset',
+    location_id: 'sunset-nope',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgSomo,
   });
   assert('unknown location fails closed', unknownLoc.ok === false && unknownLoc.reason === 'unknown_location');
 
   console.log('\n[C] Missing rule (tables exist) → price_not_configured, never baseline');
-  const noRule = makeRuleLoader({});
+  const pgEmpty = makeSchemaPg({});
   const missing = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-somo',
-    item: 'board+suit bundle', duration: 'half day', loadRule: noRule,
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgEmpty,
   });
   assert('missing rule → price_not_configured', missing.ok === false && missing.reason === 'price_not_configured');
   assert('missing rule does NOT return baseline amount',
     missing.amount_cents == null || missing.amount_cents !== BASELINE_BUNDLE_HALFDAY);
 
+  console.log('\n[C2] Inactive historical rows cannot win over the single active row');
+  const pgVersioned = makeSchemaPg({ 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO });
+  const versioned = await lookupSunsetRentalPriceAsync({
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgVersioned,
+  });
+  assert('active row amount wins over higher inactive amounts',
+    versioned.ok === true && versioned.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(versioned));
+
   console.log('\n[D] Query failure → typed failure, never baseline');
-  const boom = async () => { throw new Error('connection reset'); };
+  const boom = {
+    query: async () => { throw new Error('connection reset'); },
+  };
   const failed = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-somo',
-    item: 'board+suit bundle', duration: 'half day', loadRule: boom,
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: boom,
   });
   assert('query error → price_lookup_failed', failed.ok === false && failed.reason === 'price_lookup_failed');
   assert('query error does NOT fall back to baseline', failed.amount_cents == null || failed.amount_cents !== BASELINE_BUNDLE_HALFDAY);
@@ -127,35 +272,46 @@ async function main() {
   console.log('\n[E] DB read disabled → baseline preview path remains available');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'false';
   const preview = await lookupSunsetRentalPriceAsync({
-    client_slug: 'sunset', location_id: 'sunset-somo',
-    item: 'board+suit bundle', duration: 'half day', loadRule: bothLocations,
+    client_slug: 'sunset',
+    location_id: 'sunset-somo',
+    item: 'board+suit bundle',
+    duration: 'half day',
+    pgClient: pgSomo,
   });
   assert('DB disabled → baseline seed returned', preview.ok === true && preview.amount_cents === BASELINE_BUNDLE_HALFDAY, JSON.stringify(preview));
   assert('DB disabled source is public_site seed', preview.source === 'public_site');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
 
-  // ─────────────────────────────────────────────────────────────────────────
   console.log('\n[F-resolver] Owner DB price flows into the shared bundle-total function');
   process.env.SUNSET_ADMIN_JSON_OVERLAY = 'false';
   const dbLoad = (unitCents) => async (slug, pgClient, loc) => ({
     ok: true,
     hasData: true,
     prices: [{
-      id: 'db-bundle', category: 'rental', offering_key: 'board_and_suit_rental',
-      label: 'Board + wetsuit rental (bundle)', currency: 'EUR', unit: 'half_day',
-      amount: unitCents / 100, active: true, source: 'db', effective_state: 'db',
+      id: 'db-bundle',
+      category: 'rental',
+      offering_key: PERSISTED_ITEM_CODE,
+      label: 'Board + wetsuit rental (bundle)',
+      currency: 'EUR',
+      unit: BILLING_UNIT,
+      amount: unitCents / 100,
+      active: true,
+      source: 'db',
+      effective_state: 'db',
     }],
     lesson_capacity: { default_daily_cap: 24, overrides: [], fromDb: false },
-    lesson_times: [], surf_packs: [], private_lesson: null, change_history: [],
+    lesson_times: [],
+    surf_packs: [],
+    private_lesson: null,
+    change_history: [],
   });
   const cfgSomo = await resolveTenantBusinessConfigAsync('sunset', { loadFromDb: dbLoad(DB_BUNDLE_HALFDAY_SOMO), locationId: 'sunset-somo' });
-  const totalSomo = configuredRentalBundleTotalCents(cfgSomo.prices, { offering_key: 'board_and_suit_rental', duration: 'half_day', quantity: 2 });
-  assert('booking/stripe bundle total uses DB unit × qty (2000 × 2 = 4000)', totalSomo === DB_BUNDLE_HALFDAY_SOMO * 2, String(totalSomo));
+  const totalSomo = configuredRentalBundleTotalCents(cfgSomo.prices, { offering_key: 'board_and_suit_rental', duration: GUEST_DURATION, quantity: 2 });
+  assert(`booking/stripe bundle total uses DB unit × qty (${DB_BUNDLE_HALFDAY_SOMO} × 2 = ${DB_BUNDLE_HALFDAY_SOMO * 2})`, totalSomo === DB_BUNDLE_HALFDAY_SOMO * 2, String(totalSomo));
   assert('DB total differs from baseline total (1500 × 2)', totalSomo !== BASELINE_BUNDLE_HALFDAY * 2);
-  const bundlePrice = cfgSomo.prices.find((p) => (p.offering_key || p.item_code) === 'board_and_suit_rental');
+  const bundlePrice = cfgSomo.prices.find((p) => (p.offering_key || p.item_code) === PERSISTED_ITEM_CODE);
   assert('resolved bundle price is DB-sourced', bundlePrice && bundlePrice.source === 'db');
 
-  // ─────────────────────────────────────────────────────────────────────────
   console.log('\n[F/G] End-to-end booking + payment + Stripe aggregate from the DB price');
   const BOOKING_ID = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
   const CLIENT_ID = 'cccccccc-dddd-eeee-ffff-000000000001';
@@ -163,9 +319,13 @@ async function main() {
 
   function descriptor(quotedTotal) {
     return {
-      pricing_group_id: GROUP_ID, offering_key: 'board_and_suit_rental',
-      duration: 'half_day', quantity: 2, service_date: '2026-07-21',
-      components: ['surfboard', 'wetsuit'], quoted_total_cents: quotedTotal,
+      pricing_group_id: GROUP_ID,
+      offering_key: 'board_and_suit_rental',
+      duration: GUEST_DURATION,
+      quantity: 2,
+      service_date: '2026-07-21',
+      components: ['surfboard', 'wetsuit'],
+      quoted_total_cents: quotedTotal,
     };
   }
   function rowMeta(role) {
@@ -178,9 +338,6 @@ async function main() {
     ];
   }
 
-  // Mock PG that ALSO serves the admin-config DB reads (tables present + a single
-  // owner bundle rule @ DB_BUNDLE_HALFDAY_SOMO), so resolveTenantBusinessConfigAsync
-  // (used by the booking + stripe integrity code) reads the DB price.
   function mockPg(opts) {
     const updates = [];
     const bookingUpdates = [];
@@ -190,25 +347,36 @@ async function main() {
     const bookingTotals = { total_amount_cents: 0, balance_due_cents: 0, amount_paid_cents: 0 };
     let rolledBack = false;
     return {
-      updates, bookingUpdates, paymentInserts, bookingTotals,
+      updates,
+      bookingUpdates,
+      paymentInserts,
+      bookingTotals,
       rolledBack: () => rolledBack,
       query: async (sql, params) => {
         const s = String(sql);
         if (/^BEGIN/i.test(s) || /^COMMIT/i.test(s)) return { rows: [] };
         if (/^ROLLBACK/i.test(s)) { rolledBack = true; return { rows: [] }; }
-        // admin-config table presence (all 4 tables)
         if (/information_schema\.tables/i.test(s) && /ANY\(/i.test(s)) {
           return { rows: [{ table_name: 'tenant_price_rules' }, { table_name: 'tenant_lesson_capacity_rules' }, { table_name: 'tenant_lesson_time_rules' }, { table_name: 'tenant_config_audit_log' }] };
         }
-        // single-table existence checks (surf packs etc.) → treat as absent
         if (/information_schema\.tables/i.test(s)) return { rows: [] };
-        // column existence checks → no optional columns (client-scoped price query)
         if (/information_schema\.columns/i.test(s)) return { rows: [] };
-        // admin-config price rows (mapPriceRows query)
         if (/SELECT id, item_type, item_code, display_name/i.test(s)) {
-          return { rows: [{ id: 'db-bundle', item_type: 'rental', item_code: 'board_and_suit_rental', display_name: 'Bundle', currency: 'EUR', amount_cents: DB_BUNDLE_HALFDAY_SOMO, unit: 'half_day', active: true, effective_from: null, effective_to: null }] };
+          return {
+            rows: [{
+              id: 'db-bundle',
+              item_type: 'rental',
+              item_code: PERSISTED_ITEM_CODE,
+              display_name: 'Bundle',
+              currency: 'EUR',
+              amount_cents: DB_BUNDLE_HALFDAY_SOMO,
+              unit: BILLING_UNIT,
+              active: true,
+              effective_from: null,
+              effective_to: null,
+            }],
+          };
         }
-        // booking + service-record reads for the pricing/stripe path
         if (/SELECT b\.id::text AS booking_id/i.test(s)) {
           return { rows: [{ booking_id: BOOKING_ID, booking_code: 'SUNSET-DBP-001', guest_name: 'Robin', status: 'payment_pending', payment_status: 'waiting_payment', check_in: '2026-07-21', check_out: '2026-07-22', metadata: bookingMeta }] };
         }
@@ -240,16 +408,15 @@ async function main() {
     };
   }
 
-  // F — matching quote (4000) prices through booking + payment + Stripe.
   const pgOk = mockPg({
-    bookingMeta: { rental_pricing: descriptor(4000), location_id: 'sunset-somo', staff_manual_schedule: true, source: 'staff_manual_schedule' },
+    bookingMeta: { rental_pricing: descriptor(DB_BUNDLE_HALFDAY_SOMO * 2), location_id: 'sunset-somo', staff_manual_schedule: true, source: 'staff_manual_schedule' },
     rows: bundleRows(),
   });
   const priced = await priceSunsetBookingServices(pgOk, 'sunset', BOOKING_ID);
   assert('booking priced ok from DB price', priced.ok === true, priced.error);
-  assert('booking total = 4000 (DB unit 2000 × 2)', priced.total_cents === 4000, String(priced.total_cents));
+  assert(`booking total = ${DB_BUNDLE_HALFDAY_SOMO * 2} (DB unit ${DB_BUNDLE_HALFDAY_SOMO} × 2)`, priced.total_cents === DB_BUNDLE_HALFDAY_SOMO * 2, String(priced.total_cents));
   const rowSum = pgOk.updates.reduce((a, u) => a + u.amount_due_cents, 0);
-  assert('service-row due amounts sum to 4000', rowSum === 4000, String(rowSum));
+  assert(`service-row due amounts sum to ${DB_BUNDLE_HALFDAY_SOMO * 2}`, rowSum === DB_BUNDLE_HALFDAY_SOMO * 2, String(rowSum));
 
   let stripeFetchCount = 0;
   let stripeBody = '';
@@ -263,26 +430,30 @@ async function main() {
     return origFetch(url, init);
   };
   const pgStripe = mockPg({
-    bookingMeta: { rental_pricing: descriptor(4000), location_id: 'sunset-somo', staff_manual_schedule: true, source: 'staff_manual_schedule' },
+    bookingMeta: { rental_pricing: descriptor(DB_BUNDLE_HALFDAY_SOMO * 2), location_id: 'sunset-somo', staff_manual_schedule: true, source: 'staff_manual_schedule' },
     rows: bundleRows(),
   });
   const stripeResult = await createSunsetScheduleStripeLink(pgStripe, {
-    clientSlug: 'sunset', bookingId: BOOKING_ID, locationId: 'sunset-somo',
-    staffActionsEnabled: true, stripeLinksEnabled: true, stripeSecretKey: 'sk_test_dbprec',
-    stripeSuccessUrl: 'https://example.com/success', stripeCancelUrl: 'https://example.com/cancel',
+    clientSlug: 'sunset',
+    bookingId: BOOKING_ID,
+    locationId: 'sunset-somo',
+    staffActionsEnabled: true,
+    stripeLinksEnabled: true,
+    stripeSecretKey: 'sk_test_dbprec',
+    stripeSuccessUrl: 'https://example.com/success',
+    stripeCancelUrl: 'https://example.com/cancel',
     actor: { email: 'staff@test.local' },
   });
   global.fetch = origFetch;
   assert('Stripe checkout succeeds', stripeResult.ok === true, stripeResult.body && stripeResult.body.error);
-  assert('API amount_due_cents = 4000', stripeResult.body && stripeResult.body.amount_due_cents === 4000);
-  assert('payment INSERT amount_due_cents = 4000', pgStripe.paymentInserts.length === 1 && pgStripe.paymentInserts[0].amount_due_cents === 4000);
-  assert('booking total_amount_cents = 4000', pgStripe.bookingTotals.total_amount_cents === 4000);
+  assert(`API amount_due_cents = ${DB_BUNDLE_HALFDAY_SOMO * 2}`, stripeResult.body && stripeResult.body.amount_due_cents === DB_BUNDLE_HALFDAY_SOMO * 2);
+  assert(`payment INSERT amount_due_cents = ${DB_BUNDLE_HALFDAY_SOMO * 2}`, pgStripe.paymentInserts.length === 1 && pgStripe.paymentInserts[0].amount_due_cents === DB_BUNDLE_HALFDAY_SOMO * 2);
+  assert(`booking total_amount_cents = ${DB_BUNDLE_HALFDAY_SOMO * 2}`, pgStripe.bookingTotals.total_amount_cents === DB_BUNDLE_HALFDAY_SOMO * 2);
   assert('Stripe fetch called exactly once', stripeFetchCount === 1, String(stripeFetchCount));
   const decoded = decodeURIComponent(stripeBody);
   assert('Stripe currency EUR', /\[currency\]=eur/i.test(decoded));
-  assert('Stripe aggregate unit_amount = 4000', /\[unit_amount\]=4000/.test(decoded));
+  assert(`Stripe aggregate unit_amount = ${DB_BUNDLE_HALFDAY_SOMO * 2}`, new RegExp(`\\[unit_amount\\]=${DB_BUNDLE_HALFDAY_SOMO * 2}`).test(decoded));
 
-  // G — stale quote (3000) vs DB-configured total (4000): fail closed, rollback.
   stripeFetchCount = 0;
   global.fetch = async (url) => {
     if (String(url).includes('api.stripe.com')) { stripeFetchCount += 1; return { ok: true, json: async () => ({ id: 'cs_should_not_run' }) }; }
@@ -293,14 +464,19 @@ async function main() {
     rows: bundleRows(),
   });
   const stale = await createSunsetScheduleStripeLink(pgStale, {
-    clientSlug: 'sunset', bookingId: BOOKING_ID, locationId: 'sunset-somo',
-    staffActionsEnabled: true, stripeLinksEnabled: true, stripeSecretKey: 'sk_test_dbprec',
-    stripeSuccessUrl: 'https://example.com/success', stripeCancelUrl: 'https://example.com/cancel',
+    clientSlug: 'sunset',
+    bookingId: BOOKING_ID,
+    locationId: 'sunset-somo',
+    staffActionsEnabled: true,
+    stripeLinksEnabled: true,
+    stripeSecretKey: 'sk_test_dbprec',
+    stripeSuccessUrl: 'https://example.com/success',
+    stripeCancelUrl: 'https://example.com/cancel',
   });
   global.fetch = origFetch;
   assert('stale quote → rental_pricing_quote_mismatch', stale.ok === false && stale.body && stale.body.error === 'rental_pricing_quote_mismatch', stale.body && stale.body.error);
-  assert('stale quote reports configured 4000 vs quoted 3000',
-    stale.body && stale.body.configured_total_cents === 4000 && stale.body.quoted_total_cents === 3000);
+  assert(`stale quote reports configured ${DB_BUNDLE_HALFDAY_SOMO * 2} vs quoted 3000`,
+    stale.body && stale.body.configured_total_cents === DB_BUNDLE_HALFDAY_SOMO * 2 && stale.body.quoted_total_cents === 3000);
   assert('stale quote → no payment INSERT', pgStale.paymentInserts.length === 0);
   assert('stale quote → no Stripe fetch', stripeFetchCount === 0);
   assert('stale quote → transaction rolled back', pgStale.rolledBack());

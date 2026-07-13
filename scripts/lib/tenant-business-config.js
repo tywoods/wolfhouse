@@ -522,12 +522,16 @@ function mergeDbWithConfig(configBaseline, dbResult) {
  * fail-closed — it must NOT fall back to the repository baseline seed when the
  * DB is the source of truth. Caller decides what to do with each status.
  *
- * Scoping: client_slug + item_type + item_code + unit + active=true, and
- * location_id when that column exists (never silently crossing locations).
+ * Scoping: client_slug + item_type + item_code (offering__duration) + active=true,
+ * and location_id when that column exists (never silently crossing locations).
+ * Guest-facing duration is encoded in item_code; tenant_price_rules.unit is billing
+ * granularity (session/day/person) and is NOT filtered by duration.
  * effective_from/effective_to are honored when present.
  *
  * @param {import('pg').PoolClient} client
  * @param {{ clientSlug:string, locationId:string, itemType:string, itemCode:string, unit:string }} params
+ *   params.itemCode — offering key (e.g. board_and_suit_rental)
+ *   params.unit     — guest duration key (e.g. half_day), appended to item_code
  * @returns {Promise<{status:'found'|'not_found'|'tables_missing', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
  */
 async function loadTenantPriceRuleFromDb(client, params) {
@@ -536,8 +540,9 @@ async function loadTenantPriceRuleFromDb(client, params) {
     throw new Error('tenant_scope_violation');
   }
   const itemType = String((params && params.itemType) || '').trim();
-  const itemCode = String((params && params.itemCode) || '').trim();
-  const unit = String((params && params.unit) || '').trim();
+  const offeringKey = String((params && params.itemCode) || '').trim();
+  const durationKey = String((params && params.unit) || '').trim();
+  const persistedItemCode = durationKey ? `${offeringKey}__${durationKey}` : offeringKey;
   const loc = normalizeSunsetLocationId(params && params.locationId);
 
   const reg = await client.query("SELECT to_regclass('public.tenant_price_rules') AS reg");
@@ -548,9 +553,10 @@ async function loadTenantPriceRuleFromDb(client, params) {
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
   const hasFrom = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_from');
   const hasTo = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_to');
+  const hasUpdated = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'updated_at');
 
-  const where = ['client_slug = $1', 'item_type = $2', 'item_code = $3', 'unit = $4', 'active = true'];
-  const vals = [clientSlug, itemType, itemCode, unit];
+  const where = ['client_slug = $1', 'item_type = $2', 'item_code = $3', 'active = true'];
+  const vals = [clientSlug, itemType, persistedItemCode];
   if (hasLoc) {
     vals.push(loc);
     where.push(`location_id = $${vals.length}`);
@@ -558,12 +564,18 @@ async function loadTenantPriceRuleFromDb(client, params) {
   if (hasFrom) where.push('(effective_from IS NULL OR effective_from <= NOW())');
   if (hasTo) where.push('(effective_to IS NULL OR effective_to >= NOW())');
 
+  const orderParts = [];
+  if (hasFrom) orderParts.push('effective_from DESC NULLS LAST');
+  if (hasUpdated) orderParts.push('updated_at DESC NULLS LAST');
+  orderParts.push('id DESC');
+  const orderBy = orderParts.join(', ');
+
   const selectCols = `amount_cents, currency, item_type, item_code, unit${hasLoc ? ', location_id' : ''}`;
   const res = await client.query(
     `SELECT ${selectCols}
        FROM tenant_price_rules
       WHERE ${where.join(' AND ')}
-      ORDER BY ${hasFrom ? 'effective_from DESC NULLS LAST, ' : ''}amount_cents DESC
+      ORDER BY ${orderBy}
       LIMIT 1`,
     vals,
   );
@@ -576,8 +588,8 @@ async function loadTenantPriceRuleFromDb(client, params) {
     amount_cents: Math.round(amountCents),
     currency: String(row.currency || 'EUR').trim() || 'EUR',
     item_type: row.item_type || itemType,
-    item_code: row.item_code || itemCode,
-    unit: row.unit || unit,
+    item_code: row.item_code || persistedItemCode,
+    unit: row.unit || null,
     location_id: hasLoc ? normalizeSunsetLocationId(row.location_id) : loc,
   };
 }
