@@ -1,0 +1,6 @@
+{
+  "public_urls": {
+    "public_payment_base_url": "https://sunset-staging.lunafrontdesk.com",
+    "public_guest_base_url": "https://sunset-staging.lunafrontdesk.com"
+  }
+}

@@ -11,8 +11,15 @@ const {
   resolveRecordLocationId,
 } = require('./sunset-school-locations');
 const { resolveTenantBusinessConfigAsync, SUNSET_ADMIN_CLIENT } = require('./tenant-business-config');
+const { buildPaymentLinkObservability } = require('./luna-payment-short-link');
+const {
+  LUNA_METADATA_SOURCE_TAG,
+  METADATA_SOURCE_TAG,
+  isLunaTrustedActor,
+} = require('./sunset-schedule-booking-writes');
 
 const SUNSET_CLIENT_SLUG = SUNSET_ADMIN_CLIENT;
+const SUNSET_STAGING_PUBLIC_PAYMENT_BASE = 'https://sunset-staging.lunafrontdesk.com';
 
 const LESSON_OFFERING_KEY = 'group_lesson_adult';
 const LESSON_UNIT_KEY = 'single_lesson';
@@ -27,6 +34,35 @@ const FULL_DAY_EQUIPMENT_ADDON_UNIT = 'day';
 
 function isUuid(s) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(s || '').trim());
+}
+
+function bookingEligibleForScheduleStripeLink(meta) {
+  const m = meta || {};
+  if (m.source === METADATA_SOURCE_TAG || m.staff_manual_schedule) return true;
+  if (m.source === LUNA_METADATA_SOURCE_TAG || m.luna_guest_booking) return true;
+  if (m.actor_source && isLunaTrustedActor({ source: m.actor_source })) return true;
+  return false;
+}
+
+function sunsetPaymentLinkObservability(bookingCode, checkoutUrl, sessionId, opts) {
+  return buildPaymentLinkObservability({
+    booking_code: bookingCode,
+    client_slug: SUNSET_CLIENT_SLUG,
+    stripe_checkout_url: checkoutUrl,
+    stripe_checkout_session_id: sessionId,
+    base_url: (opts && opts.publicPaymentBaseUrl) || SUNSET_STAGING_PUBLIC_PAYMENT_BASE,
+    env: opts && opts.env,
+  });
+}
+
+function attachGuestPaymentFields(body, bookingCode, checkoutUrl, sessionId, opts) {
+  const obs = sunsetPaymentLinkObservability(bookingCode, checkoutUrl, sessionId, opts);
+  return {
+    ...body,
+    ...obs,
+    checkout_url: checkoutUrl || body.checkout_url || null,
+    payment_link_url: checkoutUrl || body.payment_link_url || null,
+  };
 }
 
 function parseMeta(raw) {
@@ -404,8 +440,8 @@ async function createSunsetScheduleStripeLink(pg, opts) {
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (meta.source !== 'staff_manual_schedule' && !meta.staff_manual_schedule) {
-    return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_staff_manual_schedule_bookings' } };
+  if (!bookingEligibleForScheduleStripeLink(meta)) {
+    return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_schedule_managed_bookings' } };
   }
 
   const existingLink = await loadLatestPaymentLink(pg, booking.booking_id);
@@ -415,7 +451,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return {
       ok: true,
       status: 200,
-      body: {
+      body: attachGuestPaymentFields({
         success: true,
         idempotent: true,
         booking_id: booking.booking_id,
@@ -423,11 +459,9 @@ async function createSunsetScheduleStripeLink(pg, opts) {
         payment_id: existingLink.payment_id,
         payment_status: existingLink.payment_status,
         amount_due_cents: Number(existingLink.amount_due_cents),
-        checkout_url: existingLink.checkout_url,
-        payment_link_url: existingLink.checkout_url,
         stripe_mutation: false,
         message: 'Payment link already exists.',
-      },
+      }, booking.booking_code, existingLink.checkout_url, existingLink.stripe_checkout_session_id, opts),
     };
   }
 
@@ -462,7 +496,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       return {
         ok: true,
         status: 200,
-        body: {
+        body: attachGuestPaymentFields({
           success: true,
           idempotent: true,
           booking_id: booking.booking_id,
@@ -470,10 +504,8 @@ async function createSunsetScheduleStripeLink(pg, opts) {
           payment_id: row.payment_id,
           payment_status: row.payment_status,
           amount_due_cents: Number(row.amount_due_cents),
-          checkout_url: row.checkout_url,
-          payment_link_url: row.checkout_url,
           stripe_mutation: false,
-        },
+        }, booking.booking_code, row.checkout_url, null, opts),
       };
     }
 
@@ -560,7 +592,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return {
       ok: true,
       status: 201,
-      body: {
+      body: attachGuestPaymentFields({
         success: true,
         created: true,
         booking_id: booking.booking_id,
@@ -568,12 +600,10 @@ async function createSunsetScheduleStripeLink(pg, opts) {
         payment_id: paymentId,
         payment_status: 'checkout_created',
         amount_due_cents: amountDueCents,
-        checkout_url: session.url,
-        payment_link_url: session.url,
         stripe_mutation: true,
         send_mutation: false,
         message: 'Stripe payment link created. Nothing was sent to the guest.',
-      },
+      }, booking.booking_code, session.url, session.id, opts),
     };
   } catch (err) {
     await pg.query('ROLLBACK');
@@ -608,8 +638,8 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (meta.source !== 'staff_manual_schedule' && !meta.staff_manual_schedule) {
-    return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_staff_manual_schedule_bookings' } };
+  if (!bookingEligibleForScheduleStripeLink(meta)) {
+    return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_schedule_managed_bookings' } };
   }
 
   // Void the current link(s): clearing checkout_url removes them from the drawer + short link, and
@@ -676,6 +706,10 @@ async function getSunsetSchedulePaymentLink(pg, opts) {
 
 module.exports = {
   SUNSET_CLIENT_SLUG,
+  SUNSET_STAGING_PUBLIC_PAYMENT_BASE,
+  bookingEligibleForScheduleStripeLink,
+  sunsetPaymentLinkObservability,
+  attachGuestPaymentFields,
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,

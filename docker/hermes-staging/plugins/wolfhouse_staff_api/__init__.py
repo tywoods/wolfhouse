@@ -1718,9 +1718,10 @@ def create_sunset_payment_link(params, **kwargs):
             "disabled": data.get("disabled"),
             "staff_review_needed": True,
         })
-    # checkout_url is returned verbatim by the Staff API (Stripe test-mode link).
+    # Guest-facing URL prefers compact /pay/<booking_code>; raw Stripe stays internal.
+    guest_url = _guest_payment_url(data)
     checkout_url = _clean(data.get("checkout_url") or data.get("payment_link_url"))
-    ok = bool(data.get("success")) and bool(checkout_url)
+    ok = bool(data.get("success")) and bool(guest_url)
     return _json_result({
         "success": ok,
         "tool": "create_sunset_payment_link",
@@ -1730,7 +1731,10 @@ def create_sunset_payment_link(params, **kwargs):
         "payment_status": data.get("payment_status"),
         "amount_due_cents": data.get("amount_due_cents"),
         "currency": data.get("currency") or "EUR",
-        "secure_payment_url": checkout_url or None,
+        "secure_payment_url": guest_url or None,
+        "payment_short_url": data.get("payment_short_url"),
+        "guest_payment_url": guest_url or None,
+        "checkout_url": checkout_url or None,
         "idempotent": bool(data.get("idempotent")),
         "next_action": "send_secure_payment_link" if ok else None,
         "reason": data.get("reason") or data.get("error") if not ok else None,
