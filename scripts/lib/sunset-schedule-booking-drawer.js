@@ -17,6 +17,9 @@ const {
   SUNSET_CLIENT_SLUG,
   METADATA_SOURCE_TAG,
   DB_SOURCE,
+  LUNA_DB_SOURCE,
+  LUNA_METADATA_SOURCE_TAG,
+  isLunaTrustedActor,
   UI_TO_DB_SERVICE_TYPE,
   DB_TO_UI_SERVICE_TYPE,
   UI_TO_SR_PAYMENT,
@@ -31,6 +34,7 @@ const {
 } = require('./sunset-schedule-booking-writes');
 
 const { serviceRecordUnitPriceCents } = require('./sunset-stripe-payment-links');
+const { reconcilePendingStripePaymentsForBooking } = require('./stripe-payment-reconcile');
 
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
 
@@ -322,7 +326,12 @@ function serviceRecordIsStaffManual(sr) {
 function bundleIsStaffManualSchedule(bundle) {
   const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
   if (meta.source === METADATA_SOURCE_TAG || meta.staff_manual_schedule) return true;
-  return (bundle && bundle.services || []).some(serviceRecordIsStaffManual);
+  if (meta.source === LUNA_METADATA_SOURCE_TAG || meta.luna_guest_booking) return true;
+  if (meta.actor_source && isLunaTrustedActor({ source: meta.actor_source })) return true;
+  return (bundle && bundle.services || []).some((sr) => {
+    if (String(sr.record_source || sr.source || '').toLowerCase() === LUNA_DB_SOURCE) return true;
+    return serviceRecordIsStaffManual(sr);
+  });
 }
 
 async function getSunsetScheduleBookingDrawerContext(pg, opts) {
@@ -339,9 +348,19 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     return { ok: false, status: 400, body: { success: false, error: 'invalid booking_id' } };
   }
 
-  const bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode);
+  let bundle = await loadSunsetBookingBundle(pg, clientSlug, bookingId, bookingCode);
   if (!bundle) {
     return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
+  }
+  let paymentReconcile = null;
+  if (opts.stripe && bundle.booking && bundle.booking.booking_id) {
+    paymentReconcile = await reconcilePendingStripePaymentsForBooking(pg, opts.stripe, {
+      clientSlug,
+      bookingId: bundle.booking.booking_id,
+    });
+    if (paymentReconcile && paymentReconcile.reconciled > 0) {
+      bundle = await loadSunsetBookingBundle(pg, clientSlug, bundle.booking.booking_id, null);
+    }
   }
   const meta = parseMeta(bundle.booking.metadata);
   const activeLocationId = normalizeSunsetLocationId(opts.locationId);
@@ -400,6 +419,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
       stripe_link_stale: linkStale,
       editable: true,
       location_id: recordLocationId,
+      payment_reconcile: paymentReconcile,
     },
   };
 }

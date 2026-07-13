@@ -310,6 +310,7 @@ const {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
+const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {
   SUNSET_LOCATIONS,
   DEFAULT_SUNSET_LOCATION_ID,
@@ -41632,10 +41633,14 @@ async function handleSunsetScheduleBookingDetailGet(query, res, user) {
   const bookingCode = String(query.booking_code || '').trim();
   const stripeAvailable = !!(STRIPE_LINKS_ENABLED && STRIPE_SECRET_KEY && !String(STRIPE_SECRET_KEY).startsWith('sk_live_'));
   try {
-    const result = await withPgClient(async (pg) => getSunsetScheduleBookingDrawerContext(pg, {
-      clientSlug, bookingId, bookingCode,
-      locationId: normalizeSunsetLocationId(query.location),
-    }));
+    const result = await withPgClient(async (pg) => {
+      const stripe = stripeAvailable ? require('stripe')(STRIPE_SECRET_KEY) : null;
+      return getSunsetScheduleBookingDrawerContext(pg, {
+        clientSlug, bookingId, bookingCode,
+        locationId: normalizeSunsetLocationId(query.location),
+        stripe,
+      });
+    });
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.booking_detail',
@@ -42144,6 +42149,17 @@ async function handleBotSunsetBookingCreate(req, res) {
       detail: 'Sunset is a surf school (courses/rentals/lessons), not accommodation. Remove room/bed/package/nights fields.',
     });
   }
+  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
+  if (!dateNorm.ok) {
+    return sendJSON(res, 400, {
+      ok: false,
+      success: false,
+      reason: dateNorm.reason || 'date_clarification_required',
+      needs_clarification: dateNorm.needs_clarification === true,
+      detail: 'Please confirm the exact date (day, month, and year).',
+    });
+  }
+  body = dateNorm.body;
   try {
     const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {
       clientSlug: SUNSET_CLIENT_SLUG,              // forced — body cannot override tenant

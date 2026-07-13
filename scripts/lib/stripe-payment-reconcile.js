@@ -212,8 +212,80 @@ async function reconcilePendingStripePaymentsForDate(pg, stripe, opts) {
   return { ok: true, checked: sel.rows.length, reconciled, results };
 }
 
+/**
+ * Reconcile pending Stripe payments for one booking only (drawer / payment-status reads).
+ * Scoped to the exact booking — never scans unrelated tenants or dates.
+ */
+async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
+  opts = opts || {};
+  const clientSlug = opts.clientSlug;
+  const bookingId = opts.bookingId;
+  if (!pg || !stripe || !clientSlug || !bookingId) {
+    return {
+      ok: false,
+      error: 'clientSlug + bookingId + stripe required',
+      checked: 0,
+      reconciled: 0,
+      results: [],
+      errors: [{ reason: 'missing_inputs' }],
+      had_errors: true,
+    };
+  }
+
+  const sel = await pg.query(
+    `SELECT p.stripe_checkout_session_id AS sid, p.id::text AS payment_id
+       FROM payments p
+       JOIN bookings b ON b.id = p.booking_id
+       JOIN clients cl ON cl.id = p.client_id
+      WHERE cl.slug = $1
+        AND b.id = $2::uuid
+        AND p.stripe_checkout_session_id IS NOT NULL
+        AND p.status::text = ANY($3)`,
+    [clientSlug, bookingId, RECONCILE_PENDING_STATUSES],
+  );
+
+  const results = [];
+  const errors = [];
+  let reconciled = 0;
+  for (const row of sel.rows) {
+    const sid = row.sid;
+    try {
+      const session = await stripe.checkout.sessions.retrieve(sid);
+      const res = await reconcilePaidStripeSession(pg, session, {
+        eventType: 'checkout.session.completed',
+        livemode: !!(session && session.livemode),
+      });
+      if (res.reconciled) reconciled += 1;
+      results.push({ session_id: sid, payment_id: row.payment_id, ...res });
+      if (!res.ok || (res.reason && res.reason !== 'already_paid' && !res.reconciled)) {
+        errors.push({ session_id: sid, payment_id: row.payment_id, reason: res.reason, reasons: res.reasons || null });
+      }
+    } catch (e) {
+      const err = {
+        session_id: sid,
+        payment_id: row.payment_id,
+        ok: false,
+        reconciled: false,
+        reason: 'stripe_retrieve_error',
+        error: String((e && e.message) || e).slice(0, 140),
+      };
+      results.push(err);
+      errors.push(err);
+    }
+  }
+  return {
+    ok: true,
+    checked: sel.rows.length,
+    reconciled,
+    results,
+    errors,
+    had_errors: errors.length > 0,
+  };
+}
+
 module.exports = {
   RECONCILE_PENDING_STATUSES,
   reconcilePaidStripeSession,
   reconcilePendingStripePaymentsForDate,
+  reconcilePendingStripePaymentsForBooking,
 };
