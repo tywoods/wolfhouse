@@ -144,5 +144,4 @@ assert('HEAD unsupported source fails safely (no canonical drawer)',
   head.scheduleDrawerCanLoadCanonical(UNKNOWN_ROW) === false);
 
 console.log(`\n── verify:sunset-drawer-luna-canonical ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
-if (fail > 0) process.exit(1);
-
+process.exitCode = fail > 0 ? 1 : 0;
