@@ -725,6 +725,62 @@ async function main() {
   const trimDirect = await loadRentalRuleDirect(pgTrim, '  SUNSET-SOMO  ');
   assert('trimmed/case-normalized valid location → found', trimDirect.status === 'found' && trimDirect.location_id === 'sunset-somo', JSON.stringify(trimDirect));
 
+  console.log('\n[T] Tool-layer location contract — omission vs explicit invalid input');
+  const toolArgs = {
+    client_slug: 'sunset',
+    item: 'board+suit bundle',
+    duration: 'half day',
+  };
+
+  function assertExplicitInvalidTool(label, result, pg) {
+    assert(`${label} → unknown_location`, result.ok === false && result.reason === 'unknown_location', JSON.stringify(result));
+    assert(`${label} → no amount`, result.amount_cents == null, JSON.stringify(result));
+    assert(`${label} → zero price SELECTs`, priceQueries(pg).length === 0, String(priceQueries(pg).length));
+    assert(`${label} → not labeled sunset-somo`, result.location_id !== 'sunset-somo', JSON.stringify(result));
+    assert(`${label} → no baseline fallback`, result.ok !== true && result.source !== 'public_site', JSON.stringify(result));
+  }
+
+  const pgOmit = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const omitted = await lookupSunsetRentalPriceAsync({ ...toolArgs, pgClient: pgOmit });
+  assert('omitted location_id → fixed-ingress Somo default (documented compatibility)',
+    omitted.ok === true && omitted.location_id === 'sunset-somo' && omitted.amount_cents === DB_BUNDLE_HALFDAY_SOMO,
+    JSON.stringify(omitted));
+  assert('omitted location_id queries Somo price rule', priceQueries(pgOmit).some((q) => q.params[4] === 'sunset-somo'));
+
+  const pgToolNull = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const explicitNull = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: null, pgClient: pgToolNull });
+  assertExplicitInvalidTool('explicit null location_id', explicitNull, pgToolNull);
+
+  const pgToolUndef = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const explicitUndef = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: undefined, pgClient: pgToolUndef });
+  assertExplicitInvalidTool('explicit undefined location_id own property', explicitUndef, pgToolUndef);
+
+  const pgToolEmpty = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const explicitEmpty = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: '', pgClient: pgToolEmpty });
+  assertExplicitInvalidTool('explicit empty string location_id', explicitEmpty, pgToolEmpty);
+
+  const pgToolWs = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const explicitWs = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: '   ', pgClient: pgToolWs });
+  assertExplicitInvalidTool('explicit whitespace location_id', explicitWs, pgToolWs);
+
+  const pgToolTypo = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const typo = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: 'sunset-sardienro', pgClient: pgToolTypo });
+  assertExplicitInvalidTool('explicit typo location_id', typo, pgToolTypo);
+
+  const pgToolSomo = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const toolSomo = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: 'sunset-somo', pgClient: pgToolSomo });
+  assert('explicit valid sunset-somo → found', toolSomo.ok === true && toolSomo.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(toolSomo));
+
+  const pgToolSardi = makeSchemaPg({ locationsConfig: { 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI } });
+  const toolSardi = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: 'sunset-sardinero', pgClient: pgToolSardi });
+  assert('explicit valid sunset-sardinero → found', toolSardi.ok === true && toolSardi.amount_cents === DB_BUNDLE_HALFDAY_SARDI, JSON.stringify(toolSardi));
+
+  const pgToolTrim = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const toolTrim = await lookupSunsetRentalPriceAsync({ ...toolArgs, location_id: '  SUNSET-SOMO  ', pgClient: pgToolTrim });
+  assert('explicit trimmed/case-normalized valid location → found',
+    toolTrim.ok === true && toolTrim.location_id === 'sunset-somo' && toolTrim.amount_cents === DB_BUNDLE_HALFDAY_SOMO,
+    JSON.stringify(toolTrim));
+
   console.log('\n[D] Query failure → typed failure, never baseline');
   const boom = {
     query: async () => { throw new Error('connection reset'); },

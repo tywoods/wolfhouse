@@ -222,13 +222,23 @@ async function lookupSunsetRentalPriceAsync(opts) {
     return { ok: false, reason: 'tenant_mismatch', client_slug: clientSlug, expected_tenant: EXPECTED_TENANT };
   }
 
-  // An explicitly-provided but unknown location must fail closed — never fall
-  // through to the default school and quote a price for the wrong site.
+  // Distinguish omitted location (fixed-ingress Somo default) from explicitly
+  // supplied null/empty/invalid values, which must fail closed.
+  const locationExplicit = Object.prototype.hasOwnProperty.call(options, 'location_id');
   const rawLoc = options.location_id;
-  if (rawLoc != null && String(rawLoc).trim() !== '' && !isSunsetLocationId(rawLoc)) {
-    return { ok: false, reason: 'unknown_location', client_slug: clientSlug, location_id: String(rawLoc).trim() };
+  if (locationExplicit) {
+    if (rawLoc == null || String(rawLoc).trim() === '' || !isSunsetLocationId(rawLoc)) {
+      return {
+        ok: false,
+        reason: 'unknown_location',
+        client_slug: clientSlug,
+        location_id: rawLoc == null ? rawLoc : String(rawLoc).trim(),
+      };
+    }
   }
-  const locationId = normalizeSunsetLocationId(rawLoc || DEFAULT_SUNSET_LOCATION_ID);
+  const locationId = locationExplicit
+    ? normalizeSunsetLocationId(rawLoc)
+    : DEFAULT_SUNSET_LOCATION_ID;
 
   const itemCode = resolveItemCode(rawItem);
   if (!Object.values(ITEM_ALIASES).includes(itemCode)) {
