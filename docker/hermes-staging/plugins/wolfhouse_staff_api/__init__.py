@@ -1462,6 +1462,52 @@ def _schema(name, description, properties, required=None):
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+def _canon_rental_duration(raw):
+    """Canonical Sunset rental duration key (mirrors the Staff API normalizer)."""
+    c = str(raw or "").strip().lower().replace("-", "_").replace(" ", "_")
+    if c in ("half_day", "halfday"):
+        return "half_day"
+    return c
+
+
+def _bundle_quantity(v):
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return None
+    return n if n >= 1 else None
+
+
+def _resolve_sunset_bundle_shape(rp_in, combined, board, suit):
+    """Derive the ONE canonical (quantity, duration) for a board+wetsuit bundle
+    from every shape the model may send, requiring all present signals to agree.
+
+    Returns {"quantity": int, "duration": str} or None when the request is
+    ambiguous / mismatched (mismatched board vs wetsuit quantity or duration,
+    missing quantity, missing duration) — the caller then fails closed.
+    """
+    quantities = []
+    durations = []
+    for src in (rp_in, combined, board, suit):
+        if not isinstance(src, dict):
+            continue
+        if src.get("quantity") is not None:
+            q = _bundle_quantity(src.get("quantity"))
+            if q is None:
+                return None
+            quantities.append(q)
+        d = _canon_rental_duration(src.get("duration"))
+        if d:
+            durations.append(d)
+    if not quantities or not durations:
+        return None
+    if any(q != quantities[0] for q in quantities):
+        return None
+    if any(d != durations[0] for d in durations):
+        return None
+    return {"quantity": quantities[0], "duration": durations[0]}
+
+
 def create_sunset_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1479,37 +1525,34 @@ def create_sunset_booking(params, **kwargs):
     phone = _normalize_phone(payload.get("guest_phone") or payload.get("phone") or _session_guest_phone())
     if phone:
         body["guest_phone"] = phone
-    # Service components — pass through verbatim (Staff API validates + prices).
-    if isinstance(payload.get("components"), dict):
-        body["components"] = payload["components"]
-    elif payload.get("booking_type"):
-        body["booking_type"] = payload.get("booking_type")
-        if payload.get("quantity") is not None:
-            body["quantity"] = payload.get("quantity")
-    # If the model emits board + wetsuit components without the additive pricing
-    # descriptor, resolve the authoritative bundle quote here before any write.
-    # This keeps the Staff API contract fail-closed while avoiding model-schema drift.
-    rental_pricing = payload.get("rental_pricing")
-    components = body.get("components") if isinstance(body.get("components"), dict) else {}
-    board = components.get("surfboard") if isinstance(components.get("surfboard"), dict) else None
-    suit = components.get("wetsuit") if isinstance(components.get("wetsuit"), dict) else None
-    if not isinstance(rental_pricing, dict) and board and suit:
-        board_duration = _clean(board.get("duration"))
-        suit_duration = _clean(suit.get("duration"))
-        try:
-            board_qty = int(board.get("quantity", 1))
-            suit_qty = int(suit.get("quantity", 1))
-        except (TypeError, ValueError):
-            board_qty = suit_qty = 0
-        if not board_duration or board_duration != suit_duration or board_qty < 1 or board_qty != suit_qty:
+    # ── Deterministic board+wetsuit bundle construction ──────────────────────
+    # board+wetsuit is billed as the board_and_suit_rental bundle, but the model
+    # sends it in several shapes: rental_pricing only (no components), an
+    # UNSUPPORTED combined component key, bare surfboard+wetsuit, or legacy rows
+    # without pricing. Normalize every valid shape into EXACT surfboard+wetsuit
+    # component rows + an authoritative rental_pricing descriptor before writing.
+    # Never send board_and_suit_rental as a schedule component; never compute money
+    # locally (the portal rental-price response is the unit source); fail closed
+    # with a typed error and no booking write when the request is ambiguous.
+    raw_components = payload.get("components") if isinstance(payload.get("components"), dict) else {}
+    rp_in = payload.get("rental_pricing") if isinstance(payload.get("rental_pricing"), dict) else None
+    combined = raw_components.get("board_and_suit_rental") if isinstance(raw_components.get("board_and_suit_rental"), dict) else None
+    board = raw_components.get("surfboard") if isinstance(raw_components.get("surfboard"), dict) else None
+    suit = raw_components.get("wetsuit") if isinstance(raw_components.get("wetsuit"), dict) else None
+    rp_offering = _clean(rp_in.get("offering_key")) if rp_in else ""
+    is_bundle = rp_offering == "board_and_suit_rental" or bool(combined) or bool(board and suit)
+
+    if is_bundle:
+        shape = _resolve_sunset_bundle_shape(rp_in, combined, board, suit)
+        if not shape:
             return _json_result({
                 "success": False,
                 "tool": "create_sunset_booking",
-                "error": "rental_pricing_required",
+                "error": "rental_bundle_shape_invalid",
                 "staff_review_needed": False,
-                "guest_safe_next_action": "Let me confirm that rental bundle price first 😊",
+                "guest_safe_next_action": "How many board-and-wetsuit sets, and for how long — a half day or a full day?",
             })
-        quote_body = {"item": "board_and_suit_rental", "duration": board_duration}
+        quote_body = {"item": "board_and_suit_rental", "duration": shape["duration"]}
         if payload.get("location_id"):
             quote_body["location_id"] = payload.get("location_id")
         quote_data = _post_bot("/sunset/rental-price", quote_body)
@@ -1521,16 +1564,34 @@ def create_sunset_booking(params, **kwargs):
                 "tool": "create_sunset_booking",
                 "error": "rental_bundle_price_unavailable",
                 "staff_review_needed": True,
-                "guest_safe_next_action": "Let me double-check that rental price with the team 😊",
+                "guest_safe_next_action": "Let me double-check that rental price with the team and come right back.",
             })
-        rental_pricing = {
-            "offering_key": quote_result.get("item") or "board_and_suit_rental",
-            "duration": quote_result.get("duration") or board_duration,
-            "quantity": board_qty,
-            "quoted_total_cents": unit_cents * board_qty,
+        qty = shape["quantity"]
+        duration = _canon_rental_duration(quote_result.get("duration")) or shape["duration"]
+        # Preserve any non-gear components; drop the unsupported combined key and
+        # rebuild the exact surfboard+wetsuit rows the Staff API accepts.
+        norm_components = {
+            k: v for k, v in raw_components.items()
+            if k not in ("board_and_suit_rental", "surfboard", "wetsuit")
         }
-    if isinstance(rental_pricing, dict):
-        body["rental_pricing"] = rental_pricing
+        norm_components["surfboard"] = {"quantity": qty, "duration": duration}
+        norm_components["wetsuit"] = {"quantity": qty, "duration": duration}
+        body["components"] = norm_components
+        body["rental_pricing"] = {
+            "offering_key": "board_and_suit_rental",
+            "duration": duration,
+            "quantity": qty,
+            # Authoritative portal unit × quantity — the model never sets money.
+            "quoted_total_cents": unit_cents * qty,
+        }
+    elif isinstance(payload.get("components"), dict):
+        body["components"] = payload["components"]
+        if rp_in:
+            body["rental_pricing"] = rp_in
+    elif payload.get("booking_type"):
+        body["booking_type"] = payload.get("booking_type")
+        if payload.get("quantity") is not None:
+            body["quantity"] = payload.get("quantity")
 
     # Dates.
     if isinstance(payload.get("service_dates"), list) and payload.get("service_dates"):
@@ -1540,7 +1601,7 @@ def create_sunset_booking(params, **kwargs):
     elif payload.get("date_from") and payload.get("date_to"):
         body["date_from"] = payload.get("date_from")
         body["date_to"] = payload.get("date_to")
-    for opt in ("payment_status", "notes", "idempotency_key", "location_id", "rental_pricing"):
+    for opt in ("payment_status", "notes", "idempotency_key", "location_id"):
         if payload.get(opt) not in (None, ""):
             body[opt] = payload.get(opt)
     data = _post_bot("/sunset/booking-create", body)

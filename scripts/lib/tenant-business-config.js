@@ -12,7 +12,7 @@
  */
 
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
-const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const { normalizeSunsetLocationId, isSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const {
   defaultPrivateLessonApi,
   defaultPrivateLessonFromConfig,
@@ -516,6 +516,100 @@ function mergeDbWithConfig(configBaseline, dbResult) {
   };
 }
 
+/**
+ * Load a single owner-managed price rule directly from tenant_price_rules.
+ * Used by the LIVE rental-price tool path, which must be authoritative and
+ * fail-closed — it must NOT fall back to the repository baseline seed when the
+ * DB is the source of truth. Caller decides what to do with each status.
+ *
+ * Scoping: client_slug + item_type + exact item_code (offering__duration) +
+ * exact billing unit + active=true + exact location_id. Guest-facing duration is
+ * encoded in item_code; tenant_price_rules.unit is billing granularity (session).
+ * effective_from/effective_to are honored when present.
+ *
+ * @param {import('pg').PoolClient} client
+ * @param {{ clientSlug:string, locationId:string, itemType:string, itemCode:string, duration:string, billingUnit:string }} params
+ *   params.itemCode    — offering key (e.g. board_and_suit_rental)
+ *   params.duration    — guest duration key (e.g. half_day), appended to item_code
+ *   params.billingUnit — persisted billing unit (e.g. session)
+ * @returns {Promise<{status:'found'|'not_found'|'tables_missing'|'billing_unit_required'|'location_scope_unavailable'|'invalid_location', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
+ */
+async function loadTenantPriceRuleFromDb(client, params) {
+  const clientSlug = String((params && params.clientSlug) || '').trim();
+  if (clientSlug !== SUNSET_ADMIN_CLIENT) {
+    throw new Error('tenant_scope_violation');
+  }
+  const itemType = String((params && params.itemType) || '').trim();
+  const offeringKey = String((params && params.itemCode) || '').trim();
+  const durationKey = String((params && params.duration) || '').trim();
+  const billingUnit = String((params && params.billingUnit) || '').trim();
+  const persistedItemCode = durationKey ? `${offeringKey}__${durationKey}` : offeringKey;
+  const rawLocationId = params && params.locationId;
+  if (rawLocationId == null || String(rawLocationId).trim() === '' || !isSunsetLocationId(rawLocationId)) {
+    return { status: 'invalid_location' };
+  }
+  const loc = normalizeSunsetLocationId(rawLocationId);
+
+  if (!billingUnit) {
+    return { status: 'billing_unit_required', location_id: loc };
+  }
+
+  const reg = await client.query("SELECT to_regclass('public.tenant_price_rules') AS reg");
+  if (!reg.rows[0] || reg.rows[0].reg == null) {
+    return { status: 'tables_missing' };
+  }
+
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+  if (!hasLoc) {
+    return { status: 'location_scope_unavailable', location_id: loc };
+  }
+
+  const hasFrom = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_from');
+  const hasTo = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'effective_to');
+  const hasUpdated = await adminConfigTableHasColumn(client, 'tenant_price_rules', 'updated_at');
+
+  const where = [
+    'client_slug = $1',
+    'item_type = $2',
+    'item_code = $3',
+    'unit = $4',
+    'active = true',
+    'location_id = $5',
+  ];
+  const vals = [clientSlug, itemType, persistedItemCode, billingUnit, loc];
+  if (hasFrom) where.push('(effective_from IS NULL OR effective_from <= CURRENT_DATE)');
+  if (hasTo) where.push('(effective_to IS NULL OR effective_to >= CURRENT_DATE)');
+
+  const orderParts = [];
+  if (hasFrom) orderParts.push('effective_from DESC NULLS LAST');
+  if (hasUpdated) orderParts.push('updated_at DESC NULLS LAST');
+  orderParts.push('id DESC');
+  const orderBy = orderParts.join(', ');
+
+  const selectCols = 'amount_cents, currency, item_type, item_code, unit, location_id';
+  const res = await client.query(
+    `SELECT ${selectCols}
+       FROM tenant_price_rules
+      WHERE ${where.join(' AND ')}
+      ORDER BY ${orderBy}
+      LIMIT 1`,
+    vals,
+  );
+  const row = res.rows[0];
+  if (!row) return { status: 'not_found', location_id: loc };
+  const amountCents = Number(row.amount_cents);
+  if (!Number.isFinite(amountCents)) return { status: 'not_found', location_id: loc };
+  return {
+    status: 'found',
+    amount_cents: Math.round(amountCents),
+    currency: String(row.currency || 'EUR').trim() || 'EUR',
+    item_type: row.item_type || itemType,
+    item_code: row.item_code || persistedItemCode,
+    unit: row.unit || billingUnit,
+    location_id: normalizeSunsetLocationId(row.location_id),
+  };
+}
+
 async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
   if (pgClient) {
     return loadTenantBusinessConfigFromDb(clientSlug, pgClient, locationId);
@@ -633,6 +727,7 @@ module.exports = {
   loadLessonTimesFromConfig,
   isSunsetAdminDbReadEnabled,
   loadTenantBusinessConfigFromDb,
+  loadTenantPriceRuleFromDb,
   adminConfigTableHasLocationColumn,
   adminConfigTablesExist,
   shouldApplyJsonLocationOverlay,
