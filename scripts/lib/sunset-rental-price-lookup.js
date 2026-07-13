@@ -304,6 +304,7 @@ async function lookupSunsetRentalPriceAsync(opts) {
   if (dbRes.status !== 'found') {
     const failClosed = dbRes.status === 'billing_unit_required'
       || dbRes.status === 'location_scope_unavailable'
+      || dbRes.status === 'invalid_location'
       || dbRes.status === 'not_found';
     if (!failClosed) {
       return {

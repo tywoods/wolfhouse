@@ -12,7 +12,7 @@
  */
 
 const { loadBaselineJson, loadClientPortalProfile } = require('./staff-portal-clients');
-const { normalizeSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
+const { normalizeSunsetLocationId, isSunsetLocationId, DEFAULT_SUNSET_LOCATION_ID } = require('./sunset-school-locations');
 const {
   defaultPrivateLessonApi,
   defaultPrivateLessonFromConfig,
@@ -532,7 +532,7 @@ function mergeDbWithConfig(configBaseline, dbResult) {
  *   params.itemCode    — offering key (e.g. board_and_suit_rental)
  *   params.duration    — guest duration key (e.g. half_day), appended to item_code
  *   params.billingUnit — persisted billing unit (e.g. session)
- * @returns {Promise<{status:'found'|'not_found'|'tables_missing'|'billing_unit_required'|'location_scope_unavailable', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
+ * @returns {Promise<{status:'found'|'not_found'|'tables_missing'|'billing_unit_required'|'location_scope_unavailable'|'invalid_location', amount_cents?:number, currency?:string, item_type?:string, item_code?:string, unit?:string, location_id?:string }>}
  */
 async function loadTenantPriceRuleFromDb(client, params) {
   const clientSlug = String((params && params.clientSlug) || '').trim();
@@ -544,7 +544,11 @@ async function loadTenantPriceRuleFromDb(client, params) {
   const durationKey = String((params && params.duration) || '').trim();
   const billingUnit = String((params && params.billingUnit) || '').trim();
   const persistedItemCode = durationKey ? `${offeringKey}__${durationKey}` : offeringKey;
-  const loc = normalizeSunsetLocationId(params && params.locationId);
+  const rawLocationId = params && params.locationId;
+  if (rawLocationId == null || String(rawLocationId).trim() === '' || !isSunsetLocationId(rawLocationId)) {
+    return { status: 'invalid_location' };
+  }
+  const loc = normalizeSunsetLocationId(rawLocationId);
 
   if (!billingUnit) {
     return { status: 'billing_unit_required', location_id: loc };
@@ -573,8 +577,8 @@ async function loadTenantPriceRuleFromDb(client, params) {
     'location_id = $5',
   ];
   const vals = [clientSlug, itemType, persistedItemCode, billingUnit, loc];
-  if (hasFrom) where.push('(effective_from IS NULL OR effective_from <= NOW())');
-  if (hasTo) where.push('(effective_to IS NULL OR effective_to >= NOW())');
+  if (hasFrom) where.push('(effective_from IS NULL OR effective_from <= CURRENT_DATE)');
+  if (hasTo) where.push('(effective_to IS NULL OR effective_to >= CURRENT_DATE)');
 
   const orderParts = [];
   if (hasFrom) orderParts.push('effective_from DESC NULLS LAST');

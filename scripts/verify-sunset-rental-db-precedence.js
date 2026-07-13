@@ -25,6 +25,7 @@ const {
 } = require('./lib/sunset-rental-price-lookup');
 const {
   resolveTenantBusinessConfigAsync,
+  loadTenantPriceRuleFromDb,
 } = require('./lib/tenant-business-config');
 const {
   configuredRentalBundleTotalCents,
@@ -55,6 +56,13 @@ const DB_BUNDLE_HALFDAY_SARDI = 1000;
 const BASELINE_BUNDLE_HALFDAY = 1500;
 
 const FIXED_NOW = new Date('2026-07-15T12:00:00Z');
+const FIXED_TODAY = '2026-07-15';
+
+function calendarDateKey(value) {
+  if (value == null) return null;
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
 
 function schemaRowsForLocation(loc, amountCents) {
   const rows = [
@@ -137,10 +145,11 @@ function makeSchemaPg(opts = {}) {
   }
 
   function withinEffectiveWindow(row) {
-    const from = row.effective_from ? new Date(row.effective_from) : null;
-    const to = row.effective_to ? new Date(row.effective_to) : null;
-    if (from && from > fixedNow) return false;
-    if (to && to < fixedNow) return false;
+    const today = calendarDateKey(fixedNow);
+    const from = calendarDateKey(row.effective_from);
+    const to = calendarDateKey(row.effective_to);
+    if (from && from > today) return false;
+    if (to && to < today) return false;
     return true;
   }
 
@@ -152,7 +161,7 @@ function makeSchemaPg(opts = {}) {
       const aUp = a.updated_at ? new Date(a.updated_at).getTime() : Number.NEGATIVE_INFINITY;
       const bUp = b.updated_at ? new Date(b.updated_at).getTime() : Number.NEGATIVE_INFINITY;
       if (bUp !== aUp) return bUp - aUp;
-      return String(b.id).localeCompare(String(a.id)) * -1;
+      return String(b.id).localeCompare(String(a.id));
     });
   }
 
@@ -220,6 +229,28 @@ function makeSchemaPg(opts = {}) {
 
 function priceQueries(pg) {
   return pg.capturedQueries.filter((q) => /FROM tenant_price_rules/i.test(q.sql));
+}
+
+async function loadRentalRuleDirect(pg, locationId) {
+  return loadTenantPriceRuleFromDb(pg, {
+    clientSlug: 'sunset',
+    locationId,
+    itemType: 'rental',
+    itemCode: 'board_and_suit_rental',
+    duration: GUEST_DURATION,
+    billingUnit: BILLING_UNIT,
+  });
+}
+
+function assertDateWindowSql(pg) {
+  const pq = priceQueries(pg);
+  const sql = pq.length ? pq[pq.length - 1].sql : '';
+  assert('effective window SQL uses CURRENT_DATE (not NOW())',
+    /effective_from IS NULL OR effective_from <= CURRENT_DATE/i.test(sql)
+    && /effective_to IS NULL OR effective_to >= CURRENT_DATE/i.test(sql)
+    && !/effective_from[^)]*NOW\(\)/i.test(sql)
+    && !/effective_to[^)]*NOW\(\)/i.test(sql),
+    sql);
 }
 
 async function main() {
@@ -538,6 +569,161 @@ async function main() {
   assert('column introspection queries effective_from by parameter', asked.has('effective_from'));
   assert('column introspection queries effective_to by parameter', asked.has('effective_to'));
   assert('column introspection queries updated_at by parameter', asked.has('updated_at'));
+
+  console.log('\n[N] Inclusive effective_to — same calendar day at midday remains effective');
+  const pgEndDay = makeSchemaPg({
+    fixedNow: FIXED_NOW,
+    locationsConfig: {},
+    extraRows: [{
+      id: 'ends-today',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      currency: 'EUR',
+      amount_cents: DB_BUNDLE_HALFDAY_SOMO,
+      unit: BILLING_UNIT,
+      active: true,
+      effective_from: '2026-01-01',
+      effective_to: FIXED_TODAY,
+      updated_at: '2026-06-01',
+    }],
+  });
+  const endDay = await loadRentalRuleDirect(pgEndDay, 'sunset-somo');
+  assert(`effective_to=${FIXED_TODAY} at midday → found`, endDay.status === 'found' && endDay.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(endDay));
+  assertDateWindowSql(pgEndDay);
+
+  console.log('\n[O] Inclusive effective_from — starts on current calendar day');
+  const pgStartDay = makeSchemaPg({
+    fixedNow: FIXED_NOW,
+    locationsConfig: {},
+    extraRows: [{
+      id: 'starts-today',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      currency: 'EUR',
+      amount_cents: DB_BUNDLE_HALFDAY_SOMO,
+      unit: BILLING_UNIT,
+      active: true,
+      effective_from: FIXED_TODAY,
+      effective_to: null,
+      updated_at: '2026-06-01',
+    }],
+  });
+  const startDay = await loadRentalRuleDirect(pgStartDay, 'sunset-somo');
+  assert(`effective_from=${FIXED_TODAY} → found same day`, startDay.status === 'found' && startDay.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(startDay));
+  assertDateWindowSql(pgStartDay);
+
+  console.log('\n[P] Expired/future effective rows excluded by CURRENT_DATE window');
+  const pgExpired = makeSchemaPg({
+    fixedNow: FIXED_NOW,
+    locationsConfig: {},
+    extraRows: [{
+      id: 'expired-yesterday',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      currency: 'EUR',
+      amount_cents: DB_BUNDLE_HALFDAY_SOMO,
+      unit: BILLING_UNIT,
+      active: true,
+      effective_from: '2026-01-01',
+      effective_to: '2026-07-14',
+      updated_at: '2026-06-01',
+    }],
+  });
+  const expired = await loadRentalRuleDirect(pgExpired, 'sunset-somo');
+  assert('effective_to before CURRENT_DATE → not_found', expired.status === 'not_found', JSON.stringify(expired));
+
+  const pgFuture = makeSchemaPg({
+    fixedNow: FIXED_NOW,
+    locationsConfig: {},
+    extraRows: [{
+      id: 'future-tomorrow',
+      client_slug: 'sunset',
+      location_id: 'sunset-somo',
+      item_type: 'rental',
+      item_code: PERSISTED_ITEM_CODE,
+      currency: 'EUR',
+      amount_cents: DB_BUNDLE_HALFDAY_SOMO,
+      unit: BILLING_UNIT,
+      active: true,
+      effective_from: '2026-07-16',
+      effective_to: null,
+      updated_at: '2026-06-01',
+    }],
+  });
+  const future = await loadRentalRuleDirect(pgFuture, 'sunset-somo');
+  assert('effective_from after CURRENT_DATE → not_found', future.status === 'not_found', JSON.stringify(future));
+
+  console.log('\n[Q] id DESC tie-break — greater id wins when effective_from and updated_at match');
+  const pgTie = makeSchemaPg({
+    fixedNow: FIXED_NOW,
+    locationsConfig: {},
+    extraRows: [
+      {
+        id: 'aaaa-0001-0000-0000-000000000001',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: 1111,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-01-01',
+        effective_to: null,
+        updated_at: '2026-06-01',
+      },
+      {
+        id: 'zzzz-9999-9999-9999-999999999999',
+        client_slug: 'sunset',
+        location_id: 'sunset-somo',
+        item_type: 'rental',
+        item_code: PERSISTED_ITEM_CODE,
+        currency: 'EUR',
+        amount_cents: 2222,
+        unit: BILLING_UNIT,
+        active: true,
+        effective_from: '2026-01-01',
+        effective_to: null,
+        updated_at: '2026-06-01',
+      },
+    ],
+  });
+  const tie = await loadRentalRuleDirect(pgTie, 'sunset-somo');
+  assert('greater id row wins (2222 not 1111)', tie.status === 'found' && tie.amount_cents === 2222, JSON.stringify(tie));
+
+  console.log('\n[R] Direct loader invalid location — fail closed before any price SELECT');
+  for (const [label, loc] of [
+    ['missing locationId', undefined],
+    ['empty locationId', ''],
+    ['typo sunset-sardienro', 'sunset-sardienro'],
+    ['arbitrary location', 'not-a-sunset-beach'],
+  ]) {
+    const pgInv = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+    const bad = await loadRentalRuleDirect(pgInv, loc);
+    assert(`${label} → invalid_location`, bad.status === 'invalid_location', JSON.stringify(bad));
+    assert(`${label} issues zero price SELECTs`, priceQueries(pgInv).length === 0, String(priceQueries(pgInv).length));
+    assert(`${label} not labeled sunset-somo`, bad.location_id !== 'sunset-somo' && bad.location_id == null, JSON.stringify(bad));
+    assert(`${label} returns no price`, bad.amount_cents == null, JSON.stringify(bad));
+  }
+
+  console.log('\n[S] Direct loader valid locations — normalize after validation');
+  const pgSomoDirect = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const somoDirect = await loadRentalRuleDirect(pgSomoDirect, 'sunset-somo');
+  assert('sunset-somo direct loader → found', somoDirect.status === 'found' && somoDirect.amount_cents === DB_BUNDLE_HALFDAY_SOMO, JSON.stringify(somoDirect));
+
+  const pgSardiDirect = makeSchemaPg({ locationsConfig: { 'sunset-sardinero': DB_BUNDLE_HALFDAY_SARDI } });
+  const sardiDirect = await loadRentalRuleDirect(pgSardiDirect, 'sunset-sardinero');
+  assert('sunset-sardinero direct loader → found', sardiDirect.status === 'found' && sardiDirect.amount_cents === DB_BUNDLE_HALFDAY_SARDI, JSON.stringify(sardiDirect));
+
+  const pgTrim = makeSchemaPg({ locationsConfig: { 'sunset-somo': DB_BUNDLE_HALFDAY_SOMO } });
+  const trimDirect = await loadRentalRuleDirect(pgTrim, '  SUNSET-SOMO  ');
+  assert('trimmed/case-normalized valid location → found', trimDirect.status === 'found' && trimDirect.location_id === 'sunset-somo', JSON.stringify(trimDirect));
 
   console.log('\n[D] Query failure → typed failure, never baseline');
   const boom = {
