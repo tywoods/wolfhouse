@@ -116,9 +116,22 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         wolfhouse = (ROOT / "SOUL.md").read_text()
         for soul in (sunset, wolfhouse):
             self.assertIn("Start from what the guest actually said", soul)
-            self.assertIn("0–2 emojis", soul)
-            self.assertIn("Do not habitually open", soul)
             self.assertIn("Warmth must survive without emojis", soul)
+
+        # Sunset SOUL: emoji + opener variation contract (anti-robot / anti-canned voice).
+        # This is intentionally checked via narrow semantic substrings (not a brittle literal like "0–2 emojis").
+        self.assertIn("Never repeat the same emoji in two consecutive replies", sunset)
+        self.assertIn("Use 😊 at most once in any three consecutive replies", sunset)
+        self.assertIn("At least one of every three ordinary replies should use no emoji", sunset)
+        self.assertIn("A practical question deserves a plain, warm answer", sunset)
+        self.assertIn("Openers — earn them.", sunset)
+        self.assertIn("Do not habitually begin with", sunset)
+        self.assertIn("Never reuse the same opener two replies running", sunset)
+
+        # Wolfhouse SOUL still uses a numeric emoji guideline today; keep the shared anti-canned intent checks.
+        self.assertIn("Do not habitually open", wolfhouse)
+        self.assertIn("do not repeat the same opener", wolfhouse.lower())
+        self.assertIn("0–2 emojis", wolfhouse)
         for canned in ("Ciaooo!", "Yesss,", "Amazinggg"):
             self.assertNotIn(canned, sunset)
             self.assertNotIn(canned, wolfhouse)
