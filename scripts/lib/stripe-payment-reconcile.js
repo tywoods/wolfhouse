@@ -55,6 +55,7 @@ async function listDuplicatePaidFullPaymentSessions(pg, bookingId) {
       staff_review_required: true,
       session_count: sessions.length,
       session_ids: sessions.map((s) => s.sid),
+      payment_ids: sessions.map((s) => s.payment_id),
     },
   };
 }
@@ -100,16 +101,10 @@ async function reconcilePaidStripeSession(pg, session, meta) {
 
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
-  const duplicateCheck = await listDuplicatePaidFullPaymentSessions(pg, pm.booking_id);
-  let duplicateDiagnostic = null;
-  let cappedStripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
-  if (duplicateCheck.duplicate) {
-    duplicateDiagnostic = duplicateCheck.diagnostic;
-    const bookingTotal = Number(pm.bk_total || 0);
-    const alreadyPaid = Number(prevCompletedPaid || 0);
-    const remaining = Math.max(bookingTotal - alreadyPaid, 0);
-    cappedStripePaidCents = Math.min(cappedStripePaidCents, remaining);
-  }
+  const bookingTotal = Number(pm.bk_total || 0);
+  const alreadyPaid = Number(prevCompletedPaid || 0);
+  const remaining = Math.max(bookingTotal - alreadyPaid, 0);
+  const cappedStripePaidCents = Math.min(stripePaidCents, remaining);
   const derived = deriveBookingPaymentState({
     bkTotal: pm.bk_total,
     prevCompletedPaidCents: prevCompletedPaid,
@@ -124,14 +119,16 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   const bookingMetaMerge = {};
   if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
   if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-  if (duplicateDiagnostic) {
-    bookingMetaMerge.duplicate_full_payment_diagnostic = duplicateDiagnostic;
-  }
   const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
   const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
+  let duplicateDiagnostic = null;
 
   await pg.query('BEGIN');
   try {
+    await pg.query(
+      `SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE`,
+      [pm.booking_id],
+    );
     await pg.query(
       `UPDATE payments
          SET status                     = 'paid'::payment_record_status,
@@ -157,8 +154,14 @@ async function reconcilePaidStripeSession(pg, session, meta) {
         session.id,
       ],
     );
+    const duplicateCheck = await listDuplicatePaidFullPaymentSessions(pg, pm.booking_id);
+    if (duplicateCheck.duplicate) {
+      duplicateDiagnostic = duplicateCheck.diagnostic;
+      bookingMetaMerge.duplicate_full_payment_diagnostic = duplicateDiagnostic;
+    }
+    const hasBookingMetaMergeFinal = Object.keys(bookingMetaMerge).length > 0;
     await pg.query(
-      hasBookingMetaMerge
+      hasBookingMetaMergeFinal
         ? `UPDATE bookings
              SET amount_paid_cents = $1,
                  balance_due_cents = $2,
@@ -172,7 +175,7 @@ async function reconcilePaidStripeSession(pg, session, meta) {
                  payment_status    = $3::payment_status,
                  status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
            WHERE id = $4`,
-      hasBookingMetaMerge
+      hasBookingMetaMergeFinal
         ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
         : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed],
     );

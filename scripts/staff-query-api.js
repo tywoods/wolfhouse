@@ -41672,6 +41672,15 @@ async function handleSunsetScheduleBookingUpdate(query, req, res, user) {
   if (!assertStaffClientAccess(user, clientSlug, res)) return;
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
+  if (!dateNorm.ok) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: dateNorm.reason || 'invalid_date',
+      needs_clarification: dateNorm.needs_clarification === true,
+    });
+  }
+  body = dateNorm.body;
   const bookingId = String(body.booking_id || query.booking_id || '').trim();
   try {
     const result = await withPgClient(async (pg) => updateSunsetScheduleBooking(pg, {
@@ -42038,6 +42047,15 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   } catch (_) {
     return send400(res, 'invalid JSON body');
   }
+  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
+  if (!dateNorm.ok) {
+    return sendJSON(res, 400, {
+      success: false,
+      error: dateNorm.reason || 'invalid_date',
+      needs_clarification: dateNorm.needs_clarification === true,
+    });
+  }
+  body = dateNorm.body;
 
   try {
     const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {

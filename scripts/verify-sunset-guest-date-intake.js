@@ -70,6 +70,12 @@ assert('range end before start rejected', rangeReject.ok === false);
 console.log('\n[5] Booking horizon');
 assert('default horizon 730', resolveSunsetMaxBookingHorizonDays() === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
 assert('invalid env falls back to default', resolveSunsetMaxBookingHorizonDays('not-a-number') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
+assert('"1junk" does not become 1', resolveSunsetMaxBookingHorizonDays('1junk') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
+assert('"730days" rejected', resolveSunsetMaxBookingHorizonDays('730days') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
+assert('" 730 " trimmed accepted', resolveSunsetMaxBookingHorizonDays(' 730 ') === 730);
+assert('"0" rejected', resolveSunsetMaxBookingHorizonDays('0') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
+assert('negative rejected', resolveSunsetMaxBookingHorizonDays('-5') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
+assert('decimal rejected', resolveSunsetMaxBookingHorizonDays('730.5') === DEFAULT_MAX_BOOKING_HORIZON_DAYS);
 const maxIso = madridHorizonIso(REF, HORIZON);
 assert('exactly at horizon accepted', normalizeSunsetGuestDateField(maxIso, REF, { horizonDays: HORIZON }).ok === true);
 const beyondIso = madridHorizonIso(REF, HORIZON + 1);
@@ -81,6 +87,41 @@ const rangeHorizon = normalizeSunsetBookingDatesInBody({
   components: { lesson: { quantity: 1 } },
 }, REF, { horizonDays: HORIZON });
 assert('range end beyond horizon rejected', rangeHorizon.ok === false && rangeHorizon.reason === 'booking_horizon_exceeded');
+
+console.log('\n[7] Full-day add-on date array normalization');
+const addonArray = normalizeSunsetBookingDatesInBody({
+  guest_name: 'Ana',
+  service_dates: ['2026-08-02'],
+  components: {
+    lesson: { quantity: 1 },
+    full_day_equipment_extension: {
+      enabled: true,
+      dates: [
+        { date: 'August 2', quantity: 1 },
+        { date: 'July 12', quantity: 2 },
+      ],
+    },
+  },
+}, REF, { horizonDays: HORIZON });
+assert('array named dates canonicalized',
+  addonArray.ok && addonArray.body.components.full_day_equipment_extension.dates[0].date === '2026-08-02'
+  && addonArray.body.components.full_day_equipment_extension.dates[1].date === '2027-07-12');
+const addonPast = normalizeSunsetBookingDatesInBody({
+  service_dates: ['2026-08-02'],
+  components: {
+    lesson: { quantity: 1 },
+    full_day_equipment_extension: { enabled: true, dates: [{ date: '2026-07-12', quantity: 1 }] },
+  },
+}, REF, { horizonDays: HORIZON });
+assert('array explicit past rejected', addonPast.ok === false && addonPast.reason === 'explicit_past_date');
+const addonInvalid = normalizeSunsetBookingDatesInBody({
+  service_dates: ['2026-08-02'],
+  components: {
+    lesson: { quantity: 1 },
+    full_day_equipment_extension: { enabled: true, dates: [{ date: '2026-02-30', quantity: 1 }] },
+  },
+}, REF, { horizonDays: HORIZON });
+assert('array invalid Gregorian rejected', addonInvalid.ok === false && addonInvalid.reason === 'invalid_calendar_date');
 
 console.log('\n[6] inferSunsetGuestYear unit');
 assert('infer year same month future day', inferSunsetGuestYear(8, 2, REF) === 2026);

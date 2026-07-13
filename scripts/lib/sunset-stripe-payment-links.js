@@ -91,18 +91,22 @@ function findPriceCents(prices, category, offeringKey, unit) {
   return Math.round(Number(row.amount) * 100);
 }
 
-function buildStripeCheckoutIdempotencyKey(opts) {
+/** Stable server identity for one Sunset authoritative payment intent (request keys excluded). */
+function buildAuthoritativePaymentIntentKey(opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
   const bookingId = String(opts.bookingId || '').trim();
   const paymentKind = String(opts.paymentKind || 'full_amount').trim();
-  const idempotencyKey = String(opts.idempotencyKey || '').trim();
   const amountDueCents = Number(opts.amountDueCents || 0);
   const currency = String(opts.currency || 'EUR').trim().toUpperCase();
   const digest = crypto.createHash('sha256')
-    .update([clientSlug, bookingId, paymentKind, idempotencyKey, String(amountDueCents), currency].join('|'))
+    .update([clientSlug, bookingId, paymentKind, String(amountDueCents), currency].join('|'))
     .digest('hex')
     .slice(0, 32);
   return `sunset-checkout-${digest}`;
+}
+
+function buildStripeCheckoutIdempotencyKey(opts) {
+  return buildAuthoritativePaymentIntentKey(opts);
 }
 
 async function createStripeCheckoutSessionViaFetch(opts) {
@@ -421,6 +425,26 @@ function assertStripeEnv(env) {
   return { ok: true };
 }
 
+async function findActiveCompatiblePaymentRow(pg, bookingId, paymentKind, amountDueCents, currency) {
+  const res = await pg.query(
+    `SELECT id::text AS payment_id, checkout_url, stripe_checkout_session_id,
+            status::text AS payment_status, amount_due_cents, payment_kind::text AS payment_kind,
+            currency, metadata
+       FROM payments
+      WHERE booking_id = $1::uuid
+        AND payment_kind = $2::payment_kind
+        AND amount_due_cents = $3
+        AND currency = $4
+        AND metadata->>'source' = 'sunset_schedule_stripe_link'
+        AND status IN ('draft'::payment_record_status, 'checkout_created'::payment_record_status)
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    [bookingId, paymentKind, amountDueCents, currency],
+  );
+  return res.rows[0] || null;
+}
+
+/** @deprecated Use findActiveCompatiblePaymentRow — request keys are observability-only. */
 async function findIdempotentPaymentRow(pg, bookingId, idempotencyKey) {
   const res = await pg.query(
     `SELECT id::text AS payment_id, checkout_url, stripe_checkout_session_id,
@@ -461,8 +485,7 @@ async function createSunsetScheduleStripeLink(pg, opts) {
 
   const bookingId = String(opts.bookingId || '').trim();
   const bookingCode = String(opts.bookingCode || '').trim();
-  const idempotencyKey = String(opts.idempotencyKey || '').trim()
-    || `sunset-schedule-${bookingId || bookingCode}-${crypto.randomBytes(4).toString('hex')}`;
+  const requestIdempotencyKey = String(opts.idempotencyKey || '').trim() || null;
 
   if (!bookingId && !bookingCode) {
     return { ok: false, status: 400, body: { success: false, error: 'booking_id or booking_code is required' } };
@@ -489,28 +512,8 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'stripe_links_limited_to_schedule_managed_bookings' } };
   }
 
-  const existingLink = await loadLatestPaymentLink(pg, booking.booking_id);
-  const metaStale = !!meta.sunset_stripe_link_stale;
-  if (!metaStale && existingLink && existingLink.checkout_url
-    && ['draft', 'checkout_created'].includes(String(existingLink.payment_status))) {
-    return {
-      ok: true,
-      status: 200,
-      body: attachGuestPaymentFields({
-        success: true,
-        idempotent: true,
-        booking_id: booking.booking_id,
-        booking_code: booking.booking_code,
-        payment_id: existingLink.payment_id,
-        payment_status: existingLink.payment_status,
-        amount_due_cents: Number(existingLink.amount_due_cents),
-        stripe_mutation: false,
-        message: 'Payment link already exists.',
-      }, booking.booking_code, existingLink.checkout_url, existingLink.stripe_checkout_session_id, opts),
-    };
-  }
-
   const paymentKind = 'full_amount';
+  const currency = 'EUR';
 
   await pg.query('BEGIN');
   try {
@@ -518,25 +521,6 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     if (!locked) {
       await pg.query('ROLLBACK');
       return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
-    }
-
-    const idemRow = await findIdempotentPaymentRow(pg, booking.booking_id, idempotencyKey);
-    if (idemRow && idemRow.checkout_url) {
-      await pg.query('COMMIT');
-      return {
-        ok: true,
-        status: 200,
-        body: attachGuestPaymentFields({
-          success: true,
-          idempotent: true,
-          booking_id: booking.booking_id,
-          booking_code: booking.booking_code,
-          payment_id: idemRow.payment_id,
-          payment_status: idemRow.payment_status,
-          amount_due_cents: Number(idemRow.amount_due_cents),
-          stripe_mutation: false,
-        }, booking.booking_code, idemRow.checkout_url, idemRow.stripe_checkout_session_id, opts),
-      };
     }
 
     const priced = await priceSunsetBookingServices(pg, clientSlug, booking.booking_id);
@@ -553,10 +537,31 @@ async function createSunsetScheduleStripeLink(pg, opts) {
       clientSlug,
       bookingId: booking.booking_id,
       paymentKind,
-      idempotencyKey,
       amountDueCents,
-      currency: 'EUR',
+      currency,
     });
+
+    const metaStale = !!meta.sunset_stripe_link_stale;
+    const idemRow = await findActiveCompatiblePaymentRow(
+      pg, booking.booking_id, paymentKind, amountDueCents, currency,
+    );
+    if (!metaStale && idemRow && idemRow.checkout_url) {
+      await pg.query('COMMIT');
+      return {
+        ok: true,
+        status: 200,
+        body: attachGuestPaymentFields({
+          success: true,
+          idempotent: true,
+          booking_id: booking.booking_id,
+          booking_code: booking.booking_code,
+          payment_id: idemRow.payment_id,
+          payment_status: idemRow.payment_status,
+          amount_due_cents: Number(idemRow.amount_due_cents),
+          stripe_mutation: false,
+        }, booking.booking_code, idemRow.checkout_url, idemRow.stripe_checkout_session_id, opts),
+      };
+    }
 
     if (idemRow && !idemRow.checkout_url && idemRow.stripe_checkout_session_id) {
       const idemMeta = parseMeta(idemRow.metadata);
@@ -628,7 +633,8 @@ async function createSunsetScheduleStripeLink(pg, opts) {
     const pmMeta = {
       source: 'sunset_schedule_stripe_link',
       method: 'payment_link',
-      idempotency_key: idempotencyKey,
+      authoritative_intent_key: stripeIdempotencyKey,
+      idempotency_key: requestIdempotencyKey,
       booking_code: booking.booking_code,
       created_by: opts.actor && opts.actor.email ? opts.actor.email : null,
       staff_portal: true,
@@ -667,7 +673,8 @@ async function createSunsetScheduleStripeLink(pg, opts) {
         booking_code: booking.booking_code || '',
         payment_id: paymentId,
         source: 'sunset_schedule_stripe_link',
-        idempotency_key: idempotencyKey,
+        idempotency_key: requestIdempotencyKey || stripeIdempotencyKey,
+        authoritative_intent_key: stripeIdempotencyKey,
       },
       idempotencyKey: stripeIdempotencyKey,
     });
@@ -855,7 +862,9 @@ module.exports = {
   bookingEligibleForScheduleStripeLink,
   sunsetPaymentLinkObservability,
   attachGuestPaymentFields,
+  buildAuthoritativePaymentIntentKey,
   buildStripeCheckoutIdempotencyKey,
+  findActiveCompatiblePaymentRow,
   findIdempotentPaymentRow,
   lockBookingForPaymentLink,
   createSunsetScheduleStripeLink,

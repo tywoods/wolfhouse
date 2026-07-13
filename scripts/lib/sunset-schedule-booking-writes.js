@@ -7,6 +7,7 @@
 
 const crypto = require('crypto');
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
+const { normalizeSunsetBookingDatesInBody } = require('./sunset-guest-date-intake');
 
 // Resolve the per-person-per-day add-on unit price from school-scoped admin config (config/DB backed).
 // Returns integer cents or null when unconfigured/disabled. Never hard-codes €10.
@@ -290,6 +291,9 @@ function normalizeFullDayEquipmentAddon(part) {
       }
       const qty = parseQuantity(e.quantity != null ? e.quantity : e.people, 1);
       if (!qty) return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY} quantity must be 1–99` };
+      if (map[iso] != null) {
+        return { ok: false, error: `components.${FULL_DAY_EQUIPMENT_ADDON_KEY}.dates contains duplicate date ${iso}` };
+      }
       map[iso] = qty;
     }
   } else if (rawDates && typeof rawDates === 'object') {
@@ -422,8 +426,13 @@ function normalizeServiceDates(body, components) {
   return { ok: true, value: unique };
 }
 
-function validateScheduleBookingBody(body) {
-  const b = body && typeof body === 'object' ? body : {};
+function validateScheduleBookingBody(body, opts) {
+  opts = opts || {};
+  const dateBoundary = normalizeSunsetBookingDatesInBody(body, opts.refDate || new Date(), opts);
+  if (!dateBoundary.ok) {
+    return { ok: false, error: dateBoundary.reason || 'invalid_date' };
+  }
+  const b = dateBoundary.body;
   const guest_name = String(b.guest_name || '').trim();
   if (!guest_name || guest_name.length > 200) {
     return { ok: false, error: 'guest_name is required (max 200 chars)' };

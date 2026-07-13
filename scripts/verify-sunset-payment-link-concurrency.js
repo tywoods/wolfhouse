@@ -12,6 +12,7 @@
 const {
   createSunsetScheduleStripeLink,
   buildStripeCheckoutIdempotencyKey,
+  buildAuthoritativePaymentIntentKey,
 } = require('./lib/sunset-stripe-payment-links');
 
 let pass = 0;
@@ -100,6 +101,15 @@ function buildConcurrentPg(stripeCalls) {
       }
       if (/UPDATE booking_service_records SET amount_due_cents/i.test(q)) return { rows: [] };
       if (/UPDATE bookings[\s\S]*total_amount_cents/i.test(q)) return { rows: [] };
+      if (/metadata->>'source' = 'sunset_schedule_stripe_link'/i.test(q) && /payment_kind = \$2/i.test(q)) {
+        const hit = payments.find((p) => p.booking_id === params[0]
+          && (p.payment_kind || 'full_amount') === params[1]
+          && Number(p.amount_due_cents) === Number(params[2])
+          && (p.currency || 'EUR') === params[3]
+          && p.metadata && p.metadata.source === 'sunset_schedule_stripe_link'
+          && ['draft', 'checkout_created'].includes(String(p.status || p.payment_status)));
+        return { rows: hit ? [hit] : [] };
+      }
       if (/metadata->>'idempotency_key'/i.test(q)) {
         const hit = payments.find((p) => p.booking_id === params[0]
           && p.metadata && p.metadata.idempotency_key === params[1]);
@@ -115,6 +125,8 @@ function buildConcurrentPg(stripeCalls) {
           booking_id: params[1],
           status: 'draft',
           payment_status: 'draft',
+          payment_kind: 'full_amount',
+          currency: 'EUR',
           amount_due_cents: params[2],
           checkout_url: null,
           stripe_checkout_session_id: null,
@@ -194,6 +206,23 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
     currency: 'EUR',
   });
   assert('idempotency key stable', keyA === keyB && typeof keyA === 'string' && keyA.length > 10, keyA);
+  const keyDiff = buildStripeCheckoutIdempotencyKey({
+    clientSlug: CLIENT_SLUG,
+    bookingId: BOOKING_ID,
+    paymentKind: 'full_amount',
+    idempotencyKey: 'different-client-key',
+    amountDueCents: 4500,
+    currency: 'EUR',
+  });
+  assert('different client request keys share authoritative stripe key', keyA === keyDiff, `${keyA} vs ${keyDiff}`);
+  assert('authoritative key ignores request key',
+    buildAuthoritativePaymentIntentKey({
+      clientSlug: CLIENT_SLUG,
+      bookingId: BOOKING_ID,
+      paymentKind: 'full_amount',
+      amountDueCents: 4500,
+      currency: 'EUR',
+    }) === keyA);
 
   console.log('\n[2] Two concurrent link requests → one Stripe session');
   const stripeCalls = [];
@@ -303,6 +332,60 @@ console.log('\nverify:sunset-payment-link-concurrency\n');
   } finally {
     global.fetch = originalFetch;
   }
+
+  console.log('\n[5] Different/missing request keys → one Stripe session');
+  async function runConcurrentKeyCases(label, optsA, optsB) {
+    const calls = [];
+    const pgKeys = buildConcurrentPg(calls);
+    global.fetch = mockStripeFetch(calls);
+    try {
+      const [r1, r2] = await Promise.all([
+        createSunsetScheduleStripeLink(pgKeys, baseOpts(optsA)),
+        createSunsetScheduleStripeLink(pgKeys, baseOpts(optsB)),
+      ]);
+      const payable = pgKeys.payments.filter((p) => p.checkout_url);
+      assert(`${label}: both succeed`, r1.ok && r2.ok);
+      assert(`${label}: one Stripe call`, calls.length === 1, `calls=${calls.length}`);
+      assert(`${label}: one payable row`, payable.length === 1, `rows=${payable.length}`);
+      assert(`${label}: same session`, r1.body.stripe_checkout_session_id === r2.body.stripe_checkout_session_id);
+    } finally {
+      global.fetch = originalFetch;
+    }
+  }
+  await runConcurrentKeyCases('different explicit keys', { idempotencyKey: 'key-a' }, { idempotencyKey: 'key-b' });
+  await runConcurrentKeyCases('explicit + omitted', { idempotencyKey: 'key-only' }, {});
+  await runConcurrentKeyCases('both omitted', {}, {});
+
+  console.log('\n[6] Retry without client key reuses authoritative Stripe key');
+  const stripeCallsNoKey = [];
+  const pgNoKey = buildConcurrentPg(stripeCallsNoKey);
+  global.fetch = mockStripeFetch(stripeCallsNoKey);
+  try {
+    const first = await createSunsetScheduleStripeLink(pgNoKey, baseOpts({}));
+    const second = await createSunsetScheduleStripeLink(pgNoKey, baseOpts({}));
+    assert('no-key retry succeeds', first.ok && second.ok);
+    assert('no-key retry one Stripe call', stripeCallsNoKey.length === 1);
+    const authKey = stripeCallsNoKey[0] && stripeCallsNoKey[0].headers && stripeCallsNoKey[0].headers['Idempotency-Key'];
+    const expectedKey = buildAuthoritativePaymentIntentKey({
+      clientSlug: CLIENT_SLUG,
+      bookingId: BOOKING_ID,
+      paymentKind: 'full_amount',
+      amountDueCents: first.body.amount_due_cents,
+      currency: 'EUR',
+    });
+    assert('no-key uses authoritative stripe key', authKey === expectedKey, `${authKey} vs ${expectedKey}`);
+  } finally {
+    global.fetch = originalFetch;
+  }
+
+  console.log('\n[7] Different authoritative amounts do not collide');
+  const key4500 = buildAuthoritativePaymentIntentKey({
+    clientSlug: CLIENT_SLUG, bookingId: BOOKING_ID, paymentKind: 'full_amount', amountDueCents: 4500, currency: 'EUR',
+  });
+  const key5000 = buildAuthoritativePaymentIntentKey({
+    clientSlug: CLIENT_SLUG, bookingId: BOOKING_ID, paymentKind: 'full_amount', amountDueCents: 5000, currency: 'EUR',
+  });
+  assert('different amounts → different authoritative keys', key4500 !== key5000);
 
   console.log(`\n── verify:sunset-payment-link-concurrency ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   if (fail > 0) process.exit(1);

@@ -16,6 +16,7 @@ const MONTH_MAP = {
 
 const MADRID_TZ = 'Europe/Madrid';
 const DEFAULT_MAX_BOOKING_HORIZON_DAYS = 730;
+const MAX_BOOKING_HORIZON_DAYS = 3650;
 
 function pad2(n) {
   return String(n).padStart(2, '0');
@@ -58,8 +59,10 @@ function addDaysToIso(iso, days) {
 function resolveSunsetMaxBookingHorizonDays(envValue) {
   const raw = envValue != null ? envValue : process.env.SUNSET_MAX_BOOKING_HORIZON_DAYS;
   if (raw == null || raw === '') return DEFAULT_MAX_BOOKING_HORIZON_DAYS;
-  const parsed = parseInt(String(raw), 10);
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 3650) {
+  const trimmed = String(raw).trim();
+  if (!/^\d+$/.test(trimmed)) return DEFAULT_MAX_BOOKING_HORIZON_DAYS;
+  const parsed = parseInt(trimmed, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > MAX_BOOKING_HORIZON_DAYS) {
     return DEFAULT_MAX_BOOKING_HORIZON_DAYS;
   }
   return parsed;
@@ -269,7 +272,20 @@ function normalizeSunsetBookingDatesInBody(body, refDate, opts) {
 
   if (b.components && b.components.full_day_equipment_extension) {
     const addon = { ...b.components.full_day_equipment_extension };
-    if (addon.dates && typeof addon.dates === 'object' && !Array.isArray(addon.dates)) {
+    if (Array.isArray(addon.dates)) {
+      const normalizedDates = [];
+      for (const entry of addon.dates) {
+        const e = entry && typeof entry === 'object' ? entry : {};
+        const parsed = normalizeSunsetGuestDateField(e.date, ref, opts);
+        if (!parsed.ok) return { ok: false, body: b, ...parsed };
+        normalizedDates.push({
+          date: parsed.iso,
+          quantity: e.quantity != null ? e.quantity : e.people,
+        });
+      }
+      addon.dates = normalizedDates;
+      b.components = { ...b.components, full_day_equipment_extension: addon };
+    } else if (addon.dates && typeof addon.dates === 'object') {
       const nextDates = {};
       for (const [rawDate, qty] of Object.entries(addon.dates)) {
         const parsed = normalizeSunsetGuestDateField(rawDate, ref, opts);
@@ -287,6 +303,7 @@ function normalizeSunsetBookingDatesInBody(body, refDate, opts) {
 module.exports = {
   MADRID_TZ,
   DEFAULT_MAX_BOOKING_HORIZON_DAYS,
+  MAX_BOOKING_HORIZON_DAYS,
   madridCalendarParts,
   inferSunsetGuestYear,
   resolveSunsetMaxBookingHorizonDays,

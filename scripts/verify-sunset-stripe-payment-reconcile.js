@@ -30,6 +30,7 @@ function buildReconcilePg(pm, booking) {
       if (/BEGIN/i.test(q)) { state.inTx = true; return { rows: [] }; }
       if (/COMMIT/i.test(q)) { state.inTx = false; state.committed = true; return { rows: [] }; }
       if (/ROLLBACK/i.test(q)) { state.inTx = false; return { rows: [] }; }
+      if (/FROM bookings WHERE id[\s\S]*FOR UPDATE/i.test(q)) return { rows: [{ id: state.pm.booking_id }] };
       if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
         return state.pm.stripe_checkout_session_id === params[0] ? { rows: [state.pm] } : { rows: [] };
       }
@@ -112,7 +113,111 @@ console.log('[1] reconcilePaidStripeSession marks paid');
   assert('booking reconcile returns results array', Array.isArray(batch.results));
   assert('errors observable when missing inputs', (await reconcilePendingStripePaymentsForBooking(null, null, {})).had_errors === true);
 
-  console.log('\n[3] Drawer cannot stay Unpaid after ledger paid');
+  console.log('\n[4] Duplicate full-payment transition diagnostic');
+  function buildDuplicatePg(existingPaid, pendingPm) {
+    const payments = [
+      { ...existingPaid, payment_status: 'paid', status: 'paid' },
+      { ...pendingPm, payment_status: 'checkout_created', status: 'checkout_created' },
+    ];
+    const booking = {
+      payment_status: 'waiting_payment',
+      amount_paid_cents: Number(existingPaid.amount_paid_cents || 0),
+      balance_due_cents: 0,
+      metadata: {},
+    };
+    const pg = {
+      payments,
+      booking,
+      query: async (sql, params) => {
+        const q = String(sql);
+        if (/BEGIN/i.test(q)) return { rows: [] };
+        if (/COMMIT/i.test(q)) return { rows: [] };
+        if (/ROLLBACK/i.test(q)) return { rows: [] };
+        if (/FROM bookings WHERE id[\s\S]*FOR UPDATE/i.test(q)) return { rows: [{ id: pendingPm.booking_id }] };
+        if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
+          const hit = payments.find((p) => p.stripe_checkout_session_id === params[0]);
+          return hit ? { rows: [hit] } : { rows: [] };
+        }
+        if (/sum\(amount_paid_cents\)/i.test(q)) {
+          return { rows: [{ total: Number(existingPaid.amount_paid_cents || 0) }] };
+        }
+        if (/SELECT DISTINCT stripe_checkout_session_id/i.test(q)) {
+          const paid = payments.filter((p) => p.payment_status === 'paid' && p.payment_kind === 'full_amount');
+          return { rows: paid.map((p) => ({ sid: p.stripe_checkout_session_id, payment_id: p.payment_id, amount_paid_cents: p.amount_paid_cents })) };
+        }
+        if (/UPDATE payments/i.test(q)) {
+          const row = payments.find((p) => p.payment_id === params[3]);
+          if (row) {
+            row.payment_status = 'paid';
+            row.status = 'paid';
+            row.amount_paid_cents = params[0];
+          }
+          return { rows: [] };
+        }
+        if (/UPDATE bookings/i.test(q)) {
+          booking.amount_paid_cents = params[0];
+          booking.balance_due_cents = params[1];
+          booking.payment_status = params[2];
+          if (params[4]) {
+            booking.metadata = { ...booking.metadata, ...JSON.parse(params[4]) };
+          }
+          return { rows: [] };
+        }
+        return { rows: [] };
+      },
+    };
+    return pg;
+  }
+
+  const existingPaid = {
+    payment_id: 'pay-a',
+    payment_status: 'paid',
+    payment_kind: 'full_amount',
+    amount_paid_cents: 4500,
+    stripe_checkout_session_id: 'cs_test_paid_a',
+    client_id: 'client-1',
+    booking_id: 'bk-dup',
+    booking_code: 'SUNSET-DUP',
+    amount_due_cents: 4500,
+    bk_total: 4500,
+    guest_name: 'Dup Guest',
+  };
+  const pendingPm = {
+    payment_id: 'pay-b',
+    payment_status: 'checkout_created',
+    payment_kind: 'full_amount',
+    currency: 'EUR',
+    amount_due_cents: 4500,
+    stripe_checkout_session_id: 'cs_test_paid_b',
+    client_slug: 'sunset',
+    booking_id: 'bk-dup',
+    booking_code: 'SUNSET-DUP',
+    client_id: 'client-1',
+    bk_total: 4500,
+    bk_amount_paid: 4500,
+    bk_balance: 0,
+    guest_name: 'Dup Guest',
+  };
+  const dupPg = buildDuplicatePg(existingPaid, pendingPm);
+  const dupSession = {
+    id: 'cs_test_paid_b',
+    payment_status: 'paid',
+    status: 'complete',
+    currency: 'eur',
+    amount_total: 4500,
+    metadata: { payment_id: 'pay-b', client_slug: 'sunset' },
+  };
+  const dupRes = await reconcilePaidStripeSession(dupPg, dupSession, { eventType: 'checkout.session.completed' });
+  assert('duplicate transition reconciled', dupRes.reconciled === true);
+  assert('duplicate diagnostic emitted', dupRes.duplicate_full_payment_diagnostic != null);
+  assert('both session ids in diagnostic',
+    dupRes.duplicate_full_payment_diagnostic.session_ids.includes('cs_test_paid_a')
+    && dupRes.duplicate_full_payment_diagnostic.session_ids.includes('cs_test_paid_b'));
+  assert('booking not over-credited', dupPg.booking.amount_paid_cents <= 4500);
+  const dupAgain = await reconcilePaidStripeSession(dupPg, dupSession, { eventType: 'checkout.session.completed' });
+  assert('duplicate reconcile idempotent', dupAgain.reconciled === false && dupAgain.reason === 'already_paid');
+
+  console.log('\n[5] Drawer cannot stay Unpaid after ledger paid');
   const paidSummary = buildPaymentSummary([], {
     payment_status: 'waiting_payment',
     amount_paid_cents: 4500,
