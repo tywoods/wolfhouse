@@ -50,6 +50,10 @@ check('A1 simulate route path', /\/wolfhouse\/simulate-guest-turn/.test(core));
 check('A2 suppresses WhatsApp outbound', /suppressed_whatsapp/.test(core) && /WOLFHOUSE_SIMULATE_GUEST_TURN/.test(core));
 check('A3 captures tool_calls with args', /tool_calls/.test(core) && /"args"/.test(core));
 check('A4 staging guard', /assert_staging_environment/.test(core) && /staging/.test(guard));
+check('A4b staging guard allows guest Luna roles', /ALLOWED_GUEST_LUNA_ROLES/.test(guard)
+  && /["']luna["']/.test(guard)
+  && /["']sunset-luna["']/.test(guard));
+check('A4c staging guard excludes orchestrator', !/ALLOWED_GUEST_LUNA_ROLES\s*=\s*\{[^}]*["']orchestrator["']/.test(guard));
 const writeGuards = fs.readFileSync(path.join(H, 'wolfhouse', 'simulate_write_guards.py'), 'utf8');
 check('A5 writes off redirects create→preview', /redirected_create_to_booking_preview/.test(writeGuards));
 check('A6 CLI module invocation', /python3 -m wolfhouse\.simulate_guest_turn/.test(cli) || /--thread/.test(cli));

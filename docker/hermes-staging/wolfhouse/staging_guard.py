@@ -13,6 +13,7 @@ PROD_DB_PATTERNS = (
     re.compile(r"\.postgres\.database\.azure\.com.*prod", re.I),
 )
 STAGING_DB_SIGNALS = re.compile(r"staging|localhost|127\.0\.0\.1|lunabox|wh-staging", re.I)
+ALLOWED_GUEST_LUNA_ROLES = {"luna", "sunset-luna"}
 
 
 def _staff_api_base() -> str:
@@ -28,10 +29,11 @@ def _database_url() -> str:
 
 
 def assert_staging_environment() -> None:
-    """Exit non-zero if this does not look like Luna staging."""
+    """Exit non-zero unless this is a recognized guest-Luna staging runtime."""
     role = (os.getenv("HERMES_ROLE") or "luna").strip().lower()
-    if role != "luna":
-        raise SystemExit(f"refusing: HERMES_ROLE={role!r} (expected luna)")
+    if role not in ALLOWED_GUEST_LUNA_ROLES:
+        allowed = ", ".join(sorted(ALLOWED_GUEST_LUNA_ROLES))
+        raise SystemExit(f"refusing: HERMES_ROLE={role!r} (expected one of: {allowed})")
 
     base = _staff_api_base()
     if not base:
