@@ -277,6 +277,10 @@ function normalizeFullDayEquipmentAddon(part) {
 function normalizeComponents(body) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.components && typeof b.components === 'object') {
+    const unknownKeys = Object.keys(b.components).filter((key) => !UI_COMPONENT_KEYS.has(key));
+    if (unknownKeys.length) {
+      return { ok: false, error: `unknown components: ${unknownKeys.join(', ')}` };
+    }
     const out = {};
     for (const key of UI_COMPONENT_KEYS) {
       if (key === 'private_lesson') continue;

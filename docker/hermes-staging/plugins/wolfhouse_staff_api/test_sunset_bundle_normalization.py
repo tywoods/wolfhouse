@@ -151,6 +151,37 @@ check("[8] single-rental booking still POSTs", fake.called("/sunset/booking-crea
 check("[8] single rental not treated as bundle (no quote fetch)", not fake.called("/sunset/rental-price"))
 check("[8] single surfboard component preserved verbatim", bool(body) and body["components"] == {"surfboard": {"quantity": 1, "duration": "1_day"}})
 
+# [9] Live model alias must become the backend canonical add-on component.
+fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": {**BOOKING_OK, "total_cents": 6000}})
+r = json.loads(mod.create_sunset_booking(base_payload(
+    components={
+        "surfboard": {"quantity": 2, "duration": "half_day"},
+        "wetsuit": {"quantity": 2, "duration": "half_day"},
+        "full_day_equipment_addon": {"quantity": 2},
+    },
+    rental_pricing={"offering_key": "board_and_suit_rental", "duration": "half_day", "quantity": 2, "quoted_total_cents": 4000},
+)))
+body = fake.body_for("/sunset/booking-create")
+check("[9] alias booking POST made", fake.called("/sunset/booking-create"))
+check("[9] alias removed", bool(body) and "full_day_equipment_addon" not in body.get("components", {}), body and body.get("components"))
+check("[9] canonical add-on inserted", bool(body) and body.get("components", {}).get("full_day_equipment_extension") == {"enabled": True, "dates": {"2026-07-21": 2}}, body and body.get("components"))
+check("[9] authoritative €60 result passes through", r.get("total_cents") == 6000, r)
+
+# [10] Ambiguous add-on inputs fail closed before any booking POST.
+for label, extra in [
+    ("missing date", {"service_date": None}),
+    ("invalid quantity", {"components": {"surfboard": {"quantity": 2, "duration": "half_day"}, "wetsuit": {"quantity": 2, "duration": "half_day"}, "full_day_equipment_addon": {"quantity": 0}}}),
+]:
+    fake = with_fake({"/sunset/rental-price": QUOTE_OK, "/sunset/booking-create": BOOKING_OK})
+    payload = base_payload(
+        components={"surfboard": {"quantity": 2, "duration": "half_day"}, "wetsuit": {"quantity": 2, "duration": "half_day"}, "full_day_equipment_addon": {"quantity": 2}},
+        rental_pricing={"offering_key": "board_and_suit_rental", "duration": "half_day", "quantity": 2},
+    )
+    payload.update(extra)
+    out = json.loads(mod.create_sunset_booking(payload))
+    check(f"[10] {label} → no booking POST", not fake.called("/sunset/booking-create"))
+    check(f"[10] {label} → typed error", out.get("error") == "full_day_equipment_addon_invalid", out)
+
 print("\n── test_sunset_bundle_normalization %s (%d/%d) ──\n" % (
     "FAILED" if FAILED else "PASSED", PASSED, PASSED + FAILED))
 sys.exit(1 if FAILED else 0)

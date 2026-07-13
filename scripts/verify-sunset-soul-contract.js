@@ -57,6 +57,18 @@ assert('avoid administrative checklist repetition',
   /checklist repetition|administrative checklist/i.test(soul));
 assert('use names sparingly', /names?\s*—?\s*sparingly|use the guest'?s name only after/i.test(soul));
 
+console.log('\n[First reply — hospitality before intake]');
+assert('every fresh conversation starts with a human welcome',
+  /every fresh conversation starts with a real human welcome/i.test(soul));
+assert('bare greetings are not forced into lesson-versus-rental intake',
+  /do not immediately force a lesson-versus-rental choice/i.test(soul));
+assert('first reply may contain no intake question',
+  /social first message may simply welcome|no intake question is allowed/i.test(soul));
+assert('explicit booking intent still gets welcome plus one next detail',
+  /explicit booking intent:[^\n]*welcome[^\n]*next missing detail/i.test(soul));
+assert('clipped administrative first-line paraphrase is forbidden',
+  /never make the first line a clipped administrative paraphrase/i.test(soul));
+
 console.log('\n[Tool-failure ownership — no false confirmation]');
 assert('calm tool-failure ownership copy present',
   /couldn'?t finish that booking just yet/i.test(soul) && /checking it with the team/i.test(soul));

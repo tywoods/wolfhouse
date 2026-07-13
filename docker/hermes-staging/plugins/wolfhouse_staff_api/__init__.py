@@ -1508,6 +1508,40 @@ def _resolve_sunset_bundle_shape(rp_in, combined, board, suit):
     return {"quantity": quantities[0], "duration": durations[0]}
 
 
+def _canonicalize_sunset_full_day_addon(payload, raw_components):
+    """Translate Luna's model-facing add-on alias to the Staff API canonical shape.
+
+    Returns (components, error). Explicitly fail closed on ambiguity: a quoted
+    add-on must never disappear from a successful booking.
+    """
+    components = dict(raw_components or {})
+    alias_key = "full_day_equipment_addon"
+    canonical_key = "full_day_equipment_extension"
+    alias = components.get(alias_key)
+    canonical = components.get(canonical_key)
+    if alias is None:
+        return components, None
+    if canonical is not None or not isinstance(alias, dict):
+        return None, "full_day_equipment_addon_invalid"
+    quantity = _bundle_quantity(alias.get("quantity"))
+    if quantity is None:
+        return None, "full_day_equipment_addon_invalid"
+    dates = []
+    raw_dates = payload.get("service_dates")
+    if isinstance(raw_dates, list):
+        dates = [_clean(v) for v in raw_dates if _clean(v)]
+    elif payload.get("service_date"):
+        dates = [_clean(payload.get("service_date"))]
+    if not dates:
+        return None, "full_day_equipment_addon_invalid"
+    components.pop(alias_key, None)
+    components[canonical_key] = {
+        "enabled": True,
+        "dates": {date: quantity for date in dates},
+    }
+    return components, None
+
+
 def create_sunset_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -1535,6 +1569,15 @@ def create_sunset_booking(params, **kwargs):
     # locally (the portal rental-price response is the unit source); fail closed
     # with a typed error and no booking write when the request is ambiguous.
     raw_components = payload.get("components") if isinstance(payload.get("components"), dict) else {}
+    raw_components, addon_error = _canonicalize_sunset_full_day_addon(payload, raw_components)
+    if addon_error:
+        return _json_result({
+            "success": False,
+            "tool": "create_sunset_booking",
+            "error": addon_error,
+            "staff_review_needed": False,
+            "guest_safe_next_action": "Which date should I add the rest-of-day equipment for, and for how many people?",
+        })
     rp_in = payload.get("rental_pricing") if isinstance(payload.get("rental_pricing"), dict) else None
     combined = raw_components.get("board_and_suit_rental") if isinstance(raw_components.get("board_and_suit_rental"), dict) else None
     board = raw_components.get("surfboard") if isinstance(raw_components.get("surfboard"), dict) else None
@@ -1767,7 +1810,7 @@ def _sunset_write_tools():
         ("create_sunset_booking", "Create the Sunset surf-school booking AFTER the guest has accepted the plan. Pass guest_name (required) and the service components (a lesson, course, private lesson, board/wetsuit rental, and/or the full-day equipment add-on) plus the date(s). Use components (object) with the relevant parts, and either service_dates (YYYY-MM-DD list), service_date, or date_from+date_to. For board+wetsuit bundle bookings, pass rental_pricing with the exact offering_key, duration, quantity, and quoted_total_cents returned by get_sunset_rental_price (e.g. board_and_suit_rental / half_day / qty 2 / 3000). NO rooms/beds/nights — Sunset is a surf school, not accommodation. Returns booking_id + booking_code + the authoritative total_cents. After success call create_sunset_payment_link.", create_sunset_booking, {
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
-            "components": {"type": "object", "description": "Service components, e.g. {\"lesson\":{\"quantity\":2,\"slot_time\":\"10:00\"}}, {\"course\":{\"course_id\":\"...\",\"quantity\":2}}, {\"private_lesson\":{...}}, {\"surfboard\":{\"quantity\":1}}, {\"wetsuit\":{\"quantity\":1}}, and the full-day add-on part."},
+            "components": {"type": "object", "description": "Service components. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Examples: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
             "rental_pricing": {"type": "object", "description": "Required for board+wetsuit bundle rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
