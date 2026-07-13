@@ -59,6 +59,12 @@ const {
   buildPaymentLinkObservability,
 } = require('./lib/luna-payment-short-link');
 const {
+  paymentRowEligibleForBotCancelNeutralization,
+  buildBotTestBookingCancelPaymentMetadata,
+  isStripeTestCheckoutSessionId,
+  sanitizeStripeSessionIdForAudit,
+} = require('./lib/bot-test-booking-cancel-payments');
+const {
   makeInMemoryBotReq,
   handleBotTransferSave:           _handleBotTransferSave,
   handleBotPaymentStatus:          _handleBotPaymentStatus,
@@ -7336,6 +7342,132 @@ SELECT COUNT(*)::int AS c
    AND COALESCE(p.amount_paid_cents, 0) > 0
 `;
 
+const BOT_CANCEL_UNPAID_PAYMENTS_SQL = `
+SELECT p.id::text AS payment_id,
+       p.status::text AS payment_status,
+       COALESCE(p.amount_paid_cents, 0)::int AS amount_paid_cents,
+       p.checkout_url,
+       p.stripe_checkout_session_id,
+       p.metadata
+  FROM payments p
+ INNER JOIN bookings b ON b.id = p.booking_id
+ INNER JOIN clients c ON c.id = b.client_id
+ WHERE c.slug = $1
+   AND b.id = $2::uuid
+ ORDER BY p.created_at DESC
+`;
+
+async function expireBotCancelStripeTestSession(sessionId) {
+  const sid = String(sessionId || '').trim();
+  if (!sid || !isStripeTestCheckoutSessionId(sid)) {
+    return { skipped: true, reason: 'no_test_session' };
+  }
+  if (!STRIPE_SECRET_KEY) {
+    return { skipped: true, reason: 'stripe_not_configured', session_id: sanitizeStripeSessionIdForAudit(sid) };
+  }
+  if (String(STRIPE_SECRET_KEY).startsWith('sk_live_')) {
+    return { error: 'live_stripe_key_refused', session_id: sanitizeStripeSessionIdForAudit(sid) };
+  }
+  const stripe = require('stripe')(STRIPE_SECRET_KEY);
+  const sess = await stripe.checkout.sessions.retrieve(sid);
+  if (sess.livemode) {
+    return { error: 'livemode_session_refused', session_id: sanitizeStripeSessionIdForAudit(sid) };
+  }
+  if (sess.status === 'expired') {
+    return { idempotent: true, status: 'expired', session_id: sanitizeStripeSessionIdForAudit(sid), livemode: false };
+  }
+  if (sess.status === 'complete') {
+    return { skipped: true, reason: 'already_complete', status: sess.status, session_id: sanitizeStripeSessionIdForAudit(sid), livemode: false };
+  }
+  const expired = await stripe.checkout.sessions.expire(sid);
+  return {
+    status: expired.status,
+    session_id: sanitizeStripeSessionIdForAudit(sid),
+    livemode: expired.livemode === false,
+  };
+}
+
+async function neutralizeBotTestBookingUnpaidPayments(pg, { clientSlug, bookingId }) {
+  const payRes = await pg.query(BOT_CANCEL_UNPAID_PAYMENTS_SQL, [clientSlug, bookingId]);
+  const neutralized = [];
+  const stripeSessions = [];
+
+  for (const row of payRes.rows || []) {
+    if (!paymentRowEligibleForBotCancelNeutralization(row)) continue;
+
+    const cancelMeta = buildBotTestBookingCancelPaymentMetadata();
+    const upd = await pg.query(
+      `UPDATE payments p
+          SET status = 'cancelled'::payment_record_status,
+              checkout_url = NULL,
+              metadata = COALESCE(p.metadata, '{}'::jsonb) || $2::jsonb
+         FROM clients c
+        WHERE p.id = $1::uuid
+          AND c.id = p.client_id
+          AND c.slug = $3
+          AND p.booking_id = $4::uuid
+        RETURNING p.id::text AS payment_id,
+                  p.status::text AS payment_status,
+                  p.stripe_checkout_session_id,
+                  p.checkout_url`,
+      [row.payment_id, JSON.stringify(cancelMeta), clientSlug, bookingId],
+    );
+    const updated = upd.rows[0];
+    if (!updated) continue;
+
+    neutralized.push({
+      payment_id: updated.payment_id,
+      payment_status: updated.payment_status,
+      stripe_checkout_session_id: sanitizeStripeSessionIdForAudit(updated.stripe_checkout_session_id),
+    });
+
+    if (row.stripe_checkout_session_id) {
+      try {
+        const stripeOut = await expireBotCancelStripeTestSession(row.stripe_checkout_session_id);
+        stripeSessions.push({ payment_id: row.payment_id, ...stripeOut });
+      } catch (err) {
+        stripeSessions.push({
+          payment_id: row.payment_id,
+          session_id: sanitizeStripeSessionIdForAudit(row.stripe_checkout_session_id),
+          error: err.message,
+        });
+      }
+    }
+  }
+
+  return { payments_neutralized: neutralized, stripe_sessions: stripeSessions };
+}
+
+async function executeBotTestBookingCancel(pg, { clientSlug, bookingRow }) {
+  const alreadyCancelled = bookingStatusIsCancelled(bookingRow.status);
+  let bedsReleased = 0;
+  let updatedRow = bookingRow;
+
+  if (!alreadyCancelled) {
+    const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [clientSlug, bookingRow.booking_id]);
+    const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
+
+    const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [clientSlug, bookingRow.booking_id]);
+    bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
+
+    const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [clientSlug, bookingRow.booking_id]);
+    if (!upd.rows[0]) return null;
+    updatedRow = { ...bookingRow, ...upd.rows[0] };
+  }
+
+  const paymentCleanup = await neutralizeBotTestBookingUnpaidPayments(pg, {
+    clientSlug,
+    bookingId: bookingRow.booking_id,
+  });
+
+  return {
+    alreadyCancelled,
+    bedsReleased,
+    updatedRow,
+    ...paymentCleanup,
+  };
+}
+
 function bookingMetadataIsBotTestLane(row) {
   if (!row) return false;
   const botSrc = String(row.bot_source || row.staff_source || row.metadata_source || '').trim().toLowerCase();
@@ -7412,48 +7544,17 @@ async function handleBotBookingCancel(req, res, user, authMode) {
     });
   }
 
-  if (bookingStatusIsCancelled(bookingRow.status)) {
-    const elapsed = Date.now() - started;
-    appendAuditLog({ ...auditBase, success: true, cancelled: false, idempotent: true, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
-      success: true,
-      cancelled: false,
-      idempotent: true,
-      booking_code: bookingRow.booking_code,
-      freed_beds: [],
-      beds_released_count: 0,
-      auth_mode: resolvedAuthMode,
-      message: 'Booking is already cancelled.',
-      elapsed_ms: elapsed,
-    });
-  }
-
   try {
     const result = await withPgClient(async (pg) => {
       await pg.query('BEGIN');
       try {
-        const countRes = await pg.query(BOOKING_CANCEL_COUNT_BEDS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        const bedsBefore = countRes.rows[0] ? Number(countRes.rows[0].c) : 0;
-
-        const delRes = await pg.query(BOOKING_CANCEL_DELETE_BEDS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        const bedsReleased = delRes.rowCount != null ? delRes.rowCount : bedsBefore;
-
-        const upd = await pg.query(BOOKING_CANCEL_UPDATE_STATUS_SQL, [
-          clientSlug,
-          bookingRow.booking_id,
-        ]);
-        if (!upd.rows[0]) {
+        const tx = await executeBotTestBookingCancel(pg, { clientSlug, bookingRow });
+        if (!tx) {
           await pg.query('ROLLBACK');
           return null;
         }
         await pg.query('COMMIT');
-        return { updatedRow: upd.rows[0], bedsReleased };
+        return tx;
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
         throw e;
@@ -7467,23 +7568,30 @@ async function handleBotBookingCancel(req, res, user, authMode) {
 
     const after = bookingCancelSnapshot(result.updatedRow);
     const elapsed = Date.now() - started;
+    const bookingCancelled = !result.alreadyCancelled;
     appendAuditLog({
       ...auditBase,
       success: true,
-      cancelled: true,
+      cancelled: bookingCancelled,
+      idempotent: result.alreadyCancelled,
+      payments_neutralized_count: (result.payments_neutralized || []).length,
       beds_released_count: result.bedsReleased,
       elapsed_ms: elapsed,
     });
     return sendJSON(res, 200, {
       success: true,
-      cancelled: true,
-      idempotent: false,
+      cancelled: bookingCancelled,
+      idempotent: result.alreadyCancelled,
       booking_code: after.booking_code,
       booking: after,
       freed_beds: [],
       beds_released_count: result.bedsReleased,
+      payments_neutralized: result.payments_neutralized || [],
+      stripe_sessions: result.stripe_sessions || [],
       auth_mode: resolvedAuthMode,
-      message: 'Test booking cancelled and beds released.',
+      message: result.alreadyCancelled
+        ? 'Booking is already cancelled; unpaid payment links neutralized.'
+        : 'Test booking cancelled and beds released.',
       elapsed_ms: elapsed,
     });
   } catch (err) {

@@ -198,6 +198,16 @@ function paymentRowIsExpired(row, now) {
   return exp.getTime() <= (now || Date.now());
 }
 
+function bookingRowStatusToken(bookingRow) {
+  if (!bookingRow) return '';
+  return String(bookingRow.booking_status || bookingRow.status || '').toLowerCase();
+}
+
+function bookingRowIsInactiveForPayment(bookingRow) {
+  const st = bookingRowStatusToken(bookingRow);
+  return st === 'cancelled' || st === 'canceled' || st === 'expired';
+}
+
 function findLatestActiveCheckoutPayment(paymentRows, now, opts) {
   const guestNumber = opts && opts.guest_number != null ? parseInt(opts.guest_number, 10) : null;
   for (const row of paymentRows || []) {
@@ -285,6 +295,15 @@ function resolvePaymentShortLinkRedirect(input) {
     return {
       status: 'not_found',
       message: 'This payment link is no longer active — please message Wolfhouse and we\'ll send a fresh one.',
+      booking_code: bookingCode,
+      guest_number: guestNumber,
+    };
+  }
+
+  if (bookingRowIsInactiveForPayment(bookingRow)) {
+    return {
+      status: 'inactive',
+      message: 'This payment link is no longer active.',
       booking_code: bookingCode,
       guest_number: guestNumber,
     };
@@ -452,6 +471,8 @@ module.exports = {
   resolvePaymentShortLinkRedirectFromDb,
   buildPaymentLinkObservability,
   findLatestActiveCheckoutPayment,
+  bookingRowIsInactiveForPayment,
+  bookingRowStatusToken,
   isPublicPaymentRedirectSafe,
   isStripeCheckoutUrlLive,
   loadClientMessagingConfig,
