@@ -315,19 +315,60 @@ function normalizeFullDayEquipmentAddon(part) {
   return { ok: true, value: { enabled: true, dates: map } };
 }
 
+// Exact approved legacy aliases only — never fuzzy-match keys containing
+// "group"/"class"/"lesson". Unknown aliases fail closed.
+const EXACT_COMPONENT_ALIASES = Object.freeze({
+  group_lesson: 'lesson',
+});
+
+function applyExactComponentAliases(components) {
+  const src = components && typeof components === 'object' ? components : {};
+  const out = {};
+  for (const [rawKey, part] of Object.entries(src)) {
+    const key = EXACT_COMPONENT_ALIASES[rawKey] || rawKey;
+    if (Object.prototype.hasOwnProperty.call(out, key) && EXACT_COMPONENT_ALIASES[rawKey]) {
+      return { ok: false, error: `ambiguous component alias ${rawKey} with existing ${key}` };
+    }
+    if (Object.prototype.hasOwnProperty.call(out, key)) {
+      return { ok: false, error: `duplicate component key ${key}` };
+    }
+    out[key] = part;
+  }
+  return { ok: true, value: out };
+}
+
 function normalizeComponents(body) {
   const b = body && typeof body === 'object' ? body : {};
   if (b.components && typeof b.components === 'object') {
-    const unknownKeys = Object.keys(b.components).filter((key) => !UI_COMPONENT_KEYS.has(key));
+    const aliased = applyExactComponentAliases(b.components);
+    if (!aliased.ok) return aliased;
+    const componentsIn = aliased.value;
+    const unknownKeys = Object.keys(componentsIn).filter((key) => !UI_COMPONENT_KEYS.has(key));
     if (unknownKeys.length) {
       return { ok: false, error: `unknown components: ${unknownKeys.join(', ')}` };
     }
+    const MODEL_MONEY_FIELDS = new Set([
+      'price', 'unit_price', 'unit_amount', 'unit_amount_cents',
+      'amount', 'amount_cents', 'total', 'total_cents',
+      'line_total', 'line_total_cents', 'currency', 'price_source',
+      'offering_key', 'item_code', 'unit',
+    ]);
     const out = {};
     for (const key of UI_COMPONENT_KEYS) {
       if (key === 'private_lesson') continue;
       if (key === FULL_DAY_EQUIPMENT_ADDON_KEY) continue;
-      const part = b.components[key];
+      const part = componentsIn[key];
       if (!part) continue;
+      if (typeof part !== 'object') {
+        return { ok: false, error: `components.${key} must be an object` };
+      }
+      // Ignore/reject model-supplied money — Staff API is the price authority.
+      for (const mk of Object.keys(part)) {
+        if (MODEL_MONEY_FIELDS.has(String(mk).toLowerCase())) {
+          return { ok: false, error: `components.${key}.${mk} must not be supplied by the client` };
+        }
+      }
+      // Top-level request money fields are also rejected below.
       const qty = parseQuantity(part.quantity != null ? part.quantity : part.count, 1);
       if (!qty) return { ok: false, error: `components.${key}.quantity must be 1–99` };
       const entry = { quantity: qty };
@@ -338,15 +379,15 @@ function normalizeComponents(body) {
         entry.category = String(part.category || b.lesson_category || DEFAULT_LESSON_CATEGORY).trim() || DEFAULT_LESSON_CATEGORY;
       }
       if (key === 'course') {
-        const courseId = String(part.course_id || part.offering_key || '').trim();
+        const courseId = String(part.course_id || '').trim();
         if (!courseId) return { ok: false, error: 'components.course.course_id is required' };
         entry.course_id = courseId;
         entry.course_label = String(part.course_label || part.label || '').trim() || courseId;
       }
       out[key] = entry;
     }
-    if (b.components.private_lesson) {
-      const pl = normalizePrivateLessonPart(b.components.private_lesson);
+    if (componentsIn.private_lesson) {
+      const pl = normalizePrivateLessonPart(componentsIn.private_lesson);
       if (!pl.ok) return pl;
       if (!pl.skip) out.private_lesson = pl.value;
     }
@@ -354,8 +395,8 @@ function normalizeComponents(body) {
       return { ok: false, error: 'components must include at least one of lesson, course, private_lesson, surfboard, wetsuit' };
     }
     // Full-day equipment add-on is only valid alongside an eligible base component.
-    if (b.components[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
-      const addon = normalizeFullDayEquipmentAddon(b.components[FULL_DAY_EQUIPMENT_ADDON_KEY]);
+    if (componentsIn[FULL_DAY_EQUIPMENT_ADDON_KEY]) {
+      const addon = normalizeFullDayEquipmentAddon(componentsIn[FULL_DAY_EQUIPMENT_ADDON_KEY]);
       if (!addon.ok) return addon;
       if (!addon.skip) {
         const hasEligibleBase = Object.keys(out).some((k) => FULL_DAY_ADDON_ELIGIBLE_COMPONENTS.has(k));
@@ -1007,6 +1048,9 @@ module.exports = {
   DEFAULT_LESSON_CATEGORY,
   PRIVATE_LESSON_MAX_SESSIONS,
   UI_COMPONENT_KEYS,
+  EXACT_COMPONENT_ALIASES,
+  applyExactComponentAliases,
+  normalizeComponents,
   LEGACY_UI_SERVICE_TYPES,
   UI_TO_DB_SERVICE_TYPE,
   DB_TO_UI_SERVICE_TYPE,

@@ -233,6 +233,42 @@ out = json.loads(mod.create_sunset_booking(base_payload(components={"lesson": {"
 check("[11] unsupported tp → no POST", not fake.called("/sunset/booking-create"))
 check("[11] unsupported tp → typed error", out.get("error") == "lesson_time_preference_invalid", out)
 
+
+# [12] Unsupported lookalikes must fail closed before POST (no fuzzy remap).
+for bad in ("group_class", "group_class_lesson", "class"):
+    fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+    out = json.loads(mod.create_sunset_booking(base_payload(components={bad: {"quantity": 1}})))
+    check(f"[12] {bad} does not POST", not fake.called("/sunset/booking-create"))
+    check(f"[12] {bad} typed unknown error", str(out.get("error") or "").startswith("unknown_component_keys:"), out)
+
+# [13] Model money fields never reach _post_bot.
+fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+out = json.loads(mod.create_sunset_booking(base_payload(components={
+    "lesson": {
+        "quantity": 1,
+        "time_preference": "morning",
+        "unit_price": 999,
+        "total_cents": 99900,
+        "amount_cents": 99900,
+        "price": 99,
+        "offering_key": "invented",
+        "item_code": "FAKE",
+        "type": "group",
+    },
+})))
+check("[13] money-scrubbed create POSTs", fake.called("/sunset/booking-create"), out)
+body = fake.body_for("/sunset/booking-create") or {}
+lesson = (body.get("components") or {}).get("lesson") or {}
+for mk in ("unit_price", "total_cents", "amount_cents", "price", "offering_key", "item_code", "type"):
+    check(f"[13] {mk} stripped from POST", mk not in lesson, lesson)
+check("[13] lesson remains {quantity:1}", lesson == {"quantity": 1}, lesson)
+
+# [14] Arbitrary unknown component key fails closed.
+fake = with_fake({"/sunset/booking-create": BOOKING_OK})
+out = json.loads(mod.create_sunset_booking(base_payload(components={"surf_camp_special": {"quantity": 1}})))
+check("[14] unknown key no POST", not fake.called("/sunset/booking-create"))
+check("[14] typed error", str(out.get("error") or "").startswith("unknown_component_keys:"), out)
+
 print("\n── test_sunset_group_lesson_normalization %s (%d/%d) ──\n" % (
     "FAILED" if FAILED else "PASSED", PASSED, PASSED + FAILED))
 sys.exit(1 if FAILED else 0)

@@ -1633,14 +1633,105 @@ def _validate_sunset_service_dates(payload):
     return False
 
 
+# Exact approved legacy alias only — never fuzzy-match keys containing
+# "group"/"class"/"lesson". Unknown aliases fail closed before POST.
+_SUNSET_GROUP_LESSON_EXACT_ALIASES = frozenset({"group_lesson"})
+_SUNSET_CANONICAL_COMPONENT_KEYS = frozenset({
+    "lesson",
+    "course",
+    "private_lesson",
+    "surfboard",
+    "wetsuit",
+    "full_day_equipment_addon",
+    "full_day_equipment_extension",
+})
+# Model-controlled money / price-identity fields must never reach Staff API.
+_SUNSET_MODEL_MONEY_FIELDS = frozenset({
+    "price",
+    "unit_price",
+    "unit_amount",
+    "unit_amount_cents",
+    "amount",
+    "amount_cents",
+    "total",
+    "total_cents",
+    "line_total",
+    "line_total_cents",
+    "currency",
+    "price_source",
+    "offering_key",
+    "item_code",
+    "unit",
+})
+# Non-canonical nested tags the model sometimes invents on lesson parts.
+_SUNSET_LESSON_FORBIDDEN_NESTED = frozenset({"type", "class", "group", "name", "label", "title"})
+
+
+def _strip_sunset_model_money_fields(part):
+    """Return a shallow copy of a component part without model money fields."""
+    if not isinstance(part, dict):
+        return part
+    out = {}
+    for key, value in part.items():
+        if str(key).strip().lower() in _SUNSET_MODEL_MONEY_FIELDS:
+            continue
+        out[key] = value
+    return out
+
+
+def _sanitize_sunset_component_parts(components):
+    """Strip model money + forbidden lesson nested tags from component parts."""
+    if not isinstance(components, dict):
+        return components, None
+    out = {}
+    for key, part in components.items():
+        if not isinstance(part, dict):
+            out[key] = part
+            continue
+        cleaned = _strip_sunset_model_money_fields(part)
+        if key == "lesson" and isinstance(cleaned, dict):
+            for bad in list(cleaned.keys()):
+                if str(bad).strip().lower() in _SUNSET_LESSON_FORBIDDEN_NESTED:
+                    cleaned.pop(bad, None)
+        # course: never invent offering_key/item_code as money/id smuggling
+        if key == "course" and isinstance(cleaned, dict):
+            for money_key in list(cleaned.keys()):
+                if str(money_key).strip().lower() in _SUNSET_MODEL_MONEY_FIELDS:
+                    cleaned.pop(money_key, None)
+        out[key] = cleaned
+    return out, None
+
+
+def _enforce_sunset_canonical_components(components):
+    """Whitelist canonical component keys after exact alias normalization.
+
+    Returns (components, error_code). Unknown keys fail closed — including
+    group_class / class / group_class_lesson and any other invented shape.
+    """
+    if not isinstance(components, dict):
+        return None, "components_invalid"
+    unknown = sorted(
+        k for k in components.keys()
+        if k not in _SUNSET_CANONICAL_COMPONENT_KEYS
+    )
+    if unknown:
+        return None, f"unknown_component_keys:{','.join(unknown)}"
+    return dict(components), None
+
+
 def _canonicalize_sunset_group_lesson_alias(payload, raw_components):
-    """Compatibility alias for a live-model mistake: group_lesson → lesson.
+    """Exact alias only: group_lesson → lesson.
 
     Only normalize when it's unambiguously an ordinary multi-date group-lesson
     request. Fail closed on ambiguity: never normalize a configured course into
-    lessons.
+    lessons. Do not fuzzy-match other keys.
     """
     components = dict(raw_components or {})
+    # Reject documented unsupported lookalikes immediately (no fuzzy remap).
+    for key in ("group_class", "group_class_lesson", "class"):
+        if key in components:
+            return None, f"unknown_component_keys:{key}"
+
     if "group_lesson" not in components:
         return components, None
     if "lesson" in components:
@@ -1757,7 +1848,11 @@ def create_sunset_booking(params, **kwargs):
         next_action = "Which date(s) should I book the group lesson for?" if gl_error == "group_lesson_requires_valid_service_dates" else (
             "Just to confirm — is this for specific group lesson dates, or a specific configured course product?"
             if gl_error in ("group_lesson_ambiguous_with_course", "group_lesson_ambiguous_course_id")
-            else "How many surfers is the lesson for?"
+            else (
+                "I can book ordinary group lessons or a specific configured course — which one would you like?"
+                if str(gl_error).startswith("unknown_component_keys:")
+                else "How many surfers is the lesson for?"
+            )
         )
         return _json_result({
             "success": False,
@@ -1767,9 +1862,33 @@ def create_sunset_booking(params, **kwargs):
             "guest_safe_next_action": next_action,
         })
 
+    raw_components, _money_err = _sanitize_sunset_component_parts(raw_components)
+    # Board+wetsuit combined key is allowed only for the bundle branch below.
+    keys_for_whitelist = {
+        k: v for k, v in (raw_components or {}).items()
+        if k != "board_and_suit_rental"
+    }
+    if keys_for_whitelist is not None and (raw_components or {}):
+        checked, unknown_err = _enforce_sunset_canonical_components(keys_for_whitelist)
+        if unknown_err and "board_and_suit_rental" not in (raw_components or {}):
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": unknown_err,
+                "staff_review_needed": False,
+                "guest_safe_next_action": "I can book ordinary group lessons or a specific configured course — which one would you like?",
+            })
+        if checked is not None and "board_and_suit_rental" not in (raw_components or {}):
+            raw_components = checked
+        elif checked is not None and isinstance(raw_components, dict) and "board_and_suit_rental" in raw_components:
+            merged = dict(checked)
+            merged["board_and_suit_rental"] = raw_components["board_and_suit_rental"]
+            raw_components = merged
+
     # Fail closed: a configured course product MUST carry an authoritative course_id.
+    # Never accept offering_key / item_code as a course identity smuggle.
     if isinstance(raw_components.get("course"), dict):
-        course_id = _clean(raw_components["course"].get("course_id") or raw_components["course"].get("offering_key"))
+        course_id = _clean(raw_components["course"].get("course_id"))
         if not course_id:
             return _json_result({
                 "success": False,

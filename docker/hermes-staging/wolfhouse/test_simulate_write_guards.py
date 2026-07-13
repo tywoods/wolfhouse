@@ -45,6 +45,16 @@ class GuardPathTests(unittest.TestCase):
             self.assertTrue(is_simulate_write_blocked(warnings))
             self.assertIn("sunset/payment-link", norm)
 
+    def test_blocks_sunset_waiver_link(self):
+        for path in ("/sunset/waiver-link", "/staff/bot/sunset/waiver-link"):
+            _norm, _body, warnings = guard_bot_path_and_payload(
+                path,
+                {"booking_id": "00000000-0000-0000-0000-000000000001"},
+                allow_writes=False,
+            )
+            self.assertIn("blocked_sunset_waiver_write_in_simulate", warnings)
+            self.assertTrue(is_simulate_write_blocked(warnings))
+
     def test_allows_sunset_read_only_quote_and_availability(self):
         for path, payload in (
             ("/sunset/lesson-quote", {"service_dates": ["2026-08-03"], "quantity": 1}),

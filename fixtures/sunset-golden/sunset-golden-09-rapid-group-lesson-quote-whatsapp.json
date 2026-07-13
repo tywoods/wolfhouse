@@ -1,0 +1,67 @@
+/**
+ * Active RED/GREEN fixture outline for rapid-fire Spanish group lessons.
+ *
+ * Separated from inactive golden fixture 08. Exercises 5000 ms coalescing +
+ * quote-before-name + canonical lesson components. Run with allow_writes:false.
+ *
+ * Expected consolidated input after quiet window:
+ *   Somos dos personas
+ *   Queremos clases grupales
+ *   El lunes, martes, miércoles y jueves que vienen
+ *   Por la mañana
+ */
+{
+  "id": "sunset-rapid-group-lesson-quote-before-name",
+  "active": true,
+  "allow_writes": false,
+  "whatsapp_suppressed": true,
+  "debounce_ms": 5000,
+  "thread": "sim:rapid-fire-group-lesson-quote",
+  "language": "es",
+  "location_id": "sunset-somo",
+  "messages": [
+    { "delay_ms": 0, "text": "Somos dos personas" },
+    { "delay_ms": 300, "text": "Queremos clases grupales" },
+    { "delay_ms": 700, "text": "El lunes, martes, miércoles y jueves que vienen" },
+    { "delay_ms": 1100, "text": "Por la mañana" }
+  ],
+  "expectations": {
+    "agent_invocation_count": 1,
+    "must_call_tools": ["get_sunset_lesson_availability", "get_sunset_group_lesson_quote"],
+    "quote_args": {
+      "location_id": "sunset-somo",
+      "quantity": 2,
+      "service_dates_count": 4
+    },
+    "guest_price_must_match_quote": true,
+    "must_not_ask_booking_name_before_quote": true,
+    "must_not_call_before_name": ["create_sunset_booking", "create_sunset_payment_link"],
+    "after_name_and_confirm_components": {
+      "lesson": { "quantity": 2 }
+    },
+    "forbidden_component_keys": [
+      "group_lesson",
+      "group_class",
+      "group_class_lesson",
+      "class"
+    ],
+    "forbidden_money_fields": [
+      "price",
+      "unit_price",
+      "unit_amount",
+      "unit_amount_cents",
+      "amount",
+      "amount_cents",
+      "total",
+      "total_cents",
+      "line_total",
+      "line_total_cents",
+      "currency",
+      "price_source",
+      "offering_key",
+      "item_code",
+      "unit"
+    ],
+    "create_must_be_blocked_when_allow_writes_false": true
+  }
+}

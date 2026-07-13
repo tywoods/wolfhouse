@@ -149,4 +149,9 @@ def guard_bot_path_and_payload(path: str, payload: Dict[str, Any], *, allow_writ
         warnings.append("blocked_sunset_payment_write_in_simulate")
         return norm, body, warnings
 
+    # Waiver link generation mutates/registration state — fail closed without writes.
+    if "sunset/waiver-link" in norm or "waiver-link" in norm:
+        warnings.append("blocked_sunset_waiver_write_in_simulate")
+        return norm, body, warnings
+
     return norm, body, warnings

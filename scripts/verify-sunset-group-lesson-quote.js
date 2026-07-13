@@ -219,6 +219,61 @@ async function parity(dates, qty) {
   ok(!/\btotal_cents\s*=/.test(glPluginBlock) && !/\bamount_eur\s*=/.test(glPluginBlock),
     'plugin handler does not multiply or invent totals');
 
+  console.log('\n── I. Guest-facing reply parity (amounts must appear in quote) ──');
+  function amountsInText(text) {
+    const found = new Set();
+    const re = /(\d+(?:[.,]\d+)?)\s*€|€\s*(\d+(?:[.,]\d+)?)/g;
+    let m;
+    while ((m = re.exec(String(text || '')))) {
+      const raw = (m[1] || m[2] || '').replace(',', '.');
+      const n = Number(raw);
+      if (!Number.isFinite(n)) continue;
+      found.add(n);
+      if (!raw.includes('.')) found.add(n * 100);
+    }
+    return found;
+  }
+  function replyGroundedInQuote(replyText, quoteResult) {
+    const allowed = new Set([
+      Number(quoteResult.amount_eur),
+      Number(quoteResult.unit_amount_cents) / 100,
+      Number(quoteResult.total_cents) / 100,
+      Number(quoteResult.line_total_cents) / 100,
+      Number(quoteResult.unit_amount_cents),
+      Number(quoteResult.total_cents),
+      Number(quoteResult.line_total_cents),
+    ].filter((x) => Number.isFinite(x)));
+    const mentioned = amountsInText(replyText);
+    const bad = [...mentioned].filter((a) => (
+      ![...allowed].some((x) => Number(x) === Number(a))
+    ));
+    return { ok: bad.length === 0, bad, mentioned: [...mentioned], allowed: [...allowed] };
+  }
+
+  for (const [label, dates, qty] of [
+    ['1×1', DATE_1, 1],
+    ['4×1', DATES_4, 1],
+    ['4×2', DATES_4, 2],
+  ]) {
+    const q = quote({ service_dates: dates, quantity: qty });
+    const unitEur = q.unit_amount_cents / 100;
+    const totalEur = q.amount_eur;
+    const goodReply = `Son ${unitEur} € por clase × ${qty} × ${dates.length} = *${totalEur} €* en total.`;
+    const grounded = replyGroundedInQuote(goodReply, q);
+    ok(grounded.ok, `${label} reply grounded in quote totals`);
+    const hallucinated = replyGroundedInQuote(`El total es *${totalEur + 15} €* inventados.`, q);
+    ok(!hallucinated.ok, `${label} invented amount fails reply parity`);
+  }
+
+  console.log('\n── J. Component boundary source markers ──');
+  ok(pluginSrc.includes('_SUNSET_MODEL_MONEY_FIELDS'), 'plugin strips model money fields');
+  ok(pluginSrc.includes('_enforce_sunset_canonical_components'), 'plugin enforces canonical component keys');
+  ok(pluginSrc.includes('group_class') && pluginSrc.includes('unknown_component_keys'),
+    'plugin rejects group_class shapes');
+  const writesSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-booking-writes.js'), 'utf8');
+  ok(writesSrc.includes('must not be supplied by the client'), 'Staff API rejects model money on components');
+  ok(writesSrc.includes('EXACT_COMPONENT_ALIASES'), 'Staff API exact alias map only');
+
   console.log('\n────────────────────────────────────────────────');
   console.log(`verify-sunset-group-lesson-quote  pass=${pass}  fail=${fail}`);
   if (fail > 0) process.exit(1);
