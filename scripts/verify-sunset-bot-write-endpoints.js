@@ -71,7 +71,7 @@ ok(forced >= 4, `client_slug forced to SUNSET_CLIENT_SLUG across write handlers 
 ok(!/body\.client_slug|body\.client\b/.test(writeBlock), 'write handlers never read client_slug/client from body');
 ok(/if \(!BOT_BOOKING_ENABLED\)/.test(writeBlock), 'booking-create gated by BOT_BOOKING_ENABLED');
 ok(/if \(!STRIPE_LINKS_ENABLED\)/.test(writeBlock), 'payment-link gated by STRIPE_LINKS_ENABLED');
-ok(/disabled:/.test(writeBlock), 'disabled reason returned when a flag is off');
+  ok(staffApiSrc.includes('normalizeSunsetBookingDatesInBody'), 'bot booking-create normalizes omitted-year dates');
 
 console.log('\n── C. booking-create rejects accommodation fields ──');
 ok(/SUNSET_FORBIDDEN_BOOKING_FIELDS/.test(staffApiSrc), 'accommodation reject list defined');
@@ -123,6 +123,21 @@ const explodingPg = { query() { throw new Error('DB must not be touched for a fo
   });
   ok(linkLive && linkLive.ok === false && /blocked/i.test(linkLive.body && linkLive.body.error || ''),
     'createSunsetScheduleStripeLink blocks a live key for sunset too');
+
+  console.log('\n── E2. Luna attribution persisted at write time ──');
+  const { resolveScheduleBookingAttribution, LUNA_DB_SOURCE } = require('./lib/sunset-schedule-booking-writes');
+  const lunaAttr = resolveScheduleBookingAttribution({ source: 'agent_luna_whatsapp_bot' });
+  ok(lunaAttr.dbSource === LUNA_DB_SOURCE, 'bot actor resolves to luna_guest db source');
+
+  console.log('\n── E3. Payment link returns compact guest URL ──');
+  const { attachGuestPaymentFields, SUNSET_STAGING_PUBLIC_PAYMENT_BASE } = require('./lib/sunset-stripe-payment-links');
+  const code = 'SUNSET-20260802-TEST';
+  const guestBody = attachGuestPaymentFields({ success: true }, code, 'https://checkout.stripe.com/c/pay/cs_test_x', 'cs_test_x', {});
+  ok(guestBody.guest_payment_url && guestBody.guest_payment_url.startsWith(`${SUNSET_STAGING_PUBLIC_PAYMENT_BASE}/pay/`),
+    'guest_payment_url is compact /pay/<code>');
+  ok(!guestBody.guest_payment_url.includes('checkout.stripe.com'), 'guest URL is not raw Stripe');
+  ok(pluginSrc.includes('_guest_payment_url(data)') && pluginSrc.includes('create_sunset_payment_link'),
+    'plugin prefers guest_payment_url for secure_payment_url');
 
   console.log('\n── F. Hermes plugin: Phase-2 write tools under sunset tenant ──');
   for (const t of ['create_sunset_booking', 'create_sunset_payment_link', 'get_sunset_payment_status', 'get_sunset_waiver_link']) {

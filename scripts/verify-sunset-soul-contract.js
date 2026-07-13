@@ -85,6 +85,17 @@ assert('no accommodation boundary intact',
   /no accommodation/i.test(soul) && /never import accommodation/i.test(soul));
 assert('handoff only on explicit reasons', /only on explicit reasons/i.test(soul));
 
+console.log('\n[Dates — omitted year]');
+assert('Europe/Madrid omitted-year rule documented', /europe\/madrid/i.test(soul));
+assert('never ask which year unless ambiguous', /never ask which year/i.test(soul));
+assert('state inferred full date before booking', /state the full date naturally/i.test(soul));
+
+console.log('\n[Lock-in + name — single step]');
+assert('no separate shall I lock it in when intent clear', /do \*\*not\*\* ask a separate "shall i lock it in/i.test(soul));
+assert('name-for-booking wording guidance', /name for the booking|nombre para la reserva/i.test(soul));
+assert('quote-only must not create booking', /never create a booking from a quote request alone/i.test(soul));
+assert('multilingual phrasing guidance', /guest'?s \*\*current language\*\*|current language/i.test(soul));
+
 console.log('\n[No accidental Wolfhouse / guest-facing Cami leakage]');
 assert('Cami only appears in a never-mention boundary (not guest-facing identity)',
   !/cami/i.test(soul) || /never mention[^.\n]*cami/i.test(soul));
