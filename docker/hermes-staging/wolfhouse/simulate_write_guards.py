@@ -25,7 +25,38 @@ _PATH_TOOL_NAMES = {
     "bookings/by-phone": "list_my_bookings",
     "update-contact": "update_booking_contact",
     "needs-human": "flag_needs_human",
+    "sunset/booking-create": "create_sunset_booking",
+    "sunset/payment-link": "create_sunset_payment_link",
+    "sunset/lesson-quote": "get_sunset_group_lesson_quote",
+    "sunset/lesson-availability": "get_sunset_lesson_availability",
+    "sunset/rental-price": "get_sunset_rental_price",
+    "sunset/full-day-addon": "get_sunset_full_day_equipment_addon",
+    "sunset/private-lesson": "get_sunset_private_lesson",
 }
+
+
+def is_simulate_write_blocked(warnings: List[str]) -> bool:
+    return any(str(w or "").startswith("blocked") for w in (warnings or []))
+
+
+def synthetic_blocked_result(path: str, guard_warnings: List[str], *, allow_writes: bool) -> Dict[str, Any]:
+    """Deterministic tool failure when simulate mode blocks a write route."""
+    tool = tool_name_from_path(path)
+    if any("blocked_sunset_booking" in w for w in guard_warnings):
+        error = "Sunset booking writes are disabled in simulate mode"
+    elif any("blocked_sunset_payment" in w or "blocked_payment" in w for w in guard_warnings):
+        error = "Sunset payment writes are disabled in simulate mode (use --allow-writes)"
+    elif any("blocked_booking_mutation" in w for w in guard_warnings):
+        error = "Booking mutation writes are disabled in simulate mode"
+    else:
+        error = "Write disabled in simulate mode (use --allow-writes)"
+    return {
+        "success": False,
+        "simulate_write_blocked": True,
+        "allow_writes": allow_writes,
+        "tool": tool,
+        "error": error,
+    }
 
 
 def tool_name_from_path(path: str) -> str:
@@ -109,5 +140,13 @@ def guard_bot_path_and_payload(path: str, payload: Dict[str, Any], *, allow_writ
     if any(frag in norm for frag in ("update-contact", "guest-packages")):
         warnings.append("blocked_booking_mutation_in_simulate")
         body["simulate_write_blocked"] = True
+
+    if "sunset/booking-create" in norm:
+        warnings.append("blocked_sunset_booking_write_in_simulate")
+        return norm, body, warnings
+
+    if any(frag in norm for frag in ("sunset/payment-link", "sunset/payment-link/")):
+        warnings.append("blocked_sunset_payment_write_in_simulate")
+        return norm, body, warnings
 
     return norm, body, warnings

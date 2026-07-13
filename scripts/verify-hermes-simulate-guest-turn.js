@@ -1,15 +1,17 @@
 'use strict';
 
 /**
- * Static gate for Hermes simulate-guest-turn hook (no API key, no container).
+ * Static + executable gate for Hermes simulate-guest-turn hook.
  */
 
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const H = path.join(ROOT, 'docker', 'hermes-staging');
+const WOLF = path.join(H, 'wolfhouse');
 
 function threadToDigits(thread) {
   const key = String(thread || '').trim();
@@ -39,9 +41,10 @@ function check(name, cond, detail) {
 
 console.log('\n── verify-hermes-simulate-guest-turn ──\n');
 
-const core = fs.readFileSync(path.join(H, 'wolfhouse', 'simulate_core.py'), 'utf8');
-const cli = fs.readFileSync(path.join(H, 'wolfhouse', 'simulate_guest_turn.py'), 'utf8');
-const guard = fs.readFileSync(path.join(H, 'wolfhouse', 'staging_guard.py'), 'utf8');
+const core = fs.readFileSync(path.join(WOLF, 'simulate_core.py'), 'utf8');
+const cli = fs.readFileSync(path.join(WOLF, 'simulate_guest_turn.py'), 'utf8');
+const guard = fs.readFileSync(path.join(WOLF, 'staging_guard.py'), 'utf8');
+const writeGuards = fs.readFileSync(path.join(WOLF, 'simulate_write_guards.py'), 'utf8');
 const route = fs.readFileSync(path.join(H, 'apply_whatsapp_simulate_route.py'), 'utf8');
 const dockerfile = fs.readFileSync(path.join(H, 'Dockerfile'), 'utf8');
 const bootstrap = fs.readFileSync(path.join(H, 'bootstrap.sh'), 'utf8');
@@ -54,12 +57,32 @@ check('A4b staging guard allows guest Luna roles', /ALLOWED_GUEST_LUNA_ROLES/.te
   && /["']luna["']/.test(guard)
   && /["']sunset-luna["']/.test(guard));
 check('A4c staging guard excludes orchestrator', !/ALLOWED_GUEST_LUNA_ROLES\s*=\s*\{[^}]*["']orchestrator["']/.test(guard));
-const writeGuards = fs.readFileSync(path.join(H, 'wolfhouse', 'simulate_write_guards.py'), 'utf8');
 check('A5 writes off redirects create→preview', /redirected_create_to_booking_preview/.test(writeGuards));
 check('A6 CLI module invocation', /python3 -m wolfhouse\.simulate_guest_turn/.test(cli) || /--thread/.test(cli));
 check('A7 route patch script', /register_simulate_route/.test(route) && /import wolfhouse\.simulate_core/.test(route));
 check('A8 Dockerfile copies wolfhouse package', /COPY wolfhouse/.test(dockerfile));
 check('A9 bootstrap applies simulate route', /apply_whatsapp_simulate_route/.test(bootstrap));
+
+check('C1 Sunset booking-create guard present', /blocked_sunset_booking_write_in_simulate/.test(writeGuards));
+check('C2 Sunset payment-link guard present', /blocked_sunset_payment_write_in_simulate/.test(writeGuards));
+check('C3 central blocked predicate in core', /is_simulate_write_blocked/.test(core));
+check('C4 synthetic blocked result helper', /synthetic_blocked_result/.test(writeGuards) && /synthetic_blocked_result/.test(core));
+check('C5 orig_post_bot skipped when blocked', /is_simulate_write_blocked\(guard_warnings\)/.test(core)
+  && !/blocked_payment" in w for w in guard_warnings/.test(core));
+check('C6 lesson-quote not in Sunset write block list', /sunset\/lesson-quote/.test(writeGuards)
+  && !/blocked_sunset.*lesson-quote/.test(writeGuards));
+
+try {
+  execSync(`python3 ${path.join(WOLF, 'test_simulate_write_guards.py')}`, {
+    cwd: ROOT,
+    stdio: 'pipe',
+    encoding: 'utf8',
+  });
+  check('C7 python guard regressions', true);
+} catch (err) {
+  const out = String((err && err.stdout) || '') + String((err && err.stderr) || '');
+  check('C7 python guard regressions', false, out.split('\n').slice(-3).join(' '));
+}
 
 check('B1 thread_to_digits never uses wall clock', /never wall-clock/.test(core) && /Hash the full thread id/.test(core));
 check('B2 hashes full thread string', /sha256\(key\.encode\("utf-8"\)\)/.test(core));

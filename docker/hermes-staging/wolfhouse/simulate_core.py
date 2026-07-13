@@ -19,7 +19,9 @@ if _STAGING_ROOT not in sys.path:
 
 from wolfhouse.simulate_write_guards import (
     guard_bot_path_and_payload,
+    is_simulate_write_blocked,
     summarize_tool_result,
+    synthetic_blocked_result,
     tool_name_from_path,
 )
 from wolfhouse.staging_guard import assert_staging_environment, assert_stripe_test_only
@@ -187,13 +189,8 @@ def _install_tool_capture(cap: SimulateCapture) -> None:
             allow_writes=cap.allow_writes,
         )
         cap.warnings.extend(guard_warnings)
-        if not cap.allow_writes and any("blocked_payment" in w for w in guard_warnings):
-            blocked = {
-                "success": False,
-                "simulate_write_blocked": True,
-                "tool": tool_name_from_path(norm_path),
-                "error": "payment writes disabled in simulate mode (use --allow-writes)",
-            }
+        if not cap.allow_writes and is_simulate_write_blocked(guard_warnings):
+            blocked = synthetic_blocked_result(norm_path, guard_warnings, allow_writes=cap.allow_writes)
             cap.tool_calls.append(
                 {
                     "name": tool_name_from_path(norm_path),
