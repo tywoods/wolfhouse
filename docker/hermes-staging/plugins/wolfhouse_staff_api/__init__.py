@@ -1440,6 +1440,43 @@ def get_sunset_lesson_availability(params, **kwargs):
     })
 
 
+def get_sunset_group_lesson_quote(params, **kwargs):
+    del kwargs
+    payload = dict(params or {})
+    service_dates = payload.get("service_dates")
+    if not isinstance(service_dates, list) or not service_dates:
+        return _json_result({
+            "success": False,
+            "tool": "get_sunset_group_lesson_quote",
+            "error": "service_dates_required",
+            "guest_safe_next_action": "Which date(s) were you thinking for the group lessons?",
+        })
+    body = {"service_dates": service_dates}
+    if payload.get("quantity") is not None:
+        body["quantity"] = payload["quantity"]
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    data = _post_bot("/sunset/lesson-quote", body)
+    ok = bool(data.get("success")) or bool(data.get("ok"))
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_group_lesson_quote",
+        "location_id": data.get("location_id"),
+        "service_dates": data.get("service_dates"),
+        "quantity": data.get("quantity"),
+        "date_count": data.get("date_count"),
+        "unit_amount_cents": data.get("unit_amount_cents"),
+        "line_total_cents": data.get("line_total_cents"),
+        "total_cents": data.get("total_cents"),
+        "amount_eur": data.get("amount_eur"),
+        "currency": data.get("currency") or "EUR",
+        "price_source": data.get("price_source"),
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok and bool(data.get("staff_review_needed")),
+        "guest_safe_next_action": None if ok else "Let me double-check that lesson price with the team and get right back to you 😊",
+    })
+
+
 def _schema(name, description, properties, required=None):
     return {
         "name": name,
@@ -2016,6 +2053,7 @@ def _sunset_tools():
         ("get_sunset_full_day_equipment_addon", "Get the live price for the 'keep the gear for the rest of the day' add-on ('Material el resto del día', per person per day). Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. Use amount_eur before offering or confirming it.", get_sunset_full_day_equipment_addon, {"dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."}, "quantity": {"type": "integer", "description": "Number of people."}, **loc}, []),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
+        ("get_sunset_group_lesson_quote", "Get an authoritative quote for ordinary group lessons BEFORE quoting any lesson price or asking for a booking name. Pass every selected lesson date in service_dates and the number of surfers in quantity. Use the returned total_cents/amount_eur verbatim — never multiply or invent money locally. Multiple dates are still ordinary lesson dates unless an actual configured course was selected. This tool is read-only; never call create_sunset_booking to discover a price.", get_sunset_group_lesson_quote, {"service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected group-lesson dates YYYY-MM-DD (one entry per session)."}, "quantity": {"type": "integer", "description": "Number of surfers per date (default 1)."}, **loc}, ["service_dates"]),
     ]
 
 

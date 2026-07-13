@@ -143,6 +143,13 @@ class SunsetLiveIntegrationTests(unittest.TestCase):
         self.assertIn("Never send `group_lesson`", sunset)
         self.assertIn("course_id", sunset)
 
+    def test_sunset_soul_group_lesson_quote_ordering(self):
+        sunset = (ROOT.parent / "hermes-sunset/SOUL.md").read_text()
+        self.assertIn("get_sunset_group_lesson_quote", sunset)
+        self.assertIn("Never ask for a booking name before the authoritative group-lesson quote", sunset)
+        self.assertIn("never use **create_sunset_booking** to discover a price", sunset.lower())
+        self.assertIn("get_sunset_lesson_availability", sunset)
+
     def test_optional_anthropic_token_cannot_fail_luna_env_write(self):
         bootstrap = (ROOT / "bootstrap.sh").read_text()
         self.assertRegex(

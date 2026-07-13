@@ -63,6 +63,17 @@
           "distinguishes_course_vs_lessons": true,
           "must_not_invent_course_id": true,
           "treats_as_dated_lessons_unless_configured_course_selected": true,
+          "must_not_ask_booking_name_before_quote": true,
+          "required_tool_calls_before_next_turn": [
+            {
+              "name": "get_sunset_group_lesson_quote",
+              "arguments": {
+                "location_id": "sunset-somo",
+                "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
+                "quantity": 1
+              }
+            }
+          ],
           "asks_one_next_question": true
         }
       }
@@ -74,10 +85,12 @@
           "language": "es",
           "booking_name_captured": true,
           "must_get_authoritative_quote_before_price": true,
+          "must_not_create_before_quote": true,
           "write_mode": "no_send_simulation",
           "must_not_perform_write_in_simulation": true,
           "tool_payload_shape": {
             "components_key": "lesson",
+            "components": { "lesson": { "quantity": 1 } },
             "must_not_use_components_key": ["group_lesson"],
             "course_requires_course_id": true,
             "quantity_means_surfers_not_days": true,

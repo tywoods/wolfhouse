@@ -461,15 +461,38 @@ check("S10 availability take_request=true when capacity unknown", avail.get("tak
 check("S11 availability requires a date",
       json.loads(mod.get_sunset_lesson_availability({})).get("success") is False)
 
+# Group lesson quote — authoritative passthrough, read-only.
+sun_gl_quote_fake = with_fake({
+    "/sunset/lesson-quote": {
+        "ok": True, "success": True, "tool": "get_sunset_group_lesson_quote",
+        "location_id": "sunset-somo",
+        "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
+        "quantity": 1, "date_count": 4,
+        "unit_amount_cents": 3000, "line_total_cents": 12000, "total_cents": 12000,
+        "amount_eur": 120, "currency": "EUR", "price_source": "config_or_db",
+    },
+})
+glq = json.loads(mod.get_sunset_group_lesson_quote({
+    "service_dates": ["2026-07-20", "2026-07-21", "2026-07-22", "2026-07-23"],
+    "quantity": 1,
+}))
+check("S11a group lesson quote hits /sunset/lesson-quote route",
+      any("/sunset/lesson-quote" in c[0] for c in sun_gl_quote_fake.calls))
+check("S11b group lesson quote passthrough total_cents", glq.get("total_cents") == 12000)
+check("S11c group lesson quote passthrough price_source", glq.get("price_source") == "config_or_db")
+check("S11d group lesson quote requires service_dates",
+      json.loads(mod.get_sunset_group_lesson_quote({})).get("success") is False)
+
 # Sunset tenant gate registers ONLY the read tools.
 prev_slug = os.environ.get("LUNA_CLIENT_SLUG")
 os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 try:
     check("S12 _is_sunset_tenant true when LUNA_CLIENT_SLUG=sunset", mod._is_sunset_tenant() is True)
     sunset_tool_names = [t[0] for t in mod._sunset_tools()]
-    check("S13 sunset toolset is exactly the 4 read tools",
+    check("S13 sunset toolset is exactly the 5 read tools",
           sunset_tool_names == ["get_sunset_rental_price", "get_sunset_full_day_equipment_addon",
-                                "get_sunset_private_lesson", "get_sunset_lesson_availability"])
+                                "get_sunset_private_lesson", "get_sunset_lesson_availability",
+                                "get_sunset_group_lesson_quote"])
     check("S14 sunset toolset excludes wolfhouse write tools",
           "create_booking_from_plan" not in sunset_tool_names and "create_payment_link" not in sunset_tool_names)
 finally:

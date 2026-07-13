@@ -91,6 +91,22 @@ function findPriceCents(prices, category, offeringKey, unit) {
   return Math.round(Number(row.amount) * 100);
 }
 
+/** Authoritative adult group-lesson unit (per surfer, per session) from config/DB prices. */
+function resolveSunsetGroupLessonUnitCents(prices) {
+  const unitCents = findPriceCents(prices, 'lesson', LESSON_OFFERING_KEY, LESSON_UNIT_KEY);
+  if (unitCents == null || unitCents <= 0) return null;
+  return unitCents;
+}
+
+/** Same arithmetic as one surf_lesson service row: unit × surfers; quote sums across dates. */
+function computeSunsetGroupLessonQuoteTotalCents(unitCents, quantity, dateCount) {
+  const unit = Number(unitCents) || 0;
+  const qty = Number(quantity) || 0;
+  const dates = Number(dateCount) || 0;
+  if (unit <= 0 || qty <= 0 || dates <= 0) return 0;
+  return unit * qty * dates;
+}
+
 /** Stable server identity for one Sunset authoritative payment intent (request keys excluded). */
 function buildAuthoritativePaymentIntentKey(opts) {
   const clientSlug = String(opts.clientSlug || '').trim();
@@ -875,6 +891,10 @@ module.exports = {
   serviceRecordUnitPriceCents,
   isFullDayEquipmentAddon,
   findPriceCents,
+  resolveSunsetGroupLessonUnitCents,
+  computeSunsetGroupLessonQuoteTotalCents,
+  LESSON_OFFERING_KEY,
+  LESSON_UNIT_KEY,
   normalizeRentalDuration,
   parseRentalPricingMeta,
   configuredRentalBundleTotalCents,

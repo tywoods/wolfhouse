@@ -42050,6 +42050,47 @@ async function handleBotSunsetLessonAvailability(req, res) {
   });
 }
 
+async function handleBotSunsetLessonQuote(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  }
+  const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
+  try {
+    const result = await withPgClient(async (pg) => quoteSunsetGroupLessonsAsync({
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: loc.location_id,
+      body,
+      pgClient: pg,
+      skipDb: body.dry_run === true,
+      refDate: new Date(),
+    }));
+    if (!result.ok) {
+      const status = result.reason === 'invalid_tenant' ? 403 : 400;
+      return sendJSON(res, status, {
+        ok: false,
+        success: false,
+        reason: result.reason,
+        client_slug: SUNSET_CLIENT_SLUG,
+        location_id: loc.location_id,
+        elapsed_ms: Date.now() - started,
+      });
+    }
+    return sendJSON(res, 200, {
+      success: true,
+      ok: true,
+      client_slug: SUNSET_CLIENT_SLUG,
+      ...result,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { ok: false, success: false, reason: 'quote_failed', error: String(err && err.message || err) });
+  }
+}
+
 async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -47594,6 +47635,15 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotSunsetLessonAvailability(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/lesson-quote') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/lesson-quote' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetLessonQuote(req, res);
   }
 
   // ── Sunset Luna WRITE / MONEY bot endpoints (Phase 2) ──────────────────────
