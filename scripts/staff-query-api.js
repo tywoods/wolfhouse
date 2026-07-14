@@ -10828,8 +10828,9 @@ async function checkGuestAutomationPauseState(pg, input) {
     };
   }
 
-  // needs_human is an Inbox flag only — it must NOT block Luna automation.
-  // Explicit bot_pause_states (staff Pause) remain the only conversation pause.
+  // Sunset-only: needs_human is an Inbox flag and must NOT block Luna automation.
+  // Other clients: needs_human=true remains an effective conversation pause (prior behavior).
+  // Explicit bot_pause_states (staff Pause) remain available for all clients.
   let needsHuman = false;
   let needsHumanConversationId = conversationId;
   try {
@@ -10868,6 +10869,21 @@ async function checkGuestAutomationPauseState(pg, input) {
     }
   } catch (_) {
     needsHuman = false;
+  }
+
+  if (needsHuman && clientSlug !== 'sunset') {
+    return {
+      bot_paused:             true,
+      live_send_blocked:      true,
+      source:                 'conversations_needs_human',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    true,
+      needs_human:            true,
+      conversation_id:        needsHumanConversationId,
+      effective_scope:        'needs_human',
+    };
   }
 
   return {

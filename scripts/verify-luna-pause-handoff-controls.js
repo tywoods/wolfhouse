@@ -86,15 +86,16 @@ async function main() {
     !/guest_phone = \$2\s*\n\s*AND conversation_id IS NULL/.test(pauseSql),
   );
 
-  console.log('\n[5] Handoff persists needs_human + staff_handoffs (no auto-pause)');
+  console.log('\n[5] Handoff: Sunset skips pause; Wolfhouse couples pause');
   const handoffSrc = read(HANDOFF);
-  const resolveFn = handoffSrc.slice(
-    handoffSrc.indexOf('async function resolveAndMarkConversationNeedsHuman'),
+  const markFn = handoffSrc.slice(
+    handoffSrc.indexOf('async function markConversationNeedsHuman'),
     handoffSrc.indexOf('async function clearStaffNeedsHuman'),
   );
-  assert('handoff does NOT call pauseConversation', !/pauseConversation\s*\(/.test(resolveFn));
+  assert('handoff calls pauseConversation for non-sunset', /pauseConversation\s*\(/.test(markFn));
+  assert('handoff Sunset-gates the no-pause path',
+    /clientSlug\s*!==\s*['"]sunset['"]|clientSlug\s*===\s*['"]sunset['"]/.test(markFn));
   assert('handoff inserts staff_handoffs', /INSERT INTO staff_handoffs/.test(handoffSrc));
-  assert('handoff returns conversation_paused: false', /conversation_paused:\s*false/.test(resolveFn));
   assert('handoff documents resolve ≠ auto-resume', /does NOT auto-resume/i.test(handoffSrc));
 
   console.log('\n[6] flag_needs_human tenant binding');
@@ -115,8 +116,9 @@ async function main() {
   const staffSrc = read(STAFF);
   assert('effective-pause-state route exists', /\/staff\/bot\/effective-pause-state/.test(staffSrc));
   assert('handleBotEffectivePauseState defined', /handleBotEffectivePauseState/.test(staffSrc));
-  assert('checkGuestAutomationPauseState does not pause on needs_human alone',
-    !/conversations_needs_human/.test(staffSrc));
+  assert('checkGuestAutomationPauseState keeps conversations_needs_human for non-sunset',
+    /conversations_needs_human/.test(staffSrc)
+    && /clientSlug\s*!==\s*['"]sunset['"]|clientSlug\s*===\s*['"]sunset['"]/.test(staffSrc));
   assert('portal pause switch uses conversation_id', /wireLunaPauseSwitch[\s\S]{0,500}conversation_id:\s*convId/.test(staffSrc));
   assert('portal pause rolls back switch on failure', /sw\.checked = !wantPaused/.test(staffSrc));
 
