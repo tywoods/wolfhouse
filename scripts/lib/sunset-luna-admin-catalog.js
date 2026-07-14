@@ -51,9 +51,17 @@ function priceState(price, asOfDate) {
 function exactPrice(prices, offeringKey, asOfDate) {
   const matches = (prices || []).filter((p) => String(p.offering_key || p.item_code || '') === offeringKey);
   if (!matches.length) return { ok: false, reason: 'price_missing' };
-  const usable = matches.filter((p) => !priceState(p, asOfDate));
+  // Never attach baseline unverified_seed amounts to Luna catalog offerings.
+  const live = matches.filter((p) => {
+    const status = String(p.pricing_status || p.effective_state || '').toLowerCase();
+    if (status === 'unverified_seed' || status === 'owner_required') return false;
+    if (p.seed_source && String(p.source || '').toLowerCase() === 'config') return false;
+    return true;
+  });
+  const usable = live.filter((p) => !priceState(p, asOfDate));
   if (usable.length > 1) return { ok: false, reason: 'ambiguous_price' };
   if (usable.length === 1) return { ok: true, price: usable[0] };
+  if (!live.length) return { ok: false, reason: 'unverified_seed' };
   return { ok: false, reason: priceState(matches[0], asOfDate) || 'price_missing' };
 }
 

@@ -91,11 +91,73 @@ function findPriceCents(prices, category, offeringKey, unit) {
   return Math.round(Number(row.amount) * 100);
 }
 
-/** Authoritative adult group-lesson unit (per surfer, per session) from config/DB prices. */
+function priceRowAmountCents(price) {
+  if (!price) return null;
+  if (Number.isInteger(price.amount_cents) && price.amount_cents > 0) {
+    return Math.round(Number(price.amount_cents));
+  }
+  if (price.amount == null) return null;
+  const n = Math.round(Number(price.amount) * 100);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Live guest quotes must never use baseline unverified_seed rows (e.g. €30
+ * group_lesson_adult from sunset.baseline.json). Admin DB / confirmed rows only.
+ */
+function isLiveQuotableGroupLessonPrice(price) {
+  if (!price || price.active === false) return false;
+  const status = String(price.pricing_status || price.effective_state || '').toLowerCase();
+  if (status === 'unverified_seed' || status === 'owner_required') return false;
+  if (price.seed_source && String(price.source || '').toLowerCase() === 'config') return false;
+  const key = String(price.offering_key || price.item_code || '');
+  const isSlot = /^lesson_slot_/i.test(key);
+  const isLegacyAdult = key === LESSON_OFFERING_KEY
+    || key === `${LESSON_OFFERING_KEY}__${LESSON_UNIT_KEY}`
+    || key === `${LESSON_OFFERING_KEY}__session`;
+  if (!isSlot && !isLegacyAdult) return false;
+  const source = String(price.source || '').toLowerCase();
+  if (source === 'db' || status === 'db' || status === 'confirmed' || status === 'provisional') return true;
+  // Slot rows from merged admin catalogs sometimes omit source — allow when not seed-tagged.
+  if (isSlot && !price.seed_source && status !== 'unverified_seed') return true;
+  return false;
+}
+
+/** Authoritative adult/group-lesson unit (per surfer, per session). Never the baseline seed. */
 function resolveSunsetGroupLessonUnitCents(prices) {
-  const unitCents = findPriceCents(prices, 'lesson', LESSON_OFFERING_KEY, LESSON_UNIT_KEY);
-  if (unitCents == null || unitCents <= 0) return null;
-  return unitCents;
+  const list = prices || [];
+  const slotAmounts = [];
+  for (const p of list) {
+    if (!isLiveQuotableGroupLessonPrice(p)) continue;
+    const key = String(p.offering_key || p.item_code || '');
+    if (!/^lesson_slot_/i.test(key)) continue;
+    const cents = priceRowAmountCents(p);
+    if (cents != null) slotAmounts.push(cents);
+  }
+  if (slotAmounts.length) {
+    const unique = [...new Set(slotAmounts)];
+    // Generic quote has no slot_id — only safe when all admin slots share one unit.
+    if (unique.length === 1) return unique[0];
+    return null;
+  }
+
+  for (const p of list) {
+    if (!isLiveQuotableGroupLessonPrice(p)) continue;
+    const key = String(p.offering_key || p.item_code || '');
+    const isLegacyAdult = key === LESSON_OFFERING_KEY
+      || key === `${LESSON_OFFERING_KEY}__${LESSON_UNIT_KEY}`
+      || key === `${LESSON_OFFERING_KEY}__session`;
+    if (!isLegacyAdult) continue;
+    if (key === LESSON_OFFERING_KEY
+      && p.unit != null
+      && String(p.unit) !== LESSON_UNIT_KEY
+      && String(p.unit) !== 'session') {
+      continue;
+    }
+    const cents = priceRowAmountCents(p);
+    if (cents != null) return cents;
+  }
+  return null;
 }
 
 /** Same arithmetic as one surf_lesson service row: unit × surfers; quote sums across dates. */
@@ -294,7 +356,8 @@ function serviceRecordUnitPriceCents(prices, sr, adminCfg) {
     if (meta.course_id || String(meta.staff_ui_service_type || '').toLowerCase() === 'course') {
       return null;
     }
-    unitCents = findPriceCents(prices, 'lesson', LESSON_OFFERING_KEY, LESSON_UNIT_KEY);
+    // Ordinary group lesson: admin-authoritative only — never baseline unverified_seed.
+    unitCents = resolveSunsetGroupLessonUnitCents(prices);
   } else if (dbType === 'surfboard') {
     unitCents = findPriceCents(prices, 'rental', BOARD_OFFERING_KEY, RENTAL_UNIT_KEY);
   } else if (dbType === 'wetsuit') {
@@ -965,6 +1028,7 @@ module.exports = {
   serviceRecordUnitPriceCents,
   isFullDayEquipmentAddon,
   findPriceCents,
+  isLiveQuotableGroupLessonPrice,
   resolveSunsetGroupLessonUnitCents,
   computeSunsetGroupLessonQuoteTotalCents,
   LESSON_OFFERING_KEY,

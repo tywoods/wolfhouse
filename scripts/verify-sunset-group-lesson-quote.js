@@ -59,15 +59,39 @@ const preBookingTools = ['get_sunset_rental_price', 'get_sunset_private_lesson',
 ok(preBookingTools.every((t) => pluginSrc.includes(`def ${t}(`)) && !preBookingTools.includes('get_sunset_group_lesson_quote'),
   'before this fix only rental/private/availability read tools existed for lessons (not group-lesson quote)');
 
-console.log('\n── B. Authoritative unit from config (not hard-coded) ──');
+console.log('\n── B. Baseline seed is NOT a live group-lesson unit ──');
 const adminCfg = resolveTenantBusinessConfig('sunset', LOC);
-const unitCents = resolveSunsetGroupLessonUnitCents(adminCfg.prices || []);
-ok(unitCents != null && unitCents > 0, 'configured group-lesson unit resolves', unitCents);
-ok(unitCents !== 9999, 'unit is from config resolver, not a test hard-code', unitCents);
+const seedUnit = resolveSunsetGroupLessonUnitCents(adminCfg.prices || []);
+ok(seedUnit == null, 'baseline unverified_seed group_lesson_adult is not live-quotable', seedUnit);
 
-console.log('\n── C. Happy-path quotes ──');
+const ADMIN_SLOT_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+const ADMIN_SLOT_CODE = `lesson_slot_${ADMIN_SLOT_ID}__session`;
+const ADMIN_UNIT = 4200;
+const adminPrices = [{
+  id: 'admin-gl',
+  category: 'lesson',
+  offering_key: ADMIN_SLOT_CODE,
+  unit: 'session',
+  amount: ADMIN_UNIT / 100,
+  amount_cents: ADMIN_UNIT,
+  active: true,
+  source: 'db',
+  pricing_status: 'confirmed',
+  effective_state: 'db',
+}];
+const unitCents = resolveSunsetGroupLessonUnitCents(adminPrices);
+ok(unitCents === ADMIN_UNIT, 'admin lesson_slot unit resolves', unitCents);
+ok(unitCents !== 9999 && unitCents !== 3000, 'unit is admin slot, not seed/hard-code', unitCents);
+
+console.log('\n── C. Happy-path quotes (admin prices only) ──');
 function quote(body) {
-  return quoteSunsetGroupLessonsSync({ locationId: LOC, body, refDate: REF });
+  return quoteSunsetGroupLessonsFromPrices({
+    locationId: LOC,
+    body,
+    refDate: REF,
+    prices: adminPrices,
+    adminCfg: { ok: true, source: 'db', prices: adminPrices },
+  });
 }
 
 const q1x1 = quote({ service_dates: DATE_1, quantity: 1 });
@@ -81,6 +105,14 @@ const q4x2 = quote({ service_dates: DATES_4, quantity: 2 });
 ok(q4x2.ok && q4x2.total_cents === unitCents * 4 * 2, '4 dates × 2 surfers', q4x2.total_cents);
 ok(q4x2.line_total_cents === q4x2.total_cents && q4x2.amount_eur === Math.round(q4x2.total_cents / 100),
   'amount_eur derived from total_cents');
+
+const seedBlocked = quoteSunsetGroupLessonsSync({
+  locationId: LOC,
+  body: { service_dates: DATE_1, quantity: 1 },
+  refDate: REF,
+});
+ok(!seedBlocked.ok && seedBlocked.reason === 'group_lesson_price_unavailable',
+  'sync baseline path fails closed without admin lesson price');
 
 console.log('\n── D. Validation rejections (fail-closed) ──');
 const rejects = [
@@ -125,7 +157,12 @@ function buildLessonPg(rows, quantityPerDate) {
     service_date: d,
     quantity: quantityPerDate,
     amount_due_cents: 0,
-    metadata: '{}',
+    metadata: JSON.stringify({
+      component: 'lesson',
+      offering_id: ADMIN_SLOT_CODE,
+      item_code: ADMIN_SLOT_CODE,
+      location_id: LOC,
+    }),
   }));
   const updates = { serviceRecordDue: [], bookingTotal: [], queries: [] };
   const pg = {
@@ -146,7 +183,21 @@ function buildLessonPg(rows, quantityPerDate) {
         updates.bookingTotal.push({ total: params[0] });
         return { rows: [] };
       }
-      if (q.includes('tenant_price_rules') || q.includes('FROM clients')) {
+      if (/to_regclass/i.test(q)) return { rows: [{ reg: 'tenant_price_rules' }] };
+      if (/information_schema\.columns/i.test(q)) return { rows: [{ '?column?': 1 }] };
+      if (/FROM tenant_price_rules/i.test(q)) {
+        return {
+          rows: [{
+            amount_cents: ADMIN_UNIT,
+            currency: 'EUR',
+            item_type: 'lesson',
+            item_code: ADMIN_SLOT_CODE,
+            unit: 'session',
+            location_id: LOC,
+          }],
+        };
+      }
+      if (q.includes('tenant_price_rules') || q.includes('FROM clients') || /information_schema/i.test(q)) {
         return { rows: [] };
       }
       throw new Error(`unexpected pg query: ${q.slice(0, 100)}`);
@@ -165,17 +216,20 @@ async function parity(dates, qty) {
 }
 
 (async () => {
+  process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
   for (const [label, dates, qty] of [
     ['1×1', DATE_1, 1],
     ['4×1', DATES_4, 1],
     ['4×2', DATES_4, 2],
   ]) {
     const { quoteResult, priced } = await parity(dates, qty);
-    ok(quoteResult.ok && priced.ok, `${label} quote and price both ok`);
+    ok(quoteResult.ok && priced.ok, `${label} quote and price both ok`,
+      JSON.stringify({ quote: quoteResult, priced }));
     ok(quoteResult.total_cents === priced.total_cents,
       `${label} pre-booking quote total == post-create server total`,
       `${quoteResult.total_cents} vs ${priced.total_cents}`);
   }
+  process.env.SUNSET_ADMIN_DB_READ_ENABLED = '0';
 
   console.log('\n── G. Read-only: quote path performs no writes ──');
   const writeTracker = { inserts: 0, updates: 0, stripe: 0, whatsapp: 0 };
@@ -189,7 +243,8 @@ async function parity(dates, qty) {
     },
   };
   const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
-  const successQuote = await quoteSunsetGroupLessonsAsync({
+  // skipDb forces baseline config — seed is no longer live-quotable (fail closed).
+  const baselineBlocked = await quoteSunsetGroupLessonsAsync({
     clientSlug: 'sunset',
     locationId: LOC,
     body: { service_dates: DATES_4, quantity: 1 },
@@ -197,7 +252,12 @@ async function parity(dates, qty) {
     skipDb: true,
     refDate: REF,
   });
-  ok(successQuote.ok, 'async quote succeeds with skipDb');
+  ok(!baselineBlocked.ok && baselineBlocked.reason === 'group_lesson_price_unavailable',
+    'async skipDb baseline seed fails closed (no €30)');
+  ok(writeTracker.inserts === 0 && writeTracker.updates === 0, 'baseline path: zero booking/payment writes');
+
+  const successQuote = quote({ service_dates: DATES_4, quantity: 1 });
+  ok(successQuote.ok, 'admin-price quote succeeds');
   ok(writeTracker.inserts === 0 && writeTracker.updates === 0, 'success quote: zero booking/payment writes');
 
   const rejectQuote = quote({ service_dates: ['2020-01-01'], quantity: 1 });
