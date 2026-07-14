@@ -10817,18 +10817,82 @@ async function checkGuestAutomationPauseState(pg, input) {
     return {
       bot_paused:        true,
       live_send_blocked: true,
-      source:            'bot_pause_states',
+      source:            result.source || 'bot_pause_states',
       pause_state:       formatPauseStateRow(result.row),
       table_missing:     !!result.table_missing,
+      global_paused:     !!result.global_pause,
+      conversation_paused: !result.global_pause,
+      needs_human:       false,
+      effective_scope:   result.global_pause ? 'global' : 'conversation',
+    };
+  }
+
+  // Canonical: needs_human also blocks Luna automation for that conversation/phone.
+  let needsHuman = false;
+  let needsHumanConversationId = conversationId;
+  try {
+    if (conversationId) {
+      const r = await pg.query(
+        `SELECT conv.needs_human, conv.id::text AS conversation_id
+           FROM conversations conv
+           JOIN clients c ON c.id = conv.client_id
+          WHERE c.slug = $1 AND conv.id::text = $2
+          LIMIT 1`,
+        [clientSlug, conversationId],
+      );
+      needsHuman = !!(r.rows[0] && r.rows[0].needs_human === true);
+      if (r.rows[0]) needsHumanConversationId = r.rows[0].conversation_id;
+    } else if (guestPhone) {
+      const digits = String(guestPhone).replace(/\D/g, '');
+      const suffix = digits.length >= 9 ? digits.slice(-9) : digits;
+      const r = await pg.query(
+        `SELECT conv.needs_human, conv.id::text AS conversation_id
+           FROM conversations conv
+           JOIN clients c ON c.id = conv.client_id
+          WHERE c.slug = $1
+            AND (
+              regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') = $2
+              OR (
+                length($3) >= 9
+                AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') LIKE ('%' || $3)
+              )
+            )
+          ORDER BY conv.updated_at DESC
+          LIMIT 1`,
+        [clientSlug, digits, suffix],
+      );
+      needsHuman = !!(r.rows[0] && r.rows[0].needs_human === true);
+      if (r.rows[0]) needsHumanConversationId = r.rows[0].conversation_id;
+    }
+  } catch (_) {
+    needsHuman = false;
+  }
+
+  if (needsHuman) {
+    return {
+      bot_paused:             true,
+      live_send_blocked:      true,
+      source:                 'conversations_needs_human',
+      pause_state:            null,
+      table_missing:          !!result.table_missing,
+      global_paused:          false,
+      conversation_paused:    true,
+      needs_human:            true,
+      conversation_id:        needsHumanConversationId,
+      effective_scope:        'needs_human',
     };
   }
 
   return {
-    bot_paused:        false,
-    live_send_blocked: false,
-    source:            'default_active',
-    pause_state:       null,
-    table_missing:     !!result.table_missing,
+    bot_paused:             false,
+    live_send_blocked:      false,
+    source:                 'default_active',
+    pause_state:            null,
+    table_missing:          !!result.table_missing,
+    global_paused:          false,
+    conversation_paused:    false,
+    needs_human:            false,
+    effective_scope:        null,
   };
 }
 
@@ -10847,6 +10911,11 @@ function buildGuestAutomationGateResponse(gate, body, extra) {
     live_send_blocked:             gate.live_send_blocked,
     can_continue_guest_automation: !gate.bot_paused,
     source:                        gate.source,
+    paused:                        !!gate.bot_paused,
+    global_paused:                 !!gate.global_paused,
+    conversation_paused:           !!gate.conversation_paused,
+    needs_human:                   !!gate.needs_human,
+    effective_scope:               gate.effective_scope || null,
     no_write_performed:            true,
     sends_whatsapp:                false,
     whatsapp_dry_run:              true,
@@ -10941,6 +11010,90 @@ async function handleBotCheckGuestAutomationGate(req, res, user, authMode) {
       guest_phone: guestPhone,
       lookup_error: true,
     }));
+  }
+}
+
+/** Dedicated read-only effective pause for Hermes: POST /staff/bot/effective-pause-state */
+async function handleBotEffectivePauseState(req, res, user, authMode) {
+  const started = Date.now();
+  let body = {};
+  try {
+    body = JSON.parse((await readBody(req)) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const conversationId = body.conversation_id != null
+    ? String(body.conversation_id).trim() || null
+    : null;
+  const guestPhone = body.guest_phone != null
+    ? String(body.guest_phone).trim() || null
+    : null;
+
+  if (!clientSlug || SQL_INJECT_RE.test(clientSlug)) {
+    return send400(res, 'client_slug is required');
+  }
+  if (!conversationId && !guestPhone) {
+    return send400(res, 'conversation_id or guest_phone is required');
+  }
+
+  try {
+    const gate = await withPgClient((pg) => checkGuestAutomationPauseState(pg, {
+      client_slug:     clientSlug,
+      conversation_id: conversationId,
+      guest_phone:     guestPhone,
+      booking_code:    body.booking_code,
+    }));
+
+    const pauseState = gate.pause_state || null;
+    appendAuditLog(Object.assign({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.effective-pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: true,
+      paused: !!gate.bot_paused,
+      auth_mode: authMode || null,
+      no_write_performed: true,
+      elapsed_ms: Date.now() - started,
+    }, user ? { staff_user_id: user.staff_user_id } : {}));
+
+    return sendJSON(res, 200, {
+      success: true,
+      paused: !!gate.bot_paused,
+      global_paused: !!gate.global_paused,
+      conversation_paused: !!gate.conversation_paused,
+      needs_human: !!gate.needs_human,
+      effective_scope: gate.effective_scope || null,
+      reason: (pauseState && pauseState.pause_reason) || (gate.needs_human ? 'needs_human' : null),
+      updated_at: (pauseState && (pauseState.updated_at || pauseState.paused_at)) || null,
+      source: gate.source,
+      bot_paused: !!gate.bot_paused,
+      live_send_blocked: !!gate.live_send_blocked,
+      can_continue_guest_automation: !gate.bot_paused,
+      pause_state: pauseState,
+      no_write_performed: true,
+    });
+  } catch (err) {
+    appendAuditLog(Object.assign({
+      ts: new Date().toISOString(),
+      intent: 'api:bot.effective-pause-state',
+      category: 'bot_pause_api',
+      client_slug: clientSlug,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    }, user ? { staff_user_id: user.staff_user_id } : {}));
+    return sendJSON(res, 200, {
+      success: false,
+      paused: true,
+      lookup_error: true,
+      error: 'effective_pause_lookup_failed',
+      bot_paused: true,
+      live_send_blocked: true,
+      can_continue_guest_automation: false,
+    });
   }
 }
 
@@ -44907,6 +45060,9 @@ async function handleBotConversationNeedsHuman(req, res, user, authMode) {
       needs_human:     !!(result && result.needs_human),
       conversation_id: (result && result.conversation_id) || null,
       handoff_reason:  (result && result.handoff_reason) || reason,
+      conversation_paused: !!(result && result.conversation_paused),
+      pause_state:     (result && result.pause_state) || null,
+      staff_handoff:   (result && result.staff_handoff) || null,
       blocked_reasons: ok ? [] : [(result && result.reason) || 'conversation_not_found'],
       no_payment_write: true,
       no_whatsapp:     true,
@@ -48487,6 +48643,16 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotCheckGuestAutomationGate(req, res, auth.user, auth.auth_mode);
+  }
+
+  if (pathname === '/staff/bot/effective-pause-state') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/effective-pause-state' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotEffectivePauseState(req, res, auth.user, auth.auth_mode);
   }
 
   // ── Stage 8.5.4 — Luna bot booking create (shared engine, BOT_BOOKING_ENABLED gate) ──

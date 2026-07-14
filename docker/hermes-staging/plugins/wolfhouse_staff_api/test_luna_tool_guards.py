@@ -194,11 +194,44 @@ check("U4 failed update flags review", ucf.get("staff_review_needed") is True)
 
 print("\n== flag_needs_human ==")
 
-fake = with_fake({"/conversation/needs-human": {"success": True, "needs_human": True, "conversation_id": "conv-1"}})
-nh = json.loads(mod.flag_needs_human({"reason": "date_change", "phone": "+491726422307"}))
-check("NH1 flags needs_human", nh.get("success") is True and nh.get("needs_human") is True)
-check("NH2 sends a normalized phone", bool(fake.calls[-1][1].get("phone")))
-check("NH3 is never a guest-facing error", nh.get("staff_review_needed") is False and nh.get("do_not_escalate") is True)
+_prev_slug_nh = os.environ.get("LUNA_CLIENT_SLUG")
+os.environ["LUNA_CLIENT_SLUG"] = "wolfhouse-somo"
+_prev_phone = os.environ.get("WOLFHOUSE_WHATSAPP_GUEST_PHONE")
+os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = "+491726422307"
+try:
+    fake = with_fake({
+        "/conversation/needs-human": {
+            "success": True,
+            "needs_human": True,
+            "conversation_id": "conv-1",
+            "conversation_paused": True,
+        },
+    })
+    nh = json.loads(mod.flag_needs_human({
+        "reason": "date_change",
+        "phone": "+499999999999",
+        "client_slug": "sunset",
+        "conversation_id": "00000000-0000-4000-8000-000000000099",
+    }))
+    check("NH1 flags needs_human", nh.get("success") is True and nh.get("needs_human") is True)
+    check("NH2 session phone overrides model phone", fake.calls[-1][1].get("phone") == "+491726422307")
+    check("NH3 strips model client_slug", "client_slug" not in fake.calls[-1][1])
+    check("NH4 strips model conversation_id", "conversation_id" not in fake.calls[-1][1])
+    check("NH5 is never a guest-facing error", nh.get("staff_review_needed") is False and nh.get("do_not_escalate") is True)
+
+    os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
+    fake = with_fake({"/conversation/needs-human": {"success": True, "needs_human": True}})
+    nh_miss = json.loads(mod.flag_needs_human({"reason": "x"}))
+    check("NH6 fails closed without phone", nh_miss.get("success") is False)
+finally:
+    if _prev_phone is None:
+        os.environ.pop("WOLFHOUSE_WHATSAPP_GUEST_PHONE", None)
+    else:
+        os.environ["WOLFHOUSE_WHATSAPP_GUEST_PHONE"] = _prev_phone
+    if _prev_slug_nh is None:
+        os.environ.pop("LUNA_CLIENT_SLUG", None)
+    else:
+        os.environ["LUNA_CLIENT_SLUG"] = _prev_slug_nh
 
 
 print("\n== create_balance_payment_link ==")

@@ -995,7 +995,10 @@ def update_booking_contact(params, **kwargs):
 def flag_needs_human(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
+    # Tenant must come from runtime (LUNA_CLIENT_SLUG via _post_bot). Never trust the model.
+    payload.pop("client_slug", None)
+    # Do not let the model pick an arbitrary conversation UUID across tenants.
+    payload.pop("conversation_id", None)
     session_phone = _session_guest_phone()
     model_phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone"))
     if session_phone:
@@ -1004,9 +1007,24 @@ def flag_needs_human(params, **kwargs):
     elif model_phone:
         payload["phone"] = model_phone
         payload["guest_phone"] = model_phone
-    conv = _clean(payload.get("conversation_id"))
-    if conv and not re.match(r"^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$", conv, re.I):
-        payload.pop("conversation_id", None)
+    else:
+        return _json_result({
+            "success": False,
+            "tool": "flag_needs_human",
+            "needs_human": False,
+            "blocked_reasons": ["guest_phone_unresolved"],
+            "staff_review_needed": True,
+            "error": "Cannot flag needs_human without a session or guest phone.",
+        })
+    if not _clean(os.getenv("LUNA_CLIENT_SLUG")):
+        return _json_result({
+            "success": False,
+            "tool": "flag_needs_human",
+            "needs_human": False,
+            "blocked_reasons": ["luna_client_slug_missing"],
+            "staff_review_needed": True,
+            "error": "LUNA_CLIENT_SLUG is required for tenant-scoped handoff.",
+        })
     data = _post_bot("/conversation/needs-human", payload)
     ok = bool(data.get("success")) and bool(data.get("needs_human"))
     return _json_result({
@@ -1014,6 +1032,8 @@ def flag_needs_human(params, **kwargs):
         "tool": "flag_needs_human",
         "needs_human": bool(data.get("needs_human")),
         "conversation_id": data.get("conversation_id"),
+        "conversation_paused": bool(data.get("conversation_paused")),
+        "handoff_reason": data.get("handoff_reason"),
         "blocked_reasons": data.get("blocked_reasons") or ([] if ok else ["conversation_not_found"]),
         # Genuine handoff succeeded — do not double-escalate; failed lookup should allow retry.
         "staff_review_needed": not ok,

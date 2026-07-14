@@ -33,8 +33,11 @@ def main() -> int:
 
     check("pause_gate module exists", PAUSE.is_file())
     check("calls check-guest-automation-gate", "check-guest-automation-gate" in pause)
+    check("uses LUNA_CLIENT_SLUG", "LUNA_CLIENT_SLUG" in pause)
+    check("enables sunset-luna runtime", "_is_luna_runtime" in pause and 'endswith("-luna")' in pause)
     check("webhook body phone parse", "_phones_from_webhook_body" in pause)
     check("send block helper", "whatsapp_send_blocked" in pause)
+    check("guest_paused_for_event helper", "guest_paused_for_event" in pause)
     check("webhook patch installer", "install_whatsapp_pause_webhook_patch" in pause)
     check("runtime send suppression", "suppressed_guest_automation_paused" in patches)
     check("runtime webhook hook", "pause_webhook" in patches and "install_whatsapp_pause_webhook_patch" in patches)

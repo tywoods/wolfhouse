@@ -189,16 +189,43 @@ async function getPauseState(pg, input) {
     }
 
     if (guestPhone) {
+      // Match phone-scoped rows AND conversation-scoped pauses whose thread phone
+      // matches (portal pause often writes conversation_id only).
+      const digits = String(guestPhone).replace(/\D/g, '');
+      const suffix = digits.length >= 9 ? digits.slice(-9) : digits;
       const r = await pg.query(
         `SELECT ${SELECT_PAUSE_STATE_COLS}
-           FROM bot_pause_states
-          WHERE client_slug = $1
-            AND guest_phone = $2
-            AND conversation_id IS NULL
-            AND paused = TRUE
-          ORDER BY paused_at DESC
+           FROM bot_pause_states bps
+          WHERE bps.client_slug = $1
+            AND bps.paused = TRUE
+            AND bps.conversation_id IS DISTINCT FROM $4
+            AND (
+              bps.guest_phone = $2
+              OR (
+                NULLIF(bps.guest_phone, '') IS NOT NULL
+                AND regexp_replace(bps.guest_phone, '\\D', '', 'g') = $3
+              )
+              OR (
+                bps.conversation_id IS NOT NULL
+                AND EXISTS (
+                  SELECT 1
+                    FROM conversations conv
+                    JOIN clients c ON c.id = conv.client_id
+                   WHERE c.slug = $1
+                     AND conv.id::text = bps.conversation_id
+                     AND (
+                       regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') = $3
+                       OR (
+                         length($5) >= 9
+                         AND regexp_replace(COALESCE(conv.phone, ''), '\\D', '', 'g') LIKE ('%' || $5)
+                       )
+                     )
+                )
+              )
+            )
+          ORDER BY bps.paused_at DESC
           LIMIT 1`,
-        [clientSlug, guestPhone],
+        [clientSlug, guestPhone, digits, GLOBAL_LUNA_PAUSE_CONVERSATION_ID, suffix],
       );
       if (r.rows[0]) return { row: r.rows[0], source: 'bot_pause_states' };
     }
@@ -226,6 +253,29 @@ async function getPauseState(pg, input) {
   }
 }
 
+async function resolveConversationGuestPhone(pg, clientSlug, conversationId) {
+  const slug = String(clientSlug || '').trim();
+  const convId = String(conversationId || '').trim();
+  if (!slug || !convId) return null;
+  try {
+    const r = await pg.query(
+      `SELECT conv.phone
+         FROM conversations conv
+         JOIN clients c ON c.id = conv.client_id
+        WHERE c.slug = $1
+          AND conv.id::text = $2
+        LIMIT 1`,
+      [slug, convId],
+    );
+    const phone = r.rows[0] && r.rows[0].phone != null
+      ? String(r.rows[0].phone).trim()
+      : '';
+    return phone || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function pauseConversation(pg, input) {
   const { clientSlug, conversationId, guestPhone, bookingCode } = normalizeScope(input);
   const pausedBy = String(input.paused_by || '').trim();
@@ -236,16 +286,45 @@ async function pauseConversation(pg, input) {
     ? String(input.booking_id).trim() || null
     : null;
 
-  const existing = await getPauseState(pg, {
-    client_slug:     clientSlug,
-    conversation_id: conversationId,
-    guest_phone:     guestPhone,
-  });
-  if (existing.table_missing) {
-    return { row: null, table_missing: true };
+  let resolvedPhone = guestPhone;
+  if (!resolvedPhone && conversationId) {
+    resolvedPhone = await resolveConversationGuestPhone(pg, clientSlug, conversationId);
   }
-  if (existing.row) {
-    return { row: existing.row, idempotent: true };
+
+  // Idempotent on an existing conversation/phone pause even when global pause is
+  // also active (getPauseState prefers global and would otherwise mislead us).
+  try {
+    if (conversationId) {
+      const existingConv = await pg.query(
+        `SELECT ${SELECT_PAUSE_STATE_COLS}
+           FROM bot_pause_states
+          WHERE client_slug = $1
+            AND conversation_id = $2
+            AND paused = TRUE
+          ORDER BY paused_at DESC
+          LIMIT 1`,
+        [clientSlug, conversationId],
+      );
+      if (existingConv.rows[0]) {
+        return { row: existingConv.rows[0], idempotent: true, guest_phone: resolvedPhone };
+      }
+    } else if (resolvedPhone) {
+      const existingPhone = await getPauseState(pg, {
+        client_slug: clientSlug,
+        guest_phone: resolvedPhone,
+      });
+      if (existingPhone.table_missing) {
+        return { row: null, table_missing: true };
+      }
+      if (existingPhone.row && !existingPhone.global_pause) {
+        return { row: existingPhone.row, idempotent: true, guest_phone: resolvedPhone };
+      }
+    }
+  } catch (err) {
+    if (isMissingBotPauseStatesTable(err)) {
+      return { row: null, table_missing: true };
+    }
+    throw err;
   }
 
   try {
@@ -258,17 +337,17 @@ async function pauseConversation(pg, input) {
          TRUE, $6, $7, NOW(), '{}'::jsonb
        )
        RETURNING ${SELECT_PAUSE_STATE_COLS}`,
-      [clientSlug, guestPhone, conversationId, bookingId, bookingCode, pauseReason, pausedBy],
+      [clientSlug, resolvedPhone, conversationId, bookingId, bookingCode, pauseReason, pausedBy],
     );
-    return { row: r.rows[0], idempotent: false };
+    return { row: r.rows[0], idempotent: false, guest_phone: resolvedPhone };
   } catch (err) {
     if (err.code === '23505') {
       const again = await getPauseState(pg, {
         client_slug:     clientSlug,
         conversation_id: conversationId,
-        guest_phone:     guestPhone,
+        guest_phone:     resolvedPhone,
       });
-      if (again.row) return { row: again.row, idempotent: true };
+      if (again.row) return { row: again.row, idempotent: true, guest_phone: resolvedPhone };
     }
     if (isMissingBotPauseStatesTable(err)) {
       return { row: null, table_missing: true };
@@ -325,4 +404,5 @@ module.exports = {
   resumeGlobalLuna,
   formatPauseStateRow,
   isMissingBotPauseStatesTable,
+  resolveConversationGuestPhone,
 };

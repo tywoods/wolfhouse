@@ -168,6 +168,92 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     return { ok: false, needs_human: false, reason: 'conversation_not_found' };
   }
 
+  // Canonical rule: needs_human=true → effective conversation pause.
+  // Do not require staff to press Pause Luna separately after a handoff.
+  // Resolving needs_human does NOT auto-resume Luna — resume is a separate control.
+  let pause_state = null;
+  try {
+    const {
+      pauseConversation,
+    } = require('./staff-bot-pause-sql');
+    const paused = await pauseConversation(pg, {
+      client_slug: clientSlug,
+      conversation_id: row.conversation_id,
+      guest_phone: priorRow.phone,
+      pause_reason: `needs_human:${reasonCode}`.slice(0, 500),
+      paused_by: 'luna_flag_needs_human',
+    });
+    if (paused && paused.row) {
+      pause_state = {
+        paused: true,
+        conversation_id: paused.row.conversation_id,
+        guest_phone: paused.row.guest_phone || priorRow.phone || null,
+        idempotent: !!paused.idempotent,
+        source: 'bot_pause_states',
+      };
+    }
+  } catch (_) {
+    pause_state = { paused: false, error: 'pause_coupling_failed' };
+  }
+
+  // Upsert one open staff_handoffs row so Inbox Handoff pill + reason persist.
+  let staff_handoff = null;
+  try {
+    const open = await pg.query(
+      `SELECT h.id::text AS id, h.reason_code, h.status::text AS status
+         FROM staff_handoffs h
+         JOIN clients c ON c.id = h.client_id
+        WHERE c.slug = $1
+          AND h.conversation_id = $2::uuid
+          AND h.status IN ('open', 'assigned', 'waiting_guest')
+        ORDER BY h.opened_at DESC
+        LIMIT 1`,
+      [clientSlug, row.conversation_id],
+    );
+    if (open.rows[0]) {
+      staff_handoff = {
+        id: open.rows[0].id,
+        reason_code: open.rows[0].reason_code,
+        status: open.rows[0].status,
+        idempotent: true,
+      };
+    } else {
+      const inserted = await pg.query(
+        `INSERT INTO staff_handoffs (
+           client_id, conversation_id, phone, source_channel,
+           reason_code, summary, status, metadata
+         )
+         SELECT c.id, $2::uuid, $3, 'whatsapp',
+                $4, $5, 'open',
+                jsonb_build_object(
+                  'source', 'luna_flag_needs_human',
+                  'luna_handoff_at', $6::text
+                )
+           FROM clients c
+          WHERE c.slug = $1
+         RETURNING id::text AS id, reason_code, status::text AS status`,
+        [
+          clientSlug,
+          row.conversation_id,
+          priorRow.phone || null,
+          reasonCode.slice(0, 100),
+          `Luna handed off: ${reasonCode}`.slice(0, 500),
+          handoffAt,
+        ],
+      );
+      if (inserted.rows[0]) {
+        staff_handoff = {
+          id: inserted.rows[0].id,
+          reason_code: inserted.rows[0].reason_code,
+          status: inserted.rows[0].status,
+          idempotent: false,
+        };
+      }
+    }
+  } catch (_) {
+    staff_handoff = { error: 'staff_handoffs_upsert_failed' };
+  }
+
   let staff_notification = null;
   if (!wasNeedsHuman) {
     const locationId = extractLocationFromMetadata(priorRow.metadata);
@@ -188,6 +274,9 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     needs_human: row.needs_human === true,
     conversation_id: row.conversation_id,
     handoff_reason: reasonCode,
+    conversation_paused: !!(pause_state && pause_state.paused),
+    pause_state,
+    staff_handoff,
     staff_notification,
   };
 }

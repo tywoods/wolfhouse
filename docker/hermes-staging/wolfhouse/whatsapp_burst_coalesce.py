@@ -741,6 +741,15 @@ class BurstCoalescer:
             self._run_combined(st, combined, adapter_dispatch=ad, source_count=len(messages))
         )
 
+    def _guest_paused_before_agent(self, event: Any) -> bool:
+        """Re-check effective pause immediately before agent invocation."""
+        try:
+            from wolfhouse.pause_gate import guest_paused_for_event
+
+            return bool(guest_paused_for_event(event))
+        except Exception:
+            return False
+
     async def _run_combined(
         self,
         st: SenderState,
@@ -749,6 +758,17 @@ class BurstCoalescer:
         adapter_dispatch: AdapterDispatch,
         source_count: int,
     ) -> None:
+        if self._guest_paused_before_agent(event):
+            self._stats["paused_suppressions"] = int(self._stats.get("paused_suppressions") or 0) + 1
+            self._log(
+                "whatsapp_burst_paused_suppress",
+                st.key,
+                source_message_count=source_count,
+                stage="before_agent",
+            )
+            await self._drain_followups(st)
+            return
+
         st.active_run = True
         self._stats["agent_invocations"] += 1
         failed = False
@@ -785,6 +805,15 @@ class BurstCoalescer:
         st = self._sender(self.key_for_adapter_event(adapter, event))
         if st.adapter_dispatch is None:
             st.adapter_dispatch = adapter_dispatch
+        if self._guest_paused_before_agent(event):
+            self._stats["paused_suppressions"] = int(self._stats.get("paused_suppressions") or 0) + 1
+            self._log(
+                "whatsapp_burst_paused_suppress",
+                st.key,
+                source_message_count=1,
+                stage="before_dispatch_one",
+            )
+            return
         st.active_run = True
         self._stats["agent_invocations"] += 1
         try:
