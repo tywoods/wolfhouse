@@ -13,10 +13,18 @@ const {
   executeWolfhouseAccommodationAvailability,
   executeWolfhouseAccommodationCreate,
 } = require('../wolfhouse-accommodation-application');
+const { BOOKING_CREATE_CHANNELS } = require('../luna-front-desk-accommodation-booking-create-service');
 const {
   VERTICAL_IDS,
+  VERTICAL_CHANNELS,
   assertResolvedVerticalScope,
 } = require('../luna-front-desk-vertical-scope');
+
+function mapBookingChannel(channel) {
+  const c = String(channel || '').trim();
+  if (c === VERTICAL_CHANNELS.MANUAL_STAFF) return BOOKING_CREATE_CHANNELS.MANUAL_STAFF;
+  return BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP;
+}
 
 function scopeFailure(scope) {
   return {
@@ -57,7 +65,12 @@ const accommodationVerticalAdapter = {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.ACCOMMODATION);
     if (!scope.ok) return scopeFailure(scope);
     return executeWolfhouseAccommodationCreate(pg, request.transportBody || {}, {
+      channel: mapBookingChannel(request.channel),
+      actorHints: request.actorHints || {},
       dryRunOnly: false,
+      stripeConfig: request.stripeConfig,
+      privateRoomHooks: request.privateRoomHooks,
+      actorLabel: request.actorLabel,
     });
   },
 

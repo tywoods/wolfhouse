@@ -11,6 +11,11 @@ const { resolveBotBookingPackageContext } = require('./lib/bot-booking-package-n
 const { normalizeQuoteAddOnsForCombo, validateAndNormalizeQuoteAddOns } = require('./lib/guest-addon-pricing');
 
 const staffApiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+const accommodationCreateSrc = fs.readFileSync(
+  path.join(__dirname, 'lib', 'luna-front-desk-accommodation-booking-create-service.js'),
+  'utf8',
+);
+const bookingCreateSrc = staffApiSrc + '\n' + accommodationCreateSrc;
 
 let passes = 0;
 let failures = 0;
@@ -132,10 +137,10 @@ section('C3. Dry-run — combo + no shuttle for package_none');
 section('D. Bot create handler accepts package_none');
 {
   check('D1', /resolveBotBookingPackageContext/.test(staffApiSrc), 'uses package normalize');
-  check('D2', /storagePackageCode/.test(staffApiSrc), 'stores null package for no-package');
-  check('D3', /buildManualBookingServiceRecordRows/.test(staffApiSrc), 'creates service records on bot create');
-  check('D4', !/manual_override not supported/.test(staffApiSrc), 'removed hard block without package_none hint');
-  check('D5', /use package_none for accommodation-only/.test(staffApiSrc), 'error mentions package_none');
+  check('D2', /storagePackageCode/.test(bookingCreateSrc), 'stores null package for no-package');
+  check('D3', /buildManualBookingServiceRecordRows/.test(bookingCreateSrc), 'creates service records on bot create');
+  check('D4', !/manual_override not supported/.test(bookingCreateSrc), 'removed hard block without package_none hint');
+  check('D5', /use package_none for accommodation-only/.test(bookingCreateSrc), 'error mentions package_none');
 }
 
 section('E. 7+ nights without package still blocked');

@@ -407,7 +407,7 @@ const {
   distributeSpanScheduleDates,
   serviceRecordBillableCents,
 } = require('./lib/staff-booking-services-schedule');
-const { buildManualBookingServiceRecordRows } = require('./lib/manual-booking-service-records');
+const { buildManualBookingServiceRecordRows, isMissingBookingServiceRecordsTable, tryInsertManualBookingServiceRecords } = require('./lib/manual-booking-service-records');
 const { loadWolfhouseRentalDayRates } = require('./lib/service-record-invoice-line');
 const {
   listBookingTransfersForCalendarRange,
@@ -464,6 +464,11 @@ const {
   executeWolfhouseAccommodationQuote,
 } = require('./lib/wolfhouse-accommodation-application');
 const {
+  BOOKING_CREATE_CHANNELS,
+  buildWolfhouseBookingCreateCommand,
+  executeWolfhouseBookingCreate,
+} = require('./lib/luna-front-desk-accommodation-booking-create-service');
+const {
   normalizeBookingGuestsInput,
   normalizeBotBookingPaymentChoice,
   buildPerPersonBreakdown,
@@ -504,7 +509,14 @@ const {
   resolveBotBookingPackageContext,
   isNoPackageBookingCode,
   buildBotQuoteReplyDraft,
+  normalizeGuestPackagesInput,
+  guestPackagesMajorityStorageCode,
 } = require('./lib/bot-booking-package-normalize');
+const {
+  normalizeManualBookingStaffPaymentChoice,
+  manualBookingQuotePaymentChoice,
+  manualBookingApplyStaffPaymentChoice,
+} = require('./lib/staff-manual-booking-payment');
 const {
   buildBotClosedSeasonReply,
   isClosedSeasonQuote,
@@ -5232,52 +5244,6 @@ function buildGuestAccommodationLines(clientSlug, booking, metadata) {
       accommodation_cents,
     };
   });
-}
-
-function guestPackagesMajorityStorageCode(guestPackages) {
-  const counts = new Map();
-  for (const gp of guestPackages) {
-    const stored = editPreviewPackageStorageCode(gp.package_code);
-    const key = stored || '__no_package__';
-    counts.set(key, (counts.get(key) || 0) + 1);
-  }
-  let bestKey = null;
-  let bestCount = 0;
-  for (const [key, count] of counts.entries()) {
-    if (count > bestCount) {
-      bestCount = count;
-      bestKey = key;
-    }
-  }
-  if (bestKey === '__no_package__') return null;
-  return bestKey;
-}
-
-function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
-  if (!Array.isArray(raw) || raw.length === 0) {
-    return { error: 'guest_packages array is required' };
-  }
-  if (raw.length !== guestCount) {
-    return {
-      error: `guest_packages length (${raw.length}) must match guest_count (${guestCount})`,
-    };
-  }
-  const normalized = [];
-  for (let i = 0; i < guestCount; i++) {
-    const item = raw[i];
-    const guestNumber = Number(item && item.guest_number) || (i + 1);
-    const packageCodeRaw = String(
-      (item && item.package_code) || fallbackPackageCode || '',
-    ).trim().toLowerCase();
-    if (!packageCodeRaw) {
-      return { error: `package_code is required for guest ${guestNumber}` };
-    }
-    if (!editPreviewIsValidPackage(packageCodeRaw, fallbackPackageCode)) {
-      return { error: `Invalid package_code for guest ${guestNumber}` };
-    }
-    normalized.push({ guest_number: i + 1, package_code: packageCodeRaw });
-  }
-  return { guest_packages: normalized };
 }
 
 function editWriteStayRequiresPackageCode(nights) {
@@ -15093,346 +15059,75 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  // ── 3. Extract + sanitise input ──────────────────────────────────────────
-  const clientSlug    = String(body.client_slug || DEFAULT_CLIENT).trim();
-  const checkIn       = String(body.check_in   || '').trim();
-  const checkOut      = String(body.check_out  || '').trim();
-  const guestsNorm    = normalizeBookingGuestsInput(body);
-  if (!guestsNorm.ok) return send400(res, guestsNorm.error);
-  const guestName     = (String(body.guest_name || '').trim() || guestsNorm.primary_name || '').slice(0, 200);
-  const phone         = String(body.phone || body.guest_phone || '').trim().slice(0, 50);
-  const email         = String(body.email      || '').trim().slice(0, 200) || null;
-  const language      = String(body.language   || 'en').trim().slice(0, 10);
-  const guestCount    = parseInt(body.guest_count, 10) || 0;
-  const usesPerGuestModel = guestsNorm.uses_per_guest_model === true;
-  const paymentNorm   = normalizeBotBookingPaymentChoice(body.payment_choice);
-  const paymentChoice = paymentNorm.payment_choice;
-  // Deposit-link scope (group vs per-guest) is independent of the per-guest
-  // booking model. Every booking now uses the per-guest model, but a group
-  // deposit link stays a single link unless per-guest links are explicitly asked.
-  const perGuestPaymentLinks = paymentNorm.per_guest_payment_links === true;
-  const resolvedGuestCount = guestsNorm.guest_count || guestCount;
-  const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
-  const packageCodeRaw  = String(body.package_code || '').trim().toLowerCase().slice(0, 50) || null;
-  const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
-  const normalizedGuestPackages = rawGuestPackages.length
-    ? normalizeGuestPackagesInput(rawGuestPackages, effectiveGuestCount || rawGuestPackages.length, packageCodeRaw || 'malibu')
-    : { guest_packages: [] };
-  if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
-  const guestPackages = normalizedGuestPackages.guest_packages || [];
-  const pkgCtx = resolveBotBookingPackageContext({
-    packageCode: packageCodeRaw,
-    guestPackages,
-    checkIn,
-    checkOut,
-    guestCount: effectiveGuestCount || guestCount,
-  });
-  const quoteGuestCount = effectiveGuestCount > 0 ? effectiveGuestCount : guestCount;
-  const effectivePackageCode = pkgCtx.quotePackageCode;
-  const storagePackageCode = pkgCtx.storagePackageCode;
-  const guestPackagesForQuote = pkgCtx.guestPackagesForQuote;
-  const roomType      = resolveQuoteRoomTypeFromPreference(
-    body.room_type,
-    body.room_preference,
-  );
-  const addOnPrep = validateAndNormalizeQuoteAddOns(body.add_ons, quoteGuestCount);
-  if (!addOnPrep.ok) {
-    return send400(res, addOnPrep.error);
-  }
-  const addOns        = addOnPrep.add_ons;
-  const roomPreference = String(body.room_preference || '').trim().slice(0, 200) || null;
-  const genderPreference = body.gender_preference ? String(body.gender_preference).trim().slice(0, 50) : null;
-  const paymentKind   = paymentChoice === 'full' ? 'full_amount' : 'deposit_only';
-  const confirmFlag   = body.confirm === true;
-  const source        = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
-  const notes         = String(body.notes  || '').trim().slice(0, 2000) || null;
-  const reason        = String(body.reason || 'Luna bot booking via /staff/bot/bookings/create').trim().slice(0, 500);
-  const bookingStatus = 'confirmed';
-  const paymentStatus = 'not_requested';
-
-  // selected_bed_codes: required for this slice (auto-assign is next slice)
-  let rawBedCodes = body.selected_bed_codes;
-  if (typeof rawBedCodes === 'string') {
-    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
-  } else if (!Array.isArray(rawBedCodes)) {
-    rawBedCodes = [];
-  }
-  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20);
-
-  // ── 4. Actor ──────────────────────────────────────────────────────────────
-  // For bot token auth, actorId is 'luna-bot-internal'. Role must be 'operator'
-  // because buildManualBookingCreateSql enforces MANUAL_BOOKING_ALLOWED_ROLES.
+  // ── 3. Actor ──────────────────────────────────────────────────────────────
   const actorId   = user ? user.staff_user_id : 'luna-bot-internal';
   const actorRole = (user && user.staff_user_id !== 'luna-bot-internal' && user.role)
     ? user.role
-    : 'operator'; // bot token or open-mode actor treated as operator for booking SQL
+    : 'operator';
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
+  const source = String(body.source || 'luna_whatsapp').trim().slice(0, 50);
 
-  // ── 5. Validate ───────────────────────────────────────────────────────────
-  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
-  if (!phone)         return send400(res, 'phone is required');
-  if (!guestName)     return send400(res, 'guest_name is required');
-  if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut))
-    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
-  if (checkOut <= checkIn)  return send400(res, 'check_out must be after check_in');
-  if (guestCount < 1 && effectiveGuestCount < 1) return send400(res, 'guest_count must be at least 1');
-  if (!effectivePackageCode || effectivePackageCode === 'manual_override') {
-    return send400(res, 'package_code or guest_packages is required (use package_none for accommodation-only / short stays)');
-  }
-  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
-  if (!packageNightCheck.ok) {
-    return send400(res, packageNightCheck.error);
-  }
-  if (!paymentChoice)       return send400(res, 'payment_choice is required (deposit or full)');
-  if (!confirmFlag)         return send400(res, 'confirm: true is required in request body');
-
-  let assignedBedCodes = selectedBedCodes.slice();
-  const genderAwareAssign = needsGenderAwareBedAssignment({
-    guestCount: quoteGuestCount,
-    groupGender: body.group_gender,
-    genderPreference,
-    roomPreference,
-  });
-  if (assignedBedCodes.length === 0 || genderAwareAssign) {
-    try {
-      const bedAssign = await withPgClient((pg) => runAvailabilityCheckDryRun({
-        client_slug: clientSlug,
-        check_in: checkIn,
-        check_out: checkOut,
-        guest_count: quoteGuestCount,
-        guest_name: guestName,
-        group_gender: body.group_gender || null,
-        gender_preference: genderPreference,
-        room_preference: roomPreference,
-        room_type: roomType,
-      }, pg));
-      if (bedAssign && Array.isArray(bedAssign.selected_bed_codes) && bedAssign.selected_bed_codes.length) {
-        assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
-      } else if (bedAssign && bedAssign.blockers && bedAssign.blockers.length) {
-        return send400(res, 'Bed assignment failed: ' + bedAssign.blockers[0]);
-      } else if (assignedBedCodes.length === 0) {
-        return send400(res, 'selected_bed_codes is required (pass beds or group_gender for auto-assign)');
-      }
-    } catch (err) {
-      return sendJSON(res, 500, { success: false, error: 'bed_assignment_error', detail: err.message });
-    }
+  // ── 4. Build command + execute via shared service ─────────────────────────
+  let built;
+  try {
+    built = await withPgClient(async (pg) => buildWolfhouseBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+      trustedClientSlug: clientSlug,
+      transportBody: body,
+      actorHints: { staff_user_id: actorId, staff_role: actorRole, source },
+      pgClient: pg,
+    }));
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bot_booking_create',
+      category: 'bot_booking_create', success: false,
+      error: 'build_failed: ' + err.message, elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
   }
 
-  if (assignedBedCodes.length === 0)
-    return send400(res, 'selected_bed_codes is required (pass beds or group_gender for auto-assign)');
-  if (assignedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
-    return send400(res, 'invalid character in selected_bed_codes');
-
-  // ── 5b. Server-side quote (amounts never trusted from client) ─────────────
-  const quote = calculateWolfhouseQuote({
-    client_slug:    clientSlug,
-    check_in:       checkIn,
-    check_out:      checkOut,
-    guest_count:    quoteGuestCount,
-    package_code:   effectivePackageCode,
-    guest_packages: guestPackagesForQuote,
-    room_type:      roomType,
-    payment_choice: paymentChoice,
-    add_ons:        addOns,
-    uses_per_guest_deposits: usesPerGuestModel,
-  });
-  if (!quote.success || quote.blockers.length > 0) {
-    return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
+  if (!built.ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:bot_booking_create',
+      category: 'bot_booking_create', success: false,
+      error: built.body.error || built.body.reason_code, elapsed_ms: Date.now() - started,
+    });
+    if (built.status === 400) return send400(res, built.body.error || 'invalid request');
+    return sendJSON(res, built.status, { success: false, ...built.body });
   }
-  const depositCents           = quote.deposit_required_cents;
-  const totalCents             = quote.total_cents;
-  const paymentLinkAmountCents = quote.payment_link_amount_cents;
 
-  // ── 6. Idempotency key ────────────────────────────────────────────────────
-  const idempotencyKey = body.idempotency_key
-    ? String(body.idempotency_key).slice(0, 120)
-    : 'bot-' + crypto.createHash('md5').update([
-        clientSlug, checkIn, checkOut, assignedBedCodes.slice().sort().join('_'),
-        guestName.toLowerCase(), phone,
-      ].join('|')).digest('hex');
-
+  const cmd = built.command;
   const auditBase = {
     ts: new Date().toISOString(), intent: 'api:bot_booking_create',
     category: 'bot_booking_create',
-    client_slug: clientSlug, check_in: checkIn, check_out: checkOut,
-    selected_bed_codes: assignedBedCodes, guest_count: guestCount,
+    client_slug: cmd.clientSlug, check_in: cmd.checkIn, check_out: cmd.checkOut,
+    selected_bed_codes: cmd.assignedBedCodes, guest_count: cmd.guestCount,
     staff_user_id: actorId, staff_role: actorRole,
-    idempotency_key: idempotencyKey, source,
+    idempotency_key: cmd.idempotencyKey, source,
     stripe_called: false, whatsapp_called: false, n8n_called: false,
   };
 
-  // ── 7. Execute create inside transaction ──────────────────────────────────
-  let row;
+  let execResult;
   try {
-    row = await withPgClient(async (pg) => {
-      await pg.query('BEGIN');
-      try {
-        const r = await pg.query(buildManualBookingCreateSql(), [
-          clientSlug,        // $1
-          actorId,           // $2
-          actorRole,         // $3
-          idempotencyKey,    // $4
-          null,              // $5 booking_code (auto-generate)
-          guestName,         // $6
-          phone,             // $7
-          email,             // $8
-          language,          // $9
-          checkIn,           // $10
-          checkOut,          // $11
-          quoteGuestCount,   // $12
-            assignedBedCodes,  // $13 text[]
-            storagePackageCode, // $14 — null for accommodation-only
-            roomPreference,    // $15 room_preference
-          bookingStatus,     // $16
-          paymentStatus,     // $17
-          depositCents,      // $18
-          totalCents,        // $19
-          source,            // $20
-          reason,            // $21
-          notes,             // $22
-          true,              // $23 confirm
-          false,             // $24 warnings_acknowledged
-        ]);
-        const result = r.rows[0] || null;
-        if (!result) { await pg.query('ROLLBACK'); return null; }
-        if (result.is_duplicate === true) { await pg.query('ROLLBACK'); result._duplicate = true; return result; }
-        if (result.is_blocked   === true) { await pg.query('ROLLBACK'); result._blocked   = true; return result; }
-        const bedsInserted = Number(result.beds_inserted || 0);
-        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== assignedBedCodes.length) {
-          await pg.query('ROLLBACK');
-          result._safety_violation = true;
-          return result;
-        }
-
-        // Update booking with quote-derived amounts + quote_snapshot
-        await pg.query(
-          `UPDATE bookings
-             SET total_amount_cents     = $1,
-                 deposit_required_cents = $2,
-                 balance_due_cents      = $3,
-                 requested_room_type    = $4,
-                 metadata               = metadata || $5::jsonb
-           WHERE id = $6
-             AND client_id = (SELECT id FROM clients WHERE slug = $7 LIMIT 1)`,
-          [
-            totalCents, depositCents, quote.balance_due_cents, roomPreference || roomType,
-            JSON.stringify({
-              quote_snapshot:    quote,
-              payment_choice:    paymentChoice,
-              add_ons_at_create: addOns,
-              guest_packages: guestPackagesForQuote,
-              package_code: effectivePackageCode,
-              accommodation_only: pkgCtx.isNoPackage,
-              bot_source:        source,
-              per_person:        quote.per_person || null,
-              uses_per_guest_model: usesPerGuestModel,
-              per_guest_payment_links: perGuestPaymentLinks,
-              booking_guests:    usesPerGuestModel ? guestsNorm.guests : undefined,
-              ...(genderPreference ? { gender_preference: genderPreference } : {}),
-            }),
-            result.booking_id,
-            clientSlug,
-          ],
-        );
-
-        if (usesPerGuestModel && guestsNorm.guests.length > 0) {
-          try {
-            const clientRes = await pg.query(
-              'SELECT client_id FROM bookings WHERE id = $1',
-              [result.booking_id],
-            );
-            const bedsRes = await pg.query(
-              `SELECT bed_code, room_code
-                 FROM booking_beds
-                WHERE booking_id = $1
-                ORDER BY created_at ASC`,
-              [result.booking_id],
-            );
-            const bedAssignments = bedsRes.rows.map((b, idx) => ({
-              guest_number: idx + 1,
-              bed_code: b.bed_code,
-              room_code: b.room_code,
-            }));
-            const perPersonRows = buildPerPersonBreakdown(quote, {
-              guest_names: guestsNorm.guests.map((g) => g.guest_name),
-              payment_choice: paymentChoice,
-            });
-            result._booking_guests = await insertBookingGuestsForBooking(pg, {
-              clientId: clientRes.rows[0].client_id,
-              bookingId: result.booking_id,
-              guests: guestsNorm.guests,
-              bedAssignments,
-              perPersonBreakdown: perPersonRows,
-            });
-            result._per_person = perPersonRows;
-          } catch (guestErr) {
-            if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
-            result._booking_guests_warning = 'booking_guests table not migrated';
-          }
-        } else {
-          result._per_person = quote.per_person || null;
-        }
-
-        const serviceRecordRows = buildManualBookingServiceRecordRows({
-          addOns,
-          quote,
-          clientSlug,
-          bookingId: result.booking_id,
-          bookingCode: result.booking_code,
-          guestName,
-          checkIn,
-          guestCount,
-          source: 'luna_guest',
-        });
-        const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
-        result._service_records_created = svcInsert.created;
-        result._service_records_available = svcInsert.available;
-        result._service_records_warning = svcInsert.warning;
-
-        // Update draft payment row with quote-driven amounts
-        const pmUpdate = await pg.query(
-          `UPDATE payments
-             SET payment_kind     = $1::payment_kind,
-                 amount_due_cents = $2,
-                 metadata         = metadata || $3::jsonb
-           WHERE booking_id = $4
-             AND client_id = (SELECT id FROM clients WHERE slug = $5 LIMIT 1)
-           RETURNING id AS payment_id`,
-          [
-            paymentKind, paymentLinkAmountCents,
-            JSON.stringify({
-              payment_choice:            paymentChoice,
-              quote_total_cents:         totalCents,
-              payment_link_amount_cents: paymentLinkAmountCents,
-              source:                    'bot_booking_stage854',
-            }),
-            result.booking_id,
-            clientSlug,
-          ]
-        );
-        result._payment_id = pmUpdate.rows.length > 0 ? pmUpdate.rows[0].payment_id : null;
-
-        await pg.query('COMMIT');
-        return result;
-      } catch (e) {
-        try { await pg.query('ROLLBACK'); } catch (_) {}
-        throw e;
-      }
-    });
+    execResult = await withPgClient(async (pg) => executeWolfhouseBookingCreate(pg, cmd));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'bot booking create failed', detail: err.message });
   }
 
-  if (!row) {
-    appendAuditLog({ ...auditBase, success: false, error: 'no_result_row', elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'no result row returned from helper' });
-  }
-
+  const row = execResult.body || {};
+  const quote = row.quote || cmd.quote;
+  const assignedBedCodes = row.assignedBedCodes || cmd.assignedBedCodes;
   const elapsed = Date.now() - started;
 
-  // ── 8. Idempotency duplicate ──────────────────────────────────────────────
+  if (!execResult.ok && !row._duplicate && !row._blocked && !row._safety_violation) {
+    appendAuditLog({ ...auditBase, success: false, error: row.error || 'write_failed', elapsed_ms: elapsed });
+    if (execResult.status === 400) return send400(res, row.error || 'invalid request');
+    return sendJSON(res, execResult.status, { success: false, ...row });
+  }
+
+  // ── 5. Idempotency duplicate ──────────────────────────────────────────────
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
@@ -15445,7 +15140,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     });
   }
 
-  // ── 9. Blocked ────────────────────────────────────────────────────────────
+  // ── 6. Blocked ────────────────────────────────────────────────────────────
   if (row._blocked) {
     appendAuditLog({ ...auditBase, success: false, blocked: true,
       block_reason: row.block_reason, elapsed_ms: elapsed });
@@ -15460,7 +15155,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     });
   }
 
-  // ── 10. Safety violation ──────────────────────────────────────────────────
+  // ── 7. Safety violation ──────────────────────────────────────────────────
   if (row._safety_violation) {
     appendAuditLog({ ...auditBase, success: false,
       error: 'SAFETY_VIOLATION_bed_count_mismatch', beds_inserted: row.beds_inserted, elapsed_ms: elapsed });
@@ -15471,7 +15166,7 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     });
   }
 
-  // ── 11. Success ───────────────────────────────────────────────────────────
+  // ── 8. Success ───────────────────────────────────────────────────────────
   appendAuditLog({ ...auditBase, success: true,
     booking_id: row.booking_id, booking_code: row.booking_code,
     payment_id: row._payment_id, beds_inserted: row.beds_inserted,
@@ -15488,23 +15183,23 @@ async function handleBotBookingCreate(req, res, user, authMode) {
     payment_id:          row._payment_id || null,
     payment_status:      'draft',
     beds_inserted:       Number(row.beds_inserted || 0),
-    client_slug:         clientSlug,
-    check_in:            checkIn,
-    check_out:           checkOut,
+    client_slug:         cmd.clientSlug,
+    check_in:            cmd.checkIn,
+    check_out:           cmd.checkOut,
     selected_bed_codes:  assignedBedCodes,
-    guest_count:         quoteGuestCount,
-    uses_per_guest_model: usesPerGuestModel,
-    per_guest_payment_links: perGuestPaymentLinks,
+    guest_count:         cmd.quoteGuestCount,
+    uses_per_guest_model: cmd.usesPerGuestModel,
+    per_guest_payment_links: cmd.perGuestPaymentLinks,
     booking_guests:      row._booking_guests || null,
     per_person:          row._per_person || quote.per_person || null,
     quote: {
       total_cents:               quote.total_cents,
       deposit_required_cents:    quote.deposit_required_cents,
-      payment_link_amount_cents: paymentLinkAmountCents,
-      payment_kind:              paymentKind,
+      payment_link_amount_cents: row.paymentLinkAmountCents,
+      payment_kind:              row.paymentKind || cmd.paymentKind,
       formula_summary:           quote.formula_summary,
-      package_code:              effectivePackageCode,
-      accommodation_only:        pkgCtx.isNoPackage,
+      package_code:              cmd.effectivePackageCode,
+      accommodation_only:        cmd.pkgCtx.isNoPackage,
       per_person:                row._per_person || quote.per_person || null,
       per_guest_deposits:        quote.per_guest_deposits || null,
     },
@@ -15524,60 +15219,6 @@ async function handleBotBookingCreate(req, res, user, authMode) {
 // Stage 8.8.16 — Manual booking create → booking_service_records
 // (buildManualBookingServiceRecordRows in lib/manual-booking-service-records.js)
 // ─────────────────────────────────────────────────────────────────────────────
-
-async function insertManualBookingServiceRecords(pg, rows) {
-  if (!rows.length) return { created: 0, available: true, warning: null };
-  let created = 0;
-  for (const row of rows) {
-    await pg.query(
-      `INSERT INTO booking_service_records (
-         client_slug, booking_id, booking_code, guest_name,
-         service_type, service_date, quantity, status,
-         amount_due_cents, amount_paid_cents, payment_status,
-         source, notes, metadata
-       ) VALUES (
-         $1, $2::uuid, $3, $4,
-         $5, $6::date, $7, $8,
-         $9, $10, $11,
-         $12, $13, $14::jsonb
-       )`,
-      [
-        row.client_slug,
-        row.booking_id,
-        row.booking_code,
-        row.guest_name,
-        row.service_type,
-        row.service_date,
-        row.quantity,
-        row.status,
-        row.amount_due_cents,
-        row.amount_paid_cents,
-        row.payment_status,
-        row.source,
-        row.notes,
-        JSON.stringify(row.metadata || {}),
-      ]
-    );
-    created++;
-  }
-  return { created, available: true, warning: null };
-}
-
-async function tryInsertManualBookingServiceRecords(pg, rows) {
-  if (!rows.length) return { created: 0, available: true, warning: null };
-  try {
-    return await insertManualBookingServiceRecords(pg, rows);
-  } catch (err) {
-    if (isMissingBookingServiceRecordsTable(err)) {
-      return {
-        created:  0,
-        available: false,
-        warning:  'booking_service_records table not available — service records skipped',
-      };
-    }
-    throw err;
-  }
-}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Route: POST /staff/manual-bookings/create  (Stage 8.4 — PROVISIONAL / DISABLED)
@@ -15610,503 +15251,6 @@ async function tryInsertManualBookingServiceRecords(pg, rows) {
 //   - NO Stripe session, invoice, or payment link is ever created here.
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Phase 10.6d — staff payment choices at manual booking create
-const MANUAL_BOOKING_STAFF_PAYMENT_CHOICES = new Set([
-  'stripe_deposit',            // group deposit link (one link for the full deposit)
-  'stripe_deposit_per_guest',  // one deposit link per guest
-  'stripe_full',
-  'paid_cash',
-  'paid_bank_transfer',
-  'no_payment_yet',
-]);
-
-// Both deposit choices behave identically for amount/kind/status — they differ
-// only in link scope (one group link vs one link per guest).
-function isManualBookingDepositChoice(c) {
-  return c === 'stripe_deposit' || c === 'stripe_deposit_per_guest';
-}
-
-const MANUAL_BOOKING_LEGACY_PAYMENT_MAP = Object.freeze({
-  deposit: 'stripe_deposit',
-  'pay deposit': 'stripe_deposit',
-  'the deposit': 'stripe_deposit',
-  'deposit only': 'stripe_deposit',
-  full: 'stripe_full',
-  'full amount': 'stripe_full',
-  'pay full': 'stripe_full',
-  'pay full amount': 'stripe_full',
-  'all now': 'stripe_full',
-  'pay all': 'stripe_full',
-  everything: 'stripe_full',
-  'whole amount': 'stripe_full',
-  pay_on_arrival: 'no_payment_yet',
-  'pay on arrival': 'no_payment_yet',
-  'on arrival': 'no_payment_yet',
-  arrival: 'no_payment_yet',
-});
-
-function normalizeManualBookingStaffPaymentChoice(raw) {
-  const c = String(raw || '').trim().toLowerCase().replace(/[^a-z0-9_]+/g, ' ').replace(/\s+/g, ' ').trim();
-  if (MANUAL_BOOKING_STAFF_PAYMENT_CHOICES.has(c)) return c;
-  if (MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c]) return MANUAL_BOOKING_LEGACY_PAYMENT_MAP[c];
-  return null;
-}
-
-function manualBookingQuotePaymentChoice(staffChoice) {
-  if (isManualBookingDepositChoice(staffChoice)) return 'deposit';
-  if (staffChoice === 'stripe_full') return 'full';
-  return 'pay_on_arrival';
-}
-
-function manualBookingPaymentKindForStaffChoice(staffChoice) {
-  return staffChoice === 'stripe_full' ? 'full_amount' : 'deposit_only';
-}
-
-function manualBookingAmountDueForStaffChoice(staffChoice, depositCents, totalCents) {
-  if (staffChoice === 'stripe_full') return totalCents;
-  if (isManualBookingDepositChoice(staffChoice)) return depositCents;
-  return 0;
-}
-
-function resolveManualBookingPaidAmountCents(depositCents, totalCents, paidAmountType, customCents) {
-  const t = String(paidAmountType || 'deposit').toLowerCase();
-  if (t === 'full') return Number(totalCents || 0);
-  if (t === 'custom') {
-    const n = Math.floor(Number(customCents));
-    if (!n || n <= 0) return null;
-    return n;
-  }
-  return Number(depositCents || 0);
-}
-
-function manualBookingBookingPaymentStatusForCreate(staffChoice, paidCents, totalCents) {
-  if (staffChoice === 'paid_cash' || staffChoice === 'paid_bank_transfer') {
-    const total = Number(totalCents || 0);
-    const paid = Number(paidCents || 0);
-    if (total > 0 && paid >= total) return 'paid';
-    if (paid > 0) return 'deposit_paid';
-    return 'not_requested';
-  }
-  if (isManualBookingDepositChoice(staffChoice) || staffChoice === 'stripe_full') return 'waiting_payment';
-  return 'not_requested';
-}
-
-// Map UI payment-status values to payment_status enum values (legacy form fields).
-const MANUAL_BOOKING_PAYMENT_STATUS_MAP = Object.freeze({
-  unpaid:          'not_requested',
-  not_requested:   'not_requested',
-  waiting_payment: 'waiting_payment',
-  deposit_paid:    'deposit_paid',
-  paid:            'paid',
-});
-
-// Create one deposit Stripe link per guest (€200/€100 each) from the inserted
-// booking_guests rows. Each link is its own payment row tagged with the guest's
-// booking_guest_id, so it renders in the drawer's per-guest section and is never
-// mistaken for the group balance link. All-or-nothing inside the create txn.
-async function manualBookingCreatePerGuestDepositLinks(pg, opts) {
-  const { bookingGuests, bookingId, bookingCode, clientSlug, checkIn, checkOut, idempotencyKey, outcome } = opts;
-  const guests = (bookingGuests || []).filter((g) => g && g.booking_guest_id);
-
-  if (guests.length === 0) {
-    // No per-guest rows (e.g. booking_guests table not migrated). Nothing to do —
-    // staff can still generate links from the drawer.
-    outcome.payment_status = 'waiting_payment';
-    outcome.per_guest_links = [];
-    outcome.message = 'Booking created. No per-guest rows available — generate deposit links from the booking drawer.';
-    return outcome;
-  }
-
-  const totalDepositCents = guests.reduce((s, g) => s + Number(g.deposit_amount_cents || 0), 0);
-  const stripeConfigured = STRIPE_LINKS_ENABLED && STRIPE_SECRET_KEY && stripeCheckoutRedirectUrlsConfigured();
-
-  const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-  const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-  if (!clientId) throw new Error('client not found');
-
-  let stripe = null;
-  if (stripeConfigured) {
-    try {
-      stripe = require('stripe')(STRIPE_SECRET_KEY);
-    } catch (e) {
-      throw new Error('STRIPE_SDK_LOAD_FAILED: ' + e.message);
-    }
-  }
-
-  const perGuestLinks = [];
-  for (const g of guests) {
-    const amountDueCents = Number(g.deposit_amount_cents || 0);
-    const idemKey = `mb-guest-deposit-${idempotencyKey}-${g.guest_number}`;
-    const ins = await pg.query(
-      `INSERT INTO payments (
-         client_id, booking_id, booking_guest_id, status, payment_kind, currency,
-         amount_due_cents, amount_paid_cents, metadata
-       ) VALUES (
-         $1, $2::uuid, $3::uuid, 'draft'::payment_record_status, 'deposit_only'::payment_kind, 'EUR',
-         $4, 0, $5::jsonb
-       ) RETURNING id::text AS payment_id`,
-      [clientId, bookingId, g.booking_guest_id, amountDueCents, JSON.stringify({
-        source: 'staff_manual_per_guest_deposit',
-        method: 'payment_link',
-        idempotency_key: idemKey,
-        booking_guest_id: g.booking_guest_id,
-        guest_number: g.guest_number,
-      })],
-    );
-    const paymentId = ins.rows[0].payment_id;
-
-    if (!stripe) {
-      perGuestLinks.push({ guest_number: g.guest_number, payment_id: paymentId, amount_due_cents: amountDueCents, payment_link_skipped: true });
-      continue;
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      currency: 'eur',
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          product_data: {
-            name: `Deposit — ${g.guest_name || 'Guest ' + g.guest_number} (${bookingCode || bookingId})`,
-            description: `Deposit | ${checkIn} – ${checkOut} | ${clientSlug}`,
-          },
-          unit_amount: amountDueCents,
-        },
-        quantity: 1,
-      }],
-      metadata: {
-        client_slug: clientSlug,
-        booking_id: bookingId,
-        booking_code: bookingCode || '',
-        payment_id: paymentId,
-        booking_guest_id: g.booking_guest_id,
-        payment_kind: 'deposit_only',
-        source: 'staff_manual_per_guest_deposit',
-        idempotency_key: idemKey,
-        staff_payment_choice: 'stripe_deposit_per_guest',
-      },
-      success_url: stripeCheckoutSessionSuccessUrl(),
-      cancel_url: stripeCheckoutSessionCancelUrl(),
-    });
-    const expiresAt = session.expires_at ? new Date(session.expires_at * 1000).toISOString() : null;
-    await pg.query(
-      `UPDATE payments
-          SET status = 'checkout_created'::payment_record_status,
-              stripe_checkout_session_id = $1, checkout_url = $2, expires_at = $3,
-              metadata = (metadata || $4::jsonb)
-        WHERE id = $5::uuid`,
-      [session.id, session.url, expiresAt, JSON.stringify({
-        stripe_session_id: session.id,
-        payment_link_url: session.url,
-      }), paymentId],
-    );
-    perGuestLinks.push({ guest_number: g.guest_number, payment_id: paymentId, amount_due_cents: amountDueCents, checkout_url: session.url });
-  }
-
-  await pg.query(
-    `UPDATE bookings
-        SET payment_status = 'waiting_payment'::payment_status
-      WHERE id = $1::uuid
-        AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
-    [bookingId, clientSlug],
-  );
-
-  outcome.payment_status = stripe ? 'payment_link_created' : 'waiting_payment';
-  outcome.amount_due_cents = totalDepositCents;
-  outcome.per_guest_links = perGuestLinks;
-  outcome.payment_link_url = perGuestLinks[0] ? perGuestLinks[0].checkout_url || null : null;
-  outcome.checkout_url = outcome.payment_link_url;
-  outcome.payment_id = perGuestLinks[0] ? perGuestLinks[0].payment_id : null;
-  outcome.payment_link_skipped = !stripe;
-  outcome.message = stripe
-    ? `Booking created. ${perGuestLinks.length} per-guest deposit link${perGuestLinks.length === 1 ? '' : 's'} created (€${(totalDepositCents / 100).toFixed(2)} total).`
-    : 'Booking created. Per-guest deposit rows created — links skipped (online payment links disabled).';
-  return outcome;
-}
-
-async function manualBookingApplyStaffPaymentChoice(pg, opts) {
-  const staffPaymentChoice = opts.staffPaymentChoice;
-  const paidAmountType = opts.paidAmountType;
-  const paidAmountCustomCents = opts.paidAmountCustomCents;
-  let paymentId = opts.paymentId || null;
-  const bookingId = opts.bookingId;
-  const bookingCode = opts.bookingCode;
-  const clientSlug = opts.clientSlug;
-  const depositCents = opts.depositCents;
-  const totalCents = opts.totalCents;
-  const actorId = opts.actorId;
-  const actorLabel = opts.actorLabel || actorId;
-  const idempotencyKey = opts.idempotencyKey;
-  const guestName = opts.guestName || 'Guest';
-  const checkIn = opts.checkIn || '';
-  const checkOut = opts.checkOut || '';
-
-  const outcome = {
-    payment_choice: staffPaymentChoice,
-    payment_id: paymentId,
-    payment_status: 'not_requested',
-    payment_link_url: null,
-    checkout_url: null,
-    amount_due_cents: 0,
-    amount_paid_cents: 0,
-    stripe_called: false,
-    message: '',
-  };
-
-  if (staffPaymentChoice === 'no_payment_yet') {
-    outcome.message = 'Booking created. No payment link or paid record yet — balance remains due.';
-    return outcome;
-  }
-
-  if (staffPaymentChoice === 'paid_cash' || staffPaymentChoice === 'paid_bank_transfer') {
-    const paidCents = resolveManualBookingPaidAmountCents(
-      depositCents, totalCents, paidAmountType, paidAmountCustomCents,
-    );
-    if (paidCents == null || paidCents <= 0) {
-      const err = new Error('INVALID_PAID_AMOUNT');
-      err.code = 'INVALID_PAID_AMOUNT';
-      throw err;
-    }
-    const isBank = staffPaymentChoice === 'paid_bank_transfer';
-    const method = isBank ? 'bank_transfer' : 'cash';
-    const source = isBank ? 'staff_bank_transfer' : 'staff_cash';
-    const paidIdemKey = `mb-paid-${idempotencyKey}`;
-
-    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-    if (!clientId) throw new Error('client not found');
-
-    const idem = await pg.query(
-      `SELECT id::text AS payment_id FROM payments
-        WHERE booking_id = $1::uuid AND metadata->>'idempotency_key' = $2 LIMIT 1`,
-      [bookingId, paidIdemKey],
-    );
-    if (idem.rows[0]) {
-      paymentId = idem.rows[0].payment_id;
-    } else {
-      const paidAt = new Date().toISOString();
-      const pmMeta = {
-        source,
-        method,
-        idempotency_key: paidIdemKey,
-        staff_portal: true,
-        phase: '10.6d',
-        recorded_by: actorLabel,
-        paid_amount_type: paidAmountType || 'deposit',
-        manual_booking_create: true,
-      };
-      const ins = await pg.query(
-        `INSERT INTO payments (
-           client_id, booking_id, status, payment_kind, currency,
-           amount_due_cents, amount_paid_cents, paid_at, metadata
-         ) VALUES (
-           $1, $2::uuid, 'paid'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-           $3, $3, $4::timestamptz, $5::jsonb
-         ) RETURNING id::text AS payment_id`,
-        [clientId, bookingId, paidCents, paidAt, JSON.stringify(pmMeta)],
-      );
-      paymentId = ins.rows[0].payment_id;
-    }
-
-    const sumRes = await pg.query(
-      `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
-         FROM payments
-        WHERE booking_id = $1::uuid AND status = 'paid'::payment_record_status`,
-      [bookingId],
-    );
-    const newBkPaid = Number(sumRes.rows[0].total || 0);
-    const newBalance = totalCents > 0 ? Math.max(totalCents - newBkPaid, 0) : 0;
-    const newBkPayStatus = manualBookingBookingPaymentStatusForCreate(
-      staffPaymentChoice, newBkPaid, totalCents,
-    );
-
-    await pg.query(
-      `UPDATE bookings
-          SET amount_paid_cents = $1, balance_due_cents = $2, payment_status = $3::payment_status
-        WHERE id = $4::uuid
-          AND client_id = (SELECT id FROM clients WHERE slug = $5 LIMIT 1)`,
-      [newBkPaid, newBalance, newBkPayStatus, bookingId, clientSlug],
-    );
-
-    outcome.payment_id = paymentId;
-    outcome.amount_paid_cents = paidCents;
-    outcome.payment_status = newBkPayStatus;
-    outcome.message = `Booking created. ${isBank ? 'Bank transfer' : 'Cash'} payment of \u20ac${(paidCents / 100).toFixed(2)} recorded. No payment link was created or sent.`;
-    return outcome;
-  }
-
-  // ── Per-guest deposit links: one deposit link per guest (€200/€100 each) ────
-  if (staffPaymentChoice === 'stripe_deposit_per_guest') {
-    return manualBookingCreatePerGuestDepositLinks(pg, {
-      bookingGuests: opts.bookingGuests || [],
-      bookingId,
-      bookingCode,
-      clientSlug,
-      checkIn,
-      checkOut,
-      idempotencyKey,
-      outcome,
-    });
-  }
-
-  const amountDueCents = manualBookingAmountDueForStaffChoice(
-    staffPaymentChoice, depositCents, totalCents,
-  );
-  const paymentKind = manualBookingPaymentKindForStaffChoice(staffPaymentChoice);
-  const stripeIdemKey = `mb-stripe-${idempotencyKey}-${staffPaymentChoice}`;
-  const stripeConfigured = STRIPE_LINKS_ENABLED
-    && STRIPE_SECRET_KEY
-    && stripeCheckoutRedirectUrlsConfigured();
-
-  if (!paymentId) {
-    const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-    const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-    if (!clientId) throw new Error('client not found');
-    const ins = await pg.query(
-      `INSERT INTO payments (
-         client_id, booking_id, status, payment_kind, currency,
-         amount_due_cents, amount_paid_cents, metadata
-       ) VALUES (
-         $1, $2::uuid, 'draft'::payment_record_status, $3::payment_kind, 'EUR',
-         $4, 0, $5::jsonb
-       ) RETURNING id::text AS payment_id`,
-      [clientId, bookingId, paymentKind, amountDueCents, JSON.stringify({
-        source: 'staff_manual_stripe',
-        method: 'payment_link',
-        idempotency_key: stripeIdemKey,
-        phase: '10.6d',
-      })],
-    );
-    paymentId = ins.rows[0].payment_id;
-  } else {
-    await pg.query(
-      `UPDATE payments
-          SET payment_kind = $1::payment_kind,
-              amount_due_cents = $2,
-              amount_paid_cents = 0,
-              metadata = (metadata || $3::jsonb) - 'note'
-        WHERE id = $4::uuid`,
-      [paymentKind, amountDueCents, JSON.stringify({
-        source: 'staff_manual_stripe',
-        method: 'payment_link',
-        idempotency_key: stripeIdemKey,
-        phase: '10.6d',
-      }), paymentId],
-    );
-  }
-
-  if (!stripeConfigured) {
-    await pg.query(
-      `UPDATE bookings
-          SET payment_status = 'waiting_payment'::payment_status
-        WHERE id = $1::uuid
-          AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
-      [bookingId, clientSlug],
-    );
-    outcome.payment_id = paymentId;
-    outcome.amount_due_cents = amountDueCents;
-    outcome.payment_status = 'waiting_payment';
-    outcome.payment_link_skipped = true;
-    outcome.skip_reason = 'stripe_links_disabled';
-    outcome.message = 'Booking created. Secure payment link skipped — online payment links are disabled. Generate a payment link from the booking drawer when enabled.';
-    return outcome;
-  }
-
-  const existRes = await pg.query(
-    `SELECT p.checkout_url, p.status::text AS payment_status
-       FROM payments p
-      INNER JOIN clients c ON c.id = p.client_id
-      WHERE p.id = $1::uuid
-        AND c.slug = $2`,
-    [paymentId, clientSlug],
-  );
-  const exist = existRes.rows[0];
-  if (exist && exist.checkout_url && exist.payment_status === 'checkout_created') {
-    outcome.payment_id = paymentId;
-    outcome.payment_link_url = exist.checkout_url;
-    outcome.checkout_url = exist.checkout_url;
-    outcome.amount_due_cents = amountDueCents;
-    outcome.payment_status = 'payment_link_created';
-    outcome.message = 'Booking created. Secure payment link ready (idempotent). Link not marked paid — webhook confirms payment.';
-    return outcome;
-  }
-
-  let stripe;
-  try {
-    stripe = require('stripe')(STRIPE_SECRET_KEY);
-  } catch (e) {
-    throw new Error('STRIPE_SDK_LOAD_FAILED: ' + e.message);
-  }
-
-  const productName = `Booking ${bookingCode || paymentId} \u2014 ${guestName}`;
-  const productDesc = `${staffPaymentChoice === 'stripe_full' ? 'Full payment' : 'Deposit'} | ${checkIn} \u2013 ${checkOut} | ${clientSlug}`;
-
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    currency: 'eur',
-    line_items: [{
-      price_data: {
-        currency: 'eur',
-        product_data: { name: productName, description: productDesc },
-        unit_amount: amountDueCents,
-      },
-      quantity: 1,
-    }],
-    metadata: {
-      client_slug: clientSlug,
-      booking_id: bookingId,
-      booking_code: bookingCode || '',
-      payment_id: paymentId,
-      payment_kind: paymentKind,
-      source: 'staff_manual_stripe',
-      idempotency_key: stripeIdemKey,
-      staff_payment_choice: staffPaymentChoice,
-    },
-    success_url: stripeCheckoutSessionSuccessUrl(),
-    cancel_url: stripeCheckoutSessionCancelUrl(),
-  });
-
-  const expiresAt = session.expires_at
-    ? new Date(session.expires_at * 1000).toISOString()
-    : null;
-
-  await pg.query(
-    `UPDATE payments
-        SET status = 'checkout_created'::payment_record_status,
-            stripe_checkout_session_id = $1,
-            checkout_url = $2,
-            expires_at = $3,
-            amount_due_cents = $4,
-            amount_paid_cents = 0,
-            metadata = (metadata || $5::jsonb) - 'note'
-      WHERE id = $6::uuid`,
-    [session.id, session.url, expiresAt, amountDueCents, JSON.stringify({
-      stripe_session_id: session.id,
-      payment_link_url: session.url,
-      staff_payment_choice: staffPaymentChoice,
-    }), paymentId],
-  );
-
-  await pg.query(
-    `UPDATE bookings
-        SET payment_status = 'waiting_payment'::payment_status
-      WHERE id = $1::uuid
-        AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
-    [bookingId, clientSlug],
-  );
-
-  outcome.payment_id = paymentId;
-  outcome.payment_link_url = session.url;
-  outcome.checkout_url = session.url;
-  outcome.amount_due_cents = amountDueCents;
-  outcome.payment_status = 'payment_link_created';
-  outcome.stripe_called = true;
-  outcome.message = staffPaymentChoice === 'stripe_full'
-    ? 'Booking created. Full secure payment link generated. Link not marked paid — webhook confirms payment.'
-    : 'Booking created. Deposit secure payment link generated. Link not marked paid — webhook confirms payment.';
-  return outcome;
-}
-
 async function handleManualBookingCreate(req, res, user) {
   const started = Date.now();
 
@@ -16133,422 +15277,101 @@ async function handleManualBookingCreate(req, res, user) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  // ── 3. Extract + sanitise input ──────────────────────────────────────────────
-  const clientSlug  = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
-  const checkIn     = String(body.check_in  || '').trim();
-  const checkOut    = String(body.check_out || '').trim();
-  const guestCount  = parseInt(body.guest_count, 10) || 0;
-  const guestsNorm    = normalizeBookingGuestsInput(body);
-  if (!guestsNorm.ok) return send400(res, guestsNorm.error);
-  const usesPerGuestModel = guestsNorm.uses_per_guest_model === true;
-  const guestName     = (String(body.guest_name || '').trim() || guestsNorm.primary_name || '').slice(0, 200);
-  const resolvedGuestCount = guestsNorm.guest_count || guestCount;
-  const effectiveGuestCount = resolvedGuestCount > 0 ? resolvedGuestCount : guestCount;
-  // Group deposit link (one link) vs one deposit link per guest — chosen in the
-  // portal Payment-choice dropdown, independent of the per-guest booking model.
-  const perGuestPaymentLinks = normalizeManualBookingStaffPaymentChoice(body.payment_choice) === 'stripe_deposit_per_guest';
-  const phone       = String(body.phone || '').trim().slice(0, 50);
-  const email       = String(body.email || '').trim().slice(0, 200) || null;
-  const language    = String(body.language || 'en').trim().slice(0, 10) || 'en';
-  const roomPref    = String(body.room_preference || '').trim().slice(0, 200) || null;
-  const notes       = String(body.notes || '').trim().slice(0, 2000) || null;
-  const reason      = String(body.reason || 'Manual booking via Staff Portal Bed Calendar').trim().slice(0, 500);
-  const source      = String(body.source || body.booking_source || 'staff_manual').trim().slice(0, 50) || 'staff_manual';
-  // Stage 8.4.8: quote-driven fields — amounts derived from calculateWolfhouseQuote(), NOT from body
-  const packageCode   = String(body.package_code || body.package_or_stay_type || '').trim().toLowerCase().slice(0, 50) || null;
-  const rawGuestPackages = Array.isArray(body.guest_packages) ? body.guest_packages : [];
-  const normalizedGuestPackages = rawGuestPackages.length
-    ? normalizeGuestPackagesInput(rawGuestPackages, effectiveGuestCount || rawGuestPackages.length, packageCode || 'malibu')
-    : { guest_packages: [] };
-  if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
-  const guestPackages = normalizedGuestPackages.guest_packages || [];
-  // Majority storage code is null when everyone is no-package; fall back to the
-  // top package_code (or 'package_none') so an all-no-package booking is valid.
-  const effectivePackageCode = guestPackages.length
-    ? (guestPackagesMajorityStorageCode(guestPackages) || packageCode || 'package_none')
-    : packageCode;
-  const roomType      = String(body.room_type || 'shared').trim().slice(0, 20) || 'shared';
-  const addOns        = Array.isArray(body.add_ons) ? body.add_ons : [];
-  const manualPricePerNightCents = body.manual_price_per_night_cents != null
-    ? Math.round(Number(body.manual_price_per_night_cents))
-    : (body.manual_price_per_night_euros != null
-      ? Math.round(Number(body.manual_price_per_night_euros) * 100)
-      : null);
-  const staffPayChoice = normalizeManualBookingStaffPaymentChoice(body.payment_choice);
-  if (!staffPayChoice) {
-    return send400(res, 'payment_choice must be one of: stripe_deposit, stripe_deposit_per_guest, stripe_full, paid_cash, paid_bank_transfer, no_payment_yet');
-  }
-  const paidAmountType = String(body.paid_amount_type || 'deposit').trim().toLowerCase();
-  const paidAmountCustomCents = body.paid_amount_cents != null
-    ? Math.floor(Number(body.paid_amount_cents))
-    : (body.paid_amount_euros != null ? Math.round(Number(body.paid_amount_euros) * 100) : null);
-  if (staffPayChoice === 'paid_cash' || staffPayChoice === 'paid_bank_transfer') {
-    if (!['deposit', 'full', 'custom'].includes(paidAmountType)) {
-      return send400(res, 'paid_amount_type must be deposit, full, or custom for cash/bank payment');
-    }
-    if (paidAmountType === 'custom' && (!paidAmountCustomCents || paidAmountCustomCents <= 0)) {
-      return send400(res, 'paid_amount_cents (or paid_amount_euros) is required when paid_amount_type is custom');
-    }
-  }
-  const confirmFlag   = body.confirm === true;
-  const warningsAck  = body.warnings_acknowledged === true;
-  const bookingCode  = body.booking_code ? String(body.booking_code).trim().slice(0, 60) : null;
-
-  const quotePaymentChoice = manualBookingQuotePaymentChoice(staffPayChoice);
-  // booking_status: manual staff bookings are confirmed by default
-  const bookingStatus = 'confirmed';
-
-  // selected_bed_codes: accept array or comma-separated string
-  let rawBedCodes = body.selected_bed_codes;
-  if (typeof rawBedCodes === 'string') {
-    rawBedCodes = rawBedCodes.split(',').map((s) => s.trim()).filter(Boolean);
-  } else if (!Array.isArray(rawBedCodes)) {
-    rawBedCodes = [];
-  }
-  const selectedBedCodes = rawBedCodes.map(String).slice(0, 20);
-
-  // ── 4. Actor (auth) ───────────────────────────────────────────────────────────
-  // requireAuth ran in the router. In local open mode (STAFF_AUTH_REQUIRED=false)
-  // user is null — use a deterministic local actor; the SQL stores it in audit only.
+  // ── 3. Actor (auth) ───────────────────────────────────────────────────────────
   const actorId   = user ? user.staff_user_id : 'manual-booking-local';
   const actorRole = user ? user.role          : 'operator';
+  const clientSlug = String(body.client || body.client_slug || DEFAULT_CLIENT).trim();
 
-  // ── 5. Validate ────────────────────────────────────────────────────────────────
-  if (SQL_INJECT_RE.test(clientSlug))
-    return send400(res, 'invalid client slug');
-  if (!checkIn || !checkOut)
-    return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(checkIn) || !/^\d{4}-\d{2}-\d{2}$/.test(checkOut))
-    return send400(res, 'check_in and check_out must be YYYY-MM-DD');
-  if (checkOut <= checkIn)
-    return send400(res, 'check_out must be after check_in');
-  if (selectedBedCodes.length === 0)
-    return send400(res, 'selected_bed_codes is required (select empty calendar cells)');
-  if (selectedBedCodes.some((c) => SQL_INJECT_RE.test(c)))
-    return send400(res, 'invalid character in selected_bed_codes');
-  if (!guestName)
-    return send400(res, 'guest_name is required');
-  if (effectiveGuestCount < 1 && guestCount < 1)
-    return send400(res, 'guest_count must be at least 1');
-  if (!confirmFlag)
-    return send400(res, 'confirm: true is required in request body');
-  if (!MANUAL_BOOKING_ALLOWED_ROLES.includes(actorRole))
-    return sendJSON(res, 403, { success: false, error: `Role '${actorRole}' may not create manual bookings.` });
-
-  // ── 5a. Weekly package minimum stay (Stage 28i.1) ───────────────────────────
-  const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, effectivePackageCode);
-  if (!packageNightCheck.ok) {
-    appendAuditLog({
-      ts: new Date().toISOString(),
-      intent: 'api:manual_booking_create',
-      category: 'manual_booking_create',
-      success: false,
-      error: 'package_min_nights_violation',
-      client_slug: clientSlug,
-      check_in: checkIn,
-      check_out: checkOut,
-      package_code: packageCode,
-      nights: packageNightCheck.nights,
-      staff_user_id: actorId,
-      staff_role: actorRole,
-      elapsed_ms: Date.now() - started,
+  // ── 4. Build command + execute via shared service ─────────────────────────────
+  let built;
+  try {
+    built = await buildWolfhouseBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      trustedClientSlug: clientSlug,
+      transportBody: body,
+      actorHints: { staff_user_id: actorId, staff_role: actorRole, email: user && user.email },
     });
-    return send400(res, packageNightCheck.error);
+  } catch (err) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'api:manual_booking_create',
+      category: 'manual_booking_create', success: false,
+      error: 'build_failed: ' + err.message, elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'manual booking create failed', detail: err.message });
   }
 
-  // ── 5b. Server-side quote calculation (Stage 8.4.8) ──────────────────────────
-  if (!effectivePackageCode) {
-    return send400(res, 'package_code or guest_packages is required for quote-driven booking');
+  if (!built.ok) {
+    if (built.body.reason_code === 'package_min_nights_violation') {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'api:manual_booking_create',
+        category: 'manual_booking_create',
+        success: false,
+        error: 'package_min_nights_violation',
+        client_slug: clientSlug,
+        check_in: body.check_in,
+        check_out: body.check_out,
+        package_code: body.package_code,
+        staff_user_id: actorId,
+        staff_role: actorRole,
+        elapsed_ms: Date.now() - started,
+      });
+    }
+    if (built.status === 400) return send400(res, built.body.error || 'invalid request');
+    if (built.status === 403) return sendJSON(res, 403, { success: false, error: built.body.error });
+    return sendJSON(res, built.status, { success: false, ...built.body });
   }
-  const quoteGuestCount = effectiveGuestCount > 0 ? effectiveGuestCount : guestCount;
-  const quote = calculateWolfhouseQuote({
-    client_slug:    clientSlug,
-    check_in:       checkIn,
-    check_out:      checkOut,
-    guest_count:    quoteGuestCount,
-    package_code:   effectivePackageCode,
-    guest_packages: guestPackages.length ? guestPackages : undefined,
-    room_type:      roomType,
-    payment_choice: quotePaymentChoice,
-    add_ons:        addOns,
-    manual_price_per_night_cents: manualPricePerNightCents,
-    uses_per_guest_deposits: usesPerGuestModel,
-  });
-  if (!quote.success || quote.blockers.length > 0) {
-    return send400(res, 'Quote calculation failed: ' + (quote.blockers[0] || 'check pricing config'));
-  }
-  const depositCents           = quote.deposit_required_cents;
-  const totalCents             = quote.total_cents;
-  const paymentKind            = manualBookingPaymentKindForStaffChoice(staffPayChoice);
-  const paymentLinkAmountCents = manualBookingAmountDueForStaffChoice(
-    staffPayChoice, depositCents, totalCents,
-  ) || quote.payment_link_amount_cents;
-  const sqlDepositCents = (
-    staffPayChoice === 'no_payment_yet'
-    || staffPayChoice === 'paid_cash'
-    || staffPayChoice === 'paid_bank_transfer'
-    || isManualBookingDepositChoice(staffPayChoice)
-    || staffPayChoice === 'stripe_full'
-  )
-    ? 0
-    : depositCents;
-  const prePaidCents = (staffPayChoice === 'paid_cash' || staffPayChoice === 'paid_bank_transfer')
-    ? resolveManualBookingPaidAmountCents(depositCents, totalCents, paidAmountType, paidAmountCustomCents)
-    : 0;
-  const paymentStatus = manualBookingBookingPaymentStatusForCreate(
-    staffPayChoice, prePaidCents, totalCents,
-  );
-  const storagePackageCode = (!packageCode || packageCode === 'package_none' || packageCode === 'no_package')
-    ? null
-    : packageCode;
 
-  // ── 6. Idempotency key ───────────────────────────────────────────────────────
-  // Accept caller-provided key; otherwise build a deterministic key from the
-  // booking-defining fields so a double-click (identical payload) de-duplicates.
-  const idempotencyKey = body.idempotency_key
-    ? String(body.idempotency_key).slice(0, 120)
-    : 'mb-' + crypto.createHash('md5').update([
-        clientSlug, checkIn, checkOut, selectedBedCodes.slice().sort().join('_'),
-        guestName.toLowerCase(), phone,
-      ].join('|')).digest('hex');
-
+  const cmd = built.command;
   const auditBase = {
     ts:                 new Date().toISOString(),
     intent:             'api:manual_booking_create',
     category:           'manual_booking_create',
-    client_slug:        clientSlug,
-    check_in:           checkIn,
-    check_out:          checkOut,
-    selected_bed_codes: selectedBedCodes,
-    guest_count:        guestCount,
+    client_slug:        cmd.clientSlug,
+    check_in:           cmd.checkIn,
+    check_out:          cmd.checkOut,
+    selected_bed_codes: cmd.assignedBedCodes,
+    guest_count:        cmd.guestCount,
     staff_user_id:      actorId,
     staff_role:         actorRole,
-    idempotency_key:    idempotencyKey,
-    // Side-effect transparency: this path never triggers external systems.
+    idempotency_key:    cmd.idempotencyKey,
     stripe_called:      false,
     whatsapp_called:    false,
     n8n_called:         false,
   };
 
-  // ── 7. Execute create inside a transaction ────────────────────────────────────
-  let row;
+  let execResult;
   try {
-    row = await withPgClient(async (pg) => {
-      await pg.query('BEGIN');
-      try {
-        const r = await pg.query(buildManualBookingCreateSql(), [
-          clientSlug,        // $1
-          actorId,           // $2
-          actorRole,         // $3
-          idempotencyKey,    // $4
-          bookingCode,       // $5 (nullable → auto-generate)
-          guestName,         // $6
-          phone,             // $7
-          email,             // $8
-          language,          // $9
-          checkIn,           // $10
-          checkOut,          // $11
-          quoteGuestCount,   // $12
-          selectedBedCodes,  // $13 text[]
-          storagePackageCode, // $14
-          roomPref,          // $15
-          bookingStatus,     // $16
-          paymentStatus,     // $17
-          sqlDepositCents,   // $18 — 0 skips legacy SQL draft; payment rows from applyStaffPaymentChoice
-          totalCents,        // $19
-          source,            // $20
-          reason,            // $21
-          notes,             // $22
-          true,              // $23 confirm
-          warningsAck,       // $24
-        ]);
-        const result = r.rows[0] || null;
-
-        if (!result) {
-          await pg.query('ROLLBACK');
-          return null;
-        }
-
-        // Idempotency duplicate → no new row was inserted; roll back and signal.
-        if (result.is_duplicate === true) {
-          await pg.query('ROLLBACK');
-          result._duplicate = true;
-          return result;
-        }
-
-        // Any other blocker (validation / overlap conflict) → roll back.
-        if (result.is_blocked === true) {
-          await pg.query('ROLLBACK');
-          result._blocked = true;
-          return result;
-        }
-
-        // Safety: booking row must exist and bed assignments must match selection.
-        const bedsInserted = Number(result.beds_inserted || 0);
-        if (!result.booking_id || bedsInserted < 1 || bedsInserted !== selectedBedCodes.length) {
-          await pg.query('ROLLBACK');
-          result._safety_violation = true;
-          return result;
-        }
-
-        // Stage 8.4.8: Update booking with quote-derived amounts + quote_snapshot in metadata
-        await pg.query(
-          `UPDATE bookings
-             SET total_amount_cents      = $1,
-                 deposit_required_cents  = $2,
-                 balance_due_cents       = $3,
-                 requested_room_type     = $4,
-                 metadata                = metadata || $5::jsonb
-           WHERE id = $6
-             AND client_id = (SELECT id FROM clients WHERE slug = $7 LIMIT 1)`,
-          [
-            totalCents,
-            depositCents,
-            quote.balance_due_cents,
-            roomType,
-            JSON.stringify({
-              quote_snapshot:   quote,
-              payment_choice:   staffPayChoice,
-              paid_amount_type: paidAmountType,
-              add_ons_at_create: addOns,
-              guest_packages: guestPackages,
-              uses_per_guest_model: usesPerGuestModel,
-              per_guest_payment_links: perGuestPaymentLinks,
-              booking_guests:    usesPerGuestModel ? guestsNorm.guests : undefined,
-            }),
-            result.booking_id,
-            clientSlug,
-          ]
-        );
-
-        if (usesPerGuestModel && guestsNorm.guests.length > 0) {
-          try {
-            const clientRes = await pg.query(
-              'SELECT client_id FROM bookings WHERE id = $1',
-              [result.booking_id],
-            );
-            const bedsRes = await pg.query(
-              `SELECT bed_code, room_code
-                 FROM booking_beds
-                WHERE booking_id = $1
-                ORDER BY created_at ASC`,
-              [result.booking_id],
-            );
-            const bedAssignments = bedsRes.rows.map((b, idx) => ({
-              guest_number: idx + 1,
-              bed_code: b.bed_code,
-              room_code: b.room_code,
-            }));
-            const perPersonRows = buildPerPersonBreakdown(quote, {
-              guest_names: guestsNorm.guests.map((g) => g.guest_name),
-              payment_choice: quotePaymentChoice,
-            });
-            result._booking_guests = await insertBookingGuestsForBooking(pg, {
-              clientId: clientRes.rows[0].client_id,
-              bookingId: result.booking_id,
-              guests: guestsNorm.guests,
-              bedAssignments,
-              perPersonBreakdown: perPersonRows,
-            });
-            result._per_person = perPersonRows;
-          } catch (guestErr) {
-            if (!isMissingBookingGuestsTable(guestErr)) throw guestErr;
-            result._booking_guests_warning = 'booking_guests table not migrated';
-          }
-        } else {
-          result._per_person = quote.per_person || null;
-        }
-
-        let payOutcome;
-        try {
-          payOutcome = await manualBookingApplyStaffPaymentChoice(pg, {
-            staffPaymentChoice: staffPayChoice,
-            paidAmountType,
-            paidAmountCustomCents,
-            paymentId: null,
-            bookingId: result.booking_id,
-            bookingCode: result.booking_code,
-            clientSlug,
-            depositCents,
-            totalCents,
-            actorId,
-            actorLabel: user ? (user.email || user.staff_user_id) : actorId,
-            idempotencyKey,
-            guestName,
-            checkIn,
-            checkOut,
-            bookingGuests: Array.isArray(result._booking_guests) ? result._booking_guests : [],
-          });
-          result._pay_outcome = payOutcome;
-          result._payment_id = payOutcome.payment_id || null;
-        } catch (payErr) {
-          await pg.query('ROLLBACK');
-          result._payment_failed = true;
-          result._payment_error = payErr.code || payErr.message;
-          return result;
-        }
-
-        // Stage 8.8.16: booking_service_records for priced add-ons (same transaction)
-        const serviceRecordRows = buildManualBookingServiceRecordRows({
-          addOns,
-          quote,
-          clientSlug,
-          bookingId:   result.booking_id,
-          bookingCode: result.booking_code,
-          guestName,
-          checkIn,
-          quoteGuestCount,
-        });
-        const svcInsert = await tryInsertManualBookingServiceRecords(pg, serviceRecordRows);
-        result._service_records_created   = svcInsert.created;
-        result._service_records_available = svcInsert.available;
-        result._service_records_warning   = svcInsert.warning;
-
-        if (manualBookingPrivateRoomEnabled(roomType)) {
-          await pg.query(
-            `UPDATE bookings
-               SET room_preference = 'couple_private',
-                   requested_room_type = 'double'
-             WHERE id = $1
-               AND client_id = (SELECT id FROM clients WHERE slug = $2 LIMIT 1)`,
-            [result.booking_id, clientSlug]
-          );
-          const bedSync = await editWriteSyncPrivateRoomBedBlocks(pg, clientSlug, {
-            booking_id: String(result.booking_id),
-            check_in: checkIn,
-            check_out: checkOut,
-            primary_room_code: null,
-          }, true);
-          if (bedSync.error) {
-            await pg.query('ROLLBACK');
-            result._blocked = true;
-            result._private_room_block = bedSync;
-            result.block_reason = bedSync.error;
-            return result;
-          }
-          result._bed_block = bedSync;
-        }
-
-        await pg.query('COMMIT');
-        return result;
-      } catch (e) {
-        try { await pg.query('ROLLBACK'); } catch (_) {}
-        throw e;
-      }
-    });
+    execResult = await withPgClient(async (pg) => executeWolfhouseBookingCreate(pg, cmd, {
+      stripeConfig: {
+        stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+        stripeSecretKey: STRIPE_SECRET_KEY,
+        redirectUrlsConfigured: stripeCheckoutRedirectUrlsConfigured,
+        successUrl: stripeCheckoutSessionSuccessUrl,
+        cancelUrl: stripeCheckoutSessionCancelUrl,
+      },
+      privateRoomHooks: {
+        enabled: manualBookingPrivateRoomEnabled,
+        syncPrivateRoomBlocks: (pgClient, slug, bookingRow) => editWriteSyncPrivateRoomBedBlocks(pgClient, slug, bookingRow, true),
+      },
+      actorLabel: user ? (user.email || user.staff_user_id) : actorId,
+    }));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: 'write_failed: ' + err.message, elapsed_ms: Date.now() - started });
     return sendJSON(res, 500, { success: false, error: 'manual booking create failed', detail: err.message });
   }
 
-  if (!row) {
-    appendAuditLog({ ...auditBase, success: false, error: 'no_result_row', elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'no result row returned from helper' });
-  }
-
+  const row = execResult.body || {};
+  const quote = row.quote || cmd.quote;
+  const selectedBedCodes = row.assignedBedCodes || cmd.assignedBedCodes;
+  const staffPayChoice = cmd.staffPayChoice;
+  const paymentLinkAmountCents = row.paymentLinkAmountCents;
+  const paymentKind = row.paymentKind || cmd.paymentKind;
+  const paymentStatus = cmd.paymentStatus;
+  const bookingStatus = cmd.bookingStatus;
   const elapsed = Date.now() - started;
 
-  // ── 8. Idempotency duplicate (idempotent success) ─────────────────────────────
+  // ── 5. Idempotency duplicate (idempotent success) ─────────────────────────────
   if (row._duplicate) {
     appendAuditLog({ ...auditBase, success: true, idempotent_duplicate: true,
       booking_id: row.duplicate_booking_id, elapsed_ms: elapsed });
@@ -16563,7 +15386,7 @@ async function handleManualBookingCreate(req, res, user) {
     });
   }
 
-  // ── 9. Blocked (validation / overlap conflict) ────────────────────────────────
+  // ── 6. Blocked (validation / overlap conflict) ────────────────────────────────
   if (row._blocked) {
     appendAuditLog({ ...auditBase, success: false, blocked: true,
       block_reason: row.block_reason, elapsed_ms: elapsed });
@@ -16607,8 +15430,7 @@ async function handleManualBookingCreate(req, res, user) {
     });
   }
 
-  // ── 10. Safety violation ───────────────────────────────────────────────────────
-  if (row._safety_violation) {
+  if (!execResult.ok && row._safety_violation) {
     appendAuditLog({ ...auditBase, success: false,
       error: 'SAFETY_VIOLATION_bed_count_mismatch',
       beds_inserted: row.beds_inserted, elapsed_ms: elapsed });
@@ -16623,7 +15445,7 @@ async function handleManualBookingCreate(req, res, user) {
   const payOutcome = row._pay_outcome || {};
   const stripeCalled = !!payOutcome.stripe_called;
 
-  // ── 11. Success ────────────────────────────────────────────────────────────────
+  // ── 7. Success ────────────────────────────────────────────────────────────────
   appendAuditLog({ ...auditBase, success: true,
     booking_id: row.booking_id, booking_code: row.booking_code,
     beds_inserted: row.beds_inserted, payments_inserted: row.payments_inserted,
@@ -16639,9 +15461,9 @@ async function handleManualBookingCreate(req, res, user) {
     beds_inserted:     Number(row.beds_inserted || 0),
     payments_inserted: Number(row.payments_inserted || 0),
     audit_event_id:    row.audit_event_id,
-    client_slug:       clientSlug,
-    check_in:          checkIn,
-    check_out:         checkOut,
+    client_slug:       cmd.clientSlug,
+    check_in:          cmd.checkIn,
+    check_out:         cmd.checkOut,
     selected_bed_codes: selectedBedCodes,
     payment_status:    payOutcome.payment_status || paymentStatus,
     payment_link_url:  payOutcome.payment_link_url || null,
@@ -47507,14 +46329,6 @@ const BOT_BOOKING_GUEST_PACKAGES_RE = /^\/staff\/bot\/bookings\/([A-Za-z0-9_\-]+
 const BOOKING_LUNA_NOTES_RE = new RegExp(
   `^/staff/bookings/(${UUID_RE})/luna-notes$`, 'i',
 );
-
-/** Stage 8.8.14 — safe when migration 010 not applied yet. */
-function isMissingBookingServiceRecordsTable(err) {
-  if (!err) return false;
-  if (err.code === '42P01') return true;
-  const msg = String(err.message || '');
-  return /booking_service_records/.test(msg) && /does not exist|undefined table/i.test(msg);
-}
 
 function bookingContextServiceRecordsSql() {
   const base = getBookingServiceRecordsQuery();

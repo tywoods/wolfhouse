@@ -27,6 +27,7 @@ const {
   runAvailabilityCheckDryRun,
   runLunaGuestBookingDryRun,
 } = require('./lib/luna-guest-booking-dry-run');
+const { GOLDEN_BED_ROWS } = require('./lib/luna-golden-offline-pg');
 
 let pass = 0;
 let fail = 0;
@@ -48,21 +49,54 @@ function wolfhouseResolved() {
 }
 
 function makePg(opts = {}) {
-  const beds = opts.beds || [
-    { bed_code: 'B1', room_code: 'R1', room_type: 'shared', bed_active: true, bed_sellable: true, bed_label: 'Bed 1' },
-    { bed_code: 'B2', room_code: 'R1', room_type: 'shared', bed_active: true, bed_sellable: true, bed_label: 'Bed 2' },
-    { bed_code: 'B3', room_code: 'R2', room_type: 'shared', bed_active: true, bed_sellable: true, bed_label: 'Bed 3' },
-  ];
+  const beds = opts.beds || GOLDEN_BED_ROWS;
   const inserts = [];
+  let committed = false;
   return {
     inserts,
+    committed: () => committed,
     query: async (sql, params) => {
       const s = String(sql);
-      if (/^BEGIN|^COMMIT|^ROLLBACK/i.test(s)) return { rows: [] };
-      if (/FROM rooms|bed_calendar/i.test(s) || /bed_code/i.test(s) && /FROM/i.test(s)) {
+      const norm = s.replace(/\s+/g, ' ').trim();
+      if (/^BEGIN|^COMMIT|^ROLLBACK/i.test(s)) {
+        if (/^COMMIT/i.test(s)) committed = true;
+        return { rows: [] };
+      }
+      if (/inserted_booking_beds|is_duplicate/i.test(s)) {
+        const bedCount = Array.isArray(params[12]) ? params[12].length : 1;
+        inserts.push({ table: 'bookings', params: [...params] });
+        return {
+          rows: [{
+            is_duplicate: false,
+            is_blocked: false,
+            booking_id: 'adapter-booking-1',
+            booking_code: 'WH-ADAPTER-01',
+            beds_inserted: bedCount,
+            payments_inserted: 1,
+            audit_event_id: 'audit-adapt-1',
+          }],
+        };
+      }
+      if (norm.includes('FROM rooms r') && norm.includes('LEFT JOIN beds bd')) {
         return { rows: beds };
       }
-      if (/booking_beds|blocks/i.test(s)) return { rows: opts.blocks || [] };
+      if (norm.includes('FROM booking_beds bb') && norm.includes('assignment_start_date')) {
+        return { rows: opts.blocks || [] };
+      }
+      if (/UPDATE bookings/i.test(s)) {
+        inserts.push({ table: 'bookings_update', params: [...params] });
+        return { rows: [] };
+      }
+      if (/UPDATE payments/i.test(s)) {
+        inserts.push({ table: 'payments_update', params: [...params] });
+        return { rows: [{ payment_id: 'pay-adapt-1' }] };
+      }
+      if (/FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-wh-1' }] };
+      if (/SELECT client_id FROM bookings/i.test(s)) return { rows: [{ client_id: 'client-wh-1' }] };
+      if (/FROM booking_beds/i.test(s) && /SELECT/i.test(s)) {
+        return { rows: [{ bed_code: 'R1-B1', room_code: 'R1' }] };
+      }
+      if (/information_schema|to_regclass/i.test(s)) return { rows: [{ reg: 'booking_service_records' }] };
       if (/INSERT INTO/i.test(s)) {
         inserts.push({ sql: s.slice(0, 80) });
         return { rows: [{ id: 'write-blocked' }] };
@@ -198,13 +232,22 @@ async function run() {
   assert('dry-run safety flags', adapterDry.body.dry_run === true && adapterDry.body.creates_booking === false);
   assert('quote total dry-run parity',
     adapterDry.body.booking_preview.quote.total_cents === directDry.booking_preview.quote.total_cents);
-
-  const liveCreate = await accommodationVerticalAdapter.createBooking(pgCreate, {
-    resolved: wh,
-    transportBody: { ...createBody, dry_run: false, confirm: true },
-  });
-  assert('live create deferred', liveCreate.status === 501 && liveCreate.body.reason_code === 'live_booking_create_requires_staff_route');
   assert('dry-run zero inserts', pgCreate.inserts.length === 0);
+
+  const pgLive = makePg();
+  const liveCreate = await accommodationVerticalAdapter.createBooking(pgLive, {
+    resolved: wh,
+    channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
+    transportBody: {
+      ...createBody,
+      dry_run: false,
+      confirm: true,
+      selected_bed_codes: adapterDry.body.booking_preview?.selected_bed_codes || ['R1-B1'],
+    },
+    actorHints: { staff_user_id: 'luna-bot-internal', staff_role: 'operator' },
+  });
+  assert('live create ok', liveCreate.ok === true && liveCreate.status === 201);
+  assert('live create has booking_id', !!(liveCreate.body && liveCreate.body.booking_id));
 
   console.log('\n[F] Cross-vertical transport rejection');
   const surfOnAcc = await accommodationVerticalAdapter.quoteOffering(null, {

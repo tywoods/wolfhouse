@@ -228,9 +228,74 @@ function buildManualBookingServiceRecordRows({
   return rows;
 }
 
+/** Stage 8.8.14 — safe when migration 010 not applied yet. */
+function isMissingBookingServiceRecordsTable(err) {
+  if (!err) return false;
+  if (err.code === '42P01') return true;
+  const msg = String(err.message || '');
+  return /booking_service_records/.test(msg) && /does not exist|undefined table/i.test(msg);
+}
+
+async function insertManualBookingServiceRecords(pg, rows) {
+  if (!rows.length) return { created: 0, available: true, warning: null };
+  let created = 0;
+  for (const row of rows) {
+    await pg.query(
+      `INSERT INTO booking_service_records (
+         client_slug, booking_id, booking_code, guest_name,
+         service_type, service_date, quantity, status,
+         amount_due_cents, amount_paid_cents, payment_status,
+         source, notes, metadata
+       ) VALUES (
+         $1, $2::uuid, $3, $4,
+         $5, $6::date, $7, $8,
+         $9, $10, $11,
+         $12, $13, $14::jsonb
+       )`,
+      [
+        row.client_slug,
+        row.booking_id,
+        row.booking_code,
+        row.guest_name,
+        row.service_type,
+        row.service_date,
+        row.quantity,
+        row.status,
+        row.amount_due_cents,
+        row.amount_paid_cents,
+        row.payment_status,
+        row.source,
+        row.notes,
+        JSON.stringify(row.metadata || {}),
+      ]
+    );
+    created++;
+  }
+  return { created, available: true, warning: null };
+}
+
+async function tryInsertManualBookingServiceRecords(pg, rows) {
+  if (!rows.length) return { created: 0, available: true, warning: null };
+  try {
+    return await insertManualBookingServiceRecords(pg, rows);
+  } catch (err) {
+    if (isMissingBookingServiceRecordsTable(err)) {
+      return {
+        created:  0,
+        available: false,
+        warning:  'booking_service_records table not available — service records skipped',
+      };
+    }
+    throw err;
+  }
+}
+
 module.exports = {
   buildManualBookingServiceRecordRows,
   MANUAL_BOOKING_ADDON_SERVICE_MAP,
   quoteLineItemAmount,
   quoteLineItemUnitCents,
+  isMissingBookingServiceRecordsTable,
+  insertManualBookingServiceRecords,
+  tryInsertManualBookingServiceRecords,
 };

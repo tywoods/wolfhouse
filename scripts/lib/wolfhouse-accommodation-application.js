@@ -14,7 +14,6 @@ const {
 } = require('./wolfhouse-package-night-rules');
 const {
   runAvailabilityCheckDryRun,
-  runLunaGuestBookingDryRun,
 } = require('./luna-guest-booking-dry-run');
 const { resolveBotBookingPackageContext } = require('./bot-booking-package-normalize');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
@@ -372,40 +371,37 @@ async function executeWolfhouseAccommodationCreate(pg, transportBody, opts = {})
   const rejected = rejectSurfSchoolTransportFields(transportBody);
   if (!rejected.ok) return rejected;
 
-  const body = transportBody || {};
-  const dryRunRequested = body.dry_run === true
-    || body.preview_only === true
-    || body.confirm !== true
-    || opts.dryRunOnly === true;
+  const {
+    buildWolfhouseBookingCreateCommand,
+    executeWolfhouseBookingCreate,
+  } = require('./luna-front-desk-accommodation-booking-create-service');
 
-  if (dryRunRequested) {
-    const dryRun = await runLunaGuestBookingDryRun({
-      ...body,
-      client_slug: WOLFHOUSE_CLIENT_SLUG,
-    }, { pg });
+  const built = await buildWolfhouseBookingCreateCommand({
+    channel: opts.channel,
+    trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+    transportBody: transportBody || {},
+    actorHints: opts.actorHints || {},
+    pgClient: pg,
+    dryRunOnly: opts.dryRunOnly === true,
+    stripeConfig: opts.stripeConfig,
+    privateRoomHooks: opts.privateRoomHooks,
+  });
+  if (!built.ok) return built;
+  if (built.dryRun) {
+    return { ok: true, status: built.status, body: built.body };
+  }
+  if (!pg) {
     return {
-      ok: true,
-      status: 200,
-      body: dryRun,
+      ok: false,
+      status: 500,
+      body: { success: false, reason: 'database_required', reason_code: 'database_required' },
     };
   }
-
-  return {
-    ok: false,
-    status: 501,
-    body: {
-      success: false,
-      ok: false,
-      reason: 'capability_deferred',
-      reason_code: 'live_booking_create_requires_staff_route',
-      vertical_id: VERTICAL_IDS.ACCOMMODATION,
-      error: 'Live accommodation booking create remains on existing Staff API routes until a dedicated write service is extracted.',
-      allowed_routes: [
-        'POST /staff/manual-bookings/create',
-        'POST /staff/bot/bookings/create',
-      ],
-    },
-  };
+  return executeWolfhouseBookingCreate(pg, built.command, {
+    stripeConfig: opts.stripeConfig,
+    privateRoomHooks: opts.privateRoomHooks,
+    actorLabel: opts.actorLabel,
+  });
 }
 
 module.exports = {

@@ -1,6 +1,7 @@
 'use strict';
 
 const { computeStayNights } = require('./wolfhouse-package-night-rules');
+const { KNOWN_PACKAGES } = require('./booking-guests');
 
 const NO_PACKAGE_CODES = new Set([
   'package_none',
@@ -82,6 +83,68 @@ function shouldSkipShuttleInQuoteReply({ isShortStay, isNoPackage, packageCode, 
   return false;
 }
 
+/** Maps guest package selector values to DB storage (null = no package). */
+function guestPackageStorageCode(raw) {
+  const c = String(raw || '').trim().toLowerCase();
+  if (!c || c === 'no_package' || c === 'package_none') return null;
+  return c;
+}
+
+function isValidGuestPackageCode(code, fallbackPackageCode) {
+  const c = String(code || '').trim().toLowerCase();
+  if (!c) return false;
+  if (NO_PACKAGE_CODES.has(c)) return true;
+  if (KNOWN_PACKAGES.includes(c)) return true;
+  if (fallbackPackageCode && c === String(fallbackPackageCode).trim().toLowerCase()) return true;
+  return false;
+}
+
+function guestPackagesMajorityStorageCode(guestPackages) {
+  const counts = new Map();
+  for (const gp of guestPackages) {
+    const stored = guestPackageStorageCode(gp.package_code);
+    const key = stored || '__no_package__';
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  let bestKey = null;
+  let bestCount = 0;
+  for (const [key, count] of counts.entries()) {
+    if (count > bestCount) {
+      bestCount = count;
+      bestKey = key;
+    }
+  }
+  if (bestKey === '__no_package__') return null;
+  return bestKey;
+}
+
+function normalizeGuestPackagesInput(raw, guestCount, fallbackPackageCode) {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    return { error: 'guest_packages array is required' };
+  }
+  if (raw.length !== guestCount) {
+    return {
+      error: `guest_packages length (${raw.length}) must match guest_count (${guestCount})`,
+    };
+  }
+  const normalized = [];
+  for (let i = 0; i < guestCount; i++) {
+    const item = raw[i];
+    const guestNumber = Number(item && item.guest_number) || (i + 1);
+    const packageCodeRaw = String(
+      (item && item.package_code) || fallbackPackageCode || '',
+    ).trim().toLowerCase();
+    if (!packageCodeRaw) {
+      return { error: `package_code is required for guest ${guestNumber}` };
+    }
+    if (!isValidGuestPackageCode(packageCodeRaw, fallbackPackageCode)) {
+      return { error: `Invalid package_code for guest ${guestNumber}` };
+    }
+    normalized.push({ guest_number: i + 1, package_code: packageCodeRaw });
+  }
+  return { guest_packages: normalized };
+}
+
 /**
  * Standard bot quote reply_draft after a successful calculateWolfhouseQuote.
  */
@@ -103,6 +166,8 @@ module.exports = {
   NO_PACKAGE_CODES,
   isNoPackageBookingCode,
   normalizePackageCodeAlias,
+  guestPackagesMajorityStorageCode,
+  normalizeGuestPackagesInput,
   resolveBotBookingPackageContext,
   shouldSkipShuttleInQuoteReply,
   buildBotQuoteReplyDraft,

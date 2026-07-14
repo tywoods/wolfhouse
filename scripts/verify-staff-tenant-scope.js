@@ -24,6 +24,8 @@ const {
 
 const REPO_ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(__dirname, 'staff-query-api.js');
+const MANUAL_BOOKING_PAYMENT_PATH = path.join(__dirname, 'lib', 'staff-manual-booking-payment.js');
+const ACCOMMODATION_BOOKING_CREATE_PATH = path.join(__dirname, 'lib', 'luna-front-desk-accommodation-booking-create-service.js');
 const SUNSET_ACCESS_PATH = path.join(REPO_ROOT, 'config', 'clients', 'staff-portal-access.sunset-staging.json');
 const REGISTRY_PATH = path.join(__dirname, 'fixtures', 'staff-tenant-scope-debt-registry.json');
 
@@ -105,8 +107,8 @@ function loadScopeDebtRegistry() {
 
 function collectScanFiles() {
   const libDir = path.join(__dirname, 'lib');
-  const out = new Set([STAFF_API_PATH]);
-  const namePatterns = [/query/i, /queries/i, /write/i, /writes/i, /staff-bot-v2-routes/i];
+  const out = new Set([STAFF_API_PATH, ACCOMMODATION_BOOKING_CREATE_PATH]);
+  const namePatterns = [/query/i, /queries/i, /write/i, /writes/i, /staff-bot-v2-routes/i, /booking-create-service/i];
   let entries = [];
   try {
     entries = fs.readdirSync(libDir);
@@ -306,6 +308,8 @@ ok('5 getAccessibleClients can differ from session-scoped list', broad.length >=
 console.log('\n── /staff/auth/session handler ──');
 
 const staffApiSource = fs.readFileSync(STAFF_API_PATH, 'utf8');
+const manualBookingPaymentSource = fs.readFileSync(MANUAL_BOOKING_PAYMENT_PATH, 'utf8');
+const accommodationCreateSource = fs.readFileSync(ACCOMMODATION_BOOKING_CREATE_PATH, 'utf8');
 const { devBlock, authBlock } = extractHandleAuthSessionSource(staffApiSource);
 
 ok('C1 authenticated session uses getSessionScopedClients', /getSessionScopedClients\(user\)/.test(authBlock));
@@ -368,19 +372,19 @@ console.log('\n── Booking UPDATE by id SQL scope ──');
 ok('G1 private room companion block UPDATE scoped by clientSlug',
   /staffPortalCreatePrivateRoomCompanionBlock[\s\S]*UPDATE bookings[\s\S]*private_room_parent_booking_id[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$3/.test(staffApiSource));
 ok('G2 bot booking create quote UPDATE scoped by clientSlug',
-  /bot_source:[\s\S]*UPDATE bookings[\s\S]*total_amount_cents[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$7/.test(staffApiSource));
+  /bot_source:[\s\S]*UPDATE bookings[\s\S]*total_amount_cents[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$7/.test(accommodationCreateSource));
 ok('G3 manualBookingApplyStaffPaymentChoice paid booking UPDATE scoped',
-  /async function manualBookingApplyStaffPaymentChoice[\s\S]*UPDATE bookings[\s\S]*amount_paid_cents = \$1[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$5/.test(staffApiSource));
+  /async function manualBookingApplyStaffPaymentChoice[\s\S]*UPDATE bookings[\s\S]*amount_paid_cents = \$1[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$5/.test(manualBookingPaymentSource));
 ok('G4 manualBookingApplyStaffPaymentChoice waiting_payment UPDATEs scoped',
-  (staffApiSource.match(/SET payment_status = 'waiting_payment'::payment_status[\s\S]*?AND client_id = \(SELECT id FROM clients WHERE slug = \$2/g) || []).length >= 2);
+  (manualBookingPaymentSource.match(/SET payment_status = 'waiting_payment'::payment_status[\s\S]*?AND client_id = \(SELECT id FROM clients WHERE slug = \$2/g) || []).length >= 2);
 ok('G5 manual booking create quote UPDATE scoped by clientSlug',
-  /quote_snapshot:[\s\S]*paid_amount_type:[\s\S]*UPDATE bookings[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$7/.test(staffApiSource));
+  /quote_snapshot:[\s\S]*paid_amount_type:[\s\S]*UPDATE bookings[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$7/.test(accommodationCreateSource));
 ok('G6 manual booking private room preference UPDATE scoped',
-  /room_preference = 'couple_private'[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$2/.test(staffApiSource));
+  /room_preference = 'couple_private'[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$2/.test(accommodationCreateSource));
 ok('G7 staff calendar bed block UPDATE scoped by clientSlug',
   /intent: 'api:calendar_bed_block_create'[\s\S]*UPDATE bookings[\s\S]*AND client_id = \(SELECT id FROM clients WHERE slug = \$3[\s\S]*block_type: 'bed_selection'/.test(staffApiSource));
 ok('G8 no unscoped booking UPDATE by id in must-fix helper paths',
-  !/manualBookingApplyStaffPaymentChoice[\s\S]*UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = \$1::uuid`,\s*\[bookingId\],/.test(staffApiSource));
+  !/manualBookingApplyStaffPaymentChoice[\s\S]*UPDATE bookings SET payment_status = 'waiting_payment'::payment_status WHERE id = \$1::uuid`,\s*\[bookingId\],/.test(manualBookingPaymentSource));
 
 // ── H. booking_service_records tenant scope (Slice 10) ─────────────────────────
 console.log('\n── booking_service_records SQL scope ──');

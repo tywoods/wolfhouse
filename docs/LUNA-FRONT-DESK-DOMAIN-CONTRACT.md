@@ -373,13 +373,29 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 |-----------|---------------------|------------------------|--------|
 | `listOfferings` | `luna-front-desk-catalog-service` | `wolfhouse-accommodation-application` (+ pricing config) | No |
 | `quoteOffering` | `luna-front-desk-quote-service` | `wolfhouse-accommodation-application` → `calculateWolfhouseQuote` | No |
-| `createBooking` | `luna-front-desk-booking-create-service` | dry-run: `runLunaGuestBookingDryRun`; live create **deferred** | Dry-run only |
+| `createBooking` | `luna-front-desk-booking-create-service` | `luna-front-desk-accommodation-booking-create-service` → dry-run or live write | Dry-run or live |
 | `evaluateDates` | `sunset-offering-schedule` | `wolfhouse-package-night-rules` + season quote gate | No |
 | `checkAvailability` | catalog + capacity enrichment | `runAvailabilityCheckDryRun` | No |
 
 **Adapters:** `scripts/lib/verticals/surf-school-vertical-adapter.js`, `scripts/lib/verticals/accommodation-vertical-adapter.js`.
 
-**Application layer:** `scripts/lib/wolfhouse-accommodation-application.js` — single delegation target for Wolfhouse stay/package/availability/dry-run create; no Sunset catalog or price resolver imports.
+**Application layer:** `scripts/lib/wolfhouse-accommodation-application.js` — single delegation target for Wolfhouse stay/package/availability/create; no Sunset catalog or price resolver imports.
+
+**Accommodation booking create (Slice 8):** `scripts/lib/luna-front-desk-accommodation-booking-create-service.js`
+
+| Export | Role |
+|--------|------|
+| `BOOKING_CREATE_CHANNELS` | `manual_staff` \| `luna_whatsapp` |
+| `buildWolfhouseBookingCreateCommand(opts)` | Normalize transport → trusted command; dry-run when `confirm !== true` |
+| `executeWolfhouseBookingCreate(pg, command, execOpts?)` | BEGIN/COMMIT transaction: booking + beds + quote metadata + payments |
+
+**Command inputs (trusted):** `channel`, `trustedClientSlug` (`wolfhouse-somo` only), `transportBody`, `actorHints`, optional `pgClient` (bot bed auto-assign), `stripeConfig` / `privateRoomHooks` (manual execute).
+
+**Rejected before write:** surf-school transport fields; client-supplied money (`total_cents`, `deposit_required_cents`, …); tenant mismatch.
+
+**Result shape:** `{ ok, status, body }` with outcome flags `_duplicate`, `_blocked`, `_safety_violation`, `_payment_failed`, plus `quote`, `assignedBedCodes`, `booking_id`, etc.
+
+**Staff routes:** `POST /staff/bot/bookings/create`, `POST /staff/manual-bookings/create` — feature flags + HTTP mapping only; transaction delegated to this service.
 
 ### Shared platform vs surf-school
 
@@ -392,13 +408,14 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 ### Migration status
 
 - **Slice 6 (done):** Sunset Staff/Luna catalog, quote, create, joinable-courses routes call `invokeVerticalOperation` — no direct imports of catalog/quote/create services in `staff-query-api.js`.
-- **Slice 7 (done):** Wolfhouse accommodation adapter replaces `not_migrated` placeholder. Migrated routes: `POST /staff/quote-preview` (application quote helper), `POST /staff/bot/package-price-preview` (vertical `listOfferings`). Live bot/manual booking create remains on existing Staff routes until write service extraction.
+- **Slice 7 (done):** Wolfhouse accommodation adapter replaces `not_migrated` placeholder. Migrated routes: `POST /staff/quote-preview` (application quote helper), `POST /staff/bot/package-price-preview` (vertical `listOfferings`).
+- **Slice 8 (done):** Live accommodation `createBooking` extracted to `luna-front-desk-accommodation-booking-create-service.js`. Bot/manual Staff routes delegate to `buildWolfhouseBookingCreateCommand` + `executeWolfhouseBookingCreate`.
 
-### Accommodation capabilities deferred (Slice 7)
+### Accommodation capabilities (Slice 8)
 
 | Capability | Status | Notes |
 |------------|--------|-------|
-| Live `createBooking` writes | **Deferred** | Adapter returns `live_booking_create_requires_staff_route`; use `POST /staff/bot/bookings/create` or `POST /staff/manual-bookings/create` |
+| Live `createBooking` writes | **Migrated** | Adapter + Staff bot/manual routes use accommodation booking-create service |
 | Full HTTP parity on `POST /staff/bot/availability-check` | **Deferred** | Adapter uses `runAvailabilityCheckDryRun` (Luna dry-run engine); Staff route retains demo-calendar enrichment |
-| Payment link / Stripe orchestration | **Out of scope** | Unchanged Staff API paths |
+| Payment link / Stripe orchestration | **Manual route only** | `manualBookingApplyStaffPaymentChoice` in execute; bot create stays draft payment UPDATE |
 | Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |

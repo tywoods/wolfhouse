@@ -24,6 +24,11 @@ const {
 } = require('./lib/payment-ledger-stale-links');
 
 const staffApiSrc = fs.readFileSync(path.join(__dirname, 'staff-query-api.js'), 'utf8');
+const accommodationCreateSrc = fs.readFileSync(
+  path.join(__dirname, 'lib', 'luna-front-desk-accommodation-booking-create-service.js'),
+  'utf8',
+);
+const bookingCreateSrc = staffApiSrc + '\n' + accommodationCreateSrc;
 const botRoutesSrc = fs.readFileSync(path.join(__dirname, 'lib/staff-bot-v2-routes.js'), 'utf8');
 
 let passes = 0;
@@ -221,7 +226,7 @@ section('H. Per-guest create path — guest_name + payment_choice');
   check('H2', perGuestPay.payment_choice === 'deposit' && perGuestPay.per_guest_payment_links, 'per_guest → deposit links');
   check('H3', mapBotBookingCreateErrorToBlockedReason('guest_name is required') === 'guest_name_missing', 'error mapped to blocked_reason');
   check('H4', staffApiSrc.includes('resolveAndMarkConversationNeedsHuman'), 'handoff resolves session phone');
-  check('H5', staffApiSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
+  check('H5', bookingCreateSrc.includes('guestsNorm.primary_name'), 'create derives guest_name from guests');
 }
 
 section('F. Routes & migration wiring');
@@ -231,8 +236,8 @@ section('F. Routes & migration wiring');
   check('F3', botRoutesSrc.includes('handleBotGuestPaymentCreateLink'), 'guest payment link handler');
   check('F4', staffApiSrc.includes('/staff/bot/package-price-preview'), 'bot preview route wired');
   check('F5', staffApiSrc.includes('/staff/bot/booking-guests/payment-status'), 'guest status route wired');
-  check('F6', staffApiSrc.includes('normalizeBookingGuestsInput'), 'booking create uses guests input');
-  check('F7', staffApiSrc.includes('insertBookingGuestsForBooking'), 'booking_guests insert on create');
+  check('F6', bookingCreateSrc.includes('normalizeBookingGuestsInput'), 'booking create uses guests input');
+  check('F7', bookingCreateSrc.includes('insertBookingGuestsForBooking'), 'booking_guests insert on create');
   check('F8', staffApiSrc.includes('/staff/bookings/generate-guest-payment-link'), 'staff guest link route');
   check('F9', staffApiSrc.includes('payment-ledger-stale-links'), 'stale-link helper wired in staff API');
 }
