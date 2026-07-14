@@ -211,6 +211,12 @@ async function assertCourseAssignable(pg, {
  * with DB-computed remaining capacity for a date/location.
  */
 async function listJoinableSunsetOfferings(pg, opts) {
+  const {
+    buildSunsetCatalogCommand,
+    executeSunsetCatalog,
+    CATALOG_CHANNELS,
+  } = require('./luna-front-desk-catalog-service');
+
   const clientSlug = String((opts && opts.clientSlug) || SUNSET_CLIENT_SLUG).trim();
   if (clientSlug !== SUNSET_CLIENT_SLUG) {
     return { ok: false, reason: 'tenant_mismatch', courses: [], group_lessons: [] };
@@ -220,67 +226,55 @@ async function listJoinableSunsetOfferings(pg, opts) {
     return { ok: false, reason: 'unknown_location', courses: [], group_lessons: [] };
   }
   const asOfDate = opts && opts.date ? String(opts.date).slice(0, 10) : null;
-  const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
-  const courses = [];
-  for (const pack of packs || []) {
-    const capacity = Number(pack.group_size);
-    const weekdays = weekdaysFromPackWeekly(pack.weekly);
-    const schedules = (pack.schedules || []).map(parsePackScheduleKey).filter(Boolean);
-    let seatsBooked = 0;
-    let seatsRemaining = null;
-    let joinableOnDate = true;
-    if (asOfDate) {
-      const wd = weekdayOfIsoDate(asOfDate);
-      if (weekdays.length && !weekdays.includes(wd)) {
-        joinableOnDate = false;
-      } else if (Number.isFinite(capacity) && capacity > 0) {
-        seatsBooked = await countConfirmedCourseSeatsOnDate(pg, {
-          clientSlug,
-          locationId,
-          courseId: pack.pack_id,
-          serviceDate: asOfDate,
-        });
-        seatsRemaining = Math.max(0, capacity - seatsBooked);
-        joinableOnDate = seatsRemaining > 0;
-      }
-    }
-    const tiers = (pack.price_tiers || []).map((t) => ({
-      key: t.key,
-      label: t.label || t.key,
-      offering_item_code: packPriceItemCode(pack.pack_id, t.key),
-    }));
-    courses.push({
-      offering_type: 'course',
-      course_id: pack.pack_id,
-      pack_id: pack.pack_id,
-      label: pack.label,
-      group_size: capacity,
-      capacity: Number.isFinite(capacity) ? capacity : null,
-      seats_booked: asOfDate ? seatsBooked : null,
-      seats_remaining: seatsRemaining,
-      joinable: asOfDate ? joinableOnDate : true,
-      weekly: pack.weekly,
-      weekdays,
-      schedules,
-      age_band: pack.age_band,
-      beaches: pack.beaches || [],
-      price_tiers: tiers,
-    });
+
+  const built = buildSunsetCatalogCommand({
+    channel: CATALOG_CHANNELS.LUNA_WHATSAPP,
+    trustedLocationId: locationId,
+    transportBody: {
+      date: asOfDate,
+      service_dates: asOfDate ? [asOfDate] : undefined,
+      include_capacity: true,
+      joinable: true,
+      courses_only: true,
+      include_full: opts.includeFull === true,
+      require_db: true,
+    },
+  });
+  if (!built.ok) {
+    return { ok: false, reason: built.body.reason_code || 'catalog_unavailable', courses: [], group_lessons: [] };
   }
 
-  // Luna offers admin COURSES only — never standalone group-lesson slots.
-  // Keep the key for API stability; always empty.
-  const group_lessons = [];
+  let adminCfg = opts.adminCfg;
+  if (!adminCfg) {
+    const packs = await loadSurfPacksFromDb(pg, clientSlug, locationId);
+    adminCfg = {
+      ok: true,
+      source: 'db',
+      currency: 'EUR',
+      surf_packs: packs,
+      prices: [],
+    };
+  }
+  const result = await executeSunsetCatalog(pg, built.command, { adminCfg });
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: result.body.reason || result.body.reason_code || 'catalog_unavailable',
+      courses: [],
+      group_lessons: [],
+    };
+  }
 
   return {
     ok: true,
     client_slug: clientSlug,
     location_id: locationId,
     date: asOfDate,
-    courses: asOfDate ? courses.filter((c) => c.joinable || opts.includeFull === true) : courses,
-    group_lessons,
+    courses: result.body.courses || [],
+    group_lessons: result.body.group_lessons || [],
     source_tables: [
       'tenant_surf_pack_rules',
+      'tenant_price_rules',
       'booking_service_records',
     ],
   };

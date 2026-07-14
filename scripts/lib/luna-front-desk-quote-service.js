@@ -13,10 +13,12 @@ const crypto = require('crypto');
 const { normalizeSunsetBookingDatesInBody } = require('./sunset-guest-date-intake');
 const { parseQuoteQuantity } = require('./sunset-group-lesson-quote');
 const {
-  projectSunsetBookableOfferingsFromConfig,
-  loadSunsetBookableOfferings,
-  SUNSET_CLIENT_SLUG,
-} = require('./sunset-bookable-offerings');
+  catalogCommandFromQuoteCommand,
+  executeSunsetCatalog,
+  executeSunsetCatalogSync,
+  findCatalogOffering,
+} = require('./luna-front-desk-catalog-service');
+const { SUNSET_CLIENT_SLUG } = require('./sunset-bookable-offerings');
 const { evaluateSunsetOfferingDates } = require('./sunset-offering-schedule');
 const { resolveActiveSunsetAdminPrice } = require('./sunset-admin-price-resolve');
 const { packPriceItemCode } = require('./sunset-admin-price-identity');
@@ -69,18 +71,6 @@ function rejectClientSuppliedMoney(body) {
     }
   }
   return { ok: true };
-}
-
-function findCatalogOffering(catalog, offeringId) {
-  const id = String(offeringId || '').trim();
-  if (!id) return [];
-  return (catalog.offerings || []).filter((o) => (
-    o.offering_id === id
-    || o.price_id === id
-    || o.offering_item_code === id
-    || o.item_code === id
-    || (o.price && o.price.price_id === id)
-  ));
 }
 
 function buildSunsetQuoteCommand(opts) {
@@ -231,32 +221,24 @@ function computeQuoteFingerprint(quoteBody) {
 }
 
 async function loadQuoteOfferings(pg, command, adminCfg, requireDb) {
-  const projectionOpts = {
-    locationId: command.locationId,
-    requestedDates: extractServiceDates(command.transportBody),
-    requireDb,
-    asOfDate: command.transportBody.as_of_date || command.transportBody.date,
-  };
-  if (!pg) {
-    const projected = projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
-    return filterQuoteCatalogOfferings(projected);
-  }
-  const dbCourses = await loadSunsetBookableOfferings(pg, {
-    clientSlug: SUNSET_CLIENT_SLUG,
-    locationId: command.locationId,
-    requestedDates: projectionOpts.requestedDates,
-  });
-  const projected = projectSunsetBookableOfferingsFromConfig(adminCfg, projectionOpts);
-  if (!projected.ok) return projected;
-  const byId = new Map((projected.offerings || []).map((o) => [o.offering_id, o]));
-  for (const o of (dbCourses.offerings || [])) {
-    byId.set(o.offering_id, o);
+  const catalogCmd = catalogCommandFromQuoteCommand(command);
+  catalogCmd.requireDb = requireDb;
+  const result = pg
+    ? await executeSunsetCatalog(pg, catalogCmd, { adminCfg })
+    : executeSunsetCatalogSync(catalogCmd, { adminCfg });
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: result.body.reason || result.body.reason_code,
+      offerings: [],
+      location_id: command.locationId,
+    };
   }
   return {
     ok: true,
-    source: requireDb ? 'admin_db' : (projected.source || adminCfg.source),
-    offerings: filterQuoteCatalogOfferings({ ...projected, offerings: [...byId.values()] }).offerings,
-    location_id: command.locationId,
+    source: result.body.source,
+    offerings: result.body.offerings || [],
+    location_id: result.body.location_id,
   };
 }
 
@@ -264,13 +246,7 @@ function filterQuoteCatalogOfferings(catalog) {
   if (!catalog || !catalog.ok) return catalog;
   return {
     ...catalog,
-    offerings: (catalog.offerings || [])
-      .filter((o) => o.unit_amount_cents != null && o.unit_amount_cents > 0)
-      .filter((o) => {
-        if (o.offering_type === 'course' && !o.price_identity) return false;
-        if (o.offering_type === 'course' && o.unit_amount_cents == null) return false;
-        return true;
-      }),
+    offerings: catalog.offerings || [],
   };
 }
 
@@ -749,16 +725,21 @@ function executeSunsetQuoteSync(command, opts = {}) {
   if (requireDb && adminCfg.source !== 'db') {
     return { ok: false, status: 422, body: { success: false, reason: 'admin_db_expected_unavailable' } };
   }
-  const catalog = projectSunsetBookableOfferingsFromConfig(adminCfg, {
-    locationId: command.locationId,
-    requestedDates: extractServiceDates(command.transportBody),
-    requireDb,
-    asOfDate: command.transportBody.as_of_date || command.transportBody.date,
-  });
-  const filtered = filterQuoteCatalogOfferings(catalog);
-  if (!filtered.ok) {
-    return { ok: false, status: 422, body: { success: false, reason: filtered.reason } };
+  const catalogCmd = catalogCommandFromQuoteCommand(command);
+  catalogCmd.requireDb = requireDb;
+  const catalogResult = executeSunsetCatalogSync(catalogCmd, { adminCfg });
+  if (!catalogResult.ok) {
+    return {
+      ok: false,
+      status: catalogResult.status || 422,
+      body: { success: false, reason: catalogResult.body.reason || catalogResult.body.reason_code },
+    };
   }
+  const filtered = filterQuoteCatalogOfferings({
+    ok: true,
+    offerings: catalogResult.body.offerings || [],
+    source: catalogResult.body.source,
+  });
   filtered._adminCfg = adminCfg;
   filtered.source = requireDb ? 'admin_db' : (filtered.source || adminCfg.source);
   const body = command.transportBody;

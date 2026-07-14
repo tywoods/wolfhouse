@@ -118,13 +118,15 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
     const itemCode = identity.item_code || packPriceItemCode(pack.pack_id, tierKey);
     const preferredUnit = identity.billing_unit || billingUnitForSurfPackTier(tierKey);
     const found = findConfigPrice(prices, itemCode, asOf, preferredUnit);
+    const allowConfigTierAmount = !opts.requireDb;
     const amount = found.ok ? centsFromPrice(found.price) : (
-      Number.isFinite(Number(tier.amount_cents)) ? Math.round(Number(tier.amount_cents)) : null
+      allowConfigTierAmount && Number.isFinite(Number(tier.amount_cents))
+        ? Math.round(Number(tier.amount_cents))
+        : null
     );
     const hasOwnerAmount = Number.isFinite(amount) && amount > 0;
-    // Bookable only when a price row exists with positive amount. Prefer canonical
-    // unit match; allow legacy unit rows as visible-but-healable when amount > 0
-    // and config_json carries the tier amount (create path heals unit).
+    // Bookable only when a price row exists with positive amount unless legacy
+    // config-json reads are explicitly allowed (requireDb disables that fallback).
     const resolvable = !!(found.ok && hasOwnerAmount);
     const bookable = resolvable && (!scheduleEval || scheduleEval.ok);
     const primary = (schedule.time_slots && schedule.time_slots[0]) || {};
@@ -161,7 +163,8 @@ function projectCourseTierFromPack(pack, prices, opts = {}) {
       billing_unit: preferredUnit,
       unit_amount_cents: hasOwnerAmount ? amount : null,
       currency: (found.ok && found.price.currency) || 'EUR',
-      price_source: found.ok ? 'admin_db' : (hasOwnerAmount ? 'admin_config_json' : null),
+      price_source: found.ok ? 'admin_db' : (allowConfigTierAmount && hasOwnerAmount ? 'admin_config_json' : null),
+      price_resolve_reason: found.ok ? null : (found.reason || 'price_missing'),
       unit_canonical: found.ok ? found.unit_canonical !== false : false,
       capacity: pack.group_size != null ? Number(pack.group_size) : null,
       age_band: pack.age_band || null,
@@ -204,6 +207,7 @@ function projectSunsetBookableOfferingsFromConfig(adminCfg, opts = {}) {
       asOf,
       requestedDates,
       timezone: opts.timezone,
+      requireDb: opts.requireDb,
     }));
   }
 

@@ -1,19 +1,17 @@
 'use strict';
 
 /**
- * Read-only guest-safe Sunset offering projection from Admin-resolved config.
- * Canonical identity + schedule eligibility come from sunset-bookable-offerings
- * so Luna catalog/quote match Schedule and manual create.
+ * Read-only guest-safe Sunset offering projection — delegates to the canonical
+ * catalog application service (luna-front-desk-catalog-service.js).
  */
 
-const { normalizeSunsetLocationId, isSunsetLocationId } = require('./sunset-school-locations');
-const { parseQuoteQuantity } = require('./sunset-group-lesson-quote');
 const {
-  projectSunsetBookableOfferingsFromConfig,
-} = require('./sunset-bookable-offerings');
-const {
-  evaluateSunsetOfferingDates,
-} = require('./sunset-offering-schedule');
+  CATALOG_CHANNELS,
+  buildSunsetCatalogCommand,
+  executeSunsetCatalogSync,
+  findCatalogOffering,
+  nestCatalogOffering,
+} = require('./luna-front-desk-catalog-service');
 
 function parsePackSchedule(value) {
   const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(value || '').trim());
@@ -35,127 +33,48 @@ function parseLessonSlotTime(value) {
   return { start_time: `${m[1]}:${m[2]}`, end_time: `${m[3]}:${m[4]}` };
 }
 
-function nestOffering(raw) {
-  const schedule = raw.schedule || {};
-  return {
-    offering_id: raw.offering_id,
-    offering_type: raw.offering_type,
-    label: raw.label,
-    guest_description: raw.guest_description || raw.label,
-    active: true,
-    bookable: raw.bookable !== false,
-    eligible_on_requested_dates: raw.eligible_on_requested_dates,
-    schedule_rejection: raw.schedule_rejection || null,
-    schedule: {
-      start_time: schedule.start_time || null,
-      end_time: schedule.end_time || null,
-      weekdays: Array.isArray(schedule.allowed_weekdays)
-        ? schedule.allowed_weekdays
-        : (Array.isArray(schedule.weekdays) ? schedule.weekdays : []),
-      weekly: schedule.weekly || null,
-      summary: schedule.summary || null,
-      allowed_weekdays: Array.isArray(schedule.allowed_weekdays) ? schedule.allowed_weekdays : [],
-      specific_dates: schedule.specific_dates || [],
-      excluded_dates: schedule.excluded_dates || [],
-      starts_on: schedule.starts_on || null,
-      ends_on: schedule.ends_on || null,
-      time_slots: schedule.time_slots || [],
-    },
-    duration: raw.duration || (raw.tier && raw.tier.hours != null ? `${raw.tier.hours}h` : (raw.tier_key || null)),
-    capacity: raw.capacity != null ? Number(raw.capacity) : null,
-    price: {
-      price_id: raw.price_identity && raw.price_identity.price_id
-        ? raw.price_identity.price_id
-        : raw.price_id,
-      amount_cents: raw.unit_amount_cents,
-      currency: raw.currency || 'EUR',
-      unit: raw.billing_unit || 'session',
-    },
-    course_id: raw.course_id || null,
-    included_items: Array.isArray(raw.included_items) ? raw.included_items : [],
-    unit_amount_cents: raw.unit_amount_cents,
-    billing_unit: raw.billing_unit,
-    billing_mode: raw.billing_mode || null,
-    price_id: (raw.price_identity && raw.price_identity.price_id) || raw.price_id,
-    currency: raw.currency || 'EUR',
-    schedules: raw.schedule && raw.schedule.time_slots ? raw.schedule.time_slots : raw.schedules,
-    slot_id: raw.slot_id || undefined,
-    slot_time: raw.slot_time || undefined,
-    age_band: raw.age_band || undefined,
-    tier: raw.tier || undefined,
-    tier_key: raw.tier_key || (raw.tier && raw.tier.key) || undefined,
-    offering_item_code: raw.offering_item_code || raw.item_code || undefined,
-    item_code: raw.item_code || raw.offering_item_code || undefined,
-    price_identity: raw.price_identity || undefined,
-    price_source: raw.price_source || 'admin_db',
-  };
-}
-
 function buildSunsetLunaCatalogFromConfig(adminCfg, {
   locationId, asOfDate, requireDb = false, requestedDates = null, bookableOnly = false,
 } = {}) {
-  const location_id = normalizeSunsetLocationId(locationId);
-  if (!isSunsetLocationId(locationId || location_id)) {
-    return { ok: false, reason: 'wrong_location', offerings: [], location_id };
-  }
-
-  const dates = requestedDates
-    || (asOfDate ? null : null); // asOfDate is price-window only unless dates passed
-  const projection = projectSunsetBookableOfferingsFromConfig(adminCfg, {
-    locationId: location_id,
-    asOf: asOfDate,
-    asOfDate,
-    requestedDates: dates,
-    requireDb,
-    bookableOnly,
+  const built = buildSunsetCatalogCommand({
+    channel: CATALOG_CHANNELS.LUNA_WHATSAPP,
+    trustedLocationId: locationId,
+    transportBody: {
+      service_dates: requestedDates,
+      date: asOfDate,
+      require_db: requireDb,
+      bookable_only: bookableOnly,
+    },
   });
-  if (!projection.ok) {
+  if (!built.ok) {
     return {
       ok: false,
-      reason: projection.reason,
+      reason: built.body.reason_code || built.body.reason,
       offerings: [],
-      location_id,
+      location_id: locationId,
     };
   }
-
-  // Guest catalog: courses with resolvable owner amount + private/rentals.
-  // When requestedDates are set, keep ineligible courses but mark them so Luna
-  // can explain weekends-only without inventing availability.
-  let offerings = (projection.offerings || [])
-    .filter((o) => o.unit_amount_cents != null && o.unit_amount_cents > 0)
-    .filter((o) => {
-      // Never surface unpriced course tiers.
-      if (o.offering_type === 'course' && !o.price_identity) return false;
-      if (o.offering_type === 'course' && o.unit_amount_cents == null) return false;
-      return true;
-    });
-
+  const command = {
+    ...built.command,
+    requireDb: requireDb || built.command.requireDb,
+  };
+  const result = executeSunsetCatalogSync(command, { adminCfg });
+  if (!result.ok) {
+    return {
+      ok: false,
+      reason: result.body.reason || result.body.reason_code,
+      offerings: [],
+      location_id: command.locationId,
+    };
+  }
+  let offerings = result.body.offerings || [];
   if (bookableOnly) {
     offerings = offerings.filter((o) => o.bookable === true);
   }
-
   return {
-    ok: true,
-    success: true,
-    client_slug: 'sunset',
-    location_id,
-    source: projection.source || adminCfg.source || 'config',
-    currency: adminCfg.currency || 'EUR',
-    requested_dates: dates,
-    offerings: offerings.map(nestOffering),
+    ...result.body,
+    offerings,
   };
-}
-
-function findCatalogOffering(catalog, offeringId) {
-  const id = String(offeringId || '').trim();
-  if (!id) return [];
-  return (catalog.offerings || []).filter((o) => (
-    o.offering_id === id
-    || o.price_id === id
-    || o.offering_item_code === id
-    || o.item_code === id
-    || (o.price && o.price.price_id === id)
-  ));
 }
 
 function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
@@ -184,10 +103,6 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
   return { ok: true, success: true, ...result.body };
 }
 
-/**
- * Resolve a booking component's unit cents from Admin catalog by exact offering/course.
- * Returns null when the ordinary group-lesson fallback must not be used for a course.
- */
 function resolveOfferingUnitCentsForBooking(adminCfg, meta = {}) {
   const offeringId = String(meta.offering_id || meta.price_id || meta.offering_item_code || '').trim();
   const courseId = meta.course_id != null ? String(meta.course_id).trim() : null;
@@ -233,4 +148,5 @@ module.exports = {
   parsePackSchedule,
   parseLessonSlotTime,
   findCatalogOffering,
+  nestCatalogOffering,
 };

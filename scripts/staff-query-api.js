@@ -315,6 +315,11 @@ const {
   executeSunsetQuote,
 } = require('./lib/luna-front-desk-quote-service');
 const {
+  CATALOG_CHANNELS,
+  buildSunsetCatalogCommand,
+  executeSunsetCatalog,
+} = require('./lib/luna-front-desk-catalog-service');
+const {
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
@@ -22979,9 +22984,17 @@ function scheduleFetchLessonTimesConfig(client, opts){
   var force = opts && opts.force === true;
   if (!force && scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
   var cfgUrl = '/staff/admin/config' + adminClientQuery();
+  var catalogUrl = null;
+  if (client === 'sunset') {
+    catalogUrl = '/staff/schedule/bookings/catalog?client=sunset&location=' + encodeURIComponent(getSunsetLocation());
+  }
+  var catalogP = catalogUrl
+    ? fetch(catalogUrl).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
+    : Promise.resolve(null);
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(data){
+      return catalogP.then(function(catalogData){
       var profile = getPortalProfile(client);
       if (data && data.success && data.lesson_times && data.lesson_times.length){
         scheduleLessonTimesCache = data.lesson_times.slice();
@@ -22990,13 +23003,18 @@ function scheduleFetchLessonTimesConfig(client, opts){
         scheduleLessonTimesCache = (profile.lesson_slots_demo || []).slice();
         scheduleLessonTimesFallback = true;
       }
-      scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
+      if (catalogData && catalogData.ok && Array.isArray(catalogData.courses)) {
+        scheduleCoursesCache = catalogData.courses.slice();
+      } else {
+        scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
+      }
       scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
       scheduleLessonTimesLoaded = true;
       return scheduleLessonTimesCache;
+      });
     })
     .catch(function(){
       var profile = getPortalProfile(client);
@@ -42682,22 +42700,21 @@ async function handleBotSunsetCatalog(req, res) {
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const built = buildSunsetCatalogCommand({
+    channel: CATALOG_CHANNELS.LUNA_WHATSAPP,
+    trustedLocationId: loc.location_id,
+    transportBody: body,
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, { ...built.body, elapsed_ms: Date.now() - started });
+  }
   try {
-    const { isSunsetAdminDbReadEnabled } = require('./lib/tenant-business-config');
-    const requireDb = body.require_db === true || body.requireDb === true || isSunsetAdminDbReadEnabled();
     const result = await withPgClient(async (pg) => {
       const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
-      return require('./lib/sunset-luna-admin-catalog').buildSunsetLunaCatalogFromConfig(cfg, {
-        locationId: loc.location_id,
-        asOfDate: body.date || body.as_of_date,
-        requestedDates: Array.isArray(body.service_dates)
-          ? body.service_dates
-          : (body.date ? [String(body.date).slice(0, 10)] : null),
-        requireDb,
-      });
+      return executeSunsetCatalog(pg, built.command, { adminCfg: cfg });
     });
-    return sendJSON(res, 200, {
-      ...result,
+    return sendJSON(res, result.status || 200, {
+      ...result.body,
       success: !!result.ok,
       client_slug: SUNSET_CLIENT_SLUG,
       location_id: loc.location_id,
@@ -42708,6 +42725,53 @@ async function handleBotSunsetCatalog(req, res) {
       ok: false, success: false, reason: 'admin_db_expected_unavailable',
       error: String(err && err.message || err),
     });
+  }
+}
+
+async function handleSunsetScheduleBookingsCatalog(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  const trustedLocationId = query.location || DEFAULT_SUNSET_LOCATION_ID;
+  let body = {};
+  if (req.method === 'POST') {
+    try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  }
+  const built = buildSunsetCatalogCommand({
+    channel: CATALOG_CHANNELS.SCHEDULE,
+    trustedLocationId,
+    transportBody: {
+      ...body,
+      service_dates: body.service_dates || (query.date ? [String(query.date).slice(0, 10)] : undefined),
+      require_db: body.require_db != null ? body.require_db : undefined,
+    },
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, { ...built.body, elapsed_ms: 0 });
+  }
+  const started = Date.now();
+  try {
+    const result = await withPgClient(async (pg) => executeSunsetCatalog(pg, built.command));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.bookings_catalog',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status || 200, {
+      ...(result.body || {}),
+      success: !!result.ok,
+      client_slug: clientSlug,
+      location_id: built.command.locationId,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: String(err && err.message || err) });
   }
 }
 
@@ -49421,6 +49485,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingQuote(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/catalog' && (method === 'GET' || method === 'POST')) {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingsCatalog(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');

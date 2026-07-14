@@ -101,10 +101,12 @@ const doc = fs.readFileSync(CONTRACT, 'utf8');
 for (const mod of [
   'sunset-bookable-offerings.js',
   'sunset-offering-schedule.js',
+  'luna-front-desk-catalog-service.js',
   'sunset-luna-admin-catalog.js',
   'sunset-admin-price-resolve.js',
   'sunset-schedule-booking-writes.js',
   'sunset-admin-course-join.js',
+  'luna-front-desk-quote-service.js',
 ]) {
   assert(`doc references ${mod}`, doc.includes(mod));
 }

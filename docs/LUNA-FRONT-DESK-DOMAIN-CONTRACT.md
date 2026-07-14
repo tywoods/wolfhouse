@@ -117,6 +117,24 @@ Read-only priced intent **before** a write.
 
 **HTTP:** `POST /staff/bot/sunset/offering-quote`, `POST /staff/schedule/bookings/quote` (Staff preview).
 
+### 2.7 Catalog (offering discovery)
+
+Read-only projection of bookable offerings shared by Schedule, Luna, and Staff quote prep.
+
+| Field | Notes |
+|-------|--------|
+| `offerings[]` | Nested guest/staff shape; priced offerings for booking surfaces |
+| `courses[]` | Schedule create-menu projection (tiers + schedule summary) |
+| `excluded_offerings[]` | Operator mode only — inactive/unpriced/ineligible with `exclusion_reason` |
+| `eligible_on_requested_dates` | When `service_dates` provided |
+| `schedule_rejection` | Canonical weekday/date rejection (never reinterpreted per consumer) |
+
+**Module owner:** `scripts/lib/luna-front-desk-catalog-service.js` — `buildSunsetCatalogCommand`, `executeSunsetCatalog`.
+
+**HTTP:** `POST /staff/bot/sunset/catalog`, `GET|POST /staff/schedule/bookings/catalog`.
+
+When `SUNSET_ADMIN_DB_READ_ENABLED`, catalog **does not** treat config-json tier amounts as bookable without a matching Admin DB price row.
+
 ### 2.6 Booking
 
 Header row + attribution.
@@ -154,6 +172,7 @@ Per-date service line (`booking_service_records`).
 | **Load admin catalog** | `GET /staff/admin/config` | — | No |
 | **Project offerings** | Schedule UI cache | — | No |
 | **Guest catalog** | — | `POST /staff/bot/sunset/catalog` | No |
+| **Schedule catalog (create menu)** | `GET /staff/schedule/bookings/catalog` | — | No |
 | **Quote offering** | Manual preflight (internal) | `POST /staff/bot/sunset/offering-quote` | No |
 | **Joinable courses / capacity** | Schedule ops | `POST /staff/bot/sunset/joinable-courses` | No |
 | **Create booking** | `POST /staff/schedule/bookings` | `POST /staff/bot/sunset/booking-create` | Yes |
@@ -285,7 +304,7 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 
 1. **Stale checkout URL after cancel:** Cancelled Luna probe bookings may still expose `cs_test_*` URL via `GET /staff/schedule/bookings/payment-link` while `payments` row is neutralized (`payment_id: null` in API). Payment truth: `paid=false`.  
 2. **Schedule drawer read:** `GET .../bookings/detail` returns 403 for Luna-attributed bookings (`drawer_edits_limited_to_staff_manual_schedule`) — staff UI cannot inspect Luna writes via drawer; bot/status endpoints still work.  
-3. **Dual price paths:** Read-only catalog can fall back to config JSON amounts; **writes require DB** when `SUNSET_ADMIN_DB_READ_ENABLED`.  
+3. **Dual price paths:** ~~Read-only catalog can fall back to config JSON amounts~~ Catalog service disables config-json bookability when `SUNSET_ADMIN_DB_READ_ENABLED`; **writes require DB** when flag is on.  
 4. **Group lesson slots:** Legacy `lesson_slot_*` identities exist in code but Luna catalog policy returns **courses + private only** (`group_lessons: []`).  
 5. **Wolfhouse bot token vs Sunset:** Staging KV `luna-bot-internal-token` may differ from `hermes-sunset-luna` container token — Sunset bot routes require the Sunset deployment token.  
 6. **Accommodation vertical:** Wolfhouse booking fields explicitly rejected on Sunset bot create — shared platform contract for accommodation not yet unified in this doc.
@@ -298,7 +317,8 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 |---------|--------|
 | Offering projection | `scripts/lib/sunset-bookable-offerings.js` |
 | Schedule rules | `scripts/lib/sunset-offering-schedule.js` |
-| Catalog + quote | `scripts/lib/sunset-luna-admin-catalog.js` |
+| Catalog (discovery) | `scripts/lib/luna-front-desk-catalog-service.js` — `buildSunsetCatalogCommand`, `executeSunsetCatalog` |
+| Catalog adapters | `scripts/lib/sunset-luna-admin-catalog.js` |
 | Course join / capacity | `scripts/lib/sunset-admin-course-join.js` |
 | Price resolve | `scripts/lib/sunset-admin-price-resolve.js`, `sunset-course-lesson-price-lookup.js` |
 | Booking writes | `scripts/lib/sunset-schedule-booking-writes.js` |
