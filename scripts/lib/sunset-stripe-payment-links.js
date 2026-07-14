@@ -360,6 +360,47 @@ async function applyBundleRentalPricing(pg, prices, svcRows, rentalPricing) {
   return { ok: true, total_cents: applied, configured_total_cents: configuredTotal, bundleRowIds: bundleRows.map((r) => String(r.id)) };
 }
 
+/**
+ * Prefer fail-closed tenant_price_rules for Sunset course / private-lesson /
+ * group-slot rows (same loader as rentals). Rentals and Wolfhouse paths are
+ * unchanged — only Sunset surf_lesson identities with course/lesson metadata.
+ */
+async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg, locationId) {
+  const slug = String(clientSlug || '').trim();
+  if (slug !== SUNSET_CLIENT_SLUG) {
+    return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+  }
+  const meta = parseMeta(sr && sr.metadata);
+  const {
+    isCourseOrLessonServiceRecord,
+    lookupSunsetCourseLessonPriceAsync,
+  } = require('./sunset-course-lesson-price-lookup');
+  if (!isCourseOrLessonServiceRecord(sr, meta)) {
+    return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+  }
+
+  const loc = meta.location_id || locationId;
+  const live = await lookupSunsetCourseLessonPriceAsync({
+    client_slug: slug,
+    location_id: loc,
+    metadata: { ...meta, location_id: loc },
+    quantity: Number(sr.quantity) || 1,
+    pgClient: pg,
+  });
+
+  if (live.ok === true && live.amount_cents > 0) {
+    return live.amount_cents;
+  }
+
+  // Bootstrap only: admin tables genuinely absent → catalog/blob helper.
+  if (live.reason === 'tables_missing' || live.reason === 'db_read_disabled') {
+    return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+  }
+
+  // Fail closed — never silent catalog/baseline when the rule table exists.
+  return null;
+}
+
 async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   const bookingLocRes = await pg.query(
     `SELECT metadata FROM bookings b INNER JOIN clients c ON c.id = b.client_id
@@ -392,13 +433,21 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
     totalCents += bundlePriced.total_cents;
     (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
   }
+  let priceSource = adminCfg.source || 'config';
   for (const sr of svcRes.rows) {
     if (bundleRowIds.has(String(sr.id))) continue;
     let due = Number(sr.amount_due_cents) || 0;
     if (due <= 0) {
-      due = serviceRecordUnitPriceCents(prices, sr, adminCfg) || 0;
+      due = await resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg, locationId) || 0;
       if (due <= 0) {
         return { ok: false, error: `no_price_for_${sr.service_type}` };
+      }
+      const meta = parseMeta(sr.metadata);
+      if (String(clientSlug).trim() === SUNSET_CLIENT_SLUG
+        && (meta.course_id || meta.component === 'course' || meta.component === 'private_lesson'
+          || meta.component === 'lesson' || meta.staff_ui_service_type === 'course'
+          || meta.staff_ui_service_type === 'private_lesson')) {
+        priceSource = 'db';
       }
       await pg.query(
         `UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid`,
@@ -416,7 +465,7 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
       WHERE id = $3::uuid`,
     [
       totalCents,
-      JSON.stringify({ sunset_priced_at: new Date().toISOString(), sunset_price_source: adminCfg.source || 'config' }),
+      JSON.stringify({ sunset_priced_at: new Date().toISOString(), sunset_price_source: priceSource }),
       bookingId,
     ],
   );
