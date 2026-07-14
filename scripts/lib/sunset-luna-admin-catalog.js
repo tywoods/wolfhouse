@@ -2,12 +2,18 @@
 
 /**
  * Read-only guest-safe Sunset offering projection from Admin-resolved config.
- * Price-row identity is preserved so configured courses cannot fall through to
- * the generic group-lesson (€30) resolver.
+ * Canonical identity + schedule eligibility come from sunset-bookable-offerings
+ * so Luna catalog/quote match Schedule and manual create.
  */
 
 const { normalizeSunsetLocationId, isSunsetLocationId } = require('./sunset-school-locations');
 const { parseQuoteQuantity } = require('./sunset-group-lesson-quote');
+const {
+  projectSunsetBookableOfferingsFromConfig,
+} = require('./sunset-bookable-offerings');
+const {
+  evaluateSunsetOfferingDates,
+} = require('./sunset-offering-schedule');
 
 function parsePackSchedule(value) {
   const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(value || '').trim());
@@ -29,50 +35,6 @@ function parseLessonSlotTime(value) {
   return { start_time: `${m[1]}:${m[2]}`, end_time: `${m[3]}:${m[4]}` };
 }
 
-function cents(price) {
-  if (!price) return null;
-  if (Number.isInteger(price.amount_cents)) return price.amount_cents;
-  const amount = Number(price.amount);
-  return Number.isFinite(amount) ? Math.round(amount * 100) : null;
-}
-
-function isoDate(value) {
-  return value == null ? null : String(value).slice(0, 10);
-}
-
-function priceState(price, asOfDate) {
-  if (!price || price.active === false) return 'inactive_offering';
-  const asOf = isoDate(asOfDate) || new Date().toISOString().slice(0, 10);
-  if (price.effective_from && isoDate(price.effective_from) > asOf) return 'future_price';
-  if (price.effective_to && isoDate(price.effective_to) < asOf) return 'expired_price';
-  return cents(price) == null ? 'price_missing' : null;
-}
-
-function exactPrice(prices, offeringKey, asOfDate) {
-  const matches = (prices || []).filter((p) => String(p.offering_key || p.item_code || '') === offeringKey);
-  if (!matches.length) return { ok: false, reason: 'price_missing' };
-  // Never attach baseline unverified_seed amounts to Luna catalog offerings.
-  const live = matches.filter((p) => {
-    const status = String(p.pricing_status || p.effective_state || '').toLowerCase();
-    if (status === 'unverified_seed' || status === 'owner_required') return false;
-    if (p.seed_source && String(p.source || '').toLowerCase() === 'config') return false;
-    return true;
-  });
-  const usable = live.filter((p) => !priceState(p, asOfDate));
-  if (usable.length > 1) return { ok: false, reason: 'ambiguous_price' };
-  if (usable.length === 1) return { ok: true, price: usable[0] };
-  if (!live.length) return { ok: false, reason: 'unverified_seed' };
-  return { ok: false, reason: priceState(matches[0], asOfDate) || 'price_missing' };
-}
-
-function weekdaysFromPack(weekly) {
-  const w = String(weekly || '').trim();
-  if (w === 'mon_fri') return [1, 2, 3, 4, 5];
-  if (w === 'sat_sun') return [0, 6];
-  if (w === 'daily') return [0, 1, 2, 3, 4, 5, 6];
-  return [];
-}
-
 function nestOffering(raw) {
   const schedule = raw.schedule || {};
   return {
@@ -81,156 +43,95 @@ function nestOffering(raw) {
     label: raw.label,
     guest_description: raw.guest_description || raw.label,
     active: true,
+    bookable: raw.bookable !== false,
+    eligible_on_requested_dates: raw.eligible_on_requested_dates,
+    schedule_rejection: raw.schedule_rejection || null,
     schedule: {
       start_time: schedule.start_time || null,
       end_time: schedule.end_time || null,
-      weekdays: Array.isArray(schedule.weekdays) ? schedule.weekdays : [],
+      weekdays: Array.isArray(schedule.allowed_weekdays)
+        ? schedule.allowed_weekdays
+        : (Array.isArray(schedule.weekdays) ? schedule.weekdays : []),
+      weekly: schedule.weekly || null,
+      summary: schedule.summary || null,
+      allowed_weekdays: Array.isArray(schedule.allowed_weekdays) ? schedule.allowed_weekdays : [],
+      specific_dates: schedule.specific_dates || [],
+      excluded_dates: schedule.excluded_dates || [],
+      starts_on: schedule.starts_on || null,
+      ends_on: schedule.ends_on || null,
+      time_slots: schedule.time_slots || [],
     },
-    duration: raw.duration || null,
+    duration: raw.duration || (raw.tier && raw.tier.hours != null ? `${raw.tier.hours}h` : (raw.tier_key || null)),
     capacity: raw.capacity != null ? Number(raw.capacity) : null,
     price: {
-      price_id: raw.price_id,
+      price_id: raw.price_identity && raw.price_identity.price_id
+        ? raw.price_identity.price_id
+        : raw.price_id,
       amount_cents: raw.unit_amount_cents,
       currency: raw.currency || 'EUR',
       unit: raw.billing_unit || 'session',
     },
     course_id: raw.course_id || null,
     included_items: Array.isArray(raw.included_items) ? raw.included_items : [],
-    // Internal convenience fields Luna tools may pass through (same identity).
     unit_amount_cents: raw.unit_amount_cents,
     billing_unit: raw.billing_unit,
-    price_id: raw.price_id,
+    billing_mode: raw.billing_mode || null,
+    price_id: (raw.price_identity && raw.price_identity.price_id) || raw.price_id,
     currency: raw.currency || 'EUR',
-    schedules: raw.schedules || undefined,
+    schedules: raw.schedule && raw.schedule.time_slots ? raw.schedule.time_slots : raw.schedules,
     slot_id: raw.slot_id || undefined,
     slot_time: raw.slot_time || undefined,
     age_band: raw.age_band || undefined,
     tier: raw.tier || undefined,
     tier_key: raw.tier_key || (raw.tier && raw.tier.key) || undefined,
-    offering_item_code: raw.offering_item_code || undefined,
-    item_code: raw.item_code || undefined,
+    offering_item_code: raw.offering_item_code || raw.item_code || undefined,
+    item_code: raw.item_code || raw.offering_item_code || undefined,
+    price_identity: raw.price_identity || undefined,
+    price_source: raw.price_source || 'admin_db',
   };
 }
 
-function buildSunsetLunaCatalogFromConfig(adminCfg, { locationId, asOfDate, requireDb = false } = {}) {
+function buildSunsetLunaCatalogFromConfig(adminCfg, {
+  locationId, asOfDate, requireDb = false, requestedDates = null, bookableOnly = false,
+} = {}) {
   const location_id = normalizeSunsetLocationId(locationId);
   if (!isSunsetLocationId(locationId || location_id)) {
     return { ok: false, reason: 'wrong_location', offerings: [], location_id };
   }
-  if (!adminCfg || adminCfg.ok === false) {
-    return { ok: false, reason: 'admin_db_expected_unavailable', offerings: [], location_id };
-  }
-  if (requireDb && (adminCfg.source !== 'db' || adminCfg.db_read_warning)) {
-    return { ok: false, reason: 'admin_db_expected_unavailable', offerings: [], location_id };
-  }
 
-  const prices = adminCfg.prices || [];
-  const rawOfferings = [];
-
-  // Standalone group / kids lesson slots are NOT offered to Luna. Courses
-  // (surf packs) + private lessons below are the only lesson products.
-  // (lesson_times / lesson_slot_* intentionally omitted.)
-
-  for (const pack of adminCfg.surf_packs || []) {
-    if (pack.active === false || !pack.pack_id) continue;
-    const schedules = (pack.schedules || []).map(parsePackSchedule).filter(Boolean);
-    const weekdays = weekdaysFromPack(pack.weekly);
-    for (const tier of pack.price_tiers || []) {
-      if (!tier || !tier.key) continue;
-      const key = `surf_pack_${pack.pack_id}__${tier.key}`;
-      const found = exactPrice(prices, key, asOfDate);
-      if (!found.ok) continue;
-      const primary = schedules[0] || {};
-      const amount = cents(found.price);
-      rawOfferings.push({
-        offering_type: 'course',
-        offering_id: found.price.id || key,
-        course_id: pack.pack_id,
-        price_id: found.price.id || key,
-        offering_item_code: key,
-        label: `${pack.label || 'Surf course'} — ${tier.label || tier.key}`,
-        guest_description: pack.label || 'Surf course',
-        unit_amount_cents: amount,
-        currency: found.price.currency || 'EUR',
-        billing_unit: found.price.unit || (/single_class/.test(tier.key) ? 'session' : 'course'),
-        schedule: {
-          start_time: primary.start_time || null,
-          end_time: primary.end_time || null,
-          weekdays,
-        },
-        duration: tier.hours != null ? `${tier.hours}h` : (tier.key || null),
-        capacity: pack.group_size != null ? Number(pack.group_size) : null,
-        schedules,
-        age_band: pack.age_band || 'all_ages',
-        tier: { key: tier.key, label: tier.label || tier.key, hours: tier.hours },
-        tier_key: tier.key,
-        included_items: [],
-      });
-    }
+  const dates = requestedDates
+    || (asOfDate ? null : null); // asOfDate is price-window only unless dates passed
+  const projection = projectSunsetBookableOfferingsFromConfig(adminCfg, {
+    locationId: location_id,
+    asOf: asOfDate,
+    asOfDate,
+    requestedDates: dates,
+    requireDb,
+    bookableOnly,
+  });
+  if (!projection.ok) {
+    return {
+      ok: false,
+      reason: projection.reason,
+      offerings: [],
+      location_id,
+    };
   }
 
-  for (const price of prices) {
-    const state = priceState(price, asOfDate);
-    if (state) continue;
-    const category = String(price.category || price.item_type || '').toLowerCase();
-    const key = String(price.offering_key || price.item_code || '');
-    if (category === 'rental') {
-      rawOfferings.push({
-        offering_type: 'rental',
-        offering_id: price.id || key,
-        course_id: null,
-        price_id: price.id || key,
-        label: price.label || key,
-        guest_description: price.label || key,
-        unit_amount_cents: cents(price),
-        currency: price.currency || 'EUR',
-        billing_unit: price.unit || 'session',
-        schedule: { start_time: null, end_time: null, weekdays: [] },
-        duration: null,
-        capacity: null,
-        item_code: key,
-        included_items: [],
-      });
-    }
-    if (category === 'addon' || price.addon === true || /full.?day|rest.*day/i.test(key)) {
-      rawOfferings.push({
-        offering_type: 'addon',
-        offering_id: price.id || key,
-        course_id: null,
-        price_id: price.id || key,
-        label: price.label || key,
-        guest_description: price.label || key,
-        unit_amount_cents: cents(price),
-        currency: price.currency || 'EUR',
-        billing_unit: price.unit || 'person',
-        schedule: { start_time: null, end_time: null, weekdays: [] },
-        duration: null,
-        capacity: null,
-        item_code: key,
-        included_items: [],
-      });
-    }
-  }
-
-  const privateLesson = adminCfg.private_lesson;
-  if (privateLesson && privateLesson.enabled && cents(privateLesson) != null) {
-    rawOfferings.push({
-      offering_type: 'private_lesson',
-      offering_id: privateLesson.rule_id || privateLesson.id || 'private_lesson',
-      course_id: null,
-      price_id: privateLesson.rule_id || privateLesson.id || 'private_lesson',
-      label: privateLesson.label || privateLesson.name || 'Private lesson',
-      guest_description: privateLesson.label || privateLesson.name || 'Private lesson',
-      unit_amount_cents: cents(privateLesson),
-      currency: privateLesson.currency || 'EUR',
-      billing_unit: privateLesson.unit || privateLesson.billing_unit || 'session',
-      schedule: { start_time: null, end_time: null, weekdays: [] },
-      duration: privateLesson.default_duration_minutes
-        ? `${privateLesson.default_duration_minutes}m`
-        : null,
-      capacity: null,
-      included_items: [],
+  // Guest catalog: courses with resolvable owner amount + private/rentals.
+  // When requestedDates are set, keep ineligible courses but mark them so Luna
+  // can explain weekends-only without inventing availability.
+  let offerings = (projection.offerings || [])
+    .filter((o) => o.unit_amount_cents != null && o.unit_amount_cents > 0)
+    .filter((o) => {
+      // Never surface unpriced course tiers.
+      if (o.offering_type === 'course' && !o.price_identity) return false;
+      if (o.offering_type === 'course' && o.unit_amount_cents == null) return false;
+      return true;
     });
+
+  if (bookableOnly) {
+    offerings = offerings.filter((o) => o.bookable === true);
   }
 
   return {
@@ -238,23 +139,34 @@ function buildSunsetLunaCatalogFromConfig(adminCfg, { locationId, asOfDate, requ
     success: true,
     client_slug: 'sunset',
     location_id,
-    source: adminCfg.source || 'config',
+    source: projection.source || adminCfg.source || 'config',
     currency: adminCfg.currency || 'EUR',
-    offerings: rawOfferings.map(nestOffering),
+    requested_dates: dates,
+    offerings: offerings.map(nestOffering),
   };
 }
 
 function findCatalogOffering(catalog, offeringId) {
   const id = String(offeringId || '').trim();
   if (!id) return [];
-  return (catalog.offerings || []).filter((o) => o.offering_id === id || o.price_id === id);
+  return (catalog.offerings || []).filter((o) => (
+    o.offering_id === id
+    || o.price_id === id
+    || o.offering_item_code === id
+    || o.item_code === id
+    || (o.price && o.price.price_id === id)
+  ));
 }
 
 function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
   const locationId = body.location_id || body.location;
+  const serviceDates = Array.isArray(body.service_dates)
+    ? [...new Set(body.service_dates.map((d) => String(d).slice(0, 10)).filter(Boolean))]
+    : [];
   const catalog = buildSunsetLunaCatalogFromConfig(adminCfg, {
     locationId,
-    asOfDate: body.as_of_date || body.date,
+    asOfDate: body.as_of_date || body.date || (serviceDates[0] || null),
+    requestedDates: serviceDates.length ? serviceDates : null,
     requireDb: body.require_db === true || body.requireDb === true,
   });
   if (!catalog.ok) return { ok: false, success: false, reason: catalog.reason };
@@ -269,7 +181,17 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
     );
     if (rawPrices.length > 1) return { ok: false, success: false, reason: 'ambiguous_price' };
     if (rawPrices.length === 1) {
-      return { ok: false, success: false, reason: priceState(rawPrices[0], body.as_of_date) || 'unknown_offering' };
+      const asOf = body.as_of_date || body.date;
+      if (rawPrices[0].active === false) {
+        return { ok: false, success: false, reason: 'inactive_offering' };
+      }
+      if (rawPrices[0].effective_from && String(rawPrices[0].effective_from).slice(0, 10) > String(asOf || '').slice(0, 10)) {
+        return { ok: false, success: false, reason: 'future_price' };
+      }
+      if (rawPrices[0].effective_to && String(rawPrices[0].effective_to).slice(0, 10) < String(asOf || '').slice(0, 10)) {
+        return { ok: false, success: false, reason: 'expired_price' };
+      }
+      return { ok: false, success: false, reason: 'unknown_offering' };
     }
     const knownUnpriced = (adminCfg.lesson_times || []).some((s) => `lesson_slot_${s.slot_id}__session` === offeringId)
       || (adminCfg.surf_packs || []).some((p) => (p.price_tiers || []).some((t) => `surf_pack_${p.pack_id}__${t.key}` === offeringId));
@@ -288,14 +210,27 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
   const quantity = parseQuoteQuantity(body.quantity);
   if (quantity == null) return { ok: false, success: false, reason: 'incompatible_unit' };
 
-  const dates = Array.isArray(body.service_dates)
-    ? [...new Set(body.service_dates.map(isoDate).filter(Boolean))]
-    : [];
+  if (offering.offering_type === 'course' && serviceDates.length) {
+    const scheduleCheck = evaluateSunsetOfferingDates(offering, serviceDates);
+    if (!scheduleCheck.ok) {
+      return {
+        ok: false,
+        success: false,
+        reason: scheduleCheck.reason,
+        reason_code: scheduleCheck.reason,
+        error: (scheduleCheck.staff_error && scheduleCheck.staff_error.error) || scheduleCheck.reason,
+        schedule_summary: scheduleCheck.schedule_summary,
+        detail: scheduleCheck.detail || null,
+      };
+    }
+  }
+
+  const dates = serviceDates;
   const unit = String(offering.billing_unit || offering.price && offering.price.unit || '').toLowerCase();
   const sessionUnit = /session|single_lesson|person/.test(unit)
     && offering.offering_type !== 'course';
   const courseUnit = offering.offering_type === 'course'
-    || /week|course|bundle|^\d+_day|^\d+_days|^\d+_week/.test(unit);
+    || /week|course|bundle|day|^\d+_day|^\d+_days|^\d+_week/.test(unit);
 
   if (sessionUnit && !dates.length) {
     return { ok: false, success: false, reason: 'incompatible_unit' };
@@ -332,11 +267,21 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
     currency: offering.currency || 'EUR',
     price_unit: offering.billing_unit || (offering.price && offering.price.unit) || unit,
     billing_unit: offering.billing_unit || (offering.price && offering.price.unit) || unit,
+    billing_mode: offering.billing_mode || null,
     price_id: offering.price_id,
-    price_source: catalog.source === 'db' || catalog.source === 'merged' ? 'admin_db' : 'config_or_db',
+    price_source: catalog.source === 'db' || catalog.source === 'merged' || catalog.source === 'admin_db'
+      ? 'admin_db'
+      : 'config_or_db',
     source: catalog.source,
     tier_key: (offering.tier && offering.tier.key) || offering.tier_key || null,
-    offering_item_code: offering.offering_item_code || null,
+    offering_item_code: offering.offering_item_code || offering.item_code || null,
+    price_identity: offering.price_identity || {
+      price_id: offering.price_id,
+      item_type: offering.offering_type === 'course' ? 'package' : offering.offering_type,
+      item_code: offering.offering_item_code || offering.item_code || offering.offering_id,
+      unit: offering.billing_unit,
+    },
+    schedule_summary: offering.schedule && offering.schedule.summary,
   };
 }
 
@@ -345,7 +290,7 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
  * Returns null when the ordinary group-lesson fallback must not be used for a course.
  */
 function resolveOfferingUnitCentsForBooking(adminCfg, meta = {}) {
-  const offeringId = String(meta.offering_id || meta.price_id || '').trim();
+  const offeringId = String(meta.offering_id || meta.price_id || meta.offering_item_code || '').trim();
   const courseId = meta.course_id != null ? String(meta.course_id).trim() : null;
   if (!offeringId && !courseId) return { ok: false, reason: 'unknown_offering' };
 
@@ -360,6 +305,10 @@ function resolveOfferingUnitCentsForBooking(adminCfg, meta = {}) {
     matches = (catalog.offerings || []).filter(
       (o) => o.offering_type === 'course' && String(o.course_id) === courseId,
     );
+    if (meta.tier_key) {
+      const tierMatches = matches.filter((o) => String(o.tier_key || (o.tier && o.tier.key) || '') === String(meta.tier_key));
+      if (tierMatches.length) matches = tierMatches;
+    }
   }
   if (!matches.length) return { ok: false, reason: 'unknown_offering' };
   if (matches.length > 1 && !offeringId) return { ok: false, reason: 'ambiguous_price' };
@@ -384,4 +333,5 @@ module.exports = {
   resolveOfferingUnitCentsForBooking,
   parsePackSchedule,
   parseLessonSlotTime,
+  findCatalogOffering,
 };

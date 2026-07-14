@@ -1568,6 +1568,9 @@ def get_sunset_lesson_catalog(params, **kwargs):
         body["location_id"] = payload["location_id"]
     if payload.get("date"):
         body["date"] = _clean(payload.get("date"))
+        body["service_dates"] = [_clean(payload.get("date"))]
+    if payload.get("service_dates") is not None:
+        body["service_dates"] = payload.get("service_dates")
     if payload.get("quantity") is not None:
         try:
             body["quantity"] = int(payload.get("quantity"))
@@ -1579,15 +1582,25 @@ def get_sunset_lesson_catalog(params, **kwargs):
     ok = bool(data.get("ok"))
     raw = data.get("offerings") if ok and isinstance(data.get("offerings"), list) else []
     # Belt-and-suspenders: never return standalone group/kids lesson slots to Luna.
-    offerings = [
-        o for o in raw
-        if isinstance(o, dict)
-        and str(o.get("offering_type") or "").lower() not in ("group_lesson", "kids_lesson")
-        and "lesson_slot_" not in str(o.get("offering_id") or "")
-        and "lesson_slot_" not in str(o.get("price_id") or "")
-        and "lesson_slot_" not in str(o.get("item_code") or "")
-        and str(o.get("offering_id") or "") != "group_lesson_adult"
-    ]
+    offerings = []
+    for o in raw:
+        if not isinstance(o, dict):
+            continue
+        otype = str(o.get("offering_type") or "").lower()
+        oid = str(o.get("offering_id") or "")
+        if otype in ("group_lesson", "kids_lesson"):
+            continue
+        if "lesson_slot_" in oid or "lesson_slot_" in str(o.get("price_id") or "") or "lesson_slot_" in str(o.get("item_code") or ""):
+            continue
+        if oid == "group_lesson_adult":
+            continue
+        # Prefer canonical item_code as booking identity when present.
+        item_code = o.get("offering_item_code") or o.get("item_code")
+        if item_code and (not oid or oid != str(item_code)):
+            o = dict(o)
+            o["offering_id"] = str(item_code)
+            o["canonical_offering_id"] = str(item_code)
+        offerings.append(o)
     return _json_result({
         "success": ok,
         "tool": "get_sunset_lesson_catalog",
@@ -1595,6 +1608,7 @@ def get_sunset_lesson_catalog(params, **kwargs):
         "offerings": offerings,
         "currency": data.get("currency") or "EUR",
         "source": data.get("source"),
+        "requested_dates": body.get("service_dates") or data.get("requested_dates"),
         "reason": data.get("reason") if not ok else None,
         "staff_review_needed": not ok,
         "guest_safe_next_action": None if ok else "Let me confirm the current course options with the team and get right back to you 😊",
@@ -1612,11 +1626,24 @@ def get_sunset_offering_quote(params, **kwargs):
             "error": "offering_id_required", "staff_review_needed": False,
         })
     body = {"offering_id": offering_id}
-    for key in ("course_id", "quantity", "service_dates", "location_id", "require_db"):
+    for key in ("course_id", "quantity", "service_dates", "location_id", "require_db", "tier_key"):
         if payload.get(key) is not None:
             body[key] = payload[key]
     data = _post_bot("/sunset/offering-quote", body)
     ok = bool(data.get("ok")) or bool(data.get("success"))
+    reason = data.get("reason") if not ok else None
+    guest_next = None
+    if not ok:
+        if reason in (
+            "service_dates_not_on_course_schedule",
+            "offering_not_available_on_dates",
+            "weekday_not_allowed",
+        ) or "weekend" in str(data.get("error") or "").lower():
+            guest_next = (
+                "That course runs on weekends — would Saturday or Sunday work for you?"
+            )
+        else:
+            guest_next = "Let me double-check that option with the team and get right back to you 😊"
     return _json_result({
         "success": ok,
         "tool": "get_sunset_offering_quote",
@@ -1624,13 +1651,22 @@ def get_sunset_offering_quote(params, **kwargs):
         "offering_id": data.get("offering_id") or offering_id,
         "course_id": data.get("course_id"),
         "offering_type": data.get("offering_type"),
+        "tier_key": data.get("tier_key"),
+        "offering_item_code": data.get("offering_item_code"),
         "unit_amount_cents": data.get("unit_amount_cents"),
         "total_cents": data.get("total_cents"),
         "currency": data.get("currency") or "EUR",
         "billing_unit": data.get("billing_unit"),
-        "reason": data.get("reason") if not ok else None,
-        "staff_review_needed": not ok,
-        "guest_safe_next_action": None if ok else "Let me double-check that option with the team and get right back to you 😊",
+        "price_source": data.get("price_source"),
+        "schedule_summary": data.get("schedule_summary"),
+        "error": data.get("error") if not ok else None,
+        "reason": reason,
+        "staff_review_needed": not ok and reason not in (
+            "service_dates_not_on_course_schedule",
+            "offering_not_available_on_dates",
+            "weekday_not_allowed",
+        ),
+        "guest_safe_next_action": guest_next,
     })
 
 

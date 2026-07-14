@@ -46,8 +46,10 @@ console.log('  PASS generic lesson amount differs from mid-day course amount');
 console.log('\n── GREEN: Admin catalog preserves exact course identity ──');
 const catalog = buildSunsetLunaCatalogFromConfig(fixture, { locationId: 'sunset-somo', asOfDate: '2027-01-01', requireDb: true });
 assert.strictEqual(catalog.ok, true);
-const midday = catalog.offerings.filter((o) => o.offering_id === 'midday-price');
+const middayItem = `surf_pack_${midDayPack}__1_week`;
+const midday = catalog.offerings.filter((o) => o.offering_id === middayItem || o.price_id === 'midday-price');
 assert.strictEqual(midday.length, 1);
+assert.strictEqual(midday[0].offering_id, middayItem);
 assert.strictEqual(midday[0].schedule.start_time, '12:15');
 assert.strictEqual(midday[0].schedule.end_time, '14:15');
 assert.strictEqual(midday[0].price.amount_cents, fixture.prices.find((p) => p.id === 'midday-price').amount_cents);
@@ -57,26 +59,33 @@ assert.strictEqual(midday[0].price.price_id, 'midday-price');
 assert(!catalog.offerings.some((o) => o.course_id === 'inactive-pack'));
 console.log('  PASS mid-day course appears once at fixture amount');
 
-const quote = quoteSunsetOfferingFromCatalog(fixture, { location_id: 'sunset-somo', offering_id: 'midday-price', course_id: midDayPack, quantity: 2, require_db: true, as_of_date: '2027-01-01' });
+const quote = quoteSunsetOfferingFromCatalog(fixture, {
+  location_id: 'sunset-somo',
+  offering_id: middayItem,
+  course_id: midDayPack,
+  quantity: 2,
+  require_db: true,
+  as_of_date: '2027-01-01',
+});
 assert.strictEqual(quote.ok, true);
 assert.strictEqual(quote.total_cents, fixture.prices.find((p) => p.id === 'midday-price').amount_cents * 2);
 console.log('  PASS course quote uses exact pack price, not generic lesson');
 
 console.log('\n── Fail closed ──');
 for (const [body, reason] of [
-  [{ location_id: 'wolfhouse-somo', offering_id: 'midday-price' }, 'wrong_location'],
+  [{ location_id: 'wolfhouse-somo', offering_id: middayItem }, 'wrong_location'],
   [{ location_id: 'sunset-somo', offering_id: 'missing' }, 'unknown_offering'],
   [{ location_id: 'sunset-somo', offering_id: 'surf_pack_unpriced-pack__1_week' }, 'price_missing'],
   [{ location_id: 'sunset-somo', offering_id: 'ambiguous-rental' }, 'ambiguous_price'],
   [{ location_id: 'sunset-somo', offering_id: 'inactive-price' }, 'inactive_offering'],
-  [{ location_id: 'sunset-somo', offering_id: 'midday-price', as_of_date: '2027-01-01' }, 'course_identity_missing'],
-  [{ location_id: 'sunset-somo', offering_id: 'midday-price', course_id: 'wrong', as_of_date: '2027-01-01' }, 'mismatched_course_offering'],
+  [{ location_id: 'sunset-somo', offering_id: middayItem, as_of_date: '2027-01-01' }, 'course_identity_missing'],
+  [{ location_id: 'sunset-somo', offering_id: middayItem, course_id: 'wrong', as_of_date: '2027-01-01' }, 'mismatched_course_offering'],
   [{ location_id: 'sunset-somo', offering_id: 'slot-price', quantity: 1, require_db: true, as_of_date: '2027-01-01' }, 'unknown_offering'],
   [{ location_id: 'sunset-somo', offering_id: 'future-price', as_of_date: '2027-01-01' }, 'future_price'],
   [{ location_id: 'sunset-somo', offering_id: 'expired-price', as_of_date: '2027-01-01' }, 'expired_price'],
 ]) {
   const result = quoteSunsetOfferingFromCatalog(fixture, body);
-  assert.strictEqual(result.reason, reason);
+  assert.strictEqual(result.reason, reason, JSON.stringify({ body, result }));
   console.log(`  PASS ${reason}`);
 }
 assert.strictEqual(buildSunsetLunaCatalogFromConfig({ ...fixture, source: 'config' }, { locationId: 'sunset-somo', requireDb: true }).reason, 'admin_db_expected_unavailable');

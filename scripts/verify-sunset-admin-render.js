@@ -152,6 +152,12 @@ function runStaticSourceChecks() {
     || src.includes("q += '&location=' + encodeURIComponent(getSunsetLocation())"));
   assert('scheduleLessonTimesLoaded cache gate present',
     src.includes('scheduleLessonTimesLoaded'));
+  assert('scheduleInvalidateAdminCatalogCache present',
+    src.includes('function scheduleInvalidateAdminCatalogCache('));
+  assert('adminReloadConfig busts schedule course cache',
+    /function adminReloadConfig\([\s\S]{0,400}scheduleInvalidateAdminCatalogCache/.test(src));
+  assert('create modal force-refetches admin courses',
+    /scheduleFetchLessonTimesConfig\(getClient\(\),\s*\{\s*force:\s*true\s*\}/.test(src));
 }
 
 function runReadModelChecks() {

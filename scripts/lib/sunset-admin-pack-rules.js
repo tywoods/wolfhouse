@@ -227,7 +227,15 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
       skipTransaction: true,
     });
     await client.query('COMMIT');
-    return { ok: true, status: 201, body: { success: true, surf_pack: mapPackRow(row) } };
+    return {
+      ok: true,
+      status: 201,
+      body: {
+        success: true,
+        surf_pack: mapPackRow(row),
+        cache_invalidate: ['admin_config', 'schedule_courses', 'luna_catalog'],
+      },
+    };
   } catch (err) {
     try { await client.query('ROLLBACK'); } catch (_) { /* already rolled back */ }
     if (err && /pack_price|price/i.test(String(err.message || ''))) {
@@ -274,19 +282,28 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
       [ruleId, clientSlug, nextLabel, JSON.stringify(nextCfg), actor.staff_user_id || null],
     );
     const after = updated.rows[0];
-    if (validated.patch.price_tiers || body.label != null) {
-      await upsertPackPriceTiers(client, {
-        clientSlug,
-        locationId: loc,
-        packId: after.id,
-        packLabel: after.label,
-        tiers: nextCfg.price_tiers || prevCfg.price_tiers || DEFAULT_PRICE_TIERS,
-        actor,
-        skipTransaction: true,
-      });
-    }
+    // Always re-sync linked price rows in the same transaction so label/tier
+    // amount/identity stay aligned after any pack edit.
+    await upsertPackPriceTiers(client, {
+      clientSlug,
+      locationId: loc,
+      packId: after.id,
+      packLabel: after.label,
+      tiers: nextCfg.price_tiers || prevCfg.price_tiers || DEFAULT_PRICE_TIERS,
+      actor,
+      skipTransaction: true,
+    });
     await client.query('COMMIT');
-    return { ok: true, status: 200, body: { success: true, surf_pack: mapPackRow(after) } };
+    const surf_pack = mapPackRow(after);
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        surf_pack,
+        cache_invalidate: ['admin_config', 'schedule_courses', 'luna_catalog'],
+      },
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -311,8 +328,47 @@ async function deactivateSurfPackRule(client, { ruleId, clientSlug, locationId, 
       await client.query('ROLLBACK');
       return { ok: false, status: 404, body: { success: false, error: 'not_found' } };
     }
+    // Deactivate linked package price rows so booking surfaces cannot resolve
+    // orphan active prices for a removed course.
+    const packId = String(updated.rows[0].id);
+    const itemPrefix = `surf_pack_${packId}__`;
+    try {
+      const hasPriceLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+      if (hasPriceLoc) {
+        await client.query(
+          `UPDATE tenant_price_rules
+              SET active = false, updated_at = NOW(), updated_by = $4::uuid
+            WHERE client_slug = $1
+              AND location_id = $2
+              AND item_type = 'package'
+              AND item_code LIKE $3
+              AND active = true`,
+          [clientSlug, loc, `${itemPrefix}%`, actor.staff_user_id || null],
+        );
+      } else {
+        await client.query(
+          `UPDATE tenant_price_rules
+              SET active = false, updated_at = NOW(), updated_by = $3::uuid
+            WHERE client_slug = $1
+              AND item_type = 'package'
+              AND item_code LIKE $2
+              AND active = true`,
+          [clientSlug, `${itemPrefix}%`, actor.staff_user_id || null],
+        );
+      }
+    } catch (_) {
+      // tenant_price_rules may be absent in older schemas; pack deactivate still commits.
+    }
     await client.query('COMMIT');
-    return { ok: true, status: 200, body: { success: true, surf_pack: mapPackRow(updated.rows[0]) } };
+    return {
+      ok: true,
+      status: 200,
+      body: {
+        success: true,
+        surf_pack: mapPackRow(updated.rows[0]),
+        cache_invalidate: ['admin_config', 'schedule_courses', 'luna_catalog'],
+      },
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;

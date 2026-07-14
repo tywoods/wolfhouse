@@ -41,7 +41,7 @@ function main() {
 
   console.log('[A] Storage: normalize never stores UUID as course_label');
   const lunaNoLabel = normalizeComponents({
-    components: { course: { quantity: 1, course_id: PACK_ID } },
+    components: { course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' } },
   });
   assert('normalize ok without label', lunaNoLabel.ok === true, JSON.stringify(lunaNoLabel));
   assert('stored course_label is empty (not the UUID)',
@@ -49,14 +49,14 @@ function main() {
     JSON.stringify(lunaNoLabel.value && lunaNoLabel.value.course));
 
   const lunaUuidLabel = normalizeComponents({
-    components: { course: { quantity: 1, course_id: PACK_ID, course_label: PACK_ID } },
+    components: { course: { quantity: 1, course_id: PACK_ID, course_label: PACK_ID, tier_key: '1_week' } },
   });
   assert('explicit course_label===course_id sanitized to empty',
     lunaUuidLabel.ok && lunaUuidLabel.value.course.course_label === '',
     JSON.stringify(lunaUuidLabel.value && lunaUuidLabel.value.course));
 
   const staffLabel = normalizeComponents({
-    components: { course: { quantity: 1, course_id: PACK_ID, course_label: ADMIN_LABEL } },
+    components: { course: { quantity: 1, course_id: PACK_ID, course_label: ADMIN_LABEL, tier_key: '1_week' } },
   });
   assert('staff real label preserved',
     staffLabel.ok && staffLabel.value.course.course_label === ADMIN_LABEL,

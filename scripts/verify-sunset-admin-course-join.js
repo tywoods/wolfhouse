@@ -100,8 +100,9 @@ function makePg(opts = {}) {
         return { rows: [{ '?column?': 1 }] };
       }
       if (/information_schema\.columns/i.test(s)) {
-        // loadSurfPacksFromDb requires location_id column for school isolation.
-        if (/tenant_surf_pack_rules/i.test(s) || (params && params[0] === 'tenant_surf_pack_rules')) {
+        // loadSurfPacksFromDb + price resolve require location_id columns.
+        if (/tenant_surf_pack_rules|tenant_price_rules/i.test(s)
+          || (params && /tenant_surf_pack_rules|tenant_price_rules/.test(String(params[0] || '')))) {
           return { rows: [{ '?column?': 1 }] };
         }
         return { rows: [] };
@@ -127,6 +128,66 @@ function makePg(opts = {}) {
         const key = `${courseId}|${String(date).slice(0, 10)}`;
         const seats = existingCourseSeats[key] != null ? existingCourseSeats[key] : 0;
         return { rows: [{ seats }] };
+      }
+      if (/to_regclass/i.test(s)) {
+        return { rows: [{ reg: 'tenant_price_rules' }] };
+      }
+      if (/FROM tenant_price_rules/i.test(s)) {
+        // Canonical package price for pack tiers so create preflight can resolve.
+        const itemCode = params[2];
+        const unit = params[3];
+        const locationId = params[4];
+        if (String(itemCode || '').startsWith('surf_pack_') && unit === 'day') {
+          return {
+            rows: [{
+              id: 'price-pack-1',
+              amount_cents: 18000,
+              currency: 'EUR',
+              item_type: 'package',
+              item_code: itemCode,
+              unit: 'day',
+              location_id: locationId || 'sunset-somo',
+            }],
+          };
+        }
+        return { rows: [] };
+      }
+      if (/UPDATE booking_service_records/i.test(s) && /amount_due_cents/i.test(s)) {
+        return { rows: [] };
+      }
+      if (/UPDATE bookings SET/i.test(s)) {
+        return { rows: [] };
+      }
+      if (/SELECT metadata FROM bookings/i.test(s)) {
+        return {
+          rows: [{
+            metadata: {
+              location_id: 'sunset-somo',
+              source: 'luna_guest_whatsapp',
+              staff_manual_schedule: false,
+            },
+          }],
+        };
+      }
+      if (/SELECT id, service_type/i.test(s) && /FROM booking_service_records/i.test(s)) {
+        const rows = inserts.filter((i) => i.table === 'booking_service_records').map((i, idx) => {
+          const meta = typeof i.params[9] === 'string' ? JSON.parse(i.params[9]) : i.params[9];
+          return {
+            id: `sr-${idx + 1}`,
+            service_type: i.params[4],
+            service_date: i.params[5],
+            quantity: i.params[6],
+            amount_due_cents: 0,
+            metadata: meta,
+          };
+        });
+        return { rows };
+      }
+      if (/UPDATE booking_service_records SET amount_due_cents/i.test(s)) {
+        return { rows: [] };
+      }
+      if (/UPDATE bookings/i.test(s) && /total_amount_cents/i.test(s)) {
+        return { rows: [] };
       }
       if (/INSERT INTO bookings/i.test(s)) {
         inserts.push({ table: 'bookings', params });
@@ -164,6 +225,7 @@ function makePg(opts = {}) {
 }
 
 async function main() {
+  process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'true';
   console.log('\nverify:sunset-admin-course-join — assign to admin courses, never mint\n');
 
   console.log('[0] Schedule helpers');
@@ -214,7 +276,7 @@ async function main() {
       payment_status: 'unpaid',
       service_dates: [COURSE_DATE],
       components: {
-        course: { quantity: 1, course_id: INVENTED_COURSE, course_label: 'Made up course' },
+        course: { quantity: 1, course_id: INVENTED_COURSE, course_label: 'Made up course', tier_key: '1_week' },
       },
     },
   });
@@ -237,7 +299,7 @@ async function main() {
       payment_status: 'unpaid',
       service_dates: [COURSE_DATE],
       components: {
-        course: { quantity: 1, course_id: PACK_ID },
+        course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' },
       },
     },
   });
@@ -263,11 +325,11 @@ async function main() {
       guest_name: 'Weekend Guest',
       payment_status: 'unpaid',
       service_dates: [WEEKEND_DATE],
-      components: { course: { quantity: 1, course_id: PACK_ID } },
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' } },
     },
   });
   assert('off-schedule rejected',
-    off.ok === false && off.body && off.body.error === 'service_dates_not_on_course_schedule',
+    off.ok === false && off.body && (/service_dates_not_on_course_schedule|weekdays|weekend|not available/i.test(String(off.body.error||'')) || off.body.reason_code === 'service_dates_not_on_course_schedule'),
     JSON.stringify(off));
   assert('off-schedule no writes', pgOff.inserts.length === 0);
 
@@ -284,7 +346,7 @@ async function main() {
       guest_name: 'Full Guest',
       payment_status: 'unpaid',
       service_dates: [COURSE_DATE],
-      components: { course: { quantity: 1, course_id: PACK_ID } },
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' } },
     },
   });
   assert('full course → course_full',
@@ -304,7 +366,7 @@ async function main() {
       guest_name: 'Luna Guest',
       payment_status: 'unpaid',
       service_dates: [COURSE_DATE],
-      components: { course: { quantity: 1, course_id: PACK_ID } },
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' } },
     },
   });
   assert('create ok for attribution case', attributed.ok === true, JSON.stringify(attributed));
@@ -355,7 +417,7 @@ async function main() {
       guest_name: 'Cross Loc',
       payment_status: 'unpaid',
       service_dates: [COURSE_DATE],
-      components: { course: { quantity: 1, course_id: PACK_ID } },
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: '1_week' } },
     },
   });
   assert('Somo pack not joinable from Sardinero',

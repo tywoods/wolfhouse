@@ -117,13 +117,16 @@ const sunsetToolsBlock = pluginSrc.slice(
   pluginSrc.indexOf('def _schema('),
 );
 ok(sunsetToolsBlock.includes('/sunset/rental-price')
-  && sunsetToolsBlock.includes('/sunset/full-day-addon')
   && sunsetToolsBlock.includes('/sunset/private-lesson')
   && sunsetToolsBlock.includes('/sunset/lesson-availability')
   && sunsetToolsBlock.includes('/sunset/catalog')
-  && sunsetToolsBlock.includes('/sunset/offering-quote')
-  && sunsetToolsBlock.includes('/sunset/lesson-quote'),
+  && sunsetToolsBlock.includes('/sunset/offering-quote'),
   'sunset tools call the /sunset/* read routes');
+// lesson-quote / full-day-addon were removed from Luna tools when group lessons
+// stopped being offered; keep them as Staff API routes for internal/tests only.
+ok(!sunsetToolsBlock.includes('/sunset/lesson-quote')
+  || sunsetToolsBlock.includes('group_lessons_not_offered'),
+  'Luna tools do not quote removed group-lesson endpoint');
 ok(!/booking-create|create-stripe-link|transfers\/save|addon-requests\/create/.test(sunsetToolsBlock),
   'sunset tool handlers contain no write/money route calls');
 

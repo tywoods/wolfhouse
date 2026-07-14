@@ -188,6 +188,16 @@ async function resolveActiveSunsetAdminPrice(pg, opts) {
 
 function staffFacingSunsetAdminPriceError(reasonCode, identity) {
   const code = String(reasonCode || 'pricing_failed');
+  if (/service_dates_not_on_course_schedule|offering_not_available_on_dates|weekday_not_allowed/i.test(code)) {
+    const { staffFacingOfferingScheduleError } = require('./sunset-offering-schedule');
+    return staffFacingOfferingScheduleError(code, identity && identity.detail);
+  }
+  if (/not_currently_bookable|course_schedule_not_configured|option_not_bookable/i.test(code)) {
+    return {
+      error: 'This option is not currently bookable.',
+      reason_code: code,
+    };
+  }
   if (/no_price_for_|price_not_configured|unresolved_offering|admin_price/i.test(code)) {
     const kind = identity && identity.item_type === 'package'
       ? 'course option'

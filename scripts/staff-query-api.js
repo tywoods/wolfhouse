@@ -22959,8 +22959,15 @@ function scheduleRowsForSameBookings(allRows, seedRows){
   return (allRows || []).filter(function(r){ return !!keys[scheduleBookingDayKey(r)]; });
 }
 
-function scheduleFetchLessonTimesConfig(client){
-  if (scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
+function scheduleInvalidateAdminCatalogCache(){
+  scheduleLessonTimesLoaded = false;
+  scheduleLessonTimesCache = [];
+  scheduleCoursesCache = [];
+}
+
+function scheduleFetchLessonTimesConfig(client, opts){
+  var force = opts && opts.force === true;
+  if (!force && scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
   var cfgUrl = '/staff/admin/config' + adminClientQuery();
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
@@ -23334,6 +23341,64 @@ function scheduleFormatPackScheduleKey(raw){
   return scheduleFormatSlotTimeRange(raw);
 }
 
+function scheduleWeekdaysFromWeekly(weekly){
+  var w = String(weekly || '').trim();
+  if (w === 'mon_fri') return [1, 2, 3, 4, 5];
+  if (w === 'sat_sun') return [0, 6];
+  if (w === 'daily') return [0, 1, 2, 3, 4, 5, 6];
+  return [];
+}
+
+function scheduleWeekdayOfIsoDate(iso){
+  return new Date(String(iso).slice(0, 10) + 'T12:00:00Z').getUTCDay();
+}
+
+function scheduleCourseSummary(weekly){
+  var w = String(weekly || '').trim();
+  if (w === 'sat_sun') return portalT('schedule.create.courseWeekendsOnly') || 'Weekends only';
+  if (w === 'mon_fri') return portalT('schedule.create.courseWeekdaysOnly') || 'Weekdays only';
+  if (w === 'daily') return portalT('schedule.create.courseDaily') || 'Daily';
+  return '';
+}
+
+function scheduleCreateSelectedDates(){
+  var from = el('ps-create-date-from') ? el('ps-create-date-from').value : '';
+  var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+  if (!from) return [];
+  if (!to) to = from;
+  var out = [];
+  var cur = scheduleParseIso(from);
+  var end = scheduleParseIso(to);
+  if (!cur || !end) return from ? [String(from).slice(0, 10)] : [];
+  var guard = 0;
+  while (cur.getTime() <= end.getTime() && guard < 120){
+    out.push(scheduleIsoDate(cur));
+    cur = scheduleAddDays(cur, 1);
+    guard += 1;
+  }
+  return out;
+}
+
+function scheduleCourseEligibleOnDates(course, dates){
+  var allowed = Array.isArray(course.weekdays) && course.weekdays.length
+    ? course.weekdays
+    : scheduleWeekdaysFromWeekly(course.weekly);
+  if (!allowed.length) return { ok: false, reason: 'schedule_not_configured' };
+  if (!(dates || []).length) return { ok: true };
+  for (var i = 0; i < dates.length; i++){
+    var wd = scheduleWeekdayOfIsoDate(dates[i]);
+    if (allowed.indexOf(wd) < 0){
+      return {
+        ok: false,
+        reason: 'service_dates_not_on_course_schedule',
+        weekday: wd,
+        allowed_weekdays: allowed,
+      };
+    }
+  }
+  return { ok: true };
+}
+
 function scheduleCoursesFromConfig(prices, surfPacks){
   var seen = {};
   var out = [];
@@ -23341,7 +23406,12 @@ function scheduleCoursesFromConfig(prices, surfPacks){
     var id = String(pack.pack_id || '').trim();
     if (!id || seen[id]) return;
     var tiers = (pack.price_tiers || []).map(function(t){
-      return { key: String(t.key || '').trim(), label: t.label || t.key || '' };
+      return {
+        key: String(t.key || '').trim(),
+        label: t.label || t.key || '',
+        offering_item_code: 'surf_pack_' + id + '__' + String(t.key || '').trim(),
+        unit_amount_cents: t.amount_cents != null ? Number(t.amount_cents) : null,
+      };
     }).filter(function(t){ return !!t.key; });
     // Admin courses without active duration tiers cannot resolve tenant_price_rules —
     // skip empty price_tiers so the manual form never submits a bare course_id.
@@ -23351,7 +23421,18 @@ function scheduleCoursesFromConfig(prices, surfPacks){
     if (pack.schedules && pack.schedules.length){
       time = scheduleFormatPackScheduleKey(pack.schedules[0]);
     }
-    out.push({ course_id: id, label: pack.label || id, slot_time: time, capacity: pack.group_size != null ? Number(pack.group_size) : null, price_tiers: tiers });
+    var weekly = pack.weekly || 'mon_fri';
+    out.push({
+      course_id: id,
+      label: pack.label || id,
+      slot_time: time,
+      capacity: pack.group_size != null ? Number(pack.group_size) : null,
+      price_tiers: tiers,
+      weekly: weekly,
+      weekdays: scheduleWeekdaysFromWeekly(weekly),
+      schedule_summary: scheduleCourseSummary(weekly),
+      bookable: true,
+    });
   });
   // Do not add price-row package fallbacks: those lack Admin tier identity and
   // used to submit course_id alone → no_price_for_surf_lesson.
@@ -23416,21 +23497,47 @@ function schedulePopulateCreateCourseFields(){
   var sel = el('ps-create-course-select');
   if (!sel) return;
   var courses = scheduleCoursesCache || [];
+  var dates = scheduleCreateSelectedDates();
   var prev = sel.value;
   var html = '';
   courses.forEach(function(c){
     var id = String(c.course_id || '').trim();
     if (!id) return;
-    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(c.label || id) + '">' + escHtml(c.label || id) + '</option>';
+    var eligible = scheduleCourseEligibleOnDates(c, dates);
+    var summary = c.schedule_summary ? (' — ' + c.schedule_summary) : '';
+    var disabled = dates.length && !eligible.ok;
+    var label = (c.label || id) + summary + (disabled
+      ? (' (' + (portalT('schedule.create.courseNotOnSelectedDates') || 'not available on selected dates') + ')')
+      : '');
+    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(c.label || id) + '"'
+      + (disabled ? ' disabled' : '')
+      + '>' + escHtml(label) + '</option>';
   });
   if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
   sel.innerHTML = html;
-  if (prev) sel.value = prev;
+  if (prev){
+    sel.value = prev;
+    // If previous course is now disabled for these dates, clear it.
+    if (sel.value !== prev){
+      schedulePopulateCreateCourseTierFields('');
+    }
+  }
   if (!sel._tierBound){
     sel._tierBound = true;
     sel.addEventListener('change', function(){
       // Changing course must drop stale tier values from the previous course.
       schedulePopulateCreateCourseTierFields('');
+    });
+  }
+  if (!sel._dateBound){
+    sel._dateBound = true;
+    ['ps-create-date-from', 'ps-create-date-to'].forEach(function(id){
+      var node = el(id);
+      if (!node || node._courseEligBound) return;
+      node._courseEligBound = true;
+      node.addEventListener('change', function(){
+        schedulePopulateCreateCourseFields();
+      });
     });
   }
   schedulePopulateCreateCourseTierFields();
@@ -26086,8 +26193,11 @@ function openScheduleCreateModal(){
   modal.style.display = 'flex';
   modal.setAttribute('aria-hidden', 'false');
   scheduleApplyCreatePrefill();
-  // Load admin config so the full-day add-on price/enabled state is known, then reveal the control.
-  scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleRefreshCreateFullDayAddon(); });
+  // Always re-fetch Admin catalog so newly created courses appear without restart.
+  scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
+    schedulePopulateCreateCourseFields();
+    scheduleRefreshCreateFullDayAddon();
+  });
 }
 
 function scheduleUpdateCreateLessonExtras(){
@@ -26124,6 +26234,24 @@ function submitScheduleManualBooking(){
     if (!coursePart.tier_key) {
       if (msg) { msg.textContent = portalT('schedule.create.courseTierRequired') || 'Select a course duration.'; msg.style.display = 'block'; }
       return;
+    }
+    var courseMeta = null;
+    (scheduleCoursesCache || []).forEach(function(c){
+      if (String(c.course_id || '') === String(coursePart.course_id)) courseMeta = c;
+    });
+    var selectedDates = scheduleCreateSelectedDates();
+    if (courseMeta && selectedDates.length){
+      var elig = scheduleCourseEligibleOnDates(courseMeta, selectedDates);
+      if (!elig.ok){
+        var weekendOnly = courseMeta.weekly === 'sat_sun'
+          || (Array.isArray(courseMeta.weekdays) && courseMeta.weekdays.length === 2
+            && courseMeta.weekdays.indexOf(0) >= 0 && courseMeta.weekdays.indexOf(6) >= 0);
+        var schedMsg = weekendOnly
+          ? (portalT('schedule.create.courseWeekendsOnlyHint') || 'This course runs on weekends. Choose a Saturday or Sunday.')
+          : (portalT('schedule.create.courseNotOnSelectedDates') || 'This course is not available on the selected dates.');
+        if (msg) { msg.textContent = schedMsg; msg.style.display = 'block'; }
+        return;
+      }
     }
   }
   if (payload.components.private_lesson) {
@@ -26508,6 +26636,9 @@ function adminReloadConfigKeepingEdit(keepTarget){
 function adminReloadConfig(){
   adminEditTarget = null;
   adminSaveBusy = false;
+  // Admin pack CRUD must invalidate Schedule create-menu cache immediately —
+  // same SPA session previously kept stale surf_packs until school switch/restart.
+  if (typeof scheduleInvalidateAdminCatalogCache === 'function') scheduleInvalidateAdminCatalogCache();
   loadAdminTab();
 }function adminIsLessonPrice(p){
   return String((p && p.category) || '').toLowerCase() === 'lesson';
@@ -42549,6 +42680,9 @@ async function handleBotSunsetCatalog(req, res) {
       return require('./lib/sunset-luna-admin-catalog').buildSunsetLunaCatalogFromConfig(cfg, {
         locationId: loc.location_id,
         asOfDate: body.date || body.as_of_date,
+        requestedDates: Array.isArray(body.service_dates)
+          ? body.service_dates
+          : (body.date ? [String(body.date).slice(0, 10)] : null),
         requireDb,
       });
     });

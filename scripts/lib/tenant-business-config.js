@@ -449,10 +449,13 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
     fromDb: lessonCapacityRaw.fromDb,
   };
 
+  // surf_packs must count: packs-only DB state (or packs present before price
+  // rows finish syncing) must still overlay Admin/Schedule/Luna catalogs.
   const hasData = prices.length > 0
     || lessonCapacityRaw.fromDb
     || lesson_times.length > 0
     || change_history.length > 0
+    || (surf_packs && surf_packs.length > 0)
     || (private_lesson && private_lesson.source === 'db');
 
   return {

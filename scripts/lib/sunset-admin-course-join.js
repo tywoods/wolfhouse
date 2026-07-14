@@ -18,21 +18,14 @@ const {
   isSunsetLocationId,
   sqlLocationMatch,
 } = require('./sunset-school-locations');
+const {
+  weekdaysFromWeekly: weekdaysFromPackWeekly,
+  weekdayOfIsoDate,
+  datesBelongToPackSchedule,
+  evaluateSunsetOfferingDates,
+} = require('./sunset-offering-schedule');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
-
-function weekdaysFromPackWeekly(weekly) {
-  const w = String(weekly || '').trim();
-  if (w === 'mon_fri') return [1, 2, 3, 4, 5];
-  if (w === 'sat_sun') return [0, 6];
-  if (w === 'daily') return [0, 1, 2, 3, 4, 5, 6];
-  return [];
-}
-
-function weekdayOfIsoDate(iso) {
-  // Noon UTC avoids DST edge cases for Spain summer date keys.
-  return new Date(`${String(iso).slice(0, 10)}T12:00:00Z`).getUTCDay();
-}
 
 function parsePackScheduleKey(value) {
   const m = /^([01]\d|2[0-3])([0-5]\d)_([01]\d|2[0-3])([0-5]\d)$/.exec(String(value || '').trim());
@@ -102,26 +95,6 @@ SELECT COALESCE(SUM(CASE
   return Number(res.rows[0] && res.rows[0].seats) || 0;
 }
 
-function datesBelongToPackSchedule(pack, serviceDates) {
-  const allowed = weekdaysFromPackWeekly(pack.weekly);
-  if (!allowed.length) {
-    return { ok: false, error: 'course_schedule_not_configured' };
-  }
-  const dates = (serviceDates || []).map((d) => String(d).slice(0, 10));
-  if (!dates.length) return { ok: false, error: 'service_dates_required' };
-  for (const iso of dates) {
-    const wd = weekdayOfIsoDate(iso);
-    if (!allowed.includes(wd)) {
-      return {
-        ok: false,
-        error: 'service_dates_not_on_course_schedule',
-        detail: { date: iso, weekday: wd, allowed_weekdays: allowed },
-      };
-    }
-  }
-  return { ok: true, dates, allowed_weekdays: allowed };
-}
-
 /**
  * Load one active admin course (surf pack) by pack_id for the location.
  */
@@ -160,12 +133,18 @@ async function assertCourseAssignable(pg, {
   const pack = loaded.pack;
   const schedule = datesBelongToPackSchedule(pack, serviceDates);
   if (!schedule.ok) {
+    const staffMsg = schedule.staff_error
+      || require('./sunset-offering-schedule').staffFacingOfferingScheduleError(
+        schedule.error,
+        schedule.detail,
+      );
     return {
       ok: false,
       status: 400,
       body: {
         success: false,
-        error: schedule.error,
+        error: (staffMsg && staffMsg.error) || schedule.error,
+        reason_code: (staffMsg && staffMsg.reason_code) || schedule.error,
         course_id: pack.pack_id,
         detail: schedule.detail || null,
       },
@@ -312,6 +291,7 @@ module.exports = {
   weekdaysFromPackWeekly,
   weekdayOfIsoDate,
   datesBelongToPackSchedule,
+  evaluateSunsetOfferingDates,
   countConfirmedCourseSeatsOnDate,
   countConfirmedLessonSlotSeatsOnDate,
   loadAdminCourseById,
