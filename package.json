@@ -281,6 +281,7 @@
     "verify:sunset-rental-lookup": "node scripts/verify-sunset-rental-lookup.js",
     "verify:sunset-rental-db-precedence": "node scripts/verify-sunset-rental-db-precedence.js",
     "verify:sunset-soul-contract": "node scripts/verify-sunset-soul-contract.js",
+    "verify:luna-front-desk-domain-contract": "node scripts/verify-luna-front-desk-domain-contract.js",
     "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-full-day-equipment-addon": "node scripts/verify-sunset-full-day-equipment-addon.js",
