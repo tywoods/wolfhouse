@@ -19,6 +19,8 @@ import sys
 
 # Import the plugin package by name (parent "plugins" dir on the path).
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Tenant-aware tools require an explicit runtime slug (never invent Wolfhouse).
+os.environ.setdefault("LUNA_CLIENT_SLUG", "wolfhouse-somo")
 import wolfhouse_staff_api as mod  # noqa: E402
 
 PASSED = 0
@@ -543,6 +545,8 @@ try:
           ]).issubset(set(sunset_tool_names)))
     check("S14 sunset toolset excludes wolfhouse write tools",
           "create_booking_from_plan" not in sunset_tool_names and "create_payment_link" not in sunset_tool_names)
+    sunset_write_names = [t[0] for t in mod._sunset_write_tools()]
+    check("S14b sunset write tools include flag_needs_human", "flag_needs_human" in sunset_write_names)
 finally:
     if prev_slug is None:
         os.environ.pop("LUNA_CLIENT_SLUG", None)

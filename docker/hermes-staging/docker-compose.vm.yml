@@ -1,19 +1,6 @@
-# Wolfhouse staging Hermes on Azure VM — orchestrator + Luna (+ optional isolated Wolfhouse Luna).
-# Hermes recommends one container per profile; shared auth.json is bind-mounted read-only.
-#
-# Host paths (created by scripts/provision-hermes-vm.sh):
-#   /var/lib/hermes-orchestrator       → orchestrator HERMES_HOME
-#   /var/lib/hermes-luna                 → Luna HERMES_HOME (live Meta webhook on :8090)
-#   /var/lib/hermes-wolfhouse-luna       → isolated Wolfhouse Luna HERMES_HOME (:8091, no live Meta traffic)
-#   /var/lib/hermes-shared/auth.json     → OAuth credential pool (shared, must be writable for pool updates)
-#   /opt/wolfhouse/WH                    → Wolfhouse git repo (orchestrator cwd)
-#
-# Usage on VM:
-#   docker compose -f /opt/wolfhouse/WH/docker/hermes-staging/docker-compose.vm.yml up -d
-
 services:
   hermes-orchestrator:
-    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-orchestrator
     restart: unless-stopped
     command: gateway run
@@ -34,7 +21,7 @@ services:
       - /etc/hermes-orchestrator.env
 
   hermes-luna:
-    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-luna
     restart: unless-stopped
     command: gateway run
@@ -55,7 +42,7 @@ services:
       - /etc/hermes-luna.env
 
   hermes-wolfhouse-luna:
-    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-wolfhouse-luna
     restart: unless-stopped
     command: gateway run

@@ -769,6 +769,32 @@ class BurstCoalescer:
             await self._drain_followups(st)
             return
 
+        try:
+            from wolfhouse.explicit_human_handoff import maybe_short_circuit_explicit_human
+
+            handled = await maybe_short_circuit_explicit_human(event, adapter_dispatch)
+            if handled:
+                self._stats["explicit_human_handoffs"] = int(
+                    self._stats.get("explicit_human_handoffs") or 0
+                ) + 1
+                self._log(
+                    "whatsapp_burst_explicit_human_handoff",
+                    st.key,
+                    source_message_count=source_count,
+                    needs_human=bool(handled.get("needs_human")),
+                    reason=str(handled.get("reason") or ""),
+                )
+                await self._drain_followups(st)
+                return
+        except Exception:
+            logger.exception(
+                "%s",
+                {
+                    "event": "whatsapp_burst_explicit_human_handoff_error",
+                    "sender_key": mask_sender_key(st.key),
+                },
+            )
+
         st.active_run = True
         self._stats["agent_invocations"] += 1
         failed = False

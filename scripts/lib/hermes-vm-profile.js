@@ -10,8 +10,10 @@ const HERMES_VM = Object.freeze({
   LOCATION: 'northeurope',
   VM_NAME: 'lunabox',
   VM_SIZE: 'Standard_B2s',
-  IMAGE: 'whstagingacr.azurecr.io/wh-hermes-staging:latest',
+  IMAGE: null, // resolved at deploy time via buildHermesImage(fullSha) — never :latest
   ACR: 'whstagingacr',
+  ACR_LOGIN_SERVER: 'whstagingacr.azurecr.io',
+  IMAGE_REPO: 'wh-hermes-staging',
   KV: 'wh-staging-kv',
   IDENTITY_ID:
     '/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/wh-staging-identity',

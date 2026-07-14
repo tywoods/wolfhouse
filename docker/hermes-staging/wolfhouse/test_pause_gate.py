@@ -53,6 +53,11 @@ def main() -> int:
         check("luna role enabled", mod._is_luna_runtime() is True)
         check("wolfhouse slug", mod._client_slug() == "wolfhouse-somo")
 
+    with mock.patch.dict(os.environ, {"HERMES_ROLE": "luna"}, clear=True):
+        # clear removes LUNA_CLIENT_SLUG
+        check("missing slug returns empty", mod._client_slug() == "")
+        check("missing slug fail-closed paused", mod.guest_automation_paused("+34600111222", force_refresh=True) is True)
+
     # Fail closed on network error when no prior active preference.
     mod._CACHE.clear()
     with mock.patch.dict(

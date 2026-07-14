@@ -1,6 +1,6 @@
 services:
   hermes-sunset-luna:
-    image: whstagingacr.azurecr.io/wh-hermes-staging:latest
+    image: ${HERMES_IMAGE:?HERMES_IMAGE must be set to whstagingacr.azurecr.io/wh-hermes-staging:<full-master-sha>}
     container_name: hermes-sunset-luna
     restart: unless-stopped
     command: gateway run
@@ -15,7 +15,7 @@ services:
       HERMES_ROLE: sunset-luna
       LUNA_TENANT_ID: sunset
       LUNA_CLIENT_SLUG: sunset
-      LUNA_ALLOWED_LOCATION_IDS: sunset-somo,sunset-sardinero
+      LUNA_ALLOWED_LOCATION_IDS: sunset-somo
       # This WhatsApp runtime is bound to Somo; Sardinero will use a separate number/runtime.
       SUNSET_INGRESS_LOCATION_ID: sunset-somo
       GENERIC_TIMEZONE: Europe/Madrid

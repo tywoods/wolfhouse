@@ -108,6 +108,7 @@ Field order: dates → guest count → package choice → (room preference) → 
 |---|------|-------|
 | 8.1 | Low-confidence / uncertain intent NEVER triggers handoff on its own. | `luna-guest-handoff-policy.js` (`IMPLICIT_HANDOFF_REASONS`) |
 | 8.2 | Handoff only on explicit reasons: human requested, complaint, paid cancellation/change, payment mismatch, urgent safety, transfer exception, etc. | `luna-guest-handoff-policy.js` (`EXPLICIT_HANDOFF_REASONS`) |
+| 8.2a | Explicit request to speak with a human / real person / teammate / manager → call Hermes `flag_needs_human` with reason `human_requested` immediately; do not continue booking intake. | `docker/hermes-staging/SOUL.md`, `docker/hermes-staging/wolfhouse/explicit_human_handoff.py`, `luna-guest-handoff-policy.js` (`isExplicitHumanRequest`) |
 | 8.3 | Paid-booking change/cancel reasons require paid-booking context before escalating. | `luna-guest-handoff-policy.js` (`PAID_BOOKING_ONLY_REASONS`) |
 
 ---

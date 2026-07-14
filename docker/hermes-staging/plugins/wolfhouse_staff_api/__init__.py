@@ -113,6 +113,24 @@ def _bot_token():
     return _clean(os.getenv("LUNA_BOT_INTERNAL_TOKEN"))
 
 
+def _trusted_client_slug():
+    """Runtime tenant for Luna tools — never trust the model / never invent Wolfhouse.
+
+    Returns the configured LUNA_CLIENT_SLUG, or empty string when unset.
+    """
+    return _clean(os.getenv("LUNA_CLIENT_SLUG"))
+
+
+def _tenant_denied(reason):
+    return {
+        "success": False,
+        "staff_api_status": "tenant_scope_denied",
+        "staff_review_needed": True,
+        "error": reason,
+        "guest_safe_next_action": "Thanks — I’m going to have the team double-check this and get back to you shortly 😊",
+    }
+
+
 def _safe_text(text):
     out = _clean(text)
     for term, replacement in GUEST_UNSAFE_TERMS.items():
@@ -146,9 +164,57 @@ def _post_bot(path, payload):
         }
 
     payload = dict(payload or {})
-    configured_slug = _clean(os.getenv("LUNA_CLIENT_SLUG"))
+    # Model must never choose tenant / arbitrary cross-tenant conversation.
+    payload.pop("client_slug", None)
+    configured_slug = _trusted_client_slug()
+    if not configured_slug:
+        return _tenant_denied("LUNA_CLIENT_SLUG is required for tenant-scoped Luna tool calls.")
+    if configured_slug not in {"wolfhouse-somo", "sunset"}:
+        return _tenant_denied(f"Unknown Luna tenant slug: {configured_slug}")
+    payload["client_slug"] = configured_slug
+
     allowed_locations = {item.strip() for item in os.getenv("LUNA_ALLOWED_LOCATION_IDS", "").split(",") if item.strip()}
     bound_location = ""
+    try:
+        from sunset_tenant_routing import get_current_location
+        bound_location = _clean(get_current_location())
+    except Exception:
+        pass
+    # Hermes may execute tools outside the gateway ContextVar context. The
+    # gateway binds and clears this authoritative ingress value for the turn.
+    if not bound_location:
+        bound_location = _clean(os.getenv("SUNSET_INGRESS_LOCATION_ID"))
+    if configured_slug == "sunset":
+        # Current Somo runtime must not accept Sardinero scope.
+        if not bound_location:
+            return _tenant_denied("SUNSET_INGRESS_LOCATION_ID is required for Sunset Luna.")
+        if bound_location == "sunset-sardinero" and "sunset-sardinero" not in allowed_locations:
+            return _tenant_denied("Sardinero is not enabled on this Sunset runtime.")
+        if allowed_locations and bound_location not in allowed_locations:
+            return _tenant_denied("Request is outside the configured Luna location scope.")
+        requested_location = _clean(payload.get("location_id"))
+        if requested_location and requested_location != bound_location:
+            return _tenant_denied("Request is outside the configured Luna location scope.")
+        if requested_location == "sunset-sardinero" and bound_location != "sunset-sardinero":
+            return _tenant_denied("Sardinero is not enabled on this Sunset runtime.")
+        payload["location_id"] = bound_location
+    elif allowed_locations:
+        requested_location = _clean(payload.get("location_id"))
+        if not bound_location or bound_location not in allowed_locations or (requested_location and requested_location != bound_location):
+            return _tenant_denied("Request is outside the configured Luna location scope.")
+        payload["location_id"] = bound_location
+    url_path = _normalize_bot_path(path)
+    url = url_path if url_path.startswith(("http://", "https://")) else _base_url() + url_path
+    body = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=body,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "X-Luna-Bot-Token": token,
+        },
+    )
     try:
         from sunset_tenant_routing import get_current_location
         bound_location = _clean(get_current_location())
@@ -240,7 +306,7 @@ def check_availability(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = {
-        "client_slug": params.get("client_slug") or "wolfhouse-somo",
+        "client_slug": params.get("client_slug"),
         "check_in": params.get("check_in"),
         "check_out": params.get("check_out"),
         "guest_count": params.get("guest_count"),
@@ -281,7 +347,6 @@ def quote_booking(params, **kwargs):
             "guest_safe_next_action": _err.get("message"),
         })
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")
     data = _post_bot("/booking-preview", payload)
     quote = data.get("quote") if isinstance(data.get("quote"), dict) else {}
@@ -400,7 +465,7 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
         raw = [payload.get("pending_transfer")]
     if not isinstance(raw, list) or not raw:
         return []
-    client_slug = payload.get("client_slug") or "wolfhouse-somo"
+    client_slug = payload.get("client_slug")
     results = []
     for entry in raw:
         if not isinstance(entry, dict):
@@ -446,7 +511,6 @@ def _auto_save_pending_transfers(payload, booking_id, booking_code):
 def create_booking_from_plan(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")
 
     # Auto-inject required write fields the model shouldn't need to know about.
@@ -496,7 +560,7 @@ def create_booking_from_plan(params, **kwargs):
     if not payload.get("selected_bed_codes"):
         try:
             avail_data = _post_bot("/availability-check", {
-                "client_slug": payload.get("client_slug", "wolfhouse-somo"),
+                "client_slug": payload.get("client_slug"),
                 "check_in": payload.get("check_in"),
                 "check_out": payload.get("check_out"),
                 "guest_count": payload.get("guest_count", 1),
@@ -565,7 +629,7 @@ def create_booking_from_plan(params, **kwargs):
                 guest_num = bg.get("guest_number")
                 if not guest_id and fields.get("booking_code") and guest_num:
                     status = _post_bot("/booking-guests/payment-status", {
-                        "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+                        "client_slug": payload.get("client_slug"),
                         "booking_code": fields.get("booking_code"),
                         "guest_number": guest_num,
                     })
@@ -575,7 +639,7 @@ def create_booking_from_plan(params, **kwargs):
                 link_data = _post_bot(
                     f"/booking-guests/{urllib.parse.quote(guest_id)}/create-payment-link",
                     {
-                        "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+                        "client_slug": payload.get("client_slug"),
                         "payment_target": payment_target,
                     },
                 )
@@ -592,7 +656,7 @@ def create_booking_from_plan(params, **kwargs):
             secure_url = None  # per-guest links replace single booking link
 
     if bool(data.get("success")) and bool(data.get("write_performed")) and payment_id and not uses_per_guest_model:
-        link_payload = {"client_slug": payload.get("client_slug") or "wolfhouse-somo"}
+        link_payload = {"client_slug": payload.get("client_slug")}
         link_data = _post_bot(
             f"/payments/{urllib.parse.quote(payment_id)}/create-stripe-link",
             link_payload,
@@ -664,7 +728,7 @@ def create_payment_link(params, **kwargs):
     payment_id = _clean(params.get("payment_id") or params.get("paymentId") or params.get("id"))
     if not payment_id:
         lookup_payload = {
-            "client_slug": payload.get("client_slug") or "wolfhouse-somo",
+            "client_slug": payload.get("client_slug"),
         }
         if payload.get("booking_id") or payload.get("bookingId"):
             lookup_payload["booking_id"] = payload.get("booking_id") or payload.get("bookingId")
@@ -739,7 +803,6 @@ def create_payment_link(params, **kwargs):
 def create_balance_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     booking_id = _clean(payload.get("booking_id") or payload.get("bookingId"))
     booking_code = _clean(payload.get("booking_code") or payload.get("bookingCode"))
     if not booking_id and not booking_code:
@@ -795,7 +858,6 @@ def create_balance_payment_link(params, **kwargs):
 def preview_package_prices(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     check_in = _clean(payload.get("check_in"))
     check_out = _clean(payload.get("check_out"))
     guest_count = payload.get("guest_count")
@@ -829,7 +891,6 @@ def preview_package_prices(params, **kwargs):
 def create_guest_payment_link(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     guest_id = _clean(payload.get("booking_guest_id") or payload.get("guest_id"))
     booking_code = _clean(payload.get("booking_code"))
     guest_number = payload.get("guest_number")
@@ -884,7 +945,6 @@ def create_guest_payment_link(params, **kwargs):
 def get_guest_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     data = _post_bot("/booking-guests/payment-status", payload)
     status = _clean(data.get("payment_status")).lower()
     paid_confirmed = status == "paid" or int(data.get("amount_paid_cents") or 0) > 0
@@ -911,7 +971,6 @@ def get_guest_payment_status(params, **kwargs):
 def get_payment_status(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     data = _post_bot("/payments/status", payload)
     latest = data.get("latest_payment") if isinstance(data.get("latest_payment"), dict) else {}
     status = data.get("payment_status") or latest.get("payment_status") or latest.get("status")
@@ -935,7 +994,6 @@ def get_payment_status(params, **kwargs):
 def get_surf_report(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     day = str(payload.get("day") or "today").strip().lower()
     payload["day"] = "tomorrow" if day == "tomorrow" else "today"
     data = _post_bot("/surf-report", payload)
@@ -958,7 +1016,6 @@ def get_surf_report(params, **kwargs):
 def list_my_bookings(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     phone = _normalize_phone(payload.get("phone") or payload.get("guest_phone") or _session_guest_phone())
     if phone:
         payload["phone"] = phone
@@ -979,7 +1036,6 @@ def list_my_bookings(params, **kwargs):
 def update_booking_contact(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     data = _post_bot("/bookings/update-contact", payload)
     return _json_result({
         "success": bool(data.get("success")),
@@ -1049,7 +1105,6 @@ def _bot_addon_soft_ask(next_action):
 def add_service_to_booking(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")
     # Call create route — this writes the service record to the DB.
     # Staff API handles pricing/payment eligibility internally.
@@ -1123,7 +1178,6 @@ def add_service_to_booking(params, **kwargs):
 def update_guest_packages(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")
     booking_code = _clean(payload.get("booking_code"))
     guest_packages = payload.get("guest_packages") if isinstance(payload.get("guest_packages"), list) else []
@@ -1161,7 +1215,6 @@ def update_guest_packages(params, **kwargs):
 def save_transfer_request(params, **kwargs):
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     payload.setdefault("source", "agent_luna_whatsapp")
 
     # Transfers are collected during the booking flow before a booking exists.
@@ -1214,7 +1267,6 @@ def lookup_catalog_service(params, **kwargs):
     """Look up an admin-created catalog service/experience/camp the guest asked about."""
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     message_text = _clean(payload.get("message_text"))
     if not message_text:
         return _json_result({
@@ -1244,7 +1296,6 @@ def add_catalog_service_to_booking(params, **kwargs):
     """Add an admin-created catalog service to a booking for ALL guests (Phase 2)."""
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     service_id = _clean(payload.pop("service_id", ""))
     booking_code = _clean(payload.get("booking_code"))
     booking_id = _clean(payload.get("booking_id"))
@@ -1282,7 +1333,6 @@ def owner_insights(params, **kwargs):
     """Owner-only business intelligence over WhatsApp; sender phone gates access server-side."""
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     question = _clean(payload.get("question"))
     if not question:
         return _json_result({"success": False, "tool": "owner_insights", "error": "question_required"})
@@ -1307,7 +1357,6 @@ def get_house_info(params, **kwargs):
     """Fetch owner-written house notes to answer a guest's house/policy/general question."""
     del kwargs
     payload = dict(params or {})
-    payload.setdefault("client_slug", "wolfhouse-somo")
     data = _post_bot("/house-info", payload)
     notes = data.get("notes") or ""
     has = bool(data.get("has_notes")) and bool(notes.strip())
@@ -2242,6 +2291,7 @@ def _sunset_write_tools():
         ("create_sunset_payment_link", "Create a secure Stripe payment link (test mode) for an existing Sunset booking. Pass booking_id or booking_code. Returns secure_payment_url — send that link to the guest. Never say 'Stripe' to guests.", create_sunset_payment_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, "idempotency_key": {"type": "string"}, **loc}, []),
         ("get_sunset_payment_status", "Check webhook/reconcile-confirmed payment truth for a Sunset booking. Use when a guest says they paid; never mark paid from guest text alone. Returns paid/unpaid + balance_due_cents.", get_sunset_payment_status, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
         ("get_sunset_waiver_link", "Get the liability waiver link for a Sunset booking to send to the guest (required before a lesson). Pass booking_id or booking_code; returns waiver_url.", get_sunset_waiver_link, {"booking_id": {"type": "string"}, "booking_code": {"type": "string"}, **loc}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for refunds, complaints, paid cancellation/change, payment mismatch, safety, or tool errors you cannot resolve. After success, briefly say a teammate will take over and ask no question.", flag_needs_human, {"phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
     ]
 
 
@@ -2307,7 +2357,7 @@ def register(ctx):
         ("add_catalog_service_to_booking", "Add a catalog service/camp (from lookup_catalog_service) to the guest's booking for ALL their guests, then call create_balance_payment_link to send ONE balance link. Use after the guest agrees to add it AND a booking exists (create it first if mid-intake — use the camp dates). Pass booking_code + service_id (the service.id from lookup_catalog_service). Prices €/day × all guests × the camp days automatically; one consolidated charge. If it returns an error that the service isn't available for the booking's dates, the booking's dates are outside the camp — for an unpaid/new booking offer to move the dates; for an already-paid booking call flag_needs_human for the date change.", add_catalog_service_to_booking, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "booking_id": {"type": "string"}, "service_id": {"type": "string", "description": "Catalog service id from lookup_catalog_service (the service.id field)."}}, ["service_id"]),
         ("list_my_bookings", "List the guest's active/upcoming bookings for their WhatsApp number through Staff API. Use before changing or adding to an existing booking when you are not sure which one they mean — if more than one comes back, list them (booking_code + check-in/check-out dates) and ask which one. Uses the WhatsApp sender number automatically.", list_my_bookings, {"client_slug": {"type": "string"}, "phone": {"type": "string"}}, []),
         ("update_booking_contact", "Update the guest_name and/or email on an existing booking through Staff API. Only use after the guest confirms the new value. Never changes dates, package, or payment.", update_booking_contact, {"client_slug": {"type": "string"}, "booking_code": {"type": "string"}, "guest_name": {"type": "string"}, "email": {"type": "string"}}, ["booking_code"]),
-        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call when you hand off for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string"}}, []),
+        ("flag_needs_human", "Flag this conversation for a human teammate (sets Needs Human in the Staff Portal). Call immediately with reason human_requested when the guest explicitly asks to speak with a human, real person, teammate, staff member, or manager. Also use for date changes, refunds, complaints, or tool errors. Do NOT use for private/couple room requests when private_room_available was true — re-quote with couple_private instead. After a successful human_requested handoff, briefly say a teammate will take over and ask no question.", flag_needs_human, {"client_slug": {"type": "string"}, "phone": {"type": "string"}, "reason": {"type": "string", "description": "Use human_requested for explicit human/staff transfer requests."}}, []),
     ]
     # SUNSET tenant: register the Sunset read-only price/availability tools (Phase 1)
     # plus the Sunset WRITE/MONEY tools (Phase 2 — booking + payment link + status +

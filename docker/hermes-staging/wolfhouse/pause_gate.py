@@ -33,12 +33,8 @@ def _is_luna_runtime() -> bool:
 
 
 def _client_slug() -> str:
-    """Runtime tenant — LUNA_CLIENT_SLUG owns Sunset/Wolfhouse identity."""
-    for key in ("LUNA_CLIENT_SLUG", "WOLFHOUSE_CLIENT_SLUG"):
-        raw = (os.getenv(key) or "").strip()
-        if raw:
-            return raw
-    return "wolfhouse-somo"
+    """Runtime tenant — LUNA_CLIENT_SLUG only (never invent Wolfhouse)."""
+    return (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
 
 
 def _base_url() -> str:
@@ -140,6 +136,10 @@ def guest_automation_paused(
     if not phone and not conversation_id:
         return False
     slug = (client_slug or _client_slug()).strip()
+    if not slug:
+        # Missing runtime tenant must never silently become Wolfhouse — fail closed.
+        logger.warning("%s", {"event": "pause_gate_missing_client_slug", "paused": True})
+        return True
     cache_key = f"{slug}|{phone or conversation_id or 'unknown'}"
     if not force_refresh:
         cached = _cache_get(cache_key)

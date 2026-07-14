@@ -364,12 +364,16 @@ assert p["location_id"] == "sunset-somo", p
 assert p["whatsapp_message_id"] == "wamid.X", p
 assert p["direction"] == "inbound", p
 assert p["message_text"] == "hola", p
-# Wolfhouse isolation default when unset
+# Missing LUNA_CLIENT_SLUG must fail closed (no silent wolfhouse-somo default)
 os.environ.pop("LUNA_CLIENT_SLUG", None)
 os.environ.pop("SUNSET_INGRESS_LOCATION_ID", None)
 p2 = m.build_mirror_payload(src, ev, "inbound", "hola", "wamid.Y", None)
-assert p2["client_slug"] == "wolfhouse-somo", p2
-assert "location_id" not in p2 or not p2.get("location_id"), p2
+assert p2 is None, p2
+# Explicit Wolfhouse runtime still isolates
+os.environ["LUNA_CLIENT_SLUG"] = "wolfhouse-somo"
+p3 = m.build_mirror_payload(src, ev, "inbound", "hola", "wamid.Y", None)
+assert p3["client_slug"] == "wolfhouse-somo", p3
+assert "location_id" not in p3 or not p3.get("location_id"), p3
 # Coalesced skip
 cev = SimpleNamespace(text="a\\nb", message_id="wamid.Z", metadata={"whatsapp_burst_source_wamids":["a","b"]}, raw_message={"wolfhouse_burst": True})
 assert m.is_coalesced_agent_inbound(cev) is True
@@ -377,7 +381,7 @@ assert m.is_coalesced_agent_inbound(ev) is False
 # Queue exists and enqueue does not raise
 q = m.get_mirror_queue()
 assert q is not None
-print(json.dumps({"ok": True, "sunset": p, "wolfhouse": p2}))
+print(json.dumps({"ok": True, "sunset": p, "wolfhouse": p3, "missing_slug": p2 is None}))
 `;
   try {
     const out = execFileSync('python3', ['-c', py], { encoding: 'utf8', cwd: ROOT });
@@ -386,6 +390,7 @@ print(json.dumps({"ok": True, "sunset": p, "wolfhouse": p2}))
     assert('python sunset payload client_slug sunset', parsed.sunset.client_slug === 'sunset');
     assert('python sunset location sunset-somo', parsed.sunset.location_id === 'sunset-somo');
     assert('python wolfhouse remains isolated', parsed.wolfhouse.client_slug === 'wolfhouse-somo');
+    assert('python missing slug fails closed', parsed.missing_slug === true);
     assert('python coalesced/skip + queue ok', parsed.ok === true);
   } catch (err) {
     assert('python mirror payload module', false, (err.stderr || err.message || '').slice(0, 400));

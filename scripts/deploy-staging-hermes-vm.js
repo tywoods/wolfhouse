@@ -21,9 +21,24 @@ const path = require('path');
 const crypto = require('crypto');
 const { execSync } = require('child_process');
 const { HERMES_VM } = require('./lib/hermes-vm-profile');
+const { assertHermesImageRef, buildHermesImage } = require('./lib/hermes-image-traceability');
 
 const ROOT = path.resolve(__dirname, '..');
 const ENV_OUT = path.join(ROOT, 'hermes-vm-env');
+
+function fullMasterSha() {
+  return execSync('git rev-parse HEAD', { cwd: ROOT, encoding: 'utf8' }).trim().toLowerCase();
+}
+
+function resolveHermesImage(fullSha) {
+  const sha = fullSha || fullMasterSha();
+  const image = buildHermesImage(sha);
+  const check = assertHermesImageRef(image, sha);
+  if (!check.ok) {
+    throw new Error(`invalid HERMES_IMAGE: ${check.error}`);
+  }
+  return image;
+}
 
 function az(args, opts = {}) {
   const silent = opts.silent;
@@ -72,13 +87,21 @@ function curlCode(url) {
 }
 
 function status() {
+  const sha = fullMasterSha();
+  let image;
+  try {
+    image = resolveHermesImage(sha);
+  } catch (_) {
+    image = null;
+  }
   const out = {
     rg: HERMES_VM.RG,
     vm: HERMES_VM.VM_NAME,
     hostname: HERMES_VM.HOSTNAME,
     vm_exists: vmExists(),
     public_ip: vmExists() ? vmPublicIp() : null,
-    image: HERMES_VM.IMAGE,
+    image,
+    git_sha_full: sha,
     ports: {
       orchestrator: HERMES_VM.PORT_ORCHESTRATOR,
       luna_webhook: HERMES_VM.PORT_LUNA_WEBHOOK,
@@ -154,15 +177,74 @@ function buildImage() {
   assertI18nGuestCopy();
   assertWolfhouseLunaInstance();
   assertGoldenSuite();
-  const sha = execSync('git rev-parse --short HEAD', { cwd: ROOT, encoding: 'utf8' }).trim();
-  console.error(`[vm] building staging image on ACR (git ${sha})...`);
+  const fullSha = fullMasterSha();
+  const image = resolveHermesImage(fullSha);
+  console.error(`[vm] building staging image on ACR (full git ${fullSha})...`);
+  console.error(`[vm] refusing :latest — tagging only ${image}`);
   az(
     `acr build --registry ${HERMES_VM.ACR} `
-    + `--image wh-hermes-staging:latest `
-    + `--image wh-hermes-staging:${sha} `
+    + `--image wh-hermes-staging:${fullSha} `
     + `--file docker/hermes-staging/Dockerfile docker/hermes-staging`,
   );
-  console.log(JSON.stringify({ ok: true, image: HERMES_VM.IMAGE, git_sha: sha, tagged: `wh-hermes-staging:${sha}` }, null, 2));
+  console.log(JSON.stringify({
+    ok: true,
+    image,
+    git_sha_full: fullSha,
+    tagged: `wh-hermes-staging:${fullSha}`,
+    refuses_latest: true,
+  }, null, 2));
+}
+
+/**
+ * Recreate only guest Luna containers with HERMES_IMAGE=<full-sha>.
+ * Does NOT touch hermes-orchestrator or hermes-seadog.
+ *
+ * Rollback example (previous full SHA):
+ *   HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<previous-full-sha> \
+ *     node scripts/deploy-staging-hermes-vm.js deploy-luna-local
+ */
+function deployLunaLocal() {
+  assertRepoSync();
+  const fullSha = fullMasterSha();
+  const image = process.env.HERMES_IMAGE
+    ? String(process.env.HERMES_IMAGE).trim()
+    : resolveHermesImage(fullSha);
+  const check = assertHermesImageRef(image, fullSha);
+  if (!check.ok && process.env.HERMES_IMAGE) {
+    // Allow rollback to a different full SHA when explicitly set, but never :latest.
+    const rollback = assertHermesImageRef(image, (image.split(':').pop() || '').toLowerCase());
+    if (!rollback.ok || /latest/i.test(image)) {
+      throw new Error(`HERMES_IMAGE rejected: ${check.error || 'refuses_latest'}`);
+    }
+    console.error(`[vm] WARN: deploying explicit HERMES_IMAGE (rollback/pin): ${image}`);
+  } else if (!check.ok) {
+    throw new Error(`HERMES_IMAGE rejected: ${check.error}`);
+  }
+
+  const env = { ...process.env, HERMES_IMAGE: image };
+  const whCompose = path.join(ROOT, 'docker/hermes-staging/docker-compose.vm.yml');
+  const suCompose = path.join(ROOT, 'docker/hermes-sunset/docker-compose.vm.yml');
+  console.error(`[vm] pull ${image}`);
+  execSync(`docker pull ${image}`, { cwd: ROOT, stdio: 'inherit', env });
+  console.error('[vm] recreate hermes-luna only (--no-deps)');
+  execSync(
+    `docker compose -f ${whCompose} up -d --no-deps --force-recreate hermes-luna`,
+    { cwd: ROOT, stdio: 'inherit', env },
+  );
+  console.error('[vm] recreate hermes-sunset-luna only (--no-deps)');
+  execSync(
+    `docker compose -f ${suCompose} up -d --no-deps --force-recreate hermes-sunset-luna`,
+    { cwd: ROOT, stdio: 'inherit', env },
+  );
+  console.log(JSON.stringify({
+    ok: true,
+    image,
+    recreated: ['hermes-luna', 'hermes-sunset-luna'],
+    untouched: ['hermes-orchestrator', 'hermes-seadog'],
+    rollback_example:
+      `HERMES_IMAGE=whstagingacr.azurecr.io/wh-hermes-staging:<previous-full-sha> `
+      + 'node scripts/deploy-staging-hermes-vm.js deploy-luna-local',
+  }, null, 2));
 }
 
 function ensureNsgRules() {
@@ -431,9 +513,11 @@ function bootstrapRemote() {
       `echo ${acrToken} | sudo docker login ${HERMES_VM.ACR}.azurecr.io -u 00000000-0000-0000-0000-000000000000 --password-stdin`,
     );
   }
-  ssh(`sudo docker pull ${HERMES_VM.IMAGE}`);
+  ssh(`sudo docker pull ${resolveHermesImage(fullMasterSha())}`);
   ssh(
-    `test -f ${HERMES_VM.COMPOSE_FILE} && sudo docker compose -f ${HERMES_VM.COMPOSE_FILE} pull && sudo docker compose -f ${HERMES_VM.COMPOSE_FILE} up -d || echo "WARN: repo missing at ${HERMES_VM.REPO_PATH} — clone WH then compose up"`,
+    `export HERMES_IMAGE=${resolveHermesImage(fullMasterSha())} && `
+    + `test -f ${HERMES_VM.COMPOSE_FILE} && sudo -E docker compose -f ${HERMES_VM.COMPOSE_FILE} pull && `
+    + `sudo -E docker compose -f ${HERMES_VM.COMPOSE_FILE} up -d || echo "WARN: repo missing at ${HERMES_VM.REPO_PATH} — clone WH then compose up"`,
   );
   pruneRemoteImages();
   console.log(JSON.stringify({ ok: true, public_ip: ip }, null, 2));
@@ -463,6 +547,7 @@ const cmd = (process.argv[2] || 'status').toLowerCase();
 const handlers = {
   status,
   'build-image': buildImage,
+  'deploy-luna-local': deployLunaLocal,
   'create-vm': createVm,
   'write-env-files': writeEnvFiles,
   'bootstrap-remote': bootstrapRemote,

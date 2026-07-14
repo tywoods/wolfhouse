@@ -35,7 +35,7 @@ _INTERNAL_STATUS_RE = re.compile(
 
 logger = logging.getLogger("wolfhouse.whatsapp_mirror")
 
-DEFAULT_CLIENT_SLUG = "wolfhouse-somo"
+DEFAULT_CLIENT_SLUG = ""  # never invent a tenant; runtime must set LUNA_CLIENT_SLUG
 QUEUE_MAXSIZE = 500
 MAX_ATTEMPTS = 5
 BASE_BACKOFF_SEC = 0.4
@@ -59,14 +59,16 @@ def normalize_whatsapp_message_text(text: str) -> str:
 
 
 def resolve_mirror_client_slug() -> str:
-    raw = (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
-    return raw or DEFAULT_CLIENT_SLUG
+    return (os.getenv("LUNA_CLIENT_SLUG") or "").strip()
 
 
 def resolve_mirror_location_id(client_slug: Optional[str] = None) -> Optional[str]:
     slug = (client_slug or resolve_mirror_client_slug()).strip().lower()
     loc = (os.getenv("SUNSET_INGRESS_LOCATION_ID") or "").strip()
     if slug == "sunset":
+        # Somo runtime must stay on sunset-somo — do not invent Sardinero.
+        if loc == "sunset-sardinero":
+            return None
         return loc or "sunset-somo"
     return loc or None
 
@@ -197,6 +199,12 @@ def build_mirror_payload(
         return None
 
     client_slug = resolve_mirror_client_slug()
+    if not client_slug:
+        logger.warning(
+            "%s",
+            {"event": "whatsapp_thread_mirror_skipped", "reason": "missing_luna_client_slug"},
+        )
+        return None
     payload: Dict[str, Any] = {
         "client_slug": client_slug,
         "guest_phone": phone,
