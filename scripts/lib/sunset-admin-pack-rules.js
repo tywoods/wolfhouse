@@ -180,28 +180,18 @@ async function loadSurfPacksFromDb(client, clientSlug, locationId) {
 }
 
 async function upsertPackPriceTiers(client, {
-  clientSlug, locationId, packId, packLabel, tiers, actor,
+  clientSlug, locationId, packId, packLabel, tiers, actor, skipTransaction,
 }) {
-  const { upsertConfigPriceRule } = require('./tenant-admin-writes');
-  const loc = normalizeSunsetLocationId(locationId);
-  for (const tier of tiers || []) {
-    const itemCode = packPriceItemCode(packId, tier.key);
-    await upsertConfigPriceRule(client, {
-      clientSlug,
-      locationId: loc,
-      category: 'package',
-      offeringKey: itemCode,
-      unit: tier.key === 'single_class' ? 'session' : 'week',
-      patch: {
-        display_name: `${packLabel} — ${tier.label}`,
-        amount_cents: tier.amount_cents,
-        currency: 'EUR',
-      },
-      actor,
-      forceItemCode: itemCode,
-      forceDbUnit: tier.key === 'single_class' ? 'session' : 'day',
-    });
-  }
+  const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
+  return syncPackTierToPriceRules(client, {
+    clientSlug,
+    locationId,
+    packId,
+    packLabel,
+    tiers,
+    actor,
+    skipTransaction: skipTransaction === true,
+  });
 }
 
 async function createSurfPackRule(client, { clientSlug, locationId, body, actor }) {
@@ -226,26 +216,27 @@ async function createSurfPackRule(client, { clientSlug, locationId, body, actor 
         : [clientSlug, label, JSON.stringify(cfg), actor.staff_user_id || null],
     );
     const row = inserted.rows[0];
+    // Same transaction: pack + linked price rows. Never leave JSON-only prices.
+    await upsertPackPriceTiers(client, {
+      clientSlug,
+      locationId: loc,
+      packId: row.id,
+      packLabel: label,
+      tiers: cfg.price_tiers,
+      actor,
+      skipTransaction: true,
+    });
     await client.query('COMMIT');
-    try {
-      await upsertPackPriceTiers(client, {
-        clientSlug,
-        locationId: loc,
-        packId: row.id,
-        packLabel: label,
-        tiers: cfg.price_tiers,
-        actor,
-      });
-    } catch (tierErr) {
+    return { ok: true, status: 201, body: { success: true, surf_pack: mapPackRow(row) } };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* already rolled back */ }
+    if (err && /pack_price|price/i.test(String(err.message || ''))) {
       return {
         ok: false,
         status: 500,
-        body: { success: false, error: 'pack_price_tiers_failed', message: tierErr.message },
+        body: { success: false, error: 'pack_price_tiers_failed', message: err.message },
       };
     }
-    return { ok: true, status: 201, body: { success: true, surf_pack: mapPackRow(row) } };
-  } catch (err) {
-    try { await client.query('ROLLBACK'); } catch (_) { /* already committed or idle */ }
     throw err;
   }
 }
@@ -283,7 +274,6 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
       [ruleId, clientSlug, nextLabel, JSON.stringify(nextCfg), actor.staff_user_id || null],
     );
     const after = updated.rows[0];
-    await client.query('COMMIT');
     if (validated.patch.price_tiers || body.label != null) {
       await upsertPackPriceTiers(client, {
         clientSlug,
@@ -292,8 +282,10 @@ async function patchSurfPackRule(client, { ruleId, clientSlug, locationId, body,
         packLabel: after.label,
         tiers: nextCfg.price_tiers || prevCfg.price_tiers || DEFAULT_PRICE_TIERS,
         actor,
+        skipTransaction: true,
       });
     }
+    await client.query('COMMIT');
     return { ok: true, status: 200, body: { success: true, surf_pack: mapPackRow(after) } };
   } catch (err) {
     await client.query('ROLLBACK');

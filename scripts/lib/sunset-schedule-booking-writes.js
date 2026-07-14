@@ -933,12 +933,12 @@ async function createSunsetScheduleBooking(pg, opts) {
         },
       };
     }
-    const { packPriceItemCode, lookupSunsetCourseLessonPriceAsync } = require('./sunset-course-lesson-price-lookup');
+    const { packPriceItemCode } = require('./sunset-admin-price-identity');
+    const { resolveActiveSunsetAdminPrice, staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
     input.components.course.offering_id = packPriceItemCode(input.components.course.course_id, tierKey);
-    // Validate Admin price BEFORE insert — no partial booking on missing price.
-    coursePricePreflight = await lookupSunsetCourseLessonPriceAsync({
-      client_slug: clientSlug,
-      location_id: locationId,
+    const lookupArgs = {
+      clientSlug,
+      locationId,
       quantity: input.components.course.quantity,
       metadata: {
         component: 'course',
@@ -949,11 +949,35 @@ async function createSunsetScheduleBooking(pg, opts) {
         location_id: locationId,
       },
       pgClient: pg,
-    });
+    };
+    coursePricePreflight = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+    // Heal: Admin Courses card can show config_json amounts while the linked
+    // tenant_price_rules row is missing/wrong-unit. Sync owner-entered tier
+    // amounts into the canonical identity, then retry once.
+    if (!coursePricePreflight || coursePricePreflight.ok !== true) {
+      try {
+        const { syncPackTierToPriceRules } = require('./sunset-admin-price-sync');
+        const pack = gate.pack || {};
+        await syncPackTierToPriceRules(pg, {
+          clientSlug,
+          locationId,
+          packId: pack.pack_id || input.components.course.course_id,
+          packLabel: pack.label || input.components.course.course_label || 'Course',
+          tiers: pack.price_tiers || [],
+          actor: opts.actor || {},
+          skipTransaction: true,
+        });
+        coursePricePreflight = await resolveActiveSunsetAdminPrice(pg, lookupArgs);
+      } catch (_) {
+        // Keep original failure.
+      }
+    }
     if (!coursePricePreflight || coursePricePreflight.ok !== true
       || !(coursePricePreflight.amount_cents > 0)) {
-      const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
-      const faced = staffFacingSunsetPriceError('no_price_for_surf_lesson');
+      const faced = staffFacingSunsetAdminPriceError(
+        (coursePricePreflight && coursePricePreflight.reason) || 'no_price_for_surf_lesson',
+        coursePricePreflight && coursePricePreflight.identity,
+      );
       return {
         ok: false,
         status: 422,
@@ -1136,8 +1160,8 @@ async function createSunsetScheduleBooking(pg, opts) {
     const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
     const priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
     if (!priced || !priced.ok) {
-      const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
-      const faced = staffFacingSunsetPriceError((priced && priced.error) || 'pricing_failed');
+      const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
+      const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
       const err = new Error(faced.error);
       err.sunsetPriceFail = {
         ok: false,

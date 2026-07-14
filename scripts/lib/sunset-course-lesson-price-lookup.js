@@ -35,21 +35,9 @@ function billingUnitForSurfPackItemCode(itemCode) {
 }
 
 /** Operator-facing copy for portal; keep reason_code for logs. */
-function staffFacingSunsetPriceError(reasonCode) {
-  const code = String(reasonCode || 'pricing_failed');
-  if (/no_price_for_|price_not_configured|unresolved_offering|admin_price/i.test(code)) {
-    return {
-      error: 'This course option is missing an active Admin price. Re-open the course in Admin and confirm its tier price.',
-      reason_code: code.startsWith('no_price_for_') ? code : 'no_price_for_surf_lesson',
-    };
-  }
-  if (/tier_key is required|course_tier/i.test(code)) {
-    return {
-      error: 'Select a course duration before creating the booking.',
-      reason_code: code,
-    };
-  }
-  return { error: code, reason_code: code };
+function staffFacingSunsetPriceError(reasonCode, identity) {
+  const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
+  return staffFacingSunsetAdminPriceError(reasonCode, identity);
 }
 
 function looksLikePersistedOfferingCode(value) {

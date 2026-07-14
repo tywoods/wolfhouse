@@ -510,7 +510,7 @@ async function insertConfigAudit(client, {
 }
 
 async function findPriceRuleRow(client, {
-  clientSlug, locationId, itemType, itemCode, ruleId, hasLoc,
+  clientSlug, locationId, itemType, itemCode, ruleId, hasLoc, preferUnit,
 }) {
   const loc = normalizeSunsetLocationId(locationId);
   if (ruleId) {
@@ -521,13 +521,31 @@ async function findPriceRuleRow(client, {
       hasLoc ? [ruleId, clientSlug, loc] : [ruleId, clientSlug],
     );
   }
+  const pref = preferUnit != null ? String(preferUnit).trim() : '';
+  if (pref) {
+    const exact = await client.query(
+      hasLoc
+        ? `SELECT * FROM tenant_price_rules
+            WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4
+              AND unit = $5 AND active = true
+            FOR UPDATE`
+        : `SELECT * FROM tenant_price_rules
+            WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+              AND unit = $4 AND active = true
+            FOR UPDATE`,
+      hasLoc ? [clientSlug, loc, itemType, itemCode, pref] : [clientSlug, itemType, itemCode, pref],
+    );
+    if (exact.rows.length) return exact;
+  }
   return client.query(
     hasLoc
       ? `SELECT * FROM tenant_price_rules
           WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4 AND active = true
+          ORDER BY updated_at DESC NULLS LAST
           FOR UPDATE`
       : `SELECT * FROM tenant_price_rules
           WHERE client_slug = $1 AND item_type = $2 AND item_code = $3 AND active = true
+          ORDER BY updated_at DESC NULLS LAST
           FOR UPDATE`,
     hasLoc ? [clientSlug, loc, itemType, itemCode] : [clientSlug, itemType, itemCode],
   );
@@ -837,6 +855,7 @@ function preparePriceDbPatch(patch, offeringKey, currentUnit, opts = {}) {
 
 async function upsertConfigPriceRule(client, {
   clientSlug, locationId, category, offeringKey, unit, patch, actor, forceItemCode, forceDbUnit,
+  skipTransaction, forceUnitOnUpdate,
 }) {
   const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
   const loc = normalizeSunsetLocationId(locationId);
@@ -848,11 +867,16 @@ async function upsertConfigPriceRule(client, {
     forceItemCode: forceItemCode || null,
     forceDbUnit: forceDbUnit || null,
   });
+  // Heal wrong historical units when caller explicitly provides the canonical grain.
+  if (forceUnitOnUpdate && forceDbUnit) {
+    dbPatch.unit = forceDbUnit;
+  }
 
-  await client.query('BEGIN');
+  const ownTx = skipTransaction !== true;
+  if (ownTx) await client.query('BEGIN');
   try {
     const existing = await findPriceRuleRow(client, {
-      clientSlug, locationId: loc, itemType, itemCode, hasLoc,
+      clientSlug, locationId: loc, itemType, itemCode, hasLoc, preferUnit: dbUnit,
     });
     let before = existing.rows[0] || null;
     let after;
@@ -862,7 +886,9 @@ async function upsertConfigPriceRule(client, {
       const params = [];
       let idx = 3;
       for (const [key, value] of Object.entries(dbPatch)) {
-        if (forceItemCode && (key === 'item_code' || key === 'unit')) continue;
+        // Keep item_code stable when forced; still allow unit heal when asked.
+        if (forceItemCode && key === 'item_code') continue;
+        if (forceItemCode && key === 'unit' && !forceUnitOnUpdate) continue;
         sets.push(`${key} = $${idx}`);
         params.push(value);
         idx += 1;
@@ -938,14 +964,17 @@ async function upsertConfigPriceRule(client, {
       afterJson: rowToAuditJson(after),
     });
 
-    await client.query('COMMIT');
+    if (ownTx) await client.query('COMMIT');
     return {
       ok: true,
       status: 200,
       body: { success: true, price_rule: after, storage: 'db' },
+      after,
     };
   } catch (err) {
-    await client.query('ROLLBACK');
+    if (ownTx) {
+      try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    }
     throw err;
   }
 }

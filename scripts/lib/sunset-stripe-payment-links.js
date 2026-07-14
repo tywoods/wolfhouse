@@ -434,20 +434,16 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
     return serviceRecordUnitPriceCents(prices, sr, adminCfg);
   }
   const meta = parseMeta(sr && sr.metadata);
-  const {
-    isCourseOrLessonServiceRecord,
-    lookupSunsetCourseLessonPriceAsync,
-  } = require('./sunset-course-lesson-price-lookup');
-  if (!isCourseOrLessonServiceRecord(sr, meta)) {
-    return serviceRecordUnitPriceCents(prices, sr, adminCfg);
-  }
-
+  const { resolveActiveSunsetAdminPrice } = require('./sunset-admin-price-resolve');
   const loc = meta.location_id || locationId;
-  const live = await lookupSunsetCourseLessonPriceAsync({
-    client_slug: slug,
-    location_id: loc,
-    metadata: { ...meta, location_id: loc },
+
+  // Prefer generic Admin identity for ANY Sunset service that carries enough
+  // offering metadata. Service-type hard-coded prices are not consulted first.
+  const live = await resolveActiveSunsetAdminPrice(pg, {
+    clientSlug: slug,
+    locationId: loc,
     quantity: Number(sr.quantity) || 1,
+    metadata: { ...meta, location_id: loc, service_type: sr.service_type },
     pgClient: pg,
   });
 
@@ -455,13 +451,24 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
     return live.amount_cents;
   }
 
-  // Bootstrap only: admin tables genuinely absent → catalog/blob helper.
-  if (live.reason === 'tables_missing' || live.reason === 'db_read_disabled') {
-    return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+  // Course/lesson fail closed when identity was claimed but price missing.
+  const {
+    isCourseOrLessonServiceRecord,
+  } = require('./sunset-course-lesson-price-lookup');
+  if (isCourseOrLessonServiceRecord(sr, meta)) {
+    if (live.reason === 'tables_missing' || live.reason === 'db_read_disabled') {
+      return serviceRecordUnitPriceCents(prices, sr, adminCfg);
+    }
+    return null;
   }
 
-  // Fail closed — never silent catalog/baseline when the rule table exists.
-  return null;
+  // Rentals / addons: keep legacy merged-prices helper only when identity could
+  // not be formed (older rows). Never use baseline when Admin DB is authoritative
+  // and identity resolved to not_found.
+  if (live.reason === 'price_not_configured' || live.reason === 'ambiguous_price') {
+    return null;
+  }
+  return serviceRecordUnitPriceCents(prices, sr, adminCfg);
 }
 
 function courseOfferingGroupKey(meta) {
