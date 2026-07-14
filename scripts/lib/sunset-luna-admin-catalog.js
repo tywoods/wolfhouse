@@ -159,130 +159,29 @@ function findCatalogOffering(catalog, offeringId) {
 }
 
 function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
-  const locationId = body.location_id || body.location;
-  const serviceDates = Array.isArray(body.service_dates)
-    ? [...new Set(body.service_dates.map((d) => String(d).slice(0, 10)).filter(Boolean))]
-    : [];
-  const catalog = buildSunsetLunaCatalogFromConfig(adminCfg, {
-    locationId,
-    asOfDate: body.as_of_date || body.date || (serviceDates[0] || null),
-    requestedDates: serviceDates.length ? serviceDates : null,
-    requireDb: body.require_db === true || body.requireDb === true,
+  const {
+    executeSunsetQuoteSync,
+    buildSunsetQuoteCommand,
+    QUOTE_CHANNELS,
+  } = require('./luna-front-desk-quote-service');
+  const built = buildSunsetQuoteCommand({
+    channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+    transportBody: body,
+    trustedLocationId: body.location_id || body.location,
   });
-  if (!catalog.ok) return { ok: false, success: false, reason: catalog.reason };
-
-  const offeringId = String(body.offering_id || '').trim();
-  if (!offeringId) return { ok: false, success: false, reason: 'unknown_offering' };
-
-  const matches = findCatalogOffering(catalog, offeringId);
-  if (!matches.length) {
-    const rawPrices = (adminCfg.prices || []).filter(
-      (p) => p.id === offeringId || p.offering_key === offeringId || p.item_code === offeringId,
-    );
-    if (rawPrices.length > 1) return { ok: false, success: false, reason: 'ambiguous_price' };
-    if (rawPrices.length === 1) {
-      const asOf = body.as_of_date || body.date;
-      if (rawPrices[0].active === false) {
-        return { ok: false, success: false, reason: 'inactive_offering' };
-      }
-      if (rawPrices[0].effective_from && String(rawPrices[0].effective_from).slice(0, 10) > String(asOf || '').slice(0, 10)) {
-        return { ok: false, success: false, reason: 'future_price' };
-      }
-      if (rawPrices[0].effective_to && String(rawPrices[0].effective_to).slice(0, 10) < String(asOf || '').slice(0, 10)) {
-        return { ok: false, success: false, reason: 'expired_price' };
-      }
-      return { ok: false, success: false, reason: 'unknown_offering' };
-    }
-    const knownUnpriced = (adminCfg.lesson_times || []).some((s) => `lesson_slot_${s.slot_id}__session` === offeringId)
-      || (adminCfg.surf_packs || []).some((p) => (p.price_tiers || []).some((t) => `surf_pack_${p.pack_id}__${t.key}` === offeringId));
-    return { ok: false, success: false, reason: knownUnpriced ? 'price_missing' : 'unknown_offering' };
+  if (!built.ok) {
+    return {
+      ok: false,
+      success: false,
+      reason: built.body.reason_code || built.body.reason,
+      error: built.body.error,
+    };
   }
-  if (matches.length > 1) return { ok: false, success: false, reason: 'ambiguous_price' };
-
-  const offering = matches[0];
-  if (offering.offering_type === 'course' && body.course_id == null) {
-    return { ok: false, success: false, reason: 'course_identity_missing' };
+  const result = executeSunsetQuoteSync(built.command, { adminCfg });
+  if (!result.ok) {
+    return { ok: false, success: false, ...result.body };
   }
-  if (body.course_id != null && String(offering.course_id || '') !== String(body.course_id)) {
-    return { ok: false, success: false, reason: 'mismatched_course_offering' };
-  }
-
-  const quantity = parseQuoteQuantity(body.quantity);
-  if (quantity == null) return { ok: false, success: false, reason: 'incompatible_unit' };
-
-  if (offering.offering_type === 'course' && serviceDates.length) {
-    const scheduleCheck = evaluateSunsetOfferingDates(offering, serviceDates);
-    if (!scheduleCheck.ok) {
-      return {
-        ok: false,
-        success: false,
-        reason: scheduleCheck.reason,
-        reason_code: scheduleCheck.reason,
-        error: (scheduleCheck.staff_error && scheduleCheck.staff_error.error) || scheduleCheck.reason,
-        schedule_summary: scheduleCheck.schedule_summary,
-        detail: scheduleCheck.detail || null,
-      };
-    }
-  }
-
-  const dates = serviceDates;
-  const unit = String(offering.billing_unit || offering.price && offering.price.unit || '').toLowerCase();
-  const sessionUnit = /session|single_lesson|person/.test(unit)
-    && offering.offering_type !== 'course';
-  const courseUnit = offering.offering_type === 'course'
-    || /week|course|bundle|day|^\d+_day|^\d+_days|^\d+_week/.test(unit);
-
-  if (sessionUnit && !dates.length) {
-    return { ok: false, success: false, reason: 'incompatible_unit' };
-  }
-
-  const unitAmount = offering.unit_amount_cents != null
-    ? offering.unit_amount_cents
-    : (offering.price && offering.price.amount_cents);
-  if (unitAmount == null || unitAmount < 0) {
-    return { ok: false, success: false, reason: 'price_missing' };
-  }
-
-  let billableUnits;
-  if (sessionUnit) billableUnits = quantity * dates.length;
-  else if (courseUnit) billableUnits = quantity;
-  else billableUnits = quantity * Math.max(1, dates.length || 1);
-
-  const total = unitAmount * billableUnits;
-  return {
-    ok: true,
-    success: true,
-    location_id: normalizeSunsetLocationId(locationId),
-    offering_id: offering.offering_id,
-    course_id: offering.course_id || null,
-    offering_type: offering.offering_type,
-    label: offering.label,
-    quantity,
-    service_dates: dates,
-    date_count: dates.length,
-    unit_amount_cents: unitAmount,
-    billable_units: billableUnits,
-    total_cents: total,
-    line_total_cents: total,
-    currency: offering.currency || 'EUR',
-    price_unit: offering.billing_unit || (offering.price && offering.price.unit) || unit,
-    billing_unit: offering.billing_unit || (offering.price && offering.price.unit) || unit,
-    billing_mode: offering.billing_mode || null,
-    price_id: offering.price_id,
-    price_source: catalog.source === 'db' || catalog.source === 'merged' || catalog.source === 'admin_db'
-      ? 'admin_db'
-      : 'config_or_db',
-    source: catalog.source,
-    tier_key: (offering.tier && offering.tier.key) || offering.tier_key || null,
-    offering_item_code: offering.offering_item_code || offering.item_code || null,
-    price_identity: offering.price_identity || {
-      price_id: offering.price_id,
-      item_type: offering.offering_type === 'course' ? 'package' : offering.offering_type,
-      item_code: offering.offering_item_code || offering.item_code || offering.offering_id,
-      unit: offering.billing_unit,
-    },
-    schedule_summary: offering.schedule && offering.schedule.summary,
-  };
+  return { ok: true, success: true, ...result.body };
 }
 
 /**

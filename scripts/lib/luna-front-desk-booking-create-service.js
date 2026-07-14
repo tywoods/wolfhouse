@@ -17,6 +17,7 @@ const {
   SUNSET_CLIENT_SLUG,
 } = require('./sunset-schedule-booking-writes');
 const { priceSunsetBookingAfterCreate } = require('./sunset-stripe-payment-links');
+const { validateQuoteProvenanceForCreate } = require('./luna-front-desk-quote-service');
 const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
 const {
   normalizeSunsetLocationId,
@@ -148,6 +149,22 @@ async function executeSunsetBookingCreate(pg, command) {
         needs_clarification: dateNorm.needs_clarification === true,
       },
     };
+  }
+
+  const provenance = command.transportBody.quote_provenance || command.transportBody.quoteProvenance;
+  if (provenance) {
+    const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+    const adminCfgForStale = await resolveTenantBusinessConfigAsync(SUNSET_CLIENT_SLUG, {
+      locationId: command.locationId,
+      pgClient: pg,
+    });
+    const staleCheck = await validateQuoteProvenanceForCreate(pg, {
+      ...command,
+      transportBody: { ...dateNorm.body, quote_provenance: provenance },
+    }, provenance, { adminCfg: adminCfgForStale });
+    if (!staleCheck.ok) {
+      return staleCheck;
+    }
   }
 
   const result = await createSunsetScheduleBooking(pg, {

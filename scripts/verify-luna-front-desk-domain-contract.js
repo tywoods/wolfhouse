@@ -206,6 +206,7 @@ assert('staff price error is guest-safe', priceErr && priceErr.error && !/tenant
 console.log('\n[7] HTTP surface documented in staff-query-api');
 const apiSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'staff-query-api.js'), 'utf8');
 const serviceSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-front-desk-booking-create-service.js'), 'utf8');
+const quoteServiceSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-front-desk-quote-service.js'), 'utf8');
 for (const route of [
   '/staff/bot/sunset/catalog',
   '/staff/bot/sunset/offering-quote',
@@ -216,8 +217,11 @@ for (const route of [
 }
 assert('bot booking requires guest_confirmed_booking', /guest_confirmed_booking_required/.test(apiSrc));
 assert('routes call executeSunsetBookingCreate', /executeSunsetBookingCreate/.test(apiSrc));
+assert('routes call executeSunsetQuote', /executeSunsetQuote/.test(apiSrc));
 assert('service exports executeSunsetBookingCreate', /executeSunsetBookingCreate/.test(serviceSrc));
 assert('service channels manual_staff + luna_whatsapp', /manual_staff/.test(serviceSrc) && /luna_whatsapp/.test(serviceSrc));
+assert('quote service exports executeSunsetQuote', /executeSunsetQuote/.test(quoteServiceSrc));
+assert('quote service stale provenance', /validateQuoteProvenanceForCreate/.test(quoteServiceSrc));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

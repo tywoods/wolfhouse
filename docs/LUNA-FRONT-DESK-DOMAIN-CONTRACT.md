@@ -113,9 +113,9 @@ Read-only priced intent **before** a write.
 | `price_source`, `billing_mode`, `billing_unit` | Authority trace |
 | `schedule_summary` | When dates provided |
 
-**Module owner:** `scripts/lib/sunset-luna-admin-catalog.js` — `quoteSunsetOfferingFromCatalog`.
+**Module owner:** `scripts/lib/luna-front-desk-quote-service.js` — `executeSunsetQuote`, `buildQuoteProvenance`.
 
-**HTTP:** `POST /staff/bot/sunset/offering-quote` (`handleBotSunsetOfferingQuote`).
+**HTTP:** `POST /staff/bot/sunset/offering-quote`, `POST /staff/schedule/bookings/quote` (Staff preview).
 
 ### 2.6 Booking
 
@@ -303,6 +303,7 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 | Price resolve | `scripts/lib/sunset-admin-price-resolve.js`, `sunset-course-lesson-price-lookup.js` |
 | Booking writes | `scripts/lib/sunset-schedule-booking-writes.js` |
 | **Booking create application service** | `scripts/lib/luna-front-desk-booking-create-service.js` — `buildSunsetBookingCreateCommand`, `executeSunsetBookingCreate` |
+| **Quote application service** | `scripts/lib/luna-front-desk-quote-service.js` — `buildSunsetQuoteCommand`, `executeSunsetQuote`, `validateQuoteProvenanceForCreate` |
 | HTTP surface | `scripts/staff-query-api.js` |
 | Contract verifier | `scripts/verify-luna-front-desk-domain-contract.js` |
 | Sunset pipeline gate | `scripts/verify-sunset-canonical-offering-pipeline.js` |

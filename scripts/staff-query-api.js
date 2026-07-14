@@ -310,6 +310,11 @@ const {
   executeSunsetBookingCreate,
 } = require('./lib/luna-front-desk-booking-create-service');
 const {
+  QUOTE_CHANNELS,
+  buildSunsetQuoteCommand,
+  executeSunsetQuote,
+} = require('./lib/luna-front-desk-quote-service');
+const {
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
@@ -42706,36 +42711,93 @@ async function handleBotSunsetCatalog(req, res) {
   }
 }
 
-async function handleBotSunsetOfferingQuote(req, res) {
+async function handleSunsetOfferingQuoteRoute(res, opts = {}) {
   const started = Date.now();
-  let body = {};
-  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
-  const loc = sunsetBotResolveLocation(body);
-  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
-  try {
-    const { isSunsetAdminDbReadEnabled } = require('./lib/tenant-business-config');
-    const requireDb = body.require_db === true || body.requireDb === true || isSunsetAdminDbReadEnabled();
-    const result = await withPgClient(async (pg) => {
-      const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
-      return require('./lib/sunset-luna-admin-catalog').quoteSunsetOfferingFromCatalog(cfg, {
-        ...body,
-        require_db: requireDb,
-        location_id: loc.location_id,
-        as_of_date: body.as_of_date || body.date,
-      });
+  const channel = opts.channel || QUOTE_CHANNELS.LUNA_WHATSAPP;
+  const body = opts.body || {};
+  const built = buildSunsetQuoteCommand({
+    channel,
+    transportBody: body,
+    trustedLocationId: opts.trustedLocationId,
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, {
+      ...built.body,
+      ok: false,
+      success: false,
+      client_slug: SUNSET_CLIENT_SLUG,
+      elapsed_ms: Date.now() - started,
     });
-    return sendJSON(res, 200, {
-      ...result,
+  }
+  try {
+    const result = await withPgClient(async (pg) => executeSunsetQuote(pg, built.command));
+    return sendJSON(res, result.status || 200, {
+      ...(result.body || {}),
+      ok: !!result.ok,
       success: !!result.ok,
       client_slug: SUNSET_CLIENT_SLUG,
-      location_id: loc.location_id,
+      location_id: built.command.locationId,
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
     return sendJSON(res, 500, {
       ok: false, success: false, reason: 'admin_db_expected_unavailable',
       error: String(err && err.message || err),
+      elapsed_ms: Date.now() - started,
     });
+  }
+}
+
+async function handleBotSunsetOfferingQuote(req, res) {
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  return handleSunsetOfferingQuoteRoute(res, {
+    channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+    trustedLocationId: loc.location_id,
+    body,
+  });
+}
+
+async function handleSunsetScheduleBookingQuote(query, req, res, user) {
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (clientSlug !== SUNSET_CLIENT_SLUG) {
+    return sendJSON(res, 403, { success: false, error: 'unsupported_client', client_slug: clientSlug });
+  }
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const trustedLocationId = query.location || body.location_id || body.location;
+  const built = buildSunsetQuoteCommand({
+    channel: QUOTE_CHANNELS.MANUAL_STAFF,
+    transportBody: body,
+    trustedLocationId,
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, { ...built.body, elapsed_ms: 0 });
+  }
+  const started = Date.now();
+  try {
+    const result = await withPgClient(async (pg) => executeSunsetQuote(pg, built.command));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:sunset.schedule.booking_quote',
+      category: 'schedule_api',
+      client_slug: clientSlug,
+      success: !!(result && result.ok),
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, result.status || 200, {
+      ...(result.body || {}),
+      success: !!result.ok,
+      client_slug: clientSlug,
+      location_id: built.command.locationId,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: String(err && err.message || err) });
   }
 }
 
@@ -42904,19 +42966,11 @@ async function handleBotSunsetLessonQuote(req, res) {
     return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
   }
   if (body.offering_id) {
-    // An Admin-selected offering has an exact price-row identity. Never reduce
-    // it to the generic ordinary-lesson resolver.
-    try {
-      const result = await withPgClient(async (pg) => {
-        const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
-        return require('./lib/sunset-luna-admin-catalog').quoteSunsetOfferingFromCatalog(cfg, {
-          ...body, require_db: body.require_db === true || body.requireDb === true, location_id: loc.location_id,
-        });
-      });
-      return sendJSON(res, 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, location_id: loc.location_id, elapsed_ms: Date.now() - started });
-    } catch (err) {
-      return sendJSON(res, 500, { ok: false, success: false, reason: 'admin_db_expected_unavailable', error: String(err && err.message || err) });
-    }
+    return handleSunsetOfferingQuoteRoute(res, {
+      channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+      trustedLocationId: loc.location_id,
+      body,
+    });
   }
   const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
   try {
@@ -49362,6 +49416,11 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'operator');
     if (!auth.ok) return;
     return handleSunsetScheduleBookingUpdate(parsed.query, req, res, auth.user);
+  }
+  if (pathname === '/staff/schedule/bookings/quote' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'operator');
+    if (!auth.ok) return;
+    return handleSunsetScheduleBookingQuote(parsed.query, req, res, auth.user);
   }
   if (pathname === '/staff/schedule/bookings' && method === 'POST') {
     const auth = await requireAuth(req, res, 'operator');
