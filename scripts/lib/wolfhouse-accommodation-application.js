@@ -13,8 +13,10 @@ const {
   validateStaffPackageNightRule,
 } = require('./wolfhouse-package-night-rules');
 const {
-  runAvailabilityCheckDryRun,
-} = require('./luna-guest-booking-dry-run');
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  AVAILABILITY_CHANNELS,
+} = require('./luna-front-desk-accommodation-availability-service');
 const { resolveBotBookingPackageContext } = require('./bot-booking-package-normalize');
 const { resolveQuoteRoomTypeFromPreference } = require('./wolfhouse-room-options');
 const { validateAndNormalizeQuoteAddOns } = require('./guest-addon-pricing');
@@ -326,32 +328,46 @@ async function executeWolfhouseAccommodationAvailability(pg, transportBody) {
   const rejected = rejectSurfSchoolTransportFields(transportBody);
   if (!rejected.ok) return rejected;
 
-  const body = transportBody || {};
-  const fields = {
-    client_slug: WOLFHOUSE_CLIENT_SLUG,
-    check_in: body.check_in,
-    check_out: body.check_out,
-    guest_count: parseInt(body.guest_count, 10) || body.guest_count,
-    room_type: body.room_type || 'shared',
-    gender_preference: body.gender_preference,
-    group_gender: body.group_gender,
-    guest_name: body.guest_name,
-    room_preference: body.room_preference,
-  };
+  const built = buildWolfhouseAvailabilityCommand({
+    channel: AVAILABILITY_CHANNELS.VERTICAL_ADAPTER,
+    trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+    transportBody: transportBody || {},
+    demoCalendarEnrichment: true,
+    assignmentMode: false,
+  });
+  if (!built.ok) {
+    if (built.skipped) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: built.reason || 'availability_check_skipped',
+          reason_code: built.reason || 'availability_check_skipped',
+          vertical_id: VERTICAL_IDS.ACCOMMODATION,
+          skipped: true,
+        },
+      };
+    }
+    return built;
+  }
 
-  const result = await runAvailabilityCheckDryRun(fields, pg);
-  if (result.skipped) {
-    return {
-      ok: false,
-      status: 422,
-      body: {
-        success: false,
-        reason: result.reason || 'availability_check_skipped',
-        reason_code: result.reason || 'availability_check_skipped',
-        vertical_id: VERTICAL_IDS.ACCOMMODATION,
-        ...result,
-      },
-    };
+  const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+  if (!result.ok) {
+    if (result.skipped) {
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          reason: result.reason || 'availability_check_skipped',
+          reason_code: result.reason || 'availability_check_skipped',
+          vertical_id: VERTICAL_IDS.ACCOMMODATION,
+          ...result,
+        },
+      };
+    }
+    return result;
   }
 
   return {
@@ -362,7 +378,8 @@ async function executeWolfhouseAccommodationAvailability(pg, transportBody) {
       preview_only: true,
       no_write_performed: true,
       client_slug: WOLFHOUSE_CLIENT_SLUG,
-      ...result,
+      vertical_id: VERTICAL_IDS.ACCOMMODATION,
+      ...result.body,
     },
   };
 }

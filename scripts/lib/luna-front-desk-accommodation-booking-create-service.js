@@ -43,7 +43,14 @@ const {
   buildManualBookingServiceRecordRows,
   tryInsertManualBookingServiceRecords,
 } = require('./manual-booking-service-records');
-const { runAvailabilityCheckDryRun, runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
+const { runLunaGuestBookingDryRun } = require('./luna-guest-booking-dry-run');
+const {
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  validateAvailabilityProvenanceForCreate,
+  buildAvailabilityRecheckCommandFromBooking,
+  AVAILABILITY_CHANNELS,
+} = require('./luna-front-desk-accommodation-availability-service');
 const { needsGenderAwareBedAssignment } = require('./luna-bed-allocator');
 
 const BOOKING_CREATE_CHANNELS = Object.freeze({
@@ -336,6 +343,10 @@ async function buildWolfhouseBookingCreateCommand(opts) {
   }
 
   let assignedBedCodes = parseSelectedBedCodes(body);
+  let availabilityProvenance = null;
+  let availabilityPreflightAssignmentMode = false;
+
+  const pg = opts && opts.pgClient;
 
   if (channel === BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP) {
     const genderAwareAssign = needsGenderAwareBedAssignment({
@@ -344,32 +355,87 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       genderPreference,
       roomPreference,
     });
+    availabilityPreflightAssignmentMode = genderAwareAssign || assignedBedCodes.length === 0;
     if (assignedBedCodes.length === 0 || genderAwareAssign) {
-      const pg = opts && opts.pgClient;
       if (!pg) {
         return fail(500, 'database_required', 'pgClient required for bot bed auto-assignment');
       }
-      const bedAssign = await runAvailabilityCheckDryRun({
-        client_slug: clientSlug,
-        check_in: checkIn,
-        check_out: checkOut,
-        guest_count: quoteGuestCount,
-        guest_name: guestName,
-        group_gender: body.group_gender || null,
-        gender_preference: genderPreference,
-        room_preference: roomPreference,
-        room_type: roomType,
-      }, pg);
+      const availBuilt = buildWolfhouseAvailabilityCommand({
+        channel: AVAILABILITY_CHANNELS.BOOKING_PREFLIGHT,
+        trustedClientSlug: clientSlug,
+        transportBody: {
+          ...body,
+          check_in: checkIn,
+          check_out: checkOut,
+          guest_count: quoteGuestCount,
+          room_type: roomType,
+          package_code: effectivePackageCode,
+        },
+        demoCalendarEnrichment: true,
+        assignmentMode: true,
+      });
+      if (!availBuilt.ok) {
+        if (availBuilt.skipped) {
+          return fail(400, 'availability_check_skipped', availBuilt.reason || 'availability_check_skipped');
+        }
+        return availBuilt;
+      }
+      const availResult = await executeWolfhouseAvailabilityCheck(pg, availBuilt.command);
+      if (!availResult.ok) {
+        return fail(availResult.status || 500, 'availability_check_failed', 'Availability check failed');
+      }
+      const bedAssign = availResult.body;
+      availabilityProvenance = bedAssign.provenance || null;
       if (bedAssign && Array.isArray(bedAssign.selected_bed_codes) && bedAssign.selected_bed_codes.length) {
         assignedBedCodes = bedAssign.selected_bed_codes.map(String).slice(0, 20);
       } else if (bedAssign && bedAssign.blockers && bedAssign.blockers.length) {
-        return fail(400, 'bed_assignment_failed', 'Bed assignment failed: ' + bedAssign.blockers[0]);
+        return fail(400, 'bed_assignment_failed', `Bed assignment failed: ${bedAssign.blockers[0]}`);
       } else if (assignedBedCodes.length === 0) {
         return fail(400, 'missing_bed_codes', 'selected_bed_codes is required (pass beds or group_gender for auto-assign)');
+      }
+    } else if (pg) {
+      const preflightBuilt = buildWolfhouseAvailabilityCommand({
+        channel: AVAILABILITY_CHANNELS.BOOKING_PREFLIGHT,
+        trustedClientSlug: clientSlug,
+        transportBody: {
+          ...body,
+          check_in: checkIn,
+          check_out: checkOut,
+          guest_count: quoteGuestCount,
+          room_type: roomType,
+          package_code: effectivePackageCode,
+          selected_bed_codes: assignedBedCodes,
+        },
+        demoCalendarEnrichment: true,
+        assignmentMode: false,
+      });
+      if (preflightBuilt.ok) {
+        const preflight = await executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command);
+        if (preflight.ok) availabilityProvenance = preflight.body.provenance || null;
       }
     }
   } else if (assignedBedCodes.length === 0) {
     return fail(400, 'missing_bed_codes', 'selected_bed_codes is required (select empty calendar cells)');
+  } else if (pg) {
+    const preflightBuilt = buildWolfhouseAvailabilityCommand({
+      channel: AVAILABILITY_CHANNELS.BOOKING_PREFLIGHT,
+      trustedClientSlug: clientSlug,
+      transportBody: {
+        ...body,
+        check_in: checkIn,
+        check_out: checkOut,
+        guest_count: quoteGuestCount,
+        room_type: roomType,
+        package_code: effectivePackageCode,
+        selected_bed_codes: assignedBedCodes,
+      },
+      demoCalendarEnrichment: true,
+      assignmentMode: false,
+    });
+    if (preflightBuilt.ok) {
+      const preflight = await executeWolfhouseAvailabilityCheck(pg, preflightBuilt.command);
+      if (preflight.ok) availabilityProvenance = preflight.body.provenance || null;
+    }
   }
 
   if (assignedBedCodes.length === 0) {
@@ -487,6 +553,8 @@ async function buildWolfhouseBookingCreateCommand(opts) {
       warningsAcknowledged,
       confirmFlag,
       idempotencyKey,
+      availabilityProvenance,
+      availabilityPreflightAssignmentMode,
     },
   };
 }
@@ -544,7 +612,35 @@ async function executeWolfhouseBookingCreate(pg, command, execOpts = {}) {
     bookingCode,
     warningsAcknowledged,
     idempotencyKey,
+    availabilityProvenance,
   } = command;
+
+  const provCheck = await validateAvailabilityProvenanceForCreate(pg, command, availabilityProvenance);
+  if (!provCheck.ok) {
+    return {
+      ok: false,
+      status: provCheck.status || 409,
+      body: {
+        ...provCheck.body,
+        _blocked: true,
+      },
+    };
+  }
+  if (!availabilityProvenance) {
+    const recheckCmd = buildAvailabilityRecheckCommandFromBooking(command);
+    const freshAvail = await executeWolfhouseAvailabilityCheck(pg, recheckCmd);
+    if (!freshAvail.ok) {
+      return fail(freshAvail.status || 409, 'availability_recheck_failed', 'Availability could not be verified before create');
+    }
+    const occupied = new Set(freshAvail.body.occupied_bed_codes || []);
+    const conflict = assignedBedCodes.filter((code) => occupied.has(code));
+    if (conflict.length > 0) {
+      return fail(409, 'availability_changed', 'Selected beds are no longer available', {
+        conflict_beds: conflict,
+        _blocked: true,
+      });
+    }
+  }
 
   await pg.query('BEGIN');
   try {

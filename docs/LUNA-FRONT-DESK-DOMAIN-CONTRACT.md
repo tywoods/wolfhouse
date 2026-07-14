@@ -389,6 +389,24 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 | `buildWolfhouseBookingCreateCommand(opts)` | Normalize transport → trusted command; dry-run when `confirm !== true` |
 | `executeWolfhouseBookingCreate(pg, command, execOpts?)` | BEGIN/COMMIT transaction: booking + beds + quote metadata + payments |
 
+**Accommodation availability (Slice 9):** `scripts/lib/luna-front-desk-accommodation-availability-service.js`
+
+| Export | Role |
+|--------|------|
+| `AVAILABILITY_CHANNELS` | `bot_http` \| `luna_whatsapp` \| `vertical_adapter` \| `booking_preflight` \| `manual_staff` |
+| `AVAILABILITY_PROVENANCE_VERSION` | Fingerprint schema version (currently `1`) |
+| `buildWolfhouseAvailabilityCommand(opts)` | Normalize transport → trusted read-only command |
+| `executeWolfhouseAvailabilityCheck(pg, command)` | Authoritative bed/capacity check — **zero writes** |
+| `mapBotHttpAvailabilityResponse(canonical, httpOpts?)` | Route-only HTTP enrichment (`auth_mode`, `elapsed_ms`, `next_action`) |
+| `buildAvailabilityProvenance(canonical)` / `computeAvailabilityFingerprint` | Material-change detection for booking preflight |
+| `validateAvailabilityProvenanceForCreate(pg, command, provenance)` | Re-check before commit; rejects stale inventory |
+
+**Availability command (trusted):** `channel`, `clientSlug` (`wolfhouse-somo` only), `checkIn`, `checkOut`, `guestCount`, `roomType`, package/room/gender preferences, `demoCalendarEnrichment` (Wolfhouse demo-calendar row/block filter), `assignmentMode` (gender-aware bed pick for Luna preflight).
+
+**Availability result (canonical):** `has_enough_beds`, `available_count`, `selected_bed_codes`, `blockers`, `warnings`, `occupied_bed_codes`, `provenance`, `domain_next_action`. HTTP route adds `auth_mode`, `elapsed_ms`, bot-specific `next_action` only.
+
+**Write-time recheck invariant:** Booking create stores `availabilityProvenance` at command build. `executeWolfhouseBookingCreate` calls `validateAvailabilityProvenanceForCreate` **before** `BEGIN`; SQL overlap guard in `buildManualBookingCreateSql` remains the final defense-in-depth lock.
+
 **Command inputs (trusted):** `channel`, `trustedClientSlug` (`wolfhouse-somo` only), `transportBody`, `actorHints`, optional `pgClient` (bot bed auto-assign), `stripeConfig` / `privateRoomHooks` (manual execute).
 
 **Rejected before write:** surf-school transport fields; client-supplied money (`total_cents`, `deposit_required_cents`, …); tenant mismatch.
@@ -410,12 +428,23 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 - **Slice 6 (done):** Sunset Staff/Luna catalog, quote, create, joinable-courses routes call `invokeVerticalOperation` — no direct imports of catalog/quote/create services in `staff-query-api.js`.
 - **Slice 7 (done):** Wolfhouse accommodation adapter replaces `not_migrated` placeholder. Migrated routes: `POST /staff/quote-preview` (application quote helper), `POST /staff/bot/package-price-preview` (vertical `listOfferings`).
 - **Slice 8 (done):** Live accommodation `createBooking` extracted to `luna-front-desk-accommodation-booking-create-service.js`. Bot/manual Staff routes delegate to `buildWolfhouseBookingCreateCommand` + `executeWolfhouseBookingCreate`.
+- **Slice 9 (done):** Canonical accommodation availability in `luna-front-desk-accommodation-availability-service.js`. `POST /staff/bot/availability-check`, vertical `checkAvailability`, Luna dry-run, and booking-create preflight share one read-only engine with provenance + write-time recheck.
 
-### Accommodation capabilities (Slice 8)
+### Accommodation capabilities (Slice 9)
 
 | Capability | Status | Notes |
 |------------|--------|-------|
 | Live `createBooking` writes | **Migrated** | Adapter + Staff bot/manual routes use accommodation booking-create service |
-| Full HTTP parity on `POST /staff/bot/availability-check` | **Deferred** | Adapter uses `runAvailabilityCheckDryRun` (Luna dry-run engine); Staff route retains demo-calendar enrichment |
+| `POST /staff/bot/availability-check` parity | **Migrated** | Route delegates to availability service; HTTP enrichment via `mapBotHttpAvailabilityResponse` |
+| Availability provenance + preflight recheck | **Migrated** | `availabilityProvenance` on booking command; `validateAvailabilityProvenanceForCreate` before transaction |
+| Payment link / Stripe orchestration | **Manual route only** | `manualBookingApplyStaffPaymentChoice` in execute; bot create stays draft payment UPDATE |
+| Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |
+
+### Accommodation capabilities (Slice 8 — historical)
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Live `createBooking` writes | **Migrated** | Adapter + Staff bot/manual routes use accommodation booking-create service |
+| Full HTTP parity on `POST /staff/bot/availability-check` | **Migrated (Slice 9)** | See accommodation availability service |
 | Payment link / Stripe orchestration | **Manual route only** | `manualBookingApplyStaffPaymentChoice` in execute; bot create stays draft payment UPDATE |
 | Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |

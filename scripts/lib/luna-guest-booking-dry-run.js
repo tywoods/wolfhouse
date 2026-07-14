@@ -353,180 +353,60 @@ function runBookingPreviewDryRun(fields) {
 }
 
 async function runAvailabilityCheckDryRun(fields, pg) {
-  const checkIn    = fields.check_in;
-  const checkOut   = fields.check_out;
-  const guestCount = fields.guest_count;
-  const roomType   = String(fields.room_type || 'shared').trim().toLowerCase();
+  const {
+    buildWolfhouseAvailabilityCommand,
+    executeWolfhouseAvailabilityCheck,
+    AVAILABILITY_CHANNELS,
+  } = require('./luna-front-desk-accommodation-availability-service');
 
-  if (!checkIn || !checkOut || !guestCount || guestCount < 1) {
-    return {
-      skipped: true,
-      reason:  'missing_dates_or_guest_count',
-      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
-    };
-  }
-
-  const ciDate = new Date(checkIn + 'T00:00:00Z');
-  const coDate = new Date(checkOut + 'T00:00:00Z');
-  if (isNaN(ciDate.getTime()) || isNaN(coDate.getTime()) || coDate <= ciDate) {
-    return {
-      skipped: true,
-      reason:  'invalid_date_range',
-      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
-    };
-  }
-
-  if (!pg) {
-    return {
-      skipped: true,
-      reason:  'no_pg_client',
-      preview_only: true,
-      no_write_performed: true,
-      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
-    };
-  }
-
-  const warnings = [];
-  const blockers = [];
-
-  const bedsRes   = await pg.query(getBedCalendarRoomsQuery(), [fields.client_slug]);
-  const blocksRes = await pg.query(getBedCalendarBlocksQuery(), [fields.client_slug, checkIn, checkOut]);
-  const bedRows   = bedsRes.rows;
-  const blockRows = blocksRes.rows;
-
-  const allBeds = bedRows
-    .filter((r) => r.bed_code && r.bed_active !== false && r.bed_sellable !== false)
-    .map((r) => ({
-      bed_code:  r.bed_code,
-      room_code: r.room_code,
-      room_type: r.room_type || null,
-      bed_label: r.bed_label || r.bed_code,
-    }));
-
-  const rulesRooming = isRulesBasedRoomingEnabled();
-  const hasRoomTypeMeta = allBeds.some((b) => b.room_type !== null);
-  let filteredBeds = allBeds;
-  if (!rulesRooming && hasRoomTypeMeta && roomType && roomType !== 'any') {
-    const privateTypes = ['private', 'double', 'matrimonial'];
-    const sharedTypes  = ['shared', 'dorm', 'mixed'];
-    if (roomType === 'shared') {
-      const sharedBeds = allBeds.filter((b) => b.room_type && sharedTypes.includes(String(b.room_type).toLowerCase()));
-      filteredBeds = sharedBeds.length > 0 ? sharedBeds : allBeds;
-      if (sharedBeds.length === 0) warnings.push('room_type_filter_not_strict');
-    } else if (privateTypes.includes(roomType)) {
-      const privateBeds = allBeds.filter((b) => b.room_type && privateTypes.includes(String(b.room_type).toLowerCase()));
-      filteredBeds = privateBeds.length > 0 ? privateBeds : allBeds;
-      if (privateBeds.length === 0) warnings.push('room_type_filter_not_strict');
-    } else {
-      warnings.push('room_type_filter_not_strict');
+  const built = buildWolfhouseAvailabilityCommand({
+    channel: AVAILABILITY_CHANNELS.LUNA_WHATSAPP,
+    trustedClientSlug: String(fields.client_slug || DEFAULT_CLIENT).trim(),
+    transportBody: fields,
+    demoCalendarEnrichment: true,
+    assignmentMode: true,
+  });
+  if (!built.ok) {
+    if (built.skipped) {
+      return {
+        skipped: true,
+        reason: built.reason,
+        anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+      };
     }
-  } else if (!rulesRooming && !hasRoomTypeMeta && roomType && roomType !== 'any') {
-    warnings.push('room_type_filter_not_strict');
+    return {
+      skipped: true,
+      reason: built.body.reason_code || 'availability_command_failed',
+      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+    };
   }
 
-  const bedsForPool = rulesRooming ? allBeds : filteredBeds;
-
-  const occupiedBedCodes = new Set(blockRows.map((r) => r.bed_code).filter(Boolean));
-  const availableBeds  = bedsForPool.filter((b) => !occupiedBedCodes.has(b.bed_code));
-  const availableCount   = availableBeds.length;
-  const hasEnoughBeds    = availableCount >= guestCount;
-  let selectedBedCodes = [];
-  let selectedRoomCode = null;
-  let allocationReason = null;
-  let roomingHandoff = false;
-  let groupGenderResolved = null;
-
-  if (hasEnoughBeds) {
-    const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
-    const capacityPick = runAvailabilityBedSelection({
-      bedRows,
-      occupiedBedCodes,
-      allowedBedCodes,
-      blockRows,
-      guestCount,
-      guestName: fields.guest_name || null,
-      genderPreference: fields.gender_preference || fields.group_gender || null,
-      roomPreference: fields.room_preference || fields.gender_preference || null,
-      groupGender: fields.group_gender || fields.gender_preference || null,
-      capacityOnly: true,
-    });
-    allocationReason = capacityPick.reason || null;
-    groupGenderResolved = capacityPick.group_gender || null;
-    selectedBedCodes = capacityPick.selected_bed_codes || [];
-    selectedRoomCode = capacityPick.selected_room_code || null;
-    if (capacityPick.split) warnings.push('group_split_across_rooms_required');
-
-    const resolvedGroupGender = normalizeGroupGender(fields.group_gender)
-      || normalizeGroupGender(fields.gender_preference);
-    const readyForGenderAssign = needsGenderAwareBedAssignment({
-      guestCount,
-      groupGender: fields.group_gender,
-      genderPreference: fields.gender_preference,
-      roomPreference: fields.room_preference,
-    });
-    if (readyForGenderAssign) {
-      const genderPick = runAvailabilityBedSelection({
-        bedRows,
-        occupiedBedCodes,
-        allowedBedCodes,
-        blockRows,
-        guestCount,
-        guestName: fields.guest_name || null,
-        genderPreference: fields.gender_preference || fields.group_gender || null,
-        roomPreference: fields.room_preference || fields.gender_preference || null,
-        groupGender: fields.group_gender || fields.gender_preference || null,
-        capacityOnly: false,
-      });
-      groupGenderResolved = genderPick.group_gender || groupGenderResolved;
-      if (genderPick.handoff) {
-        roomingHandoff = true;
-        warnings.push(genderPick.reason || 'rooming_handoff');
-        if (genderPick.reason === 'group_split_needs_staff') {
-          blockers.push('group_split_needs_staff');
-        } else {
-          blockers.push(genderPick.reason || 'rooming_handoff');
-        }
-        selectedBedCodes = [];
-        selectedRoomCode = null;
-      } else {
-        selectedBedCodes = genderPick.selected_bed_codes || [];
-        selectedRoomCode = genderPick.selected_room_code || null;
-        allocationReason = genderPick.reason || allocationReason;
-        if (genderPick.split) warnings.push('group_split_across_rooms_required');
-      }
+  const result = await executeWolfhouseAvailabilityCheck(pg, built.command);
+  if (!result.ok) {
+    if (result.skipped) {
+      return {
+        skipped: true,
+        reason: result.reason || 'no_pg_client',
+        preview_only: true,
+        no_write_performed: true,
+        anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+      };
     }
+    return {
+      skipped: true,
+      reason: result.body.reason_code || 'availability_check_failed',
+      anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+    };
   }
 
-  if (!hasEnoughBeds) blockers.push('not_enough_available_beds');
-
-  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
-
+  const body = result.body;
+  const roomingHandoff = body.domain_next_action === 'handoff_to_staff'
+    && body.has_enough_beds
+    && (body.blockers || []).some((b) => b !== 'not_enough_available_beds');
   return {
-    preview_only:        true,
-    no_write_performed:  true,
-    creates_booking:     false,
-    anchor_route:        DRY_RUN_ANCHOR_ROUTES.availability,
-    check_in:            checkIn,
-    check_out:           checkOut,
-    guest_count:         guestCount,
-    room_type:           roomType,
-    girls_room_available:   roomOptionFlags.girls_room_available,
-    private_room_available: roomOptionFlags.private_room_available,
-    room_options: {
-      girls_room_available:   roomOptionFlags.girls_room_available,
-      private_room_available: roomOptionFlags.private_room_available,
-    },
-    selected_bed_codes:  selectedBedCodes,
-    selected_room_code:  selectedRoomCode,
-    group_gender:        groupGenderResolved,
-    allocation_reason:   allocationReason,
-    rules_based_rooming: isRulesBasedRoomingEnabled(),
-    capacity_check_only: true,
-    has_enough_beds:     hasEnoughBeds,
-    available_count:     availableCount,
-    warnings,
-    blockers,
-    next_action:         !hasEnoughBeds
+    ...body,
+    anchor_route: DRY_RUN_ANCHOR_ROUTES.availability,
+    next_action: !body.has_enough_beds
       ? 'handoff_to_staff'
       : roomingHandoff
         ? 'handoff_to_staff'

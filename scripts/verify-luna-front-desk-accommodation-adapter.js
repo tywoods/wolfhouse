@@ -24,9 +24,12 @@ const {
   WOLFHOUSE_CLIENT_SLUG,
 } = require('./lib/wolfhouse-accommodation-application');
 const {
-  runAvailabilityCheckDryRun,
-  runLunaGuestBookingDryRun,
-} = require('./lib/luna-guest-booking-dry-run');
+  AVAILABILITY_CHANNELS,
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  mapBotHttpAvailabilityResponse,
+} = require('./lib/luna-front-desk-accommodation-availability-service');
+const { runLunaGuestBookingDryRun } = require('./lib/luna-guest-booking-dry-run');
 const { GOLDEN_BED_ROWS } = require('./lib/luna-golden-offline-pg');
 
 let pass = 0;
@@ -191,7 +194,7 @@ async function run() {
   });
   assert('short stay quote rejected', badQuote.ok === false && badQuote.status === 400);
 
-  console.log('\n[D] Availability parity');
+  console.log('\n[D] Availability parity (route vs adapter via canonical service)');
   const pg = makePg();
   const availFields = {
     client_slug: WOLFHOUSE_CLIENT_SLUG,
@@ -200,14 +203,23 @@ async function run() {
     guest_count: GUESTS,
     room_type: 'shared',
   };
-  const directAvail = await runAvailabilityCheckDryRun(availFields, pg);
+  const routeBuilt = buildWolfhouseAvailabilityCommand({
+    channel: AVAILABILITY_CHANNELS.BOT_HTTP,
+    trustedClientSlug: WOLFHOUSE_CLIENT_SLUG,
+    transportBody: availFields,
+    demoCalendarEnrichment: true,
+    assignmentMode: false,
+  });
+  const routeResult = await executeWolfhouseAvailabilityCheck(pg, routeBuilt.command);
+  const routeBody = mapBotHttpAvailabilityResponse(routeResult.body, { authMode: 'bot_token', clientSlug: WOLFHOUSE_CLIENT_SLUG });
   const adapterAvail = await accommodationVerticalAdapter.checkAvailability(pg, {
     resolved: wh,
     transportBody: availFields,
   });
   assert('adapter availability ok', adapterAvail.ok === true);
-  assert('has_enough_beds parity', adapterAvail.body.has_enough_beds === directAvail.has_enough_beds);
-  assert('selected_bed_codes parity', JSON.stringify(adapterAvail.body.selected_bed_codes) === JSON.stringify(directAvail.selected_bed_codes));
+  assert('has_enough_beds parity', adapterAvail.body.has_enough_beds === routeBody.has_enough_beds);
+  assert('selected_bed_codes parity', JSON.stringify(adapterAvail.body.selected_bed_codes) === JSON.stringify(routeBody.selected_bed_codes));
+  assert('provenance parity', adapterAvail.body.provenance.availability_fingerprint === routeBody.provenance.availability_fingerprint);
 
   console.log('\n[E] Create booking dry-run parity');
   const createBody = {

@@ -109,6 +109,7 @@ for (const mod of [
   'luna-front-desk-quote-service.js',
   'luna-front-desk-business-vertical.js',
   'luna-front-desk-accommodation-booking-create-service.js',
+  'luna-front-desk-accommodation-availability-service.js',
 ]) {
   assert(`doc references ${mod}`, doc.includes(mod));
 }
@@ -233,6 +234,7 @@ console.log('\n[8] Accommodation vertical boundary (Slice 7)');
 const accAdapterSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'verticals', 'accommodation-vertical-adapter.js'), 'utf8');
 const accAppSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'wolfhouse-accommodation-application.js'), 'utf8');
 const accCreateSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-front-desk-accommodation-booking-create-service.js'), 'utf8');
+const accAvailSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-front-desk-accommodation-availability-service.js'), 'utf8');
 const contractDoc = fs.readFileSync(CONTRACT, 'utf8');
 assert('contract documents wolfhouse-somo tenant', /wolfhouse-somo/.test(contractDoc));
 assert('accommodation adapter exists', /accommodationVerticalAdapter/.test(accAdapterSrc));
@@ -247,6 +249,15 @@ assert('accommodation create service exports executeWolfhouseBookingCreate', /ex
 assert('accommodation create channels manual_staff + luna_whatsapp', /manual_staff/.test(accCreateSrc) && /luna_whatsapp/.test(accCreateSrc));
 assert('routes use buildWolfhouseBookingCreateCommand', /buildWolfhouseBookingCreateCommand/.test(apiSrc));
 assert('contract documents accommodation booking create service', /luna-front-desk-accommodation-booking-create-service/.test(contractDoc));
+assert('application uses accommodation availability service', /executeWolfhouseAvailabilityCheck/.test(accAppSrc));
+assert('application no direct dry-run availability', !/runAvailabilityCheckDryRun/.test(accAppSrc));
+assert('availability service exports executeWolfhouseAvailabilityCheck', /executeWolfhouseAvailabilityCheck/.test(accAvailSrc));
+assert('availability provenance versioning', /AVAILABILITY_PROVENANCE_VERSION/.test(accAvailSrc));
+assert('availability write-time recheck', /validateAvailabilityProvenanceForCreate/.test(accAvailSrc));
+assert('booking create uses availability recheck', /validateAvailabilityProvenanceForCreate/.test(accCreateSrc));
+assert('bot availability route delegates to service', /executeWolfhouseAvailabilityCheck/.test(apiSrc));
+assert('bot availability route HTTP mapper', /mapBotHttpAvailabilityResponse/.test(apiSrc));
+assert('contract documents accommodation availability service', /luna-front-desk-accommodation-availability-service/.test(contractDoc));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

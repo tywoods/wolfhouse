@@ -469,6 +469,12 @@ const {
   executeWolfhouseBookingCreate,
 } = require('./lib/luna-front-desk-accommodation-booking-create-service');
 const {
+  AVAILABILITY_CHANNELS,
+  buildWolfhouseAvailabilityCommand,
+  executeWolfhouseAvailabilityCheck,
+  mapBotHttpAvailabilityResponse,
+} = require('./lib/luna-front-desk-accommodation-availability-service');
+const {
   normalizeBookingGuestsInput,
   normalizeBotBookingPaymentChoice,
   buildPerPersonBreakdown,
@@ -9542,182 +9548,66 @@ async function handleBotAvailabilityCheck(req, res, user, authMode) {
     return send400(res, 'invalid or missing JSON body');
   }
 
-  const clientSlug    = String(body.client_slug  || DEFAULT_CLIENT).trim();
-  const checkIn       = String(body.check_in     || '').trim();
-  const checkOut      = String(body.check_out    || '').trim();
-  const guestCount    = parseInt(body.guest_count || '1', 10);
-  const roomType      = String(body.room_type    || 'shared').trim().toLowerCase();
-  const genderPref    = body.gender_preference ? String(body.gender_preference).trim() : null;
-  const groupGender   = body.group_gender ? String(body.group_gender).trim() : null;
-  const guestName     = String(body.guest_name || '').trim() || null;
-  const roomPref      = String(body.room_preference || genderPref || '').trim() || null;
-
-  // ── Input validation ────────────────────────────────────────────────────────
+  const clientSlug = String(body.client_slug || DEFAULT_CLIENT).trim();
   if (!clientSlug) return send400(res, 'client_slug is required');
-  if (!checkIn)    return send400(res, 'check_in is required');
-  if (!checkOut)   return send400(res, 'check_out is required');
-  if (!guestCount || guestCount < 1) return send400(res, 'guest_count must be >= 1');
 
-  const ciDate = new Date(checkIn + 'T00:00:00Z');
-  const coDate = new Date(checkOut + 'T00:00:00Z');
-  if (isNaN(ciDate.getTime()) || isNaN(coDate.getTime())) return send400(res, 'invalid date format — use YYYY-MM-DD');
-  if (coDate <= ciDate) return send400(res, 'check_out must be after check_in');
+  const built = buildWolfhouseAvailabilityCommand({
+    channel: AVAILABILITY_CHANNELS.BOT_HTTP,
+    trustedClientSlug: clientSlug,
+    transportBody: body,
+    demoCalendarEnrichment: true,
+    assignmentMode: false,
+  });
+  if (!built.ok) {
+    if (built.skipped) {
+      if (built.reason === 'missing_dates_or_guest_count') {
+        if (!String(body.check_in || '').trim()) return send400(res, 'check_in is required');
+        if (!String(body.check_out || '').trim()) return send400(res, 'check_out is required');
+        return send400(res, 'guest_count must be >= 1');
+      }
+      if (built.reason === 'invalid_date_range') {
+        const checkIn = String(body.check_in || '').trim();
+        const checkOut = String(body.check_out || '').trim();
+        const ciDate = new Date(`${checkIn}T00:00:00Z`);
+        const coDate = new Date(`${checkOut}T00:00:00Z`);
+        if (Number.isNaN(ciDate.getTime()) || Number.isNaN(coDate.getTime())) {
+          return send400(res, 'invalid date format — use YYYY-MM-DD');
+        }
+        return send400(res, 'check_out must be after check_in');
+      }
+    }
+    return sendJSON(res, built.status || 400, built.body);
+  }
 
-  // ── DB queries (SELECT only — no writes) ────────────────────────────────────
-  const warnings  = [];
-  const blockers  = [];
-
-  let bedRows, blockRows;
   try {
-    await withPgClient(async (pg) => {
-      // Query A: all active/sellable beds for client
-      const bedsRes = await pg.query(getBedCalendarRoomsQuery(), [clientSlug]);
-      bedRows = bedsRes.rows;
+    const result = await withPgClient((pg) => executeWolfhouseAvailabilityCheck(pg, built.command));
+    if (!result.ok) {
+      if (result.skipped) {
+        return sendJSON(res, 422, { success: false, reason: result.reason, ...result });
+      }
+      console.error('[bot/availability-check] service error:', result.body);
+      return sendJSON(res, result.status || 500, result.body);
+    }
 
-      // Query B: overlapping booking_beds blocks (half-open, excludes cancelled/expired)
-      const blocksRes = await pg.query(getBedCalendarBlocksQuery(), [clientSlug, checkIn, checkOut]);
-      blockRows = blocksRes.rows;
+    const elapsed = Date.now() - started;
+    const httpBody = mapBotHttpAvailabilityResponse(result.body, {
+      authMode,
+      elapsedMs: elapsed,
+      clientSlug,
     });
+    if (httpBody.selected_bed_codes && httpBody.selected_bed_codes.length) {
+      console.log('[bot/availability-check] capacity pick', {
+        room: httpBody.selected_room_code,
+        beds: httpBody.selected_bed_codes,
+        reason: httpBody.allocation_reason,
+        rules: httpBody.rules_based_rooming,
+      });
+    }
+    sendJSON(res, 200, httpBody);
   } catch (err) {
     console.error('[bot/availability-check] DB error:', err.message);
     sendJSON(res, 500, { success: false, error: 'db_error', detail: err.message });
-    return;
   }
-
-  bedRows = resolveBedCalendarRoomRows(clientSlug, bedRows);
-  blockRows = filterDemoCalendarBlocks(blockRows);
-
-  // ── Build bed metadata list (active + sellable only) ───────────────────────
-  const allBeds = bedRows
-    .filter(r => r.bed_code && r.bed_active !== false && r.bed_sellable !== false)
-    .map(r => ({
-      bed_code:  r.bed_code,
-      room_code: r.room_code,
-      room_type: r.room_type || null,
-      bed_label: r.bed_label || r.bed_code,
-      active:    r.bed_active !== false,
-      sellable:  r.bed_sellable !== false,
-    }));
-
-  // ── Room-type filter (legacy picker only; rules allocator uses gender metadata) ─
-  const rulesRooming = isRulesBasedRoomingEnabled();
-  const hasRoomTypeMeta = allBeds.some(b => b.room_type !== null);
-  let filteredBeds = allBeds;
-  if (!rulesRooming && hasRoomTypeMeta && roomType && roomType !== 'any') {
-    const privateTypes = ['private', 'double', 'matrimonial'];
-    const sharedTypes  = ['shared', 'dorm', 'mixed'];
-    if (roomType === 'shared') {
-      const sharedBeds = allBeds.filter(b => b.room_type && sharedTypes.includes(String(b.room_type).toLowerCase()));
-      filteredBeds = sharedBeds.length > 0 ? sharedBeds : allBeds;
-      if (sharedBeds.length === 0) warnings.push('room_type_filter_not_strict');
-    } else if (privateTypes.includes(roomType)) {
-      const privateBeds = allBeds.filter(b => b.room_type && privateTypes.includes(String(b.room_type).toLowerCase()));
-      filteredBeds = privateBeds.length > 0 ? privateBeds : allBeds;
-      if (privateBeds.length === 0) warnings.push('room_type_filter_not_strict');
-    } else {
-      warnings.push('room_type_filter_not_strict');
-    }
-  } else if (!rulesRooming && !hasRoomTypeMeta && roomType && roomType !== 'any') {
-    warnings.push('room_type_filter_not_strict');
-  }
-
-  const bedsForPool = rulesRooming ? allBeds : filteredBeds;
-
-  // ── Find occupied bed codes for the date range ─────────────────────────────
-  // getBedCalendarBlocksQuery already excludes cancelled/expired booking statuses.
-  const occupiedBedCodes = new Set(blockRows.map(r => r.bed_code).filter(Boolean));
-
-  // ── Available beds ─────────────────────────────────────────────────────────
-  const availableBeds = bedsForPool.filter(b => !occupiedBedCodes.has(b.bed_code));
-
-  const availableCount = availableBeds.length;
-  const hasEnoughBeds  = availableCount >= guestCount;
-
-  // ── Room-fit selection (rules-based allocator or legacy capacity picker) ───
-  let selectedBedCodes = [];
-  let selectedRoomCode = null;
-  let allocationReason = null;
-  let allocationSplit = false;
-  let groupGenderResolved = null;
-
-  if (hasEnoughBeds) {
-    const allowedBedCodes = new Set(bedsForPool.map((b) => b.bed_code));
-    const pick = runAvailabilityBedSelection({
-      bedRows,
-      occupiedBedCodes,
-      allowedBedCodes,
-      blockRows,
-      guestCount,
-      guestName,
-      genderPreference: genderPref,
-      roomPreference: roomPref,
-      groupGender: groupGender || genderPref,
-      capacityOnly: true,
-    });
-    allocationReason = pick.reason || null;
-    allocationSplit = !!pick.split;
-    groupGenderResolved = pick.group_gender || null;
-    selectedBedCodes = pick.selected_bed_codes || [];
-    selectedRoomCode = pick.selected_room_code || null;
-    if (pick.split) warnings.push('group_split_across_rooms_required');
-    console.log('[bot/availability-check] capacity pick', {
-      room: selectedRoomCode,
-      beds: selectedBedCodes,
-      reason: allocationReason,
-      rules: isRulesBasedRoomingEnabled(),
-    });
-  }
-
-  if (!hasEnoughBeds) {
-    blockers.push('not_enough_available_beds');
-  }
-
-  const roomOptionFlags = computeWolfhouseRoomOptionFlags(availableBeds, guestCount);
-
-  const nextAction = !hasEnoughBeds
-    ? 'ask_staff_or_alternate_dates'
-    : 'ready_for_bot_create';
-
-  const elapsed = Date.now() - started;
-
-  sendJSON(res, 200, {
-    success:             true,
-    preview_only:        true,
-    no_write_performed:  true,
-    creates_booking:     false,
-    creates_payment:     false,
-    creates_stripe_link: false,
-    sends_whatsapp:      false,
-    auth_mode:           authMode,
-    client_slug:         clientSlug,
-    check_in:            checkIn,
-    check_out:           checkOut,
-    guest_count:         guestCount,
-    room_type:           roomType,
-    gender_preference:   genderPref || null,
-    room_preference:     roomPref || null,
-    group_gender:        groupGenderResolved,
-    allocation_reason:   allocationReason,
-    allocation_split:    allocationSplit,
-    rules_based_rooming: isRulesBasedRoomingEnabled(),
-    capacity_check_only: true,
-    girls_room_available:    roomOptionFlags.girls_room_available,
-    private_room_available:  roomOptionFlags.private_room_available,
-    room_options: {
-      girls_room_available:   roomOptionFlags.girls_room_available,
-      private_room_available: roomOptionFlags.private_room_available,
-    },
-    selected_bed_codes:  selectedBedCodes,
-    selected_room_code:  selectedRoomCode,
-    has_enough_beds:     hasEnoughBeds,
-    available_count:     availableCount,
-    available_beds:      availableBeds.map(b => ({ bed_code: b.bed_code, room_code: b.room_code, room_type: b.room_type })),
-    occupied_count:      occupiedBedCodes.size,
-    warnings,
-    blockers,
-    next_action:         nextAction,
-    elapsed_ms:          elapsed,
-  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
