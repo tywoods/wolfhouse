@@ -35,11 +35,13 @@ function parseMeta(raw) {
 }
 
 function buildMockPg() {
+  const PACK_ID = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
   const state = {
     clientId: '11111111-1111-1111-1111-111111111111',
     bookings: [],
     serviceRecords: [],
     idempotency: new Map(),
+    packId: PACK_ID,
   };
 
   const pg = {
@@ -50,6 +52,31 @@ function buildMockPg() {
         return { rows: [{ id: state.clientId }] };
       }
       if (/BEGIN|COMMIT|ROLLBACK/i.test(q)) return { rows: [] };
+      if (/information_schema\.tables/i.test(q) && /tenant_surf_pack_rules/i.test(q)) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      if (/information_schema\.columns/i.test(q) && (params && params[0] === 'tenant_surf_pack_rules' || /tenant_surf_pack_rules/i.test(q))) {
+        return { rows: [{ '?column?': 1 }] };
+      }
+      if (/FROM tenant_surf_pack_rules/i.test(q)) {
+        return {
+          rows: [{
+            id: PACK_ID,
+            label: '5-day',
+            config_json: {
+              age_band: '12_and_up',
+              group_size: 16,
+              beaches: ['somo'],
+              weekly: 'mon_fri',
+              schedules: ['0930_1130'],
+              price_tiers: [{ key: '1_week', label: '1 week', hours: 10, amount_cents: 18000 }],
+            },
+          }],
+        };
+      }
+      if (/COALESCE\(SUM/i.test(q) && /booking_service_records/i.test(q) && /course_id/i.test(q)) {
+        return { rows: [{ seats: 0 }] };
+      }
       if (/INSERT INTO bookings/i.test(q)) {
         const meta = parseMeta(params[8]);
         const row = {
@@ -103,8 +130,14 @@ function buildMockPg() {
         const rows = state.idempotency.get(key) || [];
         return { rows: rows.length ? rows : [] };
       }
-      if (/tenant_price_rules|full_day_equipment/i.test(q)) return { rows: [] };
+      if (/tenant_price_rules|full_day_equipment/i.test(q)) {
+        // Enough for resolveFullDayEquipmentAddonUnitCents / tables_missing fallback paths.
+        if (/to_regclass/i.test(q)) return { rows: [{ reg: null }] };
+        return { rows: [] };
+      }
       if (/ALTER TABLE booking_service_records/i.test(q)) return { rows: [] };
+      if (/to_regclass/i.test(q)) return { rows: [{ reg: null }] };
+      if (/information_schema/i.test(q)) return { rows: [] };
       return { rows: [] };
     },
   };
@@ -161,16 +194,18 @@ assert('isLunaTrustedActor staff false', !isLunaTrustedActor({ email: 'x@test.co
 
   console.log('\n[3] Luna lesson + course + private lesson + addon + multi-date');
   const pgCombo = buildMockPg();
+  const comboPackId = pgCombo.state.packId;
   const combo = await createSunsetScheduleBooking(pgCombo, {
     clientSlug: 'sunset',
     locationId: 'sunset-somo',
     actor: { source: 'agent_luna_whatsapp_bot' },
     body: {
       guest_name: 'Group',
-      service_dates: ['2026-08-02', '2026-08-03'],
+      // Mon–Tue 2026-08-03/04 — matches admin mon_fri pack schedule
+      service_dates: ['2026-08-03', '2026-08-04'],
       components: {
-        course: { quantity: 2, course_id: 'c5', course_label: '5-day' },
-        full_day_equipment_extension: { enabled: true, dates: { '2026-08-02': 2 } },
+        course: { quantity: 2, course_id: comboPackId, course_label: '5-day' },
+        full_day_equipment_extension: { enabled: true, dates: { '2026-08-03': 2 } },
       },
       idempotency_key: 'luna-combo-1',
     },

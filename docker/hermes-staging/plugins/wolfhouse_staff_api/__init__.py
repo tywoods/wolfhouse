@@ -1509,6 +1509,38 @@ def get_sunset_lesson_availability(params, **kwargs):
     })
 
 
+def get_sunset_joinable_courses(params, **kwargs):
+    """List admin-configured courses (and group lesson slots) a guest can join."""
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    if payload.get("date"):
+        body["date"] = _clean(payload.get("date"))
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    if payload.get("include_full") is True:
+        body["include_full"] = True
+    data = _post_bot("/sunset/joinable-courses", body)
+    ok = bool(data.get("ok")) or bool(data.get("success"))
+    courses = data.get("courses") if isinstance(data.get("courses"), list) else []
+    group_lessons = data.get("group_lessons") if isinstance(data.get("group_lessons"), list) else []
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_joinable_courses",
+        "location_id": data.get("location_id"),
+        "date": data.get("date"),
+        "courses": courses,
+        "group_lessons": group_lessons,
+        "source_tables": data.get("source_tables"),
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "guest_safe_next_action": (
+            None if (ok and courses)
+            else "Let me check which courses are open with the team and get right back to you 😊"
+        ),
+    })
+
+
 def get_sunset_group_lesson_quote(params, **kwargs):
     del kwargs
     payload = dict(params or {})
@@ -2278,7 +2310,7 @@ def _sunset_write_tools():
             "guest_confirmed_booking": {"type": "boolean", "description": "Must be literal true — the guest has explicitly confirmed they want to book. Quote-only interest, a name alone, or ambiguous assent must not pass."},
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
-            "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for a configured course product and MUST include course_id (exact authoritative id from config/tools) — never invent or omit it. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
+            "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
             "rental_pricing": {"type": "object", "description": "Required for board+wetsuit bundle rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},
@@ -2306,6 +2338,7 @@ def _sunset_tools():
         ("get_sunset_full_day_equipment_addon", "Get the live price for the 'keep the gear for the rest of the day' add-on ('Material el resto del día', per person per day). Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. Use amount_eur before offering or confirming it.", get_sunset_full_day_equipment_addon, {"dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."}, "quantity": {"type": "integer", "description": "Number of people."}, **loc}, []),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
+        ("get_sunset_joinable_courses", "List Admin-configured courses (and group-lesson slots) a guest can currently join BEFORE offering or booking a course. Reads tenant_surf_pack_rules (and lesson time/capacity rules). Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity (configured group_size − confirmed bookings).", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact offering returned by get_sunset_lesson_catalog. Pass its offering_id exactly (and course_id for a course); never substitute the generic group lesson price.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates when required by the offering billing unit."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
         ("get_sunset_group_lesson_quote", "Get an authoritative quote for ordinary group lessons BEFORE quoting any lesson price or asking for a booking name. Pass every selected lesson date in service_dates and the number of surfers in quantity. Use the returned total_cents/amount_eur verbatim — never multiply or invent money locally. Multiple dates are still ordinary lesson dates unless an actual configured course was selected. This tool is read-only; never call create_sunset_booking to discover a price.", get_sunset_group_lesson_quote, {"service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected group-lesson dates YYYY-MM-DD (one entry per session)."}, "quantity": {"type": "integer", "description": "Number of surfers per date (default 1)."}, **loc}, ["service_dates"]),

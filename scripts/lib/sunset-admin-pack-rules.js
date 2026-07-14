@@ -336,6 +336,7 @@ module.exports = {
   PACK_TIER_KEYS,
   DEFAULT_PRICE_TIERS,
   defaultPackConfig,
+  packPriceItemCode,
   mapPackRow,
   validatePackBody,
   loadSurfPacksFromDb,

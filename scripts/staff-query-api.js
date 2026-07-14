@@ -42591,6 +42591,41 @@ async function handleBotSunsetLessonAvailability(req, res) {
   });
 }
 
+/** READ-ONLY: admin-configured courses (+ group slots) a guest can join, with DB capacity. */
+async function handleBotSunsetJoinableCourses(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  const dateIso = body.date != null ? String(body.date).trim() : '';
+  if (dateIso && !isIsoDateStaff(dateIso)) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: 'invalid_date', detail: 'date must be YYYY-MM-DD' });
+  }
+  try {
+    const { listJoinableSunsetOfferings } = require('./lib/sunset-admin-course-join');
+    const result = await withPgClient(async (pg) => listJoinableSunsetOfferings(pg, {
+      clientSlug: SUNSET_CLIENT_SLUG,
+      locationId: loc.location_id,
+      date: dateIso || null,
+      includeFull: body.include_full === true,
+    }));
+    return sendJSON(res, 200, {
+      ...result,
+      success: !!result.ok,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      ok: false,
+      success: false,
+      reason: 'joinable_courses_unavailable',
+      error: String(err && err.message || err),
+      elapsed_ms: Date.now() - started,
+    });
+  }
+}
+
 async function handleBotSunsetLessonQuote(req, res) {
   const started = Date.now();
   let body = {};
@@ -48204,6 +48239,15 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotSunsetLessonAvailability(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/joinable-courses') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/joinable-courses' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetJoinableCourses(req, res);
   }
   if (pathname === '/staff/bot/sunset/catalog') {
     if (method !== 'POST') {

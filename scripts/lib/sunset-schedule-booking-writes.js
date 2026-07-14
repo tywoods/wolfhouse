@@ -862,6 +862,27 @@ async function createSunsetScheduleBooking(pg, opts) {
     }
   }
 
+  // Course bookings must join an existing admin-configured surf pack — never mint
+  // invented course_ids or arbitrary dates outside that pack's schedule/capacity.
+  let assignedCourse = null;
+  if (input.components.course) {
+    const { assertCourseAssignable } = require('./sunset-admin-course-join');
+    const gate = await assertCourseAssignable(pg, {
+      clientSlug,
+      locationId,
+      courseId: input.components.course.course_id,
+      serviceDates: input.service_dates,
+      quantity: input.components.course.quantity,
+    });
+    if (!gate.ok) return gate;
+    assignedCourse = gate;
+    // Preserve Luna/staff attribution; only overwrite blank label with admin label.
+    if (!input.components.course.course_label
+      || input.components.course.course_label === input.components.course.course_id) {
+      input.components.course.course_label = gate.course_label || input.components.course.course_label;
+    }
+  }
+
   const srPayment = UI_TO_SR_PAYMENT[input.payment_status];
   const bookingPayment = UI_TO_BOOKING_PAYMENT[input.payment_status];
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
@@ -972,6 +993,8 @@ async function createSunsetScheduleBooking(pg, opts) {
           course_id: componentKey === 'course' ? part.course_id : null,
           course_label: componentKey === 'course' ? part.course_label : null,
           offering_id: part.offering_id || null,
+          admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
+          admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
           guest_phone: input.guest_phone,
@@ -1034,6 +1057,14 @@ async function createSunsetScheduleBooking(pg, opts) {
         booking_id: bookingId,
         records: createdRows.map(scheduleRowFromDb),
         booking: scheduleRowFromDb(createdRows[0]),
+        ...(assignedCourse ? {
+          assigned_course: {
+            course_id: assignedCourse.course_id,
+            course_label: assignedCourse.course_label,
+            capacity: assignedCourse.capacity,
+            capacity_by_date: assignedCourse.capacity_by_date,
+          },
+        } : {}),
       },
     };
   } catch (err) {
