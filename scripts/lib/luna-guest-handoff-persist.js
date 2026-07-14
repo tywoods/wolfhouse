@@ -173,34 +173,9 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     return { ok: false, needs_human: false, reason: 'conversation_not_found' };
   }
 
-  // Canonical rule: needs_human=true → effective conversation pause.
-  // Do not require staff to press Pause Luna separately after a handoff.
-  // Resolving needs_human does NOT auto-resume Luna — resume is a separate control.
-  let pause_state = null;
-  try {
-    const {
-      pauseConversation,
-    } = require('./staff-bot-pause-sql');
-    const pausedBy = trimStr(opts.paused_by) || 'luna_flag_needs_human';
-    const paused = await pauseConversation(pg, {
-      client_slug: clientSlug,
-      conversation_id: row.conversation_id,
-      guest_phone: priorRow.phone,
-      pause_reason: `needs_human:${reasonCode}`.slice(0, 500),
-      paused_by: pausedBy,
-    });
-    if (paused && paused.row) {
-      pause_state = {
-        paused: true,
-        conversation_id: paused.row.conversation_id,
-        guest_phone: paused.row.guest_phone || priorRow.phone || null,
-        idempotent: !!paused.idempotent,
-        source: 'bot_pause_states',
-      };
-    }
-  } catch (_) {
-    pause_state = { paused: false, error: 'pause_coupling_failed' };
-  }
+  // Needs Human is an Inbox / handoff flag only — it must NOT pause Luna.
+  // Staff Pause Luna remains a separate explicit control (bot_pause_states).
+  // Resolving needs_human also does NOT auto-resume Luna.
 
   // Upsert one open staff_handoffs row so Inbox Handoff pill + reason persist.
   let staff_handoff = null;
@@ -283,8 +258,8 @@ async function markConversationNeedsHuman(pg, input, opts = {}) {
     needs_human: row.needs_human === true,
     conversation_id: row.conversation_id,
     handoff_reason: reasonCode,
-    conversation_paused: !!(pause_state && pause_state.paused),
-    pause_state,
+    conversation_paused: false,
+    pause_state: null,
     staff_handoff,
     staff_notification,
   };

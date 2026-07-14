@@ -10828,7 +10828,8 @@ async function checkGuestAutomationPauseState(pg, input) {
     };
   }
 
-  // Canonical: needs_human also blocks Luna automation for that conversation/phone.
+  // needs_human is an Inbox flag only — it must NOT block Luna automation.
+  // Explicit bot_pause_states (staff Pause) remain the only conversation pause.
   let needsHuman = false;
   let needsHumanConversationId = conversationId;
   try {
@@ -10869,21 +10870,6 @@ async function checkGuestAutomationPauseState(pg, input) {
     needsHuman = false;
   }
 
-  if (needsHuman) {
-    return {
-      bot_paused:             true,
-      live_send_blocked:      true,
-      source:                 'conversations_needs_human',
-      pause_state:            null,
-      table_missing:          !!result.table_missing,
-      global_paused:          false,
-      conversation_paused:    true,
-      needs_human:            true,
-      conversation_id:        needsHumanConversationId,
-      effective_scope:        'needs_human',
-    };
-  }
-
   return {
     bot_paused:             false,
     live_send_blocked:      false,
@@ -10892,7 +10878,8 @@ async function checkGuestAutomationPauseState(pg, input) {
     table_missing:          !!result.table_missing,
     global_paused:          false,
     conversation_paused:    false,
-    needs_human:            false,
+    needs_human:            needsHuman,
+    conversation_id:        needsHuman ? needsHumanConversationId : conversationId,
     effective_scope:        null,
   };
 }
