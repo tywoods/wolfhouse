@@ -271,6 +271,9 @@ assert('bot routes delegate createPaymentLink', /createPaymentLink\(pg, built\.c
 assert('sunset getSunsetSchedulePaymentLink uses getPaymentStatus', /getPaymentStatus\(pg, built\.command/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'sunset-stripe-payment-links.js'), 'utf8')));
 assert('contract documents payment-link service', /luna-front-desk-payment-link-service/.test(contractDoc));
 assert('contract documents payment lifecycle', /PAYMENT_LINK_LIFECYCLE|payment-link application service/i.test(contractDoc));
+assert('contract documents schedule portal module', /sunset-schedule-portal-module/.test(contractDoc));
+assert('portal module inject marker', /INJECT:sunset-schedule-portal-module/.test(apiSrc));
+assert('portal module defines schedulePortalFetchQuote', /schedulePortalFetchQuote/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js'), 'utf8')));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

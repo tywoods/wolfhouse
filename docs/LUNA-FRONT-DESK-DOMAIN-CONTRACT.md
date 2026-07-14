@@ -303,7 +303,7 @@ Both create paths call **`createSunsetScheduleBooking`** with the same body shap
 Documented gaps — **not blockers for Slice 1** — for future platform extraction:
 
 1. **~~Stale checkout URL after cancel~~ (fixed Slice 10):** ~~Cancelled Luna probe bookings may still expose `cs_test_*` URL via `GET /staff/schedule/bookings/payment-link` while `payments` row is neutralized (`payment_id: null` in API).~~ Canonical `getPaymentStatus` / `resolveActionableCheckoutUrl` in `luna-front-desk-payment-link-service.js` never returns metadata fallback when booking or payment link is invalidated.  
-2. **Schedule drawer read:** `GET .../bookings/detail` returns 403 for Luna-attributed bookings (`drawer_edits_limited_to_staff_manual_schedule`) — staff UI cannot inspect Luna writes via drawer; bot/status endpoints still work.  
+2. **~~Schedule drawer read~~ (fixed Slice 11):** ~~`GET .../bookings/detail` returns 403 for Luna-attributed bookings~~ Staff and Luna persisted bookings share the canonical drawer when `record_source` is trusted (`staff_manual` / `luna_guest`) and tenant/location match. Untrusted legacy/demo rows remain blocked (`drawer_untrusted_booking_source`).  
 3. **Dual price paths:** ~~Read-only catalog can fall back to config JSON amounts~~ Catalog service disables config-json bookability when `SUNSET_ADMIN_DB_READ_ENABLED`; **writes require DB** when flag is on.  
 4. **Group lesson slots:** Legacy `lesson_slot_*` identities exist in code but Luna catalog policy returns **courses + private only** (`group_lessons: []`).  
 5. **Wolfhouse bot token vs Sunset:** Staging KV `luna-bot-internal-token` may differ from `hermes-sunset-luna` container token — Sunset bot routes require the Sunset deployment token.  
@@ -510,4 +510,35 @@ Canonical payment-link lifecycle shared by Staff portal, Luna bot, and Sunset sc
 | Sunset schedule GET/CREATE payment link | `getPaymentStatus` / `createSunsetScheduleStripeLink` via service | Guest payment URL attachment |
 
 **Out of scope (unchanged):** service-records addon payment links, refunds, portal UI, room moves, waivers.
+
+---
+
+## 16. Schedule portal module (Slice 11)
+
+Browser Schedule drawer data layer extracted to `scripts/browser/sunset-schedule-portal-module.js` (injected at portal runtime via `scripts/lib/sunset-schedule-browser-source.js`).
+
+### Canonical browser API calls
+
+| Operation | HTTP | Browser function |
+|-----------|------|------------------|
+| Catalog | `GET/POST /staff/schedule/bookings/catalog` | `schedulePortalFetchCatalog` |
+| Quote | `POST /staff/schedule/bookings/quote` | `schedulePortalFetchQuote` |
+| Create | `POST /staff/schedule/bookings` | `schedulePortalSubmitCreate` (includes `quote_provenance`) |
+| Drawer detail | `GET /staff/schedule/bookings/detail` | `schedulePortalFetchDrawerDetail` |
+| Payment status | `GET /staff/schedule/bookings/payment-link` | `schedulePortalFetchPaymentLink` |
+
+### Browser must not decide
+
+Offering identity, schedule weekday eligibility, price, billing units, totals, or payment lifecycle — all from server quote/catalog/detail/payment-link responses.
+
+### Drawer access
+
+`scheduleDrawerCanLoadCanonical` — trusted persisted `staff_manual` or `luna_guest` rows with `booking_id`/`booking_code`. Demo/unknown sources use legacy read-only inline drawer or 403 on detail API (`bundleHasTrustedScheduleDrawerAttribution`).
+
+### Compatibility wrappers (documented)
+
+- `scheduleCoursesFromConfig` — used only when canonical catalog POST fails (offline/degraded).
+- `scheduleCourseEligibleOnDates` — retained for legacy schedule board helpers; create flow uses catalog `eligible_on_requested_dates`.
+
+**Render helpers** remain in `staff-query-api.js` portal IIFE; payment stripe section uses `schedulePortalStripeLinkFromCtx` for non-actionable invalidated links.
 

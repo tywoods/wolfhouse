@@ -24,6 +24,7 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 const WOLFHOUSE_LODGING = /\b(bed|room|hostel|move-bed|wolfhouse)\b/i;
@@ -41,6 +42,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/lib/luna-guest-inbound-review-dry-run.js',
   'scripts/lib/luna-hermes-whatsapp-thread-mirror.js',
   'scripts/lib/luna-meta-whatsapp-webhook.js',
+  'scripts/browser/sunset-schedule-portal-module.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -122,6 +124,7 @@ if (fs.existsSync(I18N_PATH)) {
 console.log('\n[4] staff-query-api.js — Slice 2A wiring markers');
 
 let apiSrc = '';
+let portalModSrc = '';
 if (fs.existsSync(STAFF_API_PATH)) {
   apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
   assert('portalT helper present', apiSrc.includes('function portalT('));
@@ -136,6 +139,9 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('Wolfhouse whatsapp tab key preserved', apiSrc.includes('nav.tab.whatsapp'));
 } else {
   assert('staff-query-api.js exists', false, STAFF_API_PATH);
+}
+if (fs.existsSync(PORTAL_MODULE_PATH)) {
+  portalModSrc = fs.readFileSync(PORTAL_MODULE_PATH, 'utf8');
 }
 
 // ── 5. No surf-only unconditional lodging removal for Wolfhouse ─────────────
@@ -571,7 +577,9 @@ if (apiSrc) {
   assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
   assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
   assert('schedule detail drawer', apiSrc.includes('function openScheduleDetailDrawer(') && apiSrc.includes('id="ps-detail-drawer"'));
-  assert('manual create booking UI', apiSrc.includes('id="ps-create-booking"') && apiSrc.includes('function submitScheduleManualBooking('));
+  assert('manual create booking UI', apiSrc.includes('id="ps-create-booking"')
+    && portalModSrc.includes('function submitScheduleManualBooking(')
+    && apiSrc.includes('submitScheduleManualBooking'));
   assert('schedule create posts to API', apiSrc.includes("'/staff/schedule/bookings'") && apiSrc.includes('method: \'POST\''));
   assert('schedule create not local-only array', !apiSrc.includes('scheduleManualBookings.push'));
 }
@@ -653,7 +661,8 @@ if (apiSrc) {
   assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
   assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
   assert('drawer stripe placeholder disabled', apiSrc.includes('schedule.drawer.stripeLink') && apiSrc.includes('disabled'));
-  assert('submit sends components payload', apiSrc.includes('components: payload.components'));
+  assert('submit sends components payload', portalModSrc.includes('components: createPayload.components')
+    || portalModSrc.includes('Object.assign({}, createPayload'));
 }
 
 if (writesSrc) {
@@ -781,7 +790,8 @@ if (apiSrc) {
   assert('no pending payment option in create form', !apiSrc.includes('value="pending" data-i18n="schedule.payment.pending"'));
   assert('unpaid glance cell fed by pending count', apiSrc.includes('id="ps-unpaid-glance"') && apiSrc.includes('scheduleUnpaidPendingCount(rows, activeIso)'));
   assert('create phone field', apiSrc.includes('id="ps-create-phone"'));
-  assert('post guest_phone', apiSrc.includes('guest_phone: payload.guest_phone'));
+  assert('post guest_phone', apiSrc.includes('guest_phone: phone')
+    && portalModSrc.includes('schedulePortalSubmitCreate'));
   assert('schedule locale refresh hook', apiSrc.includes('scheduleRefreshOnLocaleChange'));
   assert('drawer conversation button', apiSrc.includes('ps-drawer-conversation-btn'));
   assert('open or start conversation', apiSrc.includes('scheduleOpenOrStartConversationFromBooking'));
@@ -866,10 +876,13 @@ if (apiSrc) {
 
   assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
-  // Canonical drawer gate (scheduleDrawerEditableEnabled was removed — Luna + Staff
-  // persisted rows both load the same drawer via scheduleDrawerCanLoadCanonical).
-  assert('scheduleDrawerCanLoadCanonical defined', apiSrc.includes('function scheduleDrawerCanLoadCanonical('));
-  assert('scheduleDrawerCanEdit defined', apiSrc.includes('function scheduleDrawerCanEdit('));
+  // Canonical drawer gate lives in injected sunset-schedule-portal-module.js (Slice 11).
+  assert('schedule portal module injected', apiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
+  const portalModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
+  const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
+  assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));
+  assert('scheduleDrawerCanEdit in portal module', portalModSrc.includes('function scheduleDrawerCanEdit('));
+  assert('openScheduleDetailDrawer uses scheduleDrawerCanLoadCanonical', apiSrc.includes('scheduleDrawerCanLoadCanonical(row)'));
   assert('customer PATCH before GET-only gate', (function(){
     var gate = apiSrc.indexOf('// ── All other routes: GET only');
     var patch = apiSrc.indexOf('customerPhoneMatch && method === \'PATCH\'');

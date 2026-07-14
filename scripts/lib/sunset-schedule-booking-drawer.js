@@ -329,7 +329,7 @@ function serviceRecordIsStaffManual(sr) {
   return flag === true || flag === 'true' || flag === 't';
 }
 
-function bundleIsStaffManualSchedule(bundle) {
+function bundleHasTrustedScheduleDrawerAttribution(bundle) {
   const meta = parseMeta(bundle && bundle.booking && bundle.booking.metadata);
   if (meta.source === METADATA_SOURCE_TAG || meta.staff_manual_schedule) return true;
   if (meta.source === LUNA_METADATA_SOURCE_TAG || meta.luna_guest_booking) return true;
@@ -338,6 +338,11 @@ function bundleIsStaffManualSchedule(bundle) {
     if (String(sr.record_source || sr.source || '').toLowerCase() === LUNA_DB_SOURCE) return true;
     return serviceRecordIsStaffManual(sr);
   });
+}
+
+/** @deprecated use bundleHasTrustedScheduleDrawerAttribution */
+function bundleIsStaffManualSchedule(bundle) {
+  return bundleHasTrustedScheduleDrawerAttribution(bundle);
 }
 
 async function getSunsetScheduleBookingDrawerContext(pg, opts) {
@@ -374,8 +379,8 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     }
   }
   const meta = parseMeta(bundle.booking.metadata);
-  if (!bundleIsStaffManualSchedule(bundle)) {
-    return { ok: false, status: 403, body: { success: false, error: 'drawer_edits_limited_to_staff_manual_schedule' } };
+  if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+    return { ok: false, status: 403, body: { success: false, error: 'drawer_untrusted_booking_source', reason_code: 'drawer_untrusted_booking_source' } };
   }
 
   let adminCfg;
@@ -395,9 +400,59 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     bundle.payments_paid_cents,
     adminCfg,
   );
-  const link = bundle.payment_link;
-  const linkStale = !!meta.sunset_stripe_link_stale
-    || (link && link.amount_due_cents != null && Number(link.amount_due_cents) !== payment.balance_due_cents);
+
+  let stripeLink = null;
+  let paymentLinkInvalidated = meta.payment_link_invalidated === true || meta.sunset_stripe_link_stale === true;
+  try {
+    const {
+      buildPaymentLinkCommand,
+      getPaymentStatus,
+      PAYMENT_LINK_OPERATIONS,
+      PAYMENT_LINK_CHANNELS,
+    } = require('./luna-front-desk-payment-link-service');
+    const statusBuilt = buildPaymentLinkCommand({
+      operation: PAYMENT_LINK_OPERATIONS.GET_STATUS,
+      trustedClientSlug: clientSlug,
+      channel: PAYMENT_LINK_CHANNELS.STAFF_SCHEDULE,
+      bookingId: bundle.booking.booking_id,
+      bookingCode: bundle.booking.booking_code,
+    });
+    if (statusBuilt.ok) {
+      const payStatus = await getPaymentStatus(pg, statusBuilt.command);
+      if (payStatus.ok) {
+        paymentLinkInvalidated = paymentLinkInvalidated || payStatus.body.lifecycle === 'invalidated'
+          || payStatus.body.lifecycle === 'cancelled'
+          || payStatus.body.lifecycle === 'booking_cancelled';
+        if (payStatus.body.actionable && payStatus.body.checkout_url) {
+          stripeLink = {
+            payment_id: payStatus.body.payment_id,
+            payment_status: payStatus.body.payment_status,
+            amount_due_cents: payStatus.body.amount_due_cents,
+            checkout_url: payStatus.body.checkout_url,
+            actionable: true,
+            stale: false,
+          };
+        }
+      }
+    }
+  } catch (payLinkErr) {
+    console.error('[schedule drawer] payment status read failed:', payLinkErr && payLinkErr.message);
+  }
+
+  const legacyLink = bundle.payment_link;
+  const linkStale = paymentLinkInvalidated
+    || !!(legacyLink && legacyLink.amount_due_cents != null && Number(legacyLink.amount_due_cents) !== payment.balance_due_cents);
+  if (!stripeLink && legacyLink && legacyLink.checkout_url && !paymentLinkInvalidated && !linkStale) {
+    stripeLink = {
+      payment_id: legacyLink.payment_id,
+      payment_status: legacyLink.payment_status,
+      amount_due_cents: Number(legacyLink.amount_due_cents),
+      checkout_url: legacyLink.checkout_url,
+      actionable: true,
+      stale: linkStale,
+    };
+  }
+  const link = stripeLink;
 
   return {
     ok: true,
@@ -424,6 +479,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
         stale: linkStale,
       } : null,
       stripe_link_stale: linkStale,
+      payment_link_invalidated: paymentLinkInvalidated,
       editable: true,
       location_id: recordLocationId,
       payment_reconcile: paymentReconcile,
@@ -479,8 +535,8 @@ async function updateSunsetScheduleBooking(pg, opts) {
   if (recordLocationId !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (!bundleIsStaffManualSchedule(bundle)) {
-    return { ok: false, status: 403, body: { success: false, error: 'updates_limited_to_staff_manual_schedule' } };
+  if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+    return { ok: false, status: 403, body: { success: false, error: 'updates_untrusted_booking_source', reason_code: 'updates_untrusted_booking_source' } };
   }
 
   const validated = validateScheduleBookingBody({
@@ -718,8 +774,8 @@ async function cancelSunsetScheduleBooking(pg, opts) {
   if (resolveBundleLocationId(bundle) !== activeLocationId) {
     return { ok: false, status: 404, body: { success: false, error: 'booking_not_in_active_school' } };
   }
-  if (!bundleIsStaffManualSchedule(bundle)) {
-    return { ok: false, status: 403, body: { success: false, error: 'delete_limited_to_staff_manual_schedule' } };
+  if (!bundleHasTrustedScheduleDrawerAttribution(bundle)) {
+    return { ok: false, status: 403, body: { success: false, error: 'delete_untrusted_booking_source', reason_code: 'delete_untrusted_booking_source' } };
   }
   await pg.query('BEGIN');
   try {

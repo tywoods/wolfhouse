@@ -322,6 +322,10 @@ const {
   updateSunsetScheduleBooking,
   cancelSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-drawer');
+const {
+  getSunsetSchedulePortalBrowserSource,
+  SCHEDULE_PORTAL_INJECT_MARKER,
+} = require('./lib/sunset-schedule-browser-source');
 const { normalizeSunsetBookingDatesInBody } = require('./lib/sunset-guest-date-intake');
 const {
   SUNSET_LOCATIONS,
@@ -14019,7 +14023,6 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
   }
 
   // ── 4. Resolve tenant + delegate to canonical payment-link service ────────
-  const started = Date.now();
   let clientSlug;
   try {
     const row = await withPgClient(async (pg) => {
@@ -15143,6 +15146,14 @@ async function handleManualBookingCreate(req, res, user) {
 //   - No global read-only / shadow-mode banner (Phase 10.6d.2)
 // ─────────────────────────────────────────────────────────────────────────────
 
+function injectSunsetSchedulePortalModule(html) {
+  const marker = SCHEDULE_PORTAL_INJECT_MARKER;
+  const idx = html.indexOf(marker);
+  if (idx < 0) return html;
+  const moduleJs = getSunsetSchedulePortalBrowserSource();
+  return html.slice(0, idx) + moduleJs + html.slice(idx + marker.length);
+}
+
 function buildUiHtml(port, portalDeployClient) {
   const portalDefaultClient = portalDeployClient || resolvePortalDeployClient();
   const portalDevTabsEnabled = staffPortalDevTabsEnabled();
@@ -15152,7 +15163,7 @@ function buildUiHtml(port, portalDeployClient) {
   // Set STAFF_PORTAL_BOOK_UI=false to drop the scoping class and instantly restore
   // the previous look (all ".book-ui ..." CSS rules go inert). Default: on.
   const bookUiClass = String(process.env.STAFF_PORTAL_BOOK_UI || 'true').trim().toLowerCase() === 'false' ? '' : ' book-ui';
-  return `<!DOCTYPE html>
+  const html = `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -17613,6 +17624,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     </div>
     <div class="portal-schedule-create-field"><label for="ps-create-payment" data-i18n="schedule.create.paymentStatus">Payment status</label><select id="ps-create-payment"><option value="unpaid" data-i18n="schedule.payment.unpaid">Unpaid</option><option value="paid" data-i18n="schedule.payment.paid">Paid</option></select></div>
     <div class="portal-schedule-create-field"><label for="ps-create-notes" data-i18n="schedule.create.notes">Notes</label><textarea id="ps-create-notes" rows="3"></textarea></div>
+    <div id="ps-create-quote-preview" class="portal-schedule-create-field" style="display:none" aria-live="polite"></div>
     <div class="portal-schedule-create-actions">
       <button type="button" class="btn btn-primary" id="ps-create-submit" data-i18n="schedule.create.submit">Create booking</button>
       <button type="button" class="btn btn-ghost" id="ps-create-cancel" data-i18n="schedule.create.cancel">Cancel</button>
@@ -18588,6 +18600,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function el(id){ return document.getElementById(id); }
+/* INJECT:sunset-schedule-portal-module */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -21151,9 +21164,10 @@ function scheduleRefreshCreateFullDayAddon(){
   }
 }
 
-// Live create-drawer total preview hook (best-effort; server remains authoritative).
+// Live create-drawer total preview — canonical quote API (Slice 11 portal module).
 function scheduleUpdateCreateTotalPreview(){
-  scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
+  if (typeof schedulePortalRefreshCreateQuote === 'function') schedulePortalRefreshCreateQuote();
+  else scheduleUpdateFullDayAddonSummary('ps-create-fullday-rows', 'ps-create-fullday-summary');
 }
 
 function scheduleReadCreatePayload(){
@@ -21408,12 +21422,8 @@ function scheduleFetchLessonTimesConfig(client, opts){
   var force = opts && opts.force === true;
   if (!force && scheduleLessonTimesLoaded) return Promise.resolve(scheduleLessonTimesCache);
   var cfgUrl = '/staff/admin/config' + adminClientQuery();
-  var catalogUrl = null;
-  if (client === 'sunset') {
-    catalogUrl = '/staff/schedule/bookings/catalog?client=sunset&location=' + encodeURIComponent(getSunsetLocation());
-  }
-  var catalogP = catalogUrl
-    ? fetch(catalogUrl).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; })
+  var catalogP = (client === 'sunset' && typeof schedulePortalFetchCatalog === 'function')
+    ? schedulePortalFetchCatalog({ method: 'POST', service_dates: [] })
     : Promise.resolve(null);
   return fetch(cfgUrl)
     .then(function(r){ return r.ok ? r.json() : null; })
@@ -21429,7 +21439,10 @@ function scheduleFetchLessonTimesConfig(client, opts){
       }
       if (catalogData && catalogData.ok && Array.isArray(catalogData.courses)) {
         scheduleCoursesCache = catalogData.courses.slice();
+      } else if (catalogData && catalogData.success && Array.isArray(catalogData.courses)) {
+        scheduleCoursesCache = catalogData.courses.slice();
       } else {
+        // Compatibility wrapper: config surf_packs projection when canonical catalog unavailable.
         scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
       }
       scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
@@ -21946,53 +21959,9 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
 }
 
 function schedulePopulateCreateCourseFields(){
-  var sel = el('ps-create-course-select');
-  if (!sel) return;
-  var courses = scheduleCoursesCache || [];
-  var dates = scheduleCreateSelectedDates();
-  var prev = sel.value;
-  var html = '';
-  courses.forEach(function(c){
-    var id = String(c.course_id || '').trim();
-    if (!id) return;
-    var eligible = scheduleCourseEligibleOnDates(c, dates);
-    var summary = c.schedule_summary ? (' — ' + c.schedule_summary) : '';
-    var disabled = dates.length && !eligible.ok;
-    var label = (c.label || id) + summary + (disabled
-      ? (' (' + (portalT('schedule.create.courseNotOnSelectedDates') || 'not available on selected dates') + ')')
-      : '');
-    html += '<option value="' + escHtml(id) + '" data-label="' + escHtml(c.label || id) + '"'
-      + (disabled ? ' disabled' : '')
-      + '>' + escHtml(label) + '</option>';
-  });
-  if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
-  sel.innerHTML = html;
-  if (prev){
-    sel.value = prev;
-    // If previous course is now disabled for these dates, clear it.
-    if (sel.value !== prev){
-      schedulePopulateCreateCourseTierFields('');
-    }
+  if (typeof schedulePortalPopulateCreateCourseFields === 'function') {
+    return schedulePortalPopulateCreateCourseFields();
   }
-  if (!sel._tierBound){
-    sel._tierBound = true;
-    sel.addEventListener('change', function(){
-      // Changing course must drop stale tier values from the previous course.
-      schedulePopulateCreateCourseTierFields('');
-    });
-  }
-  if (!sel._dateBound){
-    sel._dateBound = true;
-    ['ps-create-date-from', 'ps-create-date-to'].forEach(function(id){
-      var node = el(id);
-      if (!node || node._courseEligBound) return;
-      node._courseEligBound = true;
-      node.addEventListener('change', function(){
-        schedulePopulateCreateCourseFields();
-      });
-    });
-  }
-  schedulePopulateCreateCourseTierFields();
 }
 
 function schedulePopulateCreateCourseTierFields(preferredTier){
@@ -22986,38 +22955,6 @@ function renderScheduleBookingList(filter){
 
 var scheduleDrawerState = { row: null, ctx: null, editing: false };
 
-function scheduleDrawerTrustedPersistedSource(row){
-  if (!row) return null;
-  if (row._isDbManual || row.record_source === 'staff_manual') return 'staff_manual';
-  if (row.record_source === 'luna_guest') return 'luna_guest';
-  return null;
-}
-
-function scheduleDrawerGroupHasTrustedPersistedSource(group){
-  if (!(group && group.records && group.records.length)) return false;
-  for (var i = 0; i < group.records.length; i++){
-    if (scheduleDrawerTrustedPersistedSource(group.records[i])) return true;
-  }
-  return false;
-}
-
-// Can this row use the canonical booking-backed drawer renderer + API?
-// This is intentionally separate from edit/delete permissions.
-function scheduleDrawerCanLoadCanonical(row){
-  if (!row || row._isDemo) return false;
-  var group = scheduleFindGroupForRow(row);
-  var trusted = !!scheduleDrawerTrustedPersistedSource(row) || scheduleDrawerGroupHasTrustedPersistedSource(group);
-  if (!trusted) return false;
-  var ref = scheduleRowBookingRef(row, group);
-  return !!(ref.booking_id || ref.booking_code);
-}
-
-// Can this row show edit / payment / destructive controls (within the canonical drawer)?
-function scheduleDrawerCanEdit(row){
-  if (!row || row._isDemo) return false;
-  return scheduleDrawerCanLoadCanonical(row);
-}
-
 function scheduleCloneDrawerCtx(ctx){
   if (!ctx) return null;
   try { return JSON.parse(JSON.stringify(ctx)); } catch (_) { return Object.assign({}, ctx); }
@@ -23817,9 +23754,12 @@ function scheduleStripeStatusLabel(raw){
 }
 
 function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
+  var resolved = (typeof schedulePortalStripeLinkFromCtx === 'function')
+    ? schedulePortalStripeLinkFromCtx(ctx)
+    : { url: (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url) || '', actionable: true, stale: !!(ctx && ctx.stripe_link_stale), payment_id: null, amount_due_cents: null, payment_status: null };
   var link = ctx && ctx.stripe_link;
-  var url = link && link.checkout_url;
-  var stale = !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
+  var url = resolved.actionable ? resolved.url : '';
+  var stale = resolved.stale || !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
   var html = '<div id="ps-drawer-stripe-box" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
   html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
     escHtml(portalT('schedule.drawer.stripeSection')) + '</div>';
@@ -24547,13 +24487,6 @@ function scheduleOpenEditableDrawer(row, ctx){
   scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false);
 }
 
-function scheduleFetchDrawerContext(row){
-  var q = 'client=' + encodeURIComponent(getClient());
-  if (row.booking_id) q += '&booking_id=' + encodeURIComponent(row.booking_id);
-  else if (row.booking_code) q += '&booking_code=' + encodeURIComponent(row.booking_code);
-  return fetch('/staff/schedule/bookings/detail?' + q + sunsetLocationQuerySuffix()).then(function(r){ return r.json(); });
-}
-
 function openScheduleDetailDrawer(row){
   if (!row) return;
   scheduleEnsureRowId(row);
@@ -24663,102 +24596,6 @@ function closeScheduleCreateModal(){
   if (!modal) return;
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden', 'true');
-}
-
-function submitScheduleManualBooking(){
-  var payload = scheduleReadCreatePayload();
-  var submitBtn = el('ps-create-submit');
-  var msg = el('ps-create-msg');
-  if (!payload.guest_name) {
-    if (msg) { msg.textContent = portalT('schedule.create.guestRequired'); msg.style.display = 'block'; }
-    return;
-  }
-  if (!Object.keys(payload.components).length) {
-    if (msg) { msg.textContent = portalT('schedule.create.componentsRequired'); msg.style.display = 'block'; }
-    return;
-  }
-  if (payload.components.course) {
-    var coursePart = payload.components.course;
-    if (!coursePart.course_id) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseRequired') || 'Select a group course.'; msg.style.display = 'block'; }
-      return;
-    }
-    if (!coursePart.tier_key) {
-      if (msg) { msg.textContent = portalT('schedule.create.courseTierRequired') || 'Select a course duration.'; msg.style.display = 'block'; }
-      return;
-    }
-    var courseMeta = null;
-    (scheduleCoursesCache || []).forEach(function(c){
-      if (String(c.course_id || '') === String(coursePart.course_id)) courseMeta = c;
-    });
-    var selectedDates = scheduleCreateSelectedDates();
-    if (courseMeta && selectedDates.length){
-      var elig = scheduleCourseEligibleOnDates(courseMeta, selectedDates);
-      if (!elig.ok){
-        var weekendOnly = courseMeta.weekly === 'sat_sun'
-          || (Array.isArray(courseMeta.weekdays) && courseMeta.weekdays.length === 2
-            && courseMeta.weekdays.indexOf(0) >= 0 && courseMeta.weekdays.indexOf(6) >= 0);
-        var schedMsg = weekendOnly
-          ? (portalT('schedule.create.courseWeekendsOnlyHint') || 'This course runs on weekends. Choose a Saturday or Sunday.')
-          : (portalT('schedule.create.courseNotOnSelectedDates') || 'This course is not available on the selected dates.');
-        if (msg) { msg.textContent = schedMsg; msg.style.display = 'block'; }
-        return;
-      }
-    }
-  }
-  if (payload.components.private_lesson) {
-    var pl = payload.components.private_lesson;
-    if (!pl.sessions || pl.sessions.length !== pl.quantity) {
-      if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionsMismatch'); msg.style.display = 'block'; }
-      return;
-    }
-    for (var si = 0; si < pl.sessions.length; si++) {
-      var sess = pl.sessions[si];
-      if (!sess.date || !sess.start || !sess.end) {
-        if (msg) { msg.textContent = portalT('schedule.create.privateLesson.sessionIncomplete'); msg.style.display = 'block'; }
-        return;
-      }
-    }
-  }
-  if (submitBtn) submitBtn.disabled = true;
-  if (msg) msg.style.display = 'none';
-  fetch('/staff/schedule/bookings?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      guest_name: payload.guest_name,
-      guest_phone: payload.guest_phone,
-      date_from: payload.date_from,
-      date_to: payload.date_to,
-      components: payload.components,
-      payment_status: payload.payment_status,
-      notes: payload.notes,
-      location_id: getSunsetLocation(),
-    }),
-  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, status: r.status, data: data }; }); })
-    .then(function(res){
-      if (!res.ok || !res.data || res.data.success !== true) {
-        throw new Error((res.data && (res.data.error || res.data.message)) || ('HTTP ' + res.status));
-      }
-      var createdCode = res.data.booking_code || (res.data.bookings && res.data.bookings[0] && res.data.bookings[0].booking_code);
-      closeScheduleCreateModal();
-      scheduleViewMode = 'day';
-      scheduleForwardOffset = 0;
-      loadSchedulePage();
-      if (createdCode) {
-        setTimeout(function(){
-          var row = (scheduleRowsCache || []).find(function(r){ return r.booking_code === createdCode; });
-          if (row) openScheduleDetailDrawer(row);
-        }, 800);
-      }
-    })
-    .catch(function(err){
-      if (msg) {
-        msg.textContent = portalT('schedule.create.failed') + ' ' + err.message;
-        msg.style.display = 'block';
-      }
-    })
-    .finally(function(){ if (submitBtn) submitBtn.disabled = false; });
 }
 
 function closeScheduleDetailDrawer(){
@@ -39593,6 +39430,7 @@ function lgsCreateStripeLink(){
 </script>
 </body>
 </html>`;
+  return injectSunsetSchedulePortalModule(html);
 }
 
 function handleUI(res, port, req) {

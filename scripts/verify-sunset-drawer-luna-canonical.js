@@ -6,7 +6,8 @@
  * Regression: persisted Luna schedule rows must use the same canonical booking drawer
  * renderer as Staff-persisted rows (only creator attribution differs).
  *
- * This verifier proves RED against origin/master (legacy drawer gating) and GREEN on HEAD.
+ * RED evidence: Slice 10 baseline (6e74fc2) — monolithic portal + legacy server error codes.
+ * GREEN evidence: HEAD — injected portal module + trusted attribution gate (Staff + Luna).
  *
  * Run: node scripts/verify-sunset-drawer-luna-canonical.js
  */
@@ -18,6 +19,9 @@ const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
+const DRAWER_PATH = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-booking-drawer.js');
+const SLICE10_BASE = '6e74fc2f3ccf1e31713e616024b22dfd3416a332';
 
 let pass = 0;
 let fail = 0;
@@ -26,16 +30,16 @@ function assert(label, cond, detail) {
   else { console.error(`  FAIL  ${label}${detail ? ' — ' + detail : ''}`); fail += 1; }
 }
 
-function loadOriginMasterStaffApi() {
+function gitShow(rev, filePath) {
   try {
     return execFileSync(
       'git',
-      ['show', 'origin/master:scripts/staff-query-api.js'],
+      ['show', `${rev}:${filePath}`],
       { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 },
     );
   } catch (err) {
     const detail = String((err && (err.stderr || err.stdout || err.message)) || '').trim();
-    assert('can load origin/master staff-query-api.js', false, detail || 'git show failed');
+    assert(`can load ${rev}:${filePath}`, false, detail || 'git show failed');
     return '';
   }
 }
@@ -58,14 +62,18 @@ function extractFunctionSource(src, name) {
   return null;
 }
 
-function evalDrawerFns(label, src, fnNames) {
+function evalDrawerFns(label, src, fnNames, extraSrc) {
   const ctx = {
     console,
-    // injected per-test
     __group: null,
-    scheduleFindGroupForRow: () => ctx.__group,
+    scheduleFindGroupForRow: function() { return ctx.__group; },
   };
   vm.createContext(ctx);
+
+  if (extraSrc) {
+    const rowRef = extractFunctionSource(extraSrc, 'scheduleRowBookingRef');
+    if (rowRef) vm.runInContext(`${rowRef}\nthis.scheduleRowBookingRef=scheduleRowBookingRef;`, ctx);
+  }
 
   fnNames.forEach((name) => {
     const fnSrc = extractFunctionSource(src, name);
@@ -87,41 +95,51 @@ const UNKNOWN_ROW = { record_source: 'mystery', booking_id: 'dddddddd-dddd-dddd-
 
 console.log('\nverify:sunset-drawer-luna-canonical\n');
 
-// ── RED evidence: origin/master routes persisted Luna rows to legacy drawer ──
-console.log('[RED] origin/master legacy drawer gating');
-const baseSrc = loadOriginMasterStaffApi();
-if (baseSrc) {
-  assert('origin/master uses scheduleDrawerEditableEnabled in openScheduleDetailDrawer',
-    /var useDrawerApi = scheduleDrawerEditableEnabled\(row\)/.test(baseSrc));
+// ── RED evidence: Slice 10 baseline (6e74fc2) ───────────────────────────────
+console.log(`[RED] Slice 10 baseline (${SLICE10_BASE.slice(0, 7)}) monolithic portal`);
+const baseApiSrc = gitShow(SLICE10_BASE, 'scripts/staff-query-api.js');
+const baseDrawerSrc = gitShow(SLICE10_BASE, 'scripts/lib/sunset-schedule-booking-drawer.js');
 
-  const base = evalDrawerFns('origin/master', baseSrc, [
-    'scheduleRowBookingRef',
-    'scheduleDrawerEditableEnabled',
-  ]);
-
-  base.__group = mockGroup([STAFF_ROW]);
-  assert('origin/master Staff persisted row uses canonical drawer gate',
-    base.scheduleDrawerEditableEnabled(STAFF_ROW) === true);
-
-  base.__group = mockGroup([LUNA_ROW]);
-  assert('origin/master Luna persisted row incorrectly fails canonical drawer gate (legacy drawer)',
-    base.scheduleDrawerEditableEnabled(LUNA_ROW) === false);
+if (baseApiSrc) {
+  assert('baseline lacks portal module injection marker',
+    !baseApiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
+  assert('baseline has inline submitScheduleManualBooking',
+    /function submitScheduleManualBooking\s*\(/.test(baseApiSrc));
+  assert('baseline create uses client weekday eligibility helper',
+    baseApiSrc.includes('scheduleCourseEligibleOnDates'));
+  assert('baseline lacks schedulePortalFetchQuote',
+    !baseApiSrc.includes('schedulePortalFetchQuote'));
 }
 
-// ── GREEN evidence: HEAD loads canonical drawer for Staff + Luna ─────────────
-console.log('\n[GREEN] HEAD canonical drawer gating');
+if (baseDrawerSrc) {
+  assert('baseline detail gate returns drawer_edits_limited error',
+    baseDrawerSrc.includes('drawer_edits_limited_to_staff_manual_schedule'));
+  assert('baseline lacks bundleHasTrustedScheduleDrawerAttribution name',
+    !baseDrawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));
+}
+
+// ── GREEN evidence: HEAD ──────────────────────────────────────────────────────
+console.log('\n[GREEN] HEAD canonical drawer gating + portal module');
 const headSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
+const portalModSrc = fs.existsSync(PORTAL_MODULE_PATH)
+  ? fs.readFileSync(PORTAL_MODULE_PATH, 'utf8')
+  : '';
+const drawerSrc = fs.existsSync(DRAWER_PATH) ? fs.readFileSync(DRAWER_PATH, 'utf8') : '';
 
+assert('HEAD injects schedule portal module', headSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
 assert('HEAD uses scheduleDrawerCanLoadCanonical in openScheduleDetailDrawer',
-  /var useDrawerApi = scheduleDrawerCanLoadCanonical\(row\)/.test(headSrc));
+  /scheduleDrawerCanLoadCanonical\(row\)/.test(headSrc));
+assert('HEAD server trusted attribution gate', drawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));
+assert('HEAD server detail uses drawer_untrusted_booking_source',
+  drawerSrc.includes('drawer_untrusted_booking_source'));
+assert('HEAD legacy drawer_edits error removed', !drawerSrc.includes('drawer_edits_limited_to_staff_manual_schedule'));
 
-const head = evalDrawerFns('HEAD', headSrc, [
-  'scheduleRowBookingRef',
+const head = evalDrawerFns('HEAD', portalModSrc, [
   'scheduleDrawerTrustedPersistedSource',
   'scheduleDrawerGroupHasTrustedPersistedSource',
   'scheduleDrawerCanLoadCanonical',
   'scheduleDrawerCanEdit',
-]);
+], headSrc);
 
 head.__group = mockGroup([STAFF_ROW]);
 assert('HEAD Staff persisted row can load canonical drawer', head.scheduleDrawerCanLoadCanonical(STAFF_ROW) === true);
