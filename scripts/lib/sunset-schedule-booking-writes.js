@@ -384,7 +384,11 @@ function normalizeComponents(body) {
         const courseId = String(part.course_id || '').trim();
         if (!courseId) return { ok: false, error: 'components.course.course_id is required' };
         entry.course_id = courseId;
-        entry.course_label = String(part.course_label || part.label || '').trim() || courseId;
+        const { sanitizeCourseLabelForStorage } = require('./sunset-course-display-label');
+        entry.course_label = sanitizeCourseLabelForStorage(
+          courseId,
+          part.course_label || part.label || '',
+        );
         const offeringId = String(part.offering_id || '').trim();
         if (offeringId) entry.offering_id = offeringId;
       }

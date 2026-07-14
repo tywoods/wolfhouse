@@ -21663,6 +21663,28 @@ function scheduleRowCourseMeta(row){
   return {};
 }
 
+function scheduleLooksLikeCourseUuid(value){
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+/** Prefer admin pack label; never show a raw course_id UUID as the schedule title. */
+function scheduleResolveCourseDisplayLabel(courseId, storedLabel){
+  var id = String(courseId || '').trim();
+  var stored = String(storedLabel || '').trim();
+  var courses = scheduleCoursesCache || [];
+  if (id){
+    for (var i = 0; i < courses.length; i++){
+      var c = courses[i];
+      if (!c) continue;
+      if (String(c.course_id || c.pack_id || '').trim() === id && String(c.label || '').trim()){
+        return String(c.label).trim();
+      }
+    }
+  }
+  if (stored && stored !== id && !scheduleLooksLikeCourseUuid(stored)) return stored;
+  return portalT('schedule.courses.unnamed');
+}
+
 function scheduleRowIsPrivateLesson(row){
   if (!row) return false;
   if (row._scheduleType === 'private_lesson') return true;
@@ -22205,7 +22227,7 @@ function scheduleRenderComponentListHtml(group){
   var lines = [];
   if (scheduleGroupHasCourse(group)){
     var courseQty = group.quantity || scheduleGroupComponentQty(group, 'course') || 1;
-    var courseLabel = group.course_label || portalT('schedule.type.course');
+    var courseLabel = scheduleResolveCourseDisplayLabel(group.course_id, group.course_label);
     lines.push('<li><span class="portal-schedule-drawer-comp-label">' + escHtml(portalT('schedule.type.course')) + ':</span> ' +
       escHtml(String(courseQty) + ' ' + portalT('schedule.slot.surfers') + ', ' + courseLabel) + '</li>');
   } else if (scheduleGroupHasPrivateLesson(group)){
@@ -22309,7 +22331,8 @@ function scheduleBuildDisplayGroups(rows){
       g.slot_time = r.slot_time || r.service_time || g.slot_time;
       var courseMeta = scheduleRowCourseMeta(r);
       g.course_id = r.course_id || courseMeta.course_id || g.course_id;
-      g.course_label = r.course_label || courseMeta.course_label || g.course_label;
+      var rawCourseLabel = r.course_label || courseMeta.course_label || g.course_label;
+      g.course_label = scheduleResolveCourseDisplayLabel(g.course_id, rawCourseLabel);
     }
     if (r._isDbManual) g._isDbManual = true;
     if (r._isLuna) g._isLuna = true;
@@ -23098,9 +23121,13 @@ function scheduleBuildDaySessions(dayRows, dateIso, lessonTimes){
   }
   courses.forEach(function(course){
     var stats = scheduleCourseAggregates(dayRows, course, dateIso);
-    var label = course.label || portalT('schedule.courses.unnamed');
+    var label = scheduleResolveCourseDisplayLabel(course.course_id, course.label);
     stats.groups.some(function(g){
-      if (g.course_label) { label = g.course_label; return true; }
+      var resolved = scheduleResolveCourseDisplayLabel(g.course_id || course.course_id, g.course_label);
+      if (resolved && resolved !== portalT('schedule.courses.unnamed')) {
+        label = resolved;
+        return true;
+      }
       return false;
     });
     var timeRaw = stats.time || course.slot_time || '';
@@ -23347,7 +23374,11 @@ function scheduleRenderCoursesTodayBreakdown(rows, todayIso, courses){
   } else {
     var grouped = {};
     todayCourses.forEach(function(r){
-      var label = String(r.course_label || scheduleRowCourseMeta(r).course_label || r.guest_name || portalT('schedule.courses.unnamed'));
+      var cid = r.course_id || scheduleRowCourseMeta(r).course_id;
+      var label = scheduleResolveCourseDisplayLabel(
+        cid,
+        r.course_label || scheduleRowCourseMeta(r).course_label || r.guest_name,
+      );
       if (!grouped[label]) grouped[label] = { count: 0, time: '' };
       grouped[label].count += (r.quantity != null ? Number(r.quantity) : 1);
       var slot = scheduleFormatSlotTimeRange(r.slot_time || r.service_time);
@@ -24407,7 +24438,7 @@ function scheduleFormatComponentsView(comps){
   if (!comps || typeof comps !== 'object') return '—';
   var parts = [];
   if (comps.course){
-    var courseLabel = comps.course.course_label || comps.course.course_id || portalT('schedule.type.course');
+    var courseLabel = scheduleResolveCourseDisplayLabel(comps.course.course_id, comps.course.course_label);
     parts.push(portalT('schedule.type.course') + ' · ' + courseLabel + ' × ' + String(comps.course.quantity || 1));
   } else if (comps.private_lesson){
     parts.push(portalT('schedule.type.privateCourse') + ' × ' + String(comps.private_lesson.quantity || comps.private_lesson.surfer_count || 1));
