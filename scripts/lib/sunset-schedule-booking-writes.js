@@ -389,8 +389,27 @@ function normalizeComponents(body) {
           courseId,
           part.course_label || part.label || '',
         );
-        const offeringId = String(part.offering_id || '').trim();
-        if (offeringId) entry.offering_id = offeringId;
+        const { PACK_TIER_KEYS, packPriceItemCode } = require('./sunset-admin-pack-rules');
+        let tierKey = '';
+        if (part.tier && part.tier.key != null) tierKey = String(part.tier.key).trim();
+        else if (part.tier_key != null) tierKey = String(part.tier_key).trim();
+        else if (part.duration_key != null) tierKey = String(part.duration_key).trim();
+        const offeringIdRaw = String(part.offering_id || '').trim();
+        // Prefer extracting the admin suffix from surf_pack_<id>__<tier> when
+        // the guest/staff selected the catalog offering_item_code.
+        if (!tierKey && /^surf_pack_.+__.+$/i.test(offeringIdRaw)) {
+          tierKey = offeringIdRaw.split('__').pop() || '';
+        }
+        if (tierKey && !PACK_TIER_KEYS.has(tierKey)) {
+          return { ok: false, error: `components.course.tier_key invalid: ${tierKey}` };
+        }
+        if (tierKey) {
+          entry.tier_key = tierKey;
+          // Canonical DB item_code — must match tenant_price_rules.item_code.
+          entry.offering_id = packPriceItemCode(courseId, tierKey);
+        } else if (offeringIdRaw) {
+          entry.offering_id = offeringIdRaw;
+        }
       }
       out[key] = entry;
     }
@@ -996,6 +1015,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           lesson_category: componentKey === 'lesson' ? part.category : null,
           course_id: componentKey === 'course' ? part.course_id : null,
           course_label: componentKey === 'course' ? part.course_label : null,
+          tier_key: componentKey === 'course' ? (part.tier_key || null) : null,
           offering_id: part.offering_id || null,
           admin_course_assigned: componentKey === 'course' && assignedCourse ? true : undefined,
           admin_pack_id: componentKey === 'course' && assignedCourse ? assignedCourse.course_id : undefined,

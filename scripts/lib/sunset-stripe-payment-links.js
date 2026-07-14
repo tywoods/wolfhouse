@@ -535,6 +535,58 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   return { ok: true, total_cents: totalCents };
 }
 
+/**
+ * Price a just-created Sunset booking via the DB-authoritative path.
+ * On failure, cancel the booking so we never leave a silent €0 confirmed row.
+ * Sunset-only helper used by both the staff manual and Luna create routes.
+ */
+async function priceSunsetBookingAfterCreate(pg, clientSlug, bookingId) {
+  const slug = String(clientSlug || '').trim();
+  if (slug !== SUNSET_CLIENT_SLUG) {
+    return { ok: false, error: 'unsupported_client', client_slug: slug };
+  }
+  const id = String(bookingId || '').trim();
+  if (!id) return { ok: false, error: 'booking_id_required' };
+
+  let priced;
+  try {
+    priced = await priceSunsetBookingServices(pg, slug, id);
+  } catch (err) {
+    priced = { ok: false, error: 'pricing_failed', detail: err && err.message };
+  }
+  if (priced && priced.ok) return priced;
+
+  const errCode = (priced && priced.error) || 'pricing_failed';
+  try {
+    await pg.query(
+      `UPDATE bookings
+          SET status = 'cancelled',
+              metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+        WHERE id = $1::uuid`,
+      [id, JSON.stringify({
+        sunset_price_failed: true,
+        sunset_price_error: errCode,
+        sunset_price_failed_at: new Date().toISOString(),
+      })],
+    );
+    await pg.query(
+      `UPDATE booking_service_records
+          SET status = 'cancelled'
+        WHERE booking_id = $1::uuid`,
+      [id],
+    );
+  } catch (_) {
+    // Best-effort cancel — surface the original pricing error regardless.
+  }
+  return {
+    ok: false,
+    error: errCode,
+    booking_cancelled: true,
+    booking_id: id,
+    priced: priced || null,
+  };
+}
+
 async function loadLatestPaymentLink(pg, bookingId) {
   const res = await pg.query(
     `SELECT id::text AS payment_id, status::text AS payment_status, amount_due_cents, amount_paid_cents,
@@ -1024,6 +1076,7 @@ module.exports = {
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
+  priceSunsetBookingAfterCreate,
   loadBookingWithServices,
   serviceRecordUnitPriceCents,
   isFullDayEquipmentAddon,

@@ -235,6 +235,8 @@ function aggregateComponentsFromServices(services) {
     if (key === 'course') {
       components[key].course_id = meta.course_id || sr.course_id || components[key].course_id || null;
       components[key].course_label = meta.course_label || sr.course_label || components[key].course_label || null;
+      if (meta.tier_key) components[key].tier_key = meta.tier_key;
+      if (meta.offering_id) components[key].offering_id = meta.offering_id;
     }
     if (key === 'lesson') slotTime = sr.slot_time || slotTime;
   });
@@ -260,12 +262,16 @@ function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
   return 'unpaid';
 }
 
-function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents) {
+function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg) {
   const lineItems = [];
   let subtotalCents = 0;
   (services || []).forEach((sr) => {
     let lineCents = Number(sr.amount_due_cents) || 0;
-    const liveUnit = serviceRecordUnitPriceCents(prices, sr);
+    // Prefer persisted amount_due_cents (written by priceSunsetBookingServices).
+    // Live fallback must receive adminCfg so course tier / offering identity resolve.
+    const liveUnit = lineCents <= 0
+      ? serviceRecordUnitPriceCents(prices, sr, adminCfg || null)
+      : null;
     const usedLive = lineCents <= 0 && liveUnit != null;
     if (usedLive) lineCents = liveUnit;
     subtotalCents += lineCents;
@@ -387,6 +393,7 @@ async function getSunsetScheduleBookingDrawerContext(pg, opts) {
     bundle.services,
     adminCfg.source,
     bundle.payments_paid_cents,
+    adminCfg,
   );
   const link = bundle.payment_link;
   const linkStale = !!meta.sunset_stripe_link_stale

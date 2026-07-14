@@ -592,6 +592,219 @@ async function main() {
   assert('missing rule does not write catalog amount onto row',
     !e2eMissing.updates.some((u) => u.due === CATALOG_COURSE_CENTS), JSON.stringify(e2eMissing.updates));
 
+  console.log('\n[J] Course identity requires tier (course_id alone is unresolved)');
+  const noTierId = resolveCourseLessonPriceIdentity({
+    component: 'course',
+    course_id: PACK_ID,
+    location_id: 'sunset-somo',
+  });
+  assert('course_id alone → identity null (cannot form surf_pack_<id>__<tier>)',
+    noTierId == null, JSON.stringify(noTierId));
+  const withTierId = resolveCourseLessonPriceIdentity({
+    component: 'course',
+    course_id: PACK_ID,
+    tier_key: TIER,
+    location_id: 'sunset-somo',
+  });
+  assert('course_id + tier_key → exact admin item_code',
+    withTierId && withTierId.itemCode === COURSE_ITEM_CODE, JSON.stringify(withTierId));
+  assert('tier identity queries billing unit day',
+    withTierId && withTierId.billingUnit === COURSE_BILLING_UNIT);
+
+  console.log('\n[K] Writer must persist tier so Luna/manual price (RED→GREEN)');
+  const { normalizeComponents } = require('./lib/sunset-schedule-booking-writes');
+  const noTierNorm = normalizeComponents({
+    components: { course: { quantity: 2, course_id: PACK_ID, course_label: 'Adults' } },
+  });
+  assert('normalize accepts course without money fields', noTierNorm.ok === true, JSON.stringify(noTierNorm));
+  // Before fix: no tier_key on the entry. After fix: tier from body is kept + offering_id formed.
+  const withTierNorm = normalizeComponents({
+    components: {
+      course: {
+        quantity: 2,
+        course_id: PACK_ID,
+        course_label: 'Adults',
+        tier_key: TIER,
+      },
+    },
+  });
+  assert('normalize persists tier_key on course entry',
+    withTierNorm.ok === true
+    && withTierNorm.value.course
+    && withTierNorm.value.course.tier_key === TIER,
+    JSON.stringify(withTierNorm));
+  assert('normalize builds offering_id = surf_pack_<id>__<tier>',
+    withTierNorm.ok
+    && withTierNorm.value.course.offering_id === COURSE_ITEM_CODE,
+    JSON.stringify(withTierNorm && withTierNorm.value && withTierNorm.value.course));
+
+  const fromOfferingNorm = normalizeComponents({
+    components: {
+      course: {
+        quantity: 1,
+        course_id: PACK_ID,
+        offering_id: COURSE_ITEM_CODE,
+      },
+    },
+  });
+  assert('normalize extracts tier_key from surf_pack offering_id',
+    fromOfferingNorm.ok
+    && fromOfferingNorm.value.course.tier_key === TIER
+    && fromOfferingNorm.value.course.offering_id === COURSE_ITEM_CODE,
+    JSON.stringify(fromOfferingNorm));
+
+  console.log('\n[L] Luna-shaped meta without tier → no_price_for_surf_lesson; with tier → DB × qty');
+  const lunaNoTier = bookingPg({
+    priceRows: schemaRowsFor('sunset-somo', 'package', COURSE_ITEM_CODE, COURSE_BILLING_UNIT, DB_COURSE_CENTS),
+    services: [{
+      id: 'sr-luna-no-tier',
+      service_type: 'surf_lesson',
+      service_date: '2026-07-21',
+      quantity: 2,
+      amount_due_cents: 0,
+      metadata: JSON.stringify({
+        component: 'course',
+        staff_ui_service_type: 'course',
+        course_id: PACK_ID,
+        // offering_id omitted / not a surf_pack item_code — regresses to unresolved
+        location_id: 'sunset-somo',
+      }),
+    }],
+    bookingMeta: { location_id: 'sunset-somo', source: 'luna_guest_whatsapp' },
+  });
+  tbc.resolveTenantBusinessConfigAsync = async () => catalogAdminCfg(CATALOG_COURSE_CENTS, CATALOG_PRIVATE_CENTS);
+  let pricedNoTier;
+  try {
+    pricedNoTier = await priceSunsetBookingServices(lunaNoTier, 'sunset', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+  } finally {
+    tbc.resolveTenantBusinessConfigAsync = origResolve;
+  }
+  assert('Luna course without tier → fail closed',
+    pricedNoTier && pricedNoTier.ok === false
+    && /no_price_for_/.test(String(pricedNoTier.error || '')),
+    JSON.stringify(pricedNoTier));
+  assert('Luna course without tier never writes €0 or catalog',
+    lunaNoTier.updates.length === 0
+    && !lunaNoTier.updates.some((u) => u.due === CATALOG_COURSE_CENTS * 2));
+
+  const QTY_L = 3;
+  const lunaWithTier = bookingPg({
+    priceRows: schemaRowsFor('sunset-somo', 'package', COURSE_ITEM_CODE, COURSE_BILLING_UNIT, DB_COURSE_CENTS),
+    services: [{
+      id: 'sr-luna-tier',
+      service_type: 'surf_lesson',
+      service_date: '2026-07-21',
+      quantity: QTY_L,
+      amount_due_cents: 0,
+      metadata: JSON.stringify({
+        component: 'course',
+        staff_ui_service_type: 'course',
+        course_id: PACK_ID,
+        tier_key: TIER,
+        offering_id: COURSE_ITEM_CODE,
+        location_id: 'sunset-somo',
+      }),
+    }],
+    bookingMeta: { location_id: 'sunset-somo', source: 'luna_guest_whatsapp' },
+  });
+  tbc.resolveTenantBusinessConfigAsync = async () => catalogAdminCfg(CATALOG_COURSE_CENTS, CATALOG_PRIVATE_CENTS);
+  let pricedWithTier;
+  try {
+    pricedWithTier = await priceSunsetBookingServices(lunaWithTier, 'sunset', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+  } finally {
+    tbc.resolveTenantBusinessConfigAsync = origResolve;
+  }
+  const lunaExpected = DB_COURSE_CENTS * QTY_L;
+  assert('Luna course with tier priced ok', pricedWithTier && pricedWithTier.ok === true, JSON.stringify(pricedWithTier));
+  assert(`Luna course total = DB × qty (${lunaExpected})`,
+    pricedWithTier.total_cents === lunaExpected, JSON.stringify(pricedWithTier));
+  assert('Luna course queried exact item_code',
+    priceQueries(lunaWithTier.schema).some((q) => q.params[2] === COURSE_ITEM_CODE),
+    JSON.stringify(priceQueries(lunaWithTier.schema).map((q) => q.params)));
+
+  console.log('\n[M] Manual path helper prices after create; drawer reads persisted amount');
+  const {
+    priceSunsetBookingAfterCreate,
+  } = require('./lib/sunset-stripe-payment-links');
+  assert('priceSunsetBookingAfterCreate is exported', typeof priceSunsetBookingAfterCreate === 'function');
+
+  const manualPg = bookingPg({
+    priceRows: schemaRowsFor('sunset-somo', 'package', COURSE_ITEM_CODE, COURSE_BILLING_UNIT, DB_COURSE_CENTS),
+    services: [{
+      id: 'sr-manual-1',
+      service_type: 'surf_lesson',
+      service_date: '2026-07-21',
+      quantity: 1,
+      amount_due_cents: 0,
+      metadata: JSON.stringify({
+        component: 'course',
+        staff_ui_service_type: 'course',
+        course_id: PACK_ID,
+        tier_key: TIER,
+        offering_id: COURSE_ITEM_CODE,
+        location_id: 'sunset-somo',
+        source: 'staff_manual_schedule',
+      }),
+    }],
+    bookingMeta: { location_id: 'sunset-somo', source: 'staff_manual_schedule' },
+  });
+  // Extend mock for cancel path used when pricing fails.
+  const baseQuery = manualPg.query.bind(manualPg);
+  manualPg.cancels = [];
+  manualPg.query = async (sql, params) => {
+    const s = String(sql);
+    if (/UPDATE bookings SET status = 'cancelled'/i.test(s)) {
+      manualPg.cancels.push({ booking: params[0] });
+      return { rows: [] };
+    }
+    if (/UPDATE booking_service_records SET status = 'cancelled'/i.test(s)) {
+      manualPg.cancels.push({ services: params[0] });
+      return { rows: [] };
+    }
+    return baseQuery(sql, params);
+  };
+  tbc.resolveTenantBusinessConfigAsync = async () => catalogAdminCfg(CATALOG_COURSE_CENTS, CATALOG_PRIVATE_CENTS);
+  let manualPriced;
+  try {
+    manualPriced = await priceSunsetBookingAfterCreate(manualPg, 'sunset', 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+  } finally {
+    tbc.resolveTenantBusinessConfigAsync = origResolve;
+  }
+  assert('manual after-create prices ok', manualPriced && manualPriced.ok === true, JSON.stringify(manualPriced));
+  assert('manual after-create total = DB unit',
+    manualPriced.total_cents === DB_COURSE_CENTS, JSON.stringify(manualPriced));
+  assert('manual after-create does not cancel on success', manualPg.cancels.length === 0);
+
+  const {
+    buildPaymentSummary,
+  } = require('./lib/sunset-schedule-booking-drawer');
+  const drawerServices = [{
+    service_record_id: 'sr-manual-1',
+    service_type: 'surf_lesson',
+    service_date: '2026-07-21',
+    quantity: 1,
+    amount_due_cents: DB_COURSE_CENTS,
+    metadata: {
+      component: 'course',
+      course_id: PACK_ID,
+      tier_key: TIER,
+      offering_id: COURSE_ITEM_CODE,
+      location_id: 'sunset-somo',
+    },
+  }];
+  const drawerPay = buildPaymentSummary(
+    staleCfg.prices,
+    { payment_status: 'unpaid', metadata: { location_id: 'sunset-somo' } },
+    drawerServices,
+    'db',
+    0,
+    staleCfg,
+  );
+  assert('drawer uses persisted amount_due_cents (not €0)',
+    drawerPay.total_cents === DB_COURSE_CENTS, JSON.stringify(drawerPay));
+  assert('drawer total ≠ catalog when amount stored',
+    drawerPay.total_cents !== CATALOG_COURSE_CENTS);
+
   console.log(`\nTotals: ${pass} passed, ${fail} failed`);
   process.exit(fail ? 1 : 0);
 }

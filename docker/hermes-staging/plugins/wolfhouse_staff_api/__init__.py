@@ -2050,10 +2050,12 @@ def create_sunset_booking(params, **kwargs):
             merged["board_and_suit_rental"] = raw_components["board_and_suit_rental"]
             raw_components = merged
 
-    # Fail closed: a configured course product MUST carry an authoritative course_id.
+    # Fail closed: a configured course product MUST carry an authoritative course_id
+    # and a duration tier so Staff API can form surf_pack_<id>__<tier> for DB pricing.
     # Never accept offering_key / item_code as a course identity smuggle.
     if isinstance(raw_components.get("course"), dict):
-        course_id = _clean(raw_components["course"].get("course_id"))
+        course_part = dict(raw_components["course"])
+        course_id = _clean(course_part.get("course_id"))
         if not course_id:
             return _json_result({
                 "success": False,
@@ -2062,6 +2064,28 @@ def create_sunset_booking(params, **kwargs):
                 "staff_review_needed": False,
                 "guest_safe_next_action": "Which exact course option would you like me to book — or should I book these as individual group lessons on those dates?",
             })
+        tier_key = _clean(course_part.get("tier_key"))
+        if not tier_key and isinstance(course_part.get("tier"), dict):
+            tier_key = _clean(course_part.get("tier").get("key"))
+        offering_item = _clean(course_part.get("offering_item_code"))
+        offering_id = _clean(course_part.get("offering_id"))
+        if not tier_key and offering_item and "__" in offering_item:
+            tier_key = offering_item.split("__")[-1].strip()
+        if not tier_key and offering_id.startswith("surf_pack_") and "__" in offering_id:
+            tier_key = offering_id.split("__")[-1].strip()
+        if not tier_key:
+            return _json_result({
+                "success": False,
+                "tool": "create_sunset_booking",
+                "error": "course_tier_required",
+                "staff_review_needed": False,
+                "guest_safe_next_action": "Which course duration should I book — for example 1 week, 2 weeks, or a single class?",
+            })
+        course_part["course_id"] = course_id
+        course_part["tier_key"] = tier_key
+        course_part["offering_id"] = f"surf_pack_{course_id}__{tier_key}"
+        raw_components = dict(raw_components)
+        raw_components["course"] = course_part
     rp_in = payload.get("rental_pricing") if isinstance(payload.get("rental_pricing"), dict) else None
     combined = raw_components.get("board_and_suit_rental") if isinstance(raw_components.get("board_and_suit_rental"), dict) else None
     board = raw_components.get("surfboard") if isinstance(raw_components.get("surfboard"), dict) else None
@@ -2310,7 +2334,7 @@ def _sunset_write_tools():
             "guest_confirmed_booking": {"type": "boolean", "description": "Must be literal true — the guest has explicitly confirmed they want to book. Quote-only interest, a name alone, or ambiguous assent must not pass."},
             "guest_name": {"type": "string", "description": "Name the booking is under (required)."},
             "guest_phone": {"type": "string", "description": "Guest phone; inferred from the WhatsApp sender if omitted."},
-            "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
+            "components": {"type": "object", "description": "Service components object. Accepted canonical keys are exactly: lesson, course, private_lesson, surfboard, wetsuit, full_day_equipment_addon. Never use group_lesson. Ordinary group classes on selected dates are lesson:{quantity:N,time_preference:'morning'|'afternoon'|'any'} with the dates in service_dates (multiple dates still use lesson + service_dates). lesson.quantity is surfers, not dates. course is only for joining an existing Admin-configured course from get_sunset_joinable_courses / get_sunset_lesson_catalog and MUST include that exact course_id plus tier_key (or offering_item_code) — inventing a course_id is rejected. service_dates must match the course schedule; full courses fail closed. For the rest-of-day equipment add-on use full_day_equipment_addon:{quantity:N}; the plugin converts it to the backend canonical full_day_equipment_extension:{enabled:true,dates:{YYYY-MM-DD:N}} using service_date/service_dates. Example: {\"lesson\":{\"quantity\":1,\"time_preference\":\"morning\"}} with service_dates:[\"2026-07-20\",...]. Another: {\"surfboard\":{\"quantity\":2},\"wetsuit\":{\"quantity\":2},\"full_day_equipment_addon\":{\"quantity\":2}}. Never omit an accepted add-on from create."},
             "rental_pricing": {"type": "object", "description": "Required for board+wetsuit bundle rentals: {offering_key, duration, quantity, quoted_total_cents} copied exactly from get_sunset_rental_price."},
             "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Service dates YYYY-MM-DD."},
             "service_date": {"type": "string", "description": "Single service date YYYY-MM-DD (alternative to service_dates)."},

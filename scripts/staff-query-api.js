@@ -309,6 +309,7 @@ const {
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
+  priceSunsetBookingAfterCreate,
   loadBookingWithServices,
 } = require('./lib/sunset-stripe-payment-links');
 const {
@@ -19160,6 +19161,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
       </div>
     </div>
     <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
+    <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-board-qty-wrap" style="display:none"><label for="ps-create-board-qty" data-i18n="schedule.create.boardQty">Boards</label><input id="ps-create-board-qty" type="number" min="1" max="99" value="1"></div>
     <div class="portal-schedule-create-field" id="ps-create-wetsuit-qty-wrap" style="display:none"><label for="ps-create-wetsuit-qty" data-i18n="schedule.create.wetsuitQty">Wetsuits</label><input id="ps-create-wetsuit-qty" type="number" min="1" max="99" value="1"></div>
@@ -22638,11 +22640,13 @@ function schedulePopulateCreateComponentFields(){
   var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
   var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
   var cf = el('ps-create-course-fields');
+  var ct = el('ps-create-course-tier-wrap');
   var cq = el('ps-create-course-qty-wrap');
   var pf = el('ps-create-private-lesson-fields');
   var bq = el('ps-create-board-qty-wrap');
   var wq = el('ps-create-wetsuit-qty-wrap');
   if (cf) cf.style.display = courseOn ? '' : 'none';
+  if (ct) ct.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
@@ -22721,11 +22725,14 @@ function scheduleReadCreatePayload(){
   if (el('ps-create-comp-course') && el('ps-create-comp-course').checked){
     var courseSel = el('ps-create-course-select');
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
+    var tierSel = el('ps-create-course-tier');
+    var tierKey = tierSel && tierSel.value ? String(tierSel.value).trim() : '';
     components.course = {
       quantity: parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value) || '1', 10) || 1,
       course_id: courseSel ? courseSel.value : '',
       course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
     };
+    if (tierKey) components.course.tier_key = tierKey;
   }
   if (el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked){
     components.surfboard = { quantity: parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value) || '1', 10) || 1 };
@@ -23330,7 +23337,10 @@ function scheduleCoursesFromConfig(prices, surfPacks){
     if (pack.schedules && pack.schedules.length){
       time = scheduleFormatPackScheduleKey(pack.schedules[0]);
     }
-    out.push({ course_id: id, label: pack.label || id, slot_time: time, capacity: pack.group_size != null ? Number(pack.group_size) : null });
+    var tiers = (pack.price_tiers || []).map(function(t){
+      return { key: String(t.key || '').trim(), label: t.label || t.key || '' };
+    }).filter(function(t){ return !!t.key; });
+    out.push({ course_id: id, label: pack.label || id, slot_time: time, capacity: pack.group_size != null ? Number(pack.group_size) : null, price_tiers: tiers });
   });
   (prices || []).forEach(function(p){
     var cat = String((p && p.category) || '').toLowerCase();
@@ -23339,7 +23349,7 @@ function scheduleCoursesFromConfig(prices, surfPacks){
     if (!id || seen[id]) return;
     if (String(id).indexOf('surf_pack_') === 0) return;
     seen[id] = true;
-    out.push({ course_id: id, label: (p && p.label) || id, slot_time: '' });
+    out.push({ course_id: id, label: (p && p.label) || id, slot_time: '', price_tiers: [] });
   });
   out.sort(function(a,b){ return String(a.label || '').localeCompare(String(b.label || '')); });
   return out;
@@ -23401,6 +23411,7 @@ function schedulePopulateCreateCourseFields(){
   var sel = el('ps-create-course-select');
   if (!sel) return;
   var courses = scheduleCoursesCache || [];
+  var prev = sel.value;
   var html = '';
   courses.forEach(function(c){
     var id = String(c.course_id || '').trim();
@@ -23409,6 +23420,35 @@ function schedulePopulateCreateCourseFields(){
   });
   if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
   sel.innerHTML = html;
+  if (prev) sel.value = prev;
+  if (!sel._tierBound){
+    sel._tierBound = true;
+    sel.addEventListener('change', function(){ schedulePopulateCreateCourseTierFields(); });
+  }
+  schedulePopulateCreateCourseTierFields();
+}
+
+function schedulePopulateCreateCourseTierFields(preferredTier){
+  var tierSel = el('ps-create-course-tier');
+  if (!tierSel) return;
+  var courseSel = el('ps-create-course-select');
+  var courseId = courseSel ? String(courseSel.value || '').trim() : '';
+  var course = null;
+  (scheduleCoursesCache || []).forEach(function(c){
+    if (String(c.course_id || '').trim() === courseId) course = c;
+  });
+  var tiers = (course && Array.isArray(course.price_tiers)) ? course.price_tiers : [];
+  var pref = preferredTier != null ? String(preferredTier).trim() : String(tierSel.value || '').trim();
+  var html = '';
+  tiers.forEach(function(t){
+    var key = String(t.key || '').trim();
+    if (!key) return;
+    html += '<option value="' + escHtml(key) + '">' + escHtml(t.label || key) + '</option>';
+  });
+  if (!html) html = '<option value="">' + escHtml(portalT('schedule.create.courseTierNone') || 'No duration configured') + '</option>';
+  tierSel.innerHTML = html;
+  if (pref) tierSel.value = pref;
+  if (!tierSel.value && tiers.length) tierSel.value = String(tiers[0].key || '');
 }
 
 function scheduleRenderLessonsTodayBreakdown(rows, todayIso, lessonTimes){
@@ -25256,6 +25296,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
   var boardOn = !!comps.surfboard;
   var wetsuitOn = !!comps.wetsuit;
   var selectedCourseId = (comps.course && comps.course.course_id) || '';
+  var selectedTierKey = (comps.course && comps.course.tier_key) || '';
   var courseQty = (comps.course && comps.course.quantity) || (comps.lesson && comps.lesson.quantity) || 1;
   var html = '<form id="ps-drawer-edit-form" class="portal-schedule-drawer-form" autocomplete="off">';
   html += scheduleRenderDrawerHeroHtml(ctx, row);
@@ -25285,6 +25326,7 @@ function scheduleRenderEditableDrawerHtml(row, ctx){
     '</div>';
   html += '<div id="ps-drawer-course-section"' + ((courseOn || privateOn) ? '' : ' style="display:none"') + '>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-course-fields"><label for="ps-drawer-course-select">' + escHtml(portalT('schedule.create.courseSelect')) + '</label><select id="ps-drawer-course-select" data-selected="' + escHtml(selectedCourseId) + '"></select></div>' +
+    '<div class="portal-schedule-create-field" id="ps-drawer-course-tier-wrap"><label for="ps-drawer-course-tier">' + escHtml(portalT('schedule.create.courseTier') || 'Course duration') + '</label><select id="ps-drawer-course-tier" data-selected="' + escHtml(selectedTierKey) + '"></select></div>' +
     '<div class="portal-schedule-create-field" id="ps-drawer-course-qty-wrap"><label for="ps-drawer-course-qty">' + escHtml(portalT('schedule.create.surferCount')) + '</label>' +
     '<input id="ps-drawer-course-qty" type="number" min="1" max="99" value="' + escHtml(String(courseQty)) + '"></div>' +
     '<div id="ps-drawer-private-lesson-fields" style="display:none">' +
@@ -25326,11 +25368,13 @@ function scheduleDrawerPopulateComponentFields(){
   var boardOn = !!(el('ps-drawer-comp-surfboard') && el('ps-drawer-comp-surfboard').checked);
   var wetsuitOn = !!(el('ps-drawer-comp-wetsuit') && el('ps-drawer-comp-wetsuit').checked);
   var cf = el('ps-drawer-course-fields');
+  var ct = el('ps-drawer-course-tier-wrap');
   var cq = el('ps-drawer-course-qty-wrap');
   var pf = el('ps-drawer-private-lesson-fields');
   var bq = el('ps-drawer-board-qty-wrap');
   var wq = el('ps-drawer-wetsuit-qty-wrap');
   if (cf) cf.style.display = courseOn ? '' : 'none';
+  if (ct) ct.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
   if (bq) bq.style.display = boardOn ? '' : 'none';
@@ -25437,8 +25481,37 @@ function scheduleDrawerPopulateCourseSelect(){
     if (!html) html = '<option value="">' + escHtml(portalT('schedule.courses.noneConfigured')) + '</option>';
     sel.innerHTML = html;
     if (selected) sel.value = selected;
+    if (!sel._tierBound){
+      sel._tierBound = true;
+      sel.addEventListener('change', function(){ scheduleDrawerPopulateCourseTierFields(); });
+    }
+    scheduleDrawerPopulateCourseTierFields();
     return sel;
   });
+}
+
+function scheduleDrawerPopulateCourseTierFields(){
+  var tierSel = el('ps-drawer-course-tier');
+  if (!tierSel) return;
+  var courseSel = el('ps-drawer-course-select');
+  var courseId = courseSel ? String(courseSel.value || '').trim() : '';
+  var course = null;
+  (scheduleCoursesCache || []).forEach(function(c){
+    if (String(c.course_id || '').trim() === courseId) course = c;
+  });
+  var tiers = (course && Array.isArray(course.price_tiers)) ? course.price_tiers : [];
+  var pref = tierSel.getAttribute('data-selected') || String(tierSel.value || '').trim();
+  var html = '';
+  tiers.forEach(function(t){
+    var key = String(t.key || '').trim();
+    if (!key) return;
+    html += '<option value="' + escHtml(key) + '">' + escHtml(t.label || key) + '</option>';
+  });
+  if (!html) html = '<option value="">' + escHtml(portalT('schedule.create.courseTierNone') || 'No duration configured') + '</option>';
+  tierSel.innerHTML = html;
+  if (pref) tierSel.value = pref;
+  if (!tierSel.value && tiers.length) tierSel.value = String(tiers[0].key || '');
+  tierSel.removeAttribute('data-selected');
 }
 
 // Edit-drawer private-course sessions: seeded from ctx, with add/remove. Multi-session persists via the PATCH.
@@ -25522,11 +25595,14 @@ function scheduleReadDrawerEditPayload(){
   if (el('ps-drawer-comp-course') && el('ps-drawer-comp-course').checked){
     var courseSel = el('ps-drawer-course-select');
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
+    var tierSel = el('ps-drawer-course-tier');
+    var tierKey = tierSel && tierSel.value ? String(tierSel.value).trim() : '';
     components.course = {
       quantity: parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1,
       course_id: courseSel ? courseSel.value : '',
       course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
     };
+    if (tierKey) components.course.tier_key = tierKey;
   }
   if (el('ps-drawer-comp-private-lesson') && el('ps-drawer-comp-private-lesson').checked){
     var plSurfers = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
@@ -42756,11 +42832,38 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     });
     if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
 
+    // Authoritative DB pricing after create (same path as Luna). Never leave
+    // staff-created Sunset course/lesson bookings at silent €0.
+    let bodyOut = { ...result.body, elapsed_ms: Date.now() - started };
+    const bookingId = bodyOut.booking_id || (bodyOut.booking && bodyOut.booking.booking_id);
+    if (bookingId) {
+      try {
+        const priced = await withPgClient((pg) => priceSunsetBookingAfterCreate(pg, clientSlug, bookingId));
+        if (!priced || !priced.ok) {
+          return sendJSON(res, 422, {
+            success: false,
+            error: (priced && priced.error) || 'pricing_failed',
+            booking_id: bookingId,
+            booking_cancelled: !!(priced && priced.booking_cancelled),
+            elapsed_ms: Date.now() - started,
+          });
+        }
+        bodyOut.total_cents = priced.total_cents;
+        bodyOut.currency = 'EUR';
+      } catch (priceErr) {
+        console.error('[sunset booking] price after create failed:', priceErr && priceErr.message);
+        return sendJSON(res, 422, {
+          success: false,
+          error: 'pricing_failed',
+          booking_id: bookingId,
+          elapsed_ms: Date.now() - started,
+        });
+      }
+    }
+
     // After Sunset lesson booking create: ensure waiver + Luna Spanish invite copy.
     // Soft-fails if migration 036 is not applied — booking create still succeeds.
     // No live WhatsApp send here.
-    let bodyOut = { ...result.body, elapsed_ms: Date.now() - started };
-    const bookingId = bodyOut.booking_id || (bodyOut.booking && bodyOut.booking.booking_id);
     if (bookingId) {
       try {
         const waiverOut = await withPgClient(async (pg) => ensureWaiverForBookingSoft(pg, bookingId, {
@@ -42886,13 +42989,36 @@ async function handleBotSunsetBookingCreate(req, res) {
       return sendJSON(res, result.status, { ...result.body, success: false, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
     }
     // Authoritative server-side total (never trust a client-supplied total).
+    // Fail closed — never return success with a silent €0 course/lesson total.
     let totalCents = null;
     const bookingId = result.body && result.body.booking_id;
     if (bookingId) {
       try {
-        const priced = await withPgClient((pg) => priceSunsetBookingServices(pg, SUNSET_CLIENT_SLUG, bookingId));
-        if (priced && priced.ok) totalCents = priced.total_cents;
-      } catch (_) { /* pricing is advisory here; booking already exists */ }
+        const priced = await withPgClient((pg) => priceSunsetBookingAfterCreate(pg, SUNSET_CLIENT_SLUG, bookingId));
+        if (!priced || !priced.ok) {
+          return sendJSON(res, 422, {
+            ok: false,
+            success: false,
+            error: (priced && priced.error) || 'pricing_failed',
+            booking_id: bookingId,
+            booking_cancelled: !!(priced && priced.booking_cancelled),
+            client_slug: SUNSET_CLIENT_SLUG,
+            location_id: loc.location_id,
+            elapsed_ms: Date.now() - started,
+          });
+        }
+        totalCents = priced.total_cents;
+      } catch (priceErr) {
+        console.error('[bot sunset booking] price after create failed:', priceErr && priceErr.message);
+        return sendJSON(res, 422, {
+          ok: false,
+          success: false,
+          error: 'pricing_failed',
+          booking_id: bookingId,
+          client_slug: SUNSET_CLIENT_SLUG,
+          elapsed_ms: Date.now() - started,
+        });
+      }
     }
     return sendJSON(res, result.status, {
       ...result.body,

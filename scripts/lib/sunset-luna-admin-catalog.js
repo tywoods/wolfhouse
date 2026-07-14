@@ -106,6 +106,8 @@ function nestOffering(raw) {
     slot_time: raw.slot_time || undefined,
     age_band: raw.age_band || undefined,
     tier: raw.tier || undefined,
+    tier_key: raw.tier_key || (raw.tier && raw.tier.key) || undefined,
+    offering_item_code: raw.offering_item_code || undefined,
     item_code: raw.item_code || undefined,
   };
 }
@@ -173,6 +175,7 @@ function buildSunsetLunaCatalogFromConfig(adminCfg, { locationId, asOfDate, requ
         offering_id: found.price.id || key,
         course_id: pack.pack_id,
         price_id: found.price.id || key,
+        offering_item_code: key,
         label: `${pack.label || 'Surf course'} — ${tier.label || tier.key}`,
         guest_description: pack.label || 'Surf course',
         unit_amount_cents: amount,
@@ -188,6 +191,7 @@ function buildSunsetLunaCatalogFromConfig(adminCfg, { locationId, asOfDate, requ
         schedules,
         age_band: pack.age_band || 'all_ages',
         tier: { key: tier.key, label: tier.label || tier.key, hours: tier.hours },
+        tier_key: tier.key,
         included_items: [],
       });
     }
@@ -359,6 +363,8 @@ function quoteSunsetOfferingFromCatalog(adminCfg, body = {}) {
     price_id: offering.price_id,
     price_source: catalog.source === 'db' || catalog.source === 'merged' ? 'admin_db' : 'config_or_db',
     source: catalog.source,
+    tier_key: (offering.tier && offering.tier.key) || offering.tier_key || null,
+    offering_item_code: offering.offering_item_code || null,
   };
 }
 
