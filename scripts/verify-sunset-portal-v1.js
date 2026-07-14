@@ -43,6 +43,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/lib/luna-hermes-whatsapp-thread-mirror.js',
   'scripts/lib/luna-meta-whatsapp-webhook.js',
   'scripts/browser/sunset-schedule-portal-module.js',
+  'scripts/browser/sunset-schedule-drawer-view-ui.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -863,8 +864,16 @@ if (apiSrc) {
     var k = apiSrc.indexOf('id="ps-create-comp-course"', j);
     return i > -1 && j > i && k > j;
   })());
-  assert('booking drawer view mode helper', apiSrc.includes('function scheduleRenderViewDrawerHtml('));
-  assert('booking drawer edit button', apiSrc.includes('id="ps-drawer-edit"') && apiSrc.includes('schedule.drawer.edit'));
+  assert('booking drawer view mode helper', (function () {
+    const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+    const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';
+    return viewModSrc.includes('function scheduleRenderViewDrawerHtml(');
+  })());
+  assert('booking drawer edit button', (function () {
+    const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+    const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';
+    return (viewModSrc + apiSrc).includes('id="ps-drawer-edit"') && apiSrc.includes('schedule.drawer.edit');
+  })());
   assert('booking drawer cancel button', apiSrc.includes('id="ps-drawer-cancel"') && apiSrc.includes('schedule.drawer.cancel'));
   assert('booking drawer opens read-only default', apiSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)'));
   assert('booking drawer edit mode toggle', apiSrc.includes('function scheduleEnterDrawerEditMode(') && apiSrc.includes('function scheduleCancelDrawerEditMode('));
@@ -878,6 +887,7 @@ if (apiSrc) {
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
   // Canonical drawer gate lives in injected sunset-schedule-portal-module.js (Slice 11).
   assert('schedule portal module injected', apiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
+  assert('schedule drawer view module injected', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
   const portalModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
   const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
   assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));
@@ -1308,14 +1318,16 @@ if (writesSrc) {
 console.log('\n[38] Sunset booking drawer — header + view summary cleanup');
 
 if (apiSrc) {
-  assert('drawer hero metadata line helper', apiSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
-  assert('drawer view booking details helper', apiSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
-  assert('drawer booked items row helper', apiSrc.includes('function scheduleRenderDrawerBookedItemsRow('));
+  const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+  const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';
+  assert('drawer hero metadata line helper', viewModSrc.includes('function scheduleRenderDrawerHeroMetadataLine('));
+  assert('drawer view booking details helper', viewModSrc.includes('function scheduleRenderDrawerViewBookingDetailsHtml('));
+  assert('drawer booked items row helper', viewModSrc.includes('function scheduleRenderDrawerBookedItemsRow('));
   assert('drawer hero meta CSS class', apiSrc.includes('portal-schedule-drawer-hero-meta'));
   assert('drawer icon close button class', apiSrc.includes('portal-schedule-drawer-close-btn'));
-  assert('view drawer delegates booking details', apiSrc.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
+  assert('view drawer delegates booking details', viewModSrc.includes('scheduleRenderDrawerViewBookingDetailsHtml(ctx, row)'));
   assert('booked items i18n key', i18nSrc && i18nSrc.includes("'schedule.drawer.bookedItems'"));
-  assert('same-day date helper', apiSrc.includes('function scheduleDrawerSameDay('));
+  assert('same-day date helper', viewModSrc.includes('function scheduleDrawerSameDay('));
 }
 
 

@@ -540,5 +540,27 @@ Offering identity, schedule weekday eligibility, price, billing units, totals, o
 - `scheduleCoursesFromConfig` — used only when canonical catalog POST fails (offline/degraded).
 - `scheduleCourseEligibleOnDates` — retained for legacy schedule board helpers; create flow uses catalog `eligible_on_requested_dates`.
 
-**Render helpers** remain in `staff-query-api.js` portal IIFE; payment stripe section uses `schedulePortalStripeLinkFromCtx` for non-actionable invalidated links.
+---
+
+## 17. Schedule drawer view UI (Slice 12)
+
+Read-only Schedule booking drawer presentation extracted to `scripts/browser/sunset-schedule-drawer-view-ui.js` (injected via `scripts/lib/sunset-schedule-browser-source.js` immediately after the portal module).
+
+### View module owns
+
+Booking header/status shell, guest details, offering/course/tier labels, dates/participants, service line rows, authoritative totals display, payment state + actionable link display, attribution labels, loading/empty/typed-error states.
+
+### View module must not
+
+Fetch data, calculate prices, reinterpret schedules, decide payment validity, or encode tenant-specific business rules. It consumes canonical drawer-detail `ctx` from Slice 11 fetch layer only.
+
+### Compatibility wrapper (edit path)
+
+`scheduleRenderDrawerPaymentSectionHtml(ctx, editable)` remains in `staff-query-api.js` — delegates to `scheduleRenderDrawerPaymentSectionViewHtml` when `!editable`; edit-mode payment select + manual pay wiring stays in monolith until Slice 13.
+
+### Staff + Luna parity
+
+Both sources render through `scheduleRenderViewDrawerHtml` / `scheduleRenderSunsetViewDrawerHtml` with the same canonical fields; untrusted sources fail closed server-side (`drawer_untrusted_booking_source`).
+
+**Render helpers** for drawer read-only view live in `scripts/browser/sunset-schedule-drawer-view-ui.js` (Slice 12, injected after the portal module). Edit-mode drawer wiring remains in `staff-query-api.js`. Payment stripe section uses `schedulePortalStripeLinkFromCtx` for non-actionable invalidated links.
 

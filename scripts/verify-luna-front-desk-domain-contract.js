@@ -274,6 +274,9 @@ assert('contract documents payment lifecycle', /PAYMENT_LINK_LIFECYCLE|payment-l
 assert('contract documents schedule portal module', /sunset-schedule-portal-module/.test(contractDoc));
 assert('portal module inject marker', /INJECT:sunset-schedule-portal-module/.test(apiSrc));
 assert('portal module defines schedulePortalFetchQuote', /schedulePortalFetchQuote/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js'), 'utf8')));
+assert('contract documents drawer view module', /sunset-schedule-drawer-view-ui/.test(contractDoc));
+assert('drawer view inject marker', /INJECT:sunset-schedule-drawer-view-ui/.test(apiSrc));
+assert('drawer view module defines scheduleRenderViewDrawerHtml', /scheduleRenderViewDrawerHtml/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js'), 'utf8')));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

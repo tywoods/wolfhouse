@@ -54,7 +54,9 @@ console.log('[1] Module files and injection');
 assert('portal module exists', fs.existsSync(PORTAL_MODULE));
 assert('browser source loader exists', fs.existsSync(BROWSER_SRC));
 assert('inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
-assert('injectSunsetSchedulePortalModule defined', apiSrc.includes('function injectSunsetSchedulePortalModule'));
+assert('drawer view inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
+assert('browser source loads drawer view module', browserLoader.includes('getSunsetScheduleDrawerViewBrowserSource'));
+assert('injectSunsetSchedulePortalModule defined', browserLoader.includes('function injectSunsetSchedulePortalModule'));
 assert('buildUiHtml calls inject', /injectSunsetSchedulePortalModule\(html\)/.test(apiSrc));
 assert('create quote preview element', apiSrc.includes('id="ps-create-quote-preview"'));
 

@@ -3,9 +3,8 @@
 /**
  * Sunset Schedule portal — canonical API / data layer (Slice 11).
  *
- * Injected into staff-query-api.js portal IIFE. Render helpers remain in the monolith;
- * this module owns fetch orchestration, drawer access gates, quote provenance, and
- * payment-link display rules (no client-side price or weekday authority).
+ * Injected into staff-query-api.js portal IIFE. View rendering lives in
+ * sunset-schedule-drawer-view-ui.js (Slice 12).
  *
  * Requires portal globals: getClient, getSunsetLocation, sunsetLocationQuerySuffix,
  * portalT, escHtml, el, fetch, scheduleFindGroupForRow, scheduleRowBookingRef,
