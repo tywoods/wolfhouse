@@ -866,7 +866,10 @@ if (apiSrc) {
 
   assert('applyClientPortalProfile wires school switcher', apiSrc.includes('function applyClientPortalProfile(') && apiSrc.includes('wireSunsetSchoolSwitcher();') && apiSrc.slice(apiSrc.indexOf('function applyClientPortalProfile('), apiSrc.indexOf('function applyClientPortalProfile(') + 900).includes('refreshSunsetSchoolContextLabels()'));
   assert('school switch reloads schedule on location change', apiSrc.includes('function setSunsetLocation(') && apiSrc.includes('loadSchedulePage()') && apiSrc.includes('STAFF_PORTAL_SUNSET_LOCATION_KEY'));
-  assert('scheduleDrawerEditableEnabled defined', apiSrc.includes('function scheduleDrawerEditableEnabled('));
+  // Canonical drawer gate (scheduleDrawerEditableEnabled was removed — Luna + Staff
+  // persisted rows both load the same drawer via scheduleDrawerCanLoadCanonical).
+  assert('scheduleDrawerCanLoadCanonical defined', apiSrc.includes('function scheduleDrawerCanLoadCanonical('));
+  assert('scheduleDrawerCanEdit defined', apiSrc.includes('function scheduleDrawerCanEdit('));
   assert('customer PATCH before GET-only gate', (function(){
     var gate = apiSrc.indexOf('// ── All other routes: GET only');
     var patch = apiSrc.indexOf('customerPhoneMatch && method === \'PATCH\'');

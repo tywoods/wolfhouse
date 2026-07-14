@@ -141,7 +141,20 @@ os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 try:
     names = [t[0] for t in mod._sunset_tools()]
     check("Q22 in _sunset_tools()", "get_sunset_group_lesson_quote" in names)
-    check("Q23 fifth Sunset read tool", len(names) == 5, names)
+    check(
+        "Q23 Sunset read tools include catalog + offering quote + group quote",
+        set([
+            "get_sunset_rental_price",
+            "get_sunset_full_day_equipment_addon",
+            "get_sunset_private_lesson",
+            "get_sunset_lesson_availability",
+            "get_sunset_lesson_catalog",
+            "get_sunset_offering_quote",
+            "get_sunset_group_lesson_quote",
+        ]).issubset(set(names))
+        and len(names) >= 7,
+        names,
+    )
 finally:
     if prev_slug is None:
         os.environ.pop("LUNA_CLIENT_SLUG", None)

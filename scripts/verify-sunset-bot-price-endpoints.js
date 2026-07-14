@@ -6,7 +6,7 @@
  * Phase 1 — Sunset Luna READ-ONLY bot price/availability endpoints.
  *
  * Asserts:
- *   - The five /staff/bot/sunset/* read routes are wired with requireBotAuth + POST-only.
+ *   - The seven /staff/bot/sunset/* read routes are wired with requireBotAuth + POST-only.
  *   - The handlers FORCE client_slug=sunset (never trust the body).
  *   - The location whitelist is enforced (unknown location → fail-closed).
  *   - The full-day add-on returns €10/person/day and a real rental price flows.
@@ -42,6 +42,8 @@ const routes = [
   '/staff/bot/sunset/private-lesson',
   '/staff/bot/sunset/lesson-availability',
   '/staff/bot/sunset/lesson-quote',
+  '/staff/bot/sunset/catalog',
+  '/staff/bot/sunset/offering-quote',
 ];
 for (const r of routes) {
   ok(staffApiSrc.includes(`pathname === '${r}'`), `route ${r} registered`);
@@ -51,6 +53,8 @@ ok(staffApiSrc.includes('handleBotSunsetFullDayAddon'), 'full-day-addon handler 
 ok(staffApiSrc.includes('handleBotSunsetPrivateLesson'), 'private-lesson handler present');
 ok(staffApiSrc.includes('handleBotSunsetLessonAvailability'), 'lesson-availability handler present');
 ok(staffApiSrc.includes('handleBotSunsetLessonQuote'), 'lesson-quote handler present');
+ok(staffApiSrc.includes('handleBotSunsetCatalog'), 'catalog handler present');
+ok(staffApiSrc.includes('handleBotSunsetOfferingQuote'), 'offering-quote handler present');
 
 console.log('\n── B. Tenant forced to sunset; no writes/money ──');
 // Every new handler must force SUNSET_CLIENT_SLUG and must not read tenant from body.
@@ -59,7 +63,7 @@ const handlerBlock = staffApiSrc.slice(
   staffApiSrc.indexOf('async function handleSunsetScheduleBookingCreate'),
 );
 const forcedCount = (handlerBlock.match(/client_slug:\s*SUNSET_CLIENT_SLUG/g) || []).length;
-ok(forcedCount >= 5, `client_slug forced to SUNSET_CLIENT_SLUG in all handlers (found ${forcedCount})`);
+ok(forcedCount >= 7, `client_slug forced to SUNSET_CLIENT_SLUG in all handlers (found ${forcedCount})`);
 ok(!/body\.client_slug|body\.client\b/.test(handlerBlock), 'handlers never read client_slug/client from body');
 ok(!/INSERT |UPDATE |DELETE |stripe|Stripe|create-stripe/.test(handlerBlock), 'no writes / Stripe / money in handlers');
 ok(/sunsetBotResolveLocation|resolveSunsetBotBodyLocation/.test(handlerBlock), 'location whitelist enforced before price lookup');
@@ -102,7 +106,8 @@ ok(/def _is_sunset_tenant\(/.test(pluginSrc), 'plugin has _is_sunset_tenant gate
 ok(/if _is_sunset_tenant\(\):\s*\n\s*tools = _sunset_tools\(\)/.test(pluginSrc),
   'register() swaps to _sunset_tools() when tenant is sunset');
 for (const t of ['get_sunset_rental_price', 'get_sunset_full_day_equipment_addon',
-  'get_sunset_private_lesson', 'get_sunset_lesson_availability', 'get_sunset_group_lesson_quote']) {
+  'get_sunset_private_lesson', 'get_sunset_lesson_availability', 'get_sunset_lesson_catalog',
+  'get_sunset_offering_quote', 'get_sunset_group_lesson_quote']) {
   ok(pluginSrc.includes(`def ${t}(`), `plugin defines handler ${t}`);
   ok(pluginSrc.includes(`"${t}"`), `plugin registers tool name ${t}`);
 }
@@ -115,6 +120,8 @@ ok(sunsetToolsBlock.includes('/sunset/rental-price')
   && sunsetToolsBlock.includes('/sunset/full-day-addon')
   && sunsetToolsBlock.includes('/sunset/private-lesson')
   && sunsetToolsBlock.includes('/sunset/lesson-availability')
+  && sunsetToolsBlock.includes('/sunset/catalog')
+  && sunsetToolsBlock.includes('/sunset/offering-quote')
   && sunsetToolsBlock.includes('/sunset/lesson-quote'),
   'sunset tools call the /sunset/* read routes');
 ok(!/booking-create|create-stripe-link|transfers\/save|addon-requests\/create/.test(sunsetToolsBlock),

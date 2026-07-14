@@ -377,12 +377,16 @@ function normalizeComponents(body) {
         if (slot && !isTimeHm(slot)) return { ok: false, error: 'lesson slot_time must be HH:MM' };
         entry.slot_time = slot || null;
         entry.category = String(part.category || b.lesson_category || DEFAULT_LESSON_CATEGORY).trim() || DEFAULT_LESSON_CATEGORY;
+        const offeringId = String(part.offering_id || '').trim();
+        if (offeringId) entry.offering_id = offeringId;
       }
       if (key === 'course') {
         const courseId = String(part.course_id || '').trim();
         if (!courseId) return { ok: false, error: 'components.course.course_id is required' };
         entry.course_id = courseId;
         entry.course_label = String(part.course_label || part.label || '').trim() || courseId;
+        const offeringId = String(part.offering_id || '').trim();
+        if (offeringId) entry.offering_id = offeringId;
       }
       out[key] = entry;
     }
@@ -967,6 +971,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           lesson_category: componentKey === 'lesson' ? part.category : null,
           course_id: componentKey === 'course' ? part.course_id : null,
           course_label: componentKey === 'course' ? part.course_label : null,
+          offering_id: part.offering_id || null,
           notes: input.notes || null,
           needs_reply: input.needs_reply,
           guest_phone: input.guest_phone,

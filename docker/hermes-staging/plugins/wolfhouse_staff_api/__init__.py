@@ -1477,6 +1477,70 @@ def get_sunset_group_lesson_quote(params, **kwargs):
     })
 
 
+def get_sunset_lesson_catalog(params, **kwargs):
+    """Read the configured Sunset lesson/course offerings before describing them."""
+    del kwargs
+    payload = dict(params or {})
+    body = {}
+    if payload.get("location_id"):
+        body["location_id"] = payload["location_id"]
+    if payload.get("date"):
+        body["date"] = _clean(payload.get("date"))
+    if payload.get("quantity") is not None:
+        try:
+            body["quantity"] = int(payload.get("quantity"))
+        except (TypeError, ValueError):
+            pass
+    if payload.get("require_db") is True:
+        body["require_db"] = True
+    data = _post_bot("/sunset/catalog", body)
+    ok = bool(data.get("ok"))
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_lesson_catalog",
+        "location_id": data.get("location_id"),
+        "offerings": data.get("offerings") if ok else [],
+        "currency": data.get("currency") or "EUR",
+        "source": data.get("source"),
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": None if ok else "Let me confirm the current lesson options with the team and get right back to you 😊",
+    })
+
+
+def get_sunset_offering_quote(params, **kwargs):
+    """Quote one exact Admin-backed Sunset offering; never infer a course price."""
+    del kwargs
+    payload = dict(params or {})
+    offering_id = _clean(payload.get("offering_id"))
+    if not offering_id:
+        return _json_result({
+            "success": False, "tool": "get_sunset_offering_quote",
+            "error": "offering_id_required", "staff_review_needed": False,
+        })
+    body = {"offering_id": offering_id}
+    for key in ("course_id", "quantity", "service_dates", "location_id", "require_db"):
+        if payload.get(key) is not None:
+            body[key] = payload[key]
+    data = _post_bot("/sunset/offering-quote", body)
+    ok = bool(data.get("ok")) or bool(data.get("success"))
+    return _json_result({
+        "success": ok,
+        "tool": "get_sunset_offering_quote",
+        "location_id": data.get("location_id"),
+        "offering_id": data.get("offering_id") or offering_id,
+        "course_id": data.get("course_id"),
+        "offering_type": data.get("offering_type"),
+        "unit_amount_cents": data.get("unit_amount_cents"),
+        "total_cents": data.get("total_cents"),
+        "currency": data.get("currency") or "EUR",
+        "billing_unit": data.get("billing_unit"),
+        "reason": data.get("reason") if not ok else None,
+        "staff_review_needed": not ok,
+        "guest_safe_next_action": None if ok else "Let me double-check that option with the team and get right back to you 😊",
+    })
+
+
 def _schema(name, description, properties, required=None):
     return {
         "name": name,
@@ -2172,6 +2236,8 @@ def _sunset_tools():
         ("get_sunset_full_day_equipment_addon", "Get the live price for the 'keep the gear for the rest of the day' add-on ('Material el resto del día', per person per day). Optionally pass dates (YYYY-MM-DD list) and quantity (people) for a quote total. Use amount_eur before offering or confirming it.", get_sunset_full_day_equipment_addon, {"dates": {"type": "array", "items": {"type": "string"}, "description": "Eligible dates YYYY-MM-DD for a quote total."}, "quantity": {"type": "integer", "description": "Number of people."}, **loc}, []),
         ("get_sunset_private_lesson", "Get the Sunset private/coaching lesson product (custom sessions, no fixed slots): price and duration. Use before quoting a private lesson.", get_sunset_private_lesson, {**loc}, []),
         ("get_sunset_lesson_availability", "Check group lesson capacity for a date before confirming ANY lesson seat (lessons are capacity-limited). If take_request is true (capacity unknown or full), take the guest's request and tell them the team will confirm the exact time — never invent a seat or slot.", get_sunset_lesson_availability, {"date": {"type": "string", "description": "Lesson date YYYY-MM-DD."}, **loc}, ["date"]),
+        ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
+        ("get_sunset_offering_quote", "Get the authoritative quote for one exact offering returned by get_sunset_lesson_catalog. Pass its offering_id exactly (and course_id for a course); never substitute the generic group lesson price.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates when required by the offering billing unit."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
         ("get_sunset_group_lesson_quote", "Get an authoritative quote for ordinary group lessons BEFORE quoting any lesson price or asking for a booking name. Pass every selected lesson date in service_dates and the number of surfers in quantity. Use the returned total_cents/amount_eur verbatim — never multiply or invent money locally. Multiple dates are still ordinary lesson dates unless an actual configured course was selected. This tool is read-only; never call create_sunset_booking to discover a price.", get_sunset_group_lesson_quote, {"service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected group-lesson dates YYYY-MM-DD (one entry per session)."}, "quantity": {"type": "integer", "description": "Number of surfers per date (default 1)."}, **loc}, ["service_dates"]),
     ]
 

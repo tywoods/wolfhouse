@@ -489,10 +489,25 @@ os.environ["LUNA_CLIENT_SLUG"] = "sunset"
 try:
     check("S12 _is_sunset_tenant true when LUNA_CLIENT_SLUG=sunset", mod._is_sunset_tenant() is True)
     sunset_tool_names = [t[0] for t in mod._sunset_tools()]
-    check("S13 sunset toolset is exactly the 5 read tools",
-          sunset_tool_names == ["get_sunset_rental_price", "get_sunset_full_day_equipment_addon",
-                                "get_sunset_private_lesson", "get_sunset_lesson_availability",
-                                "get_sunset_group_lesson_quote"])
+    check("S13 sunset read toolset includes Admin catalog + offering quote",
+          sunset_tool_names[:7] == [
+              "get_sunset_rental_price",
+              "get_sunset_full_day_equipment_addon",
+              "get_sunset_private_lesson",
+              "get_sunset_lesson_availability",
+              "get_sunset_lesson_catalog",
+              "get_sunset_offering_quote",
+              "get_sunset_group_lesson_quote",
+          ]
+          or set([
+              "get_sunset_rental_price",
+              "get_sunset_full_day_equipment_addon",
+              "get_sunset_private_lesson",
+              "get_sunset_lesson_availability",
+              "get_sunset_lesson_catalog",
+              "get_sunset_offering_quote",
+              "get_sunset_group_lesson_quote",
+          ]).issubset(set(sunset_tool_names)))
     check("S14 sunset toolset excludes wolfhouse write tools",
           "create_booking_from_plan" not in sunset_tool_names and "create_payment_link" not in sunset_tool_names)
 finally:

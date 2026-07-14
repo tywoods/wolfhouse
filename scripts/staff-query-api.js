@@ -42223,6 +42223,80 @@ function sunsetBotResolveLocation(body) {
   return resolveSunsetBotBodyLocation(body);
 }
 
+async function resolveSunsetLunaAdminCatalog(locationId, body, pgClient) {
+  const cfg = await resolveTenantBusinessConfigAsync(SUNSET_CLIENT_SLUG, {
+    locationId,
+    pgClient,
+    skipDb: body.dry_run === true,
+  });
+  return cfg;
+}
+
+async function handleBotSunsetCatalog(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  try {
+    const { isSunsetAdminDbReadEnabled } = require('./lib/tenant-business-config');
+    const requireDb = body.require_db === true || body.requireDb === true || isSunsetAdminDbReadEnabled();
+    const result = await withPgClient(async (pg) => {
+      const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
+      return require('./lib/sunset-luna-admin-catalog').buildSunsetLunaCatalogFromConfig(cfg, {
+        locationId: loc.location_id,
+        asOfDate: body.date || body.as_of_date,
+        requireDb,
+      });
+    });
+    return sendJSON(res, 200, {
+      ...result,
+      success: !!result.ok,
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: loc.location_id,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      ok: false, success: false, reason: 'admin_db_expected_unavailable',
+      error: String(err && err.message || err),
+    });
+  }
+}
+
+async function handleBotSunsetOfferingQuote(req, res) {
+  const started = Date.now();
+  let body = {};
+  try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
+  const loc = sunsetBotResolveLocation(body);
+  if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  try {
+    const { isSunsetAdminDbReadEnabled } = require('./lib/tenant-business-config');
+    const requireDb = body.require_db === true || body.requireDb === true || isSunsetAdminDbReadEnabled();
+    const result = await withPgClient(async (pg) => {
+      const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
+      return require('./lib/sunset-luna-admin-catalog').quoteSunsetOfferingFromCatalog(cfg, {
+        ...body,
+        require_db: requireDb,
+        location_id: loc.location_id,
+        as_of_date: body.as_of_date || body.date,
+      });
+    });
+    return sendJSON(res, 200, {
+      ...result,
+      success: !!result.ok,
+      client_slug: SUNSET_CLIENT_SLUG,
+      location_id: loc.location_id,
+      elapsed_ms: Date.now() - started,
+    });
+  } catch (err) {
+    return sendJSON(res, 500, {
+      ok: false, success: false, reason: 'admin_db_expected_unavailable',
+      error: String(err && err.message || err),
+    });
+  }
+}
+
 async function handleBotSunsetRentalPrice(req, res) {
   const started = Date.now();
   let body = {};
@@ -42351,6 +42425,21 @@ async function handleBotSunsetLessonQuote(req, res) {
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) {
     return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
+  }
+  if (body.offering_id) {
+    // An Admin-selected offering has an exact price-row identity. Never reduce
+    // it to the generic ordinary-lesson resolver.
+    try {
+      const result = await withPgClient(async (pg) => {
+        const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
+        return require('./lib/sunset-luna-admin-catalog').quoteSunsetOfferingFromCatalog(cfg, {
+          ...body, require_db: body.require_db === true || body.requireDb === true, location_id: loc.location_id,
+        });
+      });
+      return sendJSON(res, 200, { ...result, success: !!result.ok, client_slug: SUNSET_CLIENT_SLUG, location_id: loc.location_id, elapsed_ms: Date.now() - started });
+    } catch (err) {
+      return sendJSON(res, 500, { ok: false, success: false, reason: 'admin_db_expected_unavailable', error: String(err && err.message || err) });
+    }
   }
   const { quoteSunsetGroupLessonsAsync } = require('./lib/sunset-group-lesson-quote');
   try {
@@ -47929,6 +48018,24 @@ async function router(req, res) {
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
     return handleBotSunsetLessonAvailability(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/catalog') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/catalog' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetCatalog(req, res);
+  }
+  if (pathname === '/staff/bot/sunset/offering-quote') {
+    if (method !== 'POST') {
+      res.writeHead(405, { Allow: 'POST' });
+      return res.end(JSON.stringify({ success: false, error: 'Method not allowed — use POST for bot/sunset/offering-quote' }));
+    }
+    const auth = await requireBotAuth(req, res);
+    if (!auth.ok) return;
+    return handleBotSunsetOfferingQuote(req, res);
   }
   if (pathname === '/staff/bot/sunset/lesson-quote') {
     if (method !== 'POST') {

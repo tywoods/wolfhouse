@@ -264,11 +264,36 @@ function isFullDayEquipmentAddon(sr) {
   return key === FULL_DAY_EQUIPMENT_ADDON_KEY;
 }
 
-function serviceRecordUnitPriceCents(prices, sr) {
+function serviceRecordUnitPriceCents(prices, sr, adminCfg) {
   const dbType = String(sr.service_type || '').toLowerCase();
   const qty = Number(sr.quantity) || 1;
+  const meta = parseMeta(sr && sr.metadata);
   let unitCents = null;
+
+  // Exact Admin offering identity wins over the generic group-lesson fallback.
+  if (meta.offering_id || meta.course_id) {
+    const { resolveOfferingUnitCentsForBooking } = require('./sunset-luna-admin-catalog');
+    const resolved = resolveOfferingUnitCentsForBooking(adminCfg || { ok: true, source: 'config', prices }, {
+      offering_id: meta.offering_id,
+      course_id: meta.course_id,
+      location_id: meta.location_id,
+    });
+    if (!resolved.ok || resolved.unit_amount_cents == null || resolved.unit_amount_cents <= 0) {
+      return null;
+    }
+    const billing = String(resolved.billing_unit || '').toLowerCase();
+    const courseUnit = !!meta.course_id
+      || /week|course|bundle|^\d+_day|^\d+_days|^\d+_week/.test(billing);
+    // Course/bundle unit: charge once per surfer for the component row (not re-multiplied
+    // by days here — each persisted course service row still multiplies by quantity).
+    return resolved.unit_amount_cents * qty;
+  }
+
   if (dbType === 'surf_lesson') {
+    // Never silently price a free-form course label as a generic €30 lesson.
+    if (meta.course_id || String(meta.staff_ui_service_type || '').toLowerCase() === 'course') {
+      return null;
+    }
     unitCents = findPriceCents(prices, 'lesson', LESSON_OFFERING_KEY, LESSON_UNIT_KEY);
   } else if (dbType === 'surfboard') {
     unitCents = findPriceCents(prices, 'rental', BOARD_OFFERING_KEY, RENTAL_UNIT_KEY);
@@ -371,7 +396,7 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
     if (bundleRowIds.has(String(sr.id))) continue;
     let due = Number(sr.amount_due_cents) || 0;
     if (due <= 0) {
-      due = serviceRecordUnitPriceCents(prices, sr) || 0;
+      due = serviceRecordUnitPriceCents(prices, sr, adminCfg) || 0;
       if (due <= 0) {
         return { ok: false, error: `no_price_for_${sr.service_type}` };
       }

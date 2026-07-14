@@ -103,7 +103,10 @@ if (fs.existsSync(I18N_PATH)) {
   assert('surf customers.subtitle.surf', i18n.includes("'customers.subtitle.surf'"));
   assert('generic customers.detail.select', i18n.includes('Select a customer to view their profile'));
   assert('surf customers.detail.select.surf', i18n.includes("'customers.detail.select.surf'"));
-  assert('generic customers.detail.services', i18n.includes("'customers.detail.services': 'Previous services'"));
+  // Live product copy (generic + surf) — "Previous services" was the older phrase.
+  assert('generic customers.detail.services',
+    i18n.includes("'customers.detail.services': 'Previous courses and rentals'")
+    || i18n.includes("'customers.detail.services': 'Previous services'"));
   assert('surf customers.detail.services.surf', i18n.includes("'customers.detail.services.surf'"));
 } else {
   assert('staff-portal-i18n.js exists', false);
@@ -576,7 +579,11 @@ if (apiSrc) {
   assert('no legacy customerBadgeHtml', !apiSrc.includes('function customerBadgeHtml('));
   assert('context identity includes auto_tags', /handleCustomerContext[\s\S]{0,3200}auto_tags:/.test(apiSrc));
   assert('client refreshCustomerDisplayTags after save', apiSrc.includes('function refreshCustomerDisplayTags('));
-  assert('edit form shows system tags section', apiSrc.includes('customers.tags.systemHeading'));
+  // Unified tag editor: auto/system tags render as non-editable chips alongside CRM toggles.
+  assert('edit form shows unified system+crm tags',
+    apiSrc.includes('customers-tags-unified-row')
+    && apiSrc.includes('customerTagIsAuto(')
+    && (apiSrc.includes('customers.tags.systemHeading') || apiSrc.includes("portalT('customers.tags.'")));
   assert('chip labels use customers.tags.* keys', apiSrc.includes("portalT('customers.tags.' + tagKey)"));
   assert('singular hot lead chip label key', apiSrc.includes("'customers.tags.hot_lead': 'Hot lead'") || true);
   assert('CUSTOMER_DISPLAY_TAG_ORDER injected', apiSrc.includes('var CUSTOMER_DISPLAY_TAG_ORDER ='));
