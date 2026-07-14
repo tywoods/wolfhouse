@@ -29,6 +29,11 @@ const {
   normalizeBookingGuestsInput,
   mapBotBookingCreateErrorToBlockedReason,
 } = require('./booking-guests');
+const {
+  resolveBusinessVertical,
+  invokeVerticalOperation,
+  VERTICAL_CHANNELS,
+} = require('./luna-front-desk-business-vertical');
 const { buildPaymentShortLink } = require('./luna-payment-short-link');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1333,16 +1338,31 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
   if (!checkIn || !checkOut) return send400(res, 'check_in and check_out are required');
   if (guestCount < 1) return send400(res, 'guest_count must be at least 1');
 
-  const preview = computePackagePricePreview({
-    client_slug: clientSlug,
-    check_in: checkIn,
-    check_out: checkOut,
-    guest_count: guestCount,
-    room_type: roomType,
+  const resolved = resolveBusinessVertical({ clientSlug });
+  if (!resolved.ok) {
+    return sendJSON(res, 403, { success: false, reason: resolved.reason, client_slug: clientSlug });
+  }
+  const result = await invokeVerticalOperation(resolved, 'listOfferings', null, {
+    channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
+    transportBody: {
+      check_in: checkIn,
+      check_out: checkOut,
+      guest_count: guestCount,
+      room_type: roomType,
+    },
   });
+  if (!result.ok) {
+    return sendJSON(res, result.status || 422, {
+      success: false,
+      ...(result.body || {}),
+    });
+  }
+  const preview = result.body || {};
+  const packages = preview.packages || {};
+  const previewSuccess = Object.values(packages).some((p) => p && p.success);
 
   return sendJSON(res, 200, {
-    success: preview.success,
+    success: previewSuccess,
     source: 'luna_bot_package_price_preview',
     auth_mode: authMode,
     client_slug: clientSlug,
@@ -1351,7 +1371,7 @@ async function handleBotPackagePricePreview(req, res, user, authMode, ctx) {
     guest_count: guestCount,
     nights: preview.nights,
     season_code: preview.season_code,
-    packages: preview.packages,
+    packages,
     no_db_write: true,
   });
 }

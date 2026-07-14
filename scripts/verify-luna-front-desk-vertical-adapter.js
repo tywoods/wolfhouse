@@ -15,7 +15,7 @@ const {
   getVerticalAdapter,
   invokeVerticalOperation,
   surfSchoolVerticalAdapter,
-  accommodationVerticalPlaceholder,
+  accommodationVerticalAdapter,
 } = require('./lib/luna-front-desk-business-vertical');
 const {
   executeSunsetCatalogSync,
@@ -150,17 +150,34 @@ async function run() {
   const sunset = resolveBusinessVertical({ clientSlug: 'sunset', locationId: LOC });
   assert('sunset resolves ok', sunset.ok === true);
   assert('sunset vertical is surf_school', sunset.verticalId === VERTICAL_IDS.SURF_SCHOOL);
-  assert('wolfhouse resolves accommodation', resolveBusinessVertical({ clientSlug: 'wolfhouse' }).verticalId === VERTICAL_IDS.ACCOMMODATION);
+  assert('wolfhouse-somo resolves accommodation', resolveBusinessVertical({ clientSlug: 'wolfhouse-somo' }).verticalId === VERTICAL_IDS.ACCOMMODATION);
+  assert('wolfhouse alias resolves accommodation', resolveBusinessVertical({ clientSlug: 'wolfhouse' }).verticalId === VERTICAL_IDS.ACCOMMODATION);
   assert('unknown tenant fails', resolveBusinessVertical({ clientSlug: 'seadog' }).ok === false);
   assert('bad location fails', resolveBusinessVertical({ clientSlug: 'sunset', locationId: 'not-a-loc' }).ok === false);
   assert('body tenant override ignored at resolve', resolveBusinessVertical({ clientSlug: 'sunset', locationId: 'sunset-sardinero' }).locationId === 'sunset-sardinero');
 
-  console.log('\n[B] Accommodation placeholder fails closed');
-  const wh = resolveBusinessVertical({ clientSlug: 'wolfhouse' });
-  const whCatalog = await accommodationVerticalPlaceholder.listOfferings(null, { resolved: wh, transportBody: {} });
-  assert('accommodation listOfferings not_migrated', whCatalog.body.reason === 'not_migrated');
-  assert('accommodation quote not_migrated', (await accommodationVerticalPlaceholder.quoteOffering(null, { resolved: wh })).body.reason === 'not_migrated');
-  assert('accommodation create not_migrated', (await accommodationVerticalPlaceholder.createBooking(null, { resolved: wh })).body.reason === 'not_migrated');
+  console.log('\n[B] Accommodation adapter delegates (not placeholder)');
+  const wh = resolveBusinessVertical({ clientSlug: 'wolfhouse-somo' });
+  const whCatalog = await accommodationVerticalAdapter.listOfferings(null, { resolved: wh, transportBody: {} });
+  assert('accommodation listOfferings ok', whCatalog.ok === true);
+  assert('accommodation catalog has malibu', (whCatalog.body.offerings || []).some((o) => o.package_code === 'malibu'));
+  const whQuote = await accommodationVerticalAdapter.quoteOffering(null, {
+    resolved: wh,
+    transportBody: {
+      check_in: '2026-07-06',
+      check_out: '2026-07-13',
+      guest_count: 1,
+      package_code: 'malibu',
+      room_type: 'shared',
+      payment_choice: 'deposit',
+    },
+  });
+  assert('accommodation quote ok', whQuote.ok === true && whQuote.body.quote.total_cents > 0);
+  const whCreate = await accommodationVerticalAdapter.createBooking(null, {
+    resolved: wh,
+    transportBody: { dry_run: true, check_in: '2026-07-06', check_out: '2026-07-13', guest_count: 1, package_code: 'malibu', room_type: 'shared', guest_name: 'T', phone: '+34000000000', payment_choice: 'deposit' },
+  });
+  assert('accommodation create dry-run ok', whCreate.ok === true && whCreate.body.dry_run === true);
 
   console.log('\n[C] Catalog parity — direct vs adapter');
   const transport = { require_db: true, service_dates: [SATURDAY] };

@@ -31,6 +31,48 @@ const {
   assertResolvedVerticalScope,
 } = require('../luna-front-desk-vertical-scope');
 
+const ACCOMMODATION_TRANSPORT_KEYS = Object.freeze([
+  'check_in',
+  'check_out',
+  'package_code',
+  'package_interest',
+  'guest_count',
+  'room_type',
+  'room_preference',
+  'selected_bed_codes',
+  'bed_code',
+  'gender_preference',
+  'group_gender',
+  'guest_packages',
+  'manual_price_per_night_cents',
+  'manual_price_per_night_euros',
+]);
+
+function rejectAccommodationTransportFields(transportBody) {
+  const body = transportBody && typeof transportBody === 'object' ? transportBody : {};
+  const found = ACCOMMODATION_TRANSPORT_KEYS.filter((k) => {
+    const v = body[k];
+    if (v == null || v === '') return false;
+    if (Array.isArray(v) && v.length === 0) return false;
+    return true;
+  });
+  if (found.length > 0) {
+    return {
+      ok: false,
+      status: 422,
+      body: {
+        success: false,
+        ok: false,
+        reason: 'accommodation_fields_not_supported',
+        reason_code: 'accommodation_fields_not_supported',
+        vertical_id: VERTICAL_IDS.SURF_SCHOOL,
+        fields: found,
+      },
+    };
+  }
+  return { ok: true };
+}
+
 function mapCatalogChannel(channel) {
   const c = String(channel || '').trim();
   if (c === VERTICAL_CHANNELS.SCHEDULE) return CATALOG_CHANNELS.SCHEDULE;
@@ -71,6 +113,8 @@ const surfSchoolVerticalAdapter = {
   async listOfferings(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const rejected = rejectAccommodationTransportFields(request.transportBody);
+    if (!rejected.ok) return rejected;
     const built = buildSunsetCatalogCommand({
       channel: mapCatalogChannel(request.channel),
       trustedLocationId: request.resolved.locationId,
@@ -86,6 +130,8 @@ const surfSchoolVerticalAdapter = {
   async quoteOffering(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const rejected = rejectAccommodationTransportFields(request.transportBody);
+    if (!rejected.ok) return rejected;
     const built = buildSunsetQuoteCommand({
       channel: mapQuoteChannel(request.channel),
       trustedLocationId: request.resolved.locationId,
@@ -101,6 +147,8 @@ const surfSchoolVerticalAdapter = {
   async createBooking(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const rejected = rejectAccommodationTransportFields(request.transportBody);
+    if (!rejected.ok) return rejected;
     if (!pg) {
       return {
         ok: false,
@@ -135,6 +183,8 @@ const surfSchoolVerticalAdapter = {
   async checkAvailability(pg, request = {}) {
     const scope = assertResolvedVerticalScope(request.resolved, VERTICAL_IDS.SURF_SCHOOL);
     if (!scope.ok) return scopeFailure(scope);
+    const rejected = rejectAccommodationTransportFields(request.transportBody);
+    if (!rejected.ok) return rejected;
     const transportBody = {
       ...(request.transportBody || {}),
       include_capacity: true,
@@ -191,4 +241,6 @@ const surfSchoolVerticalAdapter = {
 
 module.exports = {
   surfSchoolVerticalAdapter,
+  ACCOMMODATION_TRANSPORT_KEYS,
+  rejectAccommodationTransportFields,
 };

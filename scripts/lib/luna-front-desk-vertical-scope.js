@@ -13,8 +13,10 @@ const VERTICAL_CHANNELS = Object.freeze({
 
 const VERTICAL_TENANT = Object.freeze({
   [VERTICAL_IDS.SURF_SCHOOL]: 'sunset',
-  [VERTICAL_IDS.ACCOMMODATION]: 'wolfhouse',
+  [VERTICAL_IDS.ACCOMMODATION]: 'wolfhouse-somo',
 });
+
+const WOLFHOUSE_CLIENT_ALIASES = Object.freeze(['wolfhouse', 'wolfhouse-somo']);
 
 function assertResolvedVerticalScope(resolved, expectedVerticalId) {
   if (!resolved || resolved.ok !== true) {
@@ -47,9 +49,16 @@ function assertResolvedVerticalScope(resolved, expectedVerticalId) {
   return { ok: true };
 }
 
+function isWolfhouseClientSlug(clientSlug) {
+  const slug = String(clientSlug || '').trim();
+  return WOLFHOUSE_CLIENT_ALIASES.includes(slug);
+}
+
 module.exports = {
   VERTICAL_IDS,
   VERTICAL_CHANNELS,
   VERTICAL_TENANT,
+  WOLFHOUSE_CLIENT_ALIASES,
+  isWolfhouseClientSlug,
   assertResolvedVerticalScope,
 };

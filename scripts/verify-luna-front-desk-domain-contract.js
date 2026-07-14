@@ -228,5 +228,18 @@ assert('service channels manual_staff + luna_whatsapp', /manual_staff/.test(serv
 assert('quote service exports executeSunsetQuote', /executeSunsetQuote/.test(quoteServiceSrc));
 assert('quote service stale provenance', /validateQuoteProvenanceForCreate/.test(quoteServiceSrc));
 
+console.log('\n[8] Accommodation vertical boundary (Slice 7)');
+const accAdapterSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'verticals', 'accommodation-vertical-adapter.js'), 'utf8');
+const accAppSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'wolfhouse-accommodation-application.js'), 'utf8');
+const contractDoc = fs.readFileSync(CONTRACT, 'utf8');
+assert('contract documents wolfhouse-somo tenant', /wolfhouse-somo/.test(contractDoc));
+assert('accommodation adapter exists', /accommodationVerticalAdapter/.test(accAdapterSrc));
+assert('application delegates to calculateWolfhouseQuote', /calculateWolfhouseQuote/.test(accAppSrc));
+assert('application rejects surf-school fields', /surf_school_fields_not_supported/.test(accAppSrc));
+assert('quote-preview uses accommodation application', /executeWolfhouseAccommodationQuote/.test(apiSrc));
+assert('staff-bot-v2 package preview uses vertical invoke', /invokeVerticalOperation/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-bot-v2-routes.js'), 'utf8')));
+assert('no Sunset catalog import in accommodation app', !/luna-front-desk-catalog-service/.test(accAppSrc));
+assert('no Sunset quote import in accommodation app', !/luna-front-desk-quote-service/.test(accAppSrc));
+
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

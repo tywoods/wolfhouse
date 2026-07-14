@@ -461,6 +461,9 @@ const {
   calculateWolfhouseQuote,
 } = require('./lib/wolfhouse-quote-calculator');
 const {
+  executeWolfhouseAccommodationQuote,
+} = require('./lib/wolfhouse-accommodation-application');
+const {
   normalizeBookingGuestsInput,
   normalizeBotBookingPaymentChoice,
   buildPerPersonBreakdown,
@@ -9440,14 +9443,6 @@ async function handleQuotePreview(req, res, user) {
     if (normalizedGuestPackages.error) return send400(res, normalizedGuestPackages.error);
     guestPackages = normalizedGuestPackages.guest_packages || [];
   }
-  const addOnPrep = validateAndNormalizeQuoteAddOns(addOns, guestCountInt || 1);
-  const pkgCtx = resolveBotBookingPackageContext({
-    packageCode,
-    guestPackages,
-    checkIn,
-    checkOut,
-    guestCount: guestCountInt,
-  });
 
   if (!checkIn || !checkOut) {
     return send400(res, 'check_in and check_out are required (YYYY-MM-DD)');
@@ -9459,72 +9454,55 @@ async function handleQuotePreview(req, res, user) {
   const actorId   = user ? user.staff_user_id : 'dev-quote-preview-local';
   const actorRole = user ? user.role          : 'viewer';
 
-  if (packageCode !== undefined) {
-    const packageNightCheck = validateStaffPackageNightRule(checkIn, checkOut, packageCode);
-    if (!packageNightCheck.ok) {
-      appendAuditLog({
-        ts: new Date().toISOString(),
-        intent: 'api:quote_preview',
-        preview_only: true,
-        no_write_performed: true,
-        success: false,
-        error: 'package_min_nights_violation',
-        client_slug: clientSlug,
-        check_in: checkIn,
-        check_out: checkOut,
-        package_code: packageCode,
-        nights: packageNightCheck.nights,
-        staff_user_id: actorId,
-        staff_role: actorRole,
-        elapsed_ms: Date.now() - started,
-      });
-      return send400(res, packageNightCheck.error);
-    }
-  }
-
   let quote;
-  try {
-    if (!addOnPrep.ok) {
-      quote = {
-        success: false,
-        staff_review_required: true,
-        blockers: addOnPrep.blockers,
-        unknown_add_on_codes: addOnPrep.unknown_codes,
-        line_items: [],
-        subtotal_cents: 0,
-        discount_cents: 0,
-        total_cents: 0,
-        deposit_required_cents: 0,
-        currency: 'EUR',
-      };
-    } else {
-      quote = calculateWolfhouseQuote({
-        client_slug:    clientSlug,
-        check_in:       checkIn,
-        check_out:      checkOut,
-        guest_count:    guestCountInt || guestCount,
-        package_code:   pkgCtx.quotePackageCode,
-        guest_packages: pkgCtx.guestPackagesForQuote.length ? pkgCtx.guestPackagesForQuote : undefined,
-        room_type:      roomType,
-        payment_choice: paymentChoice,
-        add_ons:        addOnPrep.add_ons,
-        manual_price_per_night_cents: manualPricePerNightCents,
-      });
-    }
-  } catch (err) {
+  const quoteResult = executeWolfhouseAccommodationQuote({
+    client_slug: clientSlug,
+    check_in: checkIn,
+    check_out: checkOut,
+    guest_count: guestCountInt || guestCount,
+    package_code: packageCode,
+    guest_packages: guestPackages,
+    room_type: roomType,
+    room_preference: body.room_preference,
+    payment_choice: paymentChoice,
+    add_ons: addOns,
+    manual_price_per_night_cents: manualPricePerNightCents,
+  });
+  if (quoteResult.status === 400 && quoteResult.body && quoteResult.body.package_night_violation) {
+    const packageNightCheck = quoteResult.body.package_night_violation;
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:quote_preview',
+      preview_only: true,
+      no_write_performed: true,
+      success: false,
+      error: 'package_min_nights_violation',
+      client_slug: clientSlug,
+      check_in: checkIn,
+      check_out: checkOut,
+      package_code: packageCode,
+      nights: packageNightCheck.nights,
+      staff_user_id: actorId,
+      staff_role: actorRole,
+      elapsed_ms: Date.now() - started,
+    });
+    return send400(res, packageNightCheck.error);
+  }
+  if (!quoteResult.ok && quoteResult.status === 500) {
     appendAuditLog({
       ts:            new Date().toISOString(),
       intent:        'api:quote_preview',
       preview_only:  true,
       no_write_performed: true,
       success:       false,
-      error:         err.message,
+      error:         quoteResult.body && quoteResult.body.error ? quoteResult.body.error : 'quote calculation failed',
       elapsed_ms:    Date.now() - started,
       staff_user_id: actorId,
       staff_role:    actorRole,
     });
     return sendJSON(res, 500, { success: false, error: 'quote calculation failed' });
   }
+  quote = quoteResult.body.quote;
 
   const elapsed = Date.now() - started;
   appendAuditLog({

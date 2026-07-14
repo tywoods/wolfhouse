@@ -286,6 +286,7 @@
     "verify:luna-front-desk-quote-service": "node scripts/verify-luna-front-desk-quote-service.js",
     "verify:luna-front-desk-catalog-service": "node scripts/verify-luna-front-desk-catalog-service.js",
     "verify:luna-front-desk-vertical-adapter": "node scripts/verify-luna-front-desk-vertical-adapter.js",
+    "verify:luna-front-desk-accommodation-adapter": "node scripts/verify-luna-front-desk-accommodation-adapter.js",
     "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-full-day-equipment-addon": "node scripts/verify-sunset-full-day-equipment-addon.js",

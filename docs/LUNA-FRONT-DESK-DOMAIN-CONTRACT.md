@@ -362,22 +362,24 @@ HTTP routes resolve a **trusted tenant context** (auth-scoped `client_slug` + `l
 | `client_slug` | Vertical | Status |
 |---------------|----------|--------|
 | `sunset` | `surf_school` | **Migrated** — delegates to Slice 3–5 services |
-| `wolfhouse` | `accommodation` | **Placeholder** — all operations return `not_migrated` |
+| `wolfhouse-somo` (`wolfhouse` alias) | `accommodation` | **Migrated** — delegates to Wolfhouse application helpers |
 | other | — | Fail closed (`unknown_tenant`) |
 
 Location for Sunset must pass `isSunsetLocationId`; unknown locations fail closed (`unknown_location`). Body-supplied tenant/location never override auth-scoped context.
 
 ### Vertical operations (interface)
 
-| Operation | Surf-school delegate | Write? |
-|-----------|---------------------|--------|
-| `listOfferings` | `luna-front-desk-catalog-service` | No |
-| `quoteOffering` | `luna-front-desk-quote-service` | No |
-| `createBooking` | `luna-front-desk-booking-create-service` | Yes |
-| `evaluateDates` | `sunset-offering-schedule` | No |
-| `checkAvailability` | catalog + capacity enrichment | No |
+| Operation | Surf-school delegate | Accommodation delegate | Write? |
+|-----------|---------------------|------------------------|--------|
+| `listOfferings` | `luna-front-desk-catalog-service` | `wolfhouse-accommodation-application` (+ pricing config) | No |
+| `quoteOffering` | `luna-front-desk-quote-service` | `wolfhouse-accommodation-application` → `calculateWolfhouseQuote` | No |
+| `createBooking` | `luna-front-desk-booking-create-service` | dry-run: `runLunaGuestBookingDryRun`; live create **deferred** | Dry-run only |
+| `evaluateDates` | `sunset-offering-schedule` | `wolfhouse-package-night-rules` + season quote gate | No |
+| `checkAvailability` | catalog + capacity enrichment | `runAvailabilityCheckDryRun` | No |
 
-**Adapters:** `scripts/lib/verticals/surf-school-vertical-adapter.js`, `scripts/lib/verticals/accommodation-vertical-placeholder.js`.
+**Adapters:** `scripts/lib/verticals/surf-school-vertical-adapter.js`, `scripts/lib/verticals/accommodation-vertical-adapter.js`.
+
+**Application layer:** `scripts/lib/wolfhouse-accommodation-application.js` — single delegation target for Wolfhouse stay/package/availability/dry-run create; no Sunset catalog or price resolver imports.
 
 ### Shared platform vs surf-school
 
@@ -385,9 +387,18 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 |-------|------|
 | **Platform** | Vertical resolver, tenant/location guards, channel normalization, invoke wiring |
 | **Surf-school** | Sunset catalog/quote/create services, schedule rules, course join, Admin surf packs |
-| **Accommodation (Slice 7+)** | Wolfhouse bed/night booking — not yet behind this adapter |
+| **Accommodation (Slice 7)** | Wolfhouse nights, packages, beds — `wolfhouse-somo` tenant; rejects surf-school transport fields |
 
 ### Migration status
 
 - **Slice 6 (done):** Sunset Staff/Luna catalog, quote, create, joinable-courses routes call `invokeVerticalOperation` — no direct imports of catalog/quote/create services in `staff-query-api.js`.
-- **Slice 7 (planned):** Wolfhouse accommodation adapter replacing `not_migrated` placeholder; Wolfhouse booking implementation unchanged until then.
+- **Slice 7 (done):** Wolfhouse accommodation adapter replaces `not_migrated` placeholder. Migrated routes: `POST /staff/quote-preview` (application quote helper), `POST /staff/bot/package-price-preview` (vertical `listOfferings`). Live bot/manual booking create remains on existing Staff routes until write service extraction.
+
+### Accommodation capabilities deferred (Slice 7)
+
+| Capability | Status | Notes |
+|------------|--------|-------|
+| Live `createBooking` writes | **Deferred** | Adapter returns `live_booking_create_requires_staff_route`; use `POST /staff/bot/bookings/create` or `POST /staff/manual-bookings/create` |
+| Full HTTP parity on `POST /staff/bot/availability-check` | **Deferred** | Adapter uses `runAvailabilityCheckDryRun` (Luna dry-run engine); Staff route retains demo-calendar enrichment |
+| Payment link / Stripe orchestration | **Out of scope** | Unchanged Staff API paths |
+| Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |

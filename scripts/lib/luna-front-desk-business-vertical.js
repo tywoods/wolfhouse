@@ -18,10 +18,11 @@ const {
   VERTICAL_IDS,
   VERTICAL_CHANNELS,
   VERTICAL_TENANT,
+  isWolfhouseClientSlug,
   assertResolvedVerticalScope,
 } = require('./luna-front-desk-vertical-scope');
 const { surfSchoolVerticalAdapter } = require('./verticals/surf-school-vertical-adapter');
-const { accommodationVerticalPlaceholder } = require('./verticals/accommodation-vertical-placeholder');
+const { accommodationVerticalAdapter } = require('./verticals/accommodation-vertical-adapter');
 
 const SUNSET_TENANT = VERTICAL_TENANT[VERTICAL_IDS.SURF_SCHOOL];
 const WOLFHOUSE_TENANT = VERTICAL_TENANT[VERTICAL_IDS.ACCOMMODATION];
@@ -64,7 +65,7 @@ function resolveBusinessVertical(trustedTenantContext) {
     };
   }
 
-  if (clientSlug === WOLFHOUSE_TENANT) {
+  if (isWolfhouseClientSlug(clientSlug)) {
     return {
       ok: true,
       verticalId: VERTICAL_IDS.ACCOMMODATION,
@@ -84,7 +85,7 @@ function resolveBusinessVertical(trustedTenantContext) {
 function getVerticalAdapter(resolved) {
   if (!resolved || resolved.ok !== true) return null;
   if (resolved.verticalId === VERTICAL_IDS.SURF_SCHOOL) return surfSchoolVerticalAdapter;
-  if (resolved.verticalId === VERTICAL_IDS.ACCOMMODATION) return accommodationVerticalPlaceholder;
+  if (resolved.verticalId === VERTICAL_IDS.ACCOMMODATION) return accommodationVerticalAdapter;
   return null;
 }
 
@@ -131,5 +132,5 @@ module.exports = {
   assertResolvedVerticalScope,
   invokeVerticalOperation,
   surfSchoolVerticalAdapter,
-  accommodationVerticalPlaceholder,
+  accommodationVerticalAdapter,
 };
