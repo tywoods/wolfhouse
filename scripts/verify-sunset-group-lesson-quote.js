@@ -49,15 +49,17 @@ const DATE_1 = ['2026-07-20'];
 const { SUNSET_CATALOG_READ_TOOLS } = require('./lib/sunset-catalog-tool-executor');
 const { resolveSunsetBotBodyLocation } = require('./lib/sunset-catalog-tool-executor');
 
-console.log('\n── A. Pre-fix gap: read-only group-lesson quote tool now exists ──');
+console.log('\n── A. Luna-facing group-lesson quote tool is disabled / unregistered ──');
 ok(!Object.prototype.hasOwnProperty.call(SUNSET_CATALOG_READ_TOOLS, 'get_sunset_group_lesson_quote'),
-  'no pre-existing catalog read tool for group-lesson quote (dedicated /lesson-quote endpoint)');
-ok(pluginSrc.includes('def get_sunset_group_lesson_quote('), 'Hermes plugin defines get_sunset_group_lesson_quote');
-ok(staffApiSrc.includes("pathname === '/staff/bot/sunset/lesson-quote'"), 'Staff API route /staff/bot/sunset/lesson-quote wired');
+  'no catalog read tool for group-lesson quote');
+ok(pluginSrc.includes('def get_sunset_group_lesson_quote('), 'stub def kept (disabled redirect)');
+ok(pluginSrc.includes('group_lessons_not_offered'), 'group lesson quote returns group_lessons_not_offered');
+ok(!/\(\s*"get_sunset_group_lesson_quote"\s*,/.test(pluginSrc), 'get_sunset_group_lesson_quote not in Hermes tool registry');
+ok(staffApiSrc.includes("pathname === '/staff/bot/sunset/lesson-quote'"), 'Staff API route /staff/bot/sunset/lesson-quote still exists for internal/tests');
 ok(staffApiSrc.includes('handleBotSunsetLessonQuote'), 'handleBotSunsetLessonQuote handler present');
 const preBookingTools = ['get_sunset_rental_price', 'get_sunset_private_lesson', 'get_sunset_lesson_availability'];
-ok(preBookingTools.every((t) => pluginSrc.includes(`def ${t}(`)) && !preBookingTools.includes('get_sunset_group_lesson_quote'),
-  'before this fix only rental/private/availability read tools existed for lessons (not group-lesson quote)');
+ok(preBookingTools.every((t) => pluginSrc.includes(`def ${t}(`)),
+  'pre-booking rental/private/availability tools remain');
 
 console.log('\n── B. Baseline seed is NOT a live group-lesson unit ──');
 const adminCfg = resolveTenantBusinessConfig('sunset', LOC);
@@ -270,14 +272,16 @@ async function parity(dates, qty) {
   );
   ok(!/INSERT |UPDATE |DELETE |stripe|whatsapp/i.test(handlerSlice), 'handler source has no write/stripe/whatsapp calls');
 
-  console.log('\n── H. Plugin passthrough (no local money math) ──');
+  console.log('\n── H. Plugin stub redirects guests to courses (no group-lesson money path) ──');
   const glPluginStart = pluginSrc.indexOf('def get_sunset_group_lesson_quote');
-  const glPluginEnd = pluginSrc.indexOf('\ndef _schema', glPluginStart);
+  const glPluginEnd = pluginSrc.indexOf('\ndef get_sunset_lesson_catalog', glPluginStart);
   const glPluginBlock = pluginSrc.slice(glPluginStart, glPluginEnd > glPluginStart ? glPluginEnd : glPluginStart + 2500);
-  ok(glPluginBlock.includes('unit_amount_cents') && glPluginBlock.includes('data.get("total_cents")'),
-    'plugin returns authoritative cents from Staff API');
+  ok(glPluginBlock.includes('group_lessons_not_offered'),
+    'plugin stub returns group_lessons_not_offered');
+  ok(!glPluginBlock.includes('/sunset/lesson-quote'),
+    'plugin stub does not call lesson-quote endpoint');
   ok(!/\btotal_cents\s*=/.test(glPluginBlock) && !/\bamount_eur\s*=/.test(glPluginBlock),
-    'plugin handler does not multiply or invent totals');
+    'plugin stub does not multiply or invent totals');
 
   console.log('\n── I. Guest-facing reply parity (amounts must appear in quote) ──');
   function amountsInText(text) {

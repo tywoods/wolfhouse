@@ -71,7 +71,7 @@ for (const [body, reason] of [
   [{ location_id: 'sunset-somo', offering_id: 'inactive-price' }, 'inactive_offering'],
   [{ location_id: 'sunset-somo', offering_id: 'midday-price', as_of_date: '2027-01-01' }, 'course_identity_missing'],
   [{ location_id: 'sunset-somo', offering_id: 'midday-price', course_id: 'wrong', as_of_date: '2027-01-01' }, 'mismatched_course_offering'],
-  [{ location_id: 'sunset-somo', offering_id: 'slot-price', quantity: 1, require_db: true, as_of_date: '2027-01-01' }, 'incompatible_unit'],
+  [{ location_id: 'sunset-somo', offering_id: 'slot-price', quantity: 1, require_db: true, as_of_date: '2027-01-01' }, 'unknown_offering'],
   [{ location_id: 'sunset-somo', offering_id: 'future-price', as_of_date: '2027-01-01' }, 'future_price'],
   [{ location_id: 'sunset-somo', offering_id: 'expired-price', as_of_date: '2027-01-01' }, 'expired_price'],
 ]) {

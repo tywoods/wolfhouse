@@ -3,10 +3,10 @@
 /**
  * Sunset admin-course discovery + assignment gates.
  *
- * Joinable courses come from tenant_surf_pack_rules (and group lesson slots from
- * tenant_lesson_time_rules + tenant_lesson_capacity_rules). Capacity =
- * configured group_size/slot capacity − confirmed booking_service_records for
- * that course/slot on the date. Sunset-only; never invents courses.
+ * Joinable courses come from tenant_surf_pack_rules. Capacity =
+ * configured group_size − confirmed booking_service_records for that course on
+ * the date. Standalone group-lesson slots are NOT offered to Luna. Sunset-only;
+ * never invents courses.
  */
 
 const {
@@ -18,10 +18,6 @@ const {
   isSunsetLocationId,
   sqlLocationMatch,
 } = require('./sunset-school-locations');
-const {
-  resolveTenantBusinessConfigAsync,
-  isSunsetAdminDbReadEnabled,
-} = require('./tenant-business-config');
 
 const SUNSET_CLIENT_SLUG = 'sunset';
 
@@ -293,54 +289,9 @@ async function listJoinableSunsetOfferings(pg, opts) {
     });
   }
 
-  // Group lesson slots from admin lesson_time + capacity rules (DB when flag on).
+  // Luna offers admin COURSES only — never standalone group-lesson slots.
+  // Keep the key for API stability; always empty.
   const group_lessons = [];
-  try {
-    const cfg = await resolveTenantBusinessConfigAsync(clientSlug, {
-      pgClient: pg,
-      locationId,
-      skipDb: !isSunsetAdminDbReadEnabled(),
-    });
-    const slots = (cfg && cfg.lesson_times) || [];
-    const dailyCap = cfg && cfg.lesson_capacity && cfg.lesson_capacity.default_daily_cap != null
-      ? Number(cfg.lesson_capacity.default_daily_cap)
-      : null;
-    for (const slot of slots) {
-      if (slot.active === false) continue;
-      const slotTime = String(slot.slot_time || '').trim();
-      if (!slotTime) continue;
-      const slotCap = slot.capacity != null && Number.isFinite(Number(slot.capacity))
-        ? Number(slot.capacity)
-        : dailyCap;
-      let seatsBooked = 0;
-      let seatsRemaining = null;
-      let joinable = true;
-      if (asOfDate && Number.isFinite(slotCap) && slotCap > 0) {
-        seatsBooked = await countConfirmedLessonSlotSeatsOnDate(pg, {
-          clientSlug,
-          locationId,
-          slotTime: slotTime.split('-')[0].trim(),
-          serviceDate: asOfDate,
-        });
-        seatsRemaining = Math.max(0, slotCap - seatsBooked);
-        joinable = seatsRemaining > 0;
-      }
-      group_lessons.push({
-        offering_type: 'group_lesson',
-        slot_id: slot.slot_id || null,
-        label: slot.offering_label || slot.label || 'Group lesson',
-        slot_time: slotTime,
-        capacity: Number.isFinite(slotCap) ? slotCap : null,
-        seats_booked: asOfDate ? seatsBooked : null,
-        seats_remaining: seatsRemaining,
-        joinable: asOfDate ? joinable : true,
-        weekdays_active: Array.isArray(slot.weekdays_active) ? slot.weekdays_active : [],
-        age_band: slot.age_band || null,
-      });
-    }
-  } catch (_) {
-    // Discovery still returns courses even if lesson slot config fails.
-  }
 
   return {
     ok: true,
@@ -348,11 +299,9 @@ async function listJoinableSunsetOfferings(pg, opts) {
     location_id: locationId,
     date: asOfDate,
     courses: asOfDate ? courses.filter((c) => c.joinable || opts.includeFull === true) : courses,
-    group_lessons: asOfDate ? group_lessons.filter((g) => g.joinable || opts.includeFull === true) : group_lessons,
+    group_lessons,
     source_tables: [
       'tenant_surf_pack_rules',
-      'tenant_lesson_time_rules',
-      'tenant_lesson_capacity_rules',
       'booking_service_records',
     ],
   };

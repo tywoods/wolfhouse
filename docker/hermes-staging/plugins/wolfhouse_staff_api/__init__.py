@@ -1510,7 +1510,7 @@ def get_sunset_lesson_availability(params, **kwargs):
 
 
 def get_sunset_joinable_courses(params, **kwargs):
-    """List admin-configured courses (and group lesson slots) a guest can join."""
+    """List admin-configured courses a guest can join (courses only — no group lessons)."""
     del kwargs
     payload = dict(params or {})
     body = {}
@@ -1523,14 +1523,14 @@ def get_sunset_joinable_courses(params, **kwargs):
     data = _post_bot("/sunset/joinable-courses", body)
     ok = bool(data.get("ok")) or bool(data.get("success"))
     courses = data.get("courses") if isinstance(data.get("courses"), list) else []
-    group_lessons = data.get("group_lessons") if isinstance(data.get("group_lessons"), list) else []
+    # courses only — never surface standalone group_lessons to Luna
     return _json_result({
         "success": ok,
         "tool": "get_sunset_joinable_courses",
         "location_id": data.get("location_id"),
         "date": data.get("date"),
         "courses": courses,
-        "group_lessons": group_lessons,
+        "group_lessons": [],
         "source_tables": data.get("source_tables"),
         "staff_review_needed": False,
         "do_not_escalate": True,
@@ -1542,44 +1542,25 @@ def get_sunset_joinable_courses(params, **kwargs):
 
 
 def get_sunset_group_lesson_quote(params, **kwargs):
+    """Disabled — Luna offers admin courses (+ private) only, never standalone group lessons."""
     del kwargs
-    payload = dict(params or {})
-    service_dates = payload.get("service_dates")
-    if not isinstance(service_dates, list) or not service_dates:
-        return _json_result({
-            "success": False,
-            "tool": "get_sunset_group_lesson_quote",
-            "error": "service_dates_required",
-            "guest_safe_next_action": "Which date(s) were you thinking for the group lessons?",
-        })
-    body = {"service_dates": service_dates}
-    if payload.get("quantity") is not None:
-        body["quantity"] = payload["quantity"]
-    if payload.get("location_id"):
-        body["location_id"] = payload["location_id"]
-    data = _post_bot("/sunset/lesson-quote", body)
-    ok = bool(data.get("success")) or bool(data.get("ok"))
+    del params
     return _json_result({
-        "success": ok,
+        "success": False,
         "tool": "get_sunset_group_lesson_quote",
-        "location_id": data.get("location_id"),
-        "service_dates": data.get("service_dates"),
-        "quantity": data.get("quantity"),
-        "date_count": data.get("date_count"),
-        "unit_amount_cents": data.get("unit_amount_cents"),
-        "line_total_cents": data.get("line_total_cents"),
-        "total_cents": data.get("total_cents"),
-        "amount_eur": data.get("amount_eur"),
-        "currency": data.get("currency") or "EUR",
-        "price_source": data.get("price_source"),
-        "reason": data.get("reason") if not ok else None,
-        "staff_review_needed": not ok and bool(data.get("staff_review_needed")),
-        "guest_safe_next_action": None if ok else "Let me double-check that lesson price with the team and get right back to you 😊",
+        "disabled": "group_lessons_not_offered",
+        "error": "group_lessons_not_offered",
+        "staff_review_needed": False,
+        "do_not_escalate": True,
+        "guest_safe_next_action": (
+            "We book our admin-configured courses (and private lessons) — "
+            "which course duration were you looking at?"
+        ),
     })
 
 
 def get_sunset_lesson_catalog(params, **kwargs):
-    """Read the configured Sunset lesson/course offerings before describing them."""
+    """Read the configured Sunset course/private offerings before describing them."""
     del kwargs
     payload = dict(params or {})
     body = {}
@@ -1596,16 +1577,27 @@ def get_sunset_lesson_catalog(params, **kwargs):
         body["require_db"] = True
     data = _post_bot("/sunset/catalog", body)
     ok = bool(data.get("ok"))
+    raw = data.get("offerings") if ok and isinstance(data.get("offerings"), list) else []
+    # Belt-and-suspenders: never return standalone group/kids lesson slots to Luna.
+    offerings = [
+        o for o in raw
+        if isinstance(o, dict)
+        and str(o.get("offering_type") or "").lower() not in ("group_lesson", "kids_lesson")
+        and "lesson_slot_" not in str(o.get("offering_id") or "")
+        and "lesson_slot_" not in str(o.get("price_id") or "")
+        and "lesson_slot_" not in str(o.get("item_code") or "")
+        and str(o.get("offering_id") or "") != "group_lesson_adult"
+    ]
     return _json_result({
         "success": ok,
         "tool": "get_sunset_lesson_catalog",
         "location_id": data.get("location_id"),
-        "offerings": data.get("offerings") if ok else [],
+        "offerings": offerings,
         "currency": data.get("currency") or "EUR",
         "source": data.get("source"),
         "reason": data.get("reason") if not ok else None,
         "staff_review_needed": not ok,
-        "guest_safe_next_action": None if ok else "Let me confirm the current lesson options with the team and get right back to you 😊",
+        "guest_safe_next_action": None if ok else "Let me confirm the current course options with the team and get right back to you 😊",
     })
 
 
@@ -2365,7 +2357,6 @@ def _sunset_tools():
         ("get_sunset_joinable_courses", "List Admin-configured courses (and group-lesson slots) a guest can currently join BEFORE offering or booking a course. Reads tenant_surf_pack_rules (and lesson time/capacity rules). Prefer course_id values returned here — never invent a course. Optional date filters remaining capacity (configured group_size − confirmed bookings).", get_sunset_joinable_courses, {"date": {"type": "string", "description": "Optional YYYY-MM-DD to compute remaining capacity and filter joinable offerings."}, "include_full": {"type": "boolean", "description": "When true, also return full courses (joinable=false)."}, **loc}, []),
         ("get_sunset_lesson_catalog", "Get the current Admin-configured Sunset lesson and course options BEFORE describing options or prices. Offer only returned offerings; preserve offering_id and course_id exactly. Optional date filters effectiveness; quantity is informational.", get_sunset_lesson_catalog, {"date": {"type": "string", "description": "Optional as-of date YYYY-MM-DD when asking what is offered on a day."}, "quantity": {"type": "integer", "description": "Optional surfer count (does not invent totals — use get_sunset_offering_quote)."}, "require_db": {"type": "boolean", "description": "Require DB-backed Admin data when true."}, **loc}, []),
         ("get_sunset_offering_quote", "Get the authoritative quote for one exact offering returned by get_sunset_lesson_catalog. Pass its offering_id exactly (and course_id for a course); never substitute the generic group lesson price.", get_sunset_offering_quote, {"offering_id": {"type": "string", "description": "Exact offering_id returned by get_sunset_lesson_catalog."}, "course_id": {"type": "string", "description": "Exact course_id returned with a course offering."}, "quantity": {"type": "integer", "description": "Number of surfers/items (default 1)."}, "service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected session dates when required by the offering billing unit."}, "require_db": {"type": "boolean"}, **loc}, ["offering_id"]),
-        ("get_sunset_group_lesson_quote", "Get an authoritative quote for ordinary group lessons BEFORE quoting any lesson price or asking for a booking name. Pass every selected lesson date in service_dates and the number of surfers in quantity. Use the returned total_cents/amount_eur verbatim — never multiply or invent money locally. Multiple dates are still ordinary lesson dates unless an actual configured course was selected. This tool is read-only; never call create_sunset_booking to discover a price.", get_sunset_group_lesson_quote, {"service_dates": {"type": "array", "items": {"type": "string"}, "description": "Selected group-lesson dates YYYY-MM-DD (one entry per session)."}, "quantity": {"type": "integer", "description": "Number of surfers per date (default 1)."}, **loc}, ["service_dates"]),
     ]
 
 

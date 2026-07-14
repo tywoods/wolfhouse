@@ -127,37 +127,9 @@ function buildSunsetLunaCatalogFromConfig(adminCfg, { locationId, asOfDate, requ
   const prices = adminCfg.prices || [];
   const rawOfferings = [];
 
-  for (const slot of adminCfg.lesson_times || []) {
-    if (slot.active === false || !slot.slot_id) continue;
-    const parsed = parseLessonSlotTime(slot.slot_time);
-    if (!parsed) continue;
-    const key = `lesson_slot_${slot.slot_id}__session`;
-    const found = exactPrice(prices, key, asOfDate);
-    if (!found.ok) continue;
-    const amount = cents(found.price);
-    rawOfferings.push({
-      offering_type: String(slot.age_band || '').includes('6_to_11') ? 'kids_lesson' : 'group_lesson',
-      offering_id: found.price.id || key,
-      course_id: null,
-      price_id: found.price.id || key,
-      label: slot.offering_label || found.price.label || 'Group lesson',
-      guest_description: slot.offering_label || found.price.label || 'Group lesson',
-      unit_amount_cents: amount,
-      currency: found.price.currency || 'EUR',
-      billing_unit: found.price.unit || 'session',
-      schedule: {
-        start_time: parsed.start_time,
-        end_time: parsed.end_time,
-        weekdays: Array.isArray(slot.weekdays_active) ? slot.weekdays_active : [],
-      },
-      duration: null,
-      capacity: slot.capacity != null ? Number(slot.capacity) : null,
-      slot_id: slot.slot_id,
-      slot_time: slot.slot_time,
-      age_band: slot.age_band || 'all_ages',
-      included_items: [],
-    });
-  }
+  // Standalone group / kids lesson slots are NOT offered to Luna. Courses
+  // (surf packs) + private lessons below are the only lesson products.
+  // (lesson_times / lesson_slot_* intentionally omitted.)
 
   for (const pack of adminCfg.surf_packs || []) {
     if (pack.active === false || !pack.pack_id) continue;

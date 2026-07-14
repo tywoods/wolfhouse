@@ -131,7 +131,7 @@ async function main() {
   assert('admin quote total = unit × qty × dates',
     quoteAdmin.total_cents === ADMIN_SLOT_CENTS * 2, JSON.stringify(quoteAdmin));
 
-  console.log('\n[E] Catalog hides seed; surfaces admin slots only');
+  console.log('\n[E] Catalog never surfaces group lesson slots (courses-only for Luna)');
   const seedCatalog = buildSunsetLunaCatalogFromConfig({
     ok: true,
     source: 'config',
@@ -164,12 +164,11 @@ async function main() {
   }, { locationId: 'sunset-somo' });
   const adminGroups = (adminCatalog.offerings || []).filter((o) => o.offering_type === 'group_lesson'
     || o.offering_type === 'kids_lesson');
-  assert('admin catalog includes the lesson slot',
-    adminGroups.some((o) => o.slot_id === SLOT_ID && o.unit_amount_cents === ADMIN_SLOT_CENTS),
-    JSON.stringify(adminGroups));
+  assert('admin catalog excludes standalone lesson slots for Luna',
+    adminGroups.length === 0, JSON.stringify(adminGroups));
   assert('admin catalog never offers seed €30 as group lesson',
-    !adminGroups.some((o) => o.unit_amount_cents === SEED_CENTS),
-    JSON.stringify(adminGroups));
+    !(adminCatalog.offerings || []).some((o) => Number(o.unit_amount_cents) === SEED_CENTS),
+    JSON.stringify(adminCatalog.offerings));
 
   console.log('\n[F] Sync baseline path (DB flag off) also refuses live seed quote');
   process.env.SUNSET_ADMIN_DB_READ_ENABLED = 'false';
