@@ -305,6 +305,11 @@ const {
   createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
 const {
+  BOOKING_CREATE_CHANNELS,
+  buildSunsetBookingCreateCommand,
+  executeSunsetBookingCreate,
+} = require('./lib/luna-front-desk-booking-create-service');
+const {
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
   getSunsetSchedulePaymentLink,
@@ -42961,23 +42966,20 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   } catch (_) {
     return send400(res, 'invalid JSON body');
   }
-  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
-  if (!dateNorm.ok) {
-    return sendJSON(res, 400, {
-      success: false,
-      error: dateNorm.reason || 'invalid_date',
-      needs_clarification: dateNorm.needs_clarification === true,
-    });
+
+  const trustedLocationId = query.location || body.location_id || body.location;
+  const built = buildSunsetBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+    transportBody: body,
+    trustedLocationId,
+    actorHints: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, { ...built.body, elapsed_ms: Date.now() - started });
   }
-  body = dateNorm.body;
 
   try {
-    const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {
-      clientSlug,
-      body,
-      locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
-      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
-    }));
+    const result = await withPgClient(async (pg) => executeSunsetBookingCreate(pg, built.command));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.booking_create',
@@ -42988,56 +42990,11 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
       elapsed_ms: Date.now() - started,
     });
     if (!result.ok) {
-      const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
-      const rawErr = (result.body && (result.body.reason_code || result.body.error)) || 'write_failed';
-      if (/no_price_for_|tier_key|course_tier|price_not_configured/i.test(String(rawErr))
-        || (result.body && result.body.reason_code)) {
-        const faced = staffFacingSunsetPriceError(rawErr);
-        return sendJSON(res, result.status || 422, {
-          success: false,
-          error: (result.body && result.body.error) || faced.error,
-          reason_code: (result.body && result.body.reason_code) || faced.reason_code,
-          elapsed_ms: Date.now() - started,
-        });
-      }
       return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
     }
 
-    // Authoritative DB pricing is applied inside createSunsetScheduleBooking (same TX).
-    // Only re-run after-create pricing when the create path did not already price.
     let bodyOut = { ...result.body, elapsed_ms: Date.now() - started };
     const bookingId = bodyOut.booking_id || (bodyOut.booking && bodyOut.booking.booking_id);
-    if (bookingId && !(bodyOut.total_cents > 0)) {
-      try {
-        const priced = await withPgClient((pg) => priceSunsetBookingAfterCreate(pg, clientSlug, bookingId));
-        if (!priced || !priced.ok) {
-          const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
-          const faced = staffFacingSunsetPriceError((priced && priced.error) || 'pricing_failed');
-          console.error('[sunset booking] price after create failed:', faced.reason_code);
-          return sendJSON(res, 422, {
-            success: false,
-            error: faced.error,
-            reason_code: faced.reason_code,
-            booking_id: bookingId,
-            booking_cancelled: !!(priced && priced.booking_cancelled),
-            elapsed_ms: Date.now() - started,
-          });
-        }
-        bodyOut.total_cents = priced.total_cents;
-        bodyOut.currency = 'EUR';
-      } catch (priceErr) {
-        console.error('[sunset booking] price after create failed:', priceErr && priceErr.message);
-        const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
-        const faced = staffFacingSunsetPriceError('pricing_failed');
-        return sendJSON(res, 422, {
-          success: false,
-          error: faced.error,
-          reason_code: faced.reason_code,
-          booking_id: bookingId,
-          elapsed_ms: Date.now() - started,
-        });
-      }
-    }
 
     // After Sunset lesson booking create: ensure waiver + Luna Spanish invite copy.
     // Soft-fails if migration 036 is not applied — booking create still succeeds.
@@ -43045,7 +43002,7 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     if (bookingId) {
       try {
         const waiverOut = await withPgClient(async (pg) => ensureWaiverForBookingSoft(pg, bookingId, {
-          locationId: normalizeSunsetLocationId(query.location || body.location_id || body.location),
+          locationId: built.command.locationId,
           env: process.env,
           source: 'sunset_schedule_booking_create',
         }));
@@ -43085,8 +43042,7 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
 //   - FORCES client_slug=sunset (never trusted from the body),
 //   - validates location_id against the Sunset whitelist (sunsetBotResolveLocation),
 //   - is gated by the relevant feature flag → returns { disabled: <reason> } when off,
-//   - reuses the SAME staff-side creators (createSunsetScheduleBooking /
-//     createSunsetScheduleStripeLink / reconcile / waiver) — no bespoke money code,
+//   - reuses executeSunsetBookingCreate (canonical application service) — no bespoke money code,
 //   - recomputes totals server-side (never trusts a client total),
 //   - rejects any accommodation/room/bed field (Sunset surf-school has none).
 //
@@ -43137,24 +43093,17 @@ async function handleBotSunsetBookingCreate(req, res) {
       detail: 'guest_confirmed_booking must be the literal boolean true before creating a booking.',
     });
   }
-  const dateNorm = normalizeSunsetBookingDatesInBody(body, new Date());
-  if (!dateNorm.ok) {
-    return sendJSON(res, 400, {
-      ok: false,
-      success: false,
-      reason: dateNorm.reason || 'date_clarification_required',
-      needs_clarification: dateNorm.needs_clarification === true,
-      detail: 'Please confirm the exact date (day, month, and year).',
-    });
+  const built = buildSunsetBookingCreateCommand({
+    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
+    transportBody: body,
+    trustedLocationId: loc.location_id,
+    actorHints: {},
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status, { ...built.body, ok: false, success: false, elapsed_ms: Date.now() - started });
   }
-  body = dateNorm.body;
   try {
-    const result = await withPgClient(async (pg) => createSunsetScheduleBooking(pg, {
-      clientSlug: SUNSET_CLIENT_SLUG,              // forced — body cannot override tenant
-      body,
-      locationId: loc.location_id,
-      actor: { source: 'agent_luna_whatsapp_bot' },
-    }));
+    const result = await withPgClient(async (pg) => executeSunsetBookingCreate(pg, built.command));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:bot.sunset.booking_create',
@@ -43164,47 +43113,19 @@ async function handleBotSunsetBookingCreate(req, res) {
       elapsed_ms: Date.now() - started,
     });
     if (!result.ok) {
-      return sendJSON(res, result.status, { ...result.body, success: false, client_slug: SUNSET_CLIENT_SLUG, elapsed_ms: Date.now() - started });
-    }
-    // Authoritative server-side total (never trust a client-supplied total).
-    // Fail closed — never return success with a silent €0 course/lesson total.
-    let totalCents = null;
-    const bookingId = result.body && result.body.booking_id;
-    if (bookingId) {
-      try {
-        const priced = await withPgClient((pg) => priceSunsetBookingAfterCreate(pg, SUNSET_CLIENT_SLUG, bookingId));
-        if (!priced || !priced.ok) {
-          return sendJSON(res, 422, {
-            ok: false,
-            success: false,
-            error: (priced && priced.error) || 'pricing_failed',
-            booking_id: bookingId,
-            booking_cancelled: !!(priced && priced.booking_cancelled),
-            client_slug: SUNSET_CLIENT_SLUG,
-            location_id: loc.location_id,
-            elapsed_ms: Date.now() - started,
-          });
-        }
-        totalCents = priced.total_cents;
-      } catch (priceErr) {
-        console.error('[bot sunset booking] price after create failed:', priceErr && priceErr.message);
-        return sendJSON(res, 422, {
-          ok: false,
-          success: false,
-          error: 'pricing_failed',
-          booking_id: bookingId,
-          client_slug: SUNSET_CLIENT_SLUG,
-          elapsed_ms: Date.now() - started,
-        });
+      const failBody = { ...result.body, ok: false, success: false, client_slug: SUNSET_CLIENT_SLUG, location_id: loc.location_id, elapsed_ms: Date.now() - started };
+      if (failBody.needs_clarification) {
+        failBody.reason = failBody.reason_code || failBody.error || 'date_clarification_required';
+        failBody.detail = 'Please confirm the exact date (day, month, and year).';
       }
+      return sendJSON(res, result.status, failBody);
     }
     return sendJSON(res, result.status, {
       ...result.body,
+      ok: true,
       success: true,
       client_slug: SUNSET_CLIENT_SLUG,
       location_id: loc.location_id,
-      total_cents: totalCents,
-      currency: 'EUR',
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {

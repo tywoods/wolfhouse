@@ -302,6 +302,7 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 | Course join / capacity | `scripts/lib/sunset-admin-course-join.js` |
 | Price resolve | `scripts/lib/sunset-admin-price-resolve.js`, `sunset-course-lesson-price-lookup.js` |
 | Booking writes | `scripts/lib/sunset-schedule-booking-writes.js` |
+| **Booking create application service** | `scripts/lib/luna-front-desk-booking-create-service.js` — `buildSunsetBookingCreateCommand`, `executeSunsetBookingCreate` |
 | HTTP surface | `scripts/staff-query-api.js` |
 | Contract verifier | `scripts/verify-luna-front-desk-domain-contract.js` |
 | Sunset pipeline gate | `scripts/verify-sunset-canonical-offering-pipeline.js` |
