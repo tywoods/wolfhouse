@@ -223,7 +223,15 @@ def paused_for_webhook_body(body: bytes) -> bool:
 
 def whatsapp_send_blocked(chat_id: Any) -> bool:
     """Re-check immediately before outbound send (stale generation suppression)."""
-    return guest_automation_paused(_phone_from_chat_id(chat_id), force_refresh=True)
+    phone = _phone_from_chat_id(chat_id)
+    try:
+        from wolfhouse.explicit_human_handoff import is_local_automation_blocked
+
+        if is_local_automation_blocked(phone):
+            return True
+    except Exception:
+        pass
+    return guest_automation_paused(phone, force_refresh=True)
 
 
 def guest_paused_for_event(event: Any) -> bool:
@@ -238,6 +246,13 @@ def guest_paused_for_event(event: Any) -> bool:
         phone = ""
     if not phone:
         return False
+    try:
+        from wolfhouse.explicit_human_handoff import is_local_automation_blocked
+
+        if is_local_automation_blocked(phone):
+            return True
+    except Exception:
+        pass
     return guest_automation_paused(phone, force_refresh=True)
 
 

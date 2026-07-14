@@ -55,7 +55,7 @@ async function main() {
     'pause_gate fail-closed on lookup failure',
     /pause_gate_lookup_failed/.test(pauseSrc) && /paused\s*=\s*True/.test(pauseSrc),
   );
-  assert('pause_gate send helper force_refresh', /whatsapp_send_blocked[\s\S]{0,200}force_refresh\s*=\s*True/.test(pauseSrc));
+  assert('pause_gate send helper force_refresh', /def whatsapp_send_blocked[\s\S]{0,800}force_refresh\s*=\s*True/.test(pauseSrc));
   assert(
     'pause_gate webhook preserves Inbox mirror path',
     /Do not short-circuit|Inbox mirroring still runs/.test(pauseSrc),

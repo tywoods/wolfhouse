@@ -193,7 +193,7 @@ const {
   buildGuestSurfReportReply,
 } = require('./lib/luna-guest-surf-report');
 const { loadActiveGuestBookings } = require('./lib/luna-guest-booking-disambiguation');
-const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman } = require('./lib/luna-guest-handoff-persist');
+const { markConversationNeedsHuman, resolveAndMarkConversationNeedsHuman, clearStaffNeedsHuman } = require('./lib/luna-guest-handoff-persist');
 const { resolveHandoffSql }  = require('./lib/staff-handoff-write-sql');
 const {
   getConversationInboxQuery,
@@ -30692,6 +30692,8 @@ function handoffLabel(code){
     'payment_inquiry':        'Payment question',
     'cancel_refund':          'Cancellation / refund',
     'needs_human':            'Needs staff reply',
+    'staff_manual_handoff':   'Needs staff reply',
+    'human_requested':        'Guest asked for a human',
     'rooming_issue':          'Rooming issue',
     'payment_claimed':        'Payment claimed',
     'booking_question':       'Booking question',
@@ -30812,10 +30814,72 @@ function updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused){
   }
 }
 
-function updateNeedsHumanBadgeInPlace(targetEl, needsHuman){
+function updateNeedsHumanBadgeInPlace(targetEl, needsHuman, opts){
+  opts = opts || {};
   var pauseSw = targetEl.querySelector('#luna-pause-switch');
-  var lunaPaused = pauseSw ? pauseSw.checked : false;
+  var lunaPaused = (typeof opts.conversation_paused === 'boolean')
+    ? opts.conversation_paused
+    : (pauseSw ? pauseSw.checked : false);
+  if (typeof opts.conversation_paused === 'boolean' && pauseSw) {
+    pauseSw.checked = !!opts.conversation_paused;
+  }
   updateConvHeaderPillsInPlace(targetEl, needsHuman, lunaPaused);
+  updateLunaPausedPillInPlace(targetEl, lunaPaused);
+}
+
+function wireNeedsHumanToggle(convId, targetEl){
+  var toggle = targetEl.querySelector('#conv-needs-human-toggle');
+  if (!toggle || toggle.dataset.wiredNeedsHuman === '1') return;
+  toggle.dataset.wiredNeedsHuman = '1';
+
+  toggle.addEventListener('change', function(){
+    var want = toggle.checked;
+    toggle.disabled = true;
+    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/needs-human', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      body: JSON.stringify({ client_slug: getClient(), needs_human: want }),
+    })
+      .then(function(r){
+        if (r.status === 401) throw new Error('Authentication required');
+        if (r.status === 403) throw new Error('Not allowed for this client');
+        return r.json().then(function(data){ return { status: r.status, data: data }; });
+      })
+      .then(function(out){
+        var d = out.data || {};
+        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
+        updateNeedsHumanBadgeInPlace(targetEl, d.needs_human === true, {
+          conversation_paused: d.conversation_paused === true,
+        });
+        if (inboxConversationsCache){
+          inboxConversationsCache = inboxConversationsCache.map(function(row){
+            var id = row.conversation_id || row.id;
+            if (id !== convId) return row;
+            return Object.assign({}, row, {
+              needs_human: d.needs_human === true,
+              handoff_reason: d.handoff_reason || null,
+              handoff_status: d.handoff_status || (d.handoff && d.handoff.status) || null,
+              luna_paused: d.conversation_paused === true ? true : row.luna_paused,
+            });
+          });
+          if (inboxFilter === 'needs-human' && !d.needs_human){
+            refreshInboxListPreserveDetail(convId);
+          } else {
+            updateInboxConvCardNeedsHuman(convId, d.needs_human === true);
+            updateInboxConvCardStatusPills(convId);
+            var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
+            var badge = el('hq-badge');
+            if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+          }
+        }
+      })
+      .catch(function(err){
+        toggle.checked = !want;
+        alert(err.message || 'Could not update needs human flag');
+      })
+      .finally(function(){ toggle.disabled = false; });
+  });
 }
 
 function refreshInboxListPreserveDetail(convId){
@@ -31816,50 +31880,6 @@ function loadConvDetail(convId, targetEl){
     }
     targetEl.classList.remove('is-loading-detail');
     targetEl.innerHTML = '<div class="state-msg error">Error loading conversation: ' + escHtml(err.message) + '</div>';
-  });
-}
-
-function wireNeedsHumanToggle(convId, targetEl){
-  var toggle = targetEl.querySelector('#conv-needs-human-toggle');
-  if (!toggle) return;
-
-  toggle.addEventListener('change', function(){
-    var want = toggle.checked;
-    toggle.disabled = true;
-    fetch('/staff/conversations/' + encodeURIComponent(convId) + '/needs-human', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ client_slug: getClient(), needs_human: want }),
-    })
-      .then(function(r){
-        if (r.status === 401) throw new Error('Authentication required');
-        return r.json().then(function(data){ return { status: r.status, data: data }; });
-      })
-      .then(function(out){
-        var d = out.data || {};
-        if (!d.success) throw new Error(d.error || ('HTTP ' + out.status));
-        updateNeedsHumanBadgeInPlace(targetEl, d.needs_human);
-        if (inboxConversationsCache){
-          inboxConversationsCache = inboxConversationsCache.map(function(row){
-            var id = row.conversation_id || row.id;
-            if (id === convId) return Object.assign({}, row, { needs_human: d.needs_human });
-            return row;
-          });
-          if (inboxFilter === 'needs-human' && !d.needs_human){
-            refreshInboxListPreserveDetail(convId);
-          } else {
-            updateInboxConvCardNeedsHuman(convId, d.needs_human);
-            var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
-            var badge = el('hq-badge');
-            if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
-          }
-        }
-      })
-      .catch(function(err){
-        toggle.checked = !want;
-        alert(err.message || 'Could not update needs human flag');
-      })
-      .finally(function(){ toggle.disabled = false; });
   });
 }
 
@@ -44266,13 +44286,16 @@ async function handleInboxSendReply(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Staff Portal — conversation needs_human toggle (conversations table only)
+// Staff Portal — conversation needs_human toggle (canonical handoff persistence)
 //
 // POST /staff/conversations/:id/needs-human
 //   Body: { client_slug, needs_human: boolean }
 //
-// Safety: updates conversations.needs_human only. No WhatsApp, staff_handoffs,
-// bookings, payments, or Stripe. Operator+ session auth.
+// ADD (needs_human=true): markConversationNeedsHuman — needs_human + staff_handoffs
+//   + conversation pause. Reason staff_manual_handoff. No guest WhatsApp send.
+// REMOVE (needs_human=false): clearStaffNeedsHuman — clears flag + resolves open
+//   handoffs WITHOUT auto-resuming Luna.
+// Operator+ session auth (not bot token).
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function handleConversationNeedsHuman(convId, req, res, user) {
@@ -44301,74 +44324,81 @@ async function handleConversationNeedsHuman(convId, req, res, user) {
 
   try {
     const outcome = await withPgClient(async (pg) => {
-      const prior = await pg.query(
-        `SELECT conv.needs_human, conv.phone, conv.display_name, conv.metadata
-           FROM conversations conv
-           JOIN clients c ON c.id = conv.client_id
-          WHERE c.slug = $1 AND conv.id = $2::uuid
-          LIMIT 1`,
-        [clientSlug, convId],
-      );
-      const priorRow = prior.rows[0];
-      if (!priorRow) return { row: null };
-
-      const wasNeedsHuman = priorRow.needs_human === true;
-      const r = await pg.query(
-        `UPDATE conversations conv
-            SET needs_human = $3,
-                updated_at = NOW(),
-                metadata = CASE
-                  WHEN $3 = TRUE AND conv.needs_human IS DISTINCT FROM TRUE THEN
-                    COALESCE(conv.metadata, '{}'::jsonb)
-                      || jsonb_build_object(
-                        'needs_human_reason', to_jsonb('staff_manual_toggle'::text),
-                        'luna_handoff_at', to_jsonb($4::text)
-                      )
-                  ELSE conv.metadata
-                END
-           FROM clients c
-          WHERE conv.client_id = c.id
-            AND c.slug = $1
-            AND conv.id = $2::uuid
-          RETURNING conv.id::text AS conversation_id, conv.needs_human`,
-        [clientSlug, convId, body.needs_human, new Date().toISOString()],
-      );
-      const row = r.rows[0] || null;
-      let staff_notification = null;
-      if (row && body.needs_human === true && !wasNeedsHuman) {
-        const handoffAt = new Date().toISOString();
-        staff_notification = await maybeNotifyHumanNeeded(pg, process.env, {
-          transitioned: true,
-          handoff_event_key: handoffAt,
+      if (body.needs_human === true) {
+        const result = await markConversationNeedsHuman(pg, {
+          conversation_id: convId,
           client_slug: clientSlug,
-          location_id: extractLocationFromMetadata(priorRow.metadata),
-          conversation_id: row.conversation_id,
-          guest_phone: priorRow.phone,
-          guest_name: priorRow.display_name,
-          reason: 'staff_manual_toggle',
+          reason: 'staff_manual_handoff',
+        }, {
+          paused_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
+          handoff_source: 'staff_manual_handoff',
+          skip_notify: true,
         });
+        return { mode: 'add', result };
       }
-      return { row, staff_notification };
+      const result = await clearStaffNeedsHuman(pg, {
+        conversation_id: convId,
+        client_slug: clientSlug,
+        resolved_by: (user && (user.staff_user_id || user.email)) || 'staff_portal',
+        resolution: 'staff_manual_handoff_cleared',
+      });
+      return { mode: 'remove', result };
     });
 
-    const row = outcome.row;
+    const result = outcome.result || {};
     const elapsed = Date.now() - started;
-    if (!row) {
-      appendAuditLog({ ...auditBase, success: false, error: 'not_found', elapsed_ms: elapsed });
-      return send404(res);
+    if (!result.ok) {
+      appendAuditLog({
+        ...auditBase,
+        success: false,
+        error: result.reason || 'not_found',
+        elapsed_ms: elapsed,
+      });
+      if (result.reason === 'conversation_not_found') return send404(res);
+      return sendJSON(res, 400, {
+        success: false,
+        error: result.reason || 'needs_human update failed',
+        conversation_id: convId,
+      });
     }
 
-    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed });
-    return sendJSON(res, 200, {
+    const conversationPaused = result.conversation_paused === true;
+    const needsHuman = result.needs_human === true;
+    const handoff = result.staff_handoff || result.handoff || null;
+    const response = {
       success: true,
-      conversation_id: row.conversation_id,
-      needs_human: row.needs_human,
-      staff_notification: outcome.staff_notification || null,
+      conversation_id: result.conversation_id || convId,
+      needs_human: needsHuman,
+      handoff: needsHuman ? (handoff && !handoff.error ? {
+        id: handoff.id || null,
+        reason_code: handoff.reason_code || result.handoff_reason || 'staff_manual_handoff',
+        status: handoff.status || 'open',
+      } : {
+        id: null,
+        reason_code: result.handoff_reason || 'staff_manual_handoff',
+        status: 'open',
+      }) : null,
+      handoff_reason: needsHuman ? (result.handoff_reason || 'staff_manual_handoff') : null,
+      handoff_status: needsHuman ? ((handoff && handoff.status) || 'open') : null,
+      conversation_paused: conversationPaused,
+      global_paused: result.global_paused === true,
+      effective_paused: conversationPaused || result.effective_paused === true || needsHuman,
+      can_continue_guest_automation: !(conversationPaused || needsHuman),
+      auto_resumed: false,
+      staff_notification: result.staff_notification || null,
       elapsed_ms: elapsed,
-    });
+    };
+
+    appendAuditLog({ ...auditBase, success: true, elapsed_ms: elapsed, mode: outcome.mode });
+    return sendJSON(res, 200, response);
   } catch (err) {
-    appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'update failed' });
+    appendAuditLog({
+      ...auditBase,
+      success: false,
+      error: err.message,
+      elapsed_ms: Date.now() - started,
+    });
+    return sendJSON(res, 500, { success: false, error: 'needs_human update failed', detail: err.message });
   }
 }
 
