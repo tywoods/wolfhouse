@@ -403,13 +403,15 @@ function normalizeComponents(body) {
         if (tierKey && !PACK_TIER_KEYS.has(tierKey)) {
           return { ok: false, error: `components.course.tier_key invalid: ${tierKey}` };
         }
-        if (tierKey) {
-          entry.tier_key = tierKey;
-          // Canonical DB item_code — must match tenant_price_rules.item_code.
-          entry.offering_id = packPriceItemCode(courseId, tierKey);
-        } else if (offeringIdRaw) {
-          entry.offering_id = offeringIdRaw;
+        if (!tierKey) {
+          // Course bookings must resolve an exact Admin offering
+          // (surf_pack_<courseId>__<tier>). Never accept bare course_id.
+          return { ok: false, error: 'components.course.tier_key is required' };
         }
+        entry.tier_key = tierKey;
+        // Canonical DB item_code — must match tenant_price_rules.item_code.
+        // Prefer server-derived identity over any browser-supplied offering_id.
+        entry.offering_id = packPriceItemCode(courseId, tierKey);
       }
       out[key] = entry;
     }
@@ -888,6 +890,7 @@ async function createSunsetScheduleBooking(pg, opts) {
   // Course bookings must join an existing admin-configured surf pack — never mint
   // invented course_ids or arbitrary dates outside that pack's schedule/capacity.
   let assignedCourse = null;
+  let coursePricePreflight = null;
   if (input.components.course) {
     const { assertCourseAssignable } = require('./sunset-admin-course-join');
     const gate = await assertCourseAssignable(pg, {
@@ -903,6 +906,64 @@ async function createSunsetScheduleBooking(pg, opts) {
     if (!input.components.course.course_label
       || input.components.course.course_label === input.components.course.course_id) {
       input.components.course.course_label = gate.course_label || input.components.course.course_label;
+    }
+    const tierKey = String(input.components.course.tier_key || '').trim();
+    if (!tierKey) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          error: 'Select a course duration before creating the booking.',
+          reason_code: 'components.course.tier_key is required',
+        },
+      };
+    }
+    const packTiers = ((gate.pack && gate.pack.price_tiers) || [])
+      .map((t) => String((t && t.key) || '').trim())
+      .filter(Boolean);
+    if (!packTiers.includes(tierKey)) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          error: 'Select a course duration that belongs to the selected course.',
+          reason_code: 'course_tier_mismatch',
+        },
+      };
+    }
+    const { packPriceItemCode, lookupSunsetCourseLessonPriceAsync } = require('./sunset-course-lesson-price-lookup');
+    input.components.course.offering_id = packPriceItemCode(input.components.course.course_id, tierKey);
+    // Validate Admin price BEFORE insert — no partial booking on missing price.
+    coursePricePreflight = await lookupSunsetCourseLessonPriceAsync({
+      client_slug: clientSlug,
+      location_id: locationId,
+      quantity: input.components.course.quantity,
+      metadata: {
+        component: 'course',
+        staff_ui_service_type: 'course',
+        course_id: input.components.course.course_id,
+        tier_key: tierKey,
+        offering_id: input.components.course.offering_id,
+        location_id: locationId,
+      },
+      pgClient: pg,
+    });
+    if (!coursePricePreflight || coursePricePreflight.ok !== true
+      || !(coursePricePreflight.amount_cents > 0)) {
+      const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
+      const faced = staffFacingSunsetPriceError('no_price_for_surf_lesson');
+      return {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          error: faced.error,
+          reason_code: faced.reason_code,
+          detail: (coursePricePreflight && coursePricePreflight.reason) || 'price_not_configured',
+        },
+      };
     }
   }
 
@@ -1071,6 +1132,25 @@ async function createSunsetScheduleBooking(pg, opts) {
       addonRows.forEach((r) => createdRows.push(r));
     }
 
+    // Price inside the same transaction. On failure ROLLBACK — no cancelled leftovers.
+    const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
+    const priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
+    if (!priced || !priced.ok) {
+      const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
+      const faced = staffFacingSunsetPriceError((priced && priced.error) || 'pricing_failed');
+      const err = new Error(faced.error);
+      err.sunsetPriceFail = {
+        ok: false,
+        status: 422,
+        body: {
+          success: false,
+          error: faced.error,
+          reason_code: faced.reason_code,
+        },
+      };
+      throw err;
+    }
+
     await pg.query('COMMIT');
     return {
       ok: true,
@@ -1079,6 +1159,9 @@ async function createSunsetScheduleBooking(pg, opts) {
         success: true,
         booking_code: bookingCode,
         booking_id: bookingId,
+        total_cents: priced.total_cents,
+        currency: 'EUR',
+        sunset_price_source: priced.sunset_price_source || 'db',
         records: createdRows.map(scheduleRowFromDb),
         booking: scheduleRowFromDb(createdRows[0]),
         ...(assignedCourse ? {
@@ -1089,10 +1172,15 @@ async function createSunsetScheduleBooking(pg, opts) {
             capacity_by_date: assignedCourse.capacity_by_date,
           },
         } : {}),
+        ...(coursePricePreflight ? {
+          price_preview_cents: coursePricePreflight.amount_cents,
+          price_item_code: coursePricePreflight.item_code || null,
+        } : {}),
       },
     };
   } catch (err) {
     await pg.query('ROLLBACK');
+    if (err && err.sunsetPriceFail) return err.sunsetPriceFail;
     throw err;
   }
 }

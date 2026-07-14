@@ -616,8 +616,10 @@ async function main() {
   const noTierNorm = normalizeComponents({
     components: { course: { quantity: 2, course_id: PACK_ID, course_label: 'Adults' } },
   });
-  assert('normalize accepts course without money fields', noTierNorm.ok === true, JSON.stringify(noTierNorm));
-  // Before fix: no tier_key on the entry. After fix: tier from body is kept + offering_id formed.
+  assert('normalize rejects course without tier_key',
+    noTierNorm.ok === false && /tier_key/i.test(String(noTierNorm.error || '')),
+    JSON.stringify(noTierNorm));
+  // With tier: entry kept + offering_id formed.
   const withTierNorm = normalizeComponents({
     components: {
       course: {

@@ -464,6 +464,30 @@ async function resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg
   return null;
 }
 
+function courseOfferingGroupKey(meta) {
+  const m = meta || {};
+  const offering = String(m.offering_id || '').trim();
+  if (/^surf_pack_.+__.+$/i.test(offering)) return offering;
+  const courseId = m.course_id != null ? String(m.course_id).trim() : '';
+  const tierKey = (m.tier && m.tier.key) || m.tier_key || m.duration_key || '';
+  if (courseId && tierKey) {
+    const { packPriceItemCode } = require('./sunset-course-lesson-price-lookup');
+    return packPriceItemCode(courseId, tierKey);
+  }
+  return courseId || null;
+}
+
+function isCourseServiceMeta(meta) {
+  const m = meta || {};
+  const component = String(m.component || m.staff_ui_service_type || '').toLowerCase();
+  return component === 'course' || !!m.course_id;
+}
+
+/** Operator-facing copy for portal; keep reason_code for logs only. */
+function staffFacingSunsetPriceError(reasonCode) {
+  return require('./sunset-course-lesson-price-lookup').staffFacingSunsetPriceError(reasonCode);
+}
+
 async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
   const bookingLocRes = await pg.query(
     `SELECT metadata FROM bookings b INNER JOIN clients c ON c.id = b.client_id
@@ -496,16 +520,42 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
     totalCents += bundlePriced.total_cents;
     (bundlePriced.bundleRowIds || []).forEach((id) => bundleRowIds.add(id));
   }
+  // Whole-course Admin tiers (week/package): charge once per offering × quantity,
+  // never re-multiply by every expanded service date row.
+  const coursePrimaryRowId = new Map();
+  const courseSorted = svcRes.rows.slice().sort((a, b) => {
+    const d = String(a.service_date || '').localeCompare(String(b.service_date || ''));
+    if (d) return d;
+    return String(a.id).localeCompare(String(b.id));
+  });
+  for (const sr of courseSorted) {
+    const meta = parseMeta(sr.metadata);
+    if (!isCourseServiceMeta(meta)) continue;
+    const key = courseOfferingGroupKey(meta);
+    if (!key) continue;
+    if (!coursePrimaryRowId.has(key)) coursePrimaryRowId.set(key, String(sr.id));
+  }
+
   let priceSource = adminCfg.source || 'config';
   for (const sr of svcRes.rows) {
     if (bundleRowIds.has(String(sr.id))) continue;
+    const meta = parseMeta(sr.metadata);
+    if (isCourseServiceMeta(meta)) {
+      const key = courseOfferingGroupKey(meta);
+      if (key && coursePrimaryRowId.get(key) !== String(sr.id)) {
+        await pg.query(
+          `UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid`,
+          [0, sr.id],
+        );
+        continue;
+      }
+    }
     let due = Number(sr.amount_due_cents) || 0;
     if (due <= 0) {
       due = await resolveSunsetServiceDueCents(pg, clientSlug, prices, sr, adminCfg, locationId) || 0;
       if (due <= 0) {
         return { ok: false, error: `no_price_for_${sr.service_type}` };
       }
-      const meta = parseMeta(sr.metadata);
       if (String(clientSlug).trim() === SUNSET_CLIENT_SLUG
         && (meta.course_id || meta.component === 'course' || meta.component === 'private_lesson'
           || meta.component === 'lesson' || meta.staff_ui_service_type === 'course'
@@ -532,7 +582,7 @@ async function priceSunsetBookingServices(pg, clientSlug, bookingId) {
       bookingId,
     ],
   );
-  return { ok: true, total_cents: totalCents };
+  return { ok: true, total_cents: totalCents, sunset_price_source: priceSource };
 }
 
 /**
@@ -1077,6 +1127,7 @@ module.exports = {
   getSunsetSchedulePaymentLink,
   priceSunsetBookingServices,
   priceSunsetBookingAfterCreate,
+  staffFacingSunsetPriceError,
   loadBookingWithServices,
   serviceRecordUnitPriceCents,
   isFullDayEquipmentAddon,

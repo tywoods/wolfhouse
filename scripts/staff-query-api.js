@@ -22730,12 +22730,17 @@ function scheduleReadCreatePayload(){
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
     var tierSel = el('ps-create-course-tier');
     var tierKey = tierSel && tierSel.value ? String(tierSel.value).trim() : '';
+    var courseId = courseSel ? String(courseSel.value || '').trim() : '';
     components.course = {
       quantity: parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value) || '1', 10) || 1,
-      course_id: courseSel ? courseSel.value : '',
+      course_id: courseId,
       course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
     };
-    if (tierKey) components.course.tier_key = tierKey;
+    if (tierKey) {
+      components.course.tier_key = tierKey;
+      // Canonical Admin offering identity (server re-derives; client sends for clarity).
+      components.course.offering_id = 'surf_pack_' + courseId + '__' + tierKey;
+    }
   }
   if (el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked){
     components.surfboard = { quantity: parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value) || '1', 10) || 1 };
@@ -23335,25 +23340,22 @@ function scheduleCoursesFromConfig(prices, surfPacks){
   (surfPacks || []).forEach(function(pack){
     var id = String(pack.pack_id || '').trim();
     if (!id || seen[id]) return;
+    var tiers = (pack.price_tiers || []).map(function(t){
+      return { key: String(t.key || '').trim(), label: t.label || t.key || '' };
+    }).filter(function(t){ return !!t.key; });
+    // Admin courses without active duration tiers cannot resolve tenant_price_rules —
+    // skip empty price_tiers so the manual form never submits a bare course_id.
+    if (!tiers.length) return;
     seen[id] = true;
     var time = '';
     if (pack.schedules && pack.schedules.length){
       time = scheduleFormatPackScheduleKey(pack.schedules[0]);
     }
-    var tiers = (pack.price_tiers || []).map(function(t){
-      return { key: String(t.key || '').trim(), label: t.label || t.key || '' };
-    }).filter(function(t){ return !!t.key; });
     out.push({ course_id: id, label: pack.label || id, slot_time: time, capacity: pack.group_size != null ? Number(pack.group_size) : null, price_tiers: tiers });
   });
-  (prices || []).forEach(function(p){
-    var cat = String((p && p.category) || '').toLowerCase();
-    if (cat !== 'course' && cat !== 'package') return;
-    var id = String((p && (p.offering_key || p.price_id || p.item_code)) || '').trim();
-    if (!id || seen[id]) return;
-    if (String(id).indexOf('surf_pack_') === 0) return;
-    seen[id] = true;
-    out.push({ course_id: id, label: (p && p.label) || id, slot_time: '', price_tiers: [] });
-  });
+  // Do not add price-row package fallbacks: those lack Admin tier identity and
+  // used to submit course_id alone → no_price_for_surf_lesson.
+  void prices;
   out.sort(function(a,b){ return String(a.label || '').localeCompare(String(b.label || '')); });
   return out;
 }
@@ -23426,7 +23428,10 @@ function schedulePopulateCreateCourseFields(){
   if (prev) sel.value = prev;
   if (!sel._tierBound){
     sel._tierBound = true;
-    sel.addEventListener('change', function(){ schedulePopulateCreateCourseTierFields(); });
+    sel.addEventListener('change', function(){
+      // Changing course must drop stale tier values from the previous course.
+      schedulePopulateCreateCourseTierFields('');
+    });
   }
   schedulePopulateCreateCourseTierFields();
 }
@@ -23441,7 +23446,7 @@ function schedulePopulateCreateCourseTierFields(preferredTier){
     if (String(c.course_id || '').trim() === courseId) course = c;
   });
   var tiers = (course && Array.isArray(course.price_tiers)) ? course.price_tiers : [];
-  var pref = preferredTier != null ? String(preferredTier).trim() : String(tierSel.value || '').trim();
+  var pref = preferredTier != null ? String(preferredTier).trim() : '';
   var html = '';
   tiers.forEach(function(t){
     var key = String(t.key || '').trim();
@@ -25600,12 +25605,16 @@ function scheduleReadDrawerEditPayload(){
     var courseOpt = courseSel && courseSel.selectedIndex >= 0 ? courseSel.options[courseSel.selectedIndex] : null;
     var tierSel = el('ps-drawer-course-tier');
     var tierKey = tierSel && tierSel.value ? String(tierSel.value).trim() : '';
+    var courseId = courseSel ? String(courseSel.value || '').trim() : '';
     components.course = {
       quantity: parseInt((el('ps-drawer-course-qty') && el('ps-drawer-course-qty').value) || '1', 10) || 1,
-      course_id: courseSel ? courseSel.value : '',
+      course_id: courseId,
       course_label: courseOpt ? (courseOpt.getAttribute('data-label') || courseOpt.textContent || '') : '',
     };
-    if (tierKey) components.course.tier_key = tierKey;
+    if (tierKey) {
+      components.course.tier_key = tierKey;
+      components.course.offering_id = 'surf_pack_' + courseId + '__' + tierKey;
+    }
   }
   if (el('ps-drawer-comp-private-lesson') && el('ps-drawer-comp-private-lesson').checked){
     var plSurfers = parseInt((el('ps-drawer-private-lesson-surfers') && el('ps-drawer-private-lesson-surfers').value) || '1', 10) || 1;
@@ -26105,6 +26114,17 @@ function submitScheduleManualBooking(){
   if (!Object.keys(payload.components).length) {
     if (msg) { msg.textContent = portalT('schedule.create.componentsRequired'); msg.style.display = 'block'; }
     return;
+  }
+  if (payload.components.course) {
+    var coursePart = payload.components.course;
+    if (!coursePart.course_id) {
+      if (msg) { msg.textContent = portalT('schedule.create.courseRequired') || 'Select a group course.'; msg.style.display = 'block'; }
+      return;
+    }
+    if (!coursePart.tier_key) {
+      if (msg) { msg.textContent = portalT('schedule.create.courseTierRequired') || 'Select a course duration.'; msg.style.display = 'block'; }
+      return;
+    }
   }
   if (payload.components.private_lesson) {
     var pl = payload.components.private_lesson;
@@ -42833,19 +42853,37 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
       staff_user_id: user ? user.staff_user_id : null,
       elapsed_ms: Date.now() - started,
     });
-    if (!result.ok) return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+    if (!result.ok) {
+      const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
+      const rawErr = (result.body && (result.body.reason_code || result.body.error)) || 'write_failed';
+      if (/no_price_for_|tier_key|course_tier|price_not_configured/i.test(String(rawErr))
+        || (result.body && result.body.reason_code)) {
+        const faced = staffFacingSunsetPriceError(rawErr);
+        return sendJSON(res, result.status || 422, {
+          success: false,
+          error: (result.body && result.body.error) || faced.error,
+          reason_code: (result.body && result.body.reason_code) || faced.reason_code,
+          elapsed_ms: Date.now() - started,
+        });
+      }
+      return sendJSON(res, result.status, { ...result.body, elapsed_ms: Date.now() - started });
+    }
 
-    // Authoritative DB pricing after create (same path as Luna). Never leave
-    // staff-created Sunset course/lesson bookings at silent €0.
+    // Authoritative DB pricing is applied inside createSunsetScheduleBooking (same TX).
+    // Only re-run after-create pricing when the create path did not already price.
     let bodyOut = { ...result.body, elapsed_ms: Date.now() - started };
     const bookingId = bodyOut.booking_id || (bodyOut.booking && bodyOut.booking.booking_id);
-    if (bookingId) {
+    if (bookingId && !(bodyOut.total_cents > 0)) {
       try {
         const priced = await withPgClient((pg) => priceSunsetBookingAfterCreate(pg, clientSlug, bookingId));
         if (!priced || !priced.ok) {
+          const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
+          const faced = staffFacingSunsetPriceError((priced && priced.error) || 'pricing_failed');
+          console.error('[sunset booking] price after create failed:', faced.reason_code);
           return sendJSON(res, 422, {
             success: false,
-            error: (priced && priced.error) || 'pricing_failed',
+            error: faced.error,
+            reason_code: faced.reason_code,
             booking_id: bookingId,
             booking_cancelled: !!(priced && priced.booking_cancelled),
             elapsed_ms: Date.now() - started,
@@ -42855,9 +42893,12 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
         bodyOut.currency = 'EUR';
       } catch (priceErr) {
         console.error('[sunset booking] price after create failed:', priceErr && priceErr.message);
+        const { staffFacingSunsetPriceError } = require('./lib/sunset-course-lesson-price-lookup');
+        const faced = staffFacingSunsetPriceError('pricing_failed');
         return sendJSON(res, 422, {
           success: false,
-          error: 'pricing_failed',
+          error: faced.error,
+          reason_code: faced.reason_code,
           booking_id: bookingId,
           elapsed_ms: Date.now() - started,
         });
