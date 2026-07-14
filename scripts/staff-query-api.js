@@ -475,6 +475,13 @@ const {
   mapBotHttpAvailabilityResponse,
 } = require('./lib/luna-front-desk-accommodation-availability-service');
 const {
+  buildPaymentLinkCommand,
+  createPaymentLink,
+  cancelOrInvalidatePaymentLink,
+  PAYMENT_LINK_CHANNELS,
+  PAYMENT_LINK_OPERATIONS,
+} = require('./lib/luna-front-desk-payment-link-service');
+const {
   normalizeBookingGuestsInput,
   normalizeBotBookingPaymentChoice,
   buildPerPersonBreakdown,
@@ -8002,6 +8009,36 @@ async function handleBookingRecordCashPayment(req, res, user) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Slice 10 — payment-link service Stripe exec opts (Staff routes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function paymentLinkServiceExecOpts(stripe) {
+  return {
+    staffActionsEnabled: STAFF_ACTIONS_ENABLED,
+    stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+    secretKey: STRIPE_SECRET_KEY,
+    successUrl: stripeCheckoutSessionSuccessUrl(),
+    cancelUrl: stripeCheckoutSessionCancelUrl(),
+    blockLiveKeys: true,
+    createStripeCheckoutSession: async (sessionOpts) => stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: sessionOpts.currency || 'eur',
+      line_items: [{
+        price_data: {
+          currency: sessionOpts.currency || 'eur',
+          product_data: { name: sessionOpts.productName, description: sessionOpts.productDesc },
+          unit_amount: sessionOpts.amountDueCents,
+        },
+        quantity: 1,
+      }],
+      metadata: sessionOpts.metadata || {},
+      success_url: stripeCheckoutSessionSuccessUrl(),
+      cancel_url: stripeCheckoutSessionCancelUrl(),
+    }),
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Phase 10.6c — Generate Stripe payment link for booking balance (no send)
 //
 // POST /staff/bookings/generate-payment-link
@@ -8137,50 +8174,6 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     });
   }
 
-  const existingByKey = paymentRows.find((pr) => {
-    const md = pr.metadata;
-    let parsed = md;
-    if (typeof md === 'string') {
-      try { parsed = JSON.parse(md); } catch (_) { parsed = {}; }
-    }
-    return parsed && parsed.idempotency_key === idempotencyKey && pr.checkout_url;
-  });
-  if (existingByKey) {
-    return sendJSON(res, 200, {
-      success: true,
-      created: false,
-      idempotent: true,
-      booking_code: bookingRow.booking_code,
-      amount_due_cents: Number(existingByKey.amount_due_cents || amountDueCents),
-      payment_status: 'payment_link_created',
-      payment_link_url: existingByKey.checkout_url,
-      checkout_url: existingByKey.checkout_url,
-      stripe_mutation: false,
-      send_mutation: false,
-      message: 'Payment link already created (idempotent). Nothing was sent to the guest.',
-      elapsed_ms: Date.now() - started,
-    });
-  }
-
-  const activeLink = ledgerActivePaymentLinkRow(paymentRows, ledger);
-  if (activeLink && activeLink.checkout_url) {
-    return sendJSON(res, 200, {
-      success: true,
-      created: false,
-      idempotent: true,
-      booking_code: bookingRow.booking_code,
-      amount_due_cents: amountDueCents,
-      payment_status: 'payment_link_created',
-      payment_link_url: activeLink.checkout_url,
-      checkout_url: activeLink.checkout_url,
-      payment_id: activeLink.payment_id,
-      stripe_mutation: false,
-      send_mutation: false,
-      message: 'Payment link already exists for this balance. Nothing was sent to the guest.',
-      elapsed_ms: Date.now() - started,
-    });
-  }
-
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -8188,170 +8181,54 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
   }
 
-  const pmMeta = {
-    source: 'staff_payment_link',
-    method: 'payment_link',
-    idempotency_key: idempotencyKey,
-    booking_code: bookingRow.booking_code,
-    amount_due_cents: amountDueCents,
-    reason: reason,
-    created_by: actorId,
-    staff_portal: true,
-    phase: '10.6c',
-  };
+  const built = buildPaymentLinkCommand({
+    operation: PAYMENT_LINK_OPERATIONS.CREATE,
+    channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
+    trustedClientSlug: clientSlug,
+    transportBody: body,
+    bookingId: bookingRow.booking_id,
+    bookingCode: bookingRow.booking_code,
+    idempotencyKey,
+    actor: { staff_user_id: actorId },
+    authoritativeBalanceDueCents: amountDueCents,
+  });
+  if (!built.ok) {
+    appendAuditLog({ ...auditBase, success: false, reason_code: built.body.reason_code, elapsed_ms: Date.now() - started });
+    const errBody = { ...built.body };
+    if (built.body.reason_code === 'staff_actions_disabled') errBody.staff_actions_enabled = false;
+    if (built.body.reason_code === 'stripe_links_disabled') errBody.stripe_links_enabled = false;
+    return sendJSON(res, built.status || 400, errBody);
+  }
 
-  let paymentId;
-  let paymentClientId;
+  const execOpts = { ...paymentLinkServiceExecOpts(stripe), needsRefund: ledger.needs_refund };
+  let result;
   try {
-    paymentId = await withPgClient(async (pg) => {
-      const idem = await pg.query(
-        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
-                p.amount_due_cents, p.checkout_url, p.metadata
-           FROM payments p
-          INNER JOIN bookings b ON b.id = p.booking_id
-          INNER JOIN clients c ON c.id = b.client_id
-          WHERE p.booking_id = $1::uuid
-            AND c.slug = $2
-            AND p.metadata->>'idempotency_key' = $3
-          LIMIT 1`,
-        [bookingRow.booking_id, clientSlug, idempotencyKey],
-      );
-      if (idem.rows[0] && idem.rows[0].checkout_url) {
-        return { reuse: true, row: idem.rows[0], client_id: null };
-      }
-
-      const clientRes = await pg.query('SELECT id FROM clients WHERE slug = $1 LIMIT 1', [clientSlug]);
-      const clientId = clientRes.rows[0] && clientRes.rows[0].id;
-      if (!clientId) throw new Error('client not found');
-
-      const ins = await pg.query(
-        `INSERT INTO payments (
-           client_id, booking_id, status, payment_kind, currency,
-           amount_due_cents, amount_paid_cents, metadata
-         ) VALUES (
-           $1, $2::uuid, 'draft'::payment_record_status, 'full_amount'::payment_kind, 'EUR',
-           $3, 0, $4::jsonb
-         )
-         RETURNING id::text AS payment_id`,
-        [clientId, bookingRow.booking_id, amountDueCents, JSON.stringify(pmMeta)],
-      );
-      return { reuse: false, payment_id: ins.rows[0].payment_id, client_id: clientId };
-    });
+    result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
   } catch (err) {
     appendAuditLog({ ...auditBase, success: false, error: err.message, elapsed_ms: Date.now() - started });
-    return sendJSON(res, 500, { success: false, error: 'payment draft insert failed', detail: err.message });
-  }
-
-  if (paymentId.reuse) {
-    return sendJSON(res, 200, {
-      success: true,
-      created: false,
-      idempotent: true,
-      booking_code: bookingRow.booking_code,
-      amount_due_cents: Number(paymentId.row.amount_due_cents || amountDueCents),
-      payment_status: 'payment_link_created',
-      payment_link_url: paymentId.row.checkout_url,
-      checkout_url: paymentId.row.checkout_url,
-      stripe_mutation: false,
-      send_mutation: false,
-      message: 'Payment link already created (idempotent). Nothing was sent to the guest.',
-      elapsed_ms: Date.now() - started,
-    });
-  }
-
-  const newPaymentId = paymentId.payment_id;
-  paymentClientId = paymentId.client_id;
-  const productName = `Booking ${bookingRow.booking_code || newPaymentId} \u2014 ${bookingRow.guest_name || 'Guest'}`;
-  const productDesc = `Outstanding balance | ${bookingRow.check_in || ''} \u2013 ${bookingRow.check_out || ''} | ${clientSlug}`;
-
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode: 'payment',
-      currency: 'eur',
-      line_items: [{
-        price_data: {
-          currency: 'eur',
-          product_data: { name: productName, description: productDesc },
-          unit_amount: amountDueCents,
-        },
-        quantity: 1,
-      }],
-      metadata: {
-        client_slug: clientSlug,
-        booking_id: bookingRow.booking_id,
-        booking_code: bookingRow.booking_code || '',
-        payment_id: newPaymentId,
-        payment_kind: 'full_amount',
-        source: 'staff_payment_link',
-        idempotency_key: idempotencyKey,
-      },
-      success_url: stripeCheckoutSessionSuccessUrl(),
-      cancel_url: stripeCheckoutSessionCancelUrl(),
-    });
-  } catch (stripeErr) {
-    return sendJSON(res, 500, {
-      success: false,
-      error: 'Stripe session creation failed: ' + stripeErr.message,
-      no_db_write: true,
-    });
-  }
-
-  const expiresAt = session.expires_at
-    ? new Date(session.expires_at * 1000).toISOString()
-    : null;
-
-  try {
-    await withPgClient(async (pg) => {
-      await pg.query(
-        `UPDATE payments
-            SET status                     = 'checkout_created'::payment_record_status,
-                stripe_checkout_session_id = $1,
-                checkout_url               = $2,
-                expires_at                 = $3,
-                metadata                   = metadata || $4::jsonb
-          WHERE id = $5
-            AND client_id = $6`,
-        [
-          session.id,
-          session.url,
-          expiresAt,
-          JSON.stringify({
-            stripe_session_id: session.id,
-            stripe_livemode: session.livemode,
-            stripe_payment_status: session.payment_status,
-            payment_link_url: session.url,
-          }),
-          newPaymentId,
-          paymentClientId,
-        ],
-      );
-    });
-  } catch (dbErr) {
-    appendAuditLog({
-      ...auditBase,
-      success: false,
-      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
-      payment_id: newPaymentId,
-      session_id: session.id,
-      elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, {
-      success: false,
-      error: 'Stripe session created but DB update failed: ' + dbErr.message,
-      checkout_url: session.url,
-    });
+    return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
   }
 
   const elapsed = Date.now() - started;
+  if (!result.ok) {
+    appendAuditLog({ ...auditBase, success: false, reason_code: result.body.reason_code, elapsed_ms: elapsed });
+    const errBody = { ...result.body };
+    if (result.body.no_db_write) errBody.no_db_write = true;
+    return sendJSON(res, result.status || 400, errBody);
+  }
+
+  const b = result.body;
+  const idempotent = !!b.idempotent;
+  const created = !!b.created;
   appendAuditLog({
     ...auditBase,
     success: true,
-    payment_id: newPaymentId,
-    amount_due_cents: amountDueCents,
-    stripe_session_id: session.id,
+    payment_id: b.payment_id,
+    amount_due_cents: b.amount_due_cents,
+    stripe_session_id: b.stripe_checkout_session_id,
+    idempotent,
     elapsed_ms: elapsed,
-    stripe_called: true,
+    stripe_called: created,
     whatsapp_called: false,
     n8n_called: false,
     send_mutation: false,
@@ -8359,21 +8236,25 @@ async function handleBookingGeneratePaymentLink(req, res, user) {
 
   return sendJSON(res, 200, {
     success: true,
-    created: true,
-    idempotent: false,
-    booking_code: bookingRow.booking_code,
-    amount_due_cents: amountDueCents,
-    payment_status: 'payment_link_created',
-    payment_link_url: session.url,
-    checkout_url: session.url,
-    payment_id: newPaymentId,
-    stripe_checkout_session_id: session.id,
-    stripe_mutation: true,
+    created,
+    idempotent,
+    booking_code: b.booking_code || bookingRow.booking_code,
+    amount_due_cents: b.amount_due_cents != null ? b.amount_due_cents : amountDueCents,
+    payment_status: b.payment_status || 'payment_link_created',
+    payment_link_url: b.payment_link_url || b.checkout_url,
+    checkout_url: b.checkout_url || b.payment_link_url,
+    payment_id: b.payment_id,
+    stripe_checkout_session_id: b.stripe_checkout_session_id,
+    stripe_mutation: created,
     send_mutation: false,
     no_payment_truth_recorded: true,
     no_whatsapp: true,
     no_n8n: true,
-    message: 'Payment link created. Nothing was sent to the guest.',
+    message: created
+      ? 'Payment link created. Nothing was sent to the guest.'
+      : (idempotent
+        ? 'Payment link already created (idempotent). Nothing was sent to the guest.'
+        : 'Payment link already exists for this balance. Nothing was sent to the guest.'),
     elapsed_ms: elapsed,
   });
 }
@@ -8425,111 +8306,43 @@ async function handleBookingCancelPaymentLink(req, res, user) {
   };
 
   try {
-    const result = await withPgClient(async (pg) => {
-      const payRes = await pg.query(
-        `SELECT p.id::text AS payment_id, p.status::text AS payment_status,
-                p.amount_due_cents, p.amount_paid_cents, p.checkout_url, p.metadata,
-                p.booking_id::text AS row_booking_id,
-                c.id AS client_id,
-                b.booking_code
-           FROM payments p
-          INNER JOIN bookings b ON b.id = p.booking_id
-          INNER JOIN clients c ON c.id = b.client_id
-          WHERE p.id = $1::uuid
-            AND c.slug = $2
-          LIMIT 1`,
-        [paymentId, clientSlug]
-      );
-      const row = payRes.rows[0];
-      if (!row) return { error: 'payment_not_found' };
-
-      if (bookingId && row.row_booking_id !== bookingId) return { error: 'payment_booking_mismatch' };
-      if (bookingCode) {
-        const codeRes = await pg.query(
-          `SELECT b.id::text AS booking_id, b.booking_code
-             FROM bookings b
-            INNER JOIN clients c ON c.id = b.client_id
-            WHERE c.slug = $1 AND b.booking_code = $2
-            LIMIT 1`,
-          [clientSlug, bookingCode]
-        );
-        const bk = codeRes.rows[0];
-        if (!bk) return { error: 'booking_not_found' };
-        if (bk.booking_id !== row.row_booking_id) return { error: 'payment_booking_mismatch' };
-      }
-
-      const st = String(row.payment_status || '').toLowerCase();
-      if (st === 'cancelled' || st === 'canceled') {
-        return { idempotent: true, payment: row, cancelled: true };
-      }
-
-      if (paymentLedgerIsPaidStatus(st) || Number(row.amount_paid_cents || 0) > 0) {
-        return { error: 'payment_already_paid' };
-      }
-      if (!paymentLedgerCanCancelLinkRow(row)) {
-        return { error: 'payment_not_cancellable' };
-      }
-
-      const cancelMeta = {
-        cancel_idempotency_key: idempotencyKey,
-        cancelled_at: new Date().toISOString(),
-        cancelled_by: actorLabel,
-        cancel_reason: reason,
-        staff_portal: true,
-        phase: '10.6f',
-      };
-
-      const upd = await pg.query(
-        `UPDATE payments
-            SET status = 'cancelled'::payment_record_status,
-                metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
-          WHERE id = $1::uuid
-            AND client_id = $3
-          RETURNING id::text AS payment_id, status::text AS payment_status,
-                    amount_due_cents, amount_paid_cents, checkout_url, metadata`,
-        [paymentId, JSON.stringify(cancelMeta), row.client_id]
-      );
-      return { idempotent: false, payment: upd.rows[0], cancelled: true };
+    const built = buildPaymentLinkCommand({
+      operation: PAYMENT_LINK_OPERATIONS.CANCEL,
+      channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
+      trustedClientSlug: clientSlug,
+      transportBody: body,
+      bookingId,
+      bookingCode,
+      paymentId,
+      idempotencyKey,
+      actor: { staff_user_id: actorId, email: actorLabel },
+      reason,
     });
-
-    if (result.error === 'payment_not_found') {
-      return sendJSON(res, 404, { success: false, error: 'payment not found' });
+    if (!built.ok) {
+      return sendJSON(res, built.status || 400, built.body);
     }
-    if (result.error === 'booking_not_found') {
-      return sendJSON(res, 404, { success: false, error: 'booking not found' });
-    }
-    if (result.error === 'payment_booking_mismatch') {
-      return sendJSON(res, 400, { success: false, error: 'payment does not belong to this booking' });
-    }
-    if (result.error === 'payment_already_paid') {
-      return sendJSON(res, 400, {
-        success: false,
-        error: 'payment_already_paid',
-        message: 'Cannot cancel a paid payment row.',
-      });
-    }
-    if (result.error === 'payment_not_cancellable') {
-      return sendJSON(res, 400, {
-        success: false,
-        error: 'payment_not_cancellable',
-        message: 'Only unpaid checkout/payment-link rows can be cancelled.',
-      });
+    const result = await withPgClient(async (pg) => cancelOrInvalidatePaymentLink(pg, built.command));
+    if (!result.ok) {
+      if (result.body.reason_code === 'payment_not_found') {
+        return sendJSON(res, 404, { success: false, error: 'payment not found' });
+      }
+      return sendJSON(res, result.status || 400, result.body);
     }
 
     const elapsed = Date.now() - started;
     appendAuditLog({
       ...auditBase,
       success: true,
-      idempotent: !!result.idempotent,
+      idempotent: !!result.body.idempotent,
       elapsed_ms: elapsed,
     });
 
     return sendJSON(res, 200, {
       success: true,
-      idempotent: !!result.idempotent,
+      idempotent: !!result.body.idempotent,
       cancelled: true,
-      payment: result.payment,
-      message: result.idempotent
+      payment: { payment_id: result.body.payment_id, payment_status: 'cancelled' },
+      message: result.body.idempotent
         ? 'Payment link already cancelled (idempotent).'
         : 'Payment link cancelled. Row preserved for audit. No refund, paid totals, Stripe expire, WhatsApp, or n8n action was taken.',
       no_stripe: true,
@@ -14205,194 +14018,125 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     });
   }
 
-  // ── 4. Fetch payment + booking from DB ────────────────────────────────────
-  let pm, clientSlug;
+  // ── 4. Resolve tenant + delegate to canonical payment-link service ────────
+  const started = Date.now();
+  let clientSlug;
   try {
-    pm = await withPgClient(async (pg) => {
+    const row = await withPgClient(async (pg) => {
       const r = await pg.query(
-        `SELECT p.id              AS payment_id,
-                p.client_id,
-                p.booking_id,
-                p.status          AS payment_status,
-                p.payment_kind,
-                p.currency,
-                p.amount_due_cents,
-                p.stripe_checkout_session_id,
-                p.checkout_url,
-                b.booking_code,
-                b.guest_name,
-                b.check_in,
-                b.check_out,
-                b.status          AS booking_status,
-                cl.slug           AS client_slug
+        `SELECT cl.slug AS client_slug
            FROM payments p
-           JOIN bookings b  ON b.id  = p.booking_id
-           JOIN clients  cl ON cl.id = p.client_id
-          WHERE p.id = $1`, [paymentId]
+           JOIN clients cl ON cl.id = p.client_id
+          WHERE p.id = $1::uuid
+          LIMIT 1`,
+        [paymentId],
       );
       return r.rows[0] || null;
     });
-    clientSlug = pm ? pm.client_slug : null;
+    if (!row) {
+      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+    }
+    clientSlug = row.client_slug;
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
 
-  // ── 5. Validate payment record ────────────────────────────────────────────
-  if (!pm) {
-    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  const built = buildPaymentLinkCommand({
+    operation: PAYMENT_LINK_OPERATIONS.CREATE,
+    channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
+    trustedClientSlug: clientSlug,
+    paymentId,
+    target: 'draft_payment',
+    actor: { staff_user_id: user ? user.staff_user_id : 'manual-local' },
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status || 400, built.body);
   }
-  if (pm.payment_status !== 'draft') {
-    // Idempotency: already has a session — return existing URL rather than creating a new one
-    if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
-      const linkObs = guestPaymentLinkObservability(pm, pm.checkout_url, pm.stripe_checkout_session_id);
-      return sendJSON(res, 200, {
-        success:               true,
-        idempotent:            true,
-        payment_id:            pm.payment_id,
-        booking_id:            pm.booking_id,
-        booking_code:          pm.booking_code,
-        amount_due_cents:      pm.amount_due_cents,
-        currency:              pm.currency,
-        stripe_checkout_session_id: pm.stripe_checkout_session_id,
-        checkout_url:          pm.checkout_url,
-        payment_short_url:     linkObs.payment_short_url,
-        guest_payment_url:     linkObs.guest_payment_url,
-        uses_short_payment_link: linkObs.uses_short_payment_link,
-        status:                pm.payment_status,
-        no_payment_truth_recorded: true,
-        message:               'Stripe session already created (idempotent response).',
+
+  let result;
+  try {
+    result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, paymentLinkServiceExecOpts(stripe)));
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
+  }
+
+  if (!result.ok) {
+    const body = { ...result.body };
+    if (result.body.no_db_write) body.no_db_write = true;
+    if (result.body.reason_code === 'payment_not_found') {
+      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+    }
+    if (result.body.reason_code === 'payment_not_draft') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: result.body.error || `Payment is in status that cannot create a Stripe link.`,
       });
     }
-    return sendJSON(res, 409, {
-      success: false,
-      error:   `Payment is in status '${pm.payment_status}'; only 'draft' payments can create a Stripe link.`,
-    });
-  }
-  if (!pm.amount_due_cents || pm.amount_due_cents <= 0) {
-    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0.' });
-  }
-  if ((pm.currency || '').toUpperCase() !== 'EUR') {
-    return sendJSON(res, 422, { success: false, error: `Currency '${pm.currency}' not supported (EUR only).` });
+    return sendJSON(res, result.status || 400, body);
   }
 
-  // ── 6. Create Stripe Checkout Session ─────────────────────────────────────
-  const productName = `Booking ${pm.booking_code || paymentId} \u2014 ${pm.guest_name || 'Guest'}`;
-  const productDesc = `${pm.payment_kind === 'full_amount' ? 'Full payment' : 'Deposit'} | ` +
-    `${pm.check_in || ''} \u2013 ${pm.check_out || ''} | ${clientSlug}`;
-
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode:     'payment',
-      currency: 'eur',
-      line_items: [{
-        price_data: {
-          currency:     'eur',
-          product_data: {
-            name:        productName,
-            description: productDesc,
-          },
-          unit_amount:  pm.amount_due_cents,
-        },
-        quantity: 1,
-      }],
-      metadata: {
-        client_slug:   clientSlug,
-        booking_id:    pm.booking_id,
-        booking_code:  pm.booking_code  || '',
-        payment_id:    paymentId,
-        payment_kind:  pm.payment_kind  || '',
-        source:        'staff_portal_manual_booking',
-      },
-      success_url: stripeCheckoutSessionSuccessUrl(),
-      cancel_url:  stripeCheckoutSessionCancelUrl(),
-    });
-  } catch (stripeErr) {
-    return sendJSON(res, 500, {
-      success:     false,
-      error:       'Stripe session creation failed: ' + stripeErr.message,
-      no_db_write: true,
-    });
-  }
-
-  // ── 7. Update payment row — checkout_created, session ID, URL, expires_at ─
-  const expiresAt = session.expires_at
-    ? new Date(session.expires_at * 1000).toISOString()
-    : null;
-
-  try {
-    await withPgClient(async (pg) => {
-      await pg.query(
-        `UPDATE payments
-           SET status                      = 'checkout_created'::payment_record_status,
-               stripe_checkout_session_id  = $1,
-               checkout_url                = $2,
-               expires_at                  = $3,
-               metadata                    = metadata || $4::jsonb
-         WHERE id = $5
-           AND client_id = $6`,
-        [
-          session.id,
-          session.url,
-          expiresAt,
-          JSON.stringify({
-            stripe_session_id:     session.id,
-            stripe_livemode:       session.livemode,
-            stripe_payment_status: session.payment_status,
-            created_by:            user ? user.staff_user_id : 'manual-local',
-            source:                'staff_portal_stage849',
-          }),
-          paymentId,
-          pm.client_id,
-        ]
-      );
-    });
-  } catch (dbErr) {
-    // Session was created in Stripe but DB update failed — log it, return partial error
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'api:payment_create_stripe_link',
-      category: 'stripe_link_create', success: false,
-      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
-      payment_id: paymentId, session_id: session.id, elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, {
-      success:     false,
-      error:       'Stripe session created but DB update failed: ' + dbErr.message,
-      session_id:  session.id,
-      checkout_url: session.url,
-    });
-  }
-
+  const b = result.body;
+  const pm = {
+    payment_id: b.payment_id || paymentId,
+    booking_id: b.booking_id,
+    booking_code: b.booking_code,
+    amount_due_cents: b.amount_due_cents,
+    currency: b.currency || 'EUR',
+    payment_status: b.payment_status || 'checkout_created',
+  };
+  const checkoutUrl = b.checkout_url || b.payment_link_url;
+  const sessionId = b.stripe_checkout_session_id || null;
   const elapsed = Date.now() - started;
+
+  if (b.idempotent) {
+    const linkObs = guestPaymentLinkObservability(pm, checkoutUrl, sessionId);
+    return sendJSON(res, 200, {
+      success: true,
+      idempotent: true,
+      payment_id: pm.payment_id,
+      booking_id: pm.booking_id,
+      booking_code: pm.booking_code,
+      amount_due_cents: pm.amount_due_cents,
+      currency: pm.currency,
+      stripe_checkout_session_id: sessionId,
+      checkout_url: checkoutUrl,
+      payment_short_url: linkObs.payment_short_url,
+      guest_payment_url: linkObs.guest_payment_url,
+      uses_short_payment_link: linkObs.uses_short_payment_link,
+      status: pm.payment_status,
+      no_payment_truth_recorded: true,
+      message: 'Stripe session already created (idempotent response).',
+    });
+  }
+
   appendAuditLog({
     ts: new Date().toISOString(), intent: 'api:payment_create_stripe_link',
     category: 'stripe_link_create', success: true,
     payment_id: paymentId, booking_id: pm.booking_id, booking_code: pm.booking_code,
-    stripe_session_id: session.id, amount_due_cents: pm.amount_due_cents,
+    stripe_session_id: sessionId, amount_due_cents: pm.amount_due_cents,
     elapsed_ms: elapsed,
     stripe_called: true, whatsapp_called: false, n8n_called: false,
   });
 
-  // ── 8. Success ─────────────────────────────────────────────────────────────
-  const linkObs = guestPaymentLinkObservability(pm, session.url, session.id);
+  const linkObs = guestPaymentLinkObservability(pm, checkoutUrl, sessionId);
   return sendJSON(res, 200, {
-    success:                   true,
-    payment_id:                paymentId,
-    booking_id:                pm.booking_id,
-    booking_code:              pm.booking_code,
-    amount_due_cents:          pm.amount_due_cents,
-    currency:                  pm.currency,
-    stripe_checkout_session_id: session.id,
-    checkout_url:              session.url,
-    payment_short_url:         linkObs.payment_short_url,
-    guest_payment_url:         linkObs.guest_payment_url,
-    uses_short_payment_link:   linkObs.uses_short_payment_link,
-    status:                    'checkout_created',
+    success: true,
+    payment_id: paymentId,
+    booking_id: pm.booking_id,
+    booking_code: pm.booking_code,
+    amount_due_cents: pm.amount_due_cents,
+    currency: pm.currency,
+    stripe_checkout_session_id: sessionId,
+    checkout_url: checkoutUrl,
+    payment_short_url: linkObs.payment_short_url,
+    guest_payment_url: linkObs.guest_payment_url,
+    uses_short_payment_link: linkObs.uses_short_payment_link,
+    status: 'checkout_created',
     no_payment_truth_recorded: true,
-    no_whatsapp:               true,
-    no_n8n:                    true,
-    message:                   'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
-    elapsed_ms:                elapsed,
+    no_whatsapp: true,
+    no_n8n: true,
+    message: 'Stripe Checkout Session created. Payment not marked paid until webhook confirms.',
+    elapsed_ms: elapsed,
   });
 }
 
@@ -14825,7 +14569,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     sendJSON, withPgClient, appendAuditLog,
     guestPaymentLinkObservability,
     BOT_BOOKING_ENABLED, STRIPE_LINKS_ENABLED, STRIPE_SECRET_KEY,
-    STAFF_AUTH_REQUIRED,
+    STAFF_AUTH_REQUIRED, STAFF_ACTIONS_ENABLED,
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,

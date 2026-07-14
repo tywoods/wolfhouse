@@ -35,6 +35,12 @@ const {
   VERTICAL_CHANNELS,
 } = require('./luna-front-desk-business-vertical');
 const { buildPaymentShortLink } = require('./luna-payment-short-link');
+const {
+  buildPaymentLinkCommand,
+  createPaymentLink,
+  PAYMENT_LINK_CHANNELS,
+  PAYMENT_LINK_OPERATIONS,
+} = require('./luna-front-desk-payment-link-service');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory fake request — used to delegate to existing handler functions
@@ -718,6 +724,7 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     stripeCheckoutRedirectUrlsConfigured,
     stripeCheckoutSessionSuccessUrl,
     stripeCheckoutSessionCancelUrl,
+    STAFF_ACTIONS_ENABLED,
   } = ctx;
 
   if (!BOT_BOOKING_ENABLED) {
@@ -752,169 +759,130 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
   }
 
-  let pm;
+  const started = Date.now();
+  let clientSlug;
   try {
-    pm = await withPgClient(async (pg) => {
+    const row = await withPgClient(async (pg) => {
       const r = await pg.query(
-        `SELECT p.id              AS payment_id,
-                p.client_id,
-                p.booking_id,
-                p.status          AS payment_status,
-                p.payment_kind,
-                p.currency,
-                p.amount_due_cents,
-                p.stripe_checkout_session_id,
-                p.checkout_url,
-                b.booking_code,
-                b.guest_name,
-                b.check_in,
-                b.check_out,
-                b.status          AS booking_status,
-                cl.slug           AS client_slug
+        `SELECT cl.slug AS client_slug
            FROM payments p
-           JOIN bookings b  ON b.id  = p.booking_id
-           JOIN clients  cl ON cl.id = p.client_id
-          WHERE p.id = $1`, [paymentId]
+           JOIN clients cl ON cl.id = p.client_id
+          WHERE p.id = $1::uuid
+          LIMIT 1`,
+        [paymentId],
       );
       return r.rows[0] || null;
     });
+    if (!row) {
+      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+    }
+    clientSlug = row.client_slug;
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
 
-  if (!pm) {
-    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-  }
-
-  // Idempotent: already has a Stripe session
-  if (pm.payment_status !== 'draft') {
-    if (pm.payment_status === 'checkout_created' && pm.checkout_url) {
-      const linkObs = guestPaymentLinkObservability(pm, pm.checkout_url, pm.stripe_checkout_session_id);
-      return sendJSON(res, 200, {
-        success:                    true,
-        idempotent:                 true,
-        source:                     'luna_whatsapp',
-        payment_id:                 pm.payment_id,
-        booking_id:                 pm.booking_id,
-        booking_code:               pm.booking_code,
-        amount_due_cents:           pm.amount_due_cents,
-        currency:                   pm.currency,
-        stripe_checkout_session_id: pm.stripe_checkout_session_id,
-        checkout_url:               pm.checkout_url,
-        payment_short_url:          linkObs.payment_short_url,
-        guest_payment_url:          linkObs.guest_payment_url,
-        uses_short_payment_link:    linkObs.uses_short_payment_link,
-        payment_status:             pm.payment_status,
-        next_action:                'draft_payment_link_reply',
-        sends_whatsapp:             false,
-        whatsapp_dry_run:           true,
-        no_payment_truth_recorded:  true,
-        message: 'Stripe session already created (idempotent response).',
-      });
-    }
-    return sendJSON(res, 409, {
-      success: false,
-      error:   `Payment status '${pm.payment_status}'; only 'draft' payments can create a Stripe link.`,
-    });
-  }
-
-  if (!pm.amount_due_cents || pm.amount_due_cents <= 0) {
-    return sendJSON(res, 422, { success: false, error: 'amount_due_cents must be > 0.' });
-  }
-  if ((pm.currency || '').toUpperCase() !== 'EUR') {
-    return sendJSON(res, 422, { success: false, error: `Currency '${pm.currency}' not supported (EUR only).` });
-  }
-
-  const started     = Date.now();
-  const productName = `Booking ${pm.booking_code || paymentId} \u2014 ${pm.guest_name || 'Guest'}`;
-  const productDesc = `${pm.payment_kind === 'full_amount' ? 'Full payment' : 'Deposit'} | ` +
-    `${pm.check_in || ''} \u2013 ${pm.check_out || ''} | ${pm.client_slug}`;
   const actorId = user ? user.staff_user_id : 'luna-bot-internal';
+  const built = buildPaymentLinkCommand({
+    operation: PAYMENT_LINK_OPERATIONS.CREATE,
+    channel: PAYMENT_LINK_CHANNELS.LUNA_WHATSAPP,
+    trustedClientSlug: clientSlug,
+    paymentId,
+    target: 'draft_payment',
+    actor: { staff_user_id: actorId },
+  });
+  if (!built.ok) {
+    return sendJSON(res, built.status || 400, built.body);
+  }
 
-  let session;
-  try {
-    session = await stripe.checkout.sessions.create({
-      mode:     'payment',
-      currency: 'eur',
+  const execOpts = {
+    staffActionsEnabled: STAFF_ACTIONS_ENABLED !== false,
+    stripeLinksEnabled: STRIPE_LINKS_ENABLED,
+    secretKey: STRIPE_SECRET_KEY,
+    successUrl: stripeCheckoutSessionSuccessUrl(),
+    cancelUrl: stripeCheckoutSessionCancelUrl(),
+    blockLiveKeys: true,
+    createStripeCheckoutSession: async (sessionOpts) => stripe.checkout.sessions.create({
+      mode: 'payment',
+      currency: sessionOpts.currency || 'eur',
       line_items: [{
         price_data: {
-          currency:     'eur',
-          product_data: { name: productName, description: productDesc },
-          unit_amount:  pm.amount_due_cents,
+          currency: sessionOpts.currency || 'eur',
+          product_data: { name: sessionOpts.productName, description: sessionOpts.productDesc },
+          unit_amount: sessionOpts.amountDueCents,
         },
         quantity: 1,
       }],
-      metadata: {
-        client_slug:  pm.client_slug,
-        booking_id:   pm.booking_id,
-        booking_code: pm.booking_code  || '',
-        payment_id:   paymentId,
-        payment_kind: pm.payment_kind  || '',
-        source:       'bot_stage855',
-      },
+      metadata: sessionOpts.metadata || {},
       success_url: stripeCheckoutSessionSuccessUrl(),
-      cancel_url:  stripeCheckoutSessionCancelUrl(),
-    });
-  } catch (stripeErr) {
-    return sendJSON(res, 500, {
-      success:     false,
-      error:       'Stripe session creation failed: ' + stripeErr.message,
-      no_db_write: true,
-    });
-  }
+      cancel_url: stripeCheckoutSessionCancelUrl(),
+    }),
+  };
 
-  const expiresAt = session.expires_at
-    ? new Date(session.expires_at * 1000).toISOString()
-    : null;
-
+  let result;
   try {
-    await withPgClient(async (pg) => {
-      await pg.query(
-        `UPDATE payments
-           SET status                      = 'checkout_created'::payment_record_status,
-               stripe_checkout_session_id  = $1,
-               checkout_url                = $2,
-               expires_at                  = $3,
-               metadata                    = metadata || $4::jsonb
-         WHERE id = $5
-           AND client_id = $6`,
-        [
-          session.id, session.url, expiresAt,
-          JSON.stringify({
-            stripe_session_id:     session.id,
-            stripe_livemode:       session.livemode,
-            stripe_payment_status: session.payment_status,
-            created_by:            actorId,
-            source:                'bot_stage855',
-          }),
-          paymentId,
-          pm.client_id,
-        ]
-      );
-    });
-  } catch (dbErr) {
-    if (appendAuditLog) appendAuditLog({
-      ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
-      category: 'bot_stripe_link_create', success: false,
-      error: 'stripe_session_created_but_db_update_failed: ' + dbErr.message,
-      payment_id: paymentId, session_id: session.id, elapsed_ms: Date.now() - started,
-    });
-    return sendJSON(res, 500, {
-      success:      false,
-      error:        'Stripe session created but DB update failed: ' + dbErr.message,
-      session_id:   session.id,
-      checkout_url: session.url,
-    });
+    result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
+  } catch (err) {
+    return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
   }
 
-  const elapsed  = Date.now() - started;
-  const linkObs  = guestPaymentLinkObservability(pm, session.url, session.id);
+  if (!result.ok) {
+    const body = { ...result.body };
+    if (result.body.no_db_write) body.no_db_write = true;
+    if (result.body.reason_code === 'payment_not_found') {
+      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+    }
+    if (result.body.reason_code === 'payment_not_draft') {
+      return sendJSON(res, 409, {
+        success: false,
+        error: result.body.error || `Payment status cannot create a Stripe link.`,
+      });
+    }
+    return sendJSON(res, result.status || 400, body);
+  }
+
+  const b = result.body;
+  const pm = {
+    payment_id: b.payment_id || paymentId,
+    booking_id: b.booking_id,
+    booking_code: b.booking_code,
+    amount_due_cents: b.amount_due_cents,
+    currency: b.currency || 'EUR',
+    payment_status: b.payment_status || 'checkout_created',
+  };
+  const checkoutUrl = b.checkout_url || b.payment_link_url;
+  const sessionId = b.stripe_checkout_session_id || null;
+  const elapsed = Date.now() - started;
+  const linkObs = guestPaymentLinkObservability(pm, checkoutUrl, sessionId);
+
+  if (b.idempotent) {
+    return sendJSON(res, 200, {
+      success:                    true,
+      idempotent:                 true,
+      source:                     'luna_whatsapp',
+      payment_id:                 pm.payment_id,
+      booking_id:                 pm.booking_id,
+      booking_code:               pm.booking_code,
+      amount_due_cents:           pm.amount_due_cents,
+      currency:                   pm.currency,
+      stripe_checkout_session_id: sessionId,
+      checkout_url:               checkoutUrl,
+      payment_short_url:          linkObs.payment_short_url,
+      guest_payment_url:          linkObs.guest_payment_url,
+      uses_short_payment_link:    linkObs.uses_short_payment_link,
+      payment_status:             pm.payment_status,
+      next_action:                'draft_payment_link_reply',
+      sends_whatsapp:             false,
+      whatsapp_dry_run:           true,
+      no_payment_truth_recorded:  true,
+      message: 'Stripe session already created (idempotent response).',
+    });
+  }
 
   if (appendAuditLog) appendAuditLog({
     ts: new Date().toISOString(), intent: 'api:bot_payment_create_stripe_link',
     category: 'bot_stripe_link_create', success: true,
     payment_id: paymentId, booking_id: pm.booking_id, booking_code: pm.booking_code,
-    stripe_session_id: session.id, amount_due_cents: pm.amount_due_cents,
+    stripe_session_id: sessionId, amount_due_cents: pm.amount_due_cents,
     auth_mode: authMode, elapsed_ms: elapsed,
     stripe_called: true, whatsapp_called: false, n8n_called: false,
   });
@@ -928,8 +896,8 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     booking_code:               pm.booking_code,
     amount_due_cents:           pm.amount_due_cents,
     currency:                   pm.currency,
-    stripe_checkout_session_id: session.id,
-    checkout_url:               session.url,
+    stripe_checkout_session_id: sessionId,
+    checkout_url:               checkoutUrl,
     payment_short_url:          linkObs.payment_short_url,
     guest_payment_url:          linkObs.guest_payment_url,
     uses_short_payment_link:    linkObs.uses_short_payment_link,

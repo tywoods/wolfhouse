@@ -302,7 +302,7 @@ Both create paths call **`createSunsetScheduleBooking`** with the same body shap
 
 Documented gaps — **not blockers for Slice 1** — for future platform extraction:
 
-1. **Stale checkout URL after cancel:** Cancelled Luna probe bookings may still expose `cs_test_*` URL via `GET /staff/schedule/bookings/payment-link` while `payments` row is neutralized (`payment_id: null` in API). Payment truth: `paid=false`.  
+1. **~~Stale checkout URL after cancel~~ (fixed Slice 10):** ~~Cancelled Luna probe bookings may still expose `cs_test_*` URL via `GET /staff/schedule/bookings/payment-link` while `payments` row is neutralized (`payment_id: null` in API).~~ Canonical `getPaymentStatus` / `resolveActionableCheckoutUrl` in `luna-front-desk-payment-link-service.js` never returns metadata fallback when booking or payment link is invalidated.  
 2. **Schedule drawer read:** `GET .../bookings/detail` returns 403 for Luna-attributed bookings (`drawer_edits_limited_to_staff_manual_schedule`) — staff UI cannot inspect Luna writes via drawer; bot/status endpoints still work.  
 3. **Dual price paths:** ~~Read-only catalog can fall back to config JSON amounts~~ Catalog service disables config-json bookability when `SUNSET_ADMIN_DB_READ_ENABLED`; **writes require DB** when flag is on.  
 4. **Group lesson slots:** Legacy `lesson_slot_*` identities exist in code but Luna catalog policy returns **courses + private only** (`group_lessons: []`).  
@@ -323,6 +323,7 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 | Price resolve | `scripts/lib/sunset-admin-price-resolve.js`, `sunset-course-lesson-price-lookup.js` |
 | Booking writes | `scripts/lib/sunset-schedule-booking-writes.js` |
 | **Booking create application service** | `scripts/lib/luna-front-desk-booking-create-service.js` — `buildSunsetBookingCreateCommand`, `executeSunsetBookingCreate` |
+| **Payment-link application service** | `scripts/lib/luna-front-desk-payment-link-service.js` — `createPaymentLink`, `getPaymentStatus`, `cancelOrInvalidatePaymentLink` |
 | **Quote application service** | `scripts/lib/luna-front-desk-quote-service.js` — `buildSunsetQuoteCommand`, `executeSunsetQuote`, `validateQuoteProvenanceForCreate` |
 | **Vertical resolver + adapter** | `scripts/lib/luna-front-desk-business-vertical.js`, `scripts/lib/verticals/surf-school-vertical-adapter.js` |
 | HTTP surface | `scripts/staff-query-api.js` |
@@ -437,7 +438,7 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 | Live `createBooking` writes | **Migrated** | Adapter + Staff bot/manual routes use accommodation booking-create service |
 | `POST /staff/bot/availability-check` parity | **Migrated** | Route delegates to availability service; HTTP enrichment via `mapBotHttpAvailabilityResponse` |
 | Availability provenance + preflight recheck | **Migrated** | `availabilityProvenance` on booking command; `validateAvailabilityProvenanceForCreate` before transaction |
-| Payment link / Stripe orchestration | **Manual route only** | `manualBookingApplyStaffPaymentChoice` in execute; bot create stays draft payment UPDATE |
+| Payment link / Stripe orchestration | **Migrated (Slice 10)** | Staff generate/cancel, draft Stripe link (Staff + Luna bot), Sunset schedule read/create delegate to payment-link service |
 | Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |
 
 ### Accommodation capabilities (Slice 8 — historical)
@@ -446,5 +447,67 @@ Location for Sunset must pass `isSunsetLocationId`; unknown locations fail close
 |------------|--------|-------|
 | Live `createBooking` writes | **Migrated** | Adapter + Staff bot/manual routes use accommodation booking-create service |
 | Full HTTP parity on `POST /staff/bot/availability-check` | **Migrated (Slice 9)** | See accommodation availability service |
-| Payment link / Stripe orchestration | **Manual route only** | `manualBookingApplyStaffPaymentChoice` in execute; bot create stays draft payment UPDATE |
+| Payment link / Stripe orchestration | **Migrated (Slice 10)** | Staff generate/cancel, draft Stripe link (Staff + Luna bot), Sunset schedule read/create delegate to payment-link service |
 | Cross-vertical body tenant override | **Rejected** | Trusted auth-scoped `client_slug` only |
+
+---
+
+## 15. Payment-link application service (Slice 10)
+
+Canonical payment-link lifecycle shared by Staff portal, Luna bot, and Sunset schedule drawer.
+
+**Module:** `scripts/lib/luna-front-desk-payment-link-service.js`
+
+### Operations
+
+| Operation | Entry | Purpose |
+|-----------|-------|---------|
+| `createPaymentLink` | Staff `POST .../generate-payment-link`, Staff/bot `POST .../payments/:id/create-stripe-link`, Sunset schedule create | Create or reuse checkout session for booking balance or draft payment row |
+| `getPaymentStatus` | Sunset `GET .../payment-link`, internal reads | Authoritative actionable URL + lifecycle for a booking |
+| `cancelOrInvalidatePaymentLink` | Staff `POST .../cancel-payment-link`, Sunset delete-link | Cancel unpaid link row + invalidate booking metadata fallback |
+
+### Lifecycle states (`PAYMENT_LINK_LIFECYCLE`)
+
+| State | Meaning | Actionable URL? |
+|-------|---------|-----------------|
+| `no_payment_due` | Booking balance ≤ 0 | No |
+| `draft` | Payment row exists; Stripe session not yet created | No (until checkout_created) |
+| `checkout_created` | Unpaid checkout session on payment row | Yes |
+| `paid` | Payment row or booking paid truth | No |
+| `cancelled` | Payment row cancelled locally | No |
+| `invalidated` | Booking metadata link neutralized (`payment_link_invalidated`) | No |
+| `booking_cancelled` | Booking status cancelled/expired | No |
+| `not_found` | No active unpaid payment row | No |
+
+### Invariants
+
+- Browser/model **cannot** supply trusted `amount_due_cents`, `currency`, or balance fields — rejected at command build.
+- **Booking total / ledger balance** is authoritative for balance links; draft rows use persisted `payments.amount_due_cents`.
+- **Paid bookings** cannot receive a replacement link (existing paid rows skipped; create fails closed on non-draft rows).
+- **Duplicate create** with same idempotency key or compatible active link returns existing URL (`idempotent: true`).
+- **Cancelled bookings** never return an actionable URL — metadata `last_payment_link_url` is ignored when invalidated.
+- **Cancellation** sets payment row `cancelled`, clears `checkout_url`, patches booking metadata (`payment_link_invalidated`, `last_payment_link_url: null`; Sunset also `sunset_stripe_link_stale`).
+- Stripe sessions **cannot be deleted remotely** — stale `cs_test_*` / `cs_live_*` sessions are treated as invalid locally once cancelled.
+- **Tenant/location** and Stripe account come from trusted runtime config (`trustedClientSlug`, env secret key) — never caller-selected.
+- **Test/live modes cannot cross** — `assertStripeRuntime` rejects mode/key mismatches; live keys blocked on staging tenants.
+- **Stripe failure** on balance-link create deletes draft payment row (no partial local state).
+
+### Cancellation semantics
+
+1. Unpaid `checkout_created` / `draft` row → status `cancelled`, `checkout_url` cleared, metadata records cancel audit fields.
+2. Booking metadata patched to prevent metadata-only URL fallback on subsequent reads.
+3. Idempotent re-cancel returns success without mutation.
+4. Paid rows reject cancel (`payment_already_paid`).
+
+### Route delegation (Slice 10)
+
+| Route | Service op | Retained in route |
+|-------|------------|-------------------|
+| `POST /staff/bookings/generate-payment-link` | `createPaymentLink` (balance) | Feature flags, ledger preflight, audit log, HTTP response envelope |
+| `POST /staff/bookings/cancel-payment-link` | `cancelOrInvalidatePaymentLink` | Audit log, HTTP envelope |
+| `POST /staff/payments/:id/create-stripe-link` | `createPaymentLink` (draft) | Guest short-link observability fields |
+| `POST /staff/bot/payments/:id/create-stripe-link` | `createPaymentLink` (draft, Luna channel) | Bot response fields (`guest_payment_url`, `next_action`) |
+| Sunset schedule GET/CREATE payment link | `getPaymentStatus` / `createSunsetScheduleStripeLink` via service | Guest payment URL attachment |
+
+**Out of scope (unchanged):** service-records addon payment links, refunds, portal UI, room moves, waivers.
+

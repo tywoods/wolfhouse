@@ -1071,7 +1071,7 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
     `UPDATE bookings
         SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb
       WHERE id = $2::uuid`,
-    [JSON.stringify({ sunset_stripe_link_stale: true, last_payment_link_url: null }), booking.booking_id],
+    [JSON.stringify({ sunset_stripe_link_stale: true, last_payment_link_url: null, payment_link_invalidated: true }), booking.booking_id],
   );
   return {
     ok: true,
@@ -1087,34 +1087,34 @@ async function deleteSunsetScheduleStripeLink(pg, opts) {
 }
 
 async function getSunsetSchedulePaymentLink(pg, opts) {
-  const clientSlug = String(opts.clientSlug || '').trim();
-  if (clientSlug !== SUNSET_CLIENT_SLUG) {
-    return { ok: false, status: 403, body: { success: false, error: 'unsupported_client' } };
+  const {
+    buildPaymentLinkCommand,
+    getPaymentStatus,
+    PAYMENT_LINK_OPERATIONS,
+    PAYMENT_LINK_CHANNELS,
+  } = require('./luna-front-desk-payment-link-service');
+  const built = buildPaymentLinkCommand({
+    operation: PAYMENT_LINK_OPERATIONS.GET_STATUS,
+    trustedClientSlug: opts.clientSlug,
+    channel: PAYMENT_LINK_CHANNELS.STAFF_SCHEDULE,
+    bookingId: opts.bookingId,
+    bookingCode: opts.bookingCode,
+  });
+  if (!built.ok) {
+    return { ok: false, status: built.status || 400, body: built.body };
   }
-  const bookingId = String(opts.bookingId || '').trim();
-  const bookingCode = String(opts.bookingCode || '').trim();
-  if (!bookingId && !bookingCode) {
-    return { ok: false, status: 400, body: { success: false, error: 'booking_id or booking_code is required' } };
-  }
-  const loaded = await loadBookingWithServices(pg, clientSlug, bookingId, bookingCode);
-  if (!loaded) {
-    return { ok: false, status: 404, body: { success: false, error: 'booking not found' } };
-  }
-  const link = await loadLatestPaymentLink(pg, loaded.booking.booking_id);
-  const meta = parseMeta(loaded.booking.metadata);
+  const result = await getPaymentStatus(pg, built.command);
+  if (!result.ok) return result;
   return {
     ok: true,
-    status: 200,
-    body: {
-      success: true,
-      booking_id: loaded.booking.booking_id,
-      booking_code: loaded.booking.booking_code,
-      payment_id: link ? link.payment_id : null,
-      payment_status: link ? link.payment_status : null,
-      amount_due_cents: link ? Number(link.amount_due_cents) : null,
-      checkout_url: link ? link.checkout_url : null,
-      payment_link_url: link ? link.checkout_url : meta.last_payment_link_url || null,
-    },
+    status: result.status,
+    body: attachGuestPaymentFields(
+      result.body,
+      result.body.booking_code,
+      result.body.checkout_url,
+      null,
+      opts,
+    ),
   };
 }
 
