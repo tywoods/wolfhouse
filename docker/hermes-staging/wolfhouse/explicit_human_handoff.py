@@ -82,29 +82,51 @@ def acknowledgement_for(message_text: Any) -> str:
     return "Of course — I’m looping in a teammate now and they’ll take over from here."
 
 
+def _load_flag_needs_human():
+    """Resolve flag_needs_human across Hermes plugin load paths.
+
+    PYTHONPATH is often only ``/etc/hermes-staging``; plugins live under
+    ``/etc/hermes-staging/plugins`` and ``$HERMES_HOME/plugins``.
+    """
+    import importlib
+    import os
+    import sys
+
+    try:
+        return getattr(importlib.import_module("wolfhouse_staff_api"), "flag_needs_human")
+    except Exception:
+        pass
+
+    roots = [
+        "/etc/hermes-staging/plugins",
+        os.path.join((os.getenv("HERMES_HOME") or "/opt/data").rstrip("/"), "plugins"),
+    ]
+    for root in roots:
+        if root and root not in sys.path and os.path.isdir(root):
+            sys.path.insert(0, root)
+        try:
+            return getattr(importlib.import_module("wolfhouse_staff_api"), "flag_needs_human")
+        except Exception:
+            continue
+    return None
+
+
 def execute_explicit_human_handoff(*, reason: str = HUMAN_REQUESTED) -> Dict[str, Any]:
     """Call flag_needs_human via the Staff plugin (runtime tenant + session phone)."""
     reason_code = str(reason or HUMAN_REQUESTED).strip() or HUMAN_REQUESTED
-    try:
-        from wolfhouse_staff_api import flag_needs_human  # type: ignore
-    except Exception:
-        try:
-            import importlib
-
-            mod = importlib.import_module("wolfhouse_staff_api")
-            flag_needs_human = getattr(mod, "flag_needs_human")
-        except Exception as exc:
-            logger.warning(
-                "%s",
-                {"event": "explicit_human_handoff_import_failed", "error_type": type(exc).__name__},
-            )
-            return {
-                "success": False,
-                "tool": "flag_needs_human",
-                "reason": reason_code,
-                "needs_human": False,
-                "error": "flag_needs_human_unavailable",
-            }
+    flag_needs_human = _load_flag_needs_human()
+    if flag_needs_human is None:
+        logger.warning(
+            "%s",
+            {"event": "explicit_human_handoff_import_failed", "error_type": "ModuleNotFoundError"},
+        )
+        return {
+            "success": False,
+            "tool": "flag_needs_human",
+            "reason": reason_code,
+            "needs_human": False,
+            "error": "flag_needs_human_unavailable",
+        }
 
     raw = flag_needs_human({"reason": reason_code})
     if isinstance(raw, str):
