@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import pathlib
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -325,6 +326,51 @@ class BurstCoalescer:
     def _combined_char_count(self, buf: BurstBuffer) -> int:
         return sum(len(m.text or "") for m in buf.messages) + max(0, len(buf.messages) - 1)
 
+    def _mirror_raw_inbound(self, event: Any) -> None:
+        """Best-effort Staff Inbox mirror for one original inbound message."""
+        try:
+            source = getattr(event, "source", None)
+            if source is None:
+                return
+            import importlib.util as _wwm_iu
+
+            candidates = [
+                "/etc/hermes-staging/wolfhouse_whatsapp_mirror.py",
+                str(pathlib.Path(__file__).resolve().parent.parent / "wolfhouse_whatsapp_mirror.py"),
+            ]
+            _wwm_spec = None
+            for candidate in candidates:
+                if not os.path.isfile(candidate):
+                    continue
+                _wwm_spec = _wwm_iu.spec_from_file_location("wolfhouse_whatsapp_mirror", candidate)
+                if _wwm_spec is not None and _wwm_spec.loader is not None:
+                    break
+            if _wwm_spec is None or _wwm_spec.loader is None:
+                return
+            _wwm = _wwm_iu.module_from_spec(_wwm_spec)
+            _wwm_spec.loader.exec_module(_wwm)
+            if hasattr(_wwm, "mirror_raw_inbound"):
+                _wwm.mirror_raw_inbound(source, event)
+            else:
+                _wwm.mirror_whatsapp_thread(
+                    source,
+                    event,
+                    "inbound",
+                    getattr(event, "text", None),
+                    getattr(event, "message_id", None),
+                    getattr(source, "user_name", None),
+                )
+        except Exception:
+            logger.exception(
+                "%s",
+                {
+                    "event": "whatsapp_burst_raw_mirror_error",
+                    "wamid_hash": hashlib.sha256(_event_wamid(event).encode()).hexdigest()[:10]
+                    if _event_wamid(event)
+                    else "none",
+                },
+            )
+
     def _append_to_buffer(self, buf: BurstBuffer, src: SourceMessage) -> None:
         buf.messages.append(src)
         if src.wamid:
@@ -603,6 +649,9 @@ class BurstCoalescer:
 
         resetting = bool(buf.messages)
         self._append_to_buffer(buf, src)
+        # Mirror each original inbound once (Staff Inbox bubble per wamid).
+        # The coalesced agent turn must not create an extra inbound row.
+        self._mirror_raw_inbound(event)
         self._stats["buffered"] += 1
         self._log(
             "whatsapp_burst_buffered",

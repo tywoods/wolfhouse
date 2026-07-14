@@ -560,6 +560,7 @@ const {
 } = require('./lib/luna-staff-inbox-thread-message');
 const {
   parseHermesWhatsAppThreadMirrorBody,
+  assertHermesMirrorTenantScope,
   mirrorHermesWhatsAppThreadMessage,
 } = require('./lib/luna-hermes-whatsapp-thread-mirror');
 const {
@@ -12189,6 +12190,18 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
     return sendJSON(res, parsed.status || 400, { success: false, error: parsed.error });
   }
 
+  const scope = assertHermesMirrorTenantScope(parsed.input, process.env);
+  if (!scope.ok) {
+    return sendJSON(res, scope.status || 403, {
+      success: false,
+      error: scope.error,
+      client_slug: scope.client_slug || parsed.input.client_slug,
+      expected_tenant: scope.expected_tenant || null,
+      location_id: scope.location_id || parsed.input.location_id || null,
+    });
+  }
+  if (scope.location_id) parsed.input.location_id = scope.location_id;
+
   const resolvedAuthMode = authMode || (STAFF_AUTH_REQUIRED ? 'session' : 'open');
 
   try {
@@ -12201,6 +12214,8 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
       intent: 'api:bot_whatsapp_thread_mirror',
       category: 'hermes_whatsapp_thread_mirror',
       direction: parsed.input.direction,
+      client_slug: parsed.input.client_slug,
+      location_id: parsed.input.location_id || null,
       guest_phone: parsed.input.guest_phone,
       conversation_id: out.conversation_id || null,
       thread_persisted: thread.persisted === true,
@@ -12216,6 +12231,8 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
       preview_only: true,
       no_booking_write: true,
       sends_whatsapp: false,
+      client_slug: parsed.input.client_slug,
+      location_id: parsed.input.location_id || null,
       conversation_id: out.conversation_id || null,
       direction: out.direction || parsed.input.direction,
       thread_message: {
@@ -12223,6 +12240,7 @@ async function handleBotHermesWhatsAppThreadMirror(req, res, user, authMode) {
         persisted: thread.persisted === true,
         duplicate: thread.duplicate === true,
         whatsapp_message_id: thread.whatsapp_message_id || null,
+        source: thread.source || null,
       },
       elapsed_ms: elapsed,
     });
@@ -17714,6 +17732,10 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 #conv-list.conv-list{min-height:0;overflow:visible}
 .inbox-left-scroll{flex:1;min-height:0;display:flex;flex-direction:column;overflow:hidden}
 #inbox-state{flex-shrink:0}
+.inbox-live-status{margin-left:8px;font-size:11px;font-weight:600;color:var(--text-3);letter-spacing:0.02em;white-space:nowrap}
+.inbox-live-status.is-live{color:#5a7a5a}
+.inbox-live-status.is-reconnect{color:#9a7a3a}
+.inbox-live-status.is-error{color:#9C5742}
 /* ── Conversation cards (left list) ──────────────────────────────────────── */
 .conv-card{padding:13px 16px 13px 16px;border-bottom:1px solid var(--border-soft);cursor:pointer;transition:background .14s,border-color .14s;position:relative;padding-right:28px}
 .conv-card:hover{background:var(--surface-soft);border-color:var(--tan)}
@@ -19155,6 +19177,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
         <div class="inbox-toolbar-top">
           <select id="c-client" title="Company" class="inbox-client-select"></select>
           <button class="btn btn-primary inbox-refresh-btn" id="btn-refresh" data-i18n-title="inbox.refreshTitle" title="Refresh conversation list">&#8635;</button>
+          <span id="inbox-live-status" class="inbox-live-status" aria-live="polite">Live</span>
         </div>
         <div class="portal-inbox-school-context" id="inbox-school-context" style="display:none;margin:8px 0 0;font-size:13px;color:var(--text-2)">
           <span data-i18n="inbox.school.context">Inbox for:</span>
@@ -20243,6 +20266,9 @@ function switchToTab(tab, subtab){
   if (tab === 'conversations') {
     wireInboxLeftListWheel();
     if (!subtab) ensureInboxLoadedForTab();
+    startInboxLivePolling();
+  } else {
+    stopInboxLivePolling();
   }
   if (tab === 'portal-home') { wirePortalHomeScheduleControls(); loadPortalHome(); }
   if (tab === 'customers') loadCustomersTab();
@@ -20833,13 +20859,170 @@ function updateInboxFilterUI(){
 function ensureInboxLoadedForTab(opts){
   if (inboxConversationsCache != null) applyInboxFilter(opts || {});
   else loadInbox(null, opts || {});
+  startInboxLivePolling();
 }
 
 function refreshInboxIfConversationsTabActive(){
   var panel = el('tab-conversations');
   if (panel && panel.classList.contains('active')) {
     loadInbox(null, { silent: !!inboxConversationsCache, preserveDetail: true });
+    startInboxLivePolling();
+  } else {
+    stopInboxLivePolling();
   }
+}
+
+var INBOX_LIST_POLL_MS = 5000;
+var INBOX_THREAD_POLL_MS = 3000;
+var inboxListPollTimer = null;
+var inboxThreadPollTimer = null;
+var inboxListPollInFlight = false;
+var inboxThreadPollInFlight = false;
+var inboxLivePollActive = false;
+var inboxThreadMessageSig = null;
+
+function setInboxLiveStatus(kind, label){
+  var node = el('inbox-live-status');
+  if (!node) return;
+  node.textContent = label || 'Live';
+  node.classList.remove('is-live', 'is-reconnect', 'is-error');
+  if (kind === 'error') node.classList.add('is-error');
+  else if (kind === 'reconnect') node.classList.add('is-reconnect');
+  else node.classList.add('is-live');
+}
+
+function isInboxTabVisible(){
+  var panel = el('tab-conversations');
+  return !!(panel && panel.classList.contains('active'));
+}
+
+function stopInboxLivePolling(){
+  inboxLivePollActive = false;
+  if (inboxListPollTimer) { clearInterval(inboxListPollTimer); inboxListPollTimer = null; }
+  if (inboxThreadPollTimer) { clearInterval(inboxThreadPollTimer); inboxThreadPollTimer = null; }
+}
+
+function startInboxLivePolling(){
+  if (!isInboxTabVisible()) {
+    stopInboxLivePolling();
+    return;
+  }
+  if (inboxLivePollActive) return;
+  inboxLivePollActive = true;
+  setInboxLiveStatus('live', 'Live');
+  if (!inboxListPollTimer) {
+    inboxListPollTimer = setInterval(function(){
+      pollInboxConversationListLive();
+    }, INBOX_LIST_POLL_MS);
+  }
+  if (!inboxThreadPollTimer) {
+    inboxThreadPollTimer = setInterval(function(){
+      pollInboxSelectedThreadLive();
+    }, INBOX_THREAD_POLL_MS);
+  }
+}
+
+function pollInboxConversationListLive(){
+  if (!inboxLivePollActive || !isInboxTabVisible()) return;
+  if (inboxListPollInFlight) return;
+  inboxListPollInFlight = true;
+  var keepConvId = selectedConvId;
+  fetch('/staff/conversations' + inboxClientQuery())
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data || !data.success) throw new Error((data && data.error) || 'API error');
+      renderInboxSchoolContext(data.channel_config || null);
+      inboxConversationsCache = mergeSurfInboxConversations(data.conversations || [], getPortalProfile(getClient()));
+      var nhCount = inboxConversationsCache.filter(conversationNeedsHuman).length;
+      var badge = el('hq-badge');
+      if (badge){ badge.textContent = nhCount; badge.classList.toggle('visible', nhCount > 0); }
+      if (keepConvId) selectedConvId = keepConvId;
+      applyInboxFilter({ preserveDetail: true, selectedId: selectedConvId });
+      setInboxLiveStatus('live', 'Live');
+    })
+    .catch(function(){
+      setInboxLiveStatus('error', 'Update failed');
+      setTimeout(function(){ if (inboxLivePollActive) setInboxLiveStatus('reconnect', 'Reconnecting'); }, 1200);
+    })
+    .then(function(){ inboxListPollInFlight = false; });
+}
+
+function threadMessagesFingerprint(msgs){
+  return (msgs || []).map(function(m){
+    return String(m.message_id || '') + ':' + String(m.direction || '') + ':' + String(m.created_at || '') + ':' + String((m.message_text || '').length);
+  }).join('|');
+}
+
+function isThreadNearBottom(scrollEl){
+  if (!scrollEl) return true;
+  var remaining = scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight;
+  return remaining < 80;
+}
+
+function renderInboxThreadMessagesHtml(msgs){
+  var html = '';
+  if (!msgs || !msgs.length){
+    return '<div class="thread-empty">' + escHtml(t('inbox.detail.thread.empty')) + '</div>';
+  }
+  msgs.forEach(function(m){
+    var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
+    var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : (m.source || 'Luna'));
+    var msgClass = 'msg ' + dir;
+    if (dir === 'outbound') {
+      msgClass += (m.source === 'staff_inbox_reply') ? ' msg-staff' : ' msg-luna';
+    }
+    // Map hermes reply source to a short guest-facing sender label.
+    if (dir === 'outbound' && m.source === 'hermes_luna_whatsapp_reply') sender = 'Luna';
+    html += '<div class="' + msgClass + '">';
+    html +=   '<div class="msg-bubble">' + formatThreadMessageHtml(m.message_text || '') + '</div>';
+    html +=   '<div class="msg-meta">' + escHtml(sender) + ' &bull; ' + escHtml(fmtTs(m.created_at));
+    html +=   '</div>';
+    html += '</div>';
+  });
+  return html;
+}
+
+function pollInboxSelectedThreadLive(){
+  if (!inboxLivePollActive || !isInboxTabVisible()) return;
+  if (!selectedConvId || isSurfInboxDemoThread(selectedConvId)) return;
+  if (inboxThreadPollInFlight) return;
+  var convId = selectedConvId;
+  var container = el('thread-container');
+  if (!container) return;
+  inboxThreadPollInFlight = true;
+  var wrap = el('inbox-thread-wrap') || container;
+  var stickToBottom = isThreadNearBottom(wrap);
+  var prevScrollTop = wrap ? wrap.scrollTop : 0;
+  fetch('/staff/conversations/' + encodeURIComponent(convId) + '/messages' + inboxClientQuery())
+    .then(function(r){
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    })
+    .then(function(data){
+      if (!data || !data.success) throw new Error((data && data.error) || 'API error');
+      if (selectedConvId !== convId) return;
+      var msgs = data.messages || [];
+      var sig = threadMessagesFingerprint(msgs);
+      if (sig === inboxThreadMessageSig) {
+        setInboxLiveStatus('live', 'Live');
+        return;
+      }
+      inboxThreadMessageSig = sig;
+      container.innerHTML = renderInboxThreadMessagesHtml(msgs);
+      if (wrap) {
+        if (stickToBottom) wrap.scrollTop = wrap.scrollHeight;
+        else wrap.scrollTop = prevScrollTop;
+      }
+      setInboxLiveStatus('live', 'Live');
+    })
+    .catch(function(){
+      setInboxLiveStatus('error', 'Update failed');
+      setTimeout(function(){ if (inboxLivePollActive) setInboxLiveStatus('reconnect', 'Reconnecting'); }, 1200);
+    })
+    .then(function(){ inboxThreadPollInFlight = false; });
 }
 
 function setInboxFilter(mode){
@@ -31296,6 +31479,7 @@ function loadConvDetail(convId, targetEl){
 
     var c     = detailData.conversation;
     var msgs  = (msgsData.success  && msgsData.messages)  ? msgsData.messages  : [];
+    inboxThreadMessageSig = threadMessagesFingerprint(msgs);
     var ctx   = (ctxData.success   && ctxData.context)    ? sanitizeConversationContextForInbox(ctxData.context) : null;
     var bookingRows = (ctxData.success && ctxData.bookings && ctxData.bookings.length)
       ? filterActiveInboxBookings(ctxData.bookings)
@@ -31344,7 +31528,9 @@ function loadConvDetail(convId, targetEl){
     } else {
       msgs.forEach(function(m){
         var dir = (m.direction === 'inbound') ? 'inbound' : 'outbound';
-        var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : (m.source || 'Luna'));
+        var sender = dir === 'inbound' ? 'Guest' : (m.source === 'staff_inbox_reply' ? 'Staff' : 'Luna');
+        if (dir === 'outbound' && m.source === 'staff_inbox_reply') sender = 'Staff';
+        else if (dir === 'outbound') sender = 'Luna';
         var msgClass = 'msg ' + dir;
         if (dir === 'outbound') {
           msgClass += (m.source === 'staff_inbox_reply') ? ' msg-staff' : ' msg-luna';

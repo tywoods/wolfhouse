@@ -23,14 +23,17 @@ INBOUND_MIRROR = '''
                 )
                 _wwm = _wwm_iu.module_from_spec(_wwm_spec)
                 _wwm_spec.loader.exec_module(_wwm)
-                _wwm.mirror_whatsapp_thread(
-                    source,
-                    event,
-                    "inbound",
-                    (getattr(event, "text", None) or message_text),
-                    getattr(event, "message_id", None),
-                    getattr(source, "user_name", None),
-                )
+                # Burst coalescer already mirrored each raw inbound wamid.
+                # Skip the combined agent-turn event so Inbox stays 1 bubble / message.
+                if not getattr(_wwm, "is_coalesced_agent_inbound", lambda _e: False)(event):
+                    _wwm.mirror_whatsapp_thread(
+                        source,
+                        event,
+                        "inbound",
+                        (getattr(event, "text", None) or message_text),
+                        getattr(event, "message_id", None),
+                        getattr(source, "user_name", None),
+                    )
             except Exception:
                 pass
 '''
@@ -79,11 +82,12 @@ WHATSAPP_TEXT_NORMALIZE = '''
 # single-line tag never matched a patched file, so "already applied" was invisible.
 MIRROR_INBOUND_TAG = (
     '_wwm.mirror_whatsapp_thread(\n'
-    '                    source,\n'
-    '                    event,\n'
-    '                    "inbound",'
+    '                        source,\n'
+    '                        event,\n'
+    '                        "inbound",'
 )
 MIRROR_OUTBOUND_TAG = '_wwm.mirror_whatsapp_thread(source, event, "outbound"'
+MIRROR_COALESCE_SKIP_TAG = 'is_coalesced_agent_inbound'
 
 RUNNER_GLOBAL_VAR = "_wolfhouse_gateway_runner = None"
 RUNNER_START_ANCHOR = 'logger.info("Starting Hermes Gateway...")'

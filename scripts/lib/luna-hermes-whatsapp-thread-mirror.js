@@ -5,6 +5,7 @@
  * Called by POST /staff/bot/whatsapp-thread-mirror (bot token auth).
  */
 
+const { resolvePortalDeployClient } = require('./staff-portal-clients');
 const {
   persistHermesLunaInboundThreadMessage,
   persistHermesLunaOutboundThreadMessage,
@@ -13,6 +14,11 @@ const {
   mergeSunsetInboundLocationMetadata,
   extractSunsetChannelHintsFromNormalized,
 } = require('./sunset-inbox-channel-config');
+const {
+  SUNSET_CLIENT_SLUG,
+  isSunsetLocationId,
+  normalizeSunsetLocationId,
+} = require('./sunset-school-locations');
 const {
   maybeNotifyNewConversation,
   maybeNotifyHumanNeeded,
@@ -54,7 +60,7 @@ function normalizeWhatsAppMessageText(text) {
 
 function parseHermesWhatsAppThreadMirrorBody(body) {
   const src = body || {};
-  const clientSlug = trimStr(src.client_slug) || 'wolfhouse-somo';
+  const clientSlug = trimStr(src.client_slug);
   const guestPhone = normalizeGuestPhone(src.guest_phone || src.phone || src.from);
   const direction = trimStr(src.direction).toLowerCase();
   let messageText = trimStr(src.message_text);
@@ -66,9 +72,13 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
     src.receiving_whatsapp_number || src.display_phone_number || src.whatsapp_number,
   ) || null;
   const phoneNumberId = trimStr(src.phone_number_id) || null;
+  const locationId = trimStr(src.location_id) || null;
+  const messageType = trimStr(src.message_type) || null;
+  const messageTimestamp = trimStr(src.message_timestamp || src.timestamp) || null;
   const needsHuman = toBool(src.needs_human);
   const handoffReason = trimStr(src.handoff_reason || src.needs_human_reason) || null;
 
+  if (!clientSlug) return { ok: false, status: 400, error: 'client_slug required' };
   if (!guestPhone) return { ok: false, status: 400, error: 'guest_phone required' };
   if (!messageText) return { ok: false, status: 400, error: 'message_text required' };
   if (direction !== 'inbound' && direction !== 'outbound') {
@@ -87,9 +97,81 @@ function parseHermesWhatsAppThreadMirrorBody(body) {
       contact_name: contactName,
       receiving_whatsapp_number: receivingWhatsappNumber,
       phone_number_id: phoneNumberId,
+      location_id: locationId,
+      message_type: messageType,
+      message_timestamp: messageTimestamp,
       needs_human: needsHuman,
       handoff_reason: handoffReason,
     },
+  };
+}
+
+/**
+ * Enforce deployment tenant isolation for Hermes WhatsApp inbox mirrors.
+ * Sunset staging rejects Wolfhouse payloads (and vice versa).
+ */
+function assertHermesMirrorTenantScope(input, env) {
+  const i = input || {};
+  const srcEnv = env && typeof env === 'object' ? env : process.env;
+  const prev = process.env.DEFAULT_CLIENT_SLUG;
+  let deployClient;
+  try {
+    if (srcEnv !== process.env && Object.prototype.hasOwnProperty.call(srcEnv, 'DEFAULT_CLIENT_SLUG')) {
+      if (srcEnv.DEFAULT_CLIENT_SLUG == null || srcEnv.DEFAULT_CLIENT_SLUG === '') {
+        delete process.env.DEFAULT_CLIENT_SLUG;
+      } else {
+        process.env.DEFAULT_CLIENT_SLUG = String(srcEnv.DEFAULT_CLIENT_SLUG);
+      }
+    }
+    deployClient = resolvePortalDeployClient({});
+  } finally {
+    if (srcEnv !== process.env && Object.prototype.hasOwnProperty.call(srcEnv, 'DEFAULT_CLIENT_SLUG')) {
+      if (prev == null) delete process.env.DEFAULT_CLIENT_SLUG;
+      else process.env.DEFAULT_CLIENT_SLUG = prev;
+    }
+  }
+
+  const clientSlug = trimStr(i.client_slug);
+  if (!clientSlug) {
+    return { ok: false, status: 400, error: 'client_slug required' };
+  }
+  if (clientSlug !== deployClient) {
+    return {
+      ok: false,
+      status: 403,
+      error: 'tenant_mismatch',
+      client_slug: clientSlug,
+      expected_tenant: deployClient,
+    };
+  }
+
+  if (clientSlug === SUNSET_CLIENT_SLUG) {
+    const locRaw = trimStr(i.location_id);
+    if (!locRaw) {
+      return { ok: false, status: 400, error: 'location_id required', client_slug: clientSlug };
+    }
+    if (!isSunsetLocationId(locRaw)) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'invalid_location',
+        client_slug: clientSlug,
+        location_id: locRaw,
+      };
+    }
+    return {
+      ok: true,
+      client_slug: clientSlug,
+      location_id: normalizeSunsetLocationId(locRaw),
+      expected_tenant: deployClient,
+    };
+  }
+
+  return {
+    ok: true,
+    client_slug: clientSlug,
+    location_id: trimStr(i.location_id) || null,
+    expected_tenant: deployClient,
   };
 }
 
@@ -100,13 +182,18 @@ async function ensureConversationForGuestPhone(pg, clientSlug, guestPhone, conta
   const clientId = clientR.rows[0].id;
   const preview = trimStr(previewText) || trimStr(contactName) || phone;
   const displayName = trimStr(contactName) || null;
+  const hints = extractSunsetChannelHintsFromNormalized({
+    channel: 'whatsapp',
+    receiving_whatsapp_number: channelHints && channelHints.receiving_whatsapp_number,
+    phone_number_id: channelHints && channelHints.phone_number_id,
+    location_id: channelHints && channelHints.location_id,
+  });
+  if (channelHints && channelHints.location_id) {
+    hints.location_id = channelHints.location_id;
+  }
   const metadata = mergeSunsetInboundLocationMetadata(
     { channel: 'whatsapp', hermes_luna: true },
-    extractSunsetChannelHintsFromNormalized({
-      channel: 'whatsapp',
-      receiving_whatsapp_number: channelHints && channelHints.receiving_whatsapp_number,
-      phone_number_id: channelHints && channelHints.phone_number_id,
-    }),
+    hints,
     clientSlug,
   );
   const existing = await pg.query(
@@ -165,6 +252,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     {
       receiving_whatsapp_number: i.receiving_whatsapp_number,
       phone_number_id: i.phone_number_id,
+      location_id: i.location_id,
     },
   );
   if (!ensured || !ensured.conversation_id) {
@@ -178,6 +266,8 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
     message_text: i.message_text,
     whatsapp_message_id: i.whatsapp_message_id,
     idempotency_key: i.idempotency_key,
+    message_type: i.message_type,
+    message_timestamp: i.message_timestamp,
   };
 
   let staff_notification = null;
@@ -245,6 +335,7 @@ async function mirrorHermesWhatsAppThreadMessage(pg, input, opts = {}) {
 
 module.exports = {
   parseHermesWhatsAppThreadMirrorBody,
+  assertHermesMirrorTenantScope,
   ensureConversationForGuestPhone,
   mirrorHermesWhatsAppThreadMessage,
 };

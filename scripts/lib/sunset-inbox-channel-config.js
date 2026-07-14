@@ -10,9 +10,10 @@
 
 const {
   SUNSET_CLIENT_SLUG,
-  SUNSET_LOCATIONS,
   DEFAULT_SUNSET_LOCATION_ID,
+  SUNSET_LOCATIONS,
   normalizeSunsetLocationId,
+  isSunsetLocationId,
 } = require('./sunset-school-locations');
 
 const PLACEHOLDER_WHATSAPP = {
@@ -150,6 +151,15 @@ function resolveSunsetLocationFromInboundChannel(hints, env) {
   const h = hints || {};
   const channel = trimStr(h.channel).toLowerCase();
 
+  const explicitLocation = trimStr(h.location_id);
+  if (explicitLocation && isSunsetLocationId(explicitLocation)) {
+    return {
+      location_id: normalizeSunsetLocationId(explicitLocation),
+      channel_location_source: 'ingress',
+      fallback: false,
+    };
+  }
+
   if (channel === 'email' || h.inbox_email || h.to_email) {
     const email = h.inbox_email || h.to_email;
     const fromEmail = resolveSunsetLocationFromInboxEmail(email, env);
@@ -206,6 +216,7 @@ function extractSunsetChannelHintsFromNormalized(normalized) {
     whatsapp_number: trimStr(n.receiving_whatsapp_number || n.display_phone_number || n.whatsapp_number) || null,
     phone_number_id: trimStr(n.phone_number_id) || null,
     inbox_email: trimStr(n.inbox_email || n.to_email || n.receiving_email) || null,
+    location_id: trimStr(n.location_id) || null,
   };
 }
 
