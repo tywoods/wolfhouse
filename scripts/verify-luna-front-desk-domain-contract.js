@@ -107,6 +107,7 @@ for (const mod of [
   'sunset-schedule-booking-writes.js',
   'sunset-admin-course-join.js',
   'luna-front-desk-quote-service.js',
+  'luna-front-desk-business-vertical.js',
 ]) {
   assert(`doc references ${mod}`, doc.includes(mod));
 }
@@ -218,8 +219,10 @@ for (const route of [
   assert(`route ${route}`, apiSrc.includes(route));
 }
 assert('bot booking requires guest_confirmed_booking', /guest_confirmed_booking_required/.test(apiSrc));
-assert('routes call executeSunsetBookingCreate', /executeSunsetBookingCreate/.test(apiSrc));
-assert('routes call executeSunsetQuote', /executeSunsetQuote/.test(apiSrc));
+assert('routes use vertical resolver', /resolveBusinessVertical/.test(apiSrc));
+assert('routes invoke vertical operations', /invokeVerticalOperation/.test(apiSrc));
+assert('routes do not call executeSunsetBookingCreate directly', !/executeSunsetBookingCreate\s*\(/.test(apiSrc));
+assert('routes do not call executeSunsetQuote directly', !/executeSunsetQuote\s*\(/.test(apiSrc));
 assert('service exports executeSunsetBookingCreate', /executeSunsetBookingCreate/.test(serviceSrc));
 assert('service channels manual_staff + luna_whatsapp', /manual_staff/.test(serviceSrc) && /luna_whatsapp/.test(serviceSrc));
 assert('quote service exports executeSunsetQuote', /executeSunsetQuote/.test(quoteServiceSrc));

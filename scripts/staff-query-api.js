@@ -305,20 +305,10 @@ const {
   createSunsetScheduleBooking,
 } = require('./lib/sunset-schedule-booking-writes');
 const {
-  BOOKING_CREATE_CHANNELS,
-  buildSunsetBookingCreateCommand,
-  executeSunsetBookingCreate,
-} = require('./lib/luna-front-desk-booking-create-service');
-const {
-  QUOTE_CHANNELS,
-  buildSunsetQuoteCommand,
-  executeSunsetQuote,
-} = require('./lib/luna-front-desk-quote-service');
-const {
-  CATALOG_CHANNELS,
-  buildSunsetCatalogCommand,
-  executeSunsetCatalog,
-} = require('./lib/luna-front-desk-catalog-service');
+  VERTICAL_CHANNELS,
+  resolveBusinessVertical,
+  invokeVerticalOperation,
+} = require('./lib/luna-front-desk-business-vertical');
 const {
   createSunsetScheduleStripeLink,
   deleteSunsetScheduleStripeLink,
@@ -42700,18 +42690,18 @@ async function handleBotSunsetCatalog(req, res) {
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
-  const built = buildSunsetCatalogCommand({
-    channel: CATALOG_CHANNELS.LUNA_WHATSAPP,
-    trustedLocationId: loc.location_id,
-    transportBody: body,
-  });
-  if (!built.ok) {
-    return sendJSON(res, built.status, { ...built.body, elapsed_ms: Date.now() - started });
+  const resolved = resolveBusinessVertical({ clientSlug: SUNSET_CLIENT_SLUG, locationId: loc.location_id });
+  if (!resolved.ok) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: resolved.reason, location_id: loc.location_id, elapsed_ms: Date.now() - started });
   }
   try {
     const result = await withPgClient(async (pg) => {
       const cfg = await resolveSunsetLunaAdminCatalog(loc.location_id, body, pg);
-      return executeSunsetCatalog(pg, built.command, { adminCfg: cfg });
+      return invokeVerticalOperation(resolved, 'listOfferings', pg, {
+        channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
+        transportBody: body,
+        adminCfg: cfg,
+      });
     });
     return sendJSON(res, result.status || 200, {
       ...result.body,
@@ -42739,21 +42729,20 @@ async function handleSunsetScheduleBookingsCatalog(query, req, res, user) {
   if (req.method === 'POST') {
     try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   }
-  const built = buildSunsetCatalogCommand({
-    channel: CATALOG_CHANNELS.SCHEDULE,
-    trustedLocationId,
-    transportBody: {
-      ...body,
-      service_dates: body.service_dates || (query.date ? [String(query.date).slice(0, 10)] : undefined),
-      require_db: body.require_db != null ? body.require_db : undefined,
-    },
-  });
-  if (!built.ok) {
-    return sendJSON(res, built.status, { ...built.body, elapsed_ms: 0 });
+  const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
+  if (!resolved.ok) {
+    return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: 0 });
   }
   const started = Date.now();
   try {
-    const result = await withPgClient(async (pg) => executeSunsetCatalog(pg, built.command));
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'listOfferings', pg, {
+      channel: VERTICAL_CHANNELS.SCHEDULE,
+      transportBody: {
+        ...body,
+        service_dates: body.service_dates || (query.date ? [String(query.date).slice(0, 10)] : undefined),
+        require_db: body.require_db != null ? body.require_db : undefined,
+      },
+    }));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.bookings_catalog',
@@ -42767,7 +42756,7 @@ async function handleSunsetScheduleBookingsCatalog(query, req, res, user) {
       ...(result.body || {}),
       success: !!result.ok,
       client_slug: clientSlug,
-      location_id: built.command.locationId,
+      location_id: resolved.locationId,
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
@@ -42777,30 +42766,32 @@ async function handleSunsetScheduleBookingsCatalog(query, req, res, user) {
 
 async function handleSunsetOfferingQuoteRoute(res, opts = {}) {
   const started = Date.now();
-  const channel = opts.channel || QUOTE_CHANNELS.LUNA_WHATSAPP;
+  const channel = opts.channel || VERTICAL_CHANNELS.LUNA_WHATSAPP;
   const body = opts.body || {};
-  const built = buildSunsetQuoteCommand({
-    channel,
-    transportBody: body,
-    trustedLocationId: opts.trustedLocationId,
+  const resolved = resolveBusinessVertical({
+    clientSlug: SUNSET_CLIENT_SLUG,
+    locationId: opts.trustedLocationId,
   });
-  if (!built.ok) {
-    return sendJSON(res, built.status, {
-      ...built.body,
+  if (!resolved.ok) {
+    return sendJSON(res, 400, {
       ok: false,
       success: false,
+      reason: resolved.reason,
       client_slug: SUNSET_CLIENT_SLUG,
       elapsed_ms: Date.now() - started,
     });
   }
   try {
-    const result = await withPgClient(async (pg) => executeSunsetQuote(pg, built.command));
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'quoteOffering', pg, {
+      channel,
+      transportBody: body,
+    }));
     return sendJSON(res, result.status || 200, {
       ...(result.body || {}),
       ok: !!result.ok,
       success: !!result.ok,
       client_slug: SUNSET_CLIENT_SLUG,
-      location_id: built.command.locationId,
+      location_id: resolved.locationId,
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
@@ -42818,7 +42809,7 @@ async function handleBotSunsetOfferingQuote(req, res) {
   const loc = sunsetBotResolveLocation(body);
   if (!loc.ok) return sendJSON(res, 400, { ok: false, success: false, reason: 'unknown_location', location_id: loc.raw });
   return handleSunsetOfferingQuoteRoute(res, {
-    channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+    channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
     trustedLocationId: loc.location_id,
     body,
   });
@@ -42833,17 +42824,16 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
   let body = {};
   try { body = JSON.parse(await readBody(req) || '{}'); } catch (_) { return send400(res, 'invalid JSON body'); }
   const trustedLocationId = query.location || body.location_id || body.location;
-  const built = buildSunsetQuoteCommand({
-    channel: QUOTE_CHANNELS.MANUAL_STAFF,
-    transportBody: body,
-    trustedLocationId,
-  });
-  if (!built.ok) {
-    return sendJSON(res, built.status, { ...built.body, elapsed_ms: 0 });
+  const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
+  if (!resolved.ok) {
+    return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: 0 });
   }
   const started = Date.now();
   try {
-    const result = await withPgClient(async (pg) => executeSunsetQuote(pg, built.command));
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'quoteOffering', pg, {
+      channel: VERTICAL_CHANNELS.MANUAL_STAFF,
+      transportBody: body,
+    }));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.booking_quote',
@@ -42857,7 +42847,7 @@ async function handleSunsetScheduleBookingQuote(query, req, res, user) {
       ...(result.body || {}),
       success: !!result.ok,
       client_slug: clientSlug,
-      location_id: built.command.locationId,
+      location_id: resolved.locationId,
       elapsed_ms: Date.now() - started,
     });
   } catch (err) {
@@ -42998,15 +42988,19 @@ async function handleBotSunsetJoinableCourses(req, res) {
     return sendJSON(res, 400, { ok: false, success: false, reason: 'invalid_date', detail: 'date must be YYYY-MM-DD' });
   }
   try {
-    const { listJoinableSunsetOfferings } = require('./lib/sunset-admin-course-join');
-    const result = await withPgClient(async (pg) => listJoinableSunsetOfferings(pg, {
-      clientSlug: SUNSET_CLIENT_SLUG,
-      locationId: loc.location_id,
-      date: dateIso || null,
-      includeFull: body.include_full === true,
+    const resolved = resolveBusinessVertical({ clientSlug: SUNSET_CLIENT_SLUG, locationId: loc.location_id });
+    if (!resolved.ok) {
+      return sendJSON(res, 400, { ok: false, success: false, reason: resolved.reason, elapsed_ms: Date.now() - started });
+    }
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'checkAvailability', pg, {
+      transportBody: {
+        date: dateIso || null,
+        service_dates: dateIso ? [dateIso] : undefined,
+        include_full: body.include_full === true,
+      },
     }));
-    return sendJSON(res, 200, {
-      ...result,
+    return sendJSON(res, result.status || 200, {
+      ...(result.body || {}),
       success: !!result.ok,
       elapsed_ms: Date.now() - started,
     });
@@ -43031,7 +43025,7 @@ async function handleBotSunsetLessonQuote(req, res) {
   }
   if (body.offering_id) {
     return handleSunsetOfferingQuoteRoute(res, {
-      channel: QUOTE_CHANNELS.LUNA_WHATSAPP,
+      channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
       trustedLocationId: loc.location_id,
       body,
     });
@@ -43086,18 +43080,17 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
   }
 
   const trustedLocationId = query.location || body.location_id || body.location;
-  const built = buildSunsetBookingCreateCommand({
-    channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
-    transportBody: body,
-    trustedLocationId,
-    actorHints: { staff_user_id: user && user.staff_user_id, email: user && user.email },
-  });
-  if (!built.ok) {
-    return sendJSON(res, built.status, { ...built.body, elapsed_ms: Date.now() - started });
+  const resolved = resolveBusinessVertical({ clientSlug: clientSlug, locationId: trustedLocationId });
+  if (!resolved.ok) {
+    return sendJSON(res, 400, { ...resolved, success: false, elapsed_ms: Date.now() - started });
   }
 
   try {
-    const result = await withPgClient(async (pg) => executeSunsetBookingCreate(pg, built.command));
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'createBooking', pg, {
+      channel: VERTICAL_CHANNELS.MANUAL_STAFF,
+      transportBody: body,
+      actorHints: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:sunset.schedule.booking_create',
@@ -43120,7 +43113,7 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
     if (bookingId) {
       try {
         const waiverOut = await withPgClient(async (pg) => ensureWaiverForBookingSoft(pg, bookingId, {
-          locationId: built.command.locationId,
+          locationId: resolved.locationId,
           env: process.env,
           source: 'sunset_schedule_booking_create',
         }));
@@ -43160,7 +43153,7 @@ async function handleSunsetScheduleBookingCreate(query, req, res, user) {
 //   - FORCES client_slug=sunset (never trusted from the body),
 //   - validates location_id against the Sunset whitelist (sunsetBotResolveLocation),
 //   - is gated by the relevant feature flag → returns { disabled: <reason> } when off,
-//   - reuses executeSunsetBookingCreate (canonical application service) — no bespoke money code,
+//   - reuses surf_school vertical createBooking (Slice 6) — no bespoke money code,
 //   - recomputes totals server-side (never trusts a client total),
 //   - rejects any accommodation/room/bed field (Sunset surf-school has none).
 //
@@ -43211,17 +43204,16 @@ async function handleBotSunsetBookingCreate(req, res) {
       detail: 'guest_confirmed_booking must be the literal boolean true before creating a booking.',
     });
   }
-  const built = buildSunsetBookingCreateCommand({
-    channel: BOOKING_CREATE_CHANNELS.LUNA_WHATSAPP,
-    transportBody: body,
-    trustedLocationId: loc.location_id,
-    actorHints: {},
-  });
-  if (!built.ok) {
-    return sendJSON(res, built.status, { ...built.body, ok: false, success: false, elapsed_ms: Date.now() - started });
+  const resolved = resolveBusinessVertical({ clientSlug: SUNSET_CLIENT_SLUG, locationId: loc.location_id });
+  if (!resolved.ok) {
+    return sendJSON(res, 400, { ok: false, success: false, reason: resolved.reason, elapsed_ms: Date.now() - started });
   }
   try {
-    const result = await withPgClient(async (pg) => executeSunsetBookingCreate(pg, built.command));
+    const result = await withPgClient(async (pg) => invokeVerticalOperation(resolved, 'createBooking', pg, {
+      channel: VERTICAL_CHANNELS.LUNA_WHATSAPP,
+      transportBody: body,
+      actorHints: {},
+    }));
     appendAuditLog({
       ts: new Date().toISOString(),
       intent: 'api:bot.sunset.booking_create',

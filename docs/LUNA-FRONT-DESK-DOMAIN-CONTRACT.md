@@ -324,6 +324,7 @@ Documented gaps — **not blockers for Slice 1** — for future platform extract
 | Booking writes | `scripts/lib/sunset-schedule-booking-writes.js` |
 | **Booking create application service** | `scripts/lib/luna-front-desk-booking-create-service.js` — `buildSunsetBookingCreateCommand`, `executeSunsetBookingCreate` |
 | **Quote application service** | `scripts/lib/luna-front-desk-quote-service.js` — `buildSunsetQuoteCommand`, `executeSunsetQuote`, `validateQuoteProvenanceForCreate` |
+| **Vertical resolver + adapter** | `scripts/lib/luna-front-desk-business-vertical.js`, `scripts/lib/verticals/surf-school-vertical-adapter.js` |
 | HTTP surface | `scripts/staff-query-api.js` |
 | Contract verifier | `scripts/verify-luna-front-desk-domain-contract.js` |
 | Sunset pipeline gate | `scripts/verify-sunset-canonical-offering-pipeline.js` |
@@ -347,3 +348,46 @@ Bed codes, nights, packages — **not accepted** on Sunset bot booking create; s
 ### Tenant configuration
 
 Per-location Admin JSON overlays + DB migrations; not hard-coded in this contract. Sunset locations: `sunset-somo`, `sunset-sardinero`.
+
+---
+
+## 14. Business vertical adapter (Slice 6)
+
+HTTP routes resolve a **trusted tenant context** (auth-scoped `client_slug` + `location_id`) to a vertical adapter. Application services stay vertical-specific; the adapter is a thin delegation boundary.
+
+### Resolver
+
+**Module:** `scripts/lib/luna-front-desk-business-vertical.js` — `resolveBusinessVertical`, `invokeVerticalOperation`.
+
+| `client_slug` | Vertical | Status |
+|---------------|----------|--------|
+| `sunset` | `surf_school` | **Migrated** — delegates to Slice 3–5 services |
+| `wolfhouse` | `accommodation` | **Placeholder** — all operations return `not_migrated` |
+| other | — | Fail closed (`unknown_tenant`) |
+
+Location for Sunset must pass `isSunsetLocationId`; unknown locations fail closed (`unknown_location`). Body-supplied tenant/location never override auth-scoped context.
+
+### Vertical operations (interface)
+
+| Operation | Surf-school delegate | Write? |
+|-----------|---------------------|--------|
+| `listOfferings` | `luna-front-desk-catalog-service` | No |
+| `quoteOffering` | `luna-front-desk-quote-service` | No |
+| `createBooking` | `luna-front-desk-booking-create-service` | Yes |
+| `evaluateDates` | `sunset-offering-schedule` | No |
+| `checkAvailability` | catalog + capacity enrichment | No |
+
+**Adapters:** `scripts/lib/verticals/surf-school-vertical-adapter.js`, `scripts/lib/verticals/accommodation-vertical-placeholder.js`.
+
+### Shared platform vs surf-school
+
+| Layer | Owns |
+|-------|------|
+| **Platform** | Vertical resolver, tenant/location guards, channel normalization, invoke wiring |
+| **Surf-school** | Sunset catalog/quote/create services, schedule rules, course join, Admin surf packs |
+| **Accommodation (Slice 7+)** | Wolfhouse bed/night booking — not yet behind this adapter |
+
+### Migration status
+
+- **Slice 6 (done):** Sunset Staff/Luna catalog, quote, create, joinable-courses routes call `invokeVerticalOperation` — no direct imports of catalog/quote/create services in `staff-query-api.js`.
+- **Slice 7 (planned):** Wolfhouse accommodation adapter replacing `not_migrated` placeholder; Wolfhouse booking implementation unchanged until then.
