@@ -44,6 +44,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/lib/luna-meta-whatsapp-webhook.js',
   'scripts/browser/sunset-schedule-portal-module.js',
   'scripts/browser/sunset-schedule-drawer-view-ui.js',
+  'scripts/browser/sunset-schedule-drawer-edit-ui.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -815,18 +816,33 @@ if (calmLessonsSrc) {
 console.log('\n[25] Sunset booking drawer — payments, edits, test Stripe');
 
 if (apiSrc) {
+  const editDrawerSrc = (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const viewPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+    return apiSrc
+      + (fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '')
+      + (fs.existsSync(viewPath) ? fs.readFileSync(viewPath, 'utf8') : '');
+  })();
   assert('drawer detail GET route', apiSrc.includes('/staff/schedule/bookings/detail'));
   assert('drawer PATCH route', apiSrc.includes("pathname === '/staff/schedule/bookings' && method === 'PATCH'"));
   assert('drawer update handler', apiSrc.includes('function handleSunsetScheduleBookingUpdate('));
   assert('drawer detail handler', apiSrc.includes('function handleSunsetScheduleBookingDetailGet('));
   assert('drawer payment section', apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
-  assert('drawer line item labels', apiSrc.includes('schedule.drawer.paymentSection'));
-  assert('drawer totals paid remaining', apiSrc.includes('schedule.drawer.remaining') && apiSrc.includes('ps-drawer-paid'));
-  assert('create test stripe link button', apiSrc.includes('ps-drawer-stripe-link') && apiSrc.includes('schedule.drawer.stripeLink'));
+  assert('drawer line item labels', editDrawerSrc.includes('schedule.drawer.paymentSection'));
+  assert('drawer totals paid remaining', editDrawerSrc.includes('schedule.drawer.remaining') && editDrawerSrc.includes('ps-drawer-paid'));
+  assert('create test stripe link button', editDrawerSrc.includes('ps-drawer-stripe-link') && editDrawerSrc.includes('schedule.drawer.stripeLink'));
   assert('stripe link create is create-only (no guest send)', apiSrc.includes("'/staff/schedule/bookings/stripe-link?client='"));
-  assert('drawer editable fields', apiSrc.includes('ps-drawer-guest') && apiSrc.includes('ps-drawer-board-qty'));
-  assert('drawer save action', apiSrc.includes('function scheduleSaveDrawerBooking('));
-  assert('drawer payment refresh helper', apiSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));
+  assert('drawer editable fields', editDrawerSrc.includes('ps-drawer-guest') && editDrawerSrc.includes('ps-drawer-board-qty'));
+  assert('drawer save action', (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
+    return editSrc.includes('function scheduleSaveDrawerBooking(');
+  })());
+  assert('drawer payment refresh helper', (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
+    return editSrc.includes('function scheduleUpdateDrawerPaymentFromContext(');
+  })());
   assert('stripe stale warning', apiSrc.includes('schedule.drawer.stripeStale'));
   assert('stripe unavailable disabled', apiSrc.includes('schedule.drawer.stripeUnavailable'));
   assert('drawer conversation action', apiSrc.includes('ps-drawer-conversation-btn'));
@@ -870,13 +886,25 @@ if (apiSrc) {
     return viewModSrc.includes('function scheduleRenderViewDrawerHtml(');
   })());
   assert('booking drawer edit button', (function () {
-    const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
-    const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';
-    return (viewModSrc + apiSrc).includes('id="ps-drawer-edit"') && apiSrc.includes('schedule.drawer.edit');
+    const viewPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+    const viewSrc = fs.existsSync(viewPath) ? fs.readFileSync(viewPath, 'utf8') : '';
+    return viewSrc.includes('id="ps-drawer-edit"') && viewSrc.includes('schedule.drawer.edit');
   })());
-  assert('booking drawer cancel button', apiSrc.includes('id="ps-drawer-cancel"') && apiSrc.includes('schedule.drawer.cancel'));
-  assert('booking drawer opens read-only default', apiSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)'));
-  assert('booking drawer edit mode toggle', apiSrc.includes('function scheduleEnterDrawerEditMode(') && apiSrc.includes('function scheduleCancelDrawerEditMode('));
+  assert('booking drawer cancel button', (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
+    return editSrc.includes('id="ps-drawer-cancel"') && editSrc.includes('schedule.drawer.cancel');
+  })());
+  assert('booking drawer opens read-only default', (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
+    return editSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)');
+  })());
+  assert('booking drawer edit mode toggle', (function () {
+    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
+    return editSrc.includes('function scheduleEnterDrawerEditMode(') && editSrc.includes('function scheduleCancelDrawerEditMode(');
+  })());
   assert('customer profile edit button', apiSrc.includes('id="cust-profile-edit-btn"'));
   assert('customer profile save cancel', apiSrc.includes('id="cust-profile-save"') && apiSrc.includes('id="cust-profile-cancel"'));
   assert('customer PATCH route', apiSrc.includes('CUSTOMER_PHONE_RE') && apiSrc.includes("method === 'PATCH'") && apiSrc.includes('handleCustomerUpdate'));

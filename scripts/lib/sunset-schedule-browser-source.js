@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Browser Schedule portal + drawer view module sources for staff-query-api buildUiHtml() injection.
+ * Browser Schedule portal + drawer view + edit module sources for staff-query-api buildUiHtml() injection.
  * @module sunset-schedule-browser-source
  */
 
@@ -10,6 +10,7 @@ const path = require('path');
 
 const BROWSER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-portal-module.js');
 const DRAWER_VIEW_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-view-ui.js');
+const DRAWER_EDIT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-edit-ui.js');
 
 function getSunsetSchedulePortalBrowserSource() {
   return fs.readFileSync(BROWSER_MODULE, 'utf8');
@@ -19,6 +20,10 @@ function getSunsetScheduleDrawerViewBrowserSource() {
   return fs.readFileSync(DRAWER_VIEW_MODULE, 'utf8');
 }
 
+function getSunsetScheduleDrawerEditBrowserSource() {
+  return fs.readFileSync(DRAWER_EDIT_MODULE, 'utf8');
+}
+
 function injectAtMarker(html, marker, moduleJs) {
   const idx = html.indexOf(marker);
   if (idx < 0) return html;
@@ -26,22 +31,25 @@ function injectAtMarker(html, marker, moduleJs) {
 }
 
 function injectSunsetSchedulePortalModule(html) {
-  const portalJs = getSunsetSchedulePortalBrowserSource();
-  html = injectAtMarker(html, SCHEDULE_PORTAL_INJECT_MARKER, portalJs);
-  const drawerViewJs = getSunsetScheduleDrawerViewBrowserSource();
-  return injectAtMarker(html, SCHEDULE_DRAWER_VIEW_INJECT_MARKER, drawerViewJs);
+  html = injectAtMarker(html, SCHEDULE_PORTAL_INJECT_MARKER, getSunsetSchedulePortalBrowserSource());
+  html = injectAtMarker(html, SCHEDULE_DRAWER_VIEW_INJECT_MARKER, getSunsetScheduleDrawerViewBrowserSource());
+  return injectAtMarker(html, SCHEDULE_DRAWER_EDIT_INJECT_MARKER, getSunsetScheduleDrawerEditBrowserSource());
 }
 
 const SCHEDULE_PORTAL_INJECT_MARKER = '/* INJECT:sunset-schedule-portal-module */';
 const SCHEDULE_DRAWER_VIEW_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-view-ui */';
+const SCHEDULE_DRAWER_EDIT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-edit-ui */';
 
 module.exports = {
   getSunsetSchedulePortalBrowserSource,
   getSunsetScheduleDrawerViewBrowserSource,
+  getSunsetScheduleDrawerEditBrowserSource,
   injectSunsetSchedulePortalModule,
   injectAtMarker,
   BROWSER_MODULE,
   DRAWER_VIEW_MODULE,
+  DRAWER_EDIT_MODULE,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
+  SCHEDULE_DRAWER_EDIT_INJECT_MARKER,
 };

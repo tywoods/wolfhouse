@@ -556,11 +556,33 @@ Fetch data, calculate prices, reinterpret schedules, decide payment validity, or
 
 ### Compatibility wrapper (edit path)
 
-`scheduleRenderDrawerPaymentSectionHtml(ctx, editable)` remains in `staff-query-api.js` — delegates to `scheduleRenderDrawerPaymentSectionViewHtml` when `!editable`; edit-mode payment select + manual pay wiring stays in monolith until Slice 13.
+`scheduleRenderDrawerPaymentSectionHtml(ctx, editable)` remains in `staff-query-api.js` — delegates to view or edit injected modules.
 
 ### Staff + Luna parity
 
 Both sources render through `scheduleRenderViewDrawerHtml` / `scheduleRenderSunsetViewDrawerHtml` with the same canonical fields; untrusted sources fail closed server-side (`drawer_untrusted_booking_source`).
 
-**Render helpers** for drawer read-only view live in `scripts/browser/sunset-schedule-drawer-view-ui.js` (Slice 12, injected after the portal module). Edit-mode drawer wiring remains in `staff-query-api.js`. Payment stripe section uses `schedulePortalStripeLinkFromCtx` for non-actionable invalidated links.
+**Render helpers** for drawer read-only view live in `scripts/browser/sunset-schedule-drawer-view-ui.js` (Slice 12). Payment stripe section uses `schedulePortalStripeLinkFromCtx` for non-actionable invalidated links.
+
+---
+
+## 18. Schedule drawer edit UI (Slice 13)
+
+Edit-mode Schedule booking drawer controller extracted to `scripts/browser/sunset-schedule-drawer-edit-ui.js` (injected after portal + view modules).
+
+### Edit module owns
+
+Edit form rendering, enter/cancel/save lifecycle, payload read + client-side validation, PATCH orchestration with refetch, payment-status select in edit mode, course/tier/component field helpers.
+
+### Edit module must not
+
+Duplicate fetch contracts, calculate authoritative prices, reinterpret eligibility, or invent payment balances. Successful save refetches canonical drawer detail before returning to Slice 12 view renderer.
+
+### Compatibility hooks (monolith)
+
+Waiver fetch/create/answers, Stripe link create/delete, manual payment submit, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — unchanged in `staff-query-api.js`.
+
+### Payment section router
+
+`scheduleRenderDrawerPaymentSectionHtml(ctx, editable)` delegates to `scheduleRenderDrawerPaymentSectionViewHtml` or `scheduleRenderDrawerPaymentSectionEditHtml`.
 

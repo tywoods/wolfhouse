@@ -277,6 +277,9 @@ assert('portal module defines schedulePortalFetchQuote', /schedulePortalFetchQuo
 assert('contract documents drawer view module', /sunset-schedule-drawer-view-ui/.test(contractDoc));
 assert('drawer view inject marker', /INJECT:sunset-schedule-drawer-view-ui/.test(apiSrc));
 assert('drawer view module defines scheduleRenderViewDrawerHtml', /scheduleRenderViewDrawerHtml/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js'), 'utf8')));
+assert('contract documents drawer edit module', /sunset-schedule-drawer-edit-ui/.test(contractDoc));
+assert('drawer edit inject marker', /INJECT:sunset-schedule-drawer-edit-ui/.test(apiSrc));
+assert('drawer edit module defines scheduleSaveDrawerBooking', /scheduleSaveDrawerBooking/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js'), 'utf8')));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);
