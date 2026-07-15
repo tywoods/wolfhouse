@@ -18604,6 +18604,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-drawer-controller */
 /* INJECT:sunset-schedule-day-ops-board-ui */
 /* INJECT:sunset-schedule-forecast-cards-ui */
+/* INJECT:sunset-schedule-view-grid-ui */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20059,6 +20060,7 @@ function applyClientPortalProfile(clientSlug){
 var SUNSET_SCHEDULE_LESSON_DAY_CAP = 24;
 var scheduleViewMode = 'day';
 var scheduleForwardOffset = 0;
+var scheduleViewGridRenderGen = 0;
 var scheduleRowsCache = [];
 var psPendingCreatePrefill = null;
 var scheduleFilter = 'all';
@@ -22542,77 +22544,41 @@ function renderScheduleSummary(profile, weekData, convs){
 
 function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
 
-function renderScheduleWeekGrid(profile, weekData, rangeStart){
-  var box = el('ps-week-grid');
-  var monthBox = el('ps-month-grid');
-  var opsBox = el('ps-ops-board');
-  if (!box) return;
+function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen){
   weekData = scheduleFilterFutureWeekData(weekData);
+  var mode = scheduleViewMode;
+  if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
   var today = scheduleTodayIso();
-  if (scheduleViewMode === 'next30'){
-    box.style.display = 'none';
-    if (opsBox) opsBox.style.display = 'none';
-    if (monthBox){
-      monthBox.style.display = '';
-      renderScheduleNext30Grid(profile, weekData, monthBox, rangeStart);
+  var activeIso = scheduleActiveDayIso();
+  var dayPack = (weekData || []).find(function(x){ return x.dateIso === activeIso; }) ||
+    { lessons: [], gear: [], rows: [] };
+  function buildCardContexts(count){
+    var cards = [];
+    for (var i = 0; i < count; i++){
+      var d = scheduleAddDays(rangeStart, i);
+      var iso = scheduleIsoDate(d);
+      if (iso < today) continue;
+      var pack = (weekData || []).find(function(x){ return x.dateIso === iso; }) ||
+        { lessons: [], gear: [], rows: [] };
+      cards.push(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
     }
-    return;
+    return cards;
   }
-  if (monthBox) monthBox.style.display = 'none';
-  if (scheduleViewMode === 'day'){
-    box.style.display = 'none';
-    var activeIso = scheduleActiveDayIso();
-    var dayPack = (weekData || []).find(function(x){ return x.dateIso === activeIso; }) ||
-      { lessons: [], gear: [], rows: [] };
-    if (opsBox){
-      opsBox.style.display = '';
-      renderScheduleOpsBoard(dayPack, activeIso);
-    }
-    return;
-  }
-  if (opsBox) opsBox.style.display = 'none';
-  box.style.display = '';
-  box.className = 'portal-schedule-week-forecast';
-  box.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
-  var html = '';
-  for (var i = 0; i < 7; i++){
-    var d = scheduleAddDays(rangeStart, i);
-    var iso = scheduleIsoDate(d);
-    if (iso < today) continue;
-    var pack = (weekData || []).find(function(x){ return x.dateIso === iso; }) ||
-      { lessons: [], gear: [], rows: [] };
-    html += scheduleRenderForecastCardHtml(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
-  }
-  box.innerHTML = html || ('<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>');
-  scheduleWireForecastCardNavigation(box);
+  return {
+    renderGen: renderGen,
+    mode: mode,
+    todayIso: today,
+    activeDayIso: activeIso,
+    emptyDayText: portalT('schedule.emptyDay'),
+    dayPack: dayPack,
+    weekCards: buildCardContexts(7),
+    next30Cards: buildCardContexts(30),
+  };
 }
 
-function renderScheduleNext30Grid(profile, monthData, box, rangeStart){
-  if (!box) return;
-  // Same rich cards as the Week view, just 30 of them (staff prefer these over the mini calendar).
-  monthData = scheduleFilterFutureWeekData(monthData);
-  box.className = 'portal-schedule-week-forecast';
-  box.style.gridTemplateColumns = 'repeat(7, minmax(0, 1fr))';
-  var today = scheduleTodayIso();
-  var html = '';
-  var rendered = 0;
-  for (var i = 0; i < 30; i++){
-    var d = scheduleAddDays(rangeStart, i);
-    var iso = scheduleIsoDate(d);
-    if (iso < today) continue;
-    var pack = (monthData || []).find(function(x){ return x.dateIso === iso; }) ||
-      { lessons: [], gear: [], rows: [] };
-    html += scheduleRenderForecastCardHtml(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
-    rendered += 1;
-  }
-  box.innerHTML = rendered ? html : ('<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>');
-  scheduleWireForecastCardNavigation(box);
+function renderScheduleWeekGrid(profile, weekData, rangeStart, renderGen){
+  renderScheduleViewGrid(scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen));
 }
-
-function renderScheduleOpsBoard(pack, dateIso){
-  renderScheduleDayOpsBoard(pack, dateIso);
-}
-
 
 function scheduleFindRowByKey(key){
   return scheduleFindRowById(key);
@@ -22819,10 +22785,12 @@ function loadSchedulePage(){
   var convP = fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
   var configP = scheduleFetchLessonTimesConfig(client);
+  var loadGen = ++scheduleViewGridRenderGen;
   var dataP = scheduleViewMode === 'next30'
     ? scheduleFetchNext30(client, rangeStart)
     : scheduleFetchWeek(client, rangeStart);
   return Promise.all([convP, dataP, configP]).then(function(results){
+    if (loadGen !== scheduleViewGridRenderGen) return;
     var convData = results[0];
     var weekData = results[1];
     scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
@@ -22843,7 +22811,7 @@ function loadSchedulePage(){
     weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
     scheduleRowsCache = scheduleRowsCache.concat(demoRows);
     renderScheduleSummary(profile, weekData, scheduleConversationsCache);
-    renderScheduleWeekGrid(profile, weekData, rangeStart);
+    renderScheduleWeekGrid(profile, weekData, rangeStart, loadGen);
     if (state) state.style.display = 'none';
   }).catch(function(e){
     if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }

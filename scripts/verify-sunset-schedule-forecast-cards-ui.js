@@ -64,6 +64,7 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
+  '/* INJECT:sunset-schedule-view-grid-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {
@@ -228,8 +229,8 @@ if (modExists) {
   card.onclick({ type: 'click', target: { closest: (s) => (s === '[data-ps-day-open]' ? card : null) }, stopPropagation() {} });
   assert('rerender single handler', navCalls.length === 1);
 
-  assert('week wrapper uses shared renderer', apiSrc.includes('scheduleRenderForecastCardHtml'));
-  assert('next30 uses shared renderer', apiSrc.includes('scheduleRenderWeekForecastCard(') || apiSrc.includes('scheduleRenderForecastCardHtml('));
+  assert('view grid uses shared forecast renderer', apiSrc.includes('scheduleBuildForecastCardPresentation'));
+  assert('view grid delegates to extracted module', apiSrc.includes('renderScheduleViewGrid('));
 }
 
 console.log(`\n── verify:sunset-schedule-forecast-cards-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

@@ -97,6 +97,7 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
+  '/* INJECT:sunset-schedule-view-grid-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {
@@ -110,6 +111,7 @@ assert('inline scheduleRenderOpsBoard removed', !apiSrc.includes('function sched
 assert('inline scheduleRenderOpsBookingRow removed', !apiSrc.includes('function scheduleRenderOpsBookingRow('));
 assert('inline scheduleWireDayOpsBoardRows removed from monolith', !apiSrc.includes('function scheduleWireDayOpsBoardRows('));
 assert('monolith keeps forecast card presentation builder', apiSrc.includes('function scheduleBuildForecastCardPresentation('));
+assert('monolith keeps view grid context builder', apiSrc.includes('function scheduleBuildViewGridContext('));
 assert('forecast cards module owns day-open wiring', forecastSrc.includes('function scheduleWireForecastCardNavigation('));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not expose window', !/window\.(schedule|openSchedule)/.test(modSrc));

@@ -962,6 +962,7 @@ if (apiSrc) {
   assert('schedule drawer view module injected', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
   assert('schedule day ops board module injected', apiSrc.includes('/* INJECT:sunset-schedule-day-ops-board-ui */'));
   assert('schedule forecast cards module injected', apiSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
+  assert('schedule view grid module injected', apiSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
   const portalModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
   const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
   assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));
