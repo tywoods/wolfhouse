@@ -3,11 +3,11 @@
 /**
  * Sunset Schedule drawer — orchestration controller (Slice 16).
  *
- * Injected last (after portal, view, edit, payment, waiver). Owns drawer lifecycle:
+ * Injected after portal, view, edit and drawer-actions. Owns drawer lifecycle:
  * open/close/refresh, loading and error states, canonical detail coordination,
  * view/edit remount, stale-response protection and child-module wiring hooks.
  *
- * Does not own edit form logic, payment mutations, waiver actions, booking deletion,
+ * Does not own edit form logic, payment/waiver/delete mutations (drawer-actions),
  * or Schedule board rendering.
  */
 

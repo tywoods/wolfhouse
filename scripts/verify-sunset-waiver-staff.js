@@ -59,7 +59,7 @@ assert('waiver routes after public waiver hook',
   apiSrc.indexOf('tryHandleSunsetWaiverPublicRoute') < waiverRouteIdx);
 
 console.log('\n[4] drawer UI');
-const waiverModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
+const waiverModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
 const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const waiverModSrc = fs.existsSync(waiverModPath) ? fs.readFileSync(waiverModPath, 'utf8') : '';
 const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';

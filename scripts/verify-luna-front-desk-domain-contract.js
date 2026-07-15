@@ -280,12 +280,12 @@ assert('drawer view module defines scheduleRenderViewDrawerHtml', /scheduleRende
 assert('contract documents drawer edit module', /sunset-schedule-drawer-edit-ui/.test(contractDoc));
 assert('drawer edit inject marker', /INJECT:sunset-schedule-drawer-edit-ui/.test(apiSrc));
 assert('drawer edit module defines scheduleSaveDrawerBooking', /scheduleSaveDrawerBooking/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js'), 'utf8')));
-assert('contract documents drawer payment module', /sunset-schedule-drawer-payment-ui/.test(contractDoc));
-assert('drawer payment inject marker', /INJECT:sunset-schedule-drawer-payment-ui/.test(apiSrc));
-assert('drawer payment module defines scheduleCreateDrawerStripeLink', /scheduleCreateDrawerStripeLink/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js'), 'utf8')));
-assert('contract documents drawer waiver module', /sunset-schedule-drawer-waiver-ui/.test(contractDoc));
-assert('drawer waiver inject marker', /INJECT:sunset-schedule-drawer-waiver-ui/.test(apiSrc));
-assert('drawer waiver module defines scheduleLoadDrawerWaiver', /scheduleLoadDrawerWaiver/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js'), 'utf8')));
+assert('contract documents drawer actions module', /sunset-schedule-drawer-actions/.test(contractDoc));
+assert('drawer actions inject marker', /INJECT:sunset-schedule-drawer-actions/.test(apiSrc));
+const actionsSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js'), 'utf8');
+assert('drawer actions defines scheduleCreateDrawerStripeLink', /scheduleCreateDrawerStripeLink/.test(actionsSrc));
+assert('drawer actions defines scheduleLoadDrawerWaiver', /scheduleLoadDrawerWaiver/.test(actionsSrc));
+assert('drawer actions defines scheduleDeleteBookingFromDrawer', /scheduleDeleteBookingFromDrawer/.test(actionsSrc));
 assert('contract documents drawer controller module', /sunset-schedule-drawer-controller/.test(contractDoc));
 assert('drawer controller inject marker', /INJECT:sunset-schedule-drawer-controller/.test(apiSrc));
 assert('day ops board inject marker', /INJECT:sunset-schedule-day-ops-board-ui/.test(apiSrc));
@@ -295,9 +295,6 @@ assert('navigation inject marker', /INJECT:sunset-schedule-navigation-ui/.test(a
 assert('data loader inject marker', /INJECT:sunset-schedule-data-loader/.test(apiSrc));
 assert('view grid module defines renderScheduleViewGrid', /renderScheduleViewGrid/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js'), 'utf8')));
 assert('drawer controller module defines openScheduleDetailDrawer', /openScheduleDetailDrawer/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js'), 'utf8')));
-assert('contract documents drawer delete module', /sunset-schedule-drawer-delete-ui/.test(contractDoc));
-assert('drawer delete inject marker', /INJECT:sunset-schedule-drawer-delete-ui/.test(apiSrc));
-assert('drawer delete module defines scheduleDeleteBookingFromDrawer', /scheduleDeleteBookingFromDrawer/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-delete-ui.js'), 'utf8')));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

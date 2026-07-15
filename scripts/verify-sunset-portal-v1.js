@@ -50,9 +50,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-portal-module.js',
   'scripts/browser/sunset-schedule-drawer-view-ui.js',
   'scripts/browser/sunset-schedule-drawer-edit-ui.js',
-  'scripts/browser/sunset-schedule-drawer-payment-ui.js',
-  'scripts/browser/sunset-schedule-drawer-waiver-ui.js',
-  'scripts/browser/sunset-schedule-drawer-delete-ui.js',
+  'scripts/browser/sunset-schedule-drawer-actions.js',
   'scripts/browser/sunset-schedule-drawer-controller.js',
   'scripts/browser/sunset-schedule-day-ops-board-ui.js',
   'scripts/browser/sunset-schedule-forecast-cards-ui.js',
@@ -870,7 +868,7 @@ if (apiSrc) {
   const editDrawerSrc = (function () {
     const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
     const viewPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
-    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
     return apiSrc
       + (fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '')
       + (fs.existsSync(viewPath) ? fs.readFileSync(viewPath, 'utf8') : '')
@@ -881,14 +879,14 @@ if (apiSrc) {
   assert('drawer update handler', apiSrc.includes('function handleSunsetScheduleBookingUpdate('));
   assert('drawer detail handler', apiSrc.includes('function handleSunsetScheduleBookingDetailGet('));
   assert('drawer payment section', (function () {
-    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
     const paySrc = fs.existsSync(payPath) ? fs.readFileSync(payPath, 'utf8') : '';
     return paySrc.includes('function scheduleRenderDrawerPaymentSectionHtml(');
   })());
   assert('drawer line item labels', editDrawerSrc.includes('schedule.drawer.paymentSection'));
   assert('drawer totals paid remaining', editDrawerSrc.includes('schedule.drawer.remaining') && editDrawerSrc.includes('ps-drawer-paid'));
   assert('create test stripe link button', editDrawerSrc.includes('ps-drawer-stripe-link') && editDrawerSrc.includes('schedule.drawer.stripeLink'));
-  assert('stripe link create is create-only (no guest send)', editDrawerSrc.includes("'/staff/schedule/bookings/stripe-link?client='"));
+  assert('stripe link create is create-only (no guest send)', editDrawerSrc.includes("'/staff/schedule/bookings/stripe-link?'") && editDrawerSrc.includes('clientQuery'));
   assert('drawer editable fields', editDrawerSrc.includes('ps-drawer-guest') && editDrawerSrc.includes('ps-drawer-board-qty'));
   assert('drawer save action', (function () {
     const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
@@ -896,7 +894,7 @@ if (apiSrc) {
     return editSrc.includes('function scheduleSaveDrawerBooking(');
   })());
   assert('drawer payment refresh helper', (function () {
-    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
     const paySrc = fs.existsSync(payPath) ? fs.readFileSync(payPath, 'utf8') : '';
     return paySrc.includes('function scheduleDrawerPaymentRefetchAndRemount(');
   })());
@@ -904,7 +902,7 @@ if (apiSrc) {
   assert('stripe unavailable disabled', editDrawerSrc.includes('schedule.drawer.stripeUnavailable'));
   assert('drawer conversation action', apiSrc.includes('ps-drawer-conversation-btn'));
   assert('no whatsapp stripe send in drawer save', !apiSrc.includes('scheduleSaveDrawerBooking') || !(function () {
-    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+    const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
     const paySrc = fs.existsSync(payPath) ? fs.readFileSync(payPath, 'utf8') : '';
     const idx = paySrc.indexOf('scheduleCreateDrawerStripeLink');
     return idx >= 0 && paySrc.slice(idx, idx + 800).match(/whatsapp|sendMessage|send_email/i);

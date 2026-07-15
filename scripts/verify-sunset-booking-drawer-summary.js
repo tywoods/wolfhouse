@@ -133,8 +133,8 @@ assert('booking card helper exists', drawerSrc.includes('function scheduleRender
 assert('view drawer branches to sunset renderer', drawerSrc.includes('if (isSunsetSurfActive()) return scheduleRenderSunsetViewDrawerHtml('));
 assert('booking card rendered before money (owner reorder)', sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml(') > -1 &&
   sunsetViewFn.indexOf('scheduleRenderSunsetBookingCardHtml(') < sunsetViewFn.indexOf('scheduleRenderDrawerPaymentSectionHtml(ctx)'));
-const payModSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js'), 'utf8');
-const waiverModSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js'), 'utf8');
+const payModSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js'), 'utf8');
+const waiverModSrc = fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js'), 'utf8');
 assert('payment section delegates to view module', payModSrc.includes('scheduleRenderDrawerPaymentSectionViewHtml'));
 assert('payment section delegates to edit module', payModSrc.includes('scheduleRenderDrawerPaymentSectionEditHtml'));
 assert('date-strip helper exists', drawerSrc.includes('function scheduleDrawerStripLabelDate('));

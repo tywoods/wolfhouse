@@ -20,11 +20,9 @@ const {
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const CTRL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
-const DELETE_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-delete-ui.js');
+const ACTIONS_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const EDIT_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
-const PAY_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
-const WAIVER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
 const PORTAL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
@@ -80,7 +78,7 @@ console.log('\nverify:sunset-schedule-drawer-controller\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const ctrlExists = fs.existsSync(CTRL_MODULE);
 const ctrlSrc = ctrlExists ? fs.readFileSync(CTRL_MODULE, 'utf8') : '';
-const deleteSrc = fs.existsSync(DELETE_MODULE) ? fs.readFileSync(DELETE_MODULE, 'utf8') : '';
+const actionsSrc = fs.existsSync(ACTIONS_MODULE) ? fs.readFileSync(ACTIONS_MODULE, 'utf8') : '';
 const editSrc = fs.readFileSync(EDIT_MODULE, 'utf8');
 const viewSrc = fs.readFileSync(VIEW_MODULE, 'utf8');
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
@@ -89,15 +87,13 @@ console.log('[1] Module files and injection order');
 assert('controller module exists', ctrlExists);
 assert('controller inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('browser source loads controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver → delete → controller → day ops → forecast → view grid → navigation → data loader',
+assert('inject chains portal → view → edit → actions → controller → day ops → forecast → view grid → navigation → data loader',
   browserLoader.includes('SCHEDULE_DATA_LOADER_INJECT_MARKER'));
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
   '/* INJECT:sunset-schedule-drawer-view-ui */',
   '/* INJECT:sunset-schedule-drawer-edit-ui */',
-  '/* INJECT:sunset-schedule-drawer-payment-ui */',
-  '/* INJECT:sunset-schedule-drawer-waiver-ui */',
-  '/* INJECT:sunset-schedule-drawer-delete-ui */',
+  '/* INJECT:sunset-schedule-drawer-actions */',
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
@@ -120,7 +116,7 @@ assert('inline closeScheduleDetailDrawer removed', !apiSrc.includes('function cl
 assert('inline scheduleRefreshDrawer removed', !apiSrc.includes('function scheduleRefreshDrawer('));
 assert('inline scheduleWireViewDrawer removed', !apiSrc.includes('function scheduleWireViewDrawer('));
 assert('inline scheduleDrawerState removed', !/var scheduleDrawerState\s*=/.test(apiSrc));
-assert('delete booking in delete module', deleteSrc.includes('function scheduleDeleteBookingFromDrawer('));
+assert('delete booking in actions module', actionsSrc.includes('function scheduleDeleteBookingFromDrawer('));
 assert('inline delete removed from monolith', !apiSrc.includes('function scheduleDeleteBookingFromDrawer('));
 assert('copy helpers stay in monolith', apiSrc.includes('function scheduleCopyTextFallback(') && apiSrc.includes('function scheduleDrawerFlashCopied('));
 assert('mount moved out of edit module', !editSrc.includes('function scheduleMountDrawerBody('));

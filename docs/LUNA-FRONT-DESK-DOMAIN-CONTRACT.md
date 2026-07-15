@@ -580,49 +580,35 @@ Duplicate fetch contracts, calculate authoritative prices, reinterpret eligibili
 
 ### Compatibility hooks (monolith)
 
-Waiver fetch/create/answers, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — waiver controller in injected waiver module; orchestration hooks unchanged in `staff-query-api.js`.
+`scheduleWireViewDrawer`, conversation/customer wiring — orchestration unchanged. Payment/waiver/delete mutations live in the drawer-actions module.
 
 ---
 
-## 19. Schedule drawer payment UI (Slice 14)
+## 19. Schedule drawer mutation actions (Slice 25)
 
-Payment presentation and action controller extracted to `scripts/browser/sunset-schedule-drawer-payment-ui.js` (injected after portal, view and edit modules).
+Stripe-link, manual payment, waiver, and booking-delete mutation controllers consolidated into `scripts/browser/sunset-schedule-drawer-actions.js` (injected after portal, view and edit; before controller). One closure owns in-flight guards and a shared authenticated JSON request helper (`SunsetScheduleDrawerActions`). Compatibility `schedule*` wrappers are exported for view/edit/controller — not attached to `window`.
 
-### Payment module owns
+### Actions module owns
 
-Payment section router (`scheduleRenderDrawerPaymentSectionHtml`), manual payment form, Stripe link section rendering, create/delete/copy/open wiring, in-flight duplicate-action guards, canonical detail refetch after successful payment mutations.
+- Payment section router / Stripe link section / manual payment form rendering helpers used by view/edit
+- Stripe-link create/delete, manual-payment submit, waiver load/create/copy/answers, booking delete
+- Duplicate-click in-flight guards, stale drawer generation (`openGen` / `activeBookingKey`) protection
+- Shared `requestJson` helper; tenant/location from `getClient()` + `sunsetLocationQuerySuffix()` only
+- Canonical detail / waiver refetch after successful mutations; delete closes drawer then refreshes (cannot reopen removed row)
 
-### Payment module must not
+### Actions module must not
 
-Calculate authoritative balances (`balance_due_cents` comes from server only), infer Stripe link actionability from raw URL presence, duplicate view/edit presentation logic, or change server payment endpoint contracts.
+Calculate authoritative balances, infer Stripe/waiver status from URL presence alone, accept booking identity or tenant/location from DOM inputs, send WhatsApp, or own drawer open/close/edit form / Schedule board rendering.
 
-### Compatibility hooks (monolith)
+### Compatibility hooks
 
-None retained for payment functions — all drawer payment behavior lives in the injected payment module. View and edit modules call payment renderers/wiring at runtime after injection.
-
----
-
-## 20. Schedule drawer waiver UI (Slice 15)
-
-Waiver presentation and action controller extracted to `scripts/browser/sunset-schedule-drawer-waiver-ui.js` (injected after portal, view, edit and payment modules).
-
-### Waiver module owns
-
-Waiver section fetch lifecycle (`scheduleLoadDrawerWaiver`), create/send action with in-flight guard, status rendering (signed/unsigned/expired/missing), answer rendering (read-only), copy/open wiring for canonical server `public_url`, and authoritative waiver GET refetch after successful create.
-
-### Waiver module must not
-
-Infer signed status from URL presence, mark waivers signed from browser state, invent waiver answers or legal text, rewrite waiver questions/answers, send WhatsApp messages, or change server waiver endpoint contracts.
-
-### Compatibility hooks (monolith)
-
-`scheduleWireViewDrawer` and edit save path call `scheduleLoadDrawerWaiver(ctx)` at runtime after injection. `scheduleCopyTextFallback` remains in monolith (shared with header/stripe copy). Waiver section shell (`scheduleRenderDrawerWaiverSectionHtml`) remains in view module.
+View/edit call payment renderers and `scheduleLoadDrawerWaiver` / wire hooks after injection. Controller wires stripe/manual/waiver/delete at mount. `scheduleCopyTextFallback` remains shared outside this module. Waiver section shell (`scheduleRenderDrawerWaiverSectionHtml`) remains in view module.
 
 ---
 
-## 21. Schedule drawer orchestration controller (Slice 16)
+## 20. Schedule drawer orchestration controller (Slice 16)
 
-Drawer open/close/refresh lifecycle extracted to `scripts/browser/sunset-schedule-drawer-controller.js` (injected last, after portal, view, edit, payment and waiver modules).
+Drawer open/close/refresh lifecycle extracted to `scripts/browser/sunset-schedule-drawer-controller.js` (injected after portal, view, edit and drawer-actions).
 
 ### Controller module owns
 
@@ -630,27 +616,9 @@ Drawer open/close/refresh lifecycle extracted to `scripts/browser/sunset-schedul
 
 ### Controller module must not
 
-Own edit form logic, payment mutations, waiver actions, booking deletion, Schedule board rendering, or client-side price/balance/eligibility calculation.
+Own edit form logic, payment/waiver/delete mutations, Schedule board rendering, or client-side price/balance/eligibility calculation.
 
 ### Compatibility hooks (monolith)
 
 Schedule chip click handlers call `openScheduleDetailDrawer(row)` via IIFE closure. `scheduleCopyTextFallback` and `scheduleDrawerFlashCopied` remain in monolith.
-
----
-
-## 22. Schedule drawer delete UI (Slice 17)
-
-Booking deletion extracted to `scripts/browser/sunset-schedule-drawer-delete-ui.js` (injected after waiver, before orchestration controller).
-
-### Delete module owns
-
-`scheduleDeleteBookingFromDrawer`, `scheduleWireDrawerDeleteBooking`, confirmation lifecycle, in-flight guard, stale-action validation via `openGen`/`activeBookingKey`, and authenticated DELETE to `/staff/schedule/bookings`.
-
-### Delete module must not
-
-Own drawer state, Schedule board rendering, server cascade/cleanup, or accept booking identity from DOM fields.
-
-### Compatibility hooks (monolith)
-
-None — controller and edit modules call `scheduleWireDrawerDeleteBooking()` at runtime after injection.
 
