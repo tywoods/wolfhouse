@@ -31,10 +31,18 @@ function scheduleRowMetaParse(row) {
   return {};
 }
 
+function scheduleEnsureRowMeta(row) {
+  if (!row || typeof row !== 'object') return row;
+  if (row._meta && typeof row._meta === 'object') return row;
+  row._meta = scheduleRowMetaParse(row);
+  return row;
+}
+
 function scheduleRowMeta(row) {
   if (!row) return {};
   if (row._meta && typeof row._meta === 'object') return row._meta;
   var meta = scheduleRowMetaParse(row);
+  if (Object.isFrozen(row)) return meta;
   row._meta = meta;
   return meta;
 }
@@ -154,6 +162,7 @@ function scheduleNormalizeApiRow(raw, ctx, opts) {
   if (r.service_record_id) r._scheduleId = String(r.service_record_id);
   scheduleNormalizerApplyDisplayFields(r);
   scheduleNormalizerApplyTrustFlags(r, ctx);
+  scheduleEnsureRowMeta(r);
   if (opts.freeze === false) return r;
   return scheduleRowNormalizerFreeze(r);
 }
@@ -276,5 +285,6 @@ function scheduleNormalizePresentationDemoRow(raw, ctx) {
   }
   if (r._needsReply == null) r._needsReply = false;
   r._trustSource = 'demo';
+  scheduleEnsureRowMeta(r);
   return scheduleRowNormalizerFreeze(r);
 }

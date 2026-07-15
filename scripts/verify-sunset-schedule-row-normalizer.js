@@ -82,6 +82,7 @@ console.log('\n[2] Module owns normalization symbols');
   'scheduleNormalizeApiRowsBatch',
   'scheduleNormalizeLoadedScheduleResponse',
   'scheduleEnsureRowId',
+  'scheduleEnsureRowMeta',
   'scheduleRowMeta',
   'scheduleRowIsCourse',
   'scheduleRowIsPrivateLesson',
@@ -185,6 +186,84 @@ if (modExists) {
   } catch (_) {
     assert('19 normalized output frozen', true);
   }
+
+  console.log('\n[3b] Integration — frozen private-lesson row meta consumer path');
+  const privateLessonRaw = {
+    service_record_id: 'sr-pl-freeze',
+    booking_id: 'bk-pl-freeze',
+    booking_code: 'PL-001',
+    service_date: '2026-07-15',
+    record_source: 'luna_guest',
+    guest_name: 'Private Guest',
+    location_id: 'sunset-somo',
+    service_time_local: '10:00',
+    service_time_local_end: '12:00',
+    metadata: { component: 'private_lesson', slot_time: '10:00', default_duration_minutes: 120 },
+  };
+  const frozenPrivate = ctx.scheduleNormalizeApiRow(privateLessonRaw, normCtx);
+  assert('34 frozen private-lesson row normalizes', frozenPrivate && frozenPrivate._scheduleType === 'private_lesson');
+  assert('35 normalized row is frozen', Object.isFrozen(frozenPrivate));
+  assert('36 _meta attached before freeze', frozenPrivate._meta && frozenPrivate._meta.component === 'private_lesson');
+  let metaConsumerError = null;
+  let metaFromConsumer = null;
+  try {
+    metaFromConsumer = ctx.scheduleRowMeta(frozenPrivate);
+  } catch (err) {
+    metaConsumerError = err;
+  }
+  assert('37 scheduleRowMeta on frozen row does not throw', metaConsumerError === null, metaConsumerError && metaConsumerError.message);
+  assert('38 scheduleRowMeta returns parsed metadata', metaFromConsumer && metaFromConsumer.slot_time === '10:00');
+
+  function scheduleNormalizeSlotTime(raw) {
+    var t = String(raw || '').trim();
+    if (!t) return '';
+    if (t.indexOf('-') >= 0) t = t.split('-')[0].trim();
+    return t.slice(0, 5);
+  }
+  function schedulePrivateLessonTimeRange(row) {
+    if (!row) return '';
+    var start = scheduleNormalizeSlotTime(row.service_time_local || ctx.scheduleRowMeta(row).slot_time || row.slot_time || '');
+    var end = scheduleNormalizeSlotTime(row.service_time_local_end || '');
+    if (start && end) return start + ' – ' + end;
+    return start || '';
+  }
+  function schedulePrivateLessonStartMinutes(row) {
+    var tok = row && (row.service_time_local || ctx.scheduleRowMeta(row).slot_time || row.slot_time);
+    tok = String(tok || '').trim();
+    if (!tok) return null;
+    if (tok.indexOf(':') >= 0) {
+      var hp = tok.split(':');
+      var h = parseInt(hp[0], 10);
+      var m = parseInt(hp[1], 10);
+      if (isNaN(h)) return null;
+      return h * 60 + (isNaN(m) ? 0 : m);
+    }
+    return null;
+  }
+  let timingError = null;
+  let timeRange = '';
+  let startMinutes = null;
+  try {
+    timeRange = schedulePrivateLessonTimeRange(frozenPrivate);
+    startMinutes = schedulePrivateLessonStartMinutes(frozenPrivate);
+  } catch (err) {
+    timingError = err;
+  }
+  assert('39 private-lesson timing consumer path does not throw', timingError === null, timingError && timingError.message);
+  assert('40 private-lesson time range from meta', timeRange === '10:00 – 12:00');
+  assert('41 private-lesson start minutes from meta', startMinutes === 600);
+
+  const batchPrivate = ctx.scheduleNormalizeApiRowsBatch([privateLessonRaw], normCtx);
+  const batchRow = batchPrivate.canonicalRows[0];
+  let batchMetaError = null;
+  try {
+    ctx.scheduleRowMeta(batchRow);
+  } catch (err) {
+    batchMetaError = err;
+  }
+  assert('42 batch-frozen row exposes _meta', batchRow && batchRow._meta && batchRow._meta.component === 'private_lesson');
+  assert('43 scheduleRowMeta on batch-frozen row does not throw', batchMetaError === null, batchMetaError && batchMetaError.message);
+
   const paidDerived = ctx.scheduleNormalizeApiRow(Object.assign({}, lunaRaw, {
     payment_status: 'pending',
     booking_payment_status: 'paid',
