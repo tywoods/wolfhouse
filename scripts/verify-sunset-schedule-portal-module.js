@@ -57,7 +57,8 @@ assert('inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-s
 assert('drawer view inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
 assert('drawer edit inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-edit-ui */'));
 assert('drawer payment inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-payment-ui */'));
-assert('browser source loads drawer payment module', browserLoader.includes('getSunsetScheduleDrawerPaymentBrowserSource'));
+assert('drawer waiver inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-waiver-ui */'));
+assert('browser source loads drawer waiver module', browserLoader.includes('getSunsetScheduleDrawerWaiverBrowserSource'));
 assert('browser source loads drawer edit module', browserLoader.includes('getSunsetScheduleDrawerEditBrowserSource'));
 assert('browser source loads drawer view module', browserLoader.includes('getSunsetScheduleDrawerViewBrowserSource'));
 assert('injectSunsetSchedulePortalModule defined', browserLoader.includes('function injectSunsetSchedulePortalModule'));

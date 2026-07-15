@@ -115,9 +115,10 @@ const markerIdxPortal = apiSrc.indexOf('/* INJECT:sunset-schedule-portal-module 
 const markerIdxView = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-view-ui */');
 const markerIdxEdit = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-edit-ui */');
 const markerIdxPay = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-payment-ui */');
-assert('marker order portal < view < edit < payment', markerIdxPortal > -1 && markerIdxView > markerIdxPortal && markerIdxEdit > markerIdxView && markerIdxPay > markerIdxEdit);
+const markerIdxWaiver = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-waiver-ui */');
+assert('marker order portal < view < edit < payment < waiver', markerIdxPortal > -1 && markerIdxView > markerIdxPortal && markerIdxEdit > markerIdxView && markerIdxPay > markerIdxEdit && markerIdxWaiver > markerIdxPay);
 
-const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui */function escHtml(s){return s;}})();</script>');
+const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes edit module body', htmlSample.includes('function scheduleEnterDrawerEditMode('));
 assert('buildUiHtml inject includes view module body', htmlSample.includes('function scheduleRenderViewDrawerHtml('));
 assert('buildUiHtml inject includes portal module body', htmlSample.includes('function schedulePortalFetchDrawerDetail('));

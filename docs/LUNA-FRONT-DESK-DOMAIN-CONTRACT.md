@@ -580,7 +580,7 @@ Duplicate fetch contracts, calculate authoritative prices, reinterpret eligibili
 
 ### Compatibility hooks (monolith)
 
-Waiver fetch/create/answers, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — unchanged in `staff-query-api.js`.
+Waiver fetch/create/answers, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — waiver controller in injected waiver module; orchestration hooks unchanged in `staff-query-api.js`.
 
 ---
 
@@ -599,4 +599,22 @@ Calculate authoritative balances (`balance_due_cents` comes from server only), i
 ### Compatibility hooks (monolith)
 
 None retained for payment functions — all drawer payment behavior lives in the injected payment module. View and edit modules call payment renderers/wiring at runtime after injection.
+
+---
+
+## 20. Schedule drawer waiver UI (Slice 15)
+
+Waiver presentation and action controller extracted to `scripts/browser/sunset-schedule-drawer-waiver-ui.js` (injected after portal, view, edit and payment modules).
+
+### Waiver module owns
+
+Waiver section fetch lifecycle (`scheduleLoadDrawerWaiver`), create/send action with in-flight guard, status rendering (signed/unsigned/expired/missing), answer rendering (read-only), copy/open wiring for canonical server `public_url`, and authoritative waiver GET refetch after successful create.
+
+### Waiver module must not
+
+Infer signed status from URL presence, mark waivers signed from browser state, invent waiver answers or legal text, rewrite waiver questions/answers, send WhatsApp messages, or change server waiver endpoint contracts.
+
+### Compatibility hooks (monolith)
+
+`scheduleWireViewDrawer` and edit save path call `scheduleLoadDrawerWaiver(ctx)` at runtime after injection. `scheduleCopyTextFallback` remains in monolith (shared with header/stripe copy). Waiver section shell (`scheduleRenderDrawerWaiverSectionHtml`) remains in view module.
 

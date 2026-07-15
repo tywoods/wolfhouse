@@ -99,16 +99,17 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-view-ui */',
   '/* INJECT:sunset-schedule-drawer-edit-ui */',
   '/* INJECT:sunset-schedule-drawer-payment-ui */',
+  '/* INJECT:sunset-schedule-drawer-waiver-ui */',
 ];
 const idx = markers.map((m) => apiSrc.indexOf(m));
-assert('all four markers present once', idx.every((i) => i >= 0));
-assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3]);
+assert('all five markers present once', idx.every((i) => i >= 0) && markers.every((m) => apiSrc.split(m).length === 2));
+assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3] && idx[3] < idx[4]);
 assert('inline scheduleCreateDrawerStripeLink removed', !apiSrc.includes('function scheduleCreateDrawerStripeLink('));
 assert('inline scheduleWireDrawerManualPayment removed', !apiSrc.includes('function scheduleWireDrawerManualPayment('));
 assert('inline scheduleRenderDrawerPaymentSectionHtml removed', !apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
 assert('edit module no longer owns scheduleUpdateDrawerPaymentFromContext', !editModSrc.includes('function scheduleUpdateDrawerPaymentFromContext('));
 
-const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui */function escHtml(s){return s;}})();</script>');
+const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes payment module', htmlSample.includes('function scheduleCreateDrawerStripeLink('));
 assert('payment module injected once', htmlSample.split('function scheduleCreateDrawerStripeLink(').length === 2);
 

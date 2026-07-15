@@ -59,20 +59,23 @@ assert('waiver routes after public waiver hook',
   apiSrc.indexOf('tryHandleSunsetWaiverPublicRoute') < waiverRouteIdx);
 
 console.log('\n[4] drawer UI');
+const waiverModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
+const waiverModSrc = fs.existsSync(waiverModPath) ? fs.readFileSync(waiverModPath, 'utf8') : '';
+const drawerUiSrc = waiverModSrc + '\n' + apiSrc;
 assert('Formulario de inscripción title key or text',
-  apiSrc.includes('schedule.drawer.waiverTitle') || apiSrc.includes('Formulario de inscripción'));
-assert('Crear enlace', apiSrc.includes('schedule.drawer.waiverCreate') || apiSrc.includes('Crear enlace'));
-assert('Copiar enlace waiver', apiSrc.includes('ps-drawer-waiver-copy') || apiSrc.includes('schedule.drawer.waiverCopy'));
-assert('group create copy keys', apiSrc.includes('schedule.drawer.waiverCreateGroup') && apiSrc.includes('schedule.drawer.waiverCopyGroup'));
-assert('group progress labels', apiSrc.includes('schedule.drawer.waiverGroupLabel') && apiSrc.includes('schedule.drawer.waiverCompletedProgress'));
-assert('group helper scheduleWaiverIsGroup', apiSrc.includes('function scheduleWaiverIsGroup'));
+  drawerUiSrc.includes('schedule.drawer.waiverTitle') || drawerUiSrc.includes('Formulario de inscripción'));
+assert('Crear enlace', drawerUiSrc.includes('schedule.drawer.waiverCreate') || drawerUiSrc.includes('Crear enlace'));
+assert('Copiar enlace waiver', drawerUiSrc.includes('ps-drawer-waiver-copy') || drawerUiSrc.includes('schedule.drawer.waiverCopy'));
+assert('group create copy keys', drawerUiSrc.includes('schedule.drawer.waiverCreateGroup') && drawerUiSrc.includes('schedule.drawer.waiverCopyGroup'));
+assert('group progress labels', drawerUiSrc.includes('schedule.drawer.waiverGroupLabel') && drawerUiSrc.includes('schedule.drawer.waiverCompletedProgress'));
+assert('group helper scheduleWaiverIsGroup', waiverModSrc.includes('function scheduleWaiverIsGroup'));
 assert('obsolete v1 note removed', !staffSrc.includes('formularios por alumno') && !apiSrc.includes('formularios por alumno'));
 assert('group share note present', staffSrc.includes('Comparte este enlace con el grupo'));
 assert('pending/completed states',
-  apiSrc.includes('schedule.drawer.waiverPending') && apiSrc.includes('schedule.drawer.waiverCompleted'));
-assert('Ver respuestas', apiSrc.includes('schedule.drawer.waiverViewAnswers') || apiSrc.includes('Ver respuestas'));
+  drawerUiSrc.includes('schedule.drawer.waiverPending') && drawerUiSrc.includes('schedule.drawer.waiverCompleted'));
+assert('Ver respuestas', drawerUiSrc.includes('schedule.drawer.waiverViewAnswers') || drawerUiSrc.includes('Ver respuestas'));
 assert('no WhatsApp send in drawer waiver block',
-  !/ps-drawer-waiver[\s\S]{0,400}whatsapp/i.test(apiSrc));
+  !/ps-drawer-waiver[\s\S]{0,400}whatsapp/i.test(waiverModSrc));
 assert('i18n EN waiver keys', i18n.includes('schedule.drawer.waiverTitle'));
 assert('i18n ES waiver keys', i18nEs.includes('schedule.drawer.waiverTitle') && i18nEs.includes('Formulario de inscripción'));
 assert('i18n ES group create', i18nEs.includes('Crear enlace de grupo'));

@@ -8,7 +8,7 @@
  * canonical detail refetch after successful mutations.
  *
  * Compatibility hooks (monolith): scheduleWireViewDrawer, scheduleWireEditableDrawer,
- * waiver suite, drawer open/refresh orchestration, booking delete.
+ * drawer open/refresh orchestration, booking delete.
  */
 
 var scheduleDrawerStripeCreateInFlight = false;

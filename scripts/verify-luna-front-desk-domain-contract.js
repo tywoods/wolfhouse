@@ -283,6 +283,9 @@ assert('drawer edit module defines scheduleSaveDrawerBooking', /scheduleSaveDraw
 assert('contract documents drawer payment module', /sunset-schedule-drawer-payment-ui/.test(contractDoc));
 assert('drawer payment inject marker', /INJECT:sunset-schedule-drawer-payment-ui/.test(apiSrc));
 assert('drawer payment module defines scheduleCreateDrawerStripeLink', /scheduleCreateDrawerStripeLink/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js'), 'utf8')));
+assert('contract documents drawer waiver module', /sunset-schedule-drawer-waiver-ui/.test(contractDoc));
+assert('drawer waiver inject marker', /INJECT:sunset-schedule-drawer-waiver-ui/.test(apiSrc));
+assert('drawer waiver module defines scheduleLoadDrawerWaiver', /scheduleLoadDrawerWaiver/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js'), 'utf8')));
 
 console.log(`\n── verify:luna-front-desk-domain-contract ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Browser Schedule portal + drawer view + edit + payment module sources for staff-query-api buildUiHtml() injection.
+ * Browser Schedule portal + drawer view + edit + payment + waiver module sources for staff-query-api buildUiHtml() injection.
  * @module sunset-schedule-browser-source
  */
 
@@ -12,6 +12,7 @@ const BROWSER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-po
 const DRAWER_VIEW_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const DRAWER_EDIT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-edit-ui.js');
 const DRAWER_PAYMENT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+const DRAWER_WAIVER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
 
 function getSunsetSchedulePortalBrowserSource() {
   return fs.readFileSync(BROWSER_MODULE, 'utf8');
@@ -29,6 +30,10 @@ function getSunsetScheduleDrawerPaymentBrowserSource() {
   return fs.readFileSync(DRAWER_PAYMENT_MODULE, 'utf8');
 }
 
+function getSunsetScheduleDrawerWaiverBrowserSource() {
+  return fs.readFileSync(DRAWER_WAIVER_MODULE, 'utf8');
+}
+
 function injectAtMarker(html, marker, moduleJs) {
   const idx = html.indexOf(marker);
   if (idx < 0) return html;
@@ -39,27 +44,32 @@ function injectSunsetSchedulePortalModule(html) {
   html = injectAtMarker(html, SCHEDULE_PORTAL_INJECT_MARKER, getSunsetSchedulePortalBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DRAWER_VIEW_INJECT_MARKER, getSunsetScheduleDrawerViewBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DRAWER_EDIT_INJECT_MARKER, getSunsetScheduleDrawerEditBrowserSource());
-  return injectAtMarker(html, SCHEDULE_PAYMENT_INJECT_MARKER, getSunsetScheduleDrawerPaymentBrowserSource());
+  html = injectAtMarker(html, SCHEDULE_PAYMENT_INJECT_MARKER, getSunsetScheduleDrawerPaymentBrowserSource());
+  return injectAtMarker(html, SCHEDULE_WAIVER_INJECT_MARKER, getSunsetScheduleDrawerWaiverBrowserSource());
 }
 
 const SCHEDULE_PORTAL_INJECT_MARKER = '/* INJECT:sunset-schedule-portal-module */';
 const SCHEDULE_DRAWER_VIEW_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-view-ui */';
 const SCHEDULE_DRAWER_EDIT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-edit-ui */';
 const SCHEDULE_PAYMENT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-payment-ui */';
+const SCHEDULE_WAIVER_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-waiver-ui */';
 
 module.exports = {
   getSunsetSchedulePortalBrowserSource,
   getSunsetScheduleDrawerViewBrowserSource,
   getSunsetScheduleDrawerEditBrowserSource,
   getSunsetScheduleDrawerPaymentBrowserSource,
+  getSunsetScheduleDrawerWaiverBrowserSource,
   injectSunsetSchedulePortalModule,
   injectAtMarker,
   BROWSER_MODULE,
   DRAWER_VIEW_MODULE,
   DRAWER_EDIT_MODULE,
   DRAWER_PAYMENT_MODULE,
+  DRAWER_WAIVER_MODULE,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
   SCHEDULE_DRAWER_EDIT_INJECT_MARKER,
   SCHEDULE_PAYMENT_INJECT_MARKER,
+  SCHEDULE_WAIVER_INJECT_MARKER,
 };
