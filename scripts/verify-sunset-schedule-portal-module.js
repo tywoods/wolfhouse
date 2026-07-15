@@ -63,8 +63,10 @@ assert('drawer controller inject marker in staff HTML script', apiSrc.includes('
 assert('day ops board inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-day-ops-board-ui */'));
 assert('forecast cards inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
 assert('view grid inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
+assert('navigation inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
 assert('browser source loads forecast cards module', browserLoader.includes('getSunsetScheduleForecastCardsBrowserSource'));
 assert('browser source loads view grid module', browserLoader.includes('getSunsetScheduleViewGridBrowserSource'));
+assert('browser source loads navigation module', browserLoader.includes('getSunsetScheduleNavigationBrowserSource'));
 assert('browser source loads drawer delete module', browserLoader.includes('getSunsetScheduleDrawerDeleteBrowserSource'));
 assert('browser source loads drawer controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
 assert('browser source loads drawer waiver module', browserLoader.includes('getSunsetScheduleDrawerWaiverBrowserSource'));

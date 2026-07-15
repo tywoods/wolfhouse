@@ -60,6 +60,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
+  '/* INJECT:sunset-schedule-navigation-ui */',
 ];
 
 console.log('[1] Module files and injection order');
@@ -140,7 +141,7 @@ if (modExists) {
     portalT,
     escHtml,
     el: (id) => dom[id] || null,
-    scheduleViewGridRenderGen: 1,
+    scheduleNavigationLoadGen: () => activeGen,
     renderScheduleDayOpsBoard: () => { calls.dayOps += 1; dom['ps-ops-board'].innerHTML = '<div class="portal-schedule-ops-row">row</div>'; },
     scheduleRenderForecastCardHtml: (c) => {
       calls.forecastHtml += 1;
@@ -177,7 +178,7 @@ if (modExists) {
   };
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 1;
+  activeGen = 1;
   ctxBase.renderScheduleViewGrid(dayCtx);
   assert('Day mode shows only ops board', vis('ps-ops-board') && !vis('ps-week-grid') && !vis('ps-month-grid'));
   assert('Day mode delegates once to day ops', calls.dayOps === 1);
@@ -229,38 +230,38 @@ if (modExists) {
   dom['ps-week-grid'] = makeEl('ps-week-grid');
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 1;
+  activeGen = 1;
   ctxBase.renderScheduleViewGrid({ renderGen: 1, mode: 'week', weekCards: [card], emptyDayText: 'x' });
   ctxBase.renderScheduleViewGrid({ renderGen: 1, mode: 'week', weekCards: [card], emptyDayText: 'x' });
   assert('Repeated week mount wires once per render', calls.forecastWire === 2);
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 1;
+  activeGen = 1;
   ctxBase.renderScheduleViewGrid(Object.assign({}, dayCtx));
   ctxBase.renderScheduleViewGrid(Object.assign({}, dayCtx));
   assert('Repeated day render delegates each mount', calls.dayOps === 2);
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 1;
+  activeGen = 1;
   ctxBase.renderScheduleViewGrid({ renderGen: 1, mode: 'week', weekCards: [card], emptyDayText: 'x' });
-  ctxBase.scheduleViewGridRenderGen = 2;
+  activeGen = 2;
   ctxBase.renderScheduleViewGrid(Object.assign({}, dayCtx, { renderGen: 2 }));
   assert('Day after Week preserves day visibility', vis('ps-ops-board') && !vis('ps-week-grid'));
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 1;
+  activeGen = 1;
   ctxBase.renderScheduleViewGrid({ renderGen: 1, mode: 'next30', next30Cards: [card], emptyDayText: 'x' });
-  ctxBase.scheduleViewGridRenderGen = 2;
+  activeGen = 2;
   ctxBase.renderScheduleViewGrid({ renderGen: 2, mode: 'week', weekCards: [card], emptyDayText: 'x' });
   assert('Week after Next30 preserves week visibility', vis('ps-week-grid') && !vis('ps-month-grid'));
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 2;
+  activeGen = 2;
   ctxBase.renderScheduleViewGrid({ renderGen: 1, mode: 'week', weekCards: [card], emptyDayText: 'x' });
   assert('Stale week gen cannot mount week grid', !vis('ps-week-grid') || dom['ps-week-grid'].innerHTML === '');
 
   resetDom();
-  ctxBase.scheduleViewGridRenderGen = 3;
+  activeGen = 3;
   ctxBase.renderScheduleViewGrid({ renderGen: 2, mode: 'next30', next30Cards: [card], emptyDayText: 'x' });
   ctxBase.renderScheduleViewGrid({ renderGen: 3, mode: 'day', dayPack: { rows: [] }, activeDayIso: '2026-07-20', emptyDayText: 'x' });
   assert('Stale next30 gen cannot overwrite day', vis('ps-ops-board') && !vis('ps-month-grid'));

@@ -9,7 +9,7 @@
  * Consumes presentation-ready view-grid contexts built by the monolith. Does not
  * fetch data, compute domain aggregates, or own global navigation state.
  *
- * Requires: el, escHtml, scheduleViewGridRenderGen, renderScheduleDayOpsBoard,
+ * Requires: el, escHtml, scheduleNavigationLoadGen, renderScheduleDayOpsBoard,
  * scheduleRenderForecastCardHtml, scheduleWireForecastCardNavigation.
  */
 
@@ -47,7 +47,7 @@ function scheduleMountViewGridForecastCards(box, cards, emptyDayText) {
 
 function renderScheduleViewGrid(ctx) {
   ctx = ctx || {};
-  if (ctx.renderGen == null || ctx.renderGen !== scheduleViewGridRenderGen) return;
+  if (ctx.renderGen == null || ctx.renderGen !== scheduleNavigationLoadGen()) return;
   var mode = scheduleNormalizeViewGridMode(ctx.mode);
   var weekBox = el('ps-week-grid');
   var monthBox = el('ps-month-grid');

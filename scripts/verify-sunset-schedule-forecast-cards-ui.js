@@ -65,6 +65,7 @@ const markers = [
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
+  '/* INJECT:sunset-schedule-navigation-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {
@@ -77,7 +78,8 @@ markers.forEach((m) => {
 assert('inline scheduleRenderWeekForecastCard removed', !apiSrc.includes('function scheduleRenderWeekForecastCard('));
 assert('inline scheduleWireOpsBoardClicks removed', !apiSrc.includes('function scheduleWireOpsBoardClicks('));
 assert('monolith keeps scheduleBuildForecastCardPresentation', apiSrc.includes('function scheduleBuildForecastCardPresentation('));
-assert('monolith keeps scheduleOpenDayDetail', apiSrc.includes('function scheduleOpenDayDetail('));
+assert('inline scheduleOpenDayDetail removed from monolith', !apiSrc.includes('function scheduleOpenDayDetail('));
+assert('browser source loads navigation module', browserLoader.includes('getSunsetScheduleNavigationBrowserSource'));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not expose window', !/window\.schedule/.test(modSrc));
 

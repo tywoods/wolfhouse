@@ -112,7 +112,7 @@ assert('view module still owns waiver section shell', viewModSrc.includes('funct
 assert('edit module still calls scheduleLoadDrawerWaiver hook', editModSrc.includes('scheduleLoadDrawerWaiver(ctx)'));
 assert('payment module unchanged slice 14 entrypoints', payModSrc.includes('function scheduleCreateDrawerStripeLink('));
 
-const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui *//* INJECT:sunset-schedule-drawer-delete-ui *//* INJECT:sunset-schedule-drawer-controller *//* INJECT:sunset-schedule-day-ops-board-ui *//* INJECT:sunset-schedule-forecast-cards-ui *//* INJECT:sunset-schedule-view-grid-ui */function escHtml(s){return s;}})();</script>');
+const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui *//* INJECT:sunset-schedule-drawer-delete-ui *//* INJECT:sunset-schedule-drawer-controller *//* INJECT:sunset-schedule-day-ops-board-ui *//* INJECT:sunset-schedule-forecast-cards-ui *//* INJECT:sunset-schedule-view-grid-ui *//* INJECT:sunset-schedule-navigation-ui */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes waiver module', htmlSample.includes('function scheduleLoadDrawerWaiver('));
 assert('waiver module injected once', htmlSample.split('function scheduleLoadDrawerWaiver(').length === 2);
 

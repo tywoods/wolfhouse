@@ -18605,6 +18605,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-day-ops-board-ui */
 /* INJECT:sunset-schedule-forecast-cards-ui */
 /* INJECT:sunset-schedule-view-grid-ui */
+/* INJECT:sunset-schedule-navigation-ui */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20058,9 +20059,6 @@ function applyClientPortalProfile(clientSlug){
 
 
 var SUNSET_SCHEDULE_LESSON_DAY_CAP = 24;
-var scheduleViewMode = 'day';
-var scheduleForwardOffset = 0;
-var scheduleViewGridRenderGen = 0;
 var scheduleRowsCache = [];
 var psPendingCreatePrefill = null;
 var scheduleFilter = 'all';
@@ -20256,7 +20254,7 @@ function scheduleFormatRange(start, end){
 }
 
 function scheduleFormatRangeLabel(start, end, viewMode){
-  viewMode = viewMode || scheduleViewMode || 'day';
+  viewMode = viewMode || scheduleCurrentViewMode();
   try {
     var startIso = scheduleIsoDate(start);
     var endIso = scheduleIsoDate(end);
@@ -20750,10 +20748,6 @@ function scheduleFindGroupForRow(row){
     return r.booking_id === row.booking_id && String(r.service_date || '').slice(0, 10) === String(row.service_date || '').slice(0, 10);
   });
   return scheduleBuildDisplayGroups(peers)[0] || scheduleBuildDisplayGroups([row])[0] || null;
-}
-
-function scheduleRangeStartDate(){
-  return scheduleAddDays(scheduleParseIso(dsTodayIso()), scheduleForwardOffset || 0);
 }
 
 function scheduleTodayIso(){ return dsTodayIso(); }
@@ -22423,22 +22417,6 @@ function scheduleDaysFromToday(iso){
   return Math.round((d.getTime() - today.getTime()) / 86400000);
 }
 
-function scheduleOpenDayDetail(iso){
-  var offset = scheduleDaysFromToday(iso);
-  if (offset < 0) offset = 0;
-  scheduleForwardOffset = offset;
-  scheduleViewMode = 'day';
-  document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
-    btn.classList.toggle('active', btn.getAttribute('data-ps-view') === 'day');
-  });
-  loadSchedulePage();
-}
-
-function scheduleActiveDayIso(){
-  if (scheduleViewMode === 'day') return scheduleIsoDate(scheduleRangeStartDate());
-  return scheduleTodayIso();
-}
-
 function scheduleBuildForecastCardPresentation(pack, iso, lessonTimes){
   pack = pack || { lessons: [], gear: [], rows: [] };
   var today = scheduleTodayIso();
@@ -22544,12 +22522,13 @@ function renderScheduleSummary(profile, weekData, convs){
 
 function setText(id, text){ var n = el(id); if (n) n.textContent = text; }
 
-function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen){
+function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, navSnapshot){
+  navSnapshot = navSnapshot || scheduleGetNavigationSnapshot();
   weekData = scheduleFilterFutureWeekData(weekData);
-  var mode = scheduleViewMode;
+  var mode = navSnapshot.mode;
   if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
-  var today = scheduleTodayIso();
-  var activeIso = scheduleActiveDayIso();
+  var today = navSnapshot.todayIso || scheduleTodayIso();
+  var activeIso = mode === 'day' ? scheduleIsoDate(rangeStart) : today;
   var dayPack = (weekData || []).find(function(x){ return x.dateIso === activeIso; }) ||
     { lessons: [], gear: [], rows: [] };
   function buildCardContexts(count){
@@ -22576,8 +22555,8 @@ function scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen){
   };
 }
 
-function renderScheduleWeekGrid(profile, weekData, rangeStart, renderGen){
-  renderScheduleViewGrid(scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen));
+function renderScheduleWeekGrid(profile, weekData, rangeStart, renderGen, navSnapshot){
+  renderScheduleViewGrid(scheduleBuildViewGridContext(profile, weekData, rangeStart, renderGen, navSnapshot));
 }
 
 function scheduleFindRowByKey(key){
@@ -22718,16 +22697,6 @@ function closeScheduleCreateModal(){
   modal.setAttribute('aria-hidden', 'true');
 }
 
-function setScheduleView(mode){
-  scheduleViewMode = mode || 'day';
-  // Switching Today/Week/Month always re-anchors to today, not the day you were on.
-  scheduleForwardOffset = 0;
-  document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
-    btn.classList.toggle('active', btn.getAttribute('data-ps-view') === scheduleViewMode);
-  });
-  loadSchedulePage();
-}
-
 function setScheduleFilter(mode){
   scheduleFilter = mode || 'all';
   document.querySelectorAll('.portal-schedule-filter-btn').forEach(function(btn){
@@ -22736,61 +22705,28 @@ function setScheduleFilter(mode){
   renderScheduleBookingList(scheduleFilter);
 }
 
-function scheduleNavPrev(){
-  if (scheduleViewMode === 'day') {
-    var d = scheduleParseIso(scheduleFocusDateIso || dsTodayIso());
-    scheduleFocusDateIso = scheduleIsoDate(scheduleAddDays(d, -1));
-  } else {
-    scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), -7);
-  }
-  loadSchedulePage();
-}
-
-function scheduleNavNext(){
-  if (scheduleViewMode === 'day') {
-    var d2 = scheduleParseIso(scheduleFocusDateIso || dsTodayIso());
-    scheduleFocusDateIso = scheduleIsoDate(scheduleAddDays(d2, 1));
-  } else {
-    scheduleWeekStart = scheduleAddDays(scheduleWeekStart || scheduleWeekStartMonday(new Date()), 7);
-  }
-  loadSchedulePage();
-}
-
-function scheduleNavToday(){
-  scheduleWeekStart = scheduleWeekStartMonday(new Date());
-  scheduleFocusDateIso = dsTodayIso();
-  loadSchedulePage();
-}
-
-function loadSchedulePage(){
+function loadSchedulePage(navSnapshot){
+  if (!navSnapshot) return scheduleRequestPageLoad();
   var client = getClient();
   var profile = getPortalProfile(client);
   if (!profile.is_surf_vertical) return;
   renderScheduleSchoolContext();
-  if (scheduleForwardOffset == null || scheduleForwardOffset < 0) scheduleForwardOffset = 0;
+  var mode = navSnapshot.mode;
+  if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
+  var forwardOffset = Number(navSnapshot.forwardOffset);
+  if (!isFinite(forwardOffset) || forwardOffset < 0) forwardOffset = 0;
+  var loadGen = navSnapshot.loadGen != null ? navSnapshot.loadGen : scheduleNavigationLoadGen();
   var state = el('ps-state');
   if (state){ state.textContent = portalT('daySchedule.loading'); state.style.display = 'block'; }
-  var rangeStart = scheduleRangeStartDate();
-  var span = scheduleViewMode === 'next30' ? 29 : (scheduleViewMode === 'day' ? 0 : 6);
-  var rangeEnd = scheduleAddDays(rangeStart, span);
-  setText('ps-range-label', scheduleFormatRangeLabel(rangeStart, rangeEnd, scheduleViewMode));
-  // Highlight the Today button (green) only while the visible range includes today.
-  var psTodayBtn = el('ps-today');
-  if (psTodayBtn){
-    var tIso = dsTodayIso();
-    var showsToday = tIso >= scheduleIsoDate(rangeStart) && tIso <= scheduleIsoDate(rangeEnd);
-    psTodayBtn.classList.toggle('btn-primary', showsToday);
-    psTodayBtn.classList.toggle('btn-ghost', !showsToday);
-  }
+  var rangeStart = scheduleAddDays(scheduleParseIso(navSnapshot.todayIso || scheduleTodayIso()), forwardOffset);
   var convP = fetch('/staff/conversations' + inboxClientQuery())
     .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
   var configP = scheduleFetchLessonTimesConfig(client);
-  var loadGen = ++scheduleViewGridRenderGen;
-  var dataP = scheduleViewMode === 'next30'
+  var dataP = mode === 'next30'
     ? scheduleFetchNext30(client, rangeStart)
     : scheduleFetchWeek(client, rangeStart);
   return Promise.all([convP, dataP, configP]).then(function(results){
-    if (loadGen !== scheduleViewGridRenderGen) return;
+    if (loadGen !== scheduleNavigationLoadGen()) return;
     var convData = results[0];
     var weekData = results[1];
     scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
@@ -22811,7 +22747,7 @@ function loadSchedulePage(){
     weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
     scheduleRowsCache = scheduleRowsCache.concat(demoRows);
     renderScheduleSummary(profile, weekData, scheduleConversationsCache);
-    renderScheduleWeekGrid(profile, weekData, rangeStart, loadGen);
+    renderScheduleWeekGrid(profile, weekData, rangeStart, loadGen, navSnapshot);
     if (state) state.style.display = 'none';
   }).catch(function(e){
     if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
@@ -22819,28 +22755,20 @@ function loadSchedulePage(){
 }
 
 function wireScheduleControls(){
-  var ids = [['ps-prev-week', function(){ var step = scheduleViewMode === 'next30' ? 30 : (scheduleViewMode === 'day' ? 1 : 7); scheduleForwardOffset = Math.max(0, (scheduleForwardOffset || 0) - step); loadSchedulePage(); }],
-    ['ps-next-week', function(){ var step = scheduleViewMode === 'next30' ? 30 : (scheduleViewMode === 'day' ? 1 : 7); scheduleForwardOffset = (scheduleForwardOffset || 0) + step; loadSchedulePage(); }],
-    ['ps-today', function(){ scheduleForwardOffset = 0; loadSchedulePage(); }],
-    ['ps-drawer-close', closeScheduleDetailDrawer],
+  var ids = [['ps-drawer-close', closeScheduleDetailDrawer],
     ['ps-drawer-refresh', scheduleRefreshDrawer],
     ['ps-create-booking', openScheduleCreateModal],
-    ['ps-refresh-schedule', function(){ loadSchedulePage(); }],
     ['ps-create-cancel', closeScheduleCreateModal],
     ['ps-create-submit', submitScheduleManualBooking]];
   ids.forEach(function(pair){
     var node = el(pair[0]);
     if (node && !node.dataset.wired){ node.dataset.wired = '1'; node.addEventListener('click', pair[1]); }
   });
+  scheduleWireScheduleNavigationControls();
   var backdrop = el('ps-drawer-backdrop');
   if (backdrop && !backdrop.dataset.wired){ backdrop.dataset.wired = '1'; backdrop.addEventListener('click', closeScheduleDetailDrawer); }
   var createBackdrop = el('ps-create-backdrop');
   if (createBackdrop && !createBackdrop.dataset.wired){ createBackdrop.dataset.wired = '1'; createBackdrop.addEventListener('click', closeScheduleCreateModal); }
-  document.querySelectorAll('.portal-schedule-view-btn').forEach(function(btn){
-    if (btn.dataset.wired) return;
-    btn.dataset.wired = '1';
-    btn.addEventListener('click', function(){ setScheduleView(btn.getAttribute('data-ps-view')); });
-  });
   var typeSel = el('ps-create-type');
   if (typeSel && !typeSel.dataset.wired) {
     typeSel.dataset.wired = '1';
