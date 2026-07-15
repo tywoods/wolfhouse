@@ -18600,6 +18600,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-drawer-edit-ui */
 /* INJECT:sunset-schedule-drawer-payment-ui */
 /* INJECT:sunset-schedule-drawer-waiver-ui */
+/* INJECT:sunset-schedule-drawer-controller */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -22952,12 +22953,7 @@ function renderScheduleBookingList(filter){
   });
 }
 
-var scheduleDrawerState = { row: null, ctx: null, editing: false };
-
-function scheduleCloneDrawerCtx(ctx){
-  if (!ctx) return null;
-  try { return JSON.parse(JSON.stringify(ctx)); } catch (_) { return Object.assign({}, ctx); }
-}
+// Drawer orchestration: sunset-schedule-drawer-controller.js (Slice 16).
 
 function scheduleComponentOrderKeys(){
   return ['wetsuit', 'surfboard', 'course', 'private_lesson'];
@@ -22982,23 +22978,6 @@ function scheduleCopyTextFallback(text){
   document.body.removeChild(input);
 }
 
-function scheduleWireDrawerHeaderActions(){
-  var closeBtn = el('ps-drawer-close');
-  if (closeBtn) closeBtn.onclick = closeScheduleDetailDrawer;
-  var refreshBtn = el('ps-drawer-refresh');
-  if (refreshBtn) refreshBtn.onclick = scheduleRefreshDrawer;
-  var codeBtn = el('ps-drawer-copy-code');
-  if (codeBtn) codeBtn.onclick = function(){ scheduleCopyTextFallback(codeBtn.getAttribute('data-copy') || ''); scheduleDrawerFlashCopied(codeBtn); };
-}
-
-// ── Redesigned Sunset booking drawer (view mode): money-first, one card per
-// question (paid? → waiver? → what's booked?), each fact stated once. ──────────
-
-// DD-MM-YY from an ISO date (no backslash regex — safe in the embedded bundle).
-
-// Small copy-icon button. Wiring (by id) copies the relevant link from ctx.
-
-// Brief "copied" feedback: swap the icon to a checkmark for ~1.2s.
 function scheduleDrawerFlashCopied(btn){
   if (!btn || btn.getAttribute('data-flash') === '1') return;
   var orig = btn.innerHTML;
@@ -23007,28 +22986,6 @@ function scheduleDrawerFlashCopied(btn){
   btn.innerHTML = '&#10003;';
   setTimeout(function(){ btn.innerHTML = orig; btn.classList.remove('is-copied'); btn.removeAttribute('data-flash'); }, 1200);
 }
-
-// Short, lowercase paid-method label for the "Paid in full · <method>" headline.
-// Fixed display order: course/private lesson first, then board, then wetsuit.
-
-// Big money headline + subtotal/paid line, colour = signal.
-
-// Primary payment-link action + overflow (open/regenerate/delete) via native <details>.
-
-// Collapsible "Record payment" — the manual-pay form, hidden until opened. Keeps all wired IDs.
-
-// Money card (Sunset view): headline → primary action → record-payment. Box id preserved for refresh.
-
-// Booking card: single day → clean item rows; multi-day → per-service summary + expandable daily.
-
-// Single, consolidated payment area. When editable, the status select lives here (no duplicate card).
-// Payment presentation + actions: sunset-schedule-drawer-payment-ui.js (Slice 14).
-
-// Edit-drawer full-day add-on: compute eligible dates + default people, preserve prior selections, re-render.
-
-// Edit-drawer private-course sessions: seeded from ctx, with add/remove. Multi-session persists via the PATCH.
-
-// Map the consolidated payment select value to a booking status + stored method.
 
 // Soft-delete (cancel) the whole booking, then close the drawer and reload the schedule.
 function scheduleDeleteBookingFromDrawer(){
@@ -23053,133 +23010,6 @@ function scheduleDeleteBookingFromDrawer(){
       if (m){ m.className = 'state-msg error'; m.textContent = portalT('schedule.drawer.deleteBookingFailed') + ' ' + err.message; m.style.display = 'block'; }
       if (btn) btn.disabled = false;
     });
-}
-
-function scheduleWireDrawerConversation(row, group){
-  var linkedConv = scheduleFindLinkedConversation(group || row);
-  var hasPhone = scheduleGroupHasPhone(group || row) || !!(el('ps-drawer-phone') && el('ps-drawer-phone').value.trim());
-  var convBtn = el('ps-drawer-conversation-btn');
-  var convHint = el('ps-drawer-conversation-hint');
-  if (!convBtn) return;
-  if (linkedConv){
-    convBtn.textContent = portalT('schedule.drawer.openConv');
-    convBtn.disabled = false;
-    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group || row); };
-  } else if (hasPhone){
-    convBtn.textContent = portalT('schedule.drawer.startConv');
-    convBtn.disabled = false;
-    convBtn.onclick = function(){ scheduleOpenOrStartConversationFromBooking(group || row); };
-  } else {
-    convBtn.textContent = portalT('schedule.drawer.startConv');
-    convBtn.disabled = true;
-    convBtn.title = portalT('schedule.drawer.conversationNeedPhone');
-    if (convHint){
-      convHint.textContent = portalT('schedule.drawer.conversationNeedPhone');
-      convHint.style.display = 'block';
-    }
-  }
-}
-
-// Wire the "Open customer" button: navigate to the Customers tab and open the card by phone.
-function scheduleWireDrawerOpenCustomer(){
-  var btn = el('ps-drawer-open-customer');
-  if (!btn) return;
-  btn.addEventListener('click', function(){
-    var phone = btn.getAttribute('data-customer-phone') || '';
-    if (!phone) return;
-    closeScheduleDetailDrawer();
-    openCustomerCardForPhone(phone);
-  });
-}
-
-function scheduleWireViewDrawer(row, ctx){
-  var group = scheduleFindGroupForRow(row) || row;
-  scheduleWireDrawerHeaderActions();
-  scheduleWireDrawerStripeCopyOpen(ctx);
-  scheduleWireDrawerConversation(row, group);
-  scheduleWireDrawerOpenCustomer();
-  scheduleWireDrawerManualPayment(row);
-  scheduleLoadDrawerWaiver(ctx);
-  var editBtn = el('ps-drawer-edit');
-  if (editBtn) editBtn.addEventListener('click', function(){ scheduleEnterDrawerEditMode(); });
-  var stripeBtn = el('ps-drawer-stripe-link');
-  if (stripeBtn) stripeBtn.addEventListener('click', function(){ scheduleCreateDrawerStripeLink(row); });
-  var delBookingBtn = el('ps-drawer-delete-booking');
-  if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
-}
-
-// Top-right drawer refresh: re-fetch the booking context and re-render, preserving edit mode.
-function scheduleRefreshDrawer(){
-  var st = scheduleDrawerState;
-  if (!st || !st.row) return;
-  scheduleFetchDrawerContext(st.row).then(function(data){
-    if (data && data.success && scheduleDrawerState && scheduleDrawerState.row){
-      scheduleDrawerState.ctx = scheduleCloneDrawerCtx(data);
-      scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
-    }
-  }).catch(function(){});
-}
-
-function openScheduleDetailDrawer(row){
-  if (!row) return;
-  scheduleEnsureRowId(row);
-  var group = scheduleFindGroupForRow(row) || scheduleBuildDisplayGroups([row])[0] || row;
-  var drawer = el('ps-detail-drawer');
-  var backdrop = el('ps-drawer-backdrop');
-  var body = el('ps-drawer-body');
-  if (!drawer || !body) return;
-  scheduleLastDrawerRowId = row._scheduleId;
-  var useDrawerApi = scheduleDrawerCanLoadCanonical(row)
-    || !!(row._drawerFromCustomer && (row.booking_id || row.booking_code));
-  if (useDrawerApi){
-    body.innerHTML = scheduleRenderDrawerLoadingHtml();
-    drawer.style.display = 'block';
-    if (backdrop) backdrop.style.display = 'block';
-    var fetchRow = row._drawerFromCustomer
-      ? {
-        booking_id: row.booking_id || null,
-        booking_code: row.booking_code || null,
-        guest_name: row.guest_name || null,
-        _drawerFromCustomer: true,
-      }
-      : Object.assign({}, row, scheduleRowBookingRef(row, group));
-    scheduleFetchDrawerContext(fetchRow).then(function(data){
-      if (!data || !data.success){
-        body.innerHTML = scheduleRenderDrawerErrorHtml(portalT('schedule.drawer.loadFailed'), data && (data.reason_code || data.reason));
-        return;
-      }
-      scheduleOpenEditableDrawer(fetchRow, data);
-    }).catch(function(){
-      body.innerHTML = scheduleRenderDrawerErrorHtml(portalT('schedule.drawer.loadFailed'));
-    });
-    return;
-  }
-  var notes = group.notes || row.notes || row.message || '';
-  body.innerHTML =
-    '<div class="portal-schedule-drawer-hero">' +
-    '<h3 style="margin:0 0 4px;font-size:22px">' + escHtml(group.guest_name || row.guest_name || 'Guest') + '</h3>' +
-    '</div>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.source')) + ':</strong> ' + escHtml(scheduleRowSourceDrawerLabel(group)) + '</p>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.equipment')) + ':</strong> ' + escHtml(scheduleEquipmentPrepLabel(group)) + '</p>' +
-    scheduleRenderComponentListHtml(group) +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.date')) + ':</strong> ' + escHtml(String(row.service_date || '—').slice(0, 10)) + '</p>' +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.col.payment')) + ':</strong> ' + scheduleRenderStatusBadgeHtml(group, { detail: true }) + '</p>' +
-    (notes ? '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.notes')) + ':</strong> ' + escHtml(notes) + '</p>' : '') +
-    '<p class="portal-schedule-drawer-kv"><strong>' + escHtml(portalT('schedule.drawer.phone')) + ':</strong> ' + escHtml(group.phone || row.phone || '—') + '</p>' +
-    '<div class="portal-schedule-drawer-actions">' +
-    '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeSoon')) + '">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>' +
-    '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>' +
-    '</div>' +
-    '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>' +
-    '';
-  drawer.style.display = 'block';
-  if (backdrop) backdrop.style.display = 'block';
-  scheduleWireDrawerConversation(row, group);
-}
-
-function openScheduleDetailDrawerLegacyUnused(row){
-  if (!row) return;
-  scheduleEnsureRowId(row);
 }
 
 function scheduleApplyCreatePrefill(){
@@ -23229,13 +23059,6 @@ function closeScheduleCreateModal(){
   if (!modal) return;
   modal.style.display = 'none';
   modal.setAttribute('aria-hidden', 'true');
-}
-
-function closeScheduleDetailDrawer(){
-  var drawer = el('ps-detail-drawer');
-  var backdrop = el('ps-drawer-backdrop');
-  if (drawer) drawer.style.display = 'none';
-  if (backdrop) backdrop.style.display = 'none';
 }
 
 function setScheduleView(mode){

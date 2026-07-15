@@ -16,6 +16,7 @@ const path = require('path');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const VIEW_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 const I18N_ES_SUNSET_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n-es-sunset.js');
 
@@ -54,6 +55,7 @@ console.log('\nverify:sunset-booking-drawer-summary — drawer header + summary 
 
 const apiSrc = fs.existsSync(STAFF_API_PATH) ? fs.readFileSync(STAFF_API_PATH, 'utf8') : '';
 const viewModSrc = fs.existsSync(VIEW_MODULE_PATH) ? fs.readFileSync(VIEW_MODULE_PATH, 'utf8') : '';
+const ctrlModSrc = fs.existsSync(CTRL_MODULE_PATH) ? fs.readFileSync(CTRL_MODULE_PATH, 'utf8') : '';
 const drawerSrc = viewModSrc || apiSrc;
 const i18nSrc = fs.existsSync(I18N_PATH) ? fs.readFileSync(I18N_PATH, 'utf8') : '';
 const i18nEsSrc = fs.existsSync(I18N_ES_SUNSET_PATH) ? fs.readFileSync(I18N_ES_SUNSET_PATH, 'utf8') : '';
@@ -109,7 +111,7 @@ console.log('\n[4] Preserved drawer IDs + Wolfhouse fallback');
 assert('ps-drawer-refresh id preserved', (drawerSrc + apiSrc).includes('id="ps-drawer-refresh"'));
 assert('ps-drawer-close id preserved', (drawerSrc + apiSrc).includes('id="ps-drawer-close"'));
 assert('ps-drawer-edit id preserved', (drawerSrc + apiSrc).includes('id="ps-drawer-edit"'));
-assert('ps-drawer-conversation-btn id preserved', apiSrc.includes('id="ps-drawer-conversation-btn"'));
+assert('ps-drawer-conversation-btn id preserved', (apiSrc + ctrlModSrc).includes('id="ps-drawer-conversation-btn"'));
 assert('non-Sunset view fallback keeps legacy rows', viewDetailsFn.includes('!isSunsetSurfActive()'));
 assert('drawer-scoped mobile CSS', apiSrc.includes('@media(max-width:420px){.portal-schedule-drawer-hero-inner'));
 

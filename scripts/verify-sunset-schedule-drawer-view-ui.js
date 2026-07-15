@@ -18,6 +18,7 @@ const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const PAY_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
 const PORTAL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
+const CTRL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
 let pass = 0;
@@ -193,6 +194,7 @@ const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const viewModSrc = fs.readFileSync(VIEW_MODULE, 'utf8');
 const payModSrc = fs.readFileSync(PAY_MODULE, 'utf8');
 const portalModSrc = fs.readFileSync(PORTAL_MODULE, 'utf8');
+const ctrlModSrc = fs.existsSync(CTRL_MODULE) ? fs.readFileSync(CTRL_MODULE, 'utf8') : '';
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
 console.log('[1] Module files and injection');
@@ -327,7 +329,7 @@ assert('wolfhouse hero booking code', whHtml.includes('portal-schedule-drawer-bo
 console.log('\n[10] Mobile-friendly markup retained');
 assert('drawer hero close aria', staffHtml.includes('aria-label'));
 assert('money link row class', unpaidHtml.includes('ps-money-link-row'));
-assert('openScheduleDetailDrawer uses view loading helper', apiSrc.includes('scheduleRenderDrawerLoadingHtml()'));
+assert('openScheduleDetailDrawer uses view loading helper', ctrlModSrc.includes('scheduleRenderDrawerLoadingHtml()'));
 
 console.log(`\n── verify:sunset-schedule-drawer-view-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

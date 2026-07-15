@@ -25,6 +25,7 @@ const {
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
+const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 const WOLFHOUSE_LODGING = /\b(bed|room|hostel|move-bed|wolfhouse)\b/i;
@@ -45,6 +46,9 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-portal-module.js',
   'scripts/browser/sunset-schedule-drawer-view-ui.js',
   'scripts/browser/sunset-schedule-drawer-edit-ui.js',
+  'scripts/browser/sunset-schedule-drawer-payment-ui.js',
+  'scripts/browser/sunset-schedule-drawer-waiver-ui.js',
+  'scripts/browser/sunset-schedule-drawer-controller.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -127,6 +131,7 @@ console.log('\n[4] staff-query-api.js — Slice 2A wiring markers');
 
 let apiSrc = '';
 let portalModSrc = '';
+let ctrlModSrc = '';
 if (fs.existsSync(STAFF_API_PATH)) {
   apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
   assert('portalT helper present', apiSrc.includes('function portalT('));
@@ -145,6 +150,10 @@ if (fs.existsSync(STAFF_API_PATH)) {
 if (fs.existsSync(PORTAL_MODULE_PATH)) {
   portalModSrc = fs.readFileSync(PORTAL_MODULE_PATH, 'utf8');
 }
+if (fs.existsSync(CTRL_MODULE_PATH)) {
+  ctrlModSrc = fs.readFileSync(CTRL_MODULE_PATH, 'utf8');
+}
+const drawerOrchestrationSrc = apiSrc + ctrlModSrc;
 
 // ── 5. No surf-only unconditional lodging removal for Wolfhouse ─────────────
 
@@ -578,7 +587,11 @@ if (apiSrc) {
   assert('schedule manual bookings not in-memory', !apiSrc.includes('var scheduleManualBookings'));
   assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
   assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
-  assert('schedule detail drawer', apiSrc.includes('function openScheduleDetailDrawer(') && apiSrc.includes('id="ps-detail-drawer"'));
+  assert('schedule detail drawer', (function () {
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('function openScheduleDetailDrawer(') && apiSrc.includes('id="ps-detail-drawer"');
+  })());
   assert('manual create booking UI', apiSrc.includes('id="ps-create-booking"')
     && portalModSrc.includes('function submitScheduleManualBooking(')
     && apiSrc.includes('submitScheduleManualBooking'));
@@ -662,7 +675,7 @@ if (apiSrc) {
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
   assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
   assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
-  assert('drawer stripe placeholder disabled', apiSrc.includes('schedule.drawer.stripeLink') && apiSrc.includes('disabled'));
+  assert('drawer stripe placeholder disabled', drawerOrchestrationSrc.includes('schedule.drawer.stripeLink') && drawerOrchestrationSrc.includes('disabled'));
   assert('submit sends components payload', portalModSrc.includes('components: createPayload.components')
     || portalModSrc.includes('Object.assign({}, createPayload'));
 }
@@ -700,8 +713,12 @@ if (apiSrc) {
   assert('component pebble css removed from rows', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
   assert('source row rail classes retained', apiSrc.includes('.portal-schedule-ops-row-rail.is-staff') && apiSrc.includes('.portal-schedule-ops-row-rail.is-luna'));
   assert('booking create still persists', apiSrc.includes('/staff/schedule/bookings') && apiSrc.includes('submitScheduleManualBooking'));
-  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
-  assert('drawer stripe for non-editable only', apiSrc.includes("portalT('schedule.drawer.stripeSoon')"));
+  assert('drawer still opens', (function () {
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('function openScheduleDetailDrawer(');
+  })());
+  assert('drawer stripe for non-editable only', drawerOrchestrationSrc.includes("portalT('schedule.drawer.stripeSoon')"));
 }
 
 
@@ -736,7 +753,11 @@ if (apiSrc) {
   assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes('scheduleRenderRentalPickupBlock('));
   assert('short pending in rows', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no component pebble css', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
-  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('drawer still opens', (function () {
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('function openScheduleDetailDrawer(');
+  })());
   assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
 }
 
@@ -757,10 +778,14 @@ if (apiSrc) {
   assert('rental boards only section key', i18nSrc.includes("'schedule.ops.rentalBoardsOnly'") || apiSrc.includes("'schedule.ops.rentalBoardsOnly'"));
   assert('rental wetsuits only section key', i18nSrc.includes("'schedule.ops.rentalWetsuitsOnly'") || apiSrc.includes("'schedule.ops.rentalWetsuitsOnly'"));
   assert('rental pickup kind helper', apiSrc.includes('function scheduleRentalPickupKind('));
-  assert('drawer plain source kv', apiSrc.includes('scheduleRowSourceDrawerLabel(group)') && apiSrc.includes("portalT('schedule.drawer.source')"));
+  assert('drawer plain source kv', drawerOrchestrationSrc.includes('scheduleRowSourceDrawerLabel(group)') && drawerOrchestrationSrc.includes("portalT('schedule.drawer.source')"));
   assert('next30 view button i18n', i18nSrc.includes("'schedule.view.next30': 'Next 30 days'") || apiSrc.includes('schedule.view.next30'));
   assert('month label not Month', !i18nSrc.includes("'schedule.view.month': 'Month'"));
-  assert('drawer still opens', apiSrc.includes('function openScheduleDetailDrawer('));
+  assert('drawer still opens', (function () {
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('function openScheduleDetailDrawer(');
+  })());
   assert('create booking still works', apiSrc.includes('submitScheduleManualBooking'));
 }
 
@@ -907,9 +932,9 @@ if (apiSrc) {
     return editSrc.includes('id="ps-drawer-cancel"') && editSrc.includes('schedule.drawer.cancel');
   })());
   assert('booking drawer opens read-only default', (function () {
-    const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
-    const editSrc = fs.existsSync(editPath) ? fs.readFileSync(editPath, 'utf8') : '';
-    return editSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)');
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false)');
   })());
   assert('booking drawer edit mode toggle', (function () {
     const editPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
@@ -931,7 +956,11 @@ if (apiSrc) {
   const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
   assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));
   assert('scheduleDrawerCanEdit in portal module', portalModSrc.includes('function scheduleDrawerCanEdit('));
-  assert('openScheduleDetailDrawer uses scheduleDrawerCanLoadCanonical', apiSrc.includes('scheduleDrawerCanLoadCanonical(row)'));
+  assert('openScheduleDetailDrawer uses scheduleDrawerCanLoadCanonical', (function () {
+    const ctrlPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+    const ctrlSrc = fs.existsSync(ctrlPath) ? fs.readFileSync(ctrlPath, 'utf8') : '';
+    return ctrlSrc.includes('scheduleDrawerCanLoadCanonical(row)');
+  })());
   assert('customer PATCH before GET-only gate', (function(){
     var gate = apiSrc.indexOf('// ── All other routes: GET only');
     var patch = apiSrc.indexOf('customerPhoneMatch && method === \'PATCH\'');

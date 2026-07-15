@@ -17,6 +17,7 @@ const { injectSunsetSchedulePortalModule, SCHEDULE_EDIT_INJECT_MARKER } = requir
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const EDIT_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+const CTRL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const PAY_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const PORTAL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
@@ -95,6 +96,7 @@ console.log('\nverify:sunset-schedule-drawer-edit-ui\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const editExists = fs.existsSync(EDIT_MODULE);
 const editModSrc = editExists ? fs.readFileSync(EDIT_MODULE, 'utf8') : '';
+const ctrlModSrc = fs.existsSync(CTRL_MODULE) ? fs.readFileSync(CTRL_MODULE, 'utf8') : '';
 const viewModSrc = fs.readFileSync(VIEW_MODULE, 'utf8');
 const portalModSrc = fs.readFileSync(PORTAL_MODULE, 'utf8');
 const payModSrc = fs.existsSync(PAY_MODULE) ? fs.readFileSync(PAY_MODULE, 'utf8') : '';
@@ -117,6 +119,10 @@ const markerIdxEdit = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-edit-ui *
 const markerIdxPay = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-payment-ui */');
 const markerIdxWaiver = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-waiver-ui */');
 assert('marker order portal < view < edit < payment < waiver', markerIdxPortal > -1 && markerIdxView > markerIdxPortal && markerIdxEdit > markerIdxView && markerIdxPay > markerIdxEdit && markerIdxWaiver > markerIdxPay);
+const markerIdxCtrl = apiSrc.indexOf('/* INJECT:sunset-schedule-drawer-controller */');
+assert('marker order waiver < controller', markerIdxCtrl > markerIdxWaiver);
+assert('mount orchestration in controller module', ctrlModSrc.includes('function scheduleMountDrawerBody('));
+assert('open editable orchestration in controller module', ctrlModSrc.includes('function scheduleOpenEditableDrawer('));
 
 const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes edit module body', htmlSample.includes('function scheduleEnterDrawerEditMode('));
@@ -144,11 +150,12 @@ console.log('\n[3] Required edit controller functions in module');
   'scheduleReadDrawerEditPayload',
   'scheduleSaveDrawerBooking',
   'scheduleRenderDrawerPaymentSelectHtml',
-  'scheduleMountDrawerBody',
-  'scheduleOpenEditableDrawer',
   'scheduleRenderDrawerPaymentSectionEditHtml',
 ].forEach((name) => {
   assert(`module defines ${name}`, editExists && extractFunctionSource(editModSrc, name) != null);
+});
+['scheduleMountDrawerBody', 'scheduleOpenEditableDrawer'].forEach((name) => {
+  assert(`controller defines ${name}`, ctrlModSrc.includes(`function ${name}(`));
 });
 
 console.log('\n[4] VM — edit lifecycle, staff + Luna parity, validation, XSS');
@@ -175,6 +182,9 @@ if (editExists) {
         payment: { subtotal_cents: 10000, paid_cents: 0, balance_due_cents: 10000, line_items: [] },
       },
       editing: false,
+      openGen: 0,
+      refreshGen: 0,
+      activeBookingKey: null,
     },
     scheduleDrawerSaveInFlight: false,
     scheduleLastDrawerRowId: null,
@@ -257,16 +267,19 @@ if (editExists) {
     'scheduleDrawerRenderPrivateSessions',
     'scheduleDrawerSyncPrivateSessions',
     'scheduleDrawerAddPrivateSession',
-    'scheduleMountDrawerBody',
     'scheduleEnterDrawerEditMode',
     'scheduleCancelDrawerEditMode',
     'scheduleSaveDrawerBooking',
     'scheduleWireEditableDrawer',
-    'scheduleOpenEditableDrawer',
   ].forEach((name) => {
     const fnSrc = extractFunctionSource(editModSrc, name);
     if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
   });
+  ['scheduleMountDrawerBody', 'scheduleOpenEditableDrawer', 'scheduleDrawerShowShell', 'scheduleCloneDrawerCtx'].forEach((name) => {
+    const fnSrc = extractFunctionSource(ctrlModSrc, name);
+    if (fnSrc) vm.runInContext(`${fnSrc}\nthis.${name}=${name};`, ctx);
+  });
+  vm.runInContext('if(typeof scheduleDrawerState==="undefined"){var scheduleDrawerState={row:null,ctx:null,editing:false,openGen:0,refreshGen:0,activeBookingKey:null};}', ctx);
 
   dom['ps-detail-drawer'] = { style: {} };
   dom['ps-drawer-backdrop'] = { style: {} };

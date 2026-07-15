@@ -7,8 +7,8 @@
  * save orchestration and payment-status select. Consumes canonical drawer ctx;
  * no authoritative price/eligibility/payment validity decisions.
  *
- * Compatibility hooks (monolith): scheduleWireViewDrawer, scheduleLoadDrawerWaiver,
- * scheduleDeleteBookingFromDrawer. Payment actions live in sunset-schedule-drawer-payment-ui.js.
+ * Compatibility hooks (monolith): scheduleDeleteBookingFromDrawer.
+ * Orchestration (open/close/mount/wire view): sunset-schedule-drawer-controller.js (Slice 16).
  */
 
 var scheduleDrawerSaveInFlight = false;
@@ -510,20 +510,6 @@ function scheduleWireEditableDrawer(row, ctx){
   if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
 }
 
-function scheduleMountDrawerBody(row, ctx, editing){
-  var drawer = el('ps-detail-drawer');
-  var backdrop = el('ps-drawer-backdrop');
-  var body = el('ps-drawer-body');
-  if (!drawer || !body) return;
-  var canEdit = scheduleDrawerCanEdit(row);
-  body.innerHTML = editing ? scheduleRenderEditableDrawerHtml(row, ctx) : scheduleRenderViewDrawerHtml(row, ctx, canEdit);
-  drawer.style.display = 'block';
-  if (backdrop) backdrop.style.display = 'block';
-  scheduleLastDrawerRowId = row._scheduleId;
-  if (editing) scheduleWireEditableDrawer(row, ctx);
-  else scheduleWireViewDrawer(row, ctx);
-}
-
 function scheduleEnterDrawerEditMode(){
   if (!scheduleDrawerState.row || !scheduleDrawerState.ctx) return;
   scheduleDrawerState.editing = true;
@@ -534,11 +520,4 @@ function scheduleCancelDrawerEditMode(){
   if (!scheduleDrawerState.row || !scheduleDrawerState.ctx) return;
   scheduleDrawerState.editing = false;
   scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, false);
-}
-
-function scheduleOpenEditableDrawer(row, ctx){
-  scheduleDrawerState.row = row;
-  scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctx);
-  scheduleDrawerState.editing = false;
-  scheduleMountDrawerBody(row, scheduleDrawerState.ctx, false);
 }

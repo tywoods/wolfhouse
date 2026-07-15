@@ -618,3 +618,21 @@ Infer signed status from URL presence, mark waivers signed from browser state, i
 
 `scheduleWireViewDrawer` and edit save path call `scheduleLoadDrawerWaiver(ctx)` at runtime after injection. `scheduleCopyTextFallback` remains in monolith (shared with header/stripe copy). Waiver section shell (`scheduleRenderDrawerWaiverSectionHtml`) remains in view module.
 
+---
+
+## 21. Schedule drawer orchestration controller (Slice 16)
+
+Drawer open/close/refresh lifecycle extracted to `scripts/browser/sunset-schedule-drawer-controller.js` (injected last, after portal, view, edit, payment and waiver modules).
+
+### Controller module owns
+
+`scheduleDrawerState`, `openScheduleDetailDrawer`, `closeScheduleDetailDrawer`, `scheduleRefreshDrawer`, `scheduleMountDrawerBody`, `scheduleOpenEditableDrawer`, `scheduleWireViewDrawer`, header/conversation/customer wiring hooks, stale-response protection (`openGen` / `refreshGen` / `activeBookingKey`), and legacy read-only fallback for untrusted non-canonical rows.
+
+### Controller module must not
+
+Own edit form logic, payment mutations, waiver actions, booking deletion, Schedule board rendering, or client-side price/balance/eligibility calculation.
+
+### Compatibility hooks (monolith)
+
+Schedule chip click handlers call `openScheduleDetailDrawer(row)` via IIFE closure. `scheduleDeleteBookingFromDrawer`, `scheduleCopyTextFallback`, and `scheduleDrawerFlashCopied` remain in monolith.
+

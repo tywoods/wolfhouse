@@ -90,7 +90,7 @@ console.log('[1] Module files and injection order');
 assert('waiver module exists', waiverExists);
 assert('waiver inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-waiver-ui */'));
 assert('browser source loads waiver module', browserLoader.includes('getSunsetScheduleDrawerWaiverBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver', browserLoader.includes('SCHEDULE_WAIVER_INJECT_MARKER'));
+assert('inject chains portal → view → edit → payment → waiver → controller', browserLoader.includes('SCHEDULE_CONTROLLER_INJECT_MARKER'));
 
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
@@ -98,10 +98,11 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-edit-ui */',
   '/* INJECT:sunset-schedule-drawer-payment-ui */',
   '/* INJECT:sunset-schedule-drawer-waiver-ui */',
+  '/* INJECT:sunset-schedule-drawer-controller */',
 ];
 const idx = markers.map((m) => apiSrc.indexOf(m));
-assert('all five markers present once', idx.every((i) => i >= 0) && markers.every((m) => apiSrc.split(m).length === 2));
-assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3] && idx[3] < idx[4]);
+assert('all six markers present once', idx.every((i) => i >= 0) && markers.every((m) => apiSrc.split(m).length === 2));
+assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3] && idx[3] < idx[4] && idx[4] < idx[5]);
 assert('inline scheduleLoadDrawerWaiver removed', !apiSrc.includes('function scheduleLoadDrawerWaiver('));
 assert('inline scheduleCreateDrawerWaiver removed', !apiSrc.includes('function scheduleCreateDrawerWaiver('));
 assert('inline scheduleRenderWaiverBoxInner removed', !apiSrc.includes('function scheduleRenderWaiverBoxInner('));

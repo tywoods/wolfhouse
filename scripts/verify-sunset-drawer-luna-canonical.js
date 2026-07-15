@@ -20,6 +20,7 @@ const { execFileSync } = require('child_process');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
+const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const DRAWER_PATH = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-booking-drawer.js');
 const SLICE10_BASE = '6e74fc2f3ccf1e31713e616024b22dfd3416a332';
 
@@ -125,10 +126,12 @@ const portalModSrc = fs.existsSync(PORTAL_MODULE_PATH)
   ? fs.readFileSync(PORTAL_MODULE_PATH, 'utf8')
   : '';
 const drawerSrc = fs.existsSync(DRAWER_PATH) ? fs.readFileSync(DRAWER_PATH, 'utf8') : '';
+const ctrlSrc = fs.existsSync(CTRL_MODULE_PATH) ? fs.readFileSync(CTRL_MODULE_PATH, 'utf8') : '';
 
 assert('HEAD injects schedule portal module', headSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
+assert('HEAD injects schedule drawer controller module', headSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('HEAD uses scheduleDrawerCanLoadCanonical in openScheduleDetailDrawer',
-  /scheduleDrawerCanLoadCanonical\(row\)/.test(headSrc));
+  /scheduleDrawerCanLoadCanonical\(row\)/.test(ctrlSrc));
 assert('HEAD server trusted attribution gate', drawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));
 assert('HEAD server detail uses drawer_untrusted_booking_source',
   drawerSrc.includes('drawer_untrusted_booking_source'));
