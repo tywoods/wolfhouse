@@ -26,6 +26,7 @@ const ROOT = path.join(__dirname, '..');
 const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+const DAY_OPS_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 const WOLFHOUSE_LODGING = /\b(bed|room|hostel|move-bed|wolfhouse)\b/i;
@@ -48,7 +49,9 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-drawer-edit-ui.js',
   'scripts/browser/sunset-schedule-drawer-payment-ui.js',
   'scripts/browser/sunset-schedule-drawer-waiver-ui.js',
+  'scripts/browser/sunset-schedule-drawer-delete-ui.js',
   'scripts/browser/sunset-schedule-drawer-controller.js',
+  'scripts/browser/sunset-schedule-day-ops-board-ui.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -666,10 +669,11 @@ if (apiSrc) {
   assert('create booking group lesson checkbox removed', !apiSrc.includes('id="ps-create-comp-lesson"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
   assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
-  assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('scheduleRenderOpsGroupHeader('));
-  assert('ops group header uses group name', apiSrc.includes('function scheduleRenderOpsGroupHeader(') && apiSrc.includes('portal-schedule-ops-lesson-hdr-time'));
-  assert('ops board collapses empty lesson slots', apiSrc.includes('function scheduleRenderTimelineEmptySlot(') && apiSrc.includes('data-ps-add-slot'));
-  assert('ops board course groups', apiSrc.includes('function scheduleCourseAggregates(') && apiSrc.includes('portal-schedule-ops-course-group'));
+  const dayOpsSrcSection18 = fs.existsSync(DAY_OPS_MODULE_PATH) ? fs.readFileSync(DAY_OPS_MODULE_PATH, 'utf8') : '';
+  assert('courses render on schedule timeline', apiSrc.includes('function scheduleCourseAggregates(') && dayOpsSrcSection18.includes('scheduleRenderOpsGroupHeader('));
+  assert('ops group header uses group name', dayOpsSrcSection18.includes('function scheduleRenderOpsGroupHeader(') && dayOpsSrcSection18.includes('portal-schedule-ops-lesson-hdr-time'));
+  assert('ops board collapses empty lesson slots', dayOpsSrcSection18.includes('function scheduleRenderTimelineEmptySlot(') && dayOpsSrcSection18.includes('data-ps-add-slot'));
+  assert('ops board course groups', apiSrc.includes('function scheduleCourseAggregates(') && dayOpsSrcSection18.includes('portal-schedule-ops-course-group'));
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
   assert('group lesson slot fields removed from create drawer', !apiSrc.includes('id="ps-create-lesson-fields"'));
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
@@ -702,10 +706,11 @@ if (i18nSrc) {
 console.log('\n[19] Sunset Schedule visual refine — muted ops board');
 
 if (apiSrc) {
+  const dayOpsSrc = fs.existsSync(DAY_OPS_MODULE_PATH) ? fs.readFileSync(DAY_OPS_MODULE_PATH, 'utf8') : '';
   assert('service summary helper', apiSrc.includes('function scheduleServiceSummaryText('));
   assert('status badge helper', apiSrc.includes('function scheduleRenderStatusBadgeHtml('));
   assert('drawer component list helper', apiSrc.includes('function scheduleRenderComponentListHtml('));
-  assert('ops row equipment column', apiSrc.includes('portal-schedule-ops-row-equip'));
+  assert('ops row equipment column', dayOpsSrc.includes('portal-schedule-ops-row-equip-sub') || apiSrc.includes('portal-schedule-ops-row-equip'));
   assert('ops row status markup', apiSrc.includes('portal-schedule-ops-row-status'));
   assert('drawer component list markup', apiSrc.includes('portal-schedule-drawer-components'));
   assert('no component pebbles in ops rows', !apiSrc.includes('portal-schedule-ops-row-pebbles'));
@@ -728,9 +733,10 @@ if (apiSrc) {
 console.log('\n[20] Sunset Schedule visual polish — density + clarity');
 
 if (apiSrc) {
-  assert('lesson group header booked on prep line', apiSrc.includes('portal-schedule-ops-lesson-hdr-prep') && apiSrc.includes("portalT('schedule.slot.booked')"));
+  const dayOpsSrc = fs.existsSync(DAY_OPS_MODULE_PATH) ? fs.readFileSync(DAY_OPS_MODULE_PATH, 'utf8') : '';
+  assert('lesson group header booked on prep line', dayOpsSrc.includes('portal-schedule-ops-lesson-hdr-prep') && dayOpsSrc.includes("portalT('schedule.slot.booked')"));
   assert('lesson group header meta', apiSrc.includes('scheduleLessonGroupHeaderMeta('));
-  assert('row status shows paid pebble', apiSrc.includes('function scheduleRenderRowStatusHtml(') && apiSrc.includes('portal-schedule-status is-paid'));
+  assert('row status shows paid pebble', dayOpsSrc.includes('scheduleDayOpsRowStatusHtml(') && apiSrc.includes('portal-schedule-status is-paid'));
   assert('short pending label key', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no Pending payment in row renderer', !apiSrc.includes('schedule.status.pendingDetail') || apiSrc.includes("schedule.status.unpaid"));
   assert('Today range label helper', apiSrc.includes('function scheduleFormatRangeLabel(') && apiSrc.includes("portalT('schedule.view.today') + ' · '"));
@@ -746,11 +752,12 @@ if (apiSrc) {
 console.log('\n[21] Sunset Schedule prep-sheet layout');
 
 if (apiSrc) {
-  assert('lesson group prepare header', apiSrc.includes('portal-schedule-ops-lesson-hdr-prep') && apiSrc.includes("portalT('schedule.ops.prepare')"));
-  assert('ops column header row', apiSrc.includes('scheduleRenderOpsColumnHeader(') && apiSrc.includes('portal-schedule-ops-col-hdr'));
-  assert('equipment prep label helper', apiSrc.includes('function scheduleEquipmentPrepLabel('));
-  assert('equipment column on rows', apiSrc.includes('portal-schedule-ops-row-equip'));
-  assert('rental pickups section', apiSrc.includes('portal-schedule-ops-rental-pickups') && apiSrc.includes('scheduleRenderRentalPickupBlock('));
+  const dayOpsSrc = fs.existsSync(DAY_OPS_MODULE_PATH) ? fs.readFileSync(DAY_OPS_MODULE_PATH, 'utf8') : '';
+  assert('lesson group prepare header', dayOpsSrc.includes('portal-schedule-ops-lesson-hdr-prep') && dayOpsSrc.includes("portalT('schedule.ops.prepare')"));
+  assert('ops column header row', dayOpsSrc.includes('scheduleRenderOpsColumnHeader(') && dayOpsSrc.includes('portal-schedule-ops-col-hdr'));
+  assert('equipment prep label helper', dayOpsSrc.includes('function scheduleDayOpsEquipmentPrepLabel('));
+  assert('equipment column on rows', dayOpsSrc.includes('portal-schedule-ops-row-equip-sub'));
+  assert('rental pickups section', dayOpsSrc.includes('portal-schedule-ops-rental-pickups') && dayOpsSrc.includes('scheduleRenderRentalPickupBlock('));
   assert('short pending in rows', apiSrc.includes("'schedule.status.pending': 'Pending'") || /schedule\.status\.pending['"]:\s*['"]Pending['"]/.test(i18nSrc || ''));
   assert('no component pebble css', !apiSrc.includes('.portal-schedule-pebble.lesson{background:#fde68a'));
   assert('drawer still opens', (function () {
@@ -768,13 +775,14 @@ if (apiSrc) {
 console.log('\n[22] Sunset Schedule source styling + rental pickup grouping');
 
 if (apiSrc) {
-  assert('no Staff-created row tag markup', !apiSrc.includes('portal-schedule-ops-row-source'));
-  assert('no demo badge in ops row renderer', !apiSrc.includes("scheduleRowSourceLabel(g)") || !apiSrc.includes('portal-schedule-ops-row-source'));
+  const dayOpsSrc = fs.existsSync(DAY_OPS_MODULE_PATH) ? fs.readFileSync(DAY_OPS_MODULE_PATH, 'utf8') : '';
+  assert('no Staff-created row tag markup', !dayOpsSrc.includes('portal-schedule-ops-row-source'));
+  assert('no demo badge in ops row renderer', !dayOpsSrc.includes('portal-schedule-ops-row-source'));
   assert('source aria label helper', apiSrc.includes('function scheduleRowSourceAriaLabel('));
-  assert('row source class is-staff', apiSrc.includes("' is-staff'") && apiSrc.includes('.portal-schedule-ops-row.is-staff'));
+  assert('row source class is-staff', dayOpsSrc.includes("' is-staff'") && apiSrc.includes('.portal-schedule-ops-row.is-staff'));
   assert('row source class is-luna', apiSrc.includes('.portal-schedule-ops-row.is-luna'));
-  assert('compact qty multiplier', apiSrc.includes("String(qty) + '×'") || apiSrc.includes('String(qty) + \'\u00d7\''));
-  assert('rental both section key', apiSrc.includes("portalT('schedule.ops.rentalBoth')") || (i18nSrc && i18nSrc.includes("'schedule.ops.rentalBoth'")));
+  assert('compact qty multiplier', dayOpsSrc.includes("String(qty) + '×'") || dayOpsSrc.includes('String(qty) + \'\u00d7\''));
+  assert('rental both section key', dayOpsSrc.includes("portalT('schedule.ops.rentalBoth')") || (i18nSrc && i18nSrc.includes("'schedule.ops.rentalBoth'")));
   assert('rental boards only section key', i18nSrc.includes("'schedule.ops.rentalBoardsOnly'") || apiSrc.includes("'schedule.ops.rentalBoardsOnly'"));
   assert('rental wetsuits only section key', i18nSrc.includes("'schedule.ops.rentalWetsuitsOnly'") || apiSrc.includes("'schedule.ops.rentalWetsuitsOnly'"));
   assert('rental pickup kind helper', apiSrc.includes('function scheduleRentalPickupKind('));
@@ -952,6 +960,7 @@ if (apiSrc) {
   // Canonical drawer gate lives in injected sunset-schedule-portal-module.js (Slice 11).
   assert('schedule portal module injected', apiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
   assert('schedule drawer view module injected', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
+  assert('schedule day ops board module injected', apiSrc.includes('/* INJECT:sunset-schedule-day-ops-board-ui */'));
   const portalModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
   const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
   assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));

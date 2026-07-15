@@ -131,6 +131,7 @@ const ctrlSrc = fs.existsSync(CTRL_MODULE_PATH) ? fs.readFileSync(CTRL_MODULE_PA
 assert('HEAD injects schedule portal module', headSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
 assert('HEAD injects schedule drawer delete module', headSrc.includes('/* INJECT:sunset-schedule-drawer-delete-ui */'));
 assert('HEAD injects schedule drawer controller module', headSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
+assert('HEAD injects schedule day ops board module', headSrc.includes('/* INJECT:sunset-schedule-day-ops-board-ui */'));
 assert('HEAD uses scheduleDrawerCanLoadCanonical in openScheduleDetailDrawer',
   /scheduleDrawerCanLoadCanonical\(row\)/.test(ctrlSrc));
 assert('HEAD server trusted attribution gate', drawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));

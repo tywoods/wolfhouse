@@ -288,6 +288,7 @@ assert('drawer waiver inject marker', /INJECT:sunset-schedule-drawer-waiver-ui/.
 assert('drawer waiver module defines scheduleLoadDrawerWaiver', /scheduleLoadDrawerWaiver/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js'), 'utf8')));
 assert('contract documents drawer controller module', /sunset-schedule-drawer-controller/.test(contractDoc));
 assert('drawer controller inject marker', /INJECT:sunset-schedule-drawer-controller/.test(apiSrc));
+assert('day ops board inject marker', /INJECT:sunset-schedule-day-ops-board-ui/.test(apiSrc));
 assert('drawer controller module defines openScheduleDetailDrawer', /openScheduleDetailDrawer/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js'), 'utf8')));
 assert('contract documents drawer delete module', /sunset-schedule-drawer-delete-ui/.test(contractDoc));
 assert('drawer delete inject marker', /INJECT:sunset-schedule-drawer-delete-ui/.test(apiSrc));
