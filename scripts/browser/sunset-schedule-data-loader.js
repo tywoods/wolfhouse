@@ -11,8 +11,7 @@
  * Requires: scheduleNavigationLoadGen, scheduleRequestPageLoad, getClient, getPortalProfile,
  * renderScheduleSchoolContext, scheduleTodayIso, scheduleParseIso, scheduleAddDays,
  * scheduleIsoDate, sunsetLocationQuerySuffix, inboxClientQuery, scheduleFetchLessonTimesConfig,
- * scheduleNormalizeApiRow, scheduleRowIsCourse, scheduleRowIsPrivateLesson, scheduleEnsureRowId,
- * scheduleBuildLoadedViewModel, scheduleRenderLoadedViewModel, portalT, el, fetch.
+ * scheduleNormalizeLoadedScheduleResponse, scheduleBuildLoadedViewModel, scheduleRenderLoadedViewModel, portalT, el, fetch.
  */
 
 var scheduleDataLoaderState = {
@@ -104,10 +103,9 @@ function scheduleFetchDay(client, dateIso) {
       .then(function(data){
         var rows = (data && data.rows) || [];
         rows.forEach(function(r){
-          scheduleNormalizeApiRow(r);
           if (!r._scheduleType) {
-            if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
-            else if (scheduleRowIsPrivateLesson(r)) r._scheduleType = 'private_lesson';
+            if (/course/.test(String((r.metadata && r.metadata.component) || r.service_type || ''))) r._scheduleType = 'course';
+            else if (/private_lesson/.test(String((r.metadata && r.metadata.component) || r.service_type || ''))) r._scheduleType = 'private_lesson';
             else if (/lesson|surf_lesson/.test(String(r.service_type || ''))) r._scheduleType = 'lesson';
             else r._scheduleType = 'rental';
           }
@@ -126,8 +124,8 @@ function scheduleFetchDay(client, dateIso) {
   ]).then(function(res){
     var lessons = (res[0] && res[0].rows) || [];
     var gear = (res[1] && res[1].rows) || [];
-    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
-    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
+    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; });
+    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; });
     return { dateIso: dateIso, lessons: lessons, gear: gear, rows: lessons.concat(gear) };
   });
 }
@@ -171,7 +169,7 @@ function loadSchedulePage(navSnapshot) {
     if (!scheduleIsLoadActive(loadGen)) return;
     var viewModel = scheduleBuildLoadedViewModel(results[1], results[0], profile, rangeStart, snap);
     if (!scheduleIsLoadActive(loadGen)) return;
-    scheduleReplaceRowsSnapshot(viewModel.rows, snap);
+    scheduleReplaceRowsSnapshot(viewModel.canonicalRows || viewModel.rows, snap);
     scheduleRenderLoadedViewModel(viewModel, loadGen, snap);
     scheduleLoaderHideState(state);
   }).catch(function(e){

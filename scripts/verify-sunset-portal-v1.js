@@ -28,6 +28,7 @@ const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedul
 const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const DAY_OPS_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js');
 const NAV_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
+const ROW_NORMALIZER_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js');
 const LOADER_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
@@ -57,6 +58,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-forecast-cards-ui.js',
   'scripts/browser/sunset-schedule-view-grid-ui.js',
   'scripts/browser/sunset-schedule-navigation-ui.js',
+  'scripts/browser/sunset-schedule-row-normalizer.js',
   'scripts/browser/sunset-schedule-data-loader.js',
 ];
 
@@ -600,7 +602,7 @@ console.log('\n[15] Sunset Schedule cleanup — demo bookings, drawer, manual cr
 if (apiSrc) {
   assert('Day Schedule hidden from nav', apiSrc.includes("if (tab === 'day-schedule') return true;"));
   assert('schedule demo bookings helper', apiSrc.includes('function scheduleBuildDemoBookings('));
-  assert('schedule demo bookings gated by demo_mode', apiSrc.includes('profile.demo_mode ? scheduleBuildDemoBookings(rangeStart) : []'));
+  assert('schedule demo bookings gated by demo_mode', apiSrc.includes('if (profile.demo_mode)') && apiSrc.includes('scheduleBuildDemoBookings(rangeStart)'));
   assert('schedule manual bookings not in-memory', !apiSrc.includes('var scheduleManualBookings'));
   assert('week grid booking chips', apiSrc.includes('portal-schedule-item-card') && apiSrc.includes('data-ps-booking-id'));
   assert('bookings list rows', apiSrc.includes('ps-booking-row') && apiSrc.includes('data-ps-booking-id'));
@@ -631,7 +633,8 @@ if (apiSrc) {
   assert('POST /staff/schedule/bookings route', apiSrc.includes("pathname === '/staff/schedule/bookings'") && apiSrc.includes('method === \'POST\''));
   assert('handleSunsetScheduleBookingCreate handler', apiSrc.includes('function handleSunsetScheduleBookingCreate('));
   assert('sunset-schedule-booking-writes import', apiSrc.includes('sunset-schedule-booking-writes'));
-  assert('schedule normalize API rows', apiSrc.includes('function scheduleNormalizeApiRow('));
+  assert('schedule row normalizer module', fs.existsSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js')));
+  assert('schedule normalize loaded callback', apiSrc.includes('scheduleNormalizeLoadedScheduleResponse'));
   assert('drawer ops redesign fields', apiSrc.includes('portal-schedule-drawer-hero') && apiSrc.includes('portal-schedule-drawer-prep'));
   assert('no stripe in schedule create handler', !apiSrc.includes('handleSunsetScheduleBookingCreate') || !apiSrc.slice(apiSrc.indexOf('handleSunsetScheduleBookingCreate'), apiSrc.indexOf('handleSunsetScheduleBookingCreate') + 1200).includes('stripe'));
 }
@@ -691,7 +694,7 @@ if (apiSrc) {
   assert('create booking multi-date fields', apiSrc.includes('id="ps-create-date-from"') && apiSrc.includes('id="ps-create-date-to"'));
   assert('group lesson slot fields removed from create drawer', !apiSrc.includes('id="ps-create-lesson-fields"'));
   assert('no adolescent group lesson label', !/Adolescent group surf lesson/i.test(apiSrc));
-  assert('booking source helpers', apiSrc.includes('function scheduleRowSourceKind(') && apiSrc.includes('function scheduleServiceSummaryText('));
+  assert('booking source helpers', fs.existsSync(ROW_NORMALIZER_MODULE_PATH) && apiSrc.includes('function scheduleServiceSummaryText('));
   assert('display groups for components', apiSrc.includes('function scheduleBuildDisplayGroups('));
   assert('drawer stripe placeholder disabled', drawerOrchestrationSrc.includes('schedule.drawer.stripeLink') && drawerOrchestrationSrc.includes('disabled'));
   assert('submit sends components payload', portalModSrc.includes('components: createPayload.components')

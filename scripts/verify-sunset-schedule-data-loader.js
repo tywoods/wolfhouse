@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
+const NORMALIZER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js');
 const NAV_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
@@ -53,6 +54,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-row-normalizer */',
   '/* INJECT:sunset-schedule-data-loader */',
 ];
 
@@ -60,6 +62,8 @@ console.log('[1] Module files and injection order');
 assert('data loader module exists', modExists);
 assert('data loader inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
 assert('browser source loads data loader module', browserLoader.includes('getSunsetScheduleDataLoaderBrowserSource'));
+assert('browser source loads row normalizer module', browserLoader.includes('getSunsetScheduleRowNormalizerBrowserSource'));
+assert('loader caches canonical rows only', modSrc.includes('viewModel.canonicalRows'));
 let prev = -1;
 MARKERS.forEach((m) => {
   const idx = apiSrc.indexOf(m);
@@ -123,16 +127,8 @@ if (modExists) {
   function sunsetLocationQuerySuffix() { return locationSuffix; }
   function inboxClientQuery() { return '?client=sunset'; }
   function scheduleFetchLessonTimesConfig() { return Promise.resolve([]); }
-  function scheduleNormalizeApiRow(r) { return r; }
-  function scheduleRowIsCourse() { return false; }
-  function scheduleRowIsPrivateLesson() { return false; }
-  function scheduleEnsureRowId(r) { if (r && !r._scheduleId) r._scheduleId = 'id-' + (r.booking_id || 'x'); return r; }
-
-  function scheduleBuildLoadedViewModel(weekData, convData, profile, rangeStart, navSnapshot) {
-    const rows = [];
-    (weekData || []).forEach((p) => { (p.rows || []).forEach((r) => rows.push(Object.assign({}, r))); });
-    return { weekData, rows, conversations: (convData && convData.conversations) || [], profile, rangeStart, navSnapshot };
-  }
+  function scheduleBuildDemoBookings() { return []; }
+  function scheduleMergeRowsIntoWeekData(weekData) { return weekData || []; }
   function scheduleRenderLoadedViewModel(viewModel, loadGen, navSnapshot) {
     renders.push({ loadGen, mode: navSnapshot.mode, rowCount: (viewModel.rows || []).length });
   }
@@ -145,10 +141,10 @@ if (modExists) {
       return Promise.resolve({ ok: true, json: () => ({ success: true, conversations: [] }) });
     }
     if (String(url).includes('date=2026-07-16') && jul16RowEnabled) {
-      return Promise.resolve({ ok: true, json: () => ({ rows: [{ booking_id: 'b-day-b', _scheduleId: 's-b', guest_name: 'Day B', service_date: '2026-07-16' }] }) });
+      return Promise.resolve({ ok: true, json: () => ({ rows: [{ booking_id: 'b-day-b', service_record_id: 's-b', guest_name: 'Day B', service_date: '2026-07-16', record_source: 'staff_manual', location_id: 'sunset-somo' }] }) });
     }
     if (String(url).includes('date=2026-07-15')) {
-      return Promise.resolve({ ok: true, json: () => ({ rows: [{ booking_id: 'b-day-a', _scheduleId: 's-a', guest_name: 'Day A', service_date: '2026-07-15' }] }) });
+      return Promise.resolve({ ok: true, json: () => ({ rows: [{ booking_id: 'b-day-a', service_record_id: 's-a', guest_name: 'Day A', service_date: '2026-07-15', record_source: 'staff_manual', location_id: 'sunset-somo' }] }) });
     }
     return Promise.resolve({ ok: true, json: () => ({ rows: [] }) });
   }
@@ -170,15 +166,27 @@ if (modExists) {
     sunsetLocationQuerySuffix,
     inboxClientQuery,
     scheduleFetchLessonTimesConfig,
-    scheduleNormalizeApiRow,
-    scheduleRowIsCourse,
-    scheduleRowIsPrivateLesson,
-    scheduleEnsureRowId,
-    scheduleBuildLoadedViewModel,
     scheduleRenderLoadedViewModel,
+    scheduleBuildDemoBookings,
+    scheduleMergeRowsIntoWeekData,
+    getSunsetLocation: () => 'sunset-somo',
   };
 
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(NORMALIZER_MODULE, 'utf8'), ctx);
+  ctx.scheduleBuildLoadedViewModel = function(weekData, convData, profile, rangeStart, navSnapshot) {
+    const norm = ctx.scheduleNormalizeLoadedScheduleResponse(weekData, profile, { locationId: 'sunset-somo', client: 'sunset' });
+    return {
+      weekData: norm.weekData,
+      canonicalRows: norm.canonicalRows,
+      presentationOnlyRows: [],
+      rows: norm.canonicalRows,
+      conversations: (convData && convData.conversations) || [],
+      profile,
+      rangeStart,
+      navSnapshot,
+    };
+  };
   vm.runInContext(fs.readFileSync(NAV_MODULE, 'utf8'), ctx);
   vm.runInContext(modSrc, ctx);
 
@@ -209,13 +217,13 @@ if (modExists) {
     assert('day render once', renders.length >= 1 && renders[0].mode === 'day');
 
     assert('booking lookup unique', ctx.scheduleFindCachedRowByBookingId('b-day-a') && ctx.scheduleFindCachedRowByBookingId('b-day-a').guest_name === 'Day A');
+    assert('schedule id lookup works', ctx.scheduleFindRowById('s-a') && ctx.scheduleFindRowById('s-a').guest_name === 'Day A');
     assert('unknown booking lookup null', ctx.scheduleFindCachedRowByBookingId('missing') === null);
     ctx.scheduleReplaceRowsSnapshot([
       { booking_id: 'dup', _scheduleId: 'd1', guest_name: 'One', service_date: '2026-07-15' },
       { booking_id: 'dup', _scheduleId: 'd2', guest_name: 'Two', service_date: '2026-07-15' },
     ], { mode: 'day', forwardOffset: 0, loadGen: 1, todayIso: '2026-07-15' });
     assert('ambiguous booking identity fail closed', ctx.scheduleFindCachedRowByBookingId('dup') === null);
-    assert('schedule id lookup works', ctx.scheduleFindRowById('d1') && ctx.scheduleFindRowById('d1').guest_name === 'One');
 
     const snap = ctx.scheduleGetRowsSnapshot();
     snap[0].guest_name = 'mutated';

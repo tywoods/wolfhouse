@@ -301,6 +301,7 @@
     "verify:sunset-schedule-forecast-cards-ui": "node scripts/verify-sunset-schedule-forecast-cards-ui.js",
     "verify:sunset-schedule-view-grid-ui": "node scripts/verify-sunset-schedule-view-grid-ui.js",
     "verify:sunset-schedule-navigation-ui": "node scripts/verify-sunset-schedule-navigation-ui.js",
+    "verify:sunset-schedule-row-normalizer": "node scripts/verify-sunset-schedule-row-normalizer.js",
     "verify:sunset-schedule-data-loader": "node scripts/verify-sunset-schedule-data-loader.js",
     "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",

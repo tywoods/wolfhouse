@@ -19,6 +19,7 @@ const DAY_OPS_BOARD_MODULE = path.join(__dirname, '..', 'browser', 'sunset-sched
 const FORECAST_CARDS_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-forecast-cards-ui.js');
 const VIEW_GRID_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-view-grid-ui.js');
 const NAVIGATION_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-navigation-ui.js');
+const ROW_NORMALIZER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-row-normalizer.js');
 const DATA_LOADER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-data-loader.js');
 
 function getSunsetSchedulePortalBrowserSource() {
@@ -65,6 +66,10 @@ function getSunsetScheduleNavigationBrowserSource() {
   return fs.readFileSync(NAVIGATION_MODULE, 'utf8');
 }
 
+function getSunsetScheduleRowNormalizerBrowserSource() {
+  return fs.readFileSync(ROW_NORMALIZER_MODULE, 'utf8');
+}
+
 function getSunsetScheduleDataLoaderBrowserSource() {
   return fs.readFileSync(DATA_LOADER_MODULE, 'utf8');
 }
@@ -87,6 +92,7 @@ function injectSunsetSchedulePortalModule(html) {
   html = injectAtMarker(html, SCHEDULE_FORECAST_CARDS_INJECT_MARKER, getSunsetScheduleForecastCardsBrowserSource());
   html = injectAtMarker(html, SCHEDULE_VIEW_GRID_INJECT_MARKER, getSunsetScheduleViewGridBrowserSource());
   html = injectAtMarker(html, SCHEDULE_NAVIGATION_INJECT_MARKER, getSunsetScheduleNavigationBrowserSource());
+  html = injectAtMarker(html, SCHEDULE_ROW_NORMALIZER_INJECT_MARKER, getSunsetScheduleRowNormalizerBrowserSource());
   return injectAtMarker(html, SCHEDULE_DATA_LOADER_INJECT_MARKER, getSunsetScheduleDataLoaderBrowserSource());
 }
 
@@ -101,6 +107,7 @@ const SCHEDULE_DAY_OPS_BOARD_INJECT_MARKER = '/* INJECT:sunset-schedule-day-ops-
 const SCHEDULE_FORECAST_CARDS_INJECT_MARKER = '/* INJECT:sunset-schedule-forecast-cards-ui */';
 const SCHEDULE_VIEW_GRID_INJECT_MARKER = '/* INJECT:sunset-schedule-view-grid-ui */';
 const SCHEDULE_NAVIGATION_INJECT_MARKER = '/* INJECT:sunset-schedule-navigation-ui */';
+const SCHEDULE_ROW_NORMALIZER_INJECT_MARKER = '/* INJECT:sunset-schedule-row-normalizer */';
 const SCHEDULE_DATA_LOADER_INJECT_MARKER = '/* INJECT:sunset-schedule-data-loader */';
 
 module.exports = {
@@ -115,6 +122,7 @@ module.exports = {
   getSunsetScheduleForecastCardsBrowserSource,
   getSunsetScheduleViewGridBrowserSource,
   getSunsetScheduleNavigationBrowserSource,
+  getSunsetScheduleRowNormalizerBrowserSource,
   getSunsetScheduleDataLoaderBrowserSource,
   injectSunsetSchedulePortalModule,
   injectAtMarker,
@@ -129,6 +137,7 @@ module.exports = {
   FORECAST_CARDS_MODULE,
   VIEW_GRID_MODULE,
   NAVIGATION_MODULE,
+  ROW_NORMALIZER_MODULE,
   DATA_LOADER_MODULE,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
@@ -141,5 +150,6 @@ module.exports = {
   SCHEDULE_FORECAST_CARDS_INJECT_MARKER,
   SCHEDULE_VIEW_GRID_INJECT_MARKER,
   SCHEDULE_NAVIGATION_INJECT_MARKER,
+  SCHEDULE_ROW_NORMALIZER_INJECT_MARKER,
   SCHEDULE_DATA_LOADER_INJECT_MARKER,
 };

@@ -56,6 +56,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-row-normalizer */',
   '/* INJECT:sunset-schedule-data-loader */',
 ];
 

@@ -18606,6 +18606,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-forecast-cards-ui */
 /* INJECT:sunset-schedule-view-grid-ui */
 /* INJECT:sunset-schedule-navigation-ui */
+/* INJECT:sunset-schedule-row-normalizer */
 /* INJECT:sunset-schedule-data-loader */
 function escHtml(s){
   return String(s==null?'':s)
@@ -20145,24 +20146,6 @@ function scheduleResolveCourseDisplayLabel(courseId, storedLabel){
   return portalT('schedule.courses.unnamed');
 }
 
-function scheduleRowIsPrivateLesson(row){
-  if (!row) return false;
-  if (row._scheduleType === 'private_lesson') return true;
-  var meta = scheduleRowMeta(row);
-  if (String(meta.component || row.metadata_component || '').toLowerCase() === 'private_lesson') return true;
-  if (String(meta.staff_ui_service_type || row.staff_ui_service_type || '').toLowerCase() === 'private_lesson') return true;
-  return String(row.service_type || '').toLowerCase() === 'private_lesson';
-}
-
-function scheduleRowIsCourse(row){
-  if (!row) return false;
-  var meta = scheduleRowMeta(row);
-  if (String(meta.component || '').toLowerCase() === 'course') return true;
-  if (String(meta.staff_ui_service_type || '').toLowerCase() === 'course') return true;
-  var ui = String(row.staff_ui_service_type || meta.staff_ui_service_type || row.service_type || '').toLowerCase();
-  return ui === 'course' || row._scheduleType === 'course';
-}
-
 function scheduleRowType(row){
   if (scheduleRowIsCourse(row)) return 'course';
   if (scheduleRowIsPrivateLesson(row)) return 'private_lesson';
@@ -20402,62 +20385,34 @@ function scheduleIsPortalHomeActive(){
   return !!(tab && tab.classList.contains('active'));
 }
 
-function scheduleNormalizeApiRow(r){
-  if (!r) return r;
-  scheduleEnsureRowId(r);
-  if (r.service_record_id) r._scheduleId = String(r.service_record_id);
-  var meta = {};
-  if (r.metadata && typeof r.metadata === 'object') meta = r.metadata;
-  else if (r.metadata) { try { meta = JSON.parse(r.metadata); } catch (_) { meta = {}; } }
-  if (!r.slot_time) r.slot_time = meta.slot_time || null;
-  if (!r.notes) r.notes = r.notes || meta.notes || null;
-  if (r.needs_reply === true || r.needs_reply === 't') r._needsReply = true;
-  if (r.record_source === 'staff_manual') r._isDbManual = true;
-  if (r.record_source === 'luna_guest' || r.record_source === 'stripe') r._isLuna = true;
-  if (meta.component) r.component = meta.component;
-  if (String(meta.component || '').toLowerCase() === 'course' || String(meta.staff_ui_service_type || '').toLowerCase() === 'course') {
-    r._scheduleType = 'course';
-  } else if (String(meta.component || '').toLowerCase() === 'private_lesson' || String(meta.staff_ui_service_type || '').toLowerCase() === 'private_lesson') {
-    r._scheduleType = 'private_lesson';
-  } else if (String(meta.component || '').toLowerCase() === 'lesson' || String(meta.staff_ui_service_type || '').toLowerCase() === 'lesson') {
-    r._scheduleType = 'lesson';
-  }
-  if (meta.lesson_category) r.lesson_category = meta.lesson_category;
-  if (meta.course_id) r.course_id = meta.course_id;
-  if (meta.course_label) r.course_label = meta.course_label;
-  if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
-  if (scheduleRowIsPrivateLesson(r)) r._scheduleType = 'private_lesson';
-  if (meta.bundle_id) r.bundle_id = meta.bundle_id;
-  if (r.staff_ui_service_type) r.service_type = r.staff_ui_service_type;
-  if (r._needsReply == null) r._needsReply = false;
-  if (!r.phone && meta.guest_phone) r.phone = meta.guest_phone;
-  var ps = String(r.payment_status || '').toLowerCase();
-  if (scheduleRowEffectivePaid(r)) r.payment_status = 'paid';
-  else if (ps === 'pending' || ps === 'waiting_payment' || ps === 'not_requested') r.payment_status = 'unpaid';
-  return r;
-}
-
 function scheduleBuildLoadedViewModel(weekData, convData, profile, rangeStart, navSnapshot){
   scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
-  var rows = [];
-  (weekData || []).forEach(function(p){ rows = rows.concat(p.rows || []); });
-  rows.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
-  var demoRows = profile.demo_mode ? scheduleBuildDemoBookings(rangeStart) : [];
-  if (scheduleLessonTimesCache.length){
-    var demoSlots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
-    var demoLessonIdx = 0;
-    demoRows.forEach(function(r){
-      if (r._isDemo && scheduleRowType(r) === 'lesson' && demoSlots[demoLessonIdx]){
-        r.slot_time = scheduleNormalizeSlotTime(demoSlots[demoLessonIdx].slot_time);
-        demoLessonIdx += 1;
-      }
+  var norm = scheduleNormalizeLoadedScheduleResponse(weekData, profile);
+  weekData = norm.weekData;
+  var canonicalRows = norm.canonicalRows;
+  var presentationOnlyRows = [];
+  if (profile.demo_mode) {
+    var demoRaw = scheduleBuildDemoBookings(rangeStart);
+    if (scheduleLessonTimesCache.length){
+      var demoSlots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
+      var demoLessonIdx = 0;
+      demoRaw.forEach(function(r){
+        if (r._isDemo && scheduleRowType(r) === 'lesson' && demoSlots[demoLessonIdx]){
+          r.slot_time = scheduleNormalizeSlotTime(demoSlots[demoLessonIdx].slot_time);
+          demoLessonIdx += 1;
+        }
+      });
+    }
+    presentationOnlyRows = demoRaw.map(function(d){
+      return scheduleNormalizePresentationDemoRow(d);
     });
+    weekData = scheduleMergeRowsIntoWeekData(weekData, presentationOnlyRows);
   }
-  weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
-  rows = rows.concat(demoRows);
   return {
     weekData: weekData,
-    rows: rows,
+    canonicalRows: canonicalRows,
+    presentationOnlyRows: presentationOnlyRows,
+    rows: canonicalRows,
     conversations: scheduleConversationsCache,
     profile: profile,
     rangeStart: rangeStart,
@@ -20469,16 +20424,6 @@ function scheduleRenderLoadedViewModel(viewModel, loadGen, navSnapshot){
   if (!scheduleIsLoadActive(loadGen)) return;
   renderScheduleSummary(viewModel.profile, viewModel.weekData, viewModel.conversations);
   renderScheduleWeekGrid(viewModel.profile, viewModel.weekData, viewModel.rangeStart, loadGen, navSnapshot);
-}
-
-function scheduleRowMeta(row){
-  if (!row) return {};
-  if (row._meta && typeof row._meta === 'object') return row._meta;
-  var meta = {};
-  if (row.metadata && typeof row.metadata === 'object') meta = row.metadata;
-  else if (row.metadata) { try { meta = JSON.parse(row.metadata); } catch (_) { meta = {}; } }
-  row._meta = meta;
-  return meta;
 }
 
 function scheduleRowComponentKey(row){
@@ -20502,14 +20447,6 @@ function scheduleRowComponentKey(row){
 
 function scheduleRowComponents(row){
   return [scheduleRowComponentKey(row)];
-}
-
-function scheduleRowSourceKind(row){
-  if (row && row._isDemo) return 'demo';
-  if (row && (row._isDbManual || row.record_source === 'staff_manual')) return 'staff';
-  if (row && (row._isLuna || row.record_source === 'luna_guest' || row.record_source === 'stripe')) return 'luna';
-  if (row && row.record_source === 'staff_manual') return 'staff';
-  return 'luna';
 }
 
 function scheduleRowSourceAriaLabel(row){
@@ -20641,22 +20578,10 @@ function scheduleRenderPebblesHtml(group, opts){
   return scheduleRenderStatusBadgeHtml(group, opts);
 }
 
-// Sunset staff bookings don't store a booking total, so record-payment can't flip the stored
-// payment_status to 'paid' — but it does update booking-level amount_paid/balance. Derive an
-// effective paid state from those amounts so the schedule badge + drawer reflect real payments.
-function scheduleRowEffectivePaid(r){
-  if (!r) return false;
-  if (String(r.booking_payment_status || '').toLowerCase() === 'paid') return true;
-  var paid = Number(r.booking_amount_paid_cents || 0);
-  var bal = r.booking_balance_due_cents;
-  return paid > 0 && bal != null && Number(bal) <= 0;
-}
-
 function scheduleBuildDisplayGroups(rows){
   var map = {};
   (rows || []).forEach(function(r){
     scheduleEnsureRowId(r);
-    scheduleNormalizeApiRow(r);
     var dateIso = String(r.service_date || '').slice(0, 10);
     var key = scheduleRowIsPrivateLesson(r)
       ? ('pl:' + String(r.service_record_id || r._scheduleId))
@@ -21950,12 +21875,6 @@ function scheduleCreateTimeValue(bookingType){
   }
   var timeInput = el('ps-create-time');
   return timeInput ? timeInput.value : '10:00';
-}
-
-function scheduleEnsureRowId(row){
-  if (!row) return row;
-  if (!row._scheduleId) row._scheduleId = 'row-' + Math.random().toString(36).slice(2, 10);
-  return row;
 }
 
 function schedulePickWeekIso(weekStart, offsetFromToday){
