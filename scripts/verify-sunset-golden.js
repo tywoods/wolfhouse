@@ -5,8 +5,10 @@
  *
  * Offline structure validator for fixtures/sunset-golden/ fixtures.
  * Loads the manifest, reads each listed fixture, and asserts basic shape.
+ * Then runs the review-only runner (central no-send guard + fixture 09).
  *
- * Does NOT call LLMs, Staff API, DB, Stripe, WhatsApp, network, or env.
+ * Structure phase does NOT call LLMs, Staff API, DB, Stripe, WhatsApp, network, or env.
+ * Runner phase may load local Sunset quote modules offline; side effects stay blocked.
  *
  * Run:
  *   node scripts/verify-sunset-golden.js
@@ -15,9 +17,12 @@
 
 const fs   = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
 
 const FIXTURES_DIR = path.join(__dirname, '..', 'fixtures', 'sunset-golden');
 const MANIFEST_PATH = path.join(FIXTURES_DIR, '_manifest.json');
+const RUNNER_PATH = path.join(__dirname, 'run-sunset-golden.js');
+const ADVERSARIAL_PATH = path.join(__dirname, 'verify-sunset-golden-no-send-adversarial.js');
 
 let pass = 0;
 let fail = 0;
@@ -155,6 +160,53 @@ assert(
   fixtureFail === 0,
   fixtureFail > 0 ? `${fixtureFail} fixture(s) failed to load` : undefined,
 );
+
+// ── 5. Manifest wiring for runner + fixture 09 ───────────────────────────────
+
+console.log('\n[5] Runner + fixture 09 wiring');
+
+assert(
+  'manifest.runner points at run-sunset-golden.js',
+  typeof manifest.runner === 'string' && /run-sunset-golden\.js/.test(manifest.runner),
+  `runner=${JSON.stringify(manifest.runner)}`,
+);
+assert(
+  'runner file exists',
+  fs.existsSync(RUNNER_PATH),
+  RUNNER_PATH,
+);
+assert(
+  'fixture 09 listed in manifest',
+  fixtureNames.some((n) => String(n).includes('sunset-golden-09')),
+);
+assert(
+  'no-send adversarial verifier exists',
+  fs.existsSync(ADVERSARIAL_PATH),
+  ADVERSARIAL_PATH,
+);
+
+if (fail > 0) {
+  console.error('\nStructure/wiring failures — skipping runner.');
+  process.exit(1);
+}
+
+// ── 6. Central no-send adversarial + real runner ─────────────────────────────
+
+console.log('\n[6] Central no-send adversarial');
+const adv = spawnSync(process.execPath, [ADVERSARIAL_PATH], {
+  cwd: path.join(__dirname, '..'),
+  encoding: 'utf8',
+  stdio: 'inherit',
+});
+assert('adversarial verifier exit 0', adv.status === 0, `status=${adv.status}`);
+
+console.log('\n[7] run-sunset-golden (includes fixture 09)');
+const run = spawnSync(process.execPath, [RUNNER_PATH], {
+  cwd: path.join(__dirname, '..'),
+  encoding: 'utf8',
+  stdio: 'inherit',
+});
+assert('run-sunset-golden exit 0', run.status === 0, `status=${run.status}`);
 
 // ── Summary ──────────────────────────────────────────────────────────────────
 
