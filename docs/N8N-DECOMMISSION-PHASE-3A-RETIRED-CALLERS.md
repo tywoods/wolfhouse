@@ -1,7 +1,7 @@
 # n8n Decommission — Phase 3A: Retired Callers
 
-**Date:** 2026-07-15  
-**Branch:** `feat/n8n-decommission-retired-callers`  
+**Date:** 2026-07-15
+**Branch:** `feat/n8n-decommission-retired-callers`
 **Scope:** Remove the retired Wolfhouse Apps Script → n8n Cloud manual-entries caller from the repo. No Azure, Meta, Stripe, Airtable, or production changes.
 
 ## Operator evidence (established before this change)
@@ -43,4 +43,6 @@ PHASE/STAGE docs, `docs/webhook-map.md`, `docs/airtable-automations.md`, and rel
 
 ## Guard
 
-`node scripts/verify-n8n-retired-callers.js` fails if executable/runtime code reintroduces Cloud hosts, active n8n webhook URLs, or new `N8N_*` runtime dependencies (with an allowlist for docs, migration helpers, and `no_n8n` / `calls_n8n:false` safety assertions).
+`node scripts/verify-n8n-retired-callers.js` fails if executable/runtime code reintroduces Cloud hosts, active n8n webhook URLs, or new `N8N_*` runtime dependencies.
+
+Path exemptions are a **closed exact list** of known historical migration helpers (no filename wildcards). Dangerous runtime patterns are evaluated independently and are never suppressed by `no_n8n` / `calls_n8n:false` safety text. Adversarial proofs: `node scripts/verify-n8n-retired-callers-adversarial.js`.
