@@ -300,6 +300,7 @@
     "verify:sunset-schedule-day-ops-board-ui": "node scripts/verify-sunset-schedule-day-ops-board-ui.js",
     "verify:sunset-schedule-forecast-cards-ui": "node scripts/verify-sunset-schedule-forecast-cards-ui.js",
     "verify:sunset-schedule-view-grid-ui": "node scripts/verify-sunset-schedule-view-grid-ui.js",
+    "verify:sunset-schedule-architecture": "node scripts/verify-sunset-schedule-architecture.js",
     "verify:sunset-schedule-navigation-ui": "node scripts/verify-sunset-schedule-navigation-ui.js",
     "verify:sunset-schedule-row-normalizer": "node scripts/verify-sunset-schedule-row-normalizer.js",
     "verify:sunset-schedule-data-loader": "node scripts/verify-sunset-schedule-data-loader.js",

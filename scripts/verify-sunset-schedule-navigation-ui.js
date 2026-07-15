@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const NAV_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
+const RUNTIME_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-runtime.js');
 const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const VIEW_GRID_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
@@ -44,34 +45,10 @@ const modSrc = modExists ? fs.readFileSync(NAV_MODULE, 'utf8') : '';
 const loaderSrc = fs.existsSync(LOADER_MODULE) ? fs.readFileSync(LOADER_MODULE, 'utf8') : '';
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
-const MARKERS = [
-  '/* INJECT:sunset-schedule-portal-module */',
-  '/* INJECT:sunset-schedule-drawer-view-ui */',
-  '/* INJECT:sunset-schedule-drawer-edit-ui */',
-  '/* INJECT:sunset-schedule-drawer-payment-ui */',
-  '/* INJECT:sunset-schedule-drawer-waiver-ui */',
-  '/* INJECT:sunset-schedule-drawer-delete-ui */',
-  '/* INJECT:sunset-schedule-drawer-controller */',
-  '/* INJECT:sunset-schedule-day-ops-board-ui */',
-  '/* INJECT:sunset-schedule-forecast-cards-ui */',
-  '/* INJECT:sunset-schedule-view-grid-ui */',
-  '/* INJECT:sunset-schedule-navigation-ui */',
-  '/* INJECT:sunset-schedule-row-normalizer */',
-  '/* INJECT:sunset-schedule-data-loader */',
-];
-
-console.log('[1] Module files and injection order');
+console.log('[1] Module files (marker order — see verify:sunset-schedule-architecture)');
 assert('navigation module exists', modExists);
 assert('navigation inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
 assert('browser source loads navigation module', browserLoader.includes('getSunsetScheduleNavigationBrowserSource'));
-let prev = -1;
-MARKERS.forEach((m) => {
-  const idx = apiSrc.indexOf(m);
-  assert(`marker present ${m}`, idx > -1);
-  assert(`marker once ${m}`, apiSrc.indexOf(m, idx + 1) === -1);
-  if (idx > -1) assert(`marker order ${m}`, idx > prev, `idx=${idx} prev=${prev}`);
-  if (idx > prev) prev = idx;
-});
 assert('inline var scheduleViewMode removed', !/var scheduleViewMode\s*=/.test(apiSrc));
 assert('inline var scheduleForwardOffset removed', !/var scheduleForwardOffset\s*=/.test(apiSrc));
 assert('inline setScheduleView removed', !apiSrc.includes('function setScheduleView('));
@@ -81,7 +58,7 @@ assert('loader module defines loadSchedulePage', loaderSrc.includes('function lo
 assert('monolith keeps scheduleFormatRangeLabel', apiSrc.includes('function scheduleFormatRangeLabel('));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not render grids', !modSrc.includes('renderScheduleViewGrid') && !modSrc.includes('scheduleRenderForecastCardHtml'));
-assert('module does not expose window', !/window\.schedule/.test(modSrc));
+assert('module delegates to runtime', modSrc.includes('SunsetScheduleRuntime.nav'));
 
 console.log('\n[2] Module owns navigation symbols');
 [
@@ -174,6 +151,8 @@ if (modExists) {
   };
 
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(RUNTIME_MODULE, 'utf8'), ctx);
+  vm.runInContext('SunsetScheduleRuntime.load.loadPage = function(snap) { loadSchedulePage(snap); return Promise.resolve(); };', ctx);
   vm.runInContext(modSrc, ctx);
 
   const initial = ctx.scheduleGetNavigationSnapshot();

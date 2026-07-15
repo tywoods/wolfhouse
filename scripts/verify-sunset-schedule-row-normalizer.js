@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const NORMALIZER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js');
+const RUNTIME_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-runtime.js');
 const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
@@ -34,34 +35,11 @@ const modSrc = modExists ? fs.readFileSync(NORMALIZER_MODULE, 'utf8') : '';
 const loaderSrc = fs.readFileSync(LOADER_MODULE, 'utf8');
 const browserSrc = fs.readFileSync(BROWSER_SRC, 'utf8');
 
-const MARKERS = [
-  '/* INJECT:sunset-schedule-portal-module */',
-  '/* INJECT:sunset-schedule-drawer-view-ui */',
-  '/* INJECT:sunset-schedule-drawer-edit-ui */',
-  '/* INJECT:sunset-schedule-drawer-payment-ui */',
-  '/* INJECT:sunset-schedule-drawer-waiver-ui */',
-  '/* INJECT:sunset-schedule-drawer-delete-ui */',
-  '/* INJECT:sunset-schedule-drawer-controller */',
-  '/* INJECT:sunset-schedule-day-ops-board-ui */',
-  '/* INJECT:sunset-schedule-forecast-cards-ui */',
-  '/* INJECT:sunset-schedule-view-grid-ui */',
-  '/* INJECT:sunset-schedule-navigation-ui */',
-  '/* INJECT:sunset-schedule-row-normalizer */',
-  '/* INJECT:sunset-schedule-data-loader */',
-];
-
-console.log('[1] Module files and injection order');
+console.log('[1] Module files (marker order — see verify:sunset-schedule-architecture)');
 assert('row normalizer module exists', modExists);
 assert('row normalizer inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-row-normalizer */'));
 assert('browser source loads row normalizer module', browserSrc.includes('getSunsetScheduleRowNormalizerBrowserSource'));
-let prev = -1;
-MARKERS.forEach((m) => {
-  const idx = apiSrc.indexOf(m);
-  assert(`marker present ${m}`, idx > -1);
-  assert(`marker once ${m}`, apiSrc.indexOf(m, idx + 1) === -1);
-  if (idx > -1) assert(`marker order ${m}`, idx > prev, `idx=${idx} prev=${prev}`);
-  if (idx > prev) prev = idx;
-});
+assert('normalizer delegates to runtime', modSrc.includes('SunsetScheduleRuntime.rows'));
 assert('inline function scheduleNormalizeApiRow removed from monolith', !/function scheduleNormalizeApiRow\(/.test(apiSrc));
 assert('inline function scheduleEnsureRowId removed from monolith', !/function scheduleEnsureRowId\(/.test(apiSrc));
 assert('inline function scheduleRowMeta removed from monolith', !/function scheduleRowMeta\(/.test(apiSrc));
@@ -73,8 +51,8 @@ assert('monolith invokes loaded-response normalizer', apiSrc.includes('scheduleN
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not touch DOM', !modSrc.includes('document.') && !modSrc.includes('innerHTML'));
 assert('module does not expose window', !/window\.schedule/.test(modSrc));
-assert('loader caches canonical rows only', loaderSrc.includes('viewModel.canonicalRows'));
-assert('loader does not normalize inline', !loaderSrc.includes('scheduleNormalizeApiRow('));
+assert('loader caches canonical rows only', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.canonicalRows'));
+assert('loader wrapper does not normalize inline', !loaderSrc.includes('scheduleNormalizeApiRow('));
 
 console.log('\n[2] Module owns normalization symbols');
 [
@@ -101,6 +79,7 @@ if (modExists) {
     getSunsetLocation: () => 'sunset-somo',
   };
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(RUNTIME_MODULE, 'utf8'), ctx);
   vm.runInContext(modSrc, ctx);
 
   const staffRaw = {

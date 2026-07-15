@@ -102,6 +102,7 @@ const markers = [
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
+  '/* INJECT:sunset-schedule-runtime */',
   '/* INJECT:sunset-schedule-navigation-ui */',
   '/* INJECT:sunset-schedule-row-normalizer */',
   '/* INJECT:sunset-schedule-data-loader */',

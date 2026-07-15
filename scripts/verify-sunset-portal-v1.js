@@ -57,6 +57,7 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-day-ops-board-ui.js',
   'scripts/browser/sunset-schedule-forecast-cards-ui.js',
   'scripts/browser/sunset-schedule-view-grid-ui.js',
+  'scripts/browser/sunset-schedule-runtime.js',
   'scripts/browser/sunset-schedule-navigation-ui.js',
   'scripts/browser/sunset-schedule-row-normalizer.js',
   'scripts/browser/sunset-schedule-data-loader.js',

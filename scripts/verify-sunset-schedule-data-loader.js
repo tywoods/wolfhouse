@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
+const RUNTIME_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-runtime.js');
 const NORMALIZER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js');
 const NAV_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
@@ -42,36 +43,13 @@ const modExists = fs.existsSync(LOADER_MODULE);
 const modSrc = modExists ? fs.readFileSync(LOADER_MODULE, 'utf8') : '';
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
-const MARKERS = [
-  '/* INJECT:sunset-schedule-portal-module */',
-  '/* INJECT:sunset-schedule-drawer-view-ui */',
-  '/* INJECT:sunset-schedule-drawer-edit-ui */',
-  '/* INJECT:sunset-schedule-drawer-payment-ui */',
-  '/* INJECT:sunset-schedule-drawer-waiver-ui */',
-  '/* INJECT:sunset-schedule-drawer-delete-ui */',
-  '/* INJECT:sunset-schedule-drawer-controller */',
-  '/* INJECT:sunset-schedule-day-ops-board-ui */',
-  '/* INJECT:sunset-schedule-forecast-cards-ui */',
-  '/* INJECT:sunset-schedule-view-grid-ui */',
-  '/* INJECT:sunset-schedule-navigation-ui */',
-  '/* INJECT:sunset-schedule-row-normalizer */',
-  '/* INJECT:sunset-schedule-data-loader */',
-];
-
-console.log('[1] Module files and injection order');
+console.log('[1] Module files (marker order — see verify:sunset-schedule-architecture)');
 assert('data loader module exists', modExists);
 assert('data loader inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
 assert('browser source loads data loader module', browserLoader.includes('getSunsetScheduleDataLoaderBrowserSource'));
 assert('browser source loads row normalizer module', browserLoader.includes('getSunsetScheduleRowNormalizerBrowserSource'));
-assert('loader caches canonical rows only', modSrc.includes('viewModel.canonicalRows'));
-let prev = -1;
-MARKERS.forEach((m) => {
-  const idx = apiSrc.indexOf(m);
-  assert(`marker present ${m}`, idx > -1);
-  assert(`marker once ${m}`, apiSrc.indexOf(m, idx + 1) === -1);
-  if (idx > -1) assert(`marker order ${m}`, idx > prev, `idx=${idx} prev=${prev}`);
-  if (idx > prev) prev = idx;
-});
+assert('loader delegates to runtime', modSrc.includes('SunsetScheduleRuntime.load'));
+assert('loader caches canonical rows only', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.canonicalRows'));
 assert('inline var scheduleRowsCache removed', !/var scheduleRowsCache\s*=/.test(apiSrc));
 assert('inline function loadSchedulePage removed from monolith', !/function loadSchedulePage\(/.test(apiSrc));
 assert('inline scheduleFetchDay removed from monolith', !/function scheduleFetchDay\(/.test(apiSrc));
@@ -173,6 +151,7 @@ if (modExists) {
   };
 
   vm.createContext(ctx);
+  vm.runInContext(fs.readFileSync(RUNTIME_MODULE, 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(NORMALIZER_MODULE, 'utf8'), ctx);
   ctx.scheduleBuildLoadedViewModel = function(weekData, convData, profile, rangeStart, navSnapshot) {
     const norm = ctx.scheduleNormalizeLoadedScheduleResponse(weekData, profile, { locationId: 'sunset-somo', client: 'sunset' });
@@ -290,7 +269,8 @@ if (modExists) {
     await waitLoads(1);
     assert('retry after failure replaces cache', ctx.scheduleFindCachedRowByBookingId('b-day-a') !== null);
 
-    assert('navigation delegates to loader', fs.readFileSync(NAV_MODULE, 'utf8').includes('loadSchedulePage(snap)'));
+    assert('navigation delegates via runtime load', fs.readFileSync(NAV_MODULE, 'utf8').includes('SunsetScheduleRuntime.nav.requestPageLoad')
+      && fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('return load.loadPage(snap)'));
     assert('view grid still uses navigation load gen', fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js'), 'utf8').includes('scheduleNavigationLoadGen'));
 
     console.log(`\n── verify:sunset-schedule-data-loader ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

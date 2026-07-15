@@ -63,11 +63,13 @@ assert('drawer controller inject marker in staff HTML script', apiSrc.includes('
 assert('day ops board inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-day-ops-board-ui */'));
 assert('forecast cards inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
 assert('view grid inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
+assert('runtime inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-runtime */'));
 assert('navigation inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
 assert('data loader inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
 assert('browser source loads data loader module', browserLoader.includes('getSunsetScheduleDataLoaderBrowserSource'));
 assert('browser source loads forecast cards module', browserLoader.includes('getSunsetScheduleForecastCardsBrowserSource'));
 assert('browser source loads view grid module', browserLoader.includes('getSunsetScheduleViewGridBrowserSource'));
+assert('browser source loads runtime module', browserLoader.includes('getSunsetScheduleRuntimeBrowserSource'));
 assert('browser source loads navigation module', browserLoader.includes('getSunsetScheduleNavigationBrowserSource'));
 assert('browser source loads drawer delete module', browserLoader.includes('getSunsetScheduleDrawerDeleteBrowserSource'));
 assert('browser source loads drawer controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
