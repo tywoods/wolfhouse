@@ -588,6 +588,8 @@ Duplicate fetch contracts, calculate authoritative prices, reinterpret eligibili
 
 Stripe-link, manual payment, waiver, and booking-delete mutation controllers consolidated into `scripts/browser/sunset-schedule-drawer-actions.js` (injected after portal, view and edit; before controller). One closure owns in-flight guards and a shared authenticated JSON request helper (`SunsetScheduleDrawerActions`). Compatibility `schedule*` wrappers are exported for view/edit/controller — not attached to `window`.
 
+**Readiness acceptance (replaces any “collapse drawer to ≤2 files” target):** drawer responsibilities stay cohesive and singly owned across the four modules — controller (lifecycle / stale generation), view (read presentation), edit (edit/save presentation), actions (payment / waiver / delete mutations). Do not consolidate solely for a file-count. Required properties: no duplicated mutable action `flight` state; no duplicate mutation `requestJson` paths; presentation modules cannot bypass canonical trust (`scheduleDrawerCanLoadCanonical`); behavioral gates cover lifecycle, edit, and mutations (`verify:sunset-schedule-drawer-controller`, `verify:sunset-schedule-drawer-edit-ui`, `verify:sunset-schedule-drawer-actions`, plus architecture §drawer ownership).
+
 ### Actions module owns
 
 - Payment section router / Stripe link section / manual payment form rendering helpers used by view/edit
