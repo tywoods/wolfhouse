@@ -3,7 +3,8 @@
 /**
  * verify:sunset-schedule-architecture
  *
- * Slice 24 — central Schedule injection order + runtime container contract.
+ * Slice 24 / 24B — central Schedule injection order + runtime container contract.
+ * 24B: no stateRef / mutable state aliases; public API objects frozen.
  *
  * Run:
  *   node scripts/verify-sunset-schedule-architecture.js
@@ -73,6 +74,12 @@ assert('runtime exposes nav API', /var nav = \{/.test(runtimeSrc));
 assert('runtime does not assign window', !/window\.SunsetScheduleRuntime/.test(runtimeSrc));
 assert('nav state owned in closure', runtimeSrc.includes('var navState = {'));
 assert('loader cache owned in closure', runtimeSrc.includes('var loaderState = {'));
+assert('runtime has no stateRef', !/\bstateRef\b/.test(runtimeSrc));
+assert('navigation wrapper has no scheduleNavigationState', !/\bscheduleNavigationState\b/.test(fs.readFileSync(NAV_MODULE, 'utf8')));
+assert('loader wrapper has no scheduleDataLoaderState', !/\bscheduleDataLoaderState\b/.test(fs.readFileSync(LOADER_MODULE, 'utf8')));
+assert('runtime freezes public API objects', runtimeSrc.includes('Object.freeze(rows)')
+  && runtimeSrc.includes('Object.freeze(load)')
+  && runtimeSrc.includes('Object.freeze(nav)'));
 
 console.log('\n[3] VM — runtime APIs + compatibility wrappers');
 const ctx = {
@@ -114,8 +121,21 @@ assert('SunsetScheduleRuntime.load.findRowById', typeof ctx.SunsetScheduleRuntim
 assert('SunsetScheduleRuntime.nav.loadGen', typeof ctx.SunsetScheduleRuntime.nav.loadGen === 'function');
 assert('compat scheduleNavigationLoadGen', ctx.scheduleNavigationLoadGen() === ctx.SunsetScheduleRuntime.nav.loadGen());
 assert('compat scheduleFindRowById delegates', ctx.scheduleFindRowById('missing') === null);
-assert('nav stateRef alias', ctx.scheduleNavigationState === ctx.SunsetScheduleRuntime.nav.stateRef);
-assert('loader stateRef alias', ctx.scheduleDataLoaderState === ctx.SunsetScheduleRuntime.load.stateRef);
+assert('no scheduleNavigationState global', typeof ctx.scheduleNavigationState === 'undefined');
+assert('no scheduleDataLoaderState global', typeof ctx.scheduleDataLoaderState === 'undefined');
+assert('no nav.stateRef', ctx.SunsetScheduleRuntime.nav.stateRef === undefined);
+assert('no load.stateRef', ctx.SunsetScheduleRuntime.load.stateRef === undefined);
+assert('rows API frozen', Object.isFrozen(ctx.SunsetScheduleRuntime.rows));
+assert('load API frozen', Object.isFrozen(ctx.SunsetScheduleRuntime.load));
+assert('nav API frozen', Object.isFrozen(ctx.SunsetScheduleRuntime.nav));
+assert('runtime container frozen', Object.isFrozen(ctx.SunsetScheduleRuntime));
+try {
+  ctx.SunsetScheduleRuntime.nav.loadGen = () => 999;
+  assert('frozen nav rejects method replace', ctx.SunsetScheduleRuntime.nav.loadGen() !== 999
+    || ctx.scheduleNavigationLoadGen() === ctx.SunsetScheduleRuntime.nav.loadGen());
+} catch (_) {
+  assert('frozen nav rejects method replace', true);
+}
 
 ctx.SunsetScheduleRuntime.load.replaceRowsSnapshot([
   { _scheduleId: 's1', booking_id: 'b1', guest_name: 'A', service_date: '2026-07-15' },

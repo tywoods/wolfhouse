@@ -1,12 +1,11 @@
 'use strict';
 
 /**
- * Sunset Schedule — data loader + canonical row cache (Slice 22 → runtime.load, Slice 24).
+ * Sunset Schedule — data loader + canonical row cache (Slice 22 → runtime.load, Slice 24B).
  *
  * Compatibility wrappers only. Implementation lives on SunsetScheduleRuntime.load.
+ * Loader state is private inside the runtime closure — no stateRef / global aliases.
  */
-
-var scheduleDataLoaderState = SunsetScheduleRuntime.load.stateRef;
 
 function scheduleCloneRow(row) { return SunsetScheduleRuntime.load.cloneRow(row); }
 function scheduleCloneRows(list) { return SunsetScheduleRuntime.load.cloneRows(list); }

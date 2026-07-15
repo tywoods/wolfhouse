@@ -376,11 +376,9 @@ if (modExists) {
   }
 
   (async () => {
-    navGen = 1;
-    ctx.scheduleNavigationState.loadGen = 1;
-    ctx.scheduleNavigationState.navigationGen = 1;
+    const loadGen = ctx.scheduleNavigationBumpLoad();
     cacheInstalls.length = 0;
-    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 0, loadGen: 1, todayIso: '2026-07-15' });
+    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 0, loadGen, todayIso: '2026-07-15' });
     await waitLoads(1);
     assert('29 cache installs canonical only', ctx.scheduleGetRowsSnapshot().length === 1 && ctx.scheduleGetRowsSnapshot()[0].booking_id === 'bk-live-1');
     assert('30 non-demo mode skips demo injection', cacheInstalls[0] && cacheInstalls[0].demo === 0);

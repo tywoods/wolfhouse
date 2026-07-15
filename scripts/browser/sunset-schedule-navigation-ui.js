@@ -1,12 +1,11 @@
 'use strict';
 
 /**
- * Sunset Schedule — navigation state + toolbar lifecycle (Slice 21 → runtime.nav, Slice 24).
+ * Sunset Schedule — navigation state + toolbar lifecycle (Slice 21 → runtime.nav, Slice 24B).
  *
  * Compatibility wrappers only. Implementation lives on SunsetScheduleRuntime.nav.
+ * Nav state is private inside the runtime closure — no stateRef / global aliases.
  */
-
-var scheduleNavigationState = SunsetScheduleRuntime.nav.stateRef;
 
 function scheduleNormalizeNavigationMode(mode) { return SunsetScheduleRuntime.nav.normalizeMode(mode); }
 function scheduleValidateNavigationIso(iso) { return SunsetScheduleRuntime.nav.validateIso(iso); }

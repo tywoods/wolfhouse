@@ -169,10 +169,9 @@ if (modExists) {
   vm.runInContext(fs.readFileSync(NAV_MODULE, 'utf8'), ctx);
   vm.runInContext(modSrc, ctx);
 
-  function setNavGen(n) {
-    navGen = n;
-    ctx.scheduleNavigationState.loadGen = n;
-    ctx.scheduleNavigationState.navigationGen = n;
+  function bumpAlignedLoad(mode, forwardOffset, todayIso) {
+    const loadGen = ctx.scheduleNavigationBumpLoad();
+    return ctx.loadSchedulePage({ mode, forwardOffset, loadGen, todayIso });
   }
 
   ctx.scheduleReplaceRowsSnapshot(priorRows, { mode: 'day', forwardOffset: 0, loadGen: 0, todayIso: '2026-07-15' });
@@ -185,10 +184,9 @@ if (modExists) {
   }
 
   (async () => {
-    setNavGen(1);
     fetchCalls.length = 0;
     renders.length = 0;
-    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 0, loadGen: 1, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('day', 0, '2026-07-15');
     await waitLoads(1);
     assert('day load selects week-range day endpoint', fetchCalls.some((u) => String(u).includes('date=2026-07-15')));
     assert('day load trusted tenant suffix', fetchCalls.some((u) => String(u).includes('client=sunset') && String(u).includes('location_id=sunset-somo')));
@@ -201,46 +199,43 @@ if (modExists) {
     ctx.scheduleReplaceRowsSnapshot([
       { booking_id: 'dup', _scheduleId: 'd1', guest_name: 'One', service_date: '2026-07-15' },
       { booking_id: 'dup', _scheduleId: 'd2', guest_name: 'Two', service_date: '2026-07-15' },
-    ], { mode: 'day', forwardOffset: 0, loadGen: 1, todayIso: '2026-07-15' });
+    ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
     assert('ambiguous booking identity fail closed', ctx.scheduleFindCachedRowByBookingId('dup') === null);
 
     const snap = ctx.scheduleGetRowsSnapshot();
     snap[0].guest_name = 'mutated';
     assert('cache accessor defensive copy', ctx.scheduleGetRowsSnapshot()[0].guest_name !== 'mutated');
 
-    setNavGen(2);
     fetchCalls.length = 0;
     renders.length = 0;
-    await ctx.loadSchedulePage({ mode: 'week', forwardOffset: 0, loadGen: 2, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('week', 0, '2026-07-15');
     await waitLoads(1);
     assert('week load fans out seven day requests', fetchCalls.filter((u) => String(u).includes('/staff/schedule/day')).length === 7);
 
-    setNavGen(3);
     fetchCalls.length = 0;
     renders.length = 0;
-    await ctx.loadSchedulePage({ mode: 'next30', forwardOffset: 0, loadGen: 3, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('next30', 0, '2026-07-15');
     await waitLoads(1);
     assert('next30 load fans out thirty day requests', fetchCalls.filter((u) => String(u).includes('/staff/schedule/day')).length === 30);
 
-    setNavGen(4);
-    await ctx.loadSchedulePage({ mode: 'bogus', forwardOffset: 0, loadGen: 4, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('bogus', 0, '2026-07-15');
     await waitLoads(2);
     assert('unknown mode fail closed to day fetch', fetchCalls.some((u) => String(u).includes('date=2026-07-15')));
 
-    setNavGen(5);
     jul16RowEnabled = true;
     let holdDayA;
+    let holdActive = true;
     const origFetch = ctx.fetch;
     ctx.fetch = (url) => {
-      if (String(url).includes('date=2026-07-15') && ctx.scheduleNavigationState.loadGen === 5) {
+      if (holdActive && String(url).includes('date=2026-07-15')) {
+        holdActive = false;
         return new Promise((res) => { holdDayA = () => origFetch(url).then(res); });
       }
       return origFetch(url);
     };
-    const pA = ctx.loadSchedulePage({ mode: 'day', forwardOffset: 0, loadGen: 5, todayIso: '2026-07-15' });
-    setNavGen(6);
+    const pA = bumpAlignedLoad('day', 0, '2026-07-15');
     renders.length = 0;
-    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 1, loadGen: 6, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('day', 1, '2026-07-15');
     await waitLoads(1);
     if (holdDayA) holdDayA();
     await pA;
@@ -249,7 +244,6 @@ if (modExists) {
     assert('day B wins race', ctx.scheduleFindCachedRowByBookingId('b-day-b') !== null);
 
     ctx.fetch = origFetch;
-    setNavGen(7);
     dom['ps-state'].textContent = '';
     dom['ps-state'].className = '';
     const cachedBeforeFail = ctx.scheduleFindCachedRowByBookingId('b-day-b');
@@ -257,15 +251,14 @@ if (modExists) {
       if (String(url).includes('/staff/schedule/day')) return Promise.reject(new Error('network down'));
       return origFetch(url);
     };
-    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 1, loadGen: 7, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('day', 1, '2026-07-15');
     await new Promise((r) => setTimeout(r, 80));
     assert('network failure preserves prior cache', ctx.scheduleFindCachedRowByBookingId('b-day-b') !== null && cachedBeforeFail.guest_name === 'Day B');
     assert('network failure shows error', dom['ps-state'].className.includes('error'));
 
-    setNavGen(8);
     ctx.fetch = origFetch;
     renders.length = 0;
-    await ctx.loadSchedulePage({ mode: 'day', forwardOffset: 0, loadGen: 8, todayIso: '2026-07-15' });
+    await bumpAlignedLoad('day', 0, '2026-07-15');
     await waitLoads(1);
     assert('retry after failure replaces cache', ctx.scheduleFindCachedRowByBookingId('b-day-a') !== null);
 

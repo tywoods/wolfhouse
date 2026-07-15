@@ -82,6 +82,7 @@ console.log('\n[3] VM — transitions, labels, stale gen, wiring');
 if (modExists) {
   const dom = {
     'ps-range-label': { textContent: '' },
+    'ps-state': { textContent: '', className: '', style: { display: '' } },
     'ps-today': { className: '', classList: { toggle() {} }, dataset: {}, addEventListener: () => {} },
     'ps-prev-week': { dataset: {}, addEventListener: () => {} },
     'ps-next-week': { dataset: {}, addEventListener: () => {} },
@@ -99,7 +100,6 @@ if (modExists) {
     });
   });
 
-  const loads = [];
   let today = '2026-07-15';
 
   function scheduleIsoDate(d) {
@@ -147,83 +147,97 @@ if (modExists) {
         return [];
       },
     },
-    loadSchedulePage: (snap) => { loads.push(Object.assign({}, snap)); },
+    getClient: () => 'sunset',
+    getPortalProfile: () => ({ is_surf_vertical: true, demo_mode: false }),
+    renderScheduleSchoolContext: () => {},
+    fetch: () => Promise.resolve({ ok: true, json: () => ({ rows: [], conversations: [] }) }),
+    inboxClientQuery: () => '?client=sunset',
+    sunsetLocationQuerySuffix: () => '&location_id=sunset-somo',
+    scheduleFetchLessonTimesConfig: () => Promise.resolve([]),
+    scheduleBuildLoadedViewModel: (_w, _c, _p, _r, snap) => ({
+      canonicalRows: [],
+      rows: [],
+      weekData: [],
+      presentationOnlyRows: [],
+      conversations: [],
+      profile: _p,
+      rangeStart: _r,
+      navSnapshot: snap,
+    }),
+    scheduleRenderLoadedViewModel: () => {},
   };
 
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(RUNTIME_MODULE, 'utf8'), ctx);
-  vm.runInContext('SunsetScheduleRuntime.load.loadPage = function(snap) { loadSchedulePage(snap); return Promise.resolve(); };', ctx);
   vm.runInContext(modSrc, ctx);
 
-  const initial = ctx.scheduleGetNavigationSnapshot();
+  function snap() { return ctx.scheduleGetNavigationSnapshot(); }
+
+  const initial = snap();
   assert('initial day mode', initial.mode === 'day');
   assert('initial offset zero', initial.forwardOffset === 0);
 
-  loads.length = 0;
+  let genBefore = ctx.scheduleNavigationLoadGen();
   ctx.setScheduleView('week');
-  assert('week toggle one load', loads.length === 1 && loads[0].mode === 'week' && loads[0].forwardOffset === 0);
+  assert('week toggle one load', ctx.scheduleNavigationLoadGen() === genBefore + 1
+    && snap().mode === 'week' && snap().forwardOffset === 0);
   assert('week toggle re-anchors', ctx.scheduleCurrentViewMode() === 'week');
 
   ctx.setScheduleView('next30');
-  assert('next30 toggle re-anchors', loads[loads.length - 1].forwardOffset === 0);
+  assert('next30 toggle re-anchors', snap().forwardOffset === 0 && snap().mode === 'next30');
 
   ctx.setScheduleView('bogus');
   assert('unknown mode fail closed day', ctx.scheduleCurrentViewMode() === 'day');
 
-  loads.length = 0;
   ctx.setScheduleView('day');
   ctx.scheduleNavigateNext();
-  assert('day next +1 offset', loads[loads.length - 1].forwardOffset === 1);
+  assert('day next +1 offset', snap().forwardOffset === 1);
   ctx.scheduleNavigatePrev();
-  assert('day prev back to 0', loads[loads.length - 1].forwardOffset === 0);
+  assert('day prev back to 0', snap().forwardOffset === 0);
 
   ctx.setScheduleView('week');
-  const beforeWeek = ctx.scheduleGetNavigationSnapshot().forwardOffset;
+  const beforeWeek = snap().forwardOffset;
   ctx.scheduleNavigateNext();
-  assert('week next step 7', ctx.scheduleGetNavigationSnapshot().forwardOffset === beforeWeek + 7);
+  assert('week next step 7', snap().forwardOffset === beforeWeek + 7);
 
   ctx.setScheduleView('next30');
-  const before30 = ctx.scheduleGetNavigationSnapshot().forwardOffset;
+  const before30 = snap().forwardOffset;
   ctx.scheduleNavigateNext();
-  assert('next30 next step 30', ctx.scheduleGetNavigationSnapshot().forwardOffset === before30 + 30);
+  assert('next30 next step 30', snap().forwardOffset === before30 + 30);
 
   ctx.scheduleNavigateToday();
-  assert('today resets offset', ctx.scheduleGetNavigationSnapshot().forwardOffset === 0);
+  assert('today resets offset', snap().forwardOffset === 0);
 
-  loads.length = 0;
   ctx.scheduleOpenDayDetail('2026-07-20');
-  assert('forecast open day mode', loads[loads.length - 1].mode === 'day');
-  assert('forecast open exact offset', loads[loads.length - 1].forwardOffset === 5);
+  assert('forecast open day mode', snap().mode === 'day');
+  assert('forecast open exact offset', snap().forwardOffset === 5);
 
-  loads.length = 0;
+  genBefore = ctx.scheduleNavigationLoadGen();
   ctx.scheduleOpenDayDetail('not-a-date');
-  assert('invalid iso noop', loads.length === 0);
+  assert('invalid iso noop', ctx.scheduleNavigationLoadGen() === genBefore);
 
-  loads.length = 0;
   ctx.scheduleOpenDayDetail('2026-07-10');
-  assert('past date clamped', loads.length === 1 && loads[loads.length - 1].forwardOffset === 0);
+  assert('past date clamped', snap().forwardOffset === 0 && snap().mode === 'day');
 
-  ctx.scheduleApplyNavigationPresentation(ctx.scheduleGetNavigationSnapshot());
+  ctx.scheduleApplyNavigationPresentation(snap());
   assert('range label set', dom['ps-range-label'].textContent.length > 0);
 
-  loads.length = 0;
-  const wired = [];
+  genBefore = ctx.scheduleNavigationLoadGen();
   dom['ps-prev-week'].addEventListener = (_, fn) => { dom['ps-prev-week']._fn = fn; };
   dom['ps-next-week'].addEventListener = (_, fn) => { dom['ps-next-week']._fn = fn; };
   viewBtns.forEach((b) => { b.addEventListener = (_, fn) => { b._fn = fn; }; });
   ctx.scheduleWireScheduleNavigationControls();
   ctx.scheduleWireScheduleNavigationControls();
   dom['ps-prev-week']._fn();
-  assert('prev wired once per control', loads.length === 1);
+  assert('prev wired once per control', ctx.scheduleNavigationLoadGen() === genBefore + 1);
   viewBtns[1]._fn();
   assert('view button wired', ctx.scheduleCurrentViewMode() === 'week');
 
   ctx.setScheduleView('day');
-  loads.length = 0;
   for (let i = 0; i < 5; i += 1) ctx.scheduleNavigateNext();
-  assert('rapid next final offset', ctx.scheduleGetNavigationSnapshot().forwardOffset === 5);
+  assert('rapid next final offset', snap().forwardOffset === 5);
   const finalGen = ctx.scheduleNavigationLoadGen();
-  const staleSnap = Object.assign({}, ctx.scheduleGetNavigationSnapshot(), { loadGen: finalGen - 2 });
+  const staleSnap = Object.assign({}, snap(), { loadGen: finalGen - 2 });
   assert('older generation stale', staleSnap.loadGen < finalGen);
 
   assert('loader accepts snapshot', loaderSrc.includes('loadSchedulePage(navSnapshot)'));

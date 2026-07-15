@@ -501,8 +501,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     showError: loaderShowError,
     hideState: loaderHideState,
     loadPage: loadPage,
-    stateRef: loaderState,
   };
+  Object.freeze(load);
 
   // ── nav (view mode + load generation) ────────────────────────────────────
 
@@ -668,8 +668,9 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     openDayDetail: openDayDetail,
     wireControls: wireNavigationControls,
     resetAfterBookingCreate: resetAfterBookingCreate,
-    stateRef: navState,
   };
+  Object.freeze(nav);
 
-  return { rows: rows, load: load, nav: nav };
+  Object.freeze(rows);
+  return Object.freeze({ rows: rows, load: load, nav: nav });
 })();
