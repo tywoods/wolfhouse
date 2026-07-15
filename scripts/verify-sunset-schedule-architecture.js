@@ -116,9 +116,13 @@ vm.runInContext(fs.readFileSync(LOADER_MODULE, 'utf8'), ctx);
 
 assert('SunsetScheduleRuntime.rows.normalizeApiRow', typeof ctx.SunsetScheduleRuntime.rows.normalizeApiRow === 'function');
 assert('SunsetScheduleRuntime.load.findRowById', typeof ctx.SunsetScheduleRuntime.load.findRowById === 'function');
+assert('SunsetScheduleRuntime.load.resolveRow', typeof ctx.SunsetScheduleRuntime.load.resolveRow === 'function');
+assert('SunsetScheduleRuntime.load.replaceLoadSnapshots', typeof ctx.SunsetScheduleRuntime.load.replaceLoadSnapshots === 'function');
 assert('SunsetScheduleRuntime.nav.loadGen', typeof ctx.SunsetScheduleRuntime.nav.loadGen === 'function');
 assert('compat scheduleNavigationLoadGen', ctx.scheduleNavigationLoadGen() === ctx.SunsetScheduleRuntime.nav.loadGen());
 assert('compat scheduleFindRowById delegates', ctx.scheduleFindRowById('missing') === null);
+assert('compat scheduleResolveRow delegates', typeof ctx.scheduleResolveRow === 'function' && ctx.scheduleResolveRow('missing') === null);
+assert('day-ops pack ref removed', !fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js'), 'utf8').includes('scheduleDayOpsBoardRowsRef'));
 assert('no scheduleNavigationState global', typeof ctx.scheduleNavigationState === 'undefined');
 assert('no scheduleDataLoaderState global', typeof ctx.scheduleDataLoaderState === 'undefined');
 assert('no nav.stateRef', ctx.SunsetScheduleRuntime.nav.stateRef === undefined);
@@ -135,12 +139,30 @@ try {
   assert('frozen nav rejects method replace', true);
 }
 
-ctx.SunsetScheduleRuntime.load.replaceRowsSnapshot([
-  { _scheduleId: 's1', booking_id: 'b1', guest_name: 'A', service_date: '2026-07-15' },
+ctx.SunsetScheduleRuntime.load.replaceLoadSnapshots([
+  { _scheduleId: 's1', booking_id: 'b1', guest_name: 'A', service_date: '2026-07-15', record_source: 'staff_manual' },
+], [
+  { _scheduleId: 'demo-1', guest_name: 'Demo', service_date: '2026-07-15', _isDemo: true, record_source: 'portal_demo' },
 ], { mode: 'day', loadGen: 1 });
 const snap = ctx.scheduleGetRowsSnapshot();
 snap[0].guest_name = 'mutated';
 assert('immutable row snapshot accessor', ctx.scheduleGetRowsSnapshot()[0].guest_name === 'A');
+const presentationSnap = ctx.scheduleGetPresentationSnapshot();
+presentationSnap[0].guest_name = 'mutated-demo';
+assert('immutable presentation snapshot accessor', ctx.scheduleGetPresentationSnapshot()[0].guest_name === 'Demo');
+
+const canonicalResolved = ctx.SunsetScheduleRuntime.load.resolveRow('s1');
+assert('canonical resolve trust', !!canonicalResolved
+  && canonicalResolved._rowIndexKind === 'canonical'
+  && canonicalResolved._isDemo !== true);
+const presentationResolved = ctx.SunsetScheduleRuntime.load.resolveRow('demo-1');
+assert('presentation resolve read-only trust', !!presentationResolved
+  && presentationResolved._rowIndexKind === 'presentation'
+  && presentationResolved._isDemo === true
+  && presentationResolved._trustSource === 'demo');
+assert('missing row fails closed', ctx.SunsetScheduleRuntime.load.resolveRow('nope') === null);
+assert('findRowById aliases resolveRow', ctx.scheduleFindRowById('demo-1')
+  && ctx.scheduleFindRowById('demo-1')._rowIndexKind === 'presentation');
 
 const row = ctx.scheduleNormalizeApiRow({
   service_record_id: 'sr-1',

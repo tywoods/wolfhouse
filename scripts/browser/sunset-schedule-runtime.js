@@ -1,10 +1,10 @@
 'use strict';
 
 /**
- * Sunset Schedule — closure-scoped runtime container (Slice 24).
+ * Sunset Schedule — closure-scoped runtime container (Slice 24 / 26).
  *
- * Owns navigation state, load generation, and canonical row cache.
- * Exposes runtime.rows, runtime.load, runtime.nav — not attached to window.
+ * Owns navigation state, load generation, canonical + presentation row indexes.
+ * Exposes runtime.rows, runtime.load (incl. resolveRow), runtime.nav — not on window.
  *
  * Migrated: row normalizer, data loader, navigation UI (implementation lives here).
  * Compatibility globals are defined in the thin module files injected after this script.
@@ -20,6 +20,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
 
   var loaderState = {
     rowsSnapshot: [],
+    presentationSnapshot: [],
     loadSnapshot: null,
   };
 
@@ -323,7 +324,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     normalizePresentationDemoRow: normalizePresentationDemoRow,
   };
 
-  // ── load (fetch + canonical cache) ───────────────────────────────────────
+  // ── load (fetch + canonical / presentation indexes) ─────────────────────
 
   function loaderCloneRow(row) {
     return rowClone(row);
@@ -333,8 +334,24 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return (list || []).map(loaderCloneRow);
   }
 
+  function freezeResolvedRow(row) {
+    if (!row || typeof row !== 'object') return row;
+    try { return Object.freeze(row); } catch (_) { return row; }
+  }
+
+  function indexCloneImmutable(list) {
+    return (list || []).map(function(row) {
+      var c = loaderCloneRow(row);
+      return c ? freezeResolvedRow(c) : null;
+    }).filter(Boolean);
+  }
+
   function getRowsSnapshot() {
     return loaderCloneRows(loaderState.rowsSnapshot);
+  }
+
+  function getPresentationSnapshot() {
+    return loaderCloneRows(loaderState.presentationSnapshot);
   }
 
   function currentLoadSnapshot() {
@@ -342,9 +359,14 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return Object.assign({}, loaderState.loadSnapshot);
   }
 
-  function replaceRowsSnapshot(list, navSnapshot) {
-    loaderState.rowsSnapshot = loaderCloneRows(list);
+  function replaceLoadSnapshots(canonicalRows, presentationRows, navSnapshot) {
+    loaderState.rowsSnapshot = indexCloneImmutable(canonicalRows);
+    loaderState.presentationSnapshot = indexCloneImmutable(presentationRows || []);
     loaderState.loadSnapshot = navSnapshot ? Object.assign({}, navSnapshot) : null;
+  }
+
+  function replaceRowsSnapshot(list, navSnapshot) {
+    replaceLoadSnapshots(list, [], navSnapshot);
   }
 
   function isLoadActive(loadGen) {
@@ -358,7 +380,7 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
       return String(r.booking_id || '').trim() === id;
     });
     if (matches.length !== 1) return null;
-    return loaderCloneRow(matches[0]);
+    return finalizeResolvedRow(loaderCloneRow(matches[0]), 'canonical');
   }
 
   function findCachedRowByBookingCode(bookingCode) {
@@ -368,13 +390,46 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
       return String(r.booking_code || '').trim() === code;
     });
     if (matches.length !== 1) return null;
-    return loaderCloneRow(matches[0]);
+    return finalizeResolvedRow(loaderCloneRow(matches[0]), 'canonical');
+  }
+
+  function finalizeResolvedRow(row, kind) {
+    if (!row) return null;
+    row._rowIndexKind = kind;
+    if (kind === 'presentation') {
+      row._isDemo = true;
+      row._trustSource = 'demo';
+    } else if (!row._trustSource) {
+      row._trustSource = rowSourceKind(row);
+    }
+    return freezeResolvedRow(row);
+  }
+
+  function findCanonicalRowById(id) {
+    if (!id) return null;
+    var key = String(id);
+    var row = (loaderState.rowsSnapshot || []).find(function(r) { return r && r._scheduleId === key; });
+    return row || null;
+  }
+
+  function findPresentationRowById(id) {
+    if (!id) return null;
+    var key = String(id);
+    var row = (loaderState.presentationSnapshot || []).find(function(r) { return r && r._scheduleId === key; });
+    return row || null;
+  }
+
+  function resolveRow(id) {
+    if (id == null || id === '') return null;
+    var canonical = findCanonicalRowById(id);
+    if (canonical) return finalizeResolvedRow(loaderCloneRow(canonical), 'canonical');
+    var presentation = findPresentationRowById(id);
+    if (presentation) return finalizeResolvedRow(loaderCloneRow(presentation), 'presentation');
+    return null;
   }
 
   function findRowById(id) {
-    if (!id) return null;
-    var row = (loaderState.rowsSnapshot || []).find(function(r) { return r._scheduleId === id; });
-    return loaderCloneRow(row);
+    return resolveRow(id);
   }
 
   function loaderNormalizeMode(mode) {
@@ -474,7 +529,12 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
       if (!isLoadActive(loadGen)) return;
       var viewModel = scheduleBuildLoadedViewModel(results[1], results[0], profile, rangeStart, snap);
       if (!isLoadActive(loadGen)) return;
-      replaceRowsSnapshot(viewModel.canonicalRows || viewModel.rows, snap);
+      // Atomic assign (sync): stale responses update neither index.
+      replaceLoadSnapshots(
+        viewModel.canonicalRows || viewModel.rows,
+        viewModel.presentationOnlyRows || [],
+        snap
+      );
       scheduleRenderLoadedViewModel(viewModel, loadGen, snap);
       loaderHideState(stateNode);
     }).catch(function(e){
@@ -487,12 +547,15 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     cloneRow: loaderCloneRow,
     cloneRows: loaderCloneRows,
     getRowsSnapshot: getRowsSnapshot,
+    getPresentationSnapshot: getPresentationSnapshot,
     currentLoadSnapshot: currentLoadSnapshot,
     replaceRowsSnapshot: replaceRowsSnapshot,
+    replaceLoadSnapshots: replaceLoadSnapshots,
     isLoadActive: isLoadActive,
     findCachedRowByBookingId: findCachedRowByBookingId,
     findCachedRowByBookingCode: findCachedRowByBookingCode,
     findRowById: findRowById,
+    resolveRow: resolveRow,
     normalizeMode: loaderNormalizeMode,
     fetchDay: fetchDay,
     fetchWeek: fetchWeek,

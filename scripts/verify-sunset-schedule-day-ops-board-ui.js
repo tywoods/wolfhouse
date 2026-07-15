@@ -128,10 +128,11 @@ console.log('\n[2] Module owns day-board symbols');
   'scheduleRenderOpsGroupHeader',
   'scheduleRenderOpsColumnHeader',
   'scheduleResolveDayOpsRowFromChip',
-  'scheduleDayOpsBoardRowsRef',
 ].forEach((name) => {
   assert(`module defines ${name}`, modSrc.includes(name));
 });
+assert('pack row ref removed', !modSrc.includes('scheduleDayOpsBoardRowsRef'));
+assert('resolves via scheduleResolveRow', modSrc.includes('scheduleResolveRow'));
 
 console.log('\n[3] VM — render, click, tamper, rerender');
 if (modExists) {
@@ -198,6 +199,7 @@ if (modExists) {
   let fetchCount = 0;
   const rows = [];
   const cache = [];
+  const presentation = [];
 
   function makeGroup(overrides) {
     const g = Object.assign({
@@ -242,10 +244,23 @@ if (modExists) {
     },
     scheduleBuildDisplayGroups: (rs) => rs.map((r) => Object.assign({ records: [r] }, r)),
     scheduleGroupIsStandaloneRental: () => false,
-    scheduleFindRowById: (id) => {
-      const hit = cache.find((r) => r._scheduleId === id);
-      return hit ? Object.assign({}, hit) : null;
+    scheduleResolveRow: (id) => {
+      const key = String(id || '');
+      const canonical = cache.find((r) => r._scheduleId === key);
+      if (canonical) {
+        return Object.assign({}, canonical, { _rowIndexKind: 'canonical' });
+      }
+      const demo = presentation.find((r) => r._scheduleId === key);
+      if (demo) {
+        return Object.assign({}, demo, {
+          _isDemo: true,
+          _trustSource: 'demo',
+          _rowIndexKind: 'presentation',
+        });
+      }
+      return null;
     },
+    scheduleFindRowById: (id) => ctx.scheduleResolveRow(id),
     scheduleEnsureRowId: (r) => r,
     scheduleGroupHasPrivateLesson: () => false,
     scheduleGroupHasLesson: () => false,
@@ -276,6 +291,11 @@ if (modExists) {
   function installCache(packRows) {
     cache.length = 0;
     (packRows || []).forEach((r) => cache.push(Object.assign({}, r)));
+  }
+
+  function installPresentation(packRows) {
+    presentation.length = 0;
+    (packRows || []).forEach((r) => presentation.push(Object.assign({}, r)));
   }
 
   function clickChip(chip, target) {
@@ -318,9 +338,10 @@ if (modExists) {
   if (wiredChip) clickChip(wiredChip, wiredChip._guestSpan);
   assert('inner guest span wired click opens drawer', drawerOpens.length === 1 && drawerOpens[0] === 'sid-luna');
 
-  // presentation-only row visible on board but absent from canonical cache
+  // presentation-only row visible on board; resolves from presentation index (not pack ref)
   rows.length = 0;
   cache.length = 0;
+  presentation.length = 0;
   drawerOpens.length = 0;
   const demoRow = {
     _scheduleId: 'sid-demo-only',
@@ -333,12 +354,17 @@ if (modExists) {
     components: { lesson: { quantity: 1 } },
   };
   rows.push(demoRow);
+  installPresentation([demoRow]);
   ctx.renderScheduleDayOpsBoard({ rows: [demoRow] }, '2026-07-20');
   const demoChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
   assert('presentation row renders chip', !!demoChip && demoChip.getAttribute('data-ps-booking-id') === 'sid-demo-only');
   if (demoChip) clickChip(demoChip, demoChip._guestSpan);
-  assert('presentation-only chip resolves from day pack ref', drawerOpens.length === 1 && drawerOpens[0] === 'sid-demo-only');
-  assert('pack ref stored on render', ctx.scheduleDayOpsBoardRowsRef.length === 1);
+  assert('presentation-only chip resolves via resolveRow', drawerOpens.length === 1 && drawerOpens[0] === 'sid-demo-only');
+  const resolvedDemo = ctx.scheduleResolveRow('sid-demo-only');
+  assert('presentation resolve preserves demo trust', !!resolvedDemo && resolvedDemo._isDemo === true
+    && resolvedDemo._rowIndexKind === 'presentation' && resolvedDemo._trustSource === 'demo');
+  assert('presentation absent from canonical cache', !cache.some((r) => r._scheduleId === 'sid-demo-only'));
+  assert('pack row ref not present', typeof ctx.scheduleDayOpsBoardRowsRef === 'undefined');
 
   // real click inner span resolve helper
   drawerOpens.length = 0;

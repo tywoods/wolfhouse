@@ -49,7 +49,10 @@ assert('data loader inject marker in portal script', apiSrc.includes('/* INJECT:
 assert('browser source loads data loader module', browserLoader.includes('getSunsetScheduleDataLoaderBrowserSource'));
 assert('browser source loads row normalizer module', browserLoader.includes('getSunsetScheduleRowNormalizerBrowserSource'));
 assert('loader delegates to runtime', modSrc.includes('SunsetScheduleRuntime.load'));
-assert('loader caches canonical rows only', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.canonicalRows'));
+assert('loader installs dual indexes from view-model', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.canonicalRows')
+  && fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.presentationOnlyRows')
+  && fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('replaceLoadSnapshots'));
+assert('runtime owns resolveRow', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('function resolveRow('));
 assert('inline var scheduleRowsCache removed', !/var scheduleRowsCache\s*=/.test(apiSrc));
 assert('inline function loadSchedulePage removed from monolith', !/function loadSchedulePage\(/.test(apiSrc));
 assert('inline scheduleFetchDay removed from monolith', !/function scheduleFetchDay\(/.test(apiSrc));
@@ -65,9 +68,12 @@ console.log('\n[2] Module owns loader/cache symbols');
 [
   'loadSchedulePage',
   'scheduleGetRowsSnapshot',
+  'scheduleGetPresentationSnapshot',
   'scheduleReplaceRowsSnapshot',
+  'scheduleReplaceLoadSnapshots',
   'scheduleFindCachedRowByBookingId',
   'scheduleFindRowById',
+  'scheduleResolveRow',
   'scheduleCurrentLoadSnapshot',
   'scheduleIsLoadActive',
   'scheduleFetchDay',
@@ -153,12 +159,22 @@ if (modExists) {
   vm.createContext(ctx);
   vm.runInContext(fs.readFileSync(RUNTIME_MODULE, 'utf8'), ctx);
   vm.runInContext(fs.readFileSync(NORMALIZER_MODULE, 'utf8'), ctx);
+  let injectPresentationOnBuild = false;
   ctx.scheduleBuildLoadedViewModel = function(weekData, convData, profile, rangeStart, navSnapshot) {
     const norm = ctx.scheduleNormalizeLoadedScheduleResponse(weekData, profile, { locationId: 'sunset-somo', client: 'sunset' });
+    const presentationOnlyRows = injectPresentationOnBuild
+      ? [{
+        _scheduleId: 'demo-presentation-1',
+        guest_name: 'Demo Presentation',
+        service_date: '2026-07-15',
+        _isDemo: true,
+        record_source: 'portal_demo',
+      }]
+      : [];
     return {
       weekData: norm.weekData,
       canonicalRows: norm.canonicalRows,
-      presentationOnlyRows: [],
+      presentationOnlyRows,
       rows: norm.canonicalRows,
       conversations: (convData && convData.conversations) || [],
       profile,
@@ -195,7 +211,24 @@ if (modExists) {
 
     assert('booking lookup unique', ctx.scheduleFindCachedRowByBookingId('b-day-a') && ctx.scheduleFindCachedRowByBookingId('b-day-a').guest_name === 'Day A');
     assert('schedule id lookup works', ctx.scheduleFindRowById('s-a') && ctx.scheduleFindRowById('s-a').guest_name === 'Day A');
+    assert('resolveRow canonical trust', (() => {
+      const r = ctx.scheduleResolveRow('s-a');
+      return r && r._rowIndexKind === 'canonical' && r._isDemo !== true;
+    })());
     assert('unknown booking lookup null', ctx.scheduleFindCachedRowByBookingId('missing') === null);
+    assert('missing resolveRow fails closed', ctx.scheduleResolveRow('nope') === null);
+
+    renders.length = 0;
+    injectPresentationOnBuild = true;
+    await bumpAlignedLoad('day', 0, '2026-07-15');
+    await waitLoads(1);
+    assert('presentation index installed on load', ctx.scheduleGetPresentationSnapshot().length === 1);
+    assert('presentation resolve read-only trust', (() => {
+      const r = ctx.scheduleResolveRow('demo-presentation-1');
+      return r && r._rowIndexKind === 'presentation' && r._isDemo === true && r._trustSource === 'demo';
+    })());
+    assert('presentation not in canonical snapshot', !ctx.scheduleGetRowsSnapshot().some((r) => r._scheduleId === 'demo-presentation-1'));
+    injectPresentationOnBuild = false;
     ctx.scheduleReplaceRowsSnapshot([
       { booking_id: 'dup', _scheduleId: 'd1', guest_name: 'One', service_date: '2026-07-15' },
       { booking_id: 'dup', _scheduleId: 'd2', guest_name: 'Two', service_date: '2026-07-15' },
@@ -233,7 +266,9 @@ if (modExists) {
       }
       return origFetch(url);
     };
+    injectPresentationOnBuild = true;
     const pA = bumpAlignedLoad('day', 0, '2026-07-15');
+    injectPresentationOnBuild = false;
     renders.length = 0;
     await bumpAlignedLoad('day', 1, '2026-07-15');
     await waitLoads(1);
@@ -242,6 +277,8 @@ if (modExists) {
     await new Promise((r) => setTimeout(r, 80));
     assert('stale success cannot mutate cache', ctx.scheduleFindCachedRowByBookingId('stale') === null);
     assert('day B wins race', ctx.scheduleFindCachedRowByBookingId('b-day-b') !== null);
+    assert('stale success cannot poison presentation index', ctx.scheduleResolveRow('demo-presentation-1') === null
+      && ctx.scheduleGetPresentationSnapshot().length === 0);
 
     ctx.fetch = origFetch;
     dom['ps-state'].textContent = '';

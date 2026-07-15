@@ -6,7 +6,7 @@
  * Injected after portal and drawer modules. Owns day-view #ps-ops-board HTML,
  * booking chip presentation, empty state, and rerender-safe chip click wiring.
  *
- * Consumes normalized rows from scheduleRowsCache via scheduleFindRowById.
+ * Consumes rows via scheduleResolveRow (canonical + presentation indexes).
  * Does not fetch Schedule data, compute prices, or own drawer lifecycle.
  *
  * Requires portal globals: portalT, escHtml, el, scheduleEnsureRowId,
@@ -17,7 +17,7 @@
  * scheduleRenderStatusBadgeHtml, scheduleFormatSlotTimeRange, scheduleMinutesLabel,
  * scheduleSourceSplit, scheduleTodayIso, scheduleCoursesCache, scheduleLessonTimesFallback,
  * scheduleActiveDayIso, openScheduleDetailDrawer, openScheduleCreateModal,
- * scheduleOnCreateComponentChange, schedulePopulateCreateCourseFields, scheduleFindRowById.
+ * scheduleOnCreateComponentChange, schedulePopulateCreateCourseFields, scheduleResolveRow.
  */
 
 function scheduleDayOpsEquipmentPrepLabel(group){
@@ -229,18 +229,15 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   return html;
 }
 
-var scheduleDayOpsBoardRowsRef = [];
-
 function scheduleResolveDayOpsRowFromChip(target){
   if (!target || typeof target.closest !== 'function') return null;
   var chip = target.closest('[data-ps-booking-id]');
   if (!chip) return null;
   var id = chip.getAttribute('data-ps-booking-id');
   if (!id) return null;
-  var cached = scheduleFindRowById(id);
-  if (cached) return cached;
-  var packRow = (scheduleDayOpsBoardRowsRef || []).find(function(r) { return r && r._scheduleId === id; });
-  return packRow || null;
+  if (typeof scheduleResolveRow === 'function') return scheduleResolveRow(id);
+  if (typeof scheduleFindRowById === 'function') return scheduleFindRowById(id);
+  return null;
 }
 
 function scheduleWireDayOpsBoardRows(container){
@@ -282,7 +279,6 @@ function scheduleWireDayOpsBoardRows(container){
 function renderScheduleDayOpsBoard(pack, dateIso){
   var box = el('ps-ops-board');
   if (!box) return;
-  scheduleDayOpsBoardRowsRef = (pack && pack.rows) ? pack.rows.slice() : [];
   box.className = 'portal-schedule-ops-board';
   box.innerHTML = scheduleRenderDayOpsBoardHtml(pack, dateIso, scheduleLessonTimesCache);
   scheduleWireDayOpsBoardRows(box);

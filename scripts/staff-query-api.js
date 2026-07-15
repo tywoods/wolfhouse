@@ -22158,7 +22158,9 @@ function scheduleOpsWireBookingRows(container){
   container.querySelectorAll('[data-ps-booking-id]').forEach(function(node){
     node.addEventListener('click', function(){
       var id = node.getAttribute('data-ps-booking-id');
-      var row = scheduleFindRowById(id);
+      var row = (typeof scheduleResolveRow === 'function')
+        ? scheduleResolveRow(id)
+        : scheduleFindRowById(id);
       if (row) openScheduleDetailDrawer(row);
     });
   });
@@ -22450,7 +22452,9 @@ function renderScheduleWeekGrid(profile, weekData, rangeStart, renderGen, navSna
 }
 
 function scheduleFindRowByKey(key){
-  return scheduleFindRowById(key);
+  return (typeof scheduleResolveRow === 'function')
+    ? scheduleResolveRow(key)
+    : scheduleFindRowById(key);
 }
 
 function scheduleRowNeedsAction(row){
@@ -22497,7 +22501,9 @@ function renderScheduleBookingList(filter){
   box.querySelectorAll('.ps-booking-row').forEach(function(tr){
     tr.addEventListener('click', function(){
       var id = tr.getAttribute('data-ps-booking-id');
-      var row = scheduleFindRowById(id);
+      var row = (typeof scheduleResolveRow === 'function')
+        ? scheduleResolveRow(id)
+        : scheduleFindRowById(id);
       if (row) openScheduleDetailDrawer(row);
     });
   });
