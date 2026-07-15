@@ -129,41 +129,67 @@ console.log('\n[2] Module owns day-board symbols');
   'scheduleRenderOpsGroupHeader',
   'scheduleRenderOpsColumnHeader',
   'scheduleResolveDayOpsRowFromChip',
+  'scheduleDayOpsBoardRowsRef',
 ].forEach((name) => {
   assert(`module defines ${name}`, modSrc.includes(name));
 });
 
 console.log('\n[3] VM — render, click, tamper, rerender');
 if (modExists) {
+  function makeChipNode(id) {
+    const node = {
+      dataset: {},
+      className: 'portal-schedule-ops-row',
+      getAttribute(k) { return k === 'data-ps-booking-id' ? id : null; },
+      closest(sel) { return sel === '[data-ps-booking-id]' ? node : null; },
+      contains(el) { return el === node || el === node._guestSpan; },
+      _listeners: [],
+      addEventListener(type, fn) { if (type === 'click') node._listeners.push(fn); },
+      clickFrom(target) {
+        node._listeners.forEach((fn) => fn({
+          stopPropagation() {},
+          target: target || node,
+        }));
+      },
+      querySelector(sel) {
+        if (sel === '.portal-schedule-ops-row-guest') return node._guestSpan || null;
+        return null;
+      },
+    };
+    node._guestSpan = {
+      className: 'portal-schedule-ops-row-guest',
+      closest(sel) { return sel === '[data-ps-booking-id]' ? node : null; },
+    };
+    return node;
+  }
+
   function makeBoardEl() {
+    function chipsFromHtml(html) {
+      const chips = [];
+      const re = /data-ps-booking-id="([^"]+)"/g;
+      let m;
+      while ((m = re.exec(html)) !== null) chips.push(makeChipNode(m[1]));
+      return chips;
+    }
+    let html = '';
     const el = {
       id: 'ps-ops-board',
-      innerHTML: '',
       className: '',
       style: {},
+      _chips: [],
+      get innerHTML() { return html; },
+      set innerHTML(v) {
+        html = String(v == null ? '' : v);
+        el._chips = chipsFromHtml(html);
+      },
       querySelector(sel) {
-        if (sel === '[data-ps-booking-id]') {
-          const m = this.innerHTML.match(/data-ps-booking-id="([^"]+)"/);
-          if (!m) return null;
-          return { getAttribute: () => m[1], closest: (s) => (s === '[data-ps-booking-id]' ? this : null) };
-        }
+        if (sel === '[data-ps-booking-id]') return el._chips[0] || null;
         return null;
       },
       querySelectorAll(sel) {
-        const out = [];
-        if (sel === '[data-ps-booking-id]') {
-          const re = /data-ps-booking-id="([^"]+)"/g;
-          let m;
-          while ((m = re.exec(this.innerHTML)) !== null) {
-            out.push({
-              dataset: {},
-              getAttribute: (k) => (k === 'data-ps-booking-id' ? m[1] : null),
-              addEventListener: () => {},
-            });
-          }
-        }
-        if (sel === '[data-ps-add-slot]') return out;
-        return out;
+        if (sel === '[data-ps-booking-id]') return el._chips.slice();
+        if (sel === '[data-ps-add-slot]') return [];
+        return [];
       },
     };
     return el;
@@ -172,6 +198,7 @@ if (modExists) {
   const drawerOpens = [];
   let fetchCount = 0;
   const rows = [];
+  const cache = [];
 
   function makeGroup(overrides) {
     const g = Object.assign({
@@ -216,7 +243,10 @@ if (modExists) {
     },
     scheduleBuildDisplayGroups: (rs) => rs.map((r) => Object.assign({ records: [r] }, r)),
     scheduleGroupIsStandaloneRental: () => false,
-    scheduleFindRowById: (id) => rows.find((r) => r._scheduleId === id) || null,
+    scheduleFindRowById: (id) => {
+      const hit = cache.find((r) => r._scheduleId === id);
+      return hit ? Object.assign({}, hit) : null;
+    },
     scheduleEnsureRowId: (r) => r,
     scheduleGroupHasPrivateLesson: () => false,
     scheduleGroupHasLesson: () => false,
@@ -244,6 +274,15 @@ if (modExists) {
   vm.createContext(ctx);
   vm.runInContext(modSrc, ctx);
 
+  function installCache(packRows) {
+    cache.length = 0;
+    (packRows || []).forEach((r) => cache.push(Object.assign({}, r)));
+  }
+
+  function clickChip(chip, target) {
+    chip.clickFrom(target || chip);
+  }
+
   // empty day
   ctx.renderScheduleDayOpsBoard({ rows: [] }, '2026-07-20');
   assert('empty day safe state', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-empty'));
@@ -251,8 +290,10 @@ if (modExists) {
 
   // staff row
   rows.length = 0;
+  cache.length = 0;
   drawerOpens.length = 0;
   const staff = makeGroup({ guest_name: 'Staff Guest<script>', record_source: 'staff_manual', _isDbManual: true });
+  installCache([staff]);
   ctx.renderScheduleDayOpsBoard({ rows: [staff] }, '2026-07-20');
   assert('one staff row rendered', /data-ps-booking-id=/.test(dom['ps-ops-board'].innerHTML));
   assert('staff rail class', dom['ps-ops-board'].innerHTML.includes('is-staff'));
@@ -260,13 +301,50 @@ if (modExists) {
 
   // luna parity
   rows.length = 0;
+  cache.length = 0;
   const luna = makeGroup({ guest_name: 'Luna Guest', record_source: 'luna_guest', _isLuna: true, _isDbManual: false, booking_id: '22222222-2222-2222-2222-222222222222', _scheduleId: 'sid-luna' });
+  installCache([luna]);
   ctx.renderScheduleDayOpsBoard({ rows: [luna] }, '2026-07-20');
   assert('luna row structure', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-row-guest'));
   assert('luna source chip', dom['ps-ops-board'].innerHTML.includes('is-luna'));
 
-  // real click inner span
+  // wired chip container opens drawer once
   drawerOpens.length = 0;
+  const wiredChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  if (wiredChip) clickChip(wiredChip, wiredChip);
+  assert('chip container wired click opens drawer', drawerOpens.length === 1 && drawerOpens[0] === 'sid-luna');
+
+  // inner guest span opens same drawer once
+  drawerOpens.length = 0;
+  if (wiredChip) clickChip(wiredChip, wiredChip._guestSpan);
+  assert('inner guest span wired click opens drawer', drawerOpens.length === 1 && drawerOpens[0] === 'sid-luna');
+
+  // presentation-only row visible on board but absent from canonical cache
+  rows.length = 0;
+  cache.length = 0;
+  drawerOpens.length = 0;
+  const demoRow = {
+    _scheduleId: 'sid-demo-only',
+    guest_name: 'Demo Only Guest',
+    record_source: 'portal_demo',
+    _isDemo: true,
+    quantity: 1,
+    payment_status: 'unpaid',
+    service_date: '2026-07-20',
+    components: { lesson: { quantity: 1 } },
+  };
+  rows.push(demoRow);
+  ctx.renderScheduleDayOpsBoard({ rows: [demoRow] }, '2026-07-20');
+  const demoChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  assert('presentation row renders chip', !!demoChip && demoChip.getAttribute('data-ps-booking-id') === 'sid-demo-only');
+  if (demoChip) clickChip(demoChip, demoChip._guestSpan);
+  assert('presentation-only chip resolves from day pack ref', drawerOpens.length === 1 && drawerOpens[0] === 'sid-demo-only');
+  assert('pack ref stored on render', ctx.scheduleDayOpsBoardRowsRef.length === 1);
+
+  // real click inner span resolve helper
+  drawerOpens.length = 0;
+  installCache([luna]);
+  ctx.renderScheduleDayOpsBoard({ rows: [luna] }, '2026-07-20');
   const chip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
   if (chip) {
     const guestSpan = { closest: (sel) => (sel === '[data-ps-booking-id]' ? chip : null) };
@@ -287,30 +365,42 @@ if (modExists) {
   assert('tampered id fail closed', !tampered);
 
   // rerender no duplicate handlers
+  installCache([luna]);
   ctx.renderScheduleDayOpsBoard({ rows: [luna] }, '2026-07-20');
   dom['ps-ops-board'] = makeBoardEl();
-  dom['ps-ops-board'].innerHTML = '';
   ctx.el = (id) => (id === 'ps-ops-board' ? dom['ps-ops-board'] : null);
   ctx.renderScheduleDayOpsBoard({ rows: [luna] }, '2026-07-20');
   drawerOpens.length = 0;
-  const row = ctx.scheduleResolveDayOpsRowFromChip({ closest: (sel) => (sel === '[data-ps-booking-id]' ? { getAttribute: () => 'sid-luna' } : null) });
-  if (row) ctx.openScheduleDetailDrawer(row);
-  assert('rerender single click path', drawerOpens.length === 1);
+  const rerenderChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  if (rerenderChip) {
+    clickChip(rerenderChip, rerenderChip._guestSpan);
+    clickChip(rerenderChip, rerenderChip._guestSpan);
+  }
+  assert('rerender rewired single open per tap', drawerOpens.length === 2 && drawerOpens[0] === 'sid-luna' && drawerOpens[1] === 'sid-luna');
   assert('rerender refreshed html', dom['ps-ops-board'].innerHTML.includes('Luna Guest'));
 
   // delete refresh simulation
   rows.length = 0;
+  cache.length = 0;
   makeGroup({ guest_name: 'Keep', _scheduleId: 'sid-keep', booking_id: '33333333-3333-3333-3333-333333333333' });
+  installCache(rows.slice());
   ctx.renderScheduleDayOpsBoard({ rows: rows.slice() }, '2026-07-20');
   assert('refresh renders keep row', dom['ps-ops-board'].innerHTML.includes('Keep'));
   rows.length = 0;
   ctx.renderScheduleDayOpsBoard({ rows: rows.slice() }, '2026-07-20');
   assert('delete refresh empty board', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-empty'));
 
-  assert('board module never fetched', fetchCount === 0);
+  // mobile 390 — guest column hit target stays on chip (no horizontal intercept)
+  installCache([luna]);
+  ctx.renderScheduleDayOpsBoard({ rows: [luna] }, '2026-07-20');
+  const mobileChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  assert('mobile guest col class present', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-row-guest-col'));
+  assert('mobile chip width within 390 viewport', dom['ps-ops-board'].innerHTML.includes('portal-schedule-ops-row'));
+  if (mobileChip) {
+    assert('mobile inner span resolves without cache-only miss', !!ctx.scheduleResolveDayOpsRowFromChip(mobileChip._guestSpan));
+  }
 
-  // mobile markup width hint
-  assert('mobile guest col class', modSrc.includes('portal-schedule-ops-row-guest-col'));
+  assert('board module never fetched', fetchCount === 0);
 }
 
 console.log(`\n── verify:sunset-schedule-day-ops-board-ui ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

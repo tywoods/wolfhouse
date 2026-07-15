@@ -229,13 +229,18 @@ function scheduleRenderDayOpsBoardHtml(pack, dateIso, lessonTimes){
   return html;
 }
 
+var scheduleDayOpsBoardRowsRef = [];
+
 function scheduleResolveDayOpsRowFromChip(target){
   if (!target || typeof target.closest !== 'function') return null;
   var chip = target.closest('[data-ps-booking-id]');
   if (!chip) return null;
   var id = chip.getAttribute('data-ps-booking-id');
   if (!id) return null;
-  return scheduleFindRowById(id) || null;
+  var cached = scheduleFindRowById(id);
+  if (cached) return cached;
+  var packRow = (scheduleDayOpsBoardRowsRef || []).find(function(r) { return r && r._scheduleId === id; });
+  return packRow || null;
 }
 
 function scheduleWireDayOpsBoardRows(container){
@@ -277,6 +282,7 @@ function scheduleWireDayOpsBoardRows(container){
 function renderScheduleDayOpsBoard(pack, dateIso){
   var box = el('ps-ops-board');
   if (!box) return;
+  scheduleDayOpsBoardRowsRef = (pack && pack.rows) ? pack.rows.slice() : [];
   box.className = 'portal-schedule-ops-board';
   box.innerHTML = scheduleRenderDayOpsBoardHtml(pack, dateIso, scheduleLessonTimesCache);
   scheduleWireDayOpsBoardRows(box);
