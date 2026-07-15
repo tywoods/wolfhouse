@@ -1,10 +1,11 @@
 {
   "_schema": "sunset-golden-manifest-v1",
   "tenant_id": "sunset",
-  "status": "draft",
-  "active": false,
-  "runner": "not_wired",
-  "note": "Not picked up by scripts/verify-luna-golden.js (hardcoded fixtures/luna-golden). Wire when Sunset tenant dry-run runner exists.",
+  "status": "active",
+  "active": true,
+  "runner": "scripts/run-sunset-golden.js",
+  "no_send_guard": "scripts/lib/sunset-golden-no-send-guard.js",
+  "note": "Review-only runner with central no-send guard. Blocks booking create, Stripe/payment-link create, WhatsApp and email even if fixture flags are misconfigured. Structure still validated by scripts/verify-sunset-golden.js.",
   "config_ref": "config/clients/sunset.baseline.json",
   "fixtures": [
     "sunset-golden-01-rental-board-price-whatsapp.json",
@@ -14,6 +15,7 @@
     "sunset-golden-05-surf-accommodation-package-whatsapp.json",
     "sunset-golden-06-email-rental-inquiry.json",
     "sunset-golden-07-payment-link-guardrail-whatsapp.json",
-    "sunset-golden-08-group-lessons-morning-mon-thu-spanish-whatsapp.json"
+    "sunset-golden-08-group-lessons-morning-mon-thu-spanish-whatsapp.json",
+    "sunset-golden-09-rapid-group-lesson-quote-whatsapp.json"
   ]
 }

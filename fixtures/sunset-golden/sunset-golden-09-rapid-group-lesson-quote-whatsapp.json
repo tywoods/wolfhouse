@@ -1,15 +1,3 @@
-/**
- * Active RED/GREEN fixture outline for rapid-fire Spanish group lessons.
- *
- * Separated from inactive golden fixture 08. Exercises 5000 ms coalescing +
- * quote-before-name + canonical lesson components. Run with allow_writes:false.
- *
- * Expected consolidated input after quiet window:
- *   Somos dos personas
- *   Queremos clases grupales
- *   El lunes, martes, miércoles y jueves que vienen
- *   Por la mañana
- */
 {
   "id": "sunset-rapid-group-lesson-quote-before-name",
   "active": true,
@@ -19,11 +7,26 @@
   "thread": "sim:rapid-fire-group-lesson-quote",
   "language": "es",
   "location_id": "sunset-somo",
+  "channel": "whatsapp",
+  "tenant_id": "sunset",
+  "label": "Rapid-fire Spanish group lesson quote before name — coalesced input, read tools only, create blocked",
   "messages": [
     { "delay_ms": 0, "text": "Somos dos personas" },
     { "delay_ms": 300, "text": "Queremos clases grupales" },
     { "delay_ms": 700, "text": "El lunes, martes, miércoles y jueves que vienen" },
     { "delay_ms": 1100, "text": "Por la mañana" }
+  ],
+  "turns": [
+    {
+      "message": "Somos dos personas\nQueremos clases grupales\nEl lunes, martes, miércoles y jueves que vienen\nPor la mañana",
+      "expect": {
+        "behavior": {
+          "tenant_persona": "sunset",
+          "must_not": ["payment_link", "booking_confirmed", "whatsapp_live_send"]
+        },
+        "reply_not_contains": ["stripe", "checkout.stripe.com"]
+      }
+    }
   ],
   "expectations": {
     "agent_invocation_count": 1,
@@ -63,5 +66,11 @@
       "unit"
     ],
     "create_must_be_blocked_when_allow_writes_false": true
+  },
+  "final_expect": {
+    "no_payment_link": true,
+    "no_confirmation": true,
+    "no_whatsapp_send": true,
+    "tenant_isolation": "sunset_only"
   }
 }

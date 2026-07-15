@@ -6,6 +6,14 @@
  * Slice 24 / 24B — central Schedule injection order + runtime container contract.
  * 24B: no stateRef / mutable state aliases; public API objects frozen.
  *
+ * Drawer acceptance (readiness — NOT a file-count target):
+ *   Controller owns lifecycle/stale generation.
+ *   View owns read presentation.
+ *   Edit owns edit/save presentation.
+ *   Actions owns payment/waiver/delete mutations.
+ *   No duplicated mutable action state; no duplicate mutation request paths;
+ *   presentation modules must not bypass canonical trust.
+ *
  * Run:
  *   node scripts/verify-sunset-schedule-architecture.js
  */
@@ -20,6 +28,10 @@ const RUNTIME_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-ru
 const NORMALIZER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-row-normalizer.js');
 const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const NAV_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
+const DRAWER_CONTROLLER = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+const DRAWER_VIEW = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+const DRAWER_EDIT = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
+const DRAWER_ACTIONS = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-actions.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
 const MARKERS = [
@@ -175,6 +187,76 @@ const row = ctx.scheduleNormalizeApiRow({
 assert('rows API normalizes frozen row', row && Object.isFrozen(row) && row._scheduleId === 'sr-1');
 
 assert('no window runtime exposure', typeof global.SunsetScheduleRuntime === 'undefined');
+
+console.log('\n[4] Drawer ownership cohesion (not a file-count target)');
+const controllerSrc = fs.readFileSync(DRAWER_CONTROLLER, 'utf8');
+const viewSrc = fs.readFileSync(DRAWER_VIEW, 'utf8');
+const editSrc = fs.readFileSync(DRAWER_EDIT, 'utf8');
+const actionsSrc = fs.readFileSync(DRAWER_ACTIONS, 'utf8');
+
+assert('controller module present', fs.existsSync(DRAWER_CONTROLLER));
+assert('view module present', fs.existsSync(DRAWER_VIEW));
+assert('edit module present', fs.existsSync(DRAWER_EDIT));
+assert('actions module present', fs.existsSync(DRAWER_ACTIONS));
+
+assert('controller owns openGen lifecycle', controllerSrc.includes('scheduleDrawerBumpOpenGeneration')
+  && controllerSrc.includes('scheduleDrawerIsRequestActive')
+  && /openGen/.test(controllerSrc));
+assert('controller owns open/close/mount', controllerSrc.includes('function openScheduleDetailDrawer')
+  && controllerSrc.includes('function closeScheduleDetailDrawer')
+  && controllerSrc.includes('function scheduleMountDrawerBody'));
+assert('controller does not own stripe/manual/waiver/delete mutation bodies',
+  !/function scheduleCreateDrawerStripeLink\s*\(/.test(controllerSrc)
+  && !/function scheduleDeleteBookingFromDrawer\s*\(/.test(controllerSrc)
+  && !/record-cash-payment/.test(controllerSrc));
+
+assert('view owns read presentation helpers', viewSrc.includes('scheduleRenderViewDrawerHtml')
+  || viewSrc.includes('scheduleRenderSunsetViewDrawerHtml'));
+assert('view has no booking PATCH/DELETE mutation path',
+  !/method:\s*['"]PATCH['"]/.test(viewSrc) && !/method:\s*['"]DELETE['"]/.test(viewSrc));
+assert('view has no stripe-link POST mutation', !/bookings\/stripe-link/.test(viewSrc));
+assert('view has no cash-payment mutation', !/record-cash-payment/.test(viewSrc));
+
+assert('edit owns save presentation + single PATCH path', editSrc.includes('function scheduleSaveDrawerBooking')
+  && /method:\s*['"]PATCH['"]/.test(editSrc));
+assert('edit does not own payment/waiver/delete mutation bodies',
+  !/function scheduleCreateDrawerStripeLink\s*\(/.test(editSrc)
+  && !/function scheduleDeleteBookingFromDrawer\s*\(/.test(editSrc)
+  && !/record-cash-payment/.test(editSrc)
+  && !/bookings\/stripe-link/.test(editSrc));
+
+assert('actions owns mutation closure + shared requestJson', actionsSrc.includes('var SunsetScheduleDrawerActions')
+  && actionsSrc.includes('function requestJson')
+  && actionsSrc.includes('var flight = {'));
+assert('actions owns stripe/manual/waiver/delete paths',
+  /bookings\/stripe-link/.test(actionsSrc)
+  && /record-cash-payment/.test(actionsSrc)
+  && /\/waiver/.test(actionsSrc)
+  && /method:\s*['"]DELETE['"]/.test(actionsSrc));
+assert('actions not assigned to window', !/window\.SunsetScheduleDrawerActions/.test(actionsSrc));
+
+assert('no duplicated flight action state outside actions',
+  !/\bvar flight\s*=\s*\{/.test(controllerSrc)
+  && !/\bvar flight\s*=\s*\{/.test(viewSrc)
+  && !/\bvar flight\s*=\s*\{/.test(editSrc)
+  && (actionsSrc.match(/\bvar flight\s*=\s*\{/g) || []).length === 1);
+assert('no second requestJson helper in drawer presentation modules',
+  !/function requestJson\s*\(/.test(viewSrc)
+  && !/function requestJson\s*\(/.test(editSrc)
+  && !/function requestJson\s*\(/.test(controllerSrc));
+
+assert('controller requires canonical trust before detail API',
+  controllerSrc.includes('scheduleDrawerCanLoadCanonical'));
+assert('actions gates delete on canonical trust',
+  actionsSrc.includes('scheduleDrawerCanLoadCanonical'));
+assert('view/edit cannot redefine trust gate',
+  !/function scheduleDrawerCanLoadCanonical\s*\(/.test(viewSrc)
+  && !/function scheduleDrawerCanLoadCanonical\s*\(/.test(editSrc));
+
+assert('behavioral gates cover lifecycle/edit/mutations',
+  fs.existsSync(path.join(ROOT, 'scripts', 'verify-sunset-schedule-drawer-controller.js'))
+  && fs.existsSync(path.join(ROOT, 'scripts', 'verify-sunset-schedule-drawer-edit-ui.js'))
+  && fs.existsSync(path.join(ROOT, 'scripts', 'verify-sunset-schedule-drawer-actions.js')));
 
 console.log(`\n── verify:sunset-schedule-architecture ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 if (fail) process.exit(1);
