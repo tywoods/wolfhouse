@@ -1,15 +1,15 @@
 # n8n Decommission — Phase 3B: Hold-Expiry Contract
 
-**Date:** 2026-07-15  
-**Branch:** `feat/n8n-decommission-hold-expiry-contract`  
-**Mode:** inspection / specification only — no worker, no DB writes, no deploy  
+**Date:** 2026-07-15
+**Branch:** `feat/n8n-decommission-hold-expiry-contract`
+**Mode:** inspection / specification only — no worker, no DB writes, no deploy
 **Base:** `origin/master` @ Phase 3A merge (`b43b4f8`)
 
 ## Purpose
 
 Replace historical n8n Main schedule **“Delete Expired Holds (6hrs)”** with a Staff API–owned, idempotent hold-expiry contract before any Phase 3C implementation.
 
-Historical outcome (docs): expired holds → cancelled (`docs/regression-test-plan.md` §6.6).  
+Historical outcome (docs): expired holds → cancelled (`docs/regression-test-plan.md` §6.6).
 Postgres already has `booking_status.expired` and detection queries; **no expire worker exists**.
 
 ---
@@ -83,8 +83,9 @@ EXPIRE (current PG)
 4. Scoped `client_id` (+ `location_id` when multi-location)
 5. Not in never-expire set
 
-**v1 scope:** `status = 'hold'` only.  
-`payment_pending` past `hold_expires_at` is **out of v1** (separate decision — unpaid Checkout may still be valid).
+**v1 scope:** `status = 'hold'` only.
+
+**UNRESOLVED — not approved:** auto-expiry of `payment_pending` (or any status other than `hold`) when past `hold_expires_at`. Unpaid Checkout on `payment_pending` may still be valid; do not expire those rows under this contract.
 
 ### Unpaid proof
 
@@ -113,14 +114,13 @@ BEGIN
 
   DELETE FROM booking_beds WHERE booking_id = $id;
 
-  For each unpaid payments row (draft|checkout_created|pending):
-     UPDATE payments SET status = 'expired'     -- or cancelled; see open Q
-     WHERE id = … AND status IN (...unpaid...);
+  -- UNRESOLVED (not approved): whether / how unpaid payments rows change terminal status.
+  -- Do not implement a payments UPDATE until product picks expired vs cancelled vs leave-as-is.
 
   INSERT audit / workflow_events:
      type = hold_expired
      booking_id, client_id, location_id,
-     previous_status, hold_expires_at, beds_deleted, payments_expired
+     previous_status, hold_expires_at, beds_deleted
 
 COMMIT
 ```
@@ -134,10 +134,10 @@ COMMIT
 | booking | `status` | `hold` → **`expired`** |
 | booking | `payment_status` | unchanged (still unpaid) |
 | booking_beds | rows | **deleted** |
-| payments (unpaid) | `status` | `draft` / `checkout_created` / `pending` → **`expired`** |
-| Stripe Checkout session | — | not cancelled via Stripe API in v1 (see open Q); app ignores expired drafts |
+| payments (unpaid) | `status` | **UNRESOLVED — not approved** (see below) |
+| Stripe Checkout session | — | **UNRESOLVED — not approved** whether to expire via Stripe API |
 
-Contract choice **`expired`** (not `cancelled`) so staff cancel remains a distinct human action. Historical “→ cancelled” wording maps to terminal removal from inventory; PG enum `expired` is the precise fit.
+Contract choice for the **booking** row: terminal **`expired`** (not staff `cancelled`). Historical “→ cancelled” wording maps to removal from inventory; PG enum `expired` is the precise fit for bookings.
 
 ### Beds / locking
 
@@ -147,16 +147,22 @@ Contract choice **`expired`** (not `cancelled`) so staff cancel remains a distin
 
 ### Concurrent Stripe payment
 
-| Timing | Required behavior |
-|--------|-------------------|
-| Payment truth applied **before** expire lock | Unpaid proof fails → skip expire |
-| Expire commits, then Stripe webhook arrives | **Payment wins:** do not leave guest paid+expired. Phase 3C Stripe path must either revive (`expired` → `confirmed` when paid) **or** refuse Checkout when already expired. **Staging 27p already blocks expired holds; production webhook currently does not check `hold_expires_at` — that gap is a Phase 3C companion fix, not open-ended.** |
-| Both race in parallel | Booking row `FOR UPDATE` serializes expire vs promote; unpaid re-check under lock |
+**Approved for expire-job eligibility only:**
+
+| Timing | Behavior |
+|--------|----------|
+| Payment truth applied **before** expire lock | Unpaid proof fails → **skip expire** |
+| Both race in parallel | Booking row `FOR UPDATE` serializes expire vs money updates; unpaid re-check under lock |
+
+**UNRESOLVED — not approved implementation behavior (late Stripe payment after expire):**
+
+- Whether late `checkout.session.completed` **revives** (`expired` → `confirmed`), **rejects**, or routes to **Needs Review** is **not decided**.
+- Staging 27p blocks `hold_expired` today; production webhook does **not** check `hold_expires_at` — that asymmetry is **observed fact**, not an approved Phase 3C policy.
+- Do **not** implement revive/reject Stripe logic in the first expire-job slice until product picks an option.
 
 ### Revival
 
-- **Automatic:** only via successful Stripe payment truth that explicitly allows revive from `expired` (companion Stripe policy).
-- **Staff:** may cancel/recreate or manual status fix; guest cannot “unexpire” via a new soft hold for the same slot without creating a new booking.
+**UNRESOLVED — not approved.** Automatic revive from `expired` after late pay is not authorized by this contract. Staff manual recovery remains possible outside this spec.
 
 ### Idempotency / retries
 
@@ -204,20 +210,22 @@ Rollback evidence:
 
 ## Race-condition analysis
 
-1. **Paid after wall-clock TTL, before expire worker** — Webhook can confirm; worker must skip. Mitigation: unpaid proof under `FOR UPDATE`.
-2. **Expire then pay** — Production webhook ignores TTL today → paid+expired possible. Mitigation (3C): Stripe path checks status; revive or reject.
-3. **Beds reassigned after expire, then late pay** — physical conflict. Mitigation: revive only with re-availability check or staff Needs Review.
-4. **`payment_pending` + open Checkout past `hold_expires_at`** — v1 does not expire these; link may still work. Separate phase for Checkout session expiry alignment with `payment_link_expiry_hours` (baseline 6h).
+1. **Paid after wall-clock TTL, before expire worker** — Webhook can confirm; worker must skip. Mitigation: unpaid proof under `FOR UPDATE` (**approved**).
+2. **Expire then pay** — Observed risk today (prod webhook ignores TTL). **UNRESOLVED — not approved** which policy Phase 3C adopts (revive / reject / Needs Review).
+3. **Beds reassigned after expire, then late pay** — physical conflict. Policy tied to (2); **UNRESOLVED**.
+4. **`payment_pending` + open Checkout past `hold_expires_at`** — **UNRESOLVED — not approved** to auto-expire. Out of v1 scope.
 5. **TTL skew 1h vs 6h** — worker uses stored timestamp; wrong TTL on create is a create-path bug, not expire-path.
 
 ---
 
-## Unresolved questions (block fully closed product policy, not the contract skeleton)
+## Unresolved — not approved implementation behavior
 
-1. Unpaid payment terminal: payments.`expired` vs `cancelled` (enum already has `expired` on payments in init migration — confirm usage).
-2. Should v1 call Stripe API to expire open Checkout sessions?
-3. Does `payment_pending` ever auto-expire in v2?
-4. Revive rules after expire+pay: auto-confirm vs Needs Review if beds gone.
+These items are **explicitly unresolved**. Text elsewhere that sketches options is observational only and does **not** authorize Phase 3C code.
+
+1. **Payment-row terminal status** — whether unpaid `payments` rows become `expired`, `cancelled`, or stay unchanged when a booking hold expires. **Not approved.**
+2. **Late Stripe payment handling** — revive vs reject vs Needs Review after a hold is already `expired`. **Not approved.**
+3. **`payment_pending` expiry** — whether bookings in `payment_pending` (open Checkout) ever auto-expire. **Not approved** (v1 is `status=hold` only).
+4. Stripe API calls to expire open Checkout sessions.
 5. Config unification of baseline 6h vs Main 1h / pricing.json 60m (create path).
 6. Exact historical n8n node mutation (Airtable `Expired` vs Cancelled) — workflow JSON absent.
 
@@ -240,10 +248,8 @@ Do **not** put business logic back into n8n.
 ## Smallest safe Phase 3C implementation slice
 
 1. **Dry-run CLI only** listing candidates via existing `getExpiredHoldsQuery` + unpaid proof (no writes).
-2. Then **live expire for `status=hold` + unpaid + zero or any beds delete**, scoped to one client, with audit event, **no messaging**.
-3. Separately: Stripe unpaid/expired hold policy alignment (block or revive) — smallest companion PR after (2) soaks.
-
-Do not combine TTL create-path unification, payment_pending expiry, or Stripe session cancel API into the first live slice.
+2. Then **live expire for `status=hold` + unpaid + bed delete**, scoped to one client, with audit event, **no messaging**.
+3. Do **not** include (until explicitly approved): payment-row terminal updates, late-Stripe revive/reject, `payment_pending` expiry, or Stripe Checkout session cancel API.
 
 ---
 

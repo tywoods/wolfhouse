@@ -52,9 +52,21 @@ if (exists(contractRel)) {
   ]) {
     check(`contract section mentions "${section}"`, new RegExp(section, 'i').test(doc));
   }
-  check('contract chooses terminal status expired', /status = 'expired'|→ \*\*`expired`\*\*|→ \*\*expired\*\*/i.test(doc));
+  check('contract chooses booking terminal status expired', /hold` → \*\*`expired`\*\*|hold → \*\*`expired`\*\*/i.test(doc));
   check('contract defaults to no guest/staff send', /messaging:\s*none|no send|none by default/i.test(doc));
   check('contract forbids n8n as scheduler', /Not n8n/i.test(doc));
+  check(
+    'late Stripe payment marked UNRESOLVED / not approved',
+    /UNRESOLVED[\s\S]*late Stripe|Late Stripe payment handling[\s\S]*Not approved/i.test(doc),
+  );
+  check(
+    'payment-row terminal status marked UNRESOLVED / not approved',
+    /Payment-row terminal status[\s\S]*Not approved|UNRESOLVED[\s\S]*payments rows/i.test(doc),
+  );
+  check(
+    'payment_pending expiry marked UNRESOLVED / not approved',
+    /payment_pending` expiry[\s\S]*Not approved|UNRESOLVED[\s\S]*payment_pending/i.test(doc),
+  );
 }
 
 const initSql = exists('database/migrations/001_init.sql') ? read('database/migrations/001_init.sql') : '';
