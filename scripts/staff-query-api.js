@@ -698,6 +698,9 @@ const {
   bookingMetadataPatchForStripePayment,
 } = require('./lib/stripe-webhook-payment-truth');
 const {
+  applyStripeBookingPaymentTruthWrites,
+} = require('./lib/stripe-hold-promote-policy');
+const {
   reconcilePendingStripePaymentsForDate,
 } = require('./lib/stripe-payment-reconcile');
 const {
@@ -13795,13 +13798,14 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 7–9. Derive amounts from completed payment rows + atomic DB update ─────
+  // ── 7–9. Derive amounts + shared hold-promote payment truth apply ──────────
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   let newPmPaidCents;
   let newBkPaid;
   let newBkBalance;
   let newBkPayStatus;
   let confirmationDraft;
+  let paymentTruthResult = null;
 
   try {
     await withPgClient(async (pg) => {
@@ -13822,67 +13826,28 @@ async function handleStripeWebhook(req, res) {
       const bookingMetaMerge = {};
       if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
       if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-      const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
 
       await pg.query('BEGIN');
       try {
-        await pg.query(
-          `UPDATE payments
-             SET status                   = 'paid'::payment_record_status,
-                 amount_paid_cents        = $1,
-                 paid_at                  = NOW(),
-                 stripe_payment_intent_id = $2,
-                 stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6),
-                 metadata                 = metadata || $3::jsonb
-           WHERE id = $4
-             AND client_id = $5`,
-          [
+        paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
+          pm,
+          session,
+          paymentMetadataPatch: {
+            stripe_event_id:   event.id,
+            stripe_event_type: event.type,
+            stripe_session_id: sessionId,
+            stripe_livemode:   event.livemode || false,
+            skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+            source:            'staff_portal_webhook_stage8411',
+          },
+          money: {
             newPmPaidCents,
-            session.payment_intent || null,
-            JSON.stringify({
-              stripe_event_id:   event.id,
-              stripe_event_type: event.type,
-              stripe_session_id: sessionId,
-              stripe_livemode:   event.livemode || false,
-              skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
-              source:            'staff_portal_webhook_stage8411',
-            }),
-            pm.payment_id,
-            pm.client_id,
-            sessionId,
-          ]
-        );
-        // Promote hold → confirmed when deposit or full payment received.
-        const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
-        await pg.query(
-          hasBookingMetaMerge
-            ? `UPDATE bookings
-                 SET amount_paid_cents = $1,
-                     balance_due_cents = $2,
-                     payment_status    = $3::payment_status,
-                     status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
-                     metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
-               WHERE id = $4`
-            : `UPDATE bookings
-                 SET amount_paid_cents = $1,
-                     balance_due_cents = $2,
-                     payment_status    = $3::payment_status,
-                     status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
-               WHERE id = $4`,
-          hasBookingMetaMerge
-            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
-            : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed]
-        );
-        if (pm.booking_guest_id) {
-          await pg.query(
-            `UPDATE booking_guests
-               SET amount_paid_cents = $1,
-                   payment_status = 'paid',
-                   updated_at = NOW()
-             WHERE id = $2`,
-            [newPmPaidCents, pm.booking_guest_id],
-          );
-        }
+            newBkPaid,
+            newBkBalance,
+            newBkPayStatus,
+          },
+          bookingMetaMerge,
+        });
         await pg.query('COMMIT');
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
@@ -13897,8 +13862,18 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
   }
 
+  const holdPromoteDecision = paymentTruthResult && paymentTruthResult.decision
+    ? paymentTruthResult.decision
+    : null;
+  const paymentAfterHoldExpiry = !!(holdPromoteDecision && holdPromoteDecision.payment_after_hold_expiry);
+  const allowAutoConfirmation = !!(holdPromoteDecision && holdPromoteDecision.allow_auto_confirmation);
+
   let confirmationAutoSend = null;
-  if (isAutoConfirmationSendEnabled(process.env) && pm.guest_phone) {
+  if (
+    allowAutoConfirmation
+    && isAutoConfirmationSendEnabled(process.env)
+    && pm.guest_phone
+  ) {
     try {
       confirmationAutoSend = await withPgClient((pg) => tryAutoSendBookingConfirmation({
         booking_id: pm.booking_id,
@@ -13915,6 +13890,12 @@ async function handleStripeWebhook(req, res) {
         skip_reason: `auto_send_error:${String(confirmErr.message || confirmErr).slice(0, 80)}`,
       };
     }
+  } else if (paymentAfterHoldExpiry) {
+    confirmationAutoSend = {
+      attempted: false,
+      skipped: true,
+      skip_reason: 'payment_after_hold_expiry',
+    };
   }
 
   const confirmationSent = confirmationAutoSend && confirmationAutoSend.confirmation_sent === true;
@@ -13928,9 +13909,11 @@ async function handleStripeWebhook(req, res) {
     whatsapp_called: confirmationSent,
     n8n_called: false, email_sent: false,
     confirmation_auto_send: confirmationAutoSend,
+    payment_after_hold_expiry: paymentAfterHoldExpiry,
+    hold_promote_reason: holdPromoteDecision ? holdPromoteDecision.reason : null,
   });
 
-  // ── 10. Success response ──────────────────────────────────────────────────
+  // ── 10. Success response (200 even for late payment after hold expiry) ─────
   return sendJSON(res, 200, {
     success:                   true,
     idempotent:                false,
@@ -13942,12 +13925,15 @@ async function handleStripeWebhook(req, res) {
     booking_amount_paid_cents: newBkPaid,
     booking_balance_due_cents: newBkBalance,
     payment_status:            newBkPayStatus,
+    payment_after_hold_expiry: paymentAfterHoldExpiry,
+    hold_promote_reason:       holdPromoteDecision ? holdPromoteDecision.reason : null,
+    hold_promoted_to_confirmed: !!(holdPromoteDecision && holdPromoteDecision.promote_to_confirmed),
     no_whatsapp:               !confirmationSent,
     no_email:                  true,
     no_n8n:                    true,
     no_confirmation_sent:      !confirmationSent,
     confirmation_auto_send:    confirmationAutoSend,
-    confirmation_draft:        confirmationDraft,
+    confirmation_draft:        paymentAfterHoldExpiry ? null : confirmationDraft,
     elapsed_ms:                elapsed,
   });
 }

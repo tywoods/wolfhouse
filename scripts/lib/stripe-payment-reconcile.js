@@ -21,6 +21,9 @@ const {
   lookupPaymentForStripeSession,
 } = require('./stripe-webhook-payment-truth');
 const {
+  applyStripeBookingPaymentTruthWrites,
+} = require('./stripe-hold-promote-policy');
+const {
   sumCompletedPaymentCentsForBooking,
   deriveBookingPaymentState,
 } = require('./luna-booking-payment-totals');
@@ -35,15 +38,21 @@ function isValidStripeSessionId(sid) {
   return typeof sid === 'string' && STRIPE_SESSION_ID_RE.test(sid.trim());
 }
 
-async function listDuplicatePaidFullPaymentSessions(pg, bookingId) {
+async function listDuplicatePaidFullPaymentSessions(pg, bookingId, clientId) {
+  const params = [bookingId];
+  let clientPred = '';
+  if (clientId) {
+    clientPred = ' AND client_id = $2';
+    params.push(clientId);
+  }
   const res = await pg.query(
     `SELECT DISTINCT stripe_checkout_session_id AS sid, id::text AS payment_id, amount_paid_cents
        FROM payments
       WHERE booking_id = $1::uuid
         AND status = 'paid'::payment_record_status
         AND payment_kind = 'full_amount'::payment_kind
-        AND stripe_checkout_session_id IS NOT NULL`,
-    [bookingId],
+        AND stripe_checkout_session_id IS NOT NULL${clientPred}`,
+    params,
   );
   const sessions = (res.rows || []).filter((r) => isValidStripeSessionId(r.sid));
   if (sessions.length <= 1) return { duplicate: false, sessions };
@@ -119,80 +128,52 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   const bookingMetaMerge = {};
   if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
   if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-  const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
-  const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
   let duplicateDiagnostic = null;
+  let paymentTruthResult = null;
 
   await pg.query('BEGIN');
   try {
-    await pg.query(
-      `SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE`,
-      [pm.booking_id],
-    );
-    await pg.query(
-      `UPDATE payments
-         SET status                     = 'paid'::payment_record_status,
-             amount_paid_cents          = $1,
-             paid_at                    = NOW(),
-             stripe_payment_intent_id   = $2,
-             stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6),
-             metadata                   = metadata || $3::jsonb
-       WHERE id = $4
-         AND client_id = $5`,
-      [
+    paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
+      pm,
+      session,
+      paymentMetadataPatch: {
+        stripe_event_id: meta.eventId || null,
+        stripe_event_type: eventType,
+        stripe_session_id: session.id,
+        stripe_livemode: meta.livemode || false,
+        source: 'stripe_api_reconcile',
+      },
+      money: {
         newPmPaidCents,
-        session.payment_intent || null,
-        JSON.stringify({
-          stripe_event_id: meta.eventId || null,
-          stripe_event_type: eventType,
-          stripe_session_id: session.id,
-          stripe_livemode: meta.livemode || false,
-          source: 'stripe_api_reconcile',
-        }),
-        pm.payment_id,
-        pm.client_id,
-        session.id,
-      ],
-    );
-    const duplicateCheck = await listDuplicatePaidFullPaymentSessions(pg, pm.booking_id);
-    if (duplicateCheck.duplicate) {
-      duplicateDiagnostic = duplicateCheck.diagnostic;
-      bookingMetaMerge.duplicate_full_payment_diagnostic = duplicateDiagnostic;
-    }
-    const hasBookingMetaMergeFinal = Object.keys(bookingMetaMerge).length > 0;
-    await pg.query(
-      hasBookingMetaMergeFinal
-        ? `UPDATE bookings
-             SET amount_paid_cents = $1,
-                 balance_due_cents = $2,
-                 payment_status    = $3::payment_status,
-                 status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
-                 metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
-           WHERE id = $4`
-        : `UPDATE bookings
-             SET amount_paid_cents = $1,
-                 balance_due_cents = $2,
-                 payment_status    = $3::payment_status,
-                 status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
-           WHERE id = $4`,
-      hasBookingMetaMergeFinal
-        ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
-        : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed],
-    );
-    if (pm.booking_guest_id) {
-      await pg.query(
-        `UPDATE booking_guests
-           SET amount_paid_cents = $1, payment_status = 'paid', updated_at = NOW()
-         WHERE id = $2`,
-        [newPmPaidCents, pm.booking_guest_id],
-      );
-    }
+        newBkPaid,
+        newBkBalance,
+        newBkPayStatus,
+      },
+      bookingMetaMerge,
+      afterPaymentPaid: async (pgInner) => {
+        const duplicateCheck = await listDuplicatePaidFullPaymentSessions(
+          pgInner,
+          pm.booking_id,
+          pm.client_id,
+        );
+        if (duplicateCheck.duplicate) {
+          duplicateDiagnostic = duplicateCheck.diagnostic;
+          return {
+            bookingMetaMerge: {
+              duplicate_full_payment_diagnostic: duplicateDiagnostic,
+            },
+          };
+        }
+        return null;
+      },
+    });
     await pg.query('COMMIT');
   } catch (e) {
     try { await pg.query('ROLLBACK'); } catch (_) {}
     throw e;
   }
 
+  const decision = paymentTruthResult && paymentTruthResult.decision;
   return {
     ok: true,
     reconciled: true,
@@ -202,6 +183,11 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     new_bk_payment_status: newBkPayStatus,
     amount_paid_cents: newPmPaidCents,
     duplicate_full_payment_diagnostic: duplicateDiagnostic,
+    payment_after_hold_expiry: !!(decision && decision.payment_after_hold_expiry),
+    hold_promote_reason: decision ? decision.reason : null,
+    hold_promoted_to_confirmed: !!(decision && decision.promote_to_confirmed),
+    no_whatsapp: true,
+    no_confirmation_sent: true,
   };
 }
 

@@ -22,35 +22,72 @@ function assert(label, cond, detail) {
 }
 
 function buildReconcilePg(pm, booking) {
-  const state = { pm: { ...pm }, booking: { ...booking }, committed: false };
+  const state = {
+    pm: { ...pm },
+    booking: {
+      client_id: pm.client_id,
+      status: booking.status || 'hold',
+      hold_expired_by_db: booking.hold_expired_by_db === true,
+      hold_expires_at: booking.hold_expires_at || null,
+      metadata: {},
+      ...booking,
+    },
+    committed: false,
+  };
   const pg = {
     state,
     query: async (sql, params) => {
       const q = String(sql);
-      if (/BEGIN/i.test(q)) { state.inTx = true; return { rows: [] }; }
-      if (/COMMIT/i.test(q)) { state.inTx = false; state.committed = true; return { rows: [] }; }
-      if (/ROLLBACK/i.test(q)) { state.inTx = false; return { rows: [] }; }
-      if (/FROM bookings WHERE id[\s\S]*FOR UPDATE/i.test(q)) return { rows: [{ id: state.pm.booking_id }] };
+      if (/BEGIN/i.test(q)) { state.inTx = true; return { rows: [], rowCount: 0 }; }
+      if (/COMMIT/i.test(q)) { state.inTx = false; state.committed = true; return { rows: [], rowCount: 0 }; }
+      if (/ROLLBACK/i.test(q)) { state.inTx = false; return { rows: [], rowCount: 0 }; }
+      if (/FROM bookings[\s\S]*FOR UPDATE/i.test(q)) {
+        const bookingId = params[0];
+        const clientId = params[1];
+        if (state.pm.booking_id !== bookingId || state.booking.client_id !== clientId) {
+          return { rows: [], rowCount: 0 };
+        }
+        return {
+          rowCount: 1,
+          rows: [{
+            booking_id: bookingId,
+            booking_status: state.booking.status || 'confirmed',
+            hold_expires_at: state.booking.hold_expires_at || null,
+            hold_expired_by_db: !!state.booking.hold_expired_by_db,
+          }],
+        };
+      }
       if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
-        return state.pm.stripe_checkout_session_id === params[0] ? { rows: [state.pm] } : { rows: [] };
+        return state.pm.stripe_checkout_session_id === params[0] ? { rows: [state.pm], rowCount: 1 } : { rows: [], rowCount: 0 };
       }
       if (/SELECT p\.stripe_checkout_session_id AS sid/i.test(q)) {
-        if (state.pm.payment_status === 'paid') return { rows: [] };
-        return { rows: [{ sid: state.pm.stripe_checkout_session_id, payment_id: state.pm.payment_id }] };
+        if (state.pm.payment_status === 'paid') return { rows: [], rowCount: 0 };
+        return { rows: [{ sid: state.pm.stripe_checkout_session_id, payment_id: state.pm.payment_id }], rowCount: 1 };
       }
-      if (/sum\(amount_paid_cents\)/i.test(q)) return { rows: [{ total: 0 }] };
+      if (/sum\(amount_paid_cents\)/i.test(q)) return { rows: [{ total: 0 }], rowCount: 1 };
+      if (/SELECT DISTINCT stripe_checkout_session_id/i.test(q)) {
+        return { rows: [], rowCount: 0 };
+      }
       if (/UPDATE payments/i.test(q)) {
+        if (params[4] && params[4] !== state.pm.client_id) return { rows: [], rowCount: 0 };
         state.pm.payment_status = 'paid';
         state.pm.amount_paid_cents = params[0];
-        return { rows: [] };
+        return { rows: [], rowCount: 1 };
       }
       if (/UPDATE bookings/i.test(q)) {
+        const clientId = /metadata/.test(q) ? params[6] : params[5];
+        if (clientId && clientId !== state.booking.client_id) return { rows: [], rowCount: 0 };
         state.booking.amount_paid_cents = params[0];
         state.booking.balance_due_cents = params[1];
         state.booking.payment_status = params[2];
-        return { rows: [] };
+        const promote = /metadata/.test(q) ? params[5] : params[4];
+        if ((state.booking.status || 'hold') === 'hold' && promote) state.booking.status = 'confirmed';
+        if (/metadata/.test(q) && params[4]) {
+          state.booking.metadata = { ...(state.booking.metadata || {}), ...JSON.parse(params[4]) };
+        }
+        return { rows: [], rowCount: 1 };
       }
-      return { rows: [] };
+      return { rows: [], rowCount: 0 };
     },
   };
   return pg;
@@ -84,7 +121,13 @@ console.log('[1] reconcilePaidStripeSession marks paid');
     amount_total: 4500,
     metadata: { payment_id: 'pay-1', client_slug: 'sunset' },
   };
-  const pg = buildReconcilePg(pm, { payment_status: 'waiting_payment', amount_paid_cents: 0, balance_due_cents: 4500 });
+  const pg = buildReconcilePg(pm, {
+    payment_status: 'waiting_payment',
+    amount_paid_cents: 0,
+    balance_due_cents: 4500,
+    status: 'confirmed',
+    client_id: 'client-1',
+  });
   const first = await reconcilePaidStripeSession(pg, session, { eventType: 'checkout.session.completed' });
   assert('first reconcile applied', first.reconciled === true);
   assert('payment ledger paid', pg.state.pm.payment_status === 'paid');
@@ -124,46 +167,71 @@ console.log('[1] reconcilePaidStripeSession marks paid');
       amount_paid_cents: Number(existingPaid.amount_paid_cents || 0),
       balance_due_cents: 0,
       metadata: {},
+      status: 'confirmed',
+      client_id: pendingPm.client_id,
     };
     const pg = {
       payments,
       booking,
       query: async (sql, params) => {
         const q = String(sql);
-        if (/BEGIN/i.test(q)) return { rows: [] };
-        if (/COMMIT/i.test(q)) return { rows: [] };
-        if (/ROLLBACK/i.test(q)) return { rows: [] };
-        if (/FROM bookings WHERE id[\s\S]*FOR UPDATE/i.test(q)) return { rows: [{ id: pendingPm.booking_id }] };
+        if (/BEGIN/i.test(q)) return { rows: [], rowCount: 0 };
+        if (/COMMIT/i.test(q)) return { rows: [], rowCount: 0 };
+        if (/ROLLBACK/i.test(q)) return { rows: [], rowCount: 0 };
+        if (/FROM bookings[\s\S]*FOR UPDATE/i.test(q)) {
+          if (params[0] !== pendingPm.booking_id || params[1] !== pendingPm.client_id) {
+            return { rows: [], rowCount: 0 };
+          }
+          return {
+            rowCount: 1,
+            rows: [{
+              booking_id: pendingPm.booking_id,
+              booking_status: booking.status,
+              hold_expires_at: null,
+              hold_expired_by_db: false,
+            }],
+          };
+        }
         if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
           const hit = payments.find((p) => p.stripe_checkout_session_id === params[0]);
-          return hit ? { rows: [hit] } : { rows: [] };
+          return hit ? { rows: [hit], rowCount: 1 } : { rows: [], rowCount: 0 };
         }
         if (/sum\(amount_paid_cents\)/i.test(q)) {
-          return { rows: [{ total: Number(existingPaid.amount_paid_cents || 0) }] };
+          return { rows: [{ total: Number(existingPaid.amount_paid_cents || 0) }], rowCount: 1 };
         }
         if (/SELECT DISTINCT stripe_checkout_session_id/i.test(q)) {
-          const paid = payments.filter((p) => p.payment_status === 'paid' && p.payment_kind === 'full_amount');
-          return { rows: paid.map((p) => ({ sid: p.stripe_checkout_session_id, payment_id: p.payment_id, amount_paid_cents: p.amount_paid_cents })) };
+          const paid = payments.filter((p) => (p.payment_status === 'paid' || p.status === 'paid') && p.payment_kind === 'full_amount');
+          return {
+            rowCount: paid.length,
+            rows: paid.map((p) => ({
+              sid: p.stripe_checkout_session_id,
+              payment_id: p.payment_id,
+              amount_paid_cents: p.amount_paid_cents,
+            })),
+          };
         }
         if (/UPDATE payments/i.test(q)) {
-          const row = payments.find((p) => p.payment_id === params[3]);
+          const row = payments.find((p) => p.payment_id === params[3] && p.client_id === params[4]);
           if (row) {
             row.payment_status = 'paid';
             row.status = 'paid';
             row.amount_paid_cents = params[0];
+            return { rows: [], rowCount: 1 };
           }
-          return { rows: [] };
+          return { rows: [], rowCount: 0 };
         }
         if (/UPDATE bookings/i.test(q)) {
+          const clientId = /metadata/.test(q) ? params[6] : params[5];
+          if (clientId && clientId !== booking.client_id) return { rows: [], rowCount: 0 };
           booking.amount_paid_cents = params[0];
           booking.balance_due_cents = params[1];
           booking.payment_status = params[2];
-          if (params[4]) {
+          if (/metadata/.test(q) && params[4]) {
             booking.metadata = { ...booking.metadata, ...JSON.parse(params[4]) };
           }
-          return { rows: [] };
+          return { rows: [], rowCount: 1 };
         }
-        return { rows: [] };
+        return { rows: [], rowCount: 0 };
       },
     };
     return pg;

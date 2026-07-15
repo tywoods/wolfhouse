@@ -35,6 +35,8 @@ const PAYMENT_LOOKUP_SQL = `
          b.deposit_required_cents AS bk_deposit,
          b.guest_name,
          b.primary_room_code,
+         b.status::text           AS booking_status,
+         b.hold_expires_at,
          (SELECT bb.room_code
             FROM booking_beds bb
            WHERE bb.booking_id = b.id
@@ -46,7 +48,7 @@ const PAYMENT_LOOKUP_SQL = `
          )                        AS guest_phone,
          cl.slug                  AS client_slug
     FROM payments p
-    JOIN bookings b  ON b.id  = p.booking_id
+    JOIN bookings b  ON b.id = p.booking_id AND b.client_id = p.client_id
     JOIN clients  cl ON cl.id = p.client_id`;
 
 async function lookupPaymentForStripeSession(pg, session) {

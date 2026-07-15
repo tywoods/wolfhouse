@@ -50,9 +50,15 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('validateStripeBookingPaymentEvent wired', apiSrc.includes('validateStripeBookingPaymentEvent(pm, session, eventType)'));
   assert('amountDueCents passed to derive', apiSrc.includes('amountDueCents: pm.amount_due_cents'));
   assert('idempotent already-paid branch', apiSrc.includes("pm.payment_status === 'paid'"));
-  assert('client_id predicate on payment UPDATE', apiSrc.includes('AND client_id = $5'));
-  assert('persists stripe_checkout_session_id on pay', apiSrc.includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)'));
+  assert('client_id predicate on payment UPDATE',
+    apiSrc.includes('AND client_id = $5')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8').includes('AND client_id = $5'));
+  assert('persists stripe_checkout_session_id on pay',
+    apiSrc.includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+      .includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)'));
   assert('Sunset paid metadata patch wired', apiSrc.includes('bookingMetadataPatchForStripePayment'));
+  assert('webhook uses shared hold-promote apply', apiSrc.includes('applyStripeBookingPaymentTruthWrites'));
 } else {
   assert('staff-query-api.js exists', false);
 }
