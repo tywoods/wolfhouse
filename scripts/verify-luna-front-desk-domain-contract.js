@@ -292,6 +292,7 @@ assert('day ops board inject marker', /INJECT:sunset-schedule-day-ops-board-ui/.
 assert('forecast cards inject marker', /INJECT:sunset-schedule-forecast-cards-ui/.test(apiSrc));
 assert('view grid inject marker', /INJECT:sunset-schedule-view-grid-ui/.test(apiSrc));
 assert('navigation inject marker', /INJECT:sunset-schedule-navigation-ui/.test(apiSrc));
+assert('data loader inject marker', /INJECT:sunset-schedule-data-loader/.test(apiSrc));
 assert('view grid module defines renderScheduleViewGrid', /renderScheduleViewGrid/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js'), 'utf8')));
 assert('drawer controller module defines openScheduleDetailDrawer', /openScheduleDetailDrawer/.test(fs.readFileSync(path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js'), 'utf8')));
 assert('contract documents drawer delete module', /sunset-schedule-drawer-delete-ui/.test(contractDoc));

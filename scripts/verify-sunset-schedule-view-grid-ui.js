@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const VIEW_GRID_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js');
+const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const DAY_OPS_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js');
 const FORECAST_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-forecast-cards-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
@@ -45,6 +46,7 @@ console.log('\nverify:sunset-schedule-view-grid-ui\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const modExists = fs.existsSync(VIEW_GRID_MODULE);
 const modSrc = modExists ? fs.readFileSync(VIEW_GRID_MODULE, 'utf8') : '';
+const loaderSrc = fs.existsSync(LOADER_MODULE) ? fs.readFileSync(LOADER_MODULE, 'utf8') : '';
 const dayOpsSrc = fs.readFileSync(DAY_OPS_MODULE, 'utf8');
 const forecastSrc = fs.readFileSync(FORECAST_MODULE, 'utf8');
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
@@ -61,6 +63,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-data-loader */',
 ];
 
 console.log('[1] Module files and injection order');
@@ -79,7 +82,8 @@ assert('inline renderScheduleNext30Grid removed', !apiSrc.includes('function ren
 assert('inline renderScheduleOpsBoard removed', !apiSrc.includes('function renderScheduleOpsBoard('));
 assert('monolith keeps scheduleBuildViewGridContext', apiSrc.includes('function scheduleBuildViewGridContext('));
 assert('monolith keeps scheduleFilterFutureWeekData', apiSrc.includes('function scheduleFilterFutureWeekData('));
-assert('monolith keeps loadSchedulePage', apiSrc.includes('function loadSchedulePage('));
+assert('monolith keeps scheduleBuildLoadedViewModel', apiSrc.includes('function scheduleBuildLoadedViewModel('));
+assert('loader module defines loadSchedulePage', loaderSrc.includes('function loadSchedulePage('));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not expose window', !/window\.schedule/.test(modSrc));
 assert('module does not call domain aggregate helpers', !modSrc.includes('scheduleDaySeatStats')

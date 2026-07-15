@@ -88,6 +88,7 @@ const markers = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-data-loader */',
 ];
 let prev = -1;
 markers.forEach((m) => {

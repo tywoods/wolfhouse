@@ -64,6 +64,8 @@ assert('day ops board inject marker in staff HTML script', apiSrc.includes('/* I
 assert('forecast cards inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
 assert('view grid inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
 assert('navigation inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
+assert('data loader inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
+assert('browser source loads data loader module', browserLoader.includes('getSunsetScheduleDataLoaderBrowserSource'));
 assert('browser source loads forecast cards module', browserLoader.includes('getSunsetScheduleForecastCardsBrowserSource'));
 assert('browser source loads view grid module', browserLoader.includes('getSunsetScheduleViewGridBrowserSource'));
 assert('browser source loads navigation module', browserLoader.includes('getSunsetScheduleNavigationBrowserSource'));

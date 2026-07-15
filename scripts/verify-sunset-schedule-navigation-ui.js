@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const NAV_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
+const LOADER_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const VIEW_GRID_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-view-grid-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
@@ -40,6 +41,7 @@ console.log('\nverify:sunset-schedule-navigation-ui\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const modExists = fs.existsSync(NAV_MODULE);
 const modSrc = modExists ? fs.readFileSync(NAV_MODULE, 'utf8') : '';
+const loaderSrc = fs.existsSync(LOADER_MODULE) ? fs.readFileSync(LOADER_MODULE, 'utf8') : '';
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
 const MARKERS = [
@@ -54,6 +56,7 @@ const MARKERS = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-data-loader */',
 ];
 
 console.log('[1] Module files and injection order');
@@ -72,7 +75,8 @@ assert('inline var scheduleViewMode removed', !/var scheduleViewMode\s*=/.test(a
 assert('inline var scheduleForwardOffset removed', !/var scheduleForwardOffset\s*=/.test(apiSrc));
 assert('inline setScheduleView removed', !apiSrc.includes('function setScheduleView('));
 assert('inline scheduleOpenDayDetail removed', !apiSrc.includes('function scheduleOpenDayDetail('));
-assert('monolith keeps loadSchedulePage', apiSrc.includes('function loadSchedulePage('));
+assert('monolith keeps scheduleBuildLoadedViewModel', apiSrc.includes('function scheduleBuildLoadedViewModel('));
+assert('loader module defines loadSchedulePage', loaderSrc.includes('function loadSchedulePage('));
 assert('monolith keeps scheduleFormatRangeLabel', apiSrc.includes('function scheduleFormatRangeLabel('));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not render grids', !modSrc.includes('renderScheduleViewGrid') && !modSrc.includes('scheduleRenderForecastCardHtml'));
@@ -242,7 +246,7 @@ if (modExists) {
   const staleSnap = Object.assign({}, ctx.scheduleGetNavigationSnapshot(), { loadGen: finalGen - 2 });
   assert('older generation stale', staleSnap.loadGen < finalGen);
 
-  assert('monolith loader accepts snapshot', apiSrc.includes('loadSchedulePage(') && (apiSrc.includes('navSnapshot') || apiSrc.includes('snapshot')));
+  assert('loader accepts snapshot', loaderSrc.includes('loadSchedulePage(navSnapshot)'));
   assert('view grid uses navigation load gen', fs.readFileSync(VIEW_GRID_MODULE, 'utf8').includes('scheduleNavigationLoadGen'));
 }
 

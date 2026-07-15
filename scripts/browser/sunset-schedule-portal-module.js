@@ -11,7 +11,7 @@
  * scheduleEnsureRowId, scheduleBuildDisplayGroups, scheduleCloneDrawerCtx,
  * scheduleMountDrawerBody, scheduleReadCreatePayload, scheduleCreateSelectedDates,
  * schedulePopulateCreateCourseTierFields, closeScheduleCreateModal, loadSchedulePage,
- * scheduleRowsCache, scheduleResetNavigationAfterBookingCreate, scheduleRequestPageLoad, scheduleTodayIso,
+ * scheduleFindCachedRowByBookingCode, scheduleResetNavigationAfterBookingCreate, scheduleRequestPageLoad, scheduleTodayIso,
  * scheduleEnumerateDates, scheduleRefreshCreateFullDayAddon, scheduleUpdateFullDayAddonSummary.
  */
 
@@ -361,7 +361,7 @@ function submitScheduleManualBooking() {
     scheduleRequestPageLoad();
     if (createdCode) {
       setTimeout(function() {
-        var row = (scheduleRowsCache || []).find(function(r) { return r.booking_code === createdCode; });
+        var row = scheduleFindCachedRowByBookingCode(createdCode);
         if (row && typeof openScheduleDetailDrawer === 'function') openScheduleDetailDrawer(row);
       }, 800);
     }

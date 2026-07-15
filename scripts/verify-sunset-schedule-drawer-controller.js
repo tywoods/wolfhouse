@@ -89,8 +89,8 @@ console.log('[1] Module files and injection order');
 assert('controller module exists', ctrlExists);
 assert('controller inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('browser source loads controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver → delete → controller → day ops → forecast → view grid → navigation',
-  browserLoader.includes('SCHEDULE_NAVIGATION_INJECT_MARKER'));
+assert('inject chains portal → view → edit → payment → waiver → delete → controller → day ops → forecast → view grid → navigation → data loader',
+  browserLoader.includes('SCHEDULE_DATA_LOADER_INJECT_MARKER'));
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
   '/* INJECT:sunset-schedule-drawer-view-ui */',
@@ -103,6 +103,7 @@ const markers = [
   '/* INJECT:sunset-schedule-forecast-cards-ui */',
   '/* INJECT:sunset-schedule-view-grid-ui */',
   '/* INJECT:sunset-schedule-navigation-ui */',
+  '/* INJECT:sunset-schedule-data-loader */',
 ];
 let prev = -1;
 markers.forEach((m) => {

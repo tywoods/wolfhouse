@@ -27,6 +27,8 @@ const STAFF_API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const PORTAL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 const CTRL_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
 const DAY_OPS_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js');
+const NAV_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-navigation-ui.js');
+const LOADER_MODULE_PATH = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-data-loader.js');
 const I18N_PATH = path.join(ROOT, 'scripts', 'lib', 'staff-portal-i18n.js');
 
 const WOLFHOUSE_LODGING = /\b(bed|room|hostel|move-bed|wolfhouse)\b/i;
@@ -52,6 +54,10 @@ const STAFF_API_SYNTAX_MODULES = [
   'scripts/browser/sunset-schedule-drawer-delete-ui.js',
   'scripts/browser/sunset-schedule-drawer-controller.js',
   'scripts/browser/sunset-schedule-day-ops-board-ui.js',
+  'scripts/browser/sunset-schedule-forecast-cards-ui.js',
+  'scripts/browser/sunset-schedule-view-grid-ui.js',
+  'scripts/browser/sunset-schedule-navigation-ui.js',
+  'scripts/browser/sunset-schedule-data-loader.js',
 ];
 
 function assertJsSyntax(relPath) {
@@ -135,6 +141,8 @@ console.log('\n[4] staff-query-api.js — Slice 2A wiring markers');
 let apiSrc = '';
 let portalModSrc = '';
 let ctrlModSrc = '';
+let navModSrc = '';
+let loaderModSrc = '';
 if (fs.existsSync(STAFF_API_PATH)) {
   apiSrc = fs.readFileSync(STAFF_API_PATH, 'utf8');
   assert('portalT helper present', apiSrc.includes('function portalT('));
@@ -155,6 +163,12 @@ if (fs.existsSync(PORTAL_MODULE_PATH)) {
 }
 if (fs.existsSync(CTRL_MODULE_PATH)) {
   ctrlModSrc = fs.readFileSync(CTRL_MODULE_PATH, 'utf8');
+}
+if (fs.existsSync(NAV_MODULE_PATH)) {
+  navModSrc = fs.readFileSync(NAV_MODULE_PATH, 'utf8');
+}
+if (fs.existsSync(LOADER_MODULE_PATH)) {
+  loaderModSrc = fs.readFileSync(LOADER_MODULE_PATH, 'utf8');
 }
 const drawerOrchestrationSrc = apiSrc + ctrlModSrc;
 
@@ -340,7 +354,7 @@ if (apiSrc) {
   assert('nav Schedule tab label in i18n', i18nSrc.includes("'nav.tab.portalHome': 'Schedule'")
     || /nav\.tab\.portalHome['\"]:\s*['\"]Schedule/.test(i18nSrc));
   assert('SUNSET_SCHEDULE_LESSON_DAY_CAP constant', apiSrc.includes('SUNSET_SCHEDULE_LESSON_DAY_CAP = 24'));
-  assert('loadSchedulePage helper present', apiSrc.includes('function loadSchedulePage('));
+  assert('loadSchedulePage helper present', loaderModSrc.includes('function loadSchedulePage(') && apiSrc.includes('function scheduleBuildLoadedViewModel('));
   assert('schedule week grid present', apiSrc.includes('id="ps-week-grid"'));
   assert('schedule summary cards present', apiSrc.includes('id="ps-wetsuits-today"')
     && apiSrc.includes('id="ps-surfboards-today"') && apiSrc.includes('id="ps-need-reply-today"') && apiSrc.includes('id="ps-unpaid-glance"'));
@@ -663,8 +677,8 @@ if (apiSrc) {
   assert('lessons time rows with counts', apiSrc.includes('portal-schedule-lesson-time-row') && apiSrc.includes('portal-schedule-lesson-time-count'));
   assert('need reply split email/whatsapp', apiSrc.includes('function scheduleNeedReplyEmailCount(') && apiSrc.includes('function scheduleNeedReplyWhatsAppCount('));
   assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
-  assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && apiSrc.includes('function scheduleFetchNext30('));
-  assert('today-first forward range', apiSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
+  assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && loaderModSrc.includes('function scheduleFetchNext30('));
+  assert('today-first forward range', navModSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
   assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-course"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
   assert('create booking group lesson checkbox removed', !apiSrc.includes('id="ps-create-comp-lesson"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
@@ -964,6 +978,7 @@ if (apiSrc) {
   assert('schedule forecast cards module injected', apiSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
   assert('schedule view grid module injected', apiSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
   assert('schedule navigation module injected', apiSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
+  assert('schedule data loader module injected', apiSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
   const portalModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
   const portalModSrc = fs.existsSync(portalModPath) ? fs.readFileSync(portalModPath, 'utf8') : '';
   assert('scheduleDrawerCanLoadCanonical in portal module', portalModSrc.includes('function scheduleDrawerCanLoadCanonical('));

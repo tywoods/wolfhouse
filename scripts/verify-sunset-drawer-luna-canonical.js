@@ -135,6 +135,7 @@ assert('HEAD injects schedule day ops board module', headSrc.includes('/* INJECT
 assert('HEAD injects schedule forecast cards module', headSrc.includes('/* INJECT:sunset-schedule-forecast-cards-ui */'));
 assert('HEAD injects schedule view grid module', headSrc.includes('/* INJECT:sunset-schedule-view-grid-ui */'));
 assert('HEAD injects schedule navigation module', headSrc.includes('/* INJECT:sunset-schedule-navigation-ui */'));
+assert('HEAD injects schedule data loader module', headSrc.includes('/* INJECT:sunset-schedule-data-loader */'));
 assert('HEAD uses scheduleDrawerCanLoadCanonical in openScheduleDetailDrawer',
   /scheduleDrawerCanLoadCanonical\(row\)/.test(ctrlSrc));
 assert('HEAD server trusted attribution gate', drawerSrc.includes('function bundleHasTrustedScheduleDrawerAttribution'));

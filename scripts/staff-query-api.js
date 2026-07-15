@@ -18606,6 +18606,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-forecast-cards-ui */
 /* INJECT:sunset-schedule-view-grid-ui */
 /* INJECT:sunset-schedule-navigation-ui */
+/* INJECT:sunset-schedule-data-loader */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -20059,7 +20060,6 @@ function applyClientPortalProfile(clientSlug){
 
 
 var SUNSET_SCHEDULE_LESSON_DAY_CAP = 24;
-var scheduleRowsCache = [];
 var psPendingCreatePrefill = null;
 var scheduleFilter = 'all';
 var scheduleConversationsCache = [];
@@ -20437,57 +20437,39 @@ function scheduleNormalizeApiRow(r){
   return r;
 }
 
-function scheduleFetchDay(client, dateIso){
-  if (client === 'sunset') {
-    return fetch('/staff/schedule/day?client=sunset&date=' + encodeURIComponent(dateIso) + sunsetLocationQuerySuffix())
-      .then(function(r){ return r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)); })
-      .then(function(data){
-        var rows = (data && data.rows) || [];
-        rows.forEach(function(r){
-          scheduleNormalizeApiRow(r);
-          if (!r._scheduleType) {
-            if (scheduleRowIsCourse(r)) r._scheduleType = 'course';
-            else if (scheduleRowIsPrivateLesson(r)) r._scheduleType = 'private_lesson';
-            else if (/lesson|surf_lesson/.test(String(r.service_type || ''))) r._scheduleType = 'lesson';
-            else r._scheduleType = 'rental';
-          }
-          if (r.service_time_local && !r.service_time) r.service_time = r.service_time_local;
-          r.service_date = r.service_date || dateIso;
-        });
-        var lessons = rows.filter(function(r){ return r._scheduleType === 'lesson'; });
-        var gear = rows.filter(function(r){ return r._scheduleType === 'rental'; });
-        return { dateIso: dateIso, lessons: lessons, gear: gear, rows: rows };
-      });
+function scheduleBuildLoadedViewModel(weekData, convData, profile, rangeStart, navSnapshot){
+  scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
+  var rows = [];
+  (weekData || []).forEach(function(p){ rows = rows.concat(p.rows || []); });
+  rows.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
+  var demoRows = profile.demo_mode ? scheduleBuildDemoBookings(rangeStart) : [];
+  if (scheduleLessonTimesCache.length){
+    var demoSlots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
+    var demoLessonIdx = 0;
+    demoRows.forEach(function(r){
+      if (r._isDemo && scheduleRowType(r) === 'lesson' && demoSlots[demoLessonIdx]){
+        r.slot_time = scheduleNormalizeSlotTime(demoSlots[demoLessonIdx].slot_time);
+        demoLessonIdx += 1;
+      }
+    });
   }
-  var base = '/staff/query?client=' + encodeURIComponent(client) + '&date=' + encodeURIComponent(dateIso);
-  return Promise.all([
-    fetch(base + '&intent=services.lessons_today').then(function(r){ return r.json(); }),
-    fetch(base + '&intent=services.gear_today').then(function(r){ return r.json(); }),
-  ]).then(function(res){
-    var lessons = (res[0] && res[0].rows) || [];
-    var gear = (res[1] && res[1].rows) || [];
-    lessons.forEach(function(r){ r._scheduleType = 'lesson'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
-    gear.forEach(function(r){ r._scheduleType = 'rental'; r.service_date = r.service_date || dateIso; scheduleNormalizeApiRow(r); });
-    return { dateIso: dateIso, lessons: lessons, gear: gear, rows: lessons.concat(gear) };
-  });
+  weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
+  rows = rows.concat(demoRows);
+  return {
+    weekData: weekData,
+    rows: rows,
+    conversations: scheduleConversationsCache,
+    profile: profile,
+    rangeStart: rangeStart,
+    navSnapshot: navSnapshot,
+  };
 }
 
-function scheduleFetchWeek(client, weekStart){
-  var days = [];
-  for (var i = 0; i < 7; i++) days.push(scheduleAddDays(weekStart, i));
-  return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
+function scheduleRenderLoadedViewModel(viewModel, loadGen, navSnapshot){
+  if (!scheduleIsLoadActive(loadGen)) return;
+  renderScheduleSummary(viewModel.profile, viewModel.weekData, viewModel.conversations);
+  renderScheduleWeekGrid(viewModel.profile, viewModel.weekData, viewModel.rangeStart, loadGen, navSnapshot);
 }
-
-function scheduleFetchMonth(client, monthStart){
-  var end = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 0);
-  var days = [];
-  var cur = new Date(monthStart.getTime());
-  while (cur <= end){ days.push(new Date(cur.getTime())); cur.setDate(cur.getDate() + 1); }
-  return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
-}
-
-
-
 
 function scheduleRowMeta(row){
   if (!row) return {};
@@ -20744,7 +20726,7 @@ function scheduleBuildDisplayGroups(rows){
 function scheduleFindGroupForRow(row){
   if (!row) return null;
   if (!row.booking_id) return scheduleBuildDisplayGroups([row])[0] || null;
-  var peers = (scheduleRowsCache || []).filter(function(r){
+  var peers = (scheduleGetRowsSnapshot() || []).filter(function(r){
     return r.booking_id === row.booking_id && String(r.service_date || '').slice(0, 10) === String(row.service_date || '').slice(0, 10);
   });
   return scheduleBuildDisplayGroups(peers)[0] || scheduleBuildDisplayGroups([row])[0] || null;
@@ -20857,12 +20839,6 @@ function scheduleGroupIsStandaloneRental(group){
   if (!group || !group.components) return false;
   if (group.components.lesson || group.components.course) return false;
   return !!(group.components.surfboard || group.components.wetsuit);
-}
-
-function scheduleFetchNext30(client, startDate){
-  var days = [];
-  for (var i = 0; i < 30; i++) days.push(scheduleAddDays(startDate, i));
-  return Promise.all(days.map(function(d){ return scheduleFetchDay(client, scheduleIsoDate(d)); }));
 }
 
 function scheduleOnCreateComponentChange(changedId){
@@ -22340,10 +22316,6 @@ function scheduleRowBadge(row){
   return '';
 }
 
-function scheduleFindRowById(id){
-  if (!id) return null;
-  return (scheduleRowsCache || []).find(function(r){ return r._scheduleId === id; }) || null;
-}
 
 function scheduleNeedReplyCount(convs){
   return (convs || []).filter(conversationNeedsHuman).length;
@@ -22485,7 +22457,7 @@ function scheduleRenderHeatLegend(){
 
 function renderScheduleSummary(profile, weekData, convs){
   var activeIso = scheduleActiveDayIso();
-  var rows = scheduleRowsCache || [];
+  var rows = scheduleGetRowsSnapshot() || [];
   // Legacy card renderers — kept as no-ops for removed summary cards.
   scheduleRenderLessonsTodayBreakdown(rows, activeIso, scheduleLessonTimesCache);
   scheduleRenderCoursesTodayBreakdown(rows, activeIso, scheduleCoursesCache);
@@ -22572,7 +22544,7 @@ function scheduleRowNeedsAction(row){
 function renderScheduleBookingList(filter){
   var box = el('ps-booking-table');
   if (!box) return;
-  var rows = (scheduleRowsCache || []).slice();
+  var rows = scheduleGetRowsSnapshot();
   if (filter === 'lessons') rows = rows.filter(function(r){ return scheduleRowType(r) === 'lesson'; });
   else if (filter === 'rentals') rows = rows.filter(function(r){ return scheduleRowType(r) === 'rental'; });
   else if (filter === 'unpaid') rows = rows.filter(scheduleIsUnpaid);
@@ -22703,55 +22675,6 @@ function setScheduleFilter(mode){
     btn.classList.toggle('active', btn.getAttribute('data-ps-filter') === scheduleFilter);
   });
   renderScheduleBookingList(scheduleFilter);
-}
-
-function loadSchedulePage(navSnapshot){
-  if (!navSnapshot) return scheduleRequestPageLoad();
-  var client = getClient();
-  var profile = getPortalProfile(client);
-  if (!profile.is_surf_vertical) return;
-  renderScheduleSchoolContext();
-  var mode = navSnapshot.mode;
-  if (mode !== 'day' && mode !== 'week' && mode !== 'next30') mode = 'day';
-  var forwardOffset = Number(navSnapshot.forwardOffset);
-  if (!isFinite(forwardOffset) || forwardOffset < 0) forwardOffset = 0;
-  var loadGen = navSnapshot.loadGen != null ? navSnapshot.loadGen : scheduleNavigationLoadGen();
-  var state = el('ps-state');
-  if (state){ state.textContent = portalT('daySchedule.loading'); state.style.display = 'block'; }
-  var rangeStart = scheduleAddDays(scheduleParseIso(navSnapshot.todayIso || scheduleTodayIso()), forwardOffset);
-  var convP = fetch('/staff/conversations' + inboxClientQuery())
-    .then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
-  var configP = scheduleFetchLessonTimesConfig(client);
-  var dataP = mode === 'next30'
-    ? scheduleFetchNext30(client, rangeStart)
-    : scheduleFetchWeek(client, rangeStart);
-  return Promise.all([convP, dataP, configP]).then(function(results){
-    if (loadGen !== scheduleNavigationLoadGen()) return;
-    var convData = results[0];
-    var weekData = results[1];
-    scheduleConversationsCache = (convData && convData.success && convData.conversations) ? convData.conversations : [];
-    scheduleRowsCache = [];
-    (weekData || []).forEach(function(p){ scheduleRowsCache = scheduleRowsCache.concat(p.rows || []); });
-    scheduleRowsCache.forEach(function(r){ if (r._needsReply == null) r._needsReply = false; scheduleEnsureRowId(r); });
-    var demoRows = profile.demo_mode ? scheduleBuildDemoBookings(rangeStart) : [];
-    if (scheduleLessonTimesCache.length){
-      var demoSlots = scheduleUniqueConfiguredSlots(scheduleLessonTimesCache);
-      var demoLessonIdx = 0;
-      demoRows.forEach(function(r){
-        if (r._isDemo && scheduleRowType(r) === 'lesson' && demoSlots[demoLessonIdx]){
-          r.slot_time = scheduleNormalizeSlotTime(demoSlots[demoLessonIdx].slot_time);
-          demoLessonIdx += 1;
-        }
-      });
-    }
-    weekData = scheduleMergeRowsIntoWeekData(weekData, demoRows);
-    scheduleRowsCache = scheduleRowsCache.concat(demoRows);
-    renderScheduleSummary(profile, weekData, scheduleConversationsCache);
-    renderScheduleWeekGrid(profile, weekData, rangeStart, loadGen, navSnapshot);
-    if (state) state.style.display = 'none';
-  }).catch(function(e){
-    if (state){ state.textContent = portalT('daySchedule.error') + ' ' + e.message; state.className = 'state-msg error'; state.style.display = 'block'; }
-  });
 }
 
 function wireScheduleControls(){
