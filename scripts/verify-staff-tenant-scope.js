@@ -354,7 +354,9 @@ ok('E4 staff cash payment idempotency SELECT joins clients.slug',
   /api:booking_record_cash_payment[\s\S]*FROM payments p[\s\S]*INNER JOIN clients c[\s\S]*c\.slug = \$2/.test(staffApiSource)
   || /metadata->>'idempotency_key' = \$3[\s\S]*LIMIT 1/.test(staffApiSource));
 ok('E5 stripe webhook payment UPDATE includes client_id predicate',
-  (staffApiSource.match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 2);
+  ((fs.readFileSync(path.join(__dirname, 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+    .match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 1)
+  && ((staffApiSource.match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 1));
 ok('E6 staff payment link UPDATE includes client_id predicate',
   /staff_portal_stage849[\s\S]*WHERE id = \$5[\s\S]*AND client_id = \$6/.test(staffApiSource));
 

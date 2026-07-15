@@ -4,14 +4,38 @@
  * Shared Stripe payment-truth hold→confirmed promote policy.
  *
  * Used by POST /staff/stripe/webhook and stripe-payment-reconcile so the two
- * paths cannot drift. Invariant:
- *   Stripe-confirmed money is always persisted, but an expired hold (or an
- *   already-expired booking) must never silently promote/revive to confirmed.
+ * paths cannot drift.
  *
- * Expiry is decided from database time under a FOR UPDATE lock — never client clocks.
+ * Correct transaction boundary (caller owns BEGIN/COMMIT/ROLLBACK):
+ *   1. Lock booking (id + client_id) FOR UPDATE
+ *   2. Lock/reload payment (id + client_id) FOR UPDATE
+ *   3. If payment already paid → idempotent return (no second auto-send)
+ *   4. Sum completed payments scoped by client_id (exclude this payment)
+ *   5. Derive booking money totals under the locks
+ *   6. Decide promote / auto-confirmation from locked booking status + DB expiry
+ *   7. Apply payment / booking / guest writes
+ *
+ * Invariant: Stripe money is always persisted when valid; expired/terminal bookings
+ * never silently promote or revive; unknown non-bookable statuses fail closed for
+ * auto-confirmation.
  */
 
+const {
+  sumCompletedPaymentCentsForBooking,
+  deriveBookingPaymentState,
+} = require('./luna-booking-payment-totals');
+
 const PAYMENT_AFTER_HOLD_EXPIRY_META_KEY = 'payment_after_hold_expiry';
+const PAYMENT_ON_TERMINAL_BOOKING_META_KEY = 'payment_on_terminal_booking';
+
+/** Statuses that may still receive intentional payment confirmation. */
+const AUTO_CONFIRM_ELIGIBLE_STATUSES = new Set([
+  'confirmed',
+  'payment_pending',
+  'checked_in',
+]);
+
+const CANCELLED_STATUSES = new Set(['cancelled', 'canceled']);
 
 function coerceDbBool(value) {
   return value === true || value === 't' || value === 'true' || value === 1 || value === '1';
@@ -29,9 +53,18 @@ function buildPaymentAfterHoldExpiryMetadata(locked, reason) {
   };
 }
 
+function buildPaymentOnTerminalBookingMetadata(locked, reason) {
+  return {
+    [PAYMENT_ON_TERMINAL_BOOKING_META_KEY]: {
+      reason,
+      booking_status_at_payment: locked && locked.booking_status ? locked.booking_status : null,
+      policy: 'stripe_hold_promote_policy',
+    },
+  };
+}
+
 /**
  * Lock the booking row for payment-truth mutation. Scoped by trusted client_id.
- * @returns {Promise<object|null>}
  */
 async function lockBookingForStripePaymentTruth(pg, { bookingId, clientId }) {
   if (!pg || !bookingId || !clientId) return null;
@@ -39,12 +72,41 @@ async function lockBookingForStripePaymentTruth(pg, { bookingId, clientId }) {
     `SELECT id::text AS booking_id,
             status::text AS booking_status,
             hold_expires_at,
-            (hold_expires_at IS NOT NULL AND hold_expires_at < NOW()) AS hold_expired_by_db
+            (hold_expires_at IS NOT NULL AND hold_expires_at < NOW()) AS hold_expired_by_db,
+            total_amount_cents AS bk_total,
+            amount_paid_cents AS bk_amount_paid,
+            balance_due_cents AS bk_balance,
+            deposit_required_cents AS bk_deposit
        FROM bookings
       WHERE id = $1::uuid
         AND client_id = $2
       FOR UPDATE`,
     [bookingId, clientId],
+  );
+  return (res.rows && res.rows[0]) || null;
+}
+
+/**
+ * Lock/reload the target payment under the same transaction.
+ */
+async function lockPaymentForStripePaymentTruth(pg, { paymentId, clientId }) {
+  if (!pg || !paymentId || !clientId) return null;
+  const res = await pg.query(
+    `SELECT id::text AS payment_id,
+            booking_id::text AS booking_id,
+            client_id::text AS client_id,
+            booking_guest_id::text AS booking_guest_id,
+            status::text AS payment_status,
+            payment_kind::text AS payment_kind,
+            currency,
+            amount_due_cents,
+            amount_paid_cents AS pm_amount_paid,
+            stripe_checkout_session_id
+       FROM payments
+      WHERE id = $1::uuid
+        AND client_id = $2
+      FOR UPDATE`,
+    [paymentId, clientId],
   );
   return (res.rows && res.rows[0]) || null;
 }
@@ -60,6 +122,7 @@ function decideStripeHoldPromote(locked, money) {
     return {
       promote_to_confirmed: false,
       payment_after_hold_expiry: false,
+      payment_on_terminal_booking: false,
       allow_auto_confirmation: false,
       reason: 'booking_lock_miss',
       fail_closed: true,
@@ -69,10 +132,23 @@ function decideStripeHoldPromote(locked, money) {
 
   const status = String(locked.booking_status || '');
 
+  if (CANCELLED_STATUSES.has(status)) {
+    return {
+      promote_to_confirmed: false,
+      payment_after_hold_expiry: false,
+      payment_on_terminal_booking: true,
+      allow_auto_confirmation: false,
+      reason: 'booking_cancelled',
+      fail_closed: false,
+      metadata_patch: buildPaymentOnTerminalBookingMetadata(locked, 'cancelled'),
+    };
+  }
+
   if (status === 'expired') {
     return {
       promote_to_confirmed: false,
       payment_after_hold_expiry: true,
+      payment_on_terminal_booking: true,
       allow_auto_confirmation: false,
       reason: 'booking_already_expired',
       fail_closed: false,
@@ -85,6 +161,7 @@ function decideStripeHoldPromote(locked, money) {
       return {
         promote_to_confirmed: false,
         payment_after_hold_expiry: true,
+        payment_on_terminal_booking: false,
         allow_auto_confirmation: false,
         reason: 'hold_expired',
         fail_closed: false,
@@ -94,6 +171,7 @@ function decideStripeHoldPromote(locked, money) {
     return {
       promote_to_confirmed: moneyOk,
       payment_after_hold_expiry: false,
+      payment_on_terminal_booking: false,
       allow_auto_confirmation: moneyOk,
       reason: moneyOk ? 'hold_promote_ok' : 'hold_money_not_promoting',
       fail_closed: false,
@@ -101,36 +179,55 @@ function decideStripeHoldPromote(locked, money) {
     };
   }
 
-  // confirmed / payment_pending / cancelled / checked_in / etc. — preserve non-hold status
+  if (AUTO_CONFIRM_ELIGIBLE_STATUSES.has(status)) {
+    return {
+      promote_to_confirmed: false,
+      payment_after_hold_expiry: false,
+      payment_on_terminal_booking: false,
+      allow_auto_confirmation: moneyOk,
+      reason: 'non_hold_preserve',
+      fail_closed: false,
+      metadata_patch: null,
+    };
+  }
+
+  // Unknown / non-bookable (needs_review, blocked, …): record money, never auto-confirm,
+  // never change terminal/non-bookable status.
   return {
     promote_to_confirmed: false,
     payment_after_hold_expiry: false,
-    allow_auto_confirmation: moneyOk,
-    reason: 'non_hold_preserve',
+    payment_on_terminal_booking: true,
+    allow_auto_confirmation: false,
+    reason: 'non_bookable_status',
     fail_closed: false,
-    metadata_patch: null,
+    metadata_patch: buildPaymentOnTerminalBookingMetadata(locked, 'non_bookable_status'),
   };
 }
 
 /**
  * Apply payment + booking (+ optional booking_guest) truth under an already-open
- * transaction. Caller owns BEGIN/COMMIT/ROLLBACK.
+ * transaction. Caller owns BEGIN/COMMIT/ROLLBACK and must BEGIN before calling.
  *
- * @param {object} pg
- * @param {object} opts
- * @param {object} opts.pm — payment lookup row (must include payment_id, booking_id, client_id)
+ * Derivation of money totals happens ONLY after booking + payment locks are held.
+ *
+ * @param {object} opts.pm — payment lookup row (payment_id, booking_id, client_id, …)
  * @param {object} opts.session — Stripe Checkout Session
- * @param {object} opts.paymentMetadataPatch — merged into payments.metadata
- * @param {{ newPmPaidCents, newBkPaid, newBkBalance, newBkPayStatus }} opts.money
- * @param {object} [opts.bookingMetaMerge]
- * @param {(pg: object) => Promise<{ bookingMetaMerge?: object }|null|void>} [opts.afterPaymentPaid]
+ * @param {number} opts.stripePaidCents — session amount (raw); reconcile may pass capped
+ * @param {boolean} [opts.capStripeToRemaining=false] — reconcile path caps to remaining due
+ * @param {object} opts.paymentMetadataPatch
+ * @param {(ctx) => object|null|Promise<object|null>} [opts.buildBookingMetaMerge]
+ * @param {(pg) => Promise<{bookingMetaMerge?: object}|null|void>} [opts.afterPaymentPaid]
  */
 async function applyStripeBookingPaymentTruthWrites(pg, opts) {
   const pm = opts && opts.pm;
   const session = (opts && opts.session) || {};
-  const money = (opts && opts.money) || {};
   const paymentMetadataPatch = (opts && opts.paymentMetadataPatch) || {};
-  const bookingMetaMerge = Object.assign({}, (opts && opts.bookingMetaMerge) || {});
+  const rawStripePaid = Number(
+    opts && opts.stripePaidCents != null
+      ? opts.stripePaidCents
+      : (session.amount_total || (pm && pm.amount_due_cents) || 0),
+  );
+  const capStripeToRemaining = !!(opts && opts.capStripeToRemaining);
 
   if (!pm || !pm.payment_id || !pm.booking_id || !pm.client_id) {
     const err = new Error('payment_truth_inputs_incomplete');
@@ -148,6 +245,76 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
+  const lockedPayment = await lockPaymentForStripePaymentTruth(pg, {
+    paymentId: pm.payment_id,
+    clientId: pm.client_id,
+  });
+  if (!lockedPayment) {
+    const err = new Error('payment_lock_miss');
+    err.code = 'payment_lock_miss';
+    throw err;
+  }
+
+  if (lockedPayment.payment_status === 'paid') {
+    return {
+      ok: true,
+      already_paid: true,
+      idempotent: true,
+      decision: {
+        promote_to_confirmed: false,
+        payment_after_hold_expiry: false,
+        payment_on_terminal_booking: false,
+        allow_auto_confirmation: false,
+        reason: 'already_paid_under_lock',
+        fail_closed: false,
+        metadata_patch: null,
+      },
+      locked,
+      lockedPayment,
+      money: null,
+    };
+  }
+
+  if (String(lockedPayment.booking_id) !== String(pm.booking_id)) {
+    const err = new Error('payment_booking_mismatch');
+    err.code = 'payment_booking_mismatch';
+    throw err;
+  }
+
+  const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(
+    pg,
+    pm.booking_id,
+    pm.payment_id,
+    pm.client_id,
+  );
+
+  const bkTotal = locked.bk_total != null ? locked.bk_total : pm.bk_total;
+  const paymentKind = lockedPayment.payment_kind || pm.payment_kind;
+  const amountDueCents = lockedPayment.amount_due_cents != null
+    ? lockedPayment.amount_due_cents
+    : pm.amount_due_cents;
+
+  let stripePaidCents = rawStripePaid;
+  if (capStripeToRemaining) {
+    const bookingTotal = Number(bkTotal || 0);
+    const remaining = Math.max(bookingTotal - Number(prevCompletedPaid || 0), 0);
+    stripePaidCents = Math.min(stripePaidCents, remaining);
+  }
+
+  const derived = deriveBookingPaymentState({
+    bkTotal,
+    prevCompletedPaidCents: prevCompletedPaid,
+    stripePaidCents,
+    paymentKind,
+    amountDueCents,
+  });
+  const money = {
+    newPmPaidCents: derived.newPmPaidCents,
+    newBkPaid: derived.newBkPaid,
+    newBkBalance: derived.newBkBalance,
+    newBkPayStatus: derived.newBkPayStatus,
+  };
+
   const decision = decideStripeHoldPromote(locked, { newBkPayStatus: money.newBkPayStatus });
   if (decision.fail_closed) {
     const err = new Error(decision.reason);
@@ -155,10 +322,21 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
+  const bookingMetaMerge = {};
+  if (typeof opts.buildBookingMetaMerge === 'function') {
+    const built = await opts.buildBookingMetaMerge({
+      money,
+      decision,
+      locked,
+      lockedPayment,
+      pm,
+    });
+    if (built && typeof built === 'object') Object.assign(bookingMetaMerge, built);
+  }
   if (decision.metadata_patch) {
     Object.assign(bookingMetaMerge, decision.metadata_patch);
   }
-  if (decision.payment_after_hold_expiry) {
+  if (decision.payment_after_hold_expiry || decision.payment_on_terminal_booking) {
     delete bookingMetaMerge.confirmation_draft;
   }
 
@@ -242,7 +420,8 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
-  if (pm.booking_guest_id) {
+  const guestId = lockedPayment.booking_guest_id || pm.booking_guest_id;
+  if (guestId) {
     const gUpd = await pg.query(
       `UPDATE booking_guests
            SET amount_paid_cents = $1,
@@ -251,7 +430,7 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
          WHERE id = $2::uuid
            AND client_id = $3
            AND booking_id = $4::uuid`,
-      [money.newPmPaidCents, pm.booking_guest_id, pm.client_id, pm.booking_id],
+      [money.newPmPaidCents, guestId, pm.client_id, pm.booking_id],
     );
     if (!gUpd.rowCount) {
       const err = new Error('booking_guest_update_client_scope_miss');
@@ -262,16 +441,26 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
 
   return {
     ok: true,
+    already_paid: false,
+    idempotent: false,
     decision,
     locked,
+    lockedPayment,
+    money,
+    prevCompletedPaidCents: prevCompletedPaid,
   };
 }
 
 module.exports = {
   PAYMENT_AFTER_HOLD_EXPIRY_META_KEY,
+  PAYMENT_ON_TERMINAL_BOOKING_META_KEY,
+  AUTO_CONFIRM_ELIGIBLE_STATUSES,
+  CANCELLED_STATUSES,
   coerceDbBool,
   buildPaymentAfterHoldExpiryMetadata,
+  buildPaymentOnTerminalBookingMetadata,
   lockBookingForStripePaymentTruth,
+  lockPaymentForStripePaymentTruth,
   decideStripeHoldPromote,
   applyStripeBookingPaymentTruthWrites,
 };

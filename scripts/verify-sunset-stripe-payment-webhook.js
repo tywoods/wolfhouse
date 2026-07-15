@@ -48,8 +48,16 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('async_payment_succeeded supported', fs.readFileSync(TRUTH_PATH, 'utf8').includes("'checkout.session.async_payment_succeeded'"));
   assert('lookupPaymentForStripeSession helper wired', apiSrc.includes('lookupPaymentForStripeSession(pg, session)'));
   assert('validateStripeBookingPaymentEvent wired', apiSrc.includes('validateStripeBookingPaymentEvent(pm, session, eventType)'));
-  assert('amountDueCents passed to derive', apiSrc.includes('amountDueCents: pm.amount_due_cents'));
+  assert('amountDueCents passed to derive',
+    apiSrc.includes('amountDueCents: pm.amount_due_cents')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+      .includes('amountDueCents')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-booking-payment-totals.js'), 'utf8')
+      .includes('amountDueCents'));
   assert('idempotent already-paid branch', apiSrc.includes("pm.payment_status === 'paid'"));
+  assert('under-lock already_paid idempotent path', apiSrc.includes('already_paid') && apiSrc.includes('under_lock'));
+  assert('BEGIN before payment-truth apply',
+    /await pg\.query\('BEGIN'\)[\s\S]{0,400}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('client_id predicate on payment UPDATE',
     apiSrc.includes('AND client_id = $5')
     || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8').includes('AND client_id = $5'));

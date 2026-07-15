@@ -688,10 +688,6 @@ const {
   runGuestStripeTestLinkCreateApproved,
 } = require('./lib/luna-guest-stripe-test-link-create');
 const {
-  sumCompletedPaymentCentsForBooking,
-  deriveBookingPaymentState,
-} = require('./lib/luna-booking-payment-totals');
-const {
   STRIPE_BOOKING_PAYMENT_EVENT_TYPES,
   lookupPaymentForStripeSession,
   validateStripeBookingPaymentEvent,
@@ -13798,40 +13794,23 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 7–9. Derive amounts + shared hold-promote payment truth apply ──────────
+  // ── 7–9. Shared payment-truth apply (BEGIN → locks → derive → writes) ──────
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   let newPmPaidCents;
   let newBkPaid;
   let newBkBalance;
   let newBkPayStatus;
-  let confirmationDraft;
+  let confirmationDraft = null;
   let paymentTruthResult = null;
 
   try {
     await withPgClient(async (pg) => {
-      const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
-      const derived = deriveBookingPaymentState({
-        bkTotal: pm.bk_total,
-        prevCompletedPaidCents: prevCompletedPaid,
-        stripePaidCents,
-        paymentKind: pm.payment_kind,
-        amountDueCents: pm.amount_due_cents,
-      });
-      newPmPaidCents = derived.newPmPaidCents;
-      newBkPaid = derived.newBkPaid;
-      newBkBalance = derived.newBkBalance;
-      newBkPayStatus = derived.newBkPayStatus;
-      confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
-      const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, newBkPayStatus);
-      const bookingMetaMerge = {};
-      if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
-      if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-
       await pg.query('BEGIN');
       try {
         paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
           pm,
           session,
+          stripePaidCents,
           paymentMetadataPatch: {
             stripe_event_id:   event.id,
             stripe_event_type: event.type,
@@ -13840,13 +13819,21 @@ async function handleStripeWebhook(req, res) {
             skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
             source:            'staff_portal_webhook_stage8411',
           },
-          money: {
-            newPmPaidCents,
-            newBkPaid,
-            newBkBalance,
-            newBkPayStatus,
+          buildBookingMetaMerge: ({ money, decision }) => {
+            const merge = {};
+            if (decision.allow_auto_confirmation) {
+              const draft = buildPaymentConfirmationDraft(
+                pm,
+                money.newBkPayStatus,
+                money.newBkPaid,
+                money.newBkBalance,
+              );
+              if (draft) merge.confirmation_draft = draft;
+            }
+            const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
+            if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
+            return merge;
           },
-          bookingMetaMerge,
         });
         await pg.query('COMMIT');
       } catch (e) {
@@ -13862,10 +13849,48 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
   }
 
+  if (paymentTruthResult && paymentTruthResult.already_paid) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
+      category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
+      under_lock: true,
+    });
+    return sendJSON(res, 200, {
+      success:                   true,
+      idempotent:                true,
+      event_type:                eventType,
+      payment_id:                pm.payment_id,
+      booking_id:                pm.booking_id,
+      booking_code:              pm.booking_code,
+      amount_paid_cents:         Number(pm.pm_amount_paid || 0),
+      booking_amount_paid_cents: Number(pm.bk_amount_paid || 0),
+      booking_balance_due_cents: Number(pm.bk_balance    || 0),
+      payment_status:            'paid',
+      no_whatsapp:               true,
+      no_confirmation_sent:      true,
+      message:                   'Payment already marked paid under lock (idempotent — no double-count / no second auto-send)',
+    });
+  }
+
+  const money = paymentTruthResult && paymentTruthResult.money;
+  newPmPaidCents = money ? money.newPmPaidCents : null;
+  newBkPaid = money ? money.newBkPaid : null;
+  newBkBalance = money ? money.newBkBalance : null;
+  newBkPayStatus = money ? money.newBkPayStatus : null;
+  if (
+    paymentTruthResult
+    && paymentTruthResult.decision
+    && paymentTruthResult.decision.allow_auto_confirmation
+    && money
+  ) {
+    confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
+  }
+
   const holdPromoteDecision = paymentTruthResult && paymentTruthResult.decision
     ? paymentTruthResult.decision
     : null;
   const paymentAfterHoldExpiry = !!(holdPromoteDecision && holdPromoteDecision.payment_after_hold_expiry);
+  const paymentOnTerminalBooking = !!(holdPromoteDecision && holdPromoteDecision.payment_on_terminal_booking);
   const allowAutoConfirmation = !!(holdPromoteDecision && holdPromoteDecision.allow_auto_confirmation);
 
   let confirmationAutoSend = null;
@@ -13896,6 +13921,12 @@ async function handleStripeWebhook(req, res) {
       skipped: true,
       skip_reason: 'payment_after_hold_expiry',
     };
+  } else if (paymentOnTerminalBooking) {
+    confirmationAutoSend = {
+      attempted: false,
+      skipped: true,
+      skip_reason: 'payment_on_terminal_booking',
+    };
   }
 
   const confirmationSent = confirmationAutoSend && confirmationAutoSend.confirmation_sent === true;
@@ -13910,6 +13941,7 @@ async function handleStripeWebhook(req, res) {
     n8n_called: false, email_sent: false,
     confirmation_auto_send: confirmationAutoSend,
     payment_after_hold_expiry: paymentAfterHoldExpiry,
+    payment_on_terminal_booking: paymentOnTerminalBooking,
     hold_promote_reason: holdPromoteDecision ? holdPromoteDecision.reason : null,
   });
 
@@ -13926,6 +13958,7 @@ async function handleStripeWebhook(req, res) {
     booking_balance_due_cents: newBkBalance,
     payment_status:            newBkPayStatus,
     payment_after_hold_expiry: paymentAfterHoldExpiry,
+    payment_on_terminal_booking: paymentOnTerminalBooking,
     hold_promote_reason:       holdPromoteDecision ? holdPromoteDecision.reason : null,
     hold_promoted_to_confirmed: !!(holdPromoteDecision && holdPromoteDecision.promote_to_confirmed),
     no_whatsapp:               !confirmationSent,
@@ -13933,7 +13966,7 @@ async function handleStripeWebhook(req, res) {
     no_n8n:                    true,
     no_confirmation_sent:      !confirmationSent,
     confirmation_auto_send:    confirmationAutoSend,
-    confirmation_draft:        paymentAfterHoldExpiry ? null : confirmationDraft,
+    confirmation_draft:        (paymentAfterHoldExpiry || paymentOnTerminalBooking) ? null : confirmationDraft,
     elapsed_ms:                elapsed,
   });
 }

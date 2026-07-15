@@ -7,11 +7,23 @@
 
 const COMPLETED_PAYMENT_ROW_STATUSES = Object.freeze(['paid']);
 
-async function sumCompletedPaymentCentsForBooking(pg, bookingId, excludePaymentId = null) {
+async function sumCompletedPaymentCentsForBooking(pg, bookingId, excludePaymentId = null, clientId = null) {
   if (!pg || typeof pg.query !== 'function') {
     throw new Error('pg client required');
   }
   if (!bookingId) return 0;
+  if (clientId) {
+    const r = await pg.query(
+      `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
+         FROM payments
+        WHERE booking_id = $1::uuid
+          AND client_id = $3
+          AND status = 'paid'::payment_record_status
+          AND ($2::uuid IS NULL OR id <> $2::uuid)`,
+      [bookingId, excludePaymentId || null, clientId],
+    );
+    return Number(r.rows[0]?.total || 0);
+  }
   const r = await pg.query(
     `SELECT COALESCE(SUM(amount_paid_cents), 0)::int AS total
        FROM payments

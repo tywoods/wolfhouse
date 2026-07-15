@@ -23,10 +23,7 @@ const {
 const {
   applyStripeBookingPaymentTruthWrites,
 } = require('./stripe-hold-promote-policy');
-const {
-  sumCompletedPaymentCentsForBooking,
-  deriveBookingPaymentState,
-} = require('./luna-booking-payment-totals');
+// Money math lives inside applyStripeBookingPaymentTruthWrites (under locks).
 
 // Payment ledger statuses still awaiting Stripe truth (mirror of the webhook's
 // ELIGIBLE_PAYMENT_LEDGER_STATUSES; 'paid' rows are already settled).
@@ -109,25 +106,6 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   }
 
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
-  const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
-  const bookingTotal = Number(pm.bk_total || 0);
-  const alreadyPaid = Number(prevCompletedPaid || 0);
-  const remaining = Math.max(bookingTotal - alreadyPaid, 0);
-  const cappedStripePaidCents = Math.min(stripePaidCents, remaining);
-  const derived = deriveBookingPaymentState({
-    bkTotal: pm.bk_total,
-    prevCompletedPaidCents: prevCompletedPaid,
-    stripePaidCents: cappedStripePaidCents,
-    paymentKind: pm.payment_kind,
-    amountDueCents: pm.amount_due_cents,
-  });
-  const { newPmPaidCents, newBkPaid, newBkBalance, newBkPayStatus } = derived;
-
-  const confirmationDraft = buildReconcileConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
-  const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, newBkPayStatus);
-  const bookingMetaMerge = {};
-  if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
-  if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
   let duplicateDiagnostic = null;
   let paymentTruthResult = null;
 
@@ -136,6 +114,8 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
       pm,
       session,
+      stripePaidCents,
+      capStripeToRemaining: true,
       paymentMetadataPatch: {
         stripe_event_id: meta.eventId || null,
         stripe_event_type: eventType,
@@ -143,13 +123,21 @@ async function reconcilePaidStripeSession(pg, session, meta) {
         stripe_livemode: meta.livemode || false,
         source: 'stripe_api_reconcile',
       },
-      money: {
-        newPmPaidCents,
-        newBkPaid,
-        newBkBalance,
-        newBkPayStatus,
+      buildBookingMetaMerge: ({ money, decision }) => {
+        const merge = {};
+        if (decision.allow_auto_confirmation) {
+          const draft = buildReconcileConfirmationDraft(
+            pm,
+            money.newBkPayStatus,
+            money.newBkPaid,
+            money.newBkBalance,
+          );
+          if (draft) merge.confirmation_draft = draft;
+        }
+        const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
+        if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
+        return merge;
       },
-      bookingMetaMerge,
       afterPaymentPaid: async (pgInner) => {
         const duplicateCheck = await listDuplicatePaidFullPaymentSessions(
           pgInner,
@@ -173,6 +161,18 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     throw e;
   }
 
+  if (paymentTruthResult && paymentTruthResult.already_paid) {
+    return {
+      ok: true,
+      reconciled: false,
+      reason: 'already_paid',
+      payment_id: pm.payment_id,
+      no_whatsapp: true,
+      no_confirmation_sent: true,
+    };
+  }
+
+  const money = paymentTruthResult && paymentTruthResult.money;
   const decision = paymentTruthResult && paymentTruthResult.decision;
   return {
     ok: true,
@@ -180,10 +180,11 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     payment_id: pm.payment_id,
     booking_id: pm.booking_id,
     booking_code: pm.booking_code,
-    new_bk_payment_status: newBkPayStatus,
-    amount_paid_cents: newPmPaidCents,
+    new_bk_payment_status: money ? money.newBkPayStatus : null,
+    amount_paid_cents: money ? money.newPmPaidCents : null,
     duplicate_full_payment_diagnostic: duplicateDiagnostic,
     payment_after_hold_expiry: !!(decision && decision.payment_after_hold_expiry),
+    payment_on_terminal_booking: !!(decision && decision.payment_on_terminal_booking),
     hold_promote_reason: decision ? decision.reason : null,
     hold_promoted_to_confirmed: !!(decision && decision.promote_to_confirmed),
     no_whatsapp: true,

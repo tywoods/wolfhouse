@@ -54,17 +54,50 @@ function buildReconcilePg(pm, booking) {
             booking_status: state.booking.status || 'confirmed',
             hold_expires_at: state.booking.hold_expires_at || null,
             hold_expired_by_db: !!state.booking.hold_expired_by_db,
+            bk_total: state.booking.bk_total != null ? state.booking.bk_total : (state.pm.bk_total || 4500),
+            bk_amount_paid: state.booking.amount_paid_cents || 0,
+            bk_balance: state.booking.balance_due_cents != null ? state.booking.balance_due_cents : 4500,
+            bk_deposit: state.pm.bk_deposit || 0,
           }],
         };
       }
+      if (/FROM payments[\s\S]*FOR UPDATE/i.test(q)) {
+        const paymentId = params[0];
+        const clientId = params[1];
+        if (state.pm.payment_id !== paymentId || state.pm.client_id !== clientId) {
+          return { rows: [], rowCount: 0 };
+        }
+        return {
+          rowCount: 1,
+          rows: [{
+            payment_id: state.pm.payment_id,
+            booking_id: state.pm.booking_id,
+            client_id: state.pm.client_id,
+            booking_guest_id: state.pm.booking_guest_id || null,
+            payment_status: state.pm.payment_status,
+            payment_kind: state.pm.payment_kind,
+            currency: state.pm.currency || 'EUR',
+            amount_due_cents: state.pm.amount_due_cents,
+            pm_amount_paid: state.pm.amount_paid_cents || 0,
+            stripe_checkout_session_id: state.pm.stripe_checkout_session_id || null,
+          }],
+        };
+      }
+      if (/COALESCE\(SUM\(amount_paid_cents\)/i.test(q) || /sum\(amount_paid_cents\)/i.test(q)) {
+        return { rows: [{ total: 0 }], rowCount: 1 };
+      }
       if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
-        return state.pm.stripe_checkout_session_id === params[0] ? { rows: [state.pm], rowCount: 1 } : { rows: [], rowCount: 0 };
+        return state.pm.stripe_checkout_session_id === params[0]
+          ? { rows: [state.pm], rowCount: 1 }
+          : { rows: [], rowCount: 0 };
       }
       if (/SELECT p\.stripe_checkout_session_id AS sid/i.test(q)) {
         if (state.pm.payment_status === 'paid') return { rows: [], rowCount: 0 };
-        return { rows: [{ sid: state.pm.stripe_checkout_session_id, payment_id: state.pm.payment_id }], rowCount: 1 };
+        return {
+          rows: [{ sid: state.pm.stripe_checkout_session_id, payment_id: state.pm.payment_id }],
+          rowCount: 1,
+        };
       }
-      if (/sum\(amount_paid_cents\)/i.test(q)) return { rows: [{ total: 0 }], rowCount: 1 };
       if (/SELECT DISTINCT stripe_checkout_session_id/i.test(q)) {
         return { rows: [], rowCount: 0 };
       }
@@ -189,6 +222,29 @@ console.log('[1] reconcilePaidStripeSession marks paid');
               booking_status: booking.status,
               hold_expires_at: null,
               hold_expired_by_db: false,
+              bk_total: pendingPm.bk_total || 4500,
+              bk_amount_paid: booking.amount_paid_cents || 0,
+              bk_balance: booking.balance_due_cents || 0,
+              bk_deposit: 0,
+            }],
+          };
+        }
+        if (/FROM payments[\s\S]*FOR UPDATE/i.test(q)) {
+          const hit = payments.find((p) => p.payment_id === params[0] && p.client_id === params[1]);
+          if (!hit) return { rows: [], rowCount: 0 };
+          return {
+            rowCount: 1,
+            rows: [{
+              payment_id: hit.payment_id,
+              booking_id: hit.booking_id,
+              client_id: hit.client_id,
+              booking_guest_id: hit.booking_guest_id || null,
+              payment_status: hit.payment_status || hit.status,
+              payment_kind: hit.payment_kind,
+              currency: hit.currency || 'EUR',
+              amount_due_cents: hit.amount_due_cents,
+              pm_amount_paid: hit.amount_paid_cents || 0,
+              stripe_checkout_session_id: hit.stripe_checkout_session_id || null,
             }],
           };
         }
@@ -196,7 +252,7 @@ console.log('[1] reconcilePaidStripeSession marks paid');
           const hit = payments.find((p) => p.stripe_checkout_session_id === params[0]);
           return hit ? { rows: [hit], rowCount: 1 } : { rows: [], rowCount: 0 };
         }
-        if (/sum\(amount_paid_cents\)/i.test(q)) {
+        if (/COALESCE\(SUM\(amount_paid_cents\)/i.test(q) || /sum\(amount_paid_cents\)/i.test(q)) {
           return { rows: [{ total: Number(existingPaid.amount_paid_cents || 0) }], rowCount: 1 };
         }
         if (/SELECT DISTINCT stripe_checkout_session_id/i.test(q)) {
