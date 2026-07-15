@@ -85,6 +85,7 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-delete-ui */',
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
+  '/* INJECT:sunset-schedule-forecast-cards-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {

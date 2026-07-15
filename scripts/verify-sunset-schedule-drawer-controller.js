@@ -89,8 +89,8 @@ console.log('[1] Module files and injection order');
 assert('controller module exists', ctrlExists);
 assert('controller inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('browser source loads controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver → delete → controller → day ops',
-  browserLoader.includes('SCHEDULE_DAY_OPS_BOARD_INJECT_MARKER'));
+assert('inject chains portal → view → edit → payment → waiver → delete → controller → day ops → forecast',
+  browserLoader.includes('SCHEDULE_FORECAST_CARDS_INJECT_MARKER'));
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
   '/* INJECT:sunset-schedule-drawer-view-ui */',
@@ -100,6 +100,7 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-delete-ui */',
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
+  '/* INJECT:sunset-schedule-forecast-cards-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {
@@ -233,7 +234,7 @@ if (ctrlExists) {
 
   vm.createContext(ctx);
   vm.runInContext(`${ctrlSrc}
-function scheduleWireOpsBoardClicks(container){
+function scheduleWireDayOpsBoardRows(container){
   container.querySelectorAll('[data-ps-booking-id]').forEach(function(node){
     node.addEventListener('click', function(){
       var id = node.getAttribute('data-ps-booking-id');
@@ -308,7 +309,7 @@ scheduleWireViewDrawer = function(row, ctx){
     getAttribute: () => staffRow._scheduleId,
     addEventListener: (_, fn) => { chip._fn = fn; },
   };
-  ctx.scheduleWireOpsBoardClicks({ querySelectorAll: () => [chip] });
+  ctx.scheduleWireDayOpsBoardRows({ querySelectorAll: () => [chip] });
   fetchHandler = () => makeThenable({ success: true, booking_id: staffRow.booking_id, guest_name: 'Chip Guest', payment: {} });
   chip._fn({ stopPropagation: () => {}, target: chip, currentTarget: chip });
   assert('chip click reaches controller without window globals', dom['ps-drawer-body'].innerHTML.includes('Chip Guest') && typeof global.openScheduleDetailDrawer === 'undefined');

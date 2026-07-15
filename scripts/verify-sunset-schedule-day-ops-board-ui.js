@@ -21,6 +21,7 @@ const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const DAY_OPS_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-day-ops-board-ui.js');
 const CTRL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+const FORECAST_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-forecast-cards-ui.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
 let pass = 0;
@@ -78,6 +79,7 @@ console.log('\nverify:sunset-schedule-day-ops-board-ui\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const modExists = fs.existsSync(DAY_OPS_MODULE);
 const modSrc = modExists ? fs.readFileSync(DAY_OPS_MODULE, 'utf8') : '';
+const forecastSrc = fs.existsSync(FORECAST_MODULE) ? fs.readFileSync(FORECAST_MODULE, 'utf8') : '';
 const ctrlSrc = fs.readFileSync(CTRL_MODULE, 'utf8');
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
@@ -94,6 +96,7 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-delete-ui */',
   '/* INJECT:sunset-schedule-drawer-controller */',
   '/* INJECT:sunset-schedule-day-ops-board-ui */',
+  '/* INJECT:sunset-schedule-forecast-cards-ui */',
 ];
 let prev = -1;
 markers.forEach((m) => {
@@ -106,7 +109,8 @@ markers.forEach((m) => {
 assert('inline scheduleRenderOpsBoard removed', !apiSrc.includes('function scheduleRenderOpsBoard('));
 assert('inline scheduleRenderOpsBookingRow removed', !apiSrc.includes('function scheduleRenderOpsBookingRow('));
 assert('inline scheduleWireDayOpsBoardRows removed from monolith', !apiSrc.includes('function scheduleWireDayOpsBoardRows('));
-assert('monolith keeps week day-open wiring', apiSrc.includes('function scheduleWireOpsBoardClicks('));
+assert('monolith keeps forecast card presentation builder', apiSrc.includes('function scheduleBuildForecastCardPresentation('));
+assert('forecast cards module owns day-open wiring', forecastSrc.includes('function scheduleWireForecastCardNavigation('));
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not expose window', !/window\.(schedule|openSchedule)/.test(modSrc));
 assert('controller still owns openScheduleDetailDrawer', ctrlSrc.includes('function openScheduleDetailDrawer('));

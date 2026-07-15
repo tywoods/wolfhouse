@@ -125,7 +125,7 @@ assert('marker order delete < controller', markerIdxCtrl > markerIdxDelete);
 assert('mount orchestration in controller module', ctrlModSrc.includes('function scheduleMountDrawerBody('));
 assert('edit module calls delete wire hook', editModSrc.includes('scheduleWireDrawerDeleteBooking'));
 
-const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui *//* INJECT:sunset-schedule-drawer-delete-ui *//* INJECT:sunset-schedule-drawer-controller *//* INJECT:sunset-schedule-day-ops-board-ui */function escHtml(s){return s;}})();</script>');
+const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui *//* INJECT:sunset-schedule-drawer-delete-ui *//* INJECT:sunset-schedule-drawer-controller *//* INJECT:sunset-schedule-day-ops-board-ui *//* INJECT:sunset-schedule-forecast-cards-ui */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes edit module body', htmlSample.includes('function scheduleEnterDrawerEditMode('));
 assert('buildUiHtml inject includes view module body', htmlSample.includes('function scheduleRenderViewDrawerHtml('));
 assert('buildUiHtml inject includes portal module body', htmlSample.includes('function schedulePortalFetchDrawerDetail('));

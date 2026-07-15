@@ -18603,6 +18603,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-drawer-delete-ui */
 /* INJECT:sunset-schedule-drawer-controller */
 /* INJECT:sunset-schedule-day-ops-board-ui */
+/* INJECT:sunset-schedule-forecast-cards-ui */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -22436,10 +22437,9 @@ function scheduleActiveDayIso(){
   return scheduleTodayIso();
 }
 
-function scheduleRenderWeekForecastCard(pack, iso, lessonTimes, profile){
+function scheduleBuildForecastCardPresentation(pack, iso, lessonTimes){
   pack = pack || { lessons: [], gear: [], rows: [] };
   var today = scheduleTodayIso();
-  var todayCls = iso === today ? ' is-today' : '';
   var dayRows = pack.rows || [];
   var stats = scheduleDaySeatStats(dayRows, iso, lessonTimes);
   var surfers = stats.surfers;
@@ -22450,58 +22450,34 @@ function scheduleRenderWeekForecastCard(pack, iso, lessonTimes, profile){
   var unpaid = scheduleUnpaidPendingCount(dayRows, iso);
   var d = scheduleParseIso(iso);
   var dayName = d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
-  var slotHtml = '';
-  stats.sessions.forEach(function(s){
+  var sessions = stats.sessions.map(function(s){
     var split = scheduleSourceSplit(s.groups);
     var denom = s.capacity || Math.max(s.surfers, 1);
     var staffPct = Math.min(100, Math.round((split.staff / denom) * 100));
     var lunaPct = Math.min(Math.max(0, 100 - staffPct), Math.round((split.luna / denom) * 100));
     var timeShort = s.start != null ? scheduleMinutesLabel(s.start) : '';
     var countLabel = String(s.surfers) + (s.capacity ? '/' + String(s.capacity) : '');
-    slotHtml += '<div class="portal-schedule-wk-slot">' +
-      '<div class="portal-schedule-wk-slot-row"><span>' + escHtml((timeShort ? timeShort + ' ' : '') + (s.label || '')) + '</span><b>' + escHtml(countLabel) + '</b></div>' +
-      '<div class="portal-schedule-wk-slot-track" aria-hidden="true">' +
-      '<i class="is-staff" style="width:' + staffPct + '%"></i>' +
-      '<i class="is-luna" style="width:' + lunaPct + '%"></i>' +
-      '</div></div>';
+    return {
+      label: s.label || '',
+      timeShort: timeShort,
+      countLabel: countLabel,
+      staffPct: staffPct,
+      lunaPct: lunaPct,
+    };
   });
-  var metaLine = pct != null
-    ? String(pct) + '% · ' + String(seats) + ' ' + portalT('schedule.glance.seats')
-    : String(equip.boards.total) + ' ' + portalT('schedule.summary.boards') + ' · ' + String(equip.wetsuits.total) + ' ' + portalT('schedule.summary.wetsuits');
-  var flagsHtml = '';
-  if (unpaid) flagsHtml += '<span class="portal-schedule-wk-flag is-unpaid">' + escHtml(String(unpaid) + ' ' + portalT('schedule.status.unpaid').toLowerCase()) + '</span>';
-  if (needReply) flagsHtml += '<span class="portal-schedule-wk-flag is-reply">' + escHtml(String(needReply) + ' ' + portalT('schedule.filter.needsReply').toLowerCase()) + '</span>';
-  return '<div class="portal-schedule-week-forecast-card' + todayCls + '" data-ps-day-open="' + escHtml(iso) + '" role="button" tabindex="0">' +
-    '<div class="portal-schedule-week-forecast-hdr">' + escHtml(dayName) + '</div>' +
-    '<div class="portal-schedule-week-forecast-stat">' + escHtml(String(surfers)) + ' <small>' + escHtml(portalT('schedule.slot.surfers')) + '</small></div>' +
-    '<div class="portal-schedule-week-forecast-meta">' + escHtml(metaLine) + '</div>' +
-    (slotHtml ? '<div class="portal-schedule-week-forecast-slots">' + slotHtml + '</div>' : '') +
-    (flagsHtml ? '<div class="portal-schedule-wk-flags">' + flagsHtml + '</div>' : '') +
-    '</div>';
-}
-
-function scheduleRenderNext30ForecastCard(pack, iso, lessonTimes){
-  pack = pack || { lessons: [], gear: [], rows: [] };
-  var today = scheduleTodayIso();
-  var todayCls = iso === today ? ' is-today' : '';
-  var dayRows = pack.rows || [];
-  var stats = scheduleDaySeatStats(dayRows, iso, lessonTimes);
-  var surfers = stats.surfers;
-  var seats = stats.seats;
-  var pct = seats > 0 && surfers > 0 ? Math.min(100, Math.round((surfers / seats) * 100)) : null;
-  var unpaid = scheduleUnpaidPendingCount(dayRows, iso);
-  var heatCls = scheduleHeatClass(surfers, seats);
-  var d = scheduleParseIso(iso);
-  var dayNum = d.getDate();
-  var monthPrefix = dayNum === 1 || iso === today ? d.toLocaleDateString(undefined, { month: 'short' }) + ' ' : '';
-  var metaBits = [];
-  if (pct != null) metaBits.push(String(pct) + '%');
-  if (unpaid) metaBits.push(String(unpaid) + ' ' + portalT('schedule.status.unpaid').toLowerCase());
-  return '<div class="portal-schedule-next30-card' + todayCls + heatCls + '" data-ps-day-open="' + escHtml(iso) + '" role="button" tabindex="0">' +
-    '<div class="portal-schedule-next30-hdr">' + escHtml(monthPrefix + String(dayNum)) + '</div>' +
-    '<div class="portal-schedule-next30-stat">' + escHtml(surfers ? String(surfers) : '–') + '</div>' +
-    (metaBits.length ? '<div class="portal-schedule-next30-meta">' + escHtml(metaBits.join(' · ')) + '</div>' : '') +
-    '</div>';
+  return {
+    iso: iso,
+    dayLabel: dayName,
+    isToday: iso === today,
+    surfers: surfers,
+    seats: seats,
+    seatPct: pct,
+    equipBoardsTotal: equip.boards.total,
+    equipWetsuitsTotal: equip.wetsuits.total,
+    unpaidCount: unpaid,
+    needReplyCount: needReply,
+    sessions: sessions,
+  };
 }
 
 function scheduleWeekdayShortLabels(){
@@ -22525,18 +22501,6 @@ function scheduleRenderHeatLegend(){
     html += '<span class="portal-schedule-heat-swatch' + step[0] + '" aria-hidden="true"></span><span class="portal-schedule-heat-word">' + escHtml(step[1]) + '</span>';
   });
   return html + '</div>';
-}
-
-function scheduleWireOpsBoardClicks(container){
-  if (!container) return;
-  container.querySelectorAll('[data-ps-day-open]').forEach(function(node){
-    if (node.dataset.psDayWired) return;
-    node.dataset.psDayWired = '1';
-    node.addEventListener('click', function(){
-      var iso = node.getAttribute('data-ps-day-open');
-      if (iso) scheduleOpenDayDetail(iso);
-    });
-  });
 }
 
 function renderScheduleSummary(profile, weekData, convs){
@@ -22617,10 +22581,10 @@ function renderScheduleWeekGrid(profile, weekData, rangeStart){
     if (iso < today) continue;
     var pack = (weekData || []).find(function(x){ return x.dateIso === iso; }) ||
       { lessons: [], gear: [], rows: [] };
-    html += scheduleRenderWeekForecastCard(pack, iso, scheduleLessonTimesCache, profile);
+    html += scheduleRenderForecastCardHtml(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
   }
   box.innerHTML = html || ('<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>');
-  scheduleWireOpsBoardClicks(box);
+  scheduleWireForecastCardNavigation(box);
 }
 
 function renderScheduleNext30Grid(profile, monthData, box, rangeStart){
@@ -22638,11 +22602,11 @@ function renderScheduleNext30Grid(profile, monthData, box, rangeStart){
     if (iso < today) continue;
     var pack = (monthData || []).find(function(x){ return x.dateIso === iso; }) ||
       { lessons: [], gear: [], rows: [] };
-    html += scheduleRenderWeekForecastCard(pack, iso, scheduleLessonTimesCache, profile);
+    html += scheduleRenderForecastCardHtml(scheduleBuildForecastCardPresentation(pack, iso, scheduleLessonTimesCache));
     rendered += 1;
   }
   box.innerHTML = rendered ? html : ('<div class="state-msg">' + escHtml(portalT('schedule.emptyDay')) + '</div>');
-  scheduleWireOpsBoardClicks(box);
+  scheduleWireForecastCardNavigation(box);
 }
 
 function renderScheduleOpsBoard(pack, dateIso){

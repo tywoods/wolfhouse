@@ -298,6 +298,7 @@
     "verify:sunset-schedule-drawer-delete-ui": "node scripts/verify-sunset-schedule-drawer-delete-ui.js",
     "verify:sunset-schedule-drawer-controller": "node scripts/verify-sunset-schedule-drawer-controller.js",
     "verify:sunset-schedule-day-ops-board-ui": "node scripts/verify-sunset-schedule-day-ops-board-ui.js",
+    "verify:sunset-schedule-forecast-cards-ui": "node scripts/verify-sunset-schedule-forecast-cards-ui.js",
     "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "verify:sunset-catalog-tools": "node scripts/verify-sunset-catalog-tool-executor.js",
     "verify:sunset-full-day-equipment-addon": "node scripts/verify-sunset-full-day-equipment-addon.js",
