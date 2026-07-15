@@ -580,9 +580,23 @@ Duplicate fetch contracts, calculate authoritative prices, reinterpret eligibili
 
 ### Compatibility hooks (monolith)
 
-Waiver fetch/create/answers, Stripe link create/delete, manual payment submit, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — unchanged in `staff-query-api.js`.
+Waiver fetch/create/answers, `scheduleWireViewDrawer`, conversation/customer wiring, booking delete — unchanged in `staff-query-api.js`.
 
-### Payment section router
+---
 
-`scheduleRenderDrawerPaymentSectionHtml(ctx, editable)` delegates to `scheduleRenderDrawerPaymentSectionViewHtml` or `scheduleRenderDrawerPaymentSectionEditHtml`.
+## 19. Schedule drawer payment UI (Slice 14)
+
+Payment presentation and action controller extracted to `scripts/browser/sunset-schedule-drawer-payment-ui.js` (injected after portal, view and edit modules).
+
+### Payment module owns
+
+Payment section router (`scheduleRenderDrawerPaymentSectionHtml`), manual payment form, Stripe link section rendering, create/delete/copy/open wiring, in-flight duplicate-action guards, canonical detail refetch after successful payment mutations.
+
+### Payment module must not
+
+Calculate authoritative balances (`balance_due_cents` comes from server only), infer Stripe link actionability from raw URL presence, duplicate view/edit presentation logic, or change server payment endpoint contracts.
+
+### Compatibility hooks (monolith)
+
+None retained for payment functions — all drawer payment behavior lives in the injected payment module. View and edit modules call payment renderers/wiring at runtime after injection.
 

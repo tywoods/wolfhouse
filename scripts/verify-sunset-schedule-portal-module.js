@@ -56,6 +56,8 @@ assert('browser source loader exists', fs.existsSync(BROWSER_SRC));
 assert('inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
 assert('drawer view inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-view-ui */'));
 assert('drawer edit inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-edit-ui */'));
+assert('drawer payment inject marker in staff HTML script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-payment-ui */'));
+assert('browser source loads drawer payment module', browserLoader.includes('getSunsetScheduleDrawerPaymentBrowserSource'));
 assert('browser source loads drawer edit module', browserLoader.includes('getSunsetScheduleDrawerEditBrowserSource'));
 assert('browser source loads drawer view module', browserLoader.includes('getSunsetScheduleDrawerViewBrowserSource'));
 assert('injectSunsetSchedulePortalModule defined', browserLoader.includes('function injectSunsetSchedulePortalModule'));
@@ -118,7 +120,11 @@ assert('scheduleCourseEligibleOnDates only compatibility wrapper', apiSrc.includ
 console.log('\n[6] Payment link display rules');
 assert('schedulePortalStripeLinkFromCtx', modSrc.includes('function schedulePortalStripeLinkFromCtx'));
 assert('invalidated links not actionable', modSrc.includes('payment_link_invalidated'));
-assert('stripe section uses portal resolver', apiSrc.includes('schedulePortalStripeLinkFromCtx'));
+assert('stripe section uses portal resolver', (function () {
+  const payPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
+  const paySrc = fs.existsSync(payPath) ? fs.readFileSync(payPath, 'utf8') : '';
+  return paySrc.includes('schedulePortalStripeLinkFromCtx');
+})());
 
 console.log(`\n── verify:sunset-schedule-portal-module ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);

@@ -7,9 +7,8 @@
  * save orchestration and payment-status select. Consumes canonical drawer ctx;
  * no authoritative price/eligibility/payment validity decisions.
  *
- * Compatibility hooks (monolith): scheduleWireViewDrawer, scheduleWireDrawerStripeCopyOpen,
- * scheduleWireDrawerManualPayment, scheduleLoadDrawerWaiver, scheduleRenderDrawerManualPaymentHtml,
- * scheduleRenderDrawerStripeLinkSectionHtml, scheduleCreateDrawerStripeLink, scheduleDeleteBookingFromDrawer.
+ * Compatibility hooks (monolith): scheduleWireViewDrawer, scheduleLoadDrawerWaiver,
+ * scheduleDeleteBookingFromDrawer. Payment actions live in sunset-schedule-drawer-payment-ui.js.
  */
 
 var scheduleDrawerSaveInFlight = false;
@@ -430,22 +429,6 @@ function scheduleParsePaymentSelectValue(val){
     case 'paid': return { status: 'paid', method: null };
     default: return { status: 'unpaid', method: null };
   }
-}
-
-function scheduleUpdateDrawerPaymentFromContext(ctx){
-  if (!ctx || !ctx.payment) return;
-  var box = el('ps-drawer-payment-box');
-  if (!box) return;
-  var editing = !!(scheduleDrawerState && scheduleDrawerState.editing);
-  var tmp = document.createElement('div');
-  tmp.innerHTML = editing
-    ? scheduleRenderDrawerPaymentSectionEditHtml(ctx)
-    : scheduleRenderDrawerPaymentSectionViewHtml(ctx);
-  var fresh = tmp.firstChild;
-  if (fresh) box.parentNode.replaceChild(fresh, box);
-  scheduleWireDrawerStripeCopyOpen(ctx);
-  var row = scheduleDrawerState && scheduleDrawerState.row;
-  if (row) scheduleWireDrawerManualPayment(row);
 }
 
 function scheduleSaveDrawerBooking(row){

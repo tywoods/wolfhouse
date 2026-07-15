@@ -16,6 +16,7 @@ const vm = require('vm');
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
+const PAY_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
 const PORTAL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-portal-module.js');
 const BROWSER_SRC = path.join(ROOT, 'scripts', 'lib', 'sunset-schedule-browser-source.js');
 
@@ -190,6 +191,7 @@ console.log('\nverify:sunset-schedule-drawer-view-ui\n');
 
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const viewModSrc = fs.readFileSync(VIEW_MODULE, 'utf8');
+const payModSrc = fs.readFileSync(PAY_MODULE, 'utf8');
 const portalModSrc = fs.readFileSync(PORTAL_MODULE, 'utf8');
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
 
@@ -200,8 +202,9 @@ assert('browser source loads drawer view module', browserLoader.includes('getSun
 assert('inject chains portal + drawer view', browserLoader.includes('SCHEDULE_DRAWER_VIEW_INJECT_MARKER'));
 assert('inline scheduleRenderViewDrawerHtml removed from staff-api', !apiSrc.includes('function scheduleRenderViewDrawerHtml('));
 assert('inline scheduleDrawerEur removed from staff-api', !apiSrc.includes('function scheduleDrawerEur('));
-assert('payment section edit wrapper retained', apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
-assert('payment section delegates to view module', apiSrc.includes('scheduleRenderDrawerPaymentSectionViewHtml'));
+assert('payment section wrapper in payment module', payModSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
+assert('payment wrapper removed from staff-api', !apiSrc.includes('function scheduleRenderDrawerPaymentSectionHtml('));
+assert('payment section delegates to view module', payModSrc.includes('scheduleRenderDrawerPaymentSectionViewHtml'));
 
 console.log('\n[2] View module must not fetch or compute prices');
 assert('no fetch in view module', !/\bfetch\s*\(/.test(viewModSrc));

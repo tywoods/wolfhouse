@@ -18598,6 +18598,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-portal-module */
 /* INJECT:sunset-schedule-drawer-view-ui */
 /* INJECT:sunset-schedule-drawer-edit-ui */
+/* INJECT:sunset-schedule-drawer-payment-ui */
 function escHtml(s){
   return String(s==null?'':s)
     .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
@@ -22963,15 +22964,6 @@ function scheduleComponentOrderKeys(){
 
 // Soft-red "Delete booking" row, pinned bottom-right of the drawer.
 
-// Shared paid-method label: maps a stored method to its visible "Paid - X" label.
-function schedulePaymentStatusLabel(status, method){
-  if (status !== 'paid') return portalT('schedule.payment.unpaid');
-  if (method === 'bank_transfer') return portalT('schedule.payment.paidBankTransfer');
-  if (method === 'in_store') return portalT('schedule.payment.paidInStore');
-  if (method === 'link') return portalT('schedule.payment.paidViaLink');
-  return portalT('schedule.payment.paid');
-}
-
 // Shared "Open customer" button: shown only when the booking has a phone to resolve the customer card.
 
 function scheduleWaiverStatusLabel(status){
@@ -23257,126 +23249,13 @@ function scheduleDrawerFlashCopied(btn){
 // Booking card: single day → clean item rows; multi-day → per-service summary + expandable daily.
 
 // Single, consolidated payment area. When editable, the status select lives here (no duplicate card).
-
-function scheduleRenderDrawerPaymentSectionHtml(ctx, editable){
-  if (!editable && typeof scheduleRenderDrawerPaymentSectionViewHtml === 'function') {
-    return scheduleRenderDrawerPaymentSectionViewHtml(ctx);
-  }
-  if (editable && typeof scheduleRenderDrawerPaymentSectionEditHtml === 'function') {
-    return scheduleRenderDrawerPaymentSectionEditHtml(ctx);
-  }
-  return scheduleRenderDrawerPaymentSectionViewHtml(ctx);
-}
-
-// Compact "Add manual payment" control. Persists via /staff/bookings/record-cash-payment.
-function scheduleRenderDrawerManualPaymentHtml(ctx){
-  if (!(ctx && ctx.booking_id)) return '';
-  var html = '<div id="ps-drawer-manual-pay" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
-  html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
-    escHtml(portalT('schedule.drawer.addManualPayment')) + '</div>';
-  html += '<div class="portal-schedule-manual-pay-grid">';
-  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayAmount')) +
-    '<input id="ps-drawer-manual-amount" type="number" min="0" step="0.01" inputmode="decimal"></label>';
-  html += '<label>' + escHtml(portalT('schedule.drawer.manualPayMethod')) +
-    '<select id="ps-drawer-manual-method">' +
-    '<option value="bank_transfer">' + escHtml(portalT('schedule.payment.paidBankTransfer')) + '</option>' +
-    '<option value="in_store">' + escHtml(portalT('schedule.payment.paidInStore')) + '</option>' +
-    '</select></label>';
-  html += '</div>';
-  html += '<label class="portal-schedule-manual-pay-note">' + escHtml(portalT('schedule.drawer.manualPayNote')) +
-    '<input id="ps-drawer-manual-note" type="text" maxlength="200"></label>';
-  html += '<button type="button" class="btn btn-ghost" id="ps-drawer-manual-submit" style="margin-top:8px">' +
-    escHtml(portalT('schedule.drawer.manualPaySubmit')) + '</button>';
-  html += '<p id="ps-drawer-manual-msg" class="state-msg" style="display:none;margin-top:6px"></p>';
-  html += '</div>';
-  return html;
-}
-
-// Guest-facing short payment link (this domain + /pay/<booking_code>) instead of the long Stripe
-// checkout URL. The /pay route redirects to the stored checkout session. Falls back to the raw
-// checkout URL when there's no booking code to build the short form.
-function scheduleDrawerPaymentShortUrl(ctx){
-  var link = ctx && ctx.stripe_link;
-  var checkout = link && link.checkout_url;
-  if (!checkout) return '';
-  var code = ctx && ctx.booking_code;
-  if (code && typeof window !== 'undefined' && window.location && window.location.origin){
-    return window.location.origin + '/pay/' + encodeURIComponent(String(code));
-  }
-  return checkout;
-}
-
-// Friendly link status — no raw enum strings with underscores.
-function scheduleStripeStatusLabel(raw){
-  var s = String(raw || '').toLowerCase();
-  if (s === 'paid') return portalT('schedule.status.paid');
-  if (s === 'checkout_created' || s === 'draft' || s === 'payment_link_sent' || s === '') return portalT('schedule.drawer.stripeStatusActive');
-  if (s === 'expired') return portalT('schedule.drawer.stripeStatusExpired');
-  return s.replace(/_/g, ' ').replace(/^\w/, function(c){ return c.toUpperCase(); });
-}
-
-function scheduleRenderDrawerStripeLinkSectionHtml(ctx){
-  var resolved = (typeof schedulePortalStripeLinkFromCtx === 'function')
-    ? schedulePortalStripeLinkFromCtx(ctx)
-    : { url: (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url) || '', actionable: true, stale: !!(ctx && ctx.stripe_link_stale), payment_id: null, amount_due_cents: null, payment_status: null };
-  var link = ctx && ctx.stripe_link;
-  var url = resolved.actionable ? resolved.url : '';
-  var stale = resolved.stale || !!(ctx && (ctx.stripe_link_stale || (link && link.stale)));
-  var html = '<div id="ps-drawer-stripe-box" style="margin-top:12px;padding-top:12px;border-top:1px solid var(--border-soft)">';
-  html += '<div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--text-3);margin-bottom:8px">' +
-    escHtml(portalT('schedule.drawer.stripeSection')) + '</div>';
-  // Create/regenerate Stripe link button lives here in the payment area (moved out of the drawer footer).
-  var stripeAvail = ctx && ctx.stripe_available;
-  var stripeBtnLabel = (url && !stale) ? portalT('schedule.drawer.stripeRegenerate') : portalT('schedule.drawer.stripeLink');
-  if (stripeAvail){
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-link" style="margin-bottom:10px">' + escHtml(stripeBtnLabel) + '</button>';
-  } else {
-    html += '<button type="button" class="btn btn-ghost" disabled title="' + escHtml(portalT('schedule.drawer.stripeUnavailable')) + '" style="margin-bottom:10px">' + escHtml(portalT('schedule.drawer.stripeLink')) + '</button>';
-  }
-  if (stale && url){
-    html += '<div class="ctx-pay-record ctx-pay-record-stale" style="margin-bottom:8px"><span class="ctx-pay-record-badge ctx-pay-record-badge-outdated">' +
-      escHtml(portalT('schedule.drawer.stripeStale')) + '</span>' +
-      '<div class="ctx-pay-record-stale-note">' + escHtml(portalT('schedule.drawer.stripeStaleHint')) + '</div></div>';
-  }
-  if (url){
-    var displayUrl = scheduleDrawerPaymentShortUrl(ctx) || url;
-    html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeStatus')) + ':</strong> ' +
-      escHtml(scheduleStripeStatusLabel(link && link.payment_status)) + '</p>';
-    if (link && link.amount_due_cents != null){
-      html += '<p style="margin:0 0 6px"><strong>' + escHtml(portalT('schedule.drawer.stripeAmount')) + ':</strong> ' +
-        escHtml(scheduleDrawerEur(link.amount_due_cents)) + '</p>';
-    }
-    html += '<p style="margin:0 0 8px;word-break:break-all"><a id="ps-drawer-stripe-url" href="' + escHtml(displayUrl) + '" target="_blank" rel="noopener">' + escHtml(displayUrl) + '</a></p>';
-    html += '<div class="portal-schedule-drawer-actions" style="margin-top:0">';
-    html += '<button type="button" class="btn btn-ghost" id="ps-drawer-stripe-copy">' + escHtml(portalT('schedule.drawer.stripeCopy')) + '</button>';
-    html += '<button type="button" class="btn btn-ghost portal-schedule-stripe-delete-btn" id="ps-drawer-stripe-delete">' + escHtml(portalT('schedule.drawer.stripeDelete')) + '</button>';
-    html += '</div>';
-  } else {
-    html += '<p style="margin:0 0 8px;color:var(--text-3)">' + escHtml(portalT('schedule.drawer.stripeNone')) + '</p>';
-  }
-  html += '</div>';
-  return html;
-}
+// Payment presentation + actions: sunset-schedule-drawer-payment-ui.js (Slice 14).
 
 // Edit-drawer full-day add-on: compute eligible dates + default people, preserve prior selections, re-render.
 
 // Edit-drawer private-course sessions: seeded from ctx, with add/remove. Multi-session persists via the PATCH.
 
 // Map the consolidated payment select value to a booking status + stored method.
-
-function scheduleWireDrawerStripeCopyOpen(ctx){
-  var url = scheduleDrawerPaymentShortUrl(ctx) || (ctx && ctx.stripe_link && ctx.stripe_link.checkout_url);
-  var copyBtn = el('ps-drawer-stripe-copy');
-  var openBtn = el('ps-drawer-stripe-open');
-  if (copyBtn && url){
-    copyBtn.onclick = function(){ scheduleCopyTextFallback(url); scheduleDrawerFlashCopied(copyBtn); };
-  }
-  if (openBtn && url){
-    openBtn.onclick = function(){ window.open(url, '_blank', 'noopener'); };
-  }
-  var delBtn = el('ps-drawer-stripe-delete');
-  if (delBtn){ delBtn.onclick = function(){ scheduleDeleteDrawerStripeLink(ctx); }; }
-}
 
 // Soft-delete (cancel) the whole booking, then close the drawer and reload the schedule.
 function scheduleDeleteBookingFromDrawer(){
@@ -23400,39 +23279,6 @@ function scheduleDeleteBookingFromDrawer(){
       var m = el('ps-drawer-save-msg');
       if (m){ m.className = 'state-msg error'; m.textContent = portalT('schedule.drawer.deleteBookingFailed') + ' ' + err.message; m.style.display = 'block'; }
       if (btn) btn.disabled = false;
-    });
-}
-
-// Delete/void the current Stripe link so a fresh one can be created. Refreshes the drawer after.
-function scheduleDeleteDrawerStripeLink(ctx){
-  var bookingId = ctx && ctx.booking_id;
-  if (!bookingId) return;
-  if (typeof window !== 'undefined' && window.confirm && !window.confirm(portalT('schedule.drawer.stripeDeleteConfirm'))) return;
-  var btn = el('ps-drawer-stripe-delete');
-  if (btn) btn.disabled = true;
-  fetch('/staff/schedule/bookings/stripe-link?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ booking_id: bookingId }),
-  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
-    .then(function(res){
-      if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Delete failed');
-      return fetch('/staff/schedule/bookings/detail?client=' + encodeURIComponent(getClient()) + '&booking_id=' + encodeURIComponent(bookingId) + sunsetLocationQuerySuffix())
-        .then(function(r2){ return r2.json(); })
-        .then(function(ctxData){
-          if (ctxData && ctxData.success && scheduleDrawerState && scheduleDrawerState.row){
-            scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctxData);
-            scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
-          }
-          var m2 = el('ps-drawer-stripe-msg');
-          if (m2){ m2.className = 'state-msg success'; m2.textContent = portalT('schedule.drawer.stripeDeleted'); m2.style.display = 'block'; }
-        });
-    })
-    .catch(function(err){
-      var m3 = el('ps-drawer-stripe-msg');
-      if (m3){ m3.className = 'state-msg error'; m3.textContent = portalT('schedule.drawer.stripeDeleteFailed') + ' ' + err.message; m3.style.display = 'block'; }
-      var b2 = el('ps-drawer-stripe-delete');
-      if (b2) b2.disabled = false;
     });
 }
 
@@ -23461,37 +23307,6 @@ function scheduleWireDrawerConversation(row, group){
   }
 }
 
-function scheduleCreateDrawerStripeLink(row){
-  if (!row || !row.booking_id) return;
-  var btn = el('ps-drawer-stripe-link');
-  var msg = el('ps-drawer-stripe-msg');
-  if (btn) btn.disabled = true;
-  if (msg){ msg.style.display = 'none'; msg.textContent = ''; }
-  fetch('/staff/schedule/bookings/stripe-link?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ booking_id: row.booking_id, idempotency_key: 'sunset-drawer-' + row.booking_id + '-' + Date.now() }),
-  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
-    .then(function(res){
-      if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Stripe link failed');
-      return fetch('/staff/schedule/bookings/detail?client=' + encodeURIComponent(getClient()) + '&booking_id=' + encodeURIComponent(row.booking_id))
-        .then(function(r2){ return r2.json(); });
-    })
-    .then(function(ctxData){
-      // Refresh the whole drawer body from fresh context so the new link appears and its
-      // copy/open/regenerate buttons are re-wired (the create button lives in the payment area).
-      if (ctxData && ctxData.success && scheduleDrawerState && scheduleDrawerState.row){
-        scheduleDrawerState.ctx = scheduleCloneDrawerCtx(ctxData);
-        scheduleMountDrawerBody(scheduleDrawerState.row, scheduleDrawerState.ctx, !!scheduleDrawerState.editing);
-      }
-      // No confirmation text — the refreshed drawer (Copy link + visible URL) is the confirmation.
-    })
-    .catch(function(err){
-      if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.stripeFailed') + ' ' + err.message; msg.style.display = 'block'; }
-    })
-    .finally(function(){ if (btn) btn.disabled = false; });
-}
-
 // Wire the "Open customer" button: navigate to the Customers tab and open the card by phone.
 function scheduleWireDrawerOpenCustomer(){
   var btn = el('ps-drawer-open-customer');
@@ -23501,50 +23316,6 @@ function scheduleWireDrawerOpenCustomer(){
     if (!phone) return;
     closeScheduleDetailDrawer();
     openCustomerCardForPhone(phone);
-  });
-}
-
-// Wire the compact "Add manual payment" control to the record-cash-payment endpoint.
-function scheduleWireDrawerManualPayment(row){
-  var btn = el('ps-drawer-manual-submit');
-  if (!btn || !row || !row.booking_id) return;
-  btn.addEventListener('click', function(){
-    var amtEl = el('ps-drawer-manual-amount');
-    var methodEl = el('ps-drawer-manual-method');
-    var noteEl = el('ps-drawer-manual-note');
-    var msg = el('ps-drawer-manual-msg');
-    var euros = parseFloat((amtEl && amtEl.value) || '');
-    if (!(euros > 0)){
-      if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayAmountRequired'); msg.style.display = 'block'; }
-      return;
-    }
-    var amountCents = Math.round(euros * 100);
-    btn.disabled = true;
-    if (msg) msg.style.display = 'none';
-    fetch('/staff/bookings/record-cash-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        client_slug: getClient(),
-        booking_id: row.booking_id,
-        amount_cents: amountCents,
-        method: (methodEl && methodEl.value) || 'cash',
-        note: (noteEl && noteEl.value || '').trim() || null,
-        idempotency_key: 'sunset-drawer-pay-' + row.booking_id + '-' + Date.now(),
-      }),
-    }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
-      .then(function(res){
-        if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Failed');
-        if (msg){ msg.className = 'state-msg success'; msg.textContent = portalT('schedule.drawer.manualPaySaved'); msg.style.display = 'block'; }
-        // Refresh drawer totals from the fresh booking context.
-        return fetch('/staff/schedule/bookings/detail?client=' + encodeURIComponent(getClient()) + '&booking_id=' + encodeURIComponent(row.booking_id))
-          .then(function(r2){ return r2.json(); })
-          .then(function(ctxData){ if (ctxData && ctxData.success) scheduleUpdateDrawerPaymentFromContext(ctxData); });
-      })
-      .catch(function(err){
-        if (msg){ msg.className = 'state-msg error'; msg.textContent = portalT('schedule.drawer.manualPayFailed') + ' ' + err.message; msg.style.display = 'block'; }
-      })
-      .finally(function(){ btn.disabled = false; });
   });
 }
 
