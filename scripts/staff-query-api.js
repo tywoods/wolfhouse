@@ -18600,6 +18600,7 @@ function el(id){ return document.getElementById(id); }
 /* INJECT:sunset-schedule-drawer-edit-ui */
 /* INJECT:sunset-schedule-drawer-payment-ui */
 /* INJECT:sunset-schedule-drawer-waiver-ui */
+/* INJECT:sunset-schedule-drawer-delete-ui */
 /* INJECT:sunset-schedule-drawer-controller */
 function escHtml(s){
   return String(s==null?'':s)
@@ -22987,30 +22988,6 @@ function scheduleDrawerFlashCopied(btn){
   setTimeout(function(){ btn.innerHTML = orig; btn.classList.remove('is-copied'); btn.removeAttribute('data-flash'); }, 1200);
 }
 
-// Soft-delete (cancel) the whole booking, then close the drawer and reload the schedule.
-function scheduleDeleteBookingFromDrawer(){
-  var st = scheduleDrawerState;
-  var bookingId = st && st.ctx && st.ctx.booking_id;
-  if (!bookingId) return;
-  if (typeof window !== 'undefined' && window.confirm && !window.confirm(portalT('schedule.drawer.deleteBookingConfirm'))) return;
-  var btn = el('ps-drawer-delete-booking');
-  if (btn) btn.disabled = true;
-  fetch('/staff/schedule/bookings?client=' + encodeURIComponent(getClient()) + sunsetLocationQuerySuffix(), {
-    method: 'DELETE',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ booking_id: bookingId }),
-  }).then(function(r){ return r.json().then(function(data){ return { ok: r.ok, data: data }; }); })
-    .then(function(res){
-      if (!res.ok || !res.data || res.data.success !== true) throw new Error((res.data && (res.data.error || res.data.message)) || 'Delete failed');
-      closeScheduleDetailDrawer();
-      loadSchedulePage();
-    })
-    .catch(function(err){
-      var m = el('ps-drawer-save-msg');
-      if (m){ m.className = 'state-msg error'; m.textContent = portalT('schedule.drawer.deleteBookingFailed') + ' ' + err.message; m.style.display = 'block'; }
-      if (btn) btn.disabled = false;
-    });
-}
 
 function scheduleApplyCreatePrefill(){
   var pf = psPendingCreatePrefill;

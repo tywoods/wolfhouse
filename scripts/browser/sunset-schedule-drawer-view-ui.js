@@ -42,8 +42,13 @@ function scheduleDrawerSectionHtml(titleKey, innerHtml){
     innerHtml + '</section>';
 }
 
-function scheduleRenderDeleteBookingRowHtml(ctx){
-  if (!(ctx && ctx.booking_id)) return '';
+function scheduleRenderDeleteBookingRowHtml(ctx, row){
+  var r = row || (typeof scheduleDrawerState !== 'undefined' && scheduleDrawerState && scheduleDrawerState.row);
+  if (typeof scheduleDrawerCanDeleteBooking === 'function') {
+    if (!scheduleDrawerCanDeleteBooking(r, ctx)) return '';
+  } else if (!(ctx && ctx.booking_id)) {
+    return '';
+  }
   return '<div class="portal-schedule-drawer-danger-row">' +
     '<button type="button" class="btn portal-schedule-delete-booking-btn" id="ps-drawer-delete-booking">' +
     escHtml(portalT('schedule.drawer.deleteBooking')) + '</button></div>';
@@ -400,7 +405,7 @@ function scheduleRenderSunsetViewDrawerHtml(row, ctx, canEdit){
   html += scheduleRenderDrawerOpenCustomerBtnHtml(ctx);
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
-  html += scheduleRenderDeleteBookingRowHtml(ctx);
+  html += scheduleRenderDeleteBookingRowHtml(ctx, row);
   return html;
 }
 
@@ -424,7 +429,7 @@ function scheduleRenderViewDrawerHtml(row, ctx, canEdit){
   html += '<button type="button" class="btn btn-ghost" id="ps-drawer-conversation-btn">' + escHtml(portalT('schedule.drawer.startConv')) + '</button>';
   html += '</div>';
   html += '<p id="ps-drawer-conversation-hint" class="portal-schedule-drawer-hint" style="display:none"></p>';
-  html += scheduleRenderDeleteBookingRowHtml(ctx);
+  html += scheduleRenderDeleteBookingRowHtml(ctx, row);
   return html;
 }
 

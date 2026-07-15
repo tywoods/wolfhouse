@@ -13,6 +13,7 @@ const DRAWER_VIEW_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedul
 const DRAWER_EDIT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-edit-ui.js');
 const DRAWER_PAYMENT_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-payment-ui.js');
 const DRAWER_WAIVER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
+const DRAWER_DELETE_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-delete-ui.js');
 const DRAWER_CONTROLLER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-drawer-controller.js');
 
 function getSunsetSchedulePortalBrowserSource() {
@@ -35,6 +36,10 @@ function getSunsetScheduleDrawerWaiverBrowserSource() {
   return fs.readFileSync(DRAWER_WAIVER_MODULE, 'utf8');
 }
 
+function getSunsetScheduleDrawerDeleteBrowserSource() {
+  return fs.readFileSync(DRAWER_DELETE_MODULE, 'utf8');
+}
+
 function getSunsetScheduleDrawerControllerBrowserSource() {
   return fs.readFileSync(DRAWER_CONTROLLER_MODULE, 'utf8');
 }
@@ -51,6 +56,7 @@ function injectSunsetSchedulePortalModule(html) {
   html = injectAtMarker(html, SCHEDULE_DRAWER_EDIT_INJECT_MARKER, getSunsetScheduleDrawerEditBrowserSource());
   html = injectAtMarker(html, SCHEDULE_PAYMENT_INJECT_MARKER, getSunsetScheduleDrawerPaymentBrowserSource());
   html = injectAtMarker(html, SCHEDULE_WAIVER_INJECT_MARKER, getSunsetScheduleDrawerWaiverBrowserSource());
+  html = injectAtMarker(html, SCHEDULE_DELETE_INJECT_MARKER, getSunsetScheduleDrawerDeleteBrowserSource());
   return injectAtMarker(html, SCHEDULE_CONTROLLER_INJECT_MARKER, getSunsetScheduleDrawerControllerBrowserSource());
 }
 
@@ -59,6 +65,7 @@ const SCHEDULE_DRAWER_VIEW_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-vie
 const SCHEDULE_DRAWER_EDIT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-edit-ui */';
 const SCHEDULE_PAYMENT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-payment-ui */';
 const SCHEDULE_WAIVER_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-waiver-ui */';
+const SCHEDULE_DELETE_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-delete-ui */';
 const SCHEDULE_CONTROLLER_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-controller */';
 
 module.exports = {
@@ -67,6 +74,7 @@ module.exports = {
   getSunsetScheduleDrawerEditBrowserSource,
   getSunsetScheduleDrawerPaymentBrowserSource,
   getSunsetScheduleDrawerWaiverBrowserSource,
+  getSunsetScheduleDrawerDeleteBrowserSource,
   getSunsetScheduleDrawerControllerBrowserSource,
   injectSunsetSchedulePortalModule,
   injectAtMarker,
@@ -75,11 +83,13 @@ module.exports = {
   DRAWER_EDIT_MODULE,
   DRAWER_PAYMENT_MODULE,
   DRAWER_WAIVER_MODULE,
+  DRAWER_DELETE_MODULE,
   DRAWER_CONTROLLER_MODULE,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
   SCHEDULE_DRAWER_EDIT_INJECT_MARKER,
   SCHEDULE_PAYMENT_INJECT_MARKER,
   SCHEDULE_WAIVER_INJECT_MARKER,
+  SCHEDULE_DELETE_INJECT_MARKER,
   SCHEDULE_CONTROLLER_INJECT_MARKER,
 };

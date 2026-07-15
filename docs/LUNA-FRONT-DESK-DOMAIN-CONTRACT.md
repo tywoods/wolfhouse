@@ -634,5 +634,23 @@ Own edit form logic, payment mutations, waiver actions, booking deletion, Schedu
 
 ### Compatibility hooks (monolith)
 
-Schedule chip click handlers call `openScheduleDetailDrawer(row)` via IIFE closure. `scheduleDeleteBookingFromDrawer`, `scheduleCopyTextFallback`, and `scheduleDrawerFlashCopied` remain in monolith.
+Schedule chip click handlers call `openScheduleDetailDrawer(row)` via IIFE closure. `scheduleCopyTextFallback` and `scheduleDrawerFlashCopied` remain in monolith.
+
+---
+
+## 22. Schedule drawer delete UI (Slice 17)
+
+Booking deletion extracted to `scripts/browser/sunset-schedule-drawer-delete-ui.js` (injected after waiver, before orchestration controller).
+
+### Delete module owns
+
+`scheduleDeleteBookingFromDrawer`, `scheduleWireDrawerDeleteBooking`, confirmation lifecycle, in-flight guard, stale-action validation via `openGen`/`activeBookingKey`, and authenticated DELETE to `/staff/schedule/bookings`.
+
+### Delete module must not
+
+Own drawer state, Schedule board rendering, server cascade/cleanup, or accept booking identity from DOM fields.
+
+### Compatibility hooks (monolith)
+
+None — controller and edit modules call `scheduleWireDrawerDeleteBooking()` at runtime after injection.
 

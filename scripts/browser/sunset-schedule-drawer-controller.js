@@ -134,12 +134,11 @@ function scheduleWireViewDrawer(row, ctx){
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
   scheduleLoadDrawerWaiver(ctx);
+  scheduleWireDrawerDeleteBooking();
   var editBtn = el('ps-drawer-edit');
   if (editBtn) editBtn.addEventListener('click', function(){ scheduleEnterDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
   if (stripeBtn) stripeBtn.addEventListener('click', function(){ scheduleCreateDrawerStripeLink(row); });
-  var delBookingBtn = el('ps-drawer-delete-booking');
-  if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
 }
 
 function scheduleMountDrawerBody(row, ctx, editing){

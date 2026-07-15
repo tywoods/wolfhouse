@@ -129,6 +129,7 @@ const drawerSrc = fs.existsSync(DRAWER_PATH) ? fs.readFileSync(DRAWER_PATH, 'utf
 const ctrlSrc = fs.existsSync(CTRL_MODULE_PATH) ? fs.readFileSync(CTRL_MODULE_PATH, 'utf8') : '';
 
 assert('HEAD injects schedule portal module', headSrc.includes('/* INJECT:sunset-schedule-portal-module */'));
+assert('HEAD injects schedule drawer delete module', headSrc.includes('/* INJECT:sunset-schedule-drawer-delete-ui */'));
 assert('HEAD injects schedule drawer controller module', headSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('HEAD uses scheduleDrawerCanLoadCanonical in openScheduleDetailDrawer',
   /scheduleDrawerCanLoadCanonical\(row\)/.test(ctrlSrc));

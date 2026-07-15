@@ -7,7 +7,7 @@
  * save orchestration and payment-status select. Consumes canonical drawer ctx;
  * no authoritative price/eligibility/payment validity decisions.
  *
- * Compatibility hooks (monolith): scheduleDeleteBookingFromDrawer.
+ * Compatibility hooks (monolith): none — delete controller injected before orchestration module.
  * Orchestration (open/close/mount/wire view): sunset-schedule-drawer-controller.js (Slice 16).
  */
 
@@ -500,14 +500,13 @@ function scheduleWireEditableDrawer(row, ctx){
   scheduleWireDrawerOpenCustomer();
   scheduleWireDrawerManualPayment(row);
   scheduleLoadDrawerWaiver(ctx);
+  scheduleWireDrawerDeleteBooking();
   var saveBtn = el('ps-drawer-save');
   if (saveBtn) saveBtn.addEventListener('click', function(){ scheduleSaveDrawerBooking(row); });
   var cancelBtn = el('ps-drawer-cancel');
   if (cancelBtn) cancelBtn.addEventListener('click', function(){ scheduleCancelDrawerEditMode(); });
   var stripeBtn = el('ps-drawer-stripe-link');
   if (stripeBtn) stripeBtn.addEventListener('click', function(){ scheduleCreateDrawerStripeLink(row); });
-  var delBookingBtn = el('ps-drawer-delete-booking');
-  if (delBookingBtn) delBookingBtn.addEventListener('click', scheduleDeleteBookingFromDrawer);
 }
 
 function scheduleEnterDrawerEditMode(){

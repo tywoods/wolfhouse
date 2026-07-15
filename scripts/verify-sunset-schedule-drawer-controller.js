@@ -20,6 +20,7 @@ const {
 const ROOT = path.join(__dirname, '..');
 const STAFF_API = path.join(ROOT, 'scripts', 'staff-query-api.js');
 const CTRL_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-controller.js');
+const DELETE_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-delete-ui.js');
 const VIEW_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const EDIT_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-edit-ui.js');
 const PAY_MODULE = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-payment-ui.js');
@@ -79,6 +80,7 @@ console.log('\nverify:sunset-schedule-drawer-controller\n');
 const apiSrc = fs.readFileSync(STAFF_API, 'utf8');
 const ctrlExists = fs.existsSync(CTRL_MODULE);
 const ctrlSrc = ctrlExists ? fs.readFileSync(CTRL_MODULE, 'utf8') : '';
+const deleteSrc = fs.existsSync(DELETE_MODULE) ? fs.readFileSync(DELETE_MODULE, 'utf8') : '';
 const editSrc = fs.readFileSync(EDIT_MODULE, 'utf8');
 const viewSrc = fs.readFileSync(VIEW_MODULE, 'utf8');
 const browserLoader = fs.readFileSync(BROWSER_SRC, 'utf8');
@@ -87,14 +89,15 @@ console.log('[1] Module files and injection order');
 assert('controller module exists', ctrlExists);
 assert('controller inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-controller */'));
 assert('browser source loads controller module', browserLoader.includes('getSunsetScheduleDrawerControllerBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver → controller',
-  browserLoader.includes('SCHEDULE_CONTROLLER_INJECT_MARKER'));
+assert('inject chains portal → view → edit → payment → waiver → delete → controller',
+  browserLoader.includes('SCHEDULE_DELETE_INJECT_MARKER'));
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
   '/* INJECT:sunset-schedule-drawer-view-ui */',
   '/* INJECT:sunset-schedule-drawer-edit-ui */',
   '/* INJECT:sunset-schedule-drawer-payment-ui */',
   '/* INJECT:sunset-schedule-drawer-waiver-ui */',
+  '/* INJECT:sunset-schedule-drawer-delete-ui */',
   '/* INJECT:sunset-schedule-drawer-controller */',
 ];
 let prev = -1;
@@ -110,7 +113,8 @@ assert('inline closeScheduleDetailDrawer removed', !apiSrc.includes('function cl
 assert('inline scheduleRefreshDrawer removed', !apiSrc.includes('function scheduleRefreshDrawer('));
 assert('inline scheduleWireViewDrawer removed', !apiSrc.includes('function scheduleWireViewDrawer('));
 assert('inline scheduleDrawerState removed', !/var scheduleDrawerState\s*=/.test(apiSrc));
-assert('delete booking stays in monolith', apiSrc.includes('function scheduleDeleteBookingFromDrawer('));
+assert('delete booking in delete module', deleteSrc.includes('function scheduleDeleteBookingFromDrawer('));
+assert('inline delete removed from monolith', !apiSrc.includes('function scheduleDeleteBookingFromDrawer('));
 assert('copy helpers stay in monolith', apiSrc.includes('function scheduleCopyTextFallback(') && apiSrc.includes('function scheduleDrawerFlashCopied('));
 assert('mount moved out of edit module', !editSrc.includes('function scheduleMountDrawerBody('));
 assert('open editable moved out of edit module', !editSrc.includes('function scheduleOpenEditableDrawer('));
@@ -208,7 +212,7 @@ if (ctrlExists) {
     scheduleLoadDrawerWaiver: () => { wireLog.waiver += 1; return makeThenable(undefined); },
     scheduleEnterDrawerEditMode: () => {},
     scheduleCreateDrawerStripeLink: () => {},
-    scheduleDeleteBookingFromDrawer: () => {},
+    scheduleWireDrawerDeleteBooking: () => {},
     scheduleFindLinkedConversation: () => null,
     scheduleGroupHasPhone: () => false,
     scheduleOpenOrStartConversationFromBooking: () => {},

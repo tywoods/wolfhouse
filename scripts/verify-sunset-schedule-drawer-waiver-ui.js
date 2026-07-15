@@ -90,7 +90,7 @@ console.log('[1] Module files and injection order');
 assert('waiver module exists', waiverExists);
 assert('waiver inject marker in portal script', apiSrc.includes('/* INJECT:sunset-schedule-drawer-waiver-ui */'));
 assert('browser source loads waiver module', browserLoader.includes('getSunsetScheduleDrawerWaiverBrowserSource'));
-assert('inject chains portal → view → edit → payment → waiver → controller', browserLoader.includes('SCHEDULE_CONTROLLER_INJECT_MARKER'));
+assert('inject chains portal → view → edit → payment → waiver → delete → controller', browserLoader.includes('SCHEDULE_DELETE_INJECT_MARKER'));
 
 const markers = [
   '/* INJECT:sunset-schedule-portal-module */',
@@ -98,11 +98,12 @@ const markers = [
   '/* INJECT:sunset-schedule-drawer-edit-ui */',
   '/* INJECT:sunset-schedule-drawer-payment-ui */',
   '/* INJECT:sunset-schedule-drawer-waiver-ui */',
+  '/* INJECT:sunset-schedule-drawer-delete-ui */',
   '/* INJECT:sunset-schedule-drawer-controller */',
 ];
 const idx = markers.map((m) => apiSrc.indexOf(m));
-assert('all six markers present once', idx.every((i) => i >= 0) && markers.every((m) => apiSrc.split(m).length === 2));
-assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3] && idx[3] < idx[4] && idx[4] < idx[5]);
+assert('all seven markers present once', idx.every((i) => i >= 0) && markers.every((m) => apiSrc.split(m).length === 2));
+assert('marker dependency order', idx[0] < idx[1] && idx[1] < idx[2] && idx[2] < idx[3] && idx[3] < idx[4] && idx[4] < idx[5] && idx[5] < idx[6]);
 assert('inline scheduleLoadDrawerWaiver removed', !apiSrc.includes('function scheduleLoadDrawerWaiver('));
 assert('inline scheduleCreateDrawerWaiver removed', !apiSrc.includes('function scheduleCreateDrawerWaiver('));
 assert('inline scheduleRenderWaiverBoxInner removed', !apiSrc.includes('function scheduleRenderWaiverBoxInner('));
@@ -111,7 +112,7 @@ assert('view module still owns waiver section shell', viewModSrc.includes('funct
 assert('edit module still calls scheduleLoadDrawerWaiver hook', editModSrc.includes('scheduleLoadDrawerWaiver(ctx)'));
 assert('payment module unchanged slice 14 entrypoints', payModSrc.includes('function scheduleCreateDrawerStripeLink('));
 
-const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui */function escHtml(s){return s;}})();</script>');
+const htmlSample = injectSunsetSchedulePortalModule('<script>(function(){function el(id){return null;}/* INJECT:sunset-schedule-portal-module *//* INJECT:sunset-schedule-drawer-view-ui *//* INJECT:sunset-schedule-drawer-edit-ui *//* INJECT:sunset-schedule-drawer-payment-ui *//* INJECT:sunset-schedule-drawer-waiver-ui *//* INJECT:sunset-schedule-drawer-delete-ui *//* INJECT:sunset-schedule-drawer-controller */function escHtml(s){return s;}})();</script>');
 assert('buildUiHtml inject includes waiver module', htmlSample.includes('function scheduleLoadDrawerWaiver('));
 assert('waiver module injected once', htmlSample.split('function scheduleLoadDrawerWaiver(').length === 2);
 
