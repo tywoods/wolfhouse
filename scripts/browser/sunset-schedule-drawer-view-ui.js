@@ -201,9 +201,10 @@ function scheduleDrawerDDMMYY(iso){
   return s.slice(8, 10) + '-' + s.slice(5, 7) + '-' + s.slice(2, 4);
 }
 
-function scheduleDrawerCopyIconBtnHtml(id){
+function scheduleDrawerCopyIconBtnHtml(id, labelKey){
+  var key = labelKey || 'schedule.drawer.copyLink';
   return '<button type="button" class="btn btn-ghost ps-copy-icon" id="' + id + '" title="' +
-    escHtml(portalT('schedule.drawer.copyLink')) + '" aria-label="' + escHtml(portalT('schedule.drawer.copyLink')) + '">&#10697;</button>';
+    escHtml(portalT(key)) + '" aria-label="' + escHtml(portalT(key)) + '">&#10697;</button>';
 }
 
 function scheduleDrawerPaidMethodLabel(method){

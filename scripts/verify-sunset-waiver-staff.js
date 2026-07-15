@@ -60,8 +60,11 @@ assert('waiver routes after public waiver hook',
 
 console.log('\n[4] drawer UI');
 const waiverModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-waiver-ui.js');
+const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
 const waiverModSrc = fs.existsSync(waiverModPath) ? fs.readFileSync(waiverModPath, 'utf8') : '';
-const drawerUiSrc = waiverModSrc + '\n' + apiSrc;
+const viewModSrc = fs.existsSync(viewModPath) ? fs.readFileSync(viewModPath, 'utf8') : '';
+// Slice 12+ — waiver section title lives in view module; waiver actions in waiver module.
+const drawerUiSrc = viewModSrc + '\n' + waiverModSrc + '\n' + apiSrc;
 assert('Formulario de inscripción title key or text',
   drawerUiSrc.includes('schedule.drawer.waiverTitle') || drawerUiSrc.includes('Formulario de inscripción'));
 assert('Crear enlace', drawerUiSrc.includes('schedule.drawer.waiverCreate') || drawerUiSrc.includes('Crear enlace'));

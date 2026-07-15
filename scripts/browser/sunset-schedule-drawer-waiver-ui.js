@@ -91,7 +91,8 @@ function scheduleRenderWaiverBoxInner(data){
   }
   var showAnswers = isGroup ? completedCount > 0 : w.status === 'completed';
   if (w.public_url) {
-    html += '<div class="ps-money-link-row"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(w.public_url) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-waiver-copy') + '</div>';
+    var copyLabelKey = isGroup ? 'schedule.drawer.waiverCopyGroup' : 'schedule.drawer.waiverCopy';
+    html += '<div class="ps-money-link-row"><a id="ps-drawer-waiver-url" href="' + escHtml(w.public_url) + '" target="_blank" rel="noopener" class="ps-money-link-a">' + escHtml(w.public_url) + '</a>' + scheduleDrawerCopyIconBtnHtml('ps-drawer-waiver-copy', copyLabelKey) + '</div>';
     if (showAnswers) {
       html += '<div class="portal-schedule-drawer-actions" style="margin-top:8px"><button type="button" class="btn btn-ghost" id="ps-drawer-waiver-view">' + escHtml(portalT('schedule.drawer.waiverViewAnswers')) + '</button></div>';
     }

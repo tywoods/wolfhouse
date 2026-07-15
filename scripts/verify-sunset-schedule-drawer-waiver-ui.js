@@ -132,6 +132,8 @@ if (waiverExists) {
     return fn.includes('scheduleLoadDrawerWaiver');
   })());
   assert('copy uses server public_url only', waiverModSrc.includes('data.waiver.public_url'));
+  assert('group copy uses waiverCopyGroup key', waiverModSrc.includes('schedule.drawer.waiverCopyGroup'));
+  assert('single copy uses waiverCopy key', waiverModSrc.includes('schedule.drawer.waiverCopy'));
   assert('no WhatsApp in waiver module', !/whatsapp/i.test(waiverModSrc));
   assert('no duplicated legal waiver form copy', !/Google Form|Formulario de inscripción/i.test(waiverModSrc));
   assert('answers rendered with escHtml on labels and values', (() => {
