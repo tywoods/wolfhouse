@@ -48,11 +48,35 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('async_payment_succeeded supported', fs.readFileSync(TRUTH_PATH, 'utf8').includes("'checkout.session.async_payment_succeeded'"));
   assert('lookupPaymentForStripeSession helper wired', apiSrc.includes('lookupPaymentForStripeSession(pg, session)'));
   assert('validateStripeBookingPaymentEvent wired', apiSrc.includes('validateStripeBookingPaymentEvent(pm, session, eventType)'));
-  assert('amountDueCents passed to derive', apiSrc.includes('amountDueCents: pm.amount_due_cents'));
+  assert('amountDueCents passed to derive',
+    apiSrc.includes('amountDueCents: pm.amount_due_cents')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+      .includes('amountDueCents')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-booking-payment-totals.js'), 'utf8')
+      .includes('amountDueCents'));
   assert('idempotent already-paid branch', apiSrc.includes("pm.payment_status === 'paid'"));
-  assert('client_id predicate on payment UPDATE', apiSrc.includes('AND client_id = $5'));
-  assert('persists stripe_checkout_session_id on pay', apiSrc.includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)'));
+  assert('under-lock already_paid idempotent path', apiSrc.includes('already_paid') && apiSrc.includes('under_lock'));
+  assert('BEGIN before payment-truth apply',
+    /await pg\.query\('BEGIN'\)[\s\S]{0,400}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
+  assert('client_id predicate on payment UPDATE',
+    apiSrc.includes('AND client_id = $5')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8').includes('AND client_id = $5'));
+  assert('persists stripe_checkout_session_id on pay',
+    apiSrc.includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)')
+    || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
+      .includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)'));
   assert('Sunset paid metadata patch wired', apiSrc.includes('bookingMetadataPatchForStripePayment'));
+  assert('webhook uses shared hold-promote apply', apiSrc.includes('applyStripeBookingPaymentTruthWrites'));
+  assert('webhook imports isLockedPaymentValidationError', apiSrc.includes('isLockedPaymentValidationError'));
+  assert('webhook returns HTTP 200 application-level locked rejection',
+    /isLockedPaymentValidationError\(dbErr\)[\s\S]{0,800}sendJSON\(res,\s*200/.test(apiSrc)
+    && /rejected:\s*true/.test(apiSrc)
+    && /processed:\s*false/.test(apiSrc)
+    && /reason:\s*'locked_payment_validation_failed'/.test(apiSrc));
+  assert('webhook locked rejection is not HTTP 422',
+    !/isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}sendJSON\(res,\s*422/.test(apiSrc));
+  assert('webhook BEGIN→apply→COMMIT/ROLLBACK on one withPgClient',
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
 } else {
   assert('staff-query-api.js exists', false);
 }

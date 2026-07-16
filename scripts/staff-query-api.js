@@ -688,15 +688,15 @@ const {
   runGuestStripeTestLinkCreateApproved,
 } = require('./lib/luna-guest-stripe-test-link-create');
 const {
-  sumCompletedPaymentCentsForBooking,
-  deriveBookingPaymentState,
-} = require('./lib/luna-booking-payment-totals');
-const {
   STRIPE_BOOKING_PAYMENT_EVENT_TYPES,
   lookupPaymentForStripeSession,
   validateStripeBookingPaymentEvent,
   bookingMetadataPatchForStripePayment,
 } = require('./lib/stripe-webhook-payment-truth');
+const {
+  applyStripeBookingPaymentTruthWrites,
+  isLockedPaymentValidationError,
+} = require('./lib/stripe-hold-promote-policy');
 const {
   reconcilePendingStripePaymentsForDate,
 } = require('./lib/stripe-payment-reconcile');
@@ -13795,94 +13795,47 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 7–9. Derive amounts from completed payment rows + atomic DB update ─────
+  // ── 7–9. Shared payment-truth apply (BEGIN → locks → derive → writes) ──────
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
   let newPmPaidCents;
   let newBkPaid;
   let newBkBalance;
   let newBkPayStatus;
-  let confirmationDraft;
+  let confirmationDraft = null;
+  let paymentTruthResult = null;
 
   try {
     await withPgClient(async (pg) => {
-      const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
-      const derived = deriveBookingPaymentState({
-        bkTotal: pm.bk_total,
-        prevCompletedPaidCents: prevCompletedPaid,
-        stripePaidCents,
-        paymentKind: pm.payment_kind,
-        amountDueCents: pm.amount_due_cents,
-      });
-      newPmPaidCents = derived.newPmPaidCents;
-      newBkPaid = derived.newBkPaid;
-      newBkBalance = derived.newBkBalance;
-      newBkPayStatus = derived.newBkPayStatus;
-      confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
-      const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, newBkPayStatus);
-      const bookingMetaMerge = {};
-      if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
-      if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-      const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
-
       await pg.query('BEGIN');
       try {
-        await pg.query(
-          `UPDATE payments
-             SET status                   = 'paid'::payment_record_status,
-                 amount_paid_cents        = $1,
-                 paid_at                  = NOW(),
-                 stripe_payment_intent_id = $2,
-                 stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6),
-                 metadata                 = metadata || $3::jsonb
-           WHERE id = $4
-             AND client_id = $5`,
-          [
-            newPmPaidCents,
-            session.payment_intent || null,
-            JSON.stringify({
-              stripe_event_id:   event.id,
-              stripe_event_type: event.type,
-              stripe_session_id: sessionId,
-              stripe_livemode:   event.livemode || false,
-              skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
-              source:            'staff_portal_webhook_stage8411',
-            }),
-            pm.payment_id,
-            pm.client_id,
-            sessionId,
-          ]
-        );
-        // Promote hold → confirmed when deposit or full payment received.
-        const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
-        await pg.query(
-          hasBookingMetaMerge
-            ? `UPDATE bookings
-                 SET amount_paid_cents = $1,
-                     balance_due_cents = $2,
-                     payment_status    = $3::payment_status,
-                     status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
-                     metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
-               WHERE id = $4`
-            : `UPDATE bookings
-                 SET amount_paid_cents = $1,
-                     balance_due_cents = $2,
-                     payment_status    = $3::payment_status,
-                     status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
-               WHERE id = $4`,
-          hasBookingMetaMerge
-            ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
-            : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed]
-        );
-        if (pm.booking_guest_id) {
-          await pg.query(
-            `UPDATE booking_guests
-               SET amount_paid_cents = $1,
-                   payment_status = 'paid',
-                   updated_at = NOW()
-             WHERE id = $2`,
-            [newPmPaidCents, pm.booking_guest_id],
-          );
-        }
+        paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
+          pm,
+          session,
+          stripePaidCents,
+          paymentMetadataPatch: {
+            stripe_event_id:   event.id,
+            stripe_event_type: event.type,
+            stripe_session_id: sessionId,
+            stripe_livemode:   event.livemode || false,
+            skip_verify_used:  STRIPE_WEBHOOK_SKIP_VERIFY,
+            source:            'staff_portal_webhook_stage8411',
+          },
+          buildBookingMetaMerge: ({ money, decision }) => {
+            const merge = {};
+            if (decision.allow_auto_confirmation) {
+              const draft = buildPaymentConfirmationDraft(
+                pm,
+                money.newBkPayStatus,
+                money.newBkPaid,
+                money.newBkBalance,
+              );
+              if (draft) merge.confirmation_draft = draft;
+            }
+            const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
+            if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
+            return merge;
+          },
+        });
         await pg.query('COMMIT');
       } catch (e) {
         try { await pg.query('ROLLBACK'); } catch (_) {}
@@ -13890,6 +13843,33 @@ async function handleStripeWebhook(req, res) {
       }
     });
   } catch (dbErr) {
+    if (isLockedPaymentValidationError(dbErr)) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'webhook:stripe:locked_payment_validation_failed',
+        category: 'stripe_webhook',
+        event_type: eventType,
+        session_id: sessionId,
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        code: dbErr.code || dbErr.message,
+        reasons: dbErr.reasons || [dbErr.code || dbErr.message],
+      });
+      return sendJSON(res, 200, {
+        success: true,
+        processed: false,
+        rejected: true,
+        reason: 'locked_payment_validation_failed',
+        code: dbErr.code || dbErr.message,
+        reasons: dbErr.reasons || [dbErr.code || dbErr.message],
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        session_id: sessionId,
+        no_db_write: true,
+        no_confirmation_sent: true,
+        no_whatsapp: true,
+      });
+    }
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
       category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
@@ -13897,8 +13877,56 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 500, { success: false, error: 'DB update failed: ' + dbErr.message });
   }
 
+  if (paymentTruthResult && paymentTruthResult.already_paid) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
+      category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
+      under_lock: true,
+    });
+    return sendJSON(res, 200, {
+      success:                   true,
+      idempotent:                true,
+      event_type:                eventType,
+      payment_id:                pm.payment_id,
+      booking_id:                pm.booking_id,
+      booking_code:              pm.booking_code,
+      amount_paid_cents:         Number(pm.pm_amount_paid || 0),
+      booking_amount_paid_cents: Number(pm.bk_amount_paid || 0),
+      booking_balance_due_cents: Number(pm.bk_balance    || 0),
+      payment_status:            'paid',
+      no_whatsapp:               true,
+      no_confirmation_sent:      true,
+      message:                   'Payment already marked paid under lock (idempotent — no double-count / no second auto-send)',
+    });
+  }
+
+  const money = paymentTruthResult && paymentTruthResult.money;
+  newPmPaidCents = money ? money.newPmPaidCents : null;
+  newBkPaid = money ? money.newBkPaid : null;
+  newBkBalance = money ? money.newBkBalance : null;
+  newBkPayStatus = money ? money.newBkPayStatus : null;
+  if (
+    paymentTruthResult
+    && paymentTruthResult.decision
+    && paymentTruthResult.decision.allow_auto_confirmation
+    && money
+  ) {
+    confirmationDraft = buildPaymentConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
+  }
+
+  const holdPromoteDecision = paymentTruthResult && paymentTruthResult.decision
+    ? paymentTruthResult.decision
+    : null;
+  const paymentAfterHoldExpiry = !!(holdPromoteDecision && holdPromoteDecision.payment_after_hold_expiry);
+  const paymentOnTerminalBooking = !!(holdPromoteDecision && holdPromoteDecision.payment_on_terminal_booking);
+  const allowAutoConfirmation = !!(holdPromoteDecision && holdPromoteDecision.allow_auto_confirmation);
+
   let confirmationAutoSend = null;
-  if (isAutoConfirmationSendEnabled(process.env) && pm.guest_phone) {
+  if (
+    allowAutoConfirmation
+    && isAutoConfirmationSendEnabled(process.env)
+    && pm.guest_phone
+  ) {
     try {
       confirmationAutoSend = await withPgClient((pg) => tryAutoSendBookingConfirmation({
         booking_id: pm.booking_id,
@@ -13915,6 +13943,18 @@ async function handleStripeWebhook(req, res) {
         skip_reason: `auto_send_error:${String(confirmErr.message || confirmErr).slice(0, 80)}`,
       };
     }
+  } else if (paymentAfterHoldExpiry) {
+    confirmationAutoSend = {
+      attempted: false,
+      skipped: true,
+      skip_reason: 'payment_after_hold_expiry',
+    };
+  } else if (paymentOnTerminalBooking) {
+    confirmationAutoSend = {
+      attempted: false,
+      skipped: true,
+      skip_reason: 'payment_on_terminal_booking',
+    };
   }
 
   const confirmationSent = confirmationAutoSend && confirmationAutoSend.confirmation_sent === true;
@@ -13928,9 +13968,12 @@ async function handleStripeWebhook(req, res) {
     whatsapp_called: confirmationSent,
     n8n_called: false, email_sent: false,
     confirmation_auto_send: confirmationAutoSend,
+    payment_after_hold_expiry: paymentAfterHoldExpiry,
+    payment_on_terminal_booking: paymentOnTerminalBooking,
+    hold_promote_reason: holdPromoteDecision ? holdPromoteDecision.reason : null,
   });
 
-  // ── 10. Success response ──────────────────────────────────────────────────
+  // ── 10. Success response (200 even for late payment after hold expiry) ─────
   return sendJSON(res, 200, {
     success:                   true,
     idempotent:                false,
@@ -13942,12 +13985,16 @@ async function handleStripeWebhook(req, res) {
     booking_amount_paid_cents: newBkPaid,
     booking_balance_due_cents: newBkBalance,
     payment_status:            newBkPayStatus,
+    payment_after_hold_expiry: paymentAfterHoldExpiry,
+    payment_on_terminal_booking: paymentOnTerminalBooking,
+    hold_promote_reason:       holdPromoteDecision ? holdPromoteDecision.reason : null,
+    hold_promoted_to_confirmed: !!(holdPromoteDecision && holdPromoteDecision.promote_to_confirmed),
     no_whatsapp:               !confirmationSent,
     no_email:                  true,
     no_n8n:                    true,
     no_confirmation_sent:      !confirmationSent,
     confirmation_auto_send:    confirmationAutoSend,
-    confirmation_draft:        confirmationDraft,
+    confirmation_draft:        (paymentAfterHoldExpiry || paymentOnTerminalBooking) ? null : confirmationDraft,
     elapsed_ms:                elapsed,
   });
 }

@@ -21,9 +21,10 @@ const {
   lookupPaymentForStripeSession,
 } = require('./stripe-webhook-payment-truth');
 const {
-  sumCompletedPaymentCentsForBooking,
-  deriveBookingPaymentState,
-} = require('./luna-booking-payment-totals');
+  applyStripeBookingPaymentTruthWrites,
+  isLockedPaymentValidationError,
+} = require('./stripe-hold-promote-policy');
+// Money math lives inside applyStripeBookingPaymentTruthWrites (under locks).
 
 // Payment ledger statuses still awaiting Stripe truth (mirror of the webhook's
 // ELIGIBLE_PAYMENT_LEDGER_STATUSES; 'paid' rows are already settled).
@@ -35,15 +36,21 @@ function isValidStripeSessionId(sid) {
   return typeof sid === 'string' && STRIPE_SESSION_ID_RE.test(sid.trim());
 }
 
-async function listDuplicatePaidFullPaymentSessions(pg, bookingId) {
+async function listDuplicatePaidFullPaymentSessions(pg, bookingId, clientId) {
+  const params = [bookingId];
+  let clientPred = '';
+  if (clientId) {
+    clientPred = ' AND client_id = $2';
+    params.push(clientId);
+  }
   const res = await pg.query(
     `SELECT DISTINCT stripe_checkout_session_id AS sid, id::text AS payment_id, amount_paid_cents
        FROM payments
       WHERE booking_id = $1::uuid
         AND status = 'paid'::payment_record_status
         AND payment_kind = 'full_amount'::payment_kind
-        AND stripe_checkout_session_id IS NOT NULL`,
-    [bookingId],
+        AND stripe_checkout_session_id IS NOT NULL${clientPred}`,
+    params,
   );
   const sessions = (res.rows || []).filter((r) => isValidStripeSessionId(r.sid));
   if (sessions.length <= 1) return { duplicate: false, sessions };
@@ -100,108 +107,103 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   }
 
   const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
-  const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(pg, pm.booking_id, pm.payment_id);
-  const bookingTotal = Number(pm.bk_total || 0);
-  const alreadyPaid = Number(prevCompletedPaid || 0);
-  const remaining = Math.max(bookingTotal - alreadyPaid, 0);
-  const cappedStripePaidCents = Math.min(stripePaidCents, remaining);
-  const derived = deriveBookingPaymentState({
-    bkTotal: pm.bk_total,
-    prevCompletedPaidCents: prevCompletedPaid,
-    stripePaidCents: cappedStripePaidCents,
-    paymentKind: pm.payment_kind,
-    amountDueCents: pm.amount_due_cents,
-  });
-  const { newPmPaidCents, newBkPaid, newBkBalance, newBkPayStatus } = derived;
-
-  const confirmationDraft = buildReconcileConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBalance);
-  const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, newBkPayStatus);
-  const bookingMetaMerge = {};
-  if (confirmationDraft) bookingMetaMerge.confirmation_draft = confirmationDraft;
-  if (bkMetaPatch) Object.assign(bookingMetaMerge, bkMetaPatch);
-  const hasBookingMetaMerge = Object.keys(bookingMetaMerge).length > 0;
-  const promotesToConfirmed = newBkPayStatus === 'deposit_paid' || newBkPayStatus === 'paid';
   let duplicateDiagnostic = null;
+  let paymentTruthResult = null;
 
   await pg.query('BEGIN');
   try {
-    await pg.query(
-      `SELECT id FROM bookings WHERE id = $1::uuid FOR UPDATE`,
-      [pm.booking_id],
-    );
-    await pg.query(
-      `UPDATE payments
-         SET status                     = 'paid'::payment_record_status,
-             amount_paid_cents          = $1,
-             paid_at                    = NOW(),
-             stripe_payment_intent_id   = $2,
-             stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6),
-             metadata                   = metadata || $3::jsonb
-       WHERE id = $4
-         AND client_id = $5`,
-      [
-        newPmPaidCents,
-        session.payment_intent || null,
-        JSON.stringify({
-          stripe_event_id: meta.eventId || null,
-          stripe_event_type: eventType,
-          stripe_session_id: session.id,
-          stripe_livemode: meta.livemode || false,
-          source: 'stripe_api_reconcile',
-        }),
-        pm.payment_id,
-        pm.client_id,
-        session.id,
-      ],
-    );
-    const duplicateCheck = await listDuplicatePaidFullPaymentSessions(pg, pm.booking_id);
-    if (duplicateCheck.duplicate) {
-      duplicateDiagnostic = duplicateCheck.diagnostic;
-      bookingMetaMerge.duplicate_full_payment_diagnostic = duplicateDiagnostic;
-    }
-    const hasBookingMetaMergeFinal = Object.keys(bookingMetaMerge).length > 0;
-    await pg.query(
-      hasBookingMetaMergeFinal
-        ? `UPDATE bookings
-             SET amount_paid_cents = $1,
-                 balance_due_cents = $2,
-                 payment_status    = $3::payment_status,
-                 status            = CASE WHEN status = 'hold' AND $6 THEN 'confirmed'::booking_status ELSE status END,
-                 metadata          = COALESCE(metadata, '{}'::jsonb) || $5::jsonb
-           WHERE id = $4`
-        : `UPDATE bookings
-             SET amount_paid_cents = $1,
-                 balance_due_cents = $2,
-                 payment_status    = $3::payment_status,
-                 status            = CASE WHEN status = 'hold' AND $5 THEN 'confirmed'::booking_status ELSE status END
-           WHERE id = $4`,
-      hasBookingMetaMergeFinal
-        ? [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, JSON.stringify(bookingMetaMerge), promotesToConfirmed]
-        : [newBkPaid, newBkBalance, newBkPayStatus, pm.booking_id, promotesToConfirmed],
-    );
-    if (pm.booking_guest_id) {
-      await pg.query(
-        `UPDATE booking_guests
-           SET amount_paid_cents = $1, payment_status = 'paid', updated_at = NOW()
-         WHERE id = $2`,
-        [newPmPaidCents, pm.booking_guest_id],
-      );
-    }
+    paymentTruthResult = await applyStripeBookingPaymentTruthWrites(pg, {
+      pm,
+      session,
+      stripePaidCents,
+      capStripeToRemaining: true,
+      paymentMetadataPatch: {
+        stripe_event_id: meta.eventId || null,
+        stripe_event_type: eventType,
+        stripe_session_id: session.id,
+        stripe_livemode: meta.livemode || false,
+        source: 'stripe_api_reconcile',
+      },
+      buildBookingMetaMerge: ({ money, decision }) => {
+        const merge = {};
+        if (decision.allow_auto_confirmation) {
+          const draft = buildReconcileConfirmationDraft(
+            pm,
+            money.newBkPayStatus,
+            money.newBkPaid,
+            money.newBkBalance,
+          );
+          if (draft) merge.confirmation_draft = draft;
+        }
+        const bkMetaPatch = bookingMetadataPatchForStripePayment(pm, money.newBkPayStatus);
+        if (bkMetaPatch) Object.assign(merge, bkMetaPatch);
+        return merge;
+      },
+      afterPaymentPaid: async (pgInner) => {
+        const duplicateCheck = await listDuplicatePaidFullPaymentSessions(
+          pgInner,
+          pm.booking_id,
+          pm.client_id,
+        );
+        if (duplicateCheck.duplicate) {
+          duplicateDiagnostic = duplicateCheck.diagnostic;
+          return {
+            bookingMetaMerge: {
+              duplicate_full_payment_diagnostic: duplicateDiagnostic,
+            },
+          };
+        }
+        return null;
+      },
+    });
     await pg.query('COMMIT');
   } catch (e) {
     try { await pg.query('ROLLBACK'); } catch (_) {}
+    if (isLockedPaymentValidationError(e)) {
+      return {
+        ok: false,
+        reconciled: false,
+        reason: 'locked_payment_validation_failed',
+        code: e.code || e.message,
+        reasons: e.reasons || [e.code || e.message],
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        no_whatsapp: true,
+        no_confirmation_sent: true,
+        no_db_write: true,
+      };
+    }
     throw e;
   }
 
+  if (paymentTruthResult && paymentTruthResult.already_paid) {
+    return {
+      ok: true,
+      reconciled: false,
+      reason: 'already_paid',
+      payment_id: pm.payment_id,
+      no_whatsapp: true,
+      no_confirmation_sent: true,
+    };
+  }
+
+  const money = paymentTruthResult && paymentTruthResult.money;
+  const decision = paymentTruthResult && paymentTruthResult.decision;
   return {
     ok: true,
     reconciled: true,
     payment_id: pm.payment_id,
     booking_id: pm.booking_id,
     booking_code: pm.booking_code,
-    new_bk_payment_status: newBkPayStatus,
-    amount_paid_cents: newPmPaidCents,
+    new_bk_payment_status: money ? money.newBkPayStatus : null,
+    amount_paid_cents: money ? money.newPmPaidCents : null,
     duplicate_full_payment_diagnostic: duplicateDiagnostic,
+    payment_after_hold_expiry: !!(decision && decision.payment_after_hold_expiry),
+    payment_on_terminal_booking: !!(decision && decision.payment_on_terminal_booking),
+    hold_promote_reason: decision ? decision.reason : null,
+    hold_promoted_to_confirmed: !!(decision && decision.promote_to_confirmed),
+    no_whatsapp: true,
+    no_confirmation_sent: true,
   };
 }
 
