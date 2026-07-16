@@ -86,23 +86,43 @@ async function main() {
   assert('writes maps boards→board_rental', writesSrc.includes("boards: 'board_rental'"));
   assert('writes maps wetsuits→wetsuit_rental', writesSrc.includes("wetsuits: 'wetsuit_rental'"));
   assert('writes maps bundles→board_and_suit_rental', writesSrc.includes("bundles: 'board_and_suit_rental'"));
-  assert('UI Available field on duration card', adminUi.includes('data-admin-price-field="available"'));
-  assert('monolith Available field on duration card', staffApi.includes('data-admin-price-field="available"'));
+  // Group-level availability control — one checkbox per group, NOT per duration card.
+  assert('UI NO per-duration Available field in card edit form',
+    !adminUi.includes("data-admin-price-field=\"available\"") ||
+    // Allowed only in the action handler (querySelector), NOT in renderAdminPriceCardEditForm
+    !/renderAdminPriceCardEditForm[\s\S]{0,400}data-admin-price-field="available"/.test(adminUi));
+  assert('monolith NO per-duration Available field in card edit form',
+    !staffApi.includes("data-admin-price-field=\"available\"") ||
+    !/renderAdminPriceCardEditForm[\s\S]{0,400}data-admin-price-field="available"/.test(staffApi));
+  assert('UI group-level availability toggle present', adminUi.includes('toggle-group-availability'));
+  assert('monolith group-level availability toggle present', staffApi.includes('toggle-group-availability'));
+  assert('UI group-avail toggle has data-rental-group', adminUi.includes('data-rental-group'));
+  assert('monolith group-avail toggle has data-rental-group', staffApi.includes('data-rental-group'));
   assert('EN available label', en.includes("'admin.prices.available'"));
   assert('ES available label', es.includes("'admin.prices.available'"));
   assert('EN amount required to enable', en.includes("'admin.edit.amountRequiredToEnable'"));
   const saveGroupBrowser = adminUi.match(/if \(action === 'save-price-group'\)\{[\s\S]*?(?=\n    if \(action === )/);
   const saveGroupMono = staffApi.match(/if \(action === 'save-price-group'\)\{[\s\S]*?(?=\n    if \(action === )/);
+  // save-price-group now only patches period+amount; active is group-level only
   assert(
-    'save-price-group sends active',
-    !!(saveGroupBrowser && /active:\s*[a-zA-Z.]/.test(saveGroupBrowser[0])),
+    'save-price-group no longer sends active per-card',
+    !!(saveGroupBrowser && !/\bactive:\s*available\b/.test(saveGroupBrowser[0])),
   );
   assert(
-    'monolith save-price-group sends active',
-    !!(saveGroupMono && /active:\s*[a-zA-Z.]/.test(saveGroupMono[0])),
+    'monolith save-price-group no longer sends active per-card',
+    !!(saveGroupMono && !/\bactive:\s*available\b/.test(saveGroupMono[0])),
   );
+  // toggle-group-availability handler sends active to group endpoint
+  const toggleBrowser = adminUi.match(/if \(action === 'toggle-group-availability'\)\{[\s\S]*?(?=\n    if \(action === |\n    return;[\s\S]{0,30}\n    if \(action === )/);
+  const toggleMono = staffApi.match(/if \(action === 'toggle-group-availability'\)\{[\s\S]*?(?=\n    if \(action === |\n    return;[\s\S]{0,30}\n    if \(action === )/);
+  assert('browser toggle-group-avail handler sends active', !!(toggleBrowser && /active:\s*[a-zA-Z]/.test(toggleBrowser[0])));
+  assert('monolith toggle-group-avail handler sends active', !!(toggleMono && /active:\s*[a-zA-Z]/.test(toggleMono[0])));
+  assert('browser handler posts to group-availability', !!(toggleBrowser && /group-availability/.test(toggleBrowser[0])));
+  assert('monolith handler posts to group-availability', !!(toggleMono && /group-availability/.test(toggleMono[0])));
   assert('inactive card CSS class', adminUi.includes('is-inactive') || adminUi.includes('portal-admin-price-card-inactive'));
   assert('no separate bundle-only mode flag', !/bundle[_-]?only[_-]?mode/i.test(adminUi) && !/bundle[_-]?only[_-]?mode/i.test(writesSrc));
+  assert('save-price-group error check present (browser)', !!(saveGroupBrowser && /failed/.test(saveGroupBrowser[0]) && /adminShowMessage\('error'/.test(saveGroupBrowser[0])));
+  assert('save-price-group success check present (monolith)', !!(saveGroupMono && /adminShowMessage\('success'/.test(saveGroupMono[0])));
 
   console.log('\n[B] Effective offerings from active positive rows (no mode flag)');
   const bundleOnly = effectiveRentalOfferings([
@@ -783,6 +803,226 @@ async function main() {
     'inactive fallback gated to rental itemType',
     /allowInactiveRental/.test(writesSrc) && /itemType \|\| ''\) === 'rental'/.test(writesSrc),
   );
+
+  console.log('\n[I] Group-level availability: setRentalGroupAvailability + derived state');
+
+  // Static source checks
+  assert('setRentalGroupAvailability exported from tenant-admin-writes.js',
+    /setRentalGroupAvailability/.test(writesSrc));
+  assert('group-availability route registered in staff-query-api.js',
+    staffApi.includes('/staff/admin/config/prices/group-availability'));
+  assert('handleAdminConfigPriceGroupAvailabilityPost defined',
+    staffApi.includes('handleAdminConfigPriceGroupAvailabilityPost'));
+  assert('adminDeriveGroupAvailState defined in browser UI',
+    adminUi.includes('adminDeriveGroupAvailState'));
+  assert('adminDeriveGroupAvailState defined in monolith',
+    staffApi.includes('adminDeriveGroupAvailState'));
+  assert('MIXED state is only derived, never persisted (no mixed column)',
+    !/column.*mixed|mixed.*column/i.test(writesSrc) && !writesSrc.includes("'mixed'"));
+
+  // setRentalGroupAvailability behavioral tests
+  const { setRentalGroupAvailability } = require('./lib/tenant-admin-writes');
+  const actor = { email: 'owner@test.com', staff_user_id: null };
+
+  // ON: boards somo – should activate positive-amount rows only
+  {
+    const boardRows = [
+      { id: 'b1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__half_day', amount_cents: 2000, active: false },
+      { id: 'b2', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', amount_cents: 0, active: false },
+    ];
+    let committed = false;
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'ROLLBACK') return { rows: [] };
+        if (s === 'COMMIT') { committed = true; return { rows: [] }; }
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s) && /FOR UPDATE/i.test(s)) return { rows: boardRows.slice() };
+        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
+        if (/UPDATE tenant_price_rules/i.test(s)) {
+          const idParam = params[0];
+          const activeParam = params[2];
+          const row = boardRows.find((r) => r.id === idParam);
+          if (row) row.active = activeParam;
+          return { rows: [{ id: idParam }] };
+        }
+        return { rows: [] };
+      },
+    };
+    process.env.SUNSET_ADMIN_WRITES_ENABLED = 'true';
+    const res = await setRentalGroupAvailability(mockPg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: true, actor,
+    });
+    assert('boards ON: ok=true', res.ok === true, JSON.stringify(res));
+    assert('boards ON: committed', committed === true);
+    assert('boards ON: positive-amount row activated', boardRows[0].active === true);
+    assert('boards ON: zero-amount row stays inactive', boardRows[1].active === false);
+  }
+
+  // ON: no positive-amount rows → rejected
+  {
+    const zeroRows = [
+      { id: 'z1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', amount_cents: 0, active: false },
+    ];
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'ROLLBACK' || s === 'COMMIT') return { rows: [] };
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s)) return { rows: zeroRows.slice() };
+        return { rows: [] };
+      },
+    };
+    const res = await setRentalGroupAvailability(mockPg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: true, actor,
+    });
+    assert('ON with no positive rows rejected', res.ok === false && res.code === 'no_positive_row', JSON.stringify(res));
+  }
+
+  // OFF: preserves amount_cents, sets all inactive
+  {
+    const offRows = [
+      { id: 'o1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'wetsuit_rental__half_day', amount_cents: 800, active: true },
+      { id: 'o2', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'wetsuit_rental__1_day', amount_cents: 1500, active: true },
+    ];
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'COMMIT') return { rows: [] };
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s) && /FOR UPDATE/i.test(s)) return { rows: offRows.slice() };
+        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
+        if (/UPDATE tenant_price_rules/i.test(s)) {
+          const row = offRows.find((r) => r.id === params[0]);
+          if (row) { row.active = false; }
+          return { rows: [{ id: params[0] }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const res = await setRentalGroupAvailability(mockPg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'wetsuits', desiredActive: false, actor,
+    });
+    assert('OFF wetsuits: ok=true', res.ok === true, JSON.stringify(res));
+    assert('OFF: row1 amount_cents preserved at 800', offRows[0].amount_cents === 800);
+    assert('OFF: row1 active=false', offRows[0].active === false);
+    assert('OFF: row2 amount_cents preserved at 1500', offRows[1].amount_cents === 1500);
+    assert('OFF: row2 active=false', offRows[1].active === false);
+  }
+
+  // Cross-location isolation: Somo OFF does not query Sardinero rows
+  {
+    const allLocationRows = [
+      { id: 's1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', amount_cents: 1500, active: true },
+      { id: 's2', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-sardinero', item_type: 'rental', item_code: 'board_rental__1_day', amount_cents: 2000, active: true },
+    ];
+    const queriedLocations = [];
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'COMMIT') return { rows: [] };
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s)) {
+          const loc = params[1];
+          queriedLocations.push(loc);
+          const filtered = allLocationRows.filter((r) => r.location_id === loc);
+          return { rows: filtered };
+        }
+        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
+        if (/UPDATE tenant_price_rules/i.test(s)) {
+          const row = allLocationRows.find((r) => r.id === params[0]);
+          if (row) row.active = false;
+          return { rows: [{ id: params[0] }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const res = await setRentalGroupAvailability(mockPg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: false, actor,
+    });
+    assert('Somo OFF does not touch Sardinero row', allLocationRows[1].active === true, JSON.stringify(allLocationRows));
+    assert('Only Somo location queried', queriedLocations.every((l) => l === 'sunset-somo'), JSON.stringify(queriedLocations));
+  }
+
+  // Bundle OFF does not affect board or wetsuit groups
+  {
+    const mixedGroupRows = [
+      { id: 'bnd1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_and_suit_rental__1_day', amount_cents: 2500, active: true },
+      { id: 'brd1', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', amount_cents: 1500, active: true },
+    ];
+    const updatedIds = [];
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'COMMIT') return { rows: [] };
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s)) {
+          // Only board_and_suit_rental__% matched for bundles group
+          const pattern = params[hasLoc => hasLoc ? 2 : 1] || params[2] || params[1] || '';
+          const likePrefix = String(pattern).replace(/__%$/, '');
+          return { rows: mixedGroupRows.filter((r) => r.item_code.startsWith(likePrefix)) };
+        }
+        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
+        if (/UPDATE tenant_price_rules/i.test(s)) {
+          const row = mixedGroupRows.find((r) => r.id === params[0]);
+          if (row) { row.active = false; updatedIds.push(row.id); }
+          return { rows: [{ id: params[0] }] };
+        }
+        return { rows: [] };
+      },
+    };
+    const res = await setRentalGroupAvailability(mockPg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'bundles', desiredActive: false, actor,
+    });
+    assert('bundles OFF: ok=true', res.ok === true, JSON.stringify(res));
+    assert('bundles OFF: only bundle row updated, not board_rental row',
+      updatedIds.includes('bnd1') && !updatedIds.includes('brd1'),
+      JSON.stringify(updatedIds));
+    assert('board_rental row unaffected by bundle OFF', mixedGroupRows[1].active === true);
+  }
+
+  // createRentalPriceRule respects group state: MIXED → reject
+  {
+    const mixedState = [
+      { client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__half_day', active: true, amount_cents: 2000 },
+      { client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental', item_code: 'board_rental__1_day', active: false, amount_cents: 1500 },
+    ];
+    const mockPg = {
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'COMMIT' || s === 'ROLLBACK' || /SAVEPOINT/i.test(s)) return { rows: [] };
+        if (/information_schema\.tables/i.test(s)) return { rows: [
+          { table_name: 'tenant_price_rules' },
+          { table_name: 'tenant_lesson_capacity_rules' },
+          { table_name: 'tenant_lesson_time_rules' },
+          { table_name: 'tenant_config_audit_log' },
+        ]};
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s) && !/FOR UPDATE/i.test(s)) {
+          return { rows: mixedState.filter((r) => r.location_id === (params[1] || params[1])) };
+        }
+        if (/FROM tenant_price_rules/i.test(s)) return { rows: [] };
+        if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
+        return { rows: [] };
+      },
+    };
+    const { createRentalPriceRule: createFn } = require('./lib/tenant-admin-writes');
+    const res = await createFn(mockPg, {
+      clientSlug: 'sunset',
+      locationId: 'sunset-somo',
+      patch: { rental_group: 'boards', offering_key: 'board_rental', period_window: '2_days', amount_cents: 3000, currency: 'EUR' },
+      actor,
+    });
+    assert('create with MIXED group state rejected (code=group_mixed)',
+      res.ok === false && res.body && res.body.code === 'group_mixed',
+      JSON.stringify(res));
+  }
+
+  // Lessons/packages rows untouched by group availability ops (static check)
+  assert('setRentalGroupAvailability only targets item_type=rental in SQL',
+    /item_type = \\'rental\\'|item_type = 'rental'/.test(writesSrc));
+  assert('no new availability column added for rental groups (no group_active or avail_state column)',
+    !/group_active|avail_state|group_state|rental_group_available/i.test(writesSrc));
 
   console.log(`\n${'─'.repeat(48)}`);
   console.log(`Results: ${pass} passed, ${fail} failed`);

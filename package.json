@@ -303,6 +303,8 @@
     "verify:sunset-schedule-row-normalizer": "node scripts/verify-sunset-schedule-row-normalizer.js",
     "verify:sunset-schedule-data-loader": "node scripts/verify-sunset-schedule-data-loader.js",
     "verify:sunset-schedule-journeys": "node scripts/verify-sunset-schedule-journeys.js",
+    "verify:sunset-group-lesson-quote": "node scripts/verify-sunset-group-lesson-quote.js",
+    "verify:sunset-schedule-booking-attribution": "node scripts/verify-sunset-schedule-booking-attribution.js",
     "verify:sunset-hermes-runtime": "node scripts/verify-sunset-hermes-runtime.js",
     "sunset:golden": "node scripts/run-sunset-golden.js",
     "verify:sunset-golden-no-send-adversarial": "node scripts/verify-sunset-golden-no-send-adversarial.js",

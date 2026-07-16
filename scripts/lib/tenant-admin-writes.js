@@ -670,6 +670,45 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
   const itemCode = buildDbItemCode(patch.offering_key, patch.period_window);
   const dbUnit = mapBaselineUnitToDb(patch.period_window);
   const displayName = RENTAL_GROUP_DISPLAY[patch.rental_group] || patch.offering_key;
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+
+  // Derive group availability state from existing rows to decide new row's active value.
+  // MIXED → reject (admin must normalise first); OFF → insert inactive; ON → active if amount>0.
+  const existingSql = hasLoc
+    ? `SELECT active, amount_cents FROM tenant_price_rules
+        WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
+          AND item_code LIKE $3`
+    : `SELECT active, amount_cents FROM tenant_price_rules
+        WHERE client_slug = $1 AND item_type = 'rental'
+          AND item_code LIKE $2`;
+  const existingParams = hasLoc
+    ? [clientSlug, loc, `${patch.offering_key}__%`]
+    : [clientSlug, `${patch.offering_key}__%`];
+  const existingRows = await client.query(existingSql, existingParams);
+  const existingList = existingRows.rows;
+
+  let newRowActive = true; // default: ON (amount_cents>0 is enforced by validatePriceCreateBody)
+  if (existingList.length > 0) {
+    const activeCount = existingList.filter((r) => r.active !== false).length;
+    if (activeCount > 0 && activeCount < existingList.length) {
+      // MIXED state — reject
+      return {
+        ok: false,
+        status: 409,
+        body: {
+          success: false,
+          error: 'normalize group availability before adding a duration',
+          code: 'group_mixed',
+        },
+      };
+    }
+    if (activeCount === 0) {
+      // Group is fully OFF — insert inactive
+      newRowActive = false;
+    }
+    // Group is fully ON → newRowActive stays true (amount_cents>0 enforced by validation)
+  }
+
   return upsertConfigPriceRule(client, {
     clientSlug,
     locationId: loc,
@@ -680,7 +719,7 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
       display_name: displayName,
       amount_cents: patch.amount_cents,
       currency: patch.currency || 'EUR',
-      active: true,
+      active: newRowActive,
     },
     actor,
     forceItemCode: itemCode,
@@ -1491,6 +1530,103 @@ async function deactivateLessonTimeRule(client, { ruleId, clientSlug, locationId
   }
 }
 
+/**
+ * Transactionally set active state for ALL duration rows of a rental group.
+ *
+ * ON  → active=true where amount_cents>0; zero-amount rows forced active=false.
+ *        Rejects with code:'no_positive_row' when no row has amount_cents>0.
+ * OFF → active=false on every row; amount_cents untouched.
+ *
+ * One audit row is written summarising the group operation.
+ * Returns {ok:true, offeringKey, desiredActive, updatedIds:[...]} on success.
+ */
+async function setRentalGroupAvailability(client, {
+  clientSlug, locationId, rentalGroup, desiredActive, actor,
+}) {
+  const group = resolveRentalGroupOffering(rentalGroup);
+  if (!group.ok) return { ok: false, error: group.error, code: 'unknown_rental_group' };
+
+  const offeringKey = group.offering_key;
+  const loc = normalizeSunsetLocationId(locationId);
+  const hasLoc = await adminConfigTableHasLocationColumn(client, 'tenant_price_rules');
+
+  await client.query('BEGIN');
+  try {
+    // Lock all rows for this offering+location.
+    const selectSql = hasLoc
+      ? `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND location_id = $2 AND item_type = 'rental'
+            AND item_code LIKE $3
+          FOR UPDATE`
+      : `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND item_type = 'rental'
+            AND item_code LIKE $2
+          FOR UPDATE`;
+    const selectParams = hasLoc
+      ? [clientSlug, loc, `${offeringKey}__%`]
+      : [clientSlug, `${offeringKey}__%`];
+    const found = await client.query(selectSql, selectParams);
+    const rows = found.rows;
+
+    if (desiredActive === true) {
+      const eligible = rows.filter((r) => Number(r.amount_cents) > 0);
+      if (eligible.length === 0) {
+        await client.query('ROLLBACK');
+        return { ok: false, error: 'no positive-amount duration to enable', code: 'no_positive_row' };
+      }
+      // Activate rows with positive amounts; keep others inactive.
+      for (const row of rows) {
+        const shouldBeActive = Number(row.amount_cents) > 0;
+        const updated = await client.query(
+          `UPDATE tenant_price_rules SET active = $3, updated_at = NOW(), updated_by = $4::uuid
+            WHERE id = $1::uuid AND client_slug = $2
+            RETURNING id`,
+          [row.id, clientSlug, shouldBeActive, actor.staff_user_id || null],
+        );
+        if (!updated.rows[0]) {
+          await client.query('ROLLBACK');
+          return { ok: false, error: 'update row count mismatch', code: 'update_mismatch' };
+        }
+      }
+    } else {
+      // OFF: deactivate all rows, preserve amount_cents.
+      for (const row of rows) {
+        const updated = await client.query(
+          `UPDATE tenant_price_rules SET active = false, updated_at = NOW(), updated_by = $3::uuid
+            WHERE id = $1::uuid AND client_slug = $2
+            RETURNING id`,
+          [row.id, clientSlug, actor.staff_user_id || null],
+        );
+        if (!updated.rows[0]) {
+          await client.query('ROLLBACK');
+          return { ok: false, error: 'update row count mismatch', code: 'update_mismatch' };
+        }
+      }
+    }
+
+    const updatedIds = rows.map((r) => r.id);
+    // Single audit row summarising the group operation.
+    if (rows.length > 0) {
+      await insertConfigAudit(client, {
+        tenantId: rows[0].tenant_id,
+        clientSlug,
+        actor,
+        action: 'update',
+        entityType: 'price_rule_group',
+        entityId: rows[0].id,
+        beforeJson: { rental_group: rentalGroup, offering_key: offeringKey, row_count: rows.length },
+        afterJson: { rental_group: rentalGroup, offering_key: offeringKey, active: desiredActive, updated_ids: updatedIds },
+      });
+    }
+
+    await client.query('COMMIT');
+    return { ok: true, offeringKey, desiredActive, updatedIds };
+  } catch (err) {
+    try { await client.query('ROLLBACK'); } catch (_) { /* ignore */ }
+    throw err;
+  }
+}
+
 module.exports = {
   SUNSET_ADMIN_CLIENT,
   ADMIN_WRITE_MIN_ROLE,
@@ -1524,4 +1660,6 @@ module.exports = {
   preparePriceDbPatch,
   assertPositiveAmountForActivation,
   findPriceRuleRow,
+  setRentalGroupAvailability,
+  resolveRentalGroupOffering,
 };
