@@ -22,6 +22,7 @@ const {
 } = require('./stripe-webhook-payment-truth');
 const {
   applyStripeBookingPaymentTruthWrites,
+  isLockedPaymentValidationError,
 } = require('./stripe-hold-promote-policy');
 // Money math lives inside applyStripeBookingPaymentTruthWrites (under locks).
 
@@ -158,6 +159,20 @@ async function reconcilePaidStripeSession(pg, session, meta) {
     await pg.query('COMMIT');
   } catch (e) {
     try { await pg.query('ROLLBACK'); } catch (_) {}
+    if (isLockedPaymentValidationError(e)) {
+      return {
+        ok: false,
+        reconciled: false,
+        reason: 'locked_payment_validation_failed',
+        code: e.code || e.message,
+        reasons: e.reasons || [e.code || e.message],
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        no_whatsapp: true,
+        no_confirmation_sent: true,
+        no_db_write: true,
+      };
+    }
     throw e;
   }
 

@@ -67,6 +67,12 @@ if (fs.existsSync(STAFF_API_PATH)) {
       .includes('stripe_checkout_session_id = COALESCE(stripe_checkout_session_id, $6)'));
   assert('Sunset paid metadata patch wired', apiSrc.includes('bookingMetadataPatchForStripePayment'));
   assert('webhook uses shared hold-promote apply', apiSrc.includes('applyStripeBookingPaymentTruthWrites'));
+  assert('webhook imports isLockedPaymentValidationError', apiSrc.includes('isLockedPaymentValidationError'));
+  assert('webhook returns 422 on locked payment validation failure',
+    /locked_payment_validation_failed[\s\S]{0,400}sendJSON\(res,\s*422/.test(apiSrc)
+    || /isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}422/.test(apiSrc));
+  assert('webhook BEGIN→apply→COMMIT/ROLLBACK on one withPgClient',
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
 } else {
   assert('staff-query-api.js exists', false);
 }

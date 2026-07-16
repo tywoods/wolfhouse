@@ -695,6 +695,7 @@ const {
 } = require('./lib/stripe-webhook-payment-truth');
 const {
   applyStripeBookingPaymentTruthWrites,
+  isLockedPaymentValidationError,
 } = require('./lib/stripe-hold-promote-policy');
 const {
   reconcilePendingStripePaymentsForDate,
@@ -13842,6 +13843,29 @@ async function handleStripeWebhook(req, res) {
       }
     });
   } catch (dbErr) {
+    if (isLockedPaymentValidationError(dbErr)) {
+      appendAuditLog({
+        ts: new Date().toISOString(),
+        intent: 'webhook:stripe:locked_payment_validation_failed',
+        category: 'stripe_webhook',
+        event_type: eventType,
+        session_id: sessionId,
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        code: dbErr.code || dbErr.message,
+        reasons: dbErr.reasons || [dbErr.code || dbErr.message],
+      });
+      return sendJSON(res, 422, {
+        success: false,
+        error: 'Locked payment validation failed',
+        code: dbErr.code || dbErr.message,
+        reasons: dbErr.reasons || [dbErr.code || dbErr.message],
+        payment_id: pm.payment_id,
+        booking_id: pm.booking_id,
+        session_id: sessionId,
+        no_db_write: true,
+      });
+    }
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
       category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,

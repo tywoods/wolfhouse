@@ -7,8 +7,14 @@
  *   1) POST /staff/stripe/webhook
  *   2) stripe-payment-reconcile.reconcilePaidStripeSession
  *
- * Correct boundary: BEGIN → lock booking → lock payment → recheck paid →
- * derive under locks → writes. No guest/staff outbound sends.
+ * Correct boundary: BEGIN → lock booking → lock payment → paid idempotent OR
+ * revalidate locked payment vs Stripe session → derive under locks → writes.
+ *
+ * Concurrency section below is a deterministic lock-order / interleaving harness
+ * on a shared fake client. It does NOT prove PostgreSQL transaction isolation.
+ *
+ * Optional real-Postgres probe: scripts/verify-waterbottle-locked-payment-pg.js
+ * (skips unless WB1_PG_INTEGRATION=1).
  *
  * Run: node scripts/verify-waterbottle-expired-hold-payment-truth.js
  */
@@ -82,7 +88,9 @@ function basePm(overrides) {
 }
 
 /**
- * Concurrent-aware fake PG: booking FOR UPDATE serializes via a mutex queue.
+ * Deterministic lock-order / interleaving harness (shared fake pg client).
+ * Simulates booking-mutex serialization for helper unit tests.
+ * Does NOT own real PostgreSQL locks per transaction and does NOT prove isolation.
  */
 function makeFakePg(seed) {
   const state = {
@@ -286,8 +294,11 @@ async function main() {
   const {
     PAYMENT_AFTER_HOLD_EXPIRY_META_KEY,
     PAYMENT_ON_TERMINAL_BOOKING_META_KEY,
+    LOCKED_PAYMENT_VALIDATION_CODES,
     decideStripeHoldPromote,
     applyStripeBookingPaymentTruthWrites,
+    validateLockedPaymentForStripeTruth,
+    isLockedPaymentValidationError,
   } = require('./lib/stripe-hold-promote-policy');
   const { validateStripeBookingPaymentEvent } = require('./lib/stripe-webhook-payment-truth');
   const { reconcilePaidStripeSession } = require('./lib/stripe-payment-reconcile');
@@ -303,6 +314,20 @@ async function main() {
   assert('reconcile requires stripe-hold-promote-policy', /stripe-hold-promote-policy/.test(reconcileSrc));
   assert('BEGIN before apply in webhook', /await pg\.query\('BEGIN'\)[\s\S]{0,500}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('BEGIN before apply in reconcile', /await pg\.query\('BEGIN'\)[\s\S]{0,500}applyStripeBookingPaymentTruthWrites/.test(reconcileSrc));
+  assert('webhook one withPgClient for BEGIN→helper→COMMIT/ROLLBACK',
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
+  assert('reconcile one pg client for BEGIN→helper→COMMIT/ROLLBACK',
+    /await pg\.query\('BEGIN'\)[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,500}ROLLBACK/.test(reconcileSrc));
+  assert('webhook maps locked validation to 422',
+    /isLockedPaymentValidationError[\s\S]{0,600}422/.test(apiSrc));
+  assert('reconcile returns locked_payment_validation_failed',
+    /locked_payment_validation_failed/.test(reconcileSrc));
+  assert('validateLockedPaymentForStripeTruth exported', typeof validateLockedPaymentForStripeTruth === 'function');
+  assert('isLockedPaymentValidationError exported', typeof isLockedPaymentValidationError === 'function');
+  assert('no stale payment_kind fallback after lock',
+    !/lockedPayment\.payment_kind\s*\|\|\s*pm\.payment_kind/.test(policySrc));
+  assert('no stale amount_due fallback after lock',
+    !/lockedPayment\.amount_due_cents\s*!=\s*null[\s\S]{0,80}pm\.amount_due_cents/.test(policySrc));
   assert('webhook does not derive before BEGIN',
     !/sumCompletedPaymentCentsForBooking[\s\S]{0,200}await pg\.query\('BEGIN'\)/.test(apiSrc));
   assert('reconcile does not derive before BEGIN',
@@ -312,6 +337,10 @@ async function main() {
   assert('completed sum scoped by client_id', /AND client_id = \$3/.test(totalsSrc));
   assert('auto-send gated on allow_auto_confirmation', /allow_auto_confirmation/.test(apiSrc));
   assert('lookup joins bookings with client_id match', /b\.client_id\s*=\s*p\.client_id/.test(truthSrc));
+  assert('LOCKED_PAYMENT_VALIDATION_CODES stable keys present',
+    LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE === 'locked_payment_status_not_eligible'
+    && LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED === 'locked_stripe_session_replaced'
+    && LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH === 'locked_stripe_amount_mismatch');
 
   console.log('\n[policy] terminal confirmation matrix');
   {
@@ -441,7 +470,185 @@ async function main() {
       fake.state.bookings[BOOKING].metadata[PAYMENT_ON_TERMINAL_BOOKING_META_KEY].reason === 'non_bookable_status');
   }
 
-  console.log('\n[1] two concurrent events for the same payment → one write, second idempotent');
+  console.log('\n[locked-revalidate] RED mutations under lock → zero writes + rollback');
+  async function expectLockedReject(label, paymentSeedPatch, expectedCode, sessionOverrides) {
+    const paySeed = Object.assign({
+      id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+      payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+      stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+    }, paymentSeedPatch || {});
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: { [PAYMENT]: paySeed },
+    }, null, sessionOverrides ? { session: baseSession(sessionOverrides) } : null);
+    const updates = fake.state.queries.filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
+    assert(`${label}: throws locked_*`, !!error && isLockedPaymentValidationError(error),
+      error ? `got ${error.code}` : 'no error');
+    assert(`${label}: primary code`, error && error.code === expectedCode,
+      error ? `got ${error.code}` : 'no error');
+    assert(`${label}: no result`, !result);
+    assert(`${label}: zero money writes`, updates.length === 0, `got ${updates.length}`);
+    assert(`${label}: payment unchanged`, fake.state.payments[PAYMENT].status === paySeed.status);
+    assert(`${label}: booking unchanged`, fake.state.bookings[BOOKING].status === 'hold');
+    assert(`${label}: rolled back`, fake.state.rolledBack === true && fake.state.committed === false);
+  }
+
+  await expectLockedReject(
+    'cancelled between lookup and lock',
+    { status: 'cancelled' },
+    LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE,
+  );
+  await expectLockedReject(
+    'ineligible status failed under lock',
+    { status: 'failed' },
+    LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE,
+  );
+  await expectLockedReject(
+    'amount_due changes under lock',
+    { amount_due_cents: 9999 },
+    LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH,
+  );
+  await expectLockedReject(
+    'currency changes under lock',
+    { currency: 'USD' },
+    LOCKED_PAYMENT_VALIDATION_CODES.CURRENCY_NOT_EUR,
+  );
+  await expectLockedReject(
+    'payment_kind → addon_service under lock',
+    { payment_kind: 'addon_service' },
+    LOCKED_PAYMENT_VALIDATION_CODES.KIND_ADDON,
+  );
+  await expectLockedReject(
+    'checkout session replaced under lock',
+    { stripe_checkout_session_id: 'cs_replaced_other' },
+    LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED,
+  );
+  await expectLockedReject(
+    'session metadata payment_id conflict (no authoritative binding)',
+    { stripe_checkout_session_id: null },
+    LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH,
+    { metadata: { payment_id: '99999999-9999-9999-9999-999999999999', client_slug: 'wolfhouse-somo' } },
+  );
+
+  console.log('\n[locked-revalidate] GREEN eligible locked payment still succeeds');
+  {
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    });
+    assert('eligible locked apply ok', !error && result && result.ok && !result.already_paid);
+    assert('eligible locked promoted', fake.state.bookings[BOOKING].status === 'confirmed');
+    assert('eligible locked payment paid', fake.state.payments[PAYMENT].status === 'paid');
+  }
+
+  console.log('\n[locked-revalidate] already-paid under lock remains idempotent (no second send)');
+  {
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'confirmed', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'paid',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 10000,
+          currency: 'EUR', stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    });
+    const updates = fake.state.queries.filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
+    assert('already-paid ok', !error && result && result.already_paid);
+    assert('already-paid no money writes', updates.length === 0);
+    assert('already-paid suppresses auto-confirm', result.decision.allow_auto_confirmation === false);
+    assert('already-paid ledger unchanged', fake.state.payments[PAYMENT].amount_paid_cents === 10000);
+  }
+
+  console.log('\n[locked-revalidate] reconcile surfaces locked reject without writes');
+  {
+    const pmRow = basePm({
+      payment_status: 'cancelled',
+      stripe_checkout_session_id: 'cs_test_wb1',
+    });
+    // Lookup returns eligible-looking row; lock returns cancelled (simulated by pm mutation after lookup).
+    // Here both use same fake state — mutate after first lookup by making FOR UPDATE read cancelled.
+    let lookupCount = 0;
+    const state = {
+      pm: { ...pmRow, payment_status: 'checkout_created' },
+      booking: {
+        client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false,
+        metadata: {}, bk_total: 50000, amount_paid_cents: 0, balance_due_cents: 50000,
+      },
+      updates: 0,
+    };
+    const pg = {
+      query: async (sql, params) => {
+        const q = String(sql);
+        if (/BEGIN/i.test(q) || /COMMIT/i.test(q) || /ROLLBACK/i.test(q)) return { rows: [], rowCount: 0 };
+        if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
+          lookupCount += 1;
+          return { rows: [{ ...state.pm, payment_status: 'checkout_created' }], rowCount: 1 };
+        }
+        if (/FROM bookings[\s\S]*FOR UPDATE/i.test(q)) {
+          return {
+            rowCount: 1,
+            rows: [{
+              booking_id: BOOKING,
+              booking_status: 'hold',
+              hold_expires_at: null,
+              hold_expired_by_db: false,
+              bk_total: 50000,
+              bk_amount_paid: 0,
+              bk_balance: 50000,
+              bk_deposit: 10000,
+            }],
+          };
+        }
+        if (/FROM payments[\s\S]*FOR UPDATE/i.test(q)) {
+          return {
+            rowCount: 1,
+            rows: [{
+              payment_id: PAYMENT,
+              booking_id: BOOKING,
+              client_id: CLIENT_A,
+              booking_guest_id: null,
+              payment_status: 'cancelled',
+              payment_kind: 'deposit_only',
+              currency: 'EUR',
+              amount_due_cents: 10000,
+              pm_amount_paid: 0,
+              stripe_checkout_session_id: 'cs_test_wb1',
+            }],
+          };
+        }
+        if (/UPDATE (payments|bookings)/i.test(q)) {
+          state.updates += 1;
+          return { rows: [], rowCount: 1 };
+        }
+        if (/SUM\(amount_paid_cents\)/i.test(q) || /COALESCE\(SUM/i.test(q)) {
+          return { rows: [{ total: 0 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 0 };
+      },
+    };
+    const res = await reconcilePaidStripeSession(pg, baseSession(), { eventType: 'checkout.session.completed' });
+    assert('reconcile locked reject ok:false', res.ok === false && res.reconciled === false);
+    assert('reconcile reason locked_payment_validation_failed', res.reason === 'locked_payment_validation_failed');
+    assert('reconcile code status not eligible', res.code === LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
+    assert('reconcile no_db_write', res.no_db_write === true);
+    assert('reconcile zero updates', state.updates === 0);
+    assert('reconcile did lookup', lookupCount >= 1);
+  }
+
+  console.log('\n[interleaving] same-payment lock-order harness (NOT PostgreSQL isolation)');
   {
     const seed = {
       bookings: {
@@ -450,7 +657,8 @@ async function main() {
       payments: {
         [PAYMENT]: {
           id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
-          payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0, metadata: {},
+          payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0,
+          currency: 'EUR', stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
         },
       },
     };
@@ -478,14 +686,14 @@ async function main() {
     const writes = [r1, r2];
     const paidWrites = writes.filter((r) => r && r.ok && !r.already_paid);
     const idempotent = writes.filter((r) => r && r.already_paid);
-    assert('exactly one mutating write', paidWrites.length === 1);
-    assert('second under-lock already_paid', idempotent.length === 1);
-    assert('idempotent suppresses auto-confirm', idempotent[0].decision.allow_auto_confirmation === false);
-    assert('single paid ledger', fake.state.payments[PAYMENT].status === 'paid'
+    assert('interleaving: exactly one mutating write', paidWrites.length === 1);
+    assert('interleaving: second under-lock already_paid', idempotent.length === 1);
+    assert('interleaving: idempotent suppresses auto-confirm', idempotent[0].decision.allow_auto_confirmation === false);
+    assert('interleaving: single paid ledger', fake.state.payments[PAYMENT].status === 'paid'
       && fake.state.payments[PAYMENT].amount_paid_cents === 10000);
   }
 
-  console.log('\n[2]+[3] two distinct payments serialize; second derivation sees first');
+  console.log('\n[interleaving] distinct-payment booking-mutex harness (NOT PostgreSQL isolation)');
   {
     const seed = {
       bookings: {
@@ -497,11 +705,13 @@ async function main() {
       payments: {
         [PAYMENT]: {
           id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
-          payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0, metadata: {},
+          payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0,
+          currency: 'EUR', stripe_checkout_session_id: `cs_${PAYMENT}`, metadata: {},
         },
         [PAYMENT_2]: {
           id: PAYMENT_2, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
-          payment_kind: 'full_amount', amount_due_cents: 40000, amount_paid_cents: 0, metadata: {},
+          payment_kind: 'full_amount', amount_due_cents: 40000, amount_paid_cents: 0,
+          currency: 'EUR', stripe_checkout_session_id: `cs_${PAYMENT_2}`, metadata: {},
         },
       },
     };
@@ -537,15 +747,15 @@ async function main() {
       runPay(PAYMENT, 10000),
       runPay(PAYMENT_2, 40000),
     ]);
-    assert('both distinct applies ok', first.ok && second.ok && !first.already_paid && !second.already_paid);
+    assert('interleaving distinct: both applies ok', first.ok && second.ok && !first.already_paid && !second.already_paid);
     const later = first.prevCompletedPaidCents <= second.prevCompletedPaidCents ? second : first;
     const earlier = later === second ? first : second;
-    assert('earlier starts from zero prior paid', earlier.prevCompletedPaidCents === 0);
-    assert('later sees first committed payment', later.prevCompletedPaidCents === 10000,
+    assert('interleaving distinct: earlier starts from zero prior paid', earlier.prevCompletedPaidCents === 0);
+    assert('interleaving distinct: later sees first committed payment', later.prevCompletedPaidCents === 10000,
       `got ${later.prevCompletedPaidCents}`);
-    assert('both payments paid',
+    assert('interleaving distinct: both payments paid',
       fake.state.payments[PAYMENT].status === 'paid' && fake.state.payments[PAYMENT_2].status === 'paid');
-    assert('booking money reflects both', Number(fake.state.bookings[BOOKING].amount_paid_cents) === 50000);
+    assert('interleaving distinct: booking money reflects both', Number(fake.state.bookings[BOOKING].amount_paid_cents) === 50000);
   }
 
   console.log('\n[6] tenant mismatch fails closed');
@@ -557,7 +767,8 @@ async function main() {
       payments: {
         [PAYMENT]: {
           id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
-          payment_kind: 'deposit_only', amount_due_cents: 10000, metadata: {},
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
         },
       },
     }, { client_id: CLIENT_B });
@@ -573,7 +784,7 @@ async function main() {
       payments: {
         [PAYMENT]: {
           id: PAYMENT, client_id: CLIENT_B, booking_id: BOOKING, status: 'checkout_created',
-          payment_kind: 'deposit_only', amount_due_cents: 10000, metadata: {},
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR', metadata: {},
         },
       },
     });
@@ -598,7 +809,8 @@ async function main() {
   {
     const payBefore = {
       id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
-      payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0, metadata: {},
+      payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 0,
+      currency: 'EUR', stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
     };
     const bkBefore = {
       client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {},

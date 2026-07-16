@@ -8,6 +8,8 @@
  * Run: node scripts/verify-sunset-stripe-payment-reconcile.js
  */
 
+const fs = require('fs');
+const path = require('path');
 const {
   reconcilePaidStripeSession,
   reconcilePendingStripePaymentsForBooking,
@@ -20,6 +22,15 @@ function assert(label, cond, detail) {
   if (cond) { console.log(`  PASS  ${label}`); pass += 1; }
   else { console.error(`  FAIL  ${label}${detail ? ' — ' + detail : ''}`); fail += 1; }
 }
+
+const RECONCILE_SRC = fs.readFileSync(
+  path.join(__dirname, 'lib', 'stripe-payment-reconcile.js'),
+  'utf8',
+);
+assert('reconcile imports isLockedPaymentValidationError', /isLockedPaymentValidationError/.test(RECONCILE_SRC));
+assert('reconcile returns locked_payment_validation_failed', /locked_payment_validation_failed/.test(RECONCILE_SRC));
+assert('reconcile one client BEGIN→apply→COMMIT/ROLLBACK',
+  /await pg\.query\('BEGIN'\)[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,500}ROLLBACK/.test(RECONCILE_SRC));
 
 function buildReconcilePg(pm, booking) {
   const state = {

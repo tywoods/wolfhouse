@@ -10,20 +10,24 @@
  *   1. Lock booking (id + client_id) FOR UPDATE
  *   2. Lock/reload payment (id + client_id) FOR UPDATE
  *   3. If payment already paid → idempotent return (no second auto-send)
- *   4. Sum completed payments scoped by client_id (exclude this payment)
- *   5. Derive booking money totals under the locks
- *   6. Decide promote / auto-confirmation from locked booking status + DB expiry
- *   7. Apply payment / booking / guest writes
+ *   4. Revalidate locked payment vs Stripe session (fail closed; no stale fields)
+ *   5. Sum completed payments scoped by client_id (exclude this payment)
+ *   6. Derive booking money totals under the locks from locked payment fields
+ *   7. Decide promote / auto-confirmation from locked booking status + DB expiry
+ *   8. Apply payment / booking / guest writes
  *
- * Invariant: Stripe money is always persisted when valid; expired/terminal bookings
- * never silently promote or revive; unknown non-bookable statuses fail closed for
- * auto-confirmation.
+ * Invariant: Stripe money is persisted only when the locked payment still matches
+ * the session; expired/terminal bookings never silently promote or revive;
+ * unknown non-bookable statuses fail closed for auto-confirmation.
  */
 
 const {
   sumCompletedPaymentCentsForBooking,
   deriveBookingPaymentState,
 } = require('./luna-booking-payment-totals');
+const {
+  ELIGIBLE_PAYMENT_LEDGER_STATUSES,
+} = require('./stripe-webhook-payment-truth');
 
 const PAYMENT_AFTER_HOLD_EXPIRY_META_KEY = 'payment_after_hold_expiry';
 const PAYMENT_ON_TERMINAL_BOOKING_META_KEY = 'payment_on_terminal_booking';
@@ -36,6 +40,36 @@ const AUTO_CONFIRM_ELIGIBLE_STATUSES = new Set([
 ]);
 
 const CANCELLED_STATUSES = new Set(['cancelled', 'canceled']);
+
+/** Stable diagnostic codes for under-lock payment revalidation failures. */
+const LOCKED_PAYMENT_VALIDATION_CODES = Object.freeze({
+  STATUS_NOT_ELIGIBLE: 'locked_payment_status_not_eligible',
+  BOOKING_MISMATCH: 'locked_payment_booking_mismatch',
+  CLIENT_MISMATCH: 'locked_payment_client_mismatch',
+  KIND_ADDON: 'locked_payment_kind_addon_service',
+  CURRENCY_NOT_EUR: 'locked_payment_currency_not_eur',
+  SESSION_CURRENCY_MISMATCH: 'locked_stripe_session_currency_mismatch',
+  AMOUNT_DUE_INVALID: 'locked_amount_due_invalid',
+  STRIPE_AMOUNT_MISMATCH: 'locked_stripe_amount_mismatch',
+  SESSION_REPLACED: 'locked_stripe_session_replaced',
+  METADATA_PAYMENT_ID_MISMATCH: 'locked_stripe_metadata_payment_id_mismatch',
+});
+
+function isLockedPaymentValidationError(err) {
+  return !!(err && (err.locked_payment_validation === true
+    || (err.code && String(err.code).startsWith('locked_'))));
+}
+
+function throwLockedPaymentValidation(code, extraReasons) {
+  const reasons = Array.isArray(extraReasons) && extraReasons.length
+    ? extraReasons
+    : [code];
+  const err = new Error(code);
+  err.code = code;
+  err.reasons = reasons;
+  err.locked_payment_validation = true;
+  throw err;
+}
 
 function coerceDbBool(value) {
   return value === true || value === 't' || value === 'true' || value === 1 || value === '1';
@@ -109,6 +143,93 @@ async function lockPaymentForStripePaymentTruth(pg, { paymentId, clientId }) {
     [paymentId, clientId],
   );
   return (res.rows && res.rows[0]) || null;
+}
+
+/**
+ * Revalidate the locked payment row against the Stripe session and trusted
+ * original booking/client context. Must run after FOR UPDATE and before any
+ * aggregation or money writes. Uses ONLY locked payment fields for kind,
+ * amount, currency, and session binding — never stale pre-lock snapshots.
+ *
+ * @param {object} lockedPayment
+ * @param {object} session
+ * @param {{ expectedBookingId: string, expectedClientId: string }} ctx
+ * @returns {{ ok: true } | never} — throws locked_payment_validation on failure
+ */
+function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
+  const expectedBookingId = ctx && ctx.expectedBookingId;
+  const expectedClientId = ctx && ctx.expectedClientId;
+  const reasons = [];
+
+  if (!lockedPayment) {
+    throwLockedPaymentValidation(LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE, [
+      'locked_payment_missing',
+    ]);
+  }
+
+  const status = String(lockedPayment.payment_status || '');
+  if (!ELIGIBLE_PAYMENT_LEDGER_STATUSES.includes(status)) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
+    reasons.push(`payment_status_${status || 'empty'}_not_eligible`);
+  }
+
+  if (String(lockedPayment.booking_id) !== String(expectedBookingId)) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.BOOKING_MISMATCH);
+  }
+  if (String(lockedPayment.client_id) !== String(expectedClientId)) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.CLIENT_MISMATCH);
+  }
+
+  const paymentKind = String(lockedPayment.payment_kind || '');
+  if (paymentKind === 'addon_service') {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.KIND_ADDON);
+  }
+
+  const payCurrency = String(lockedPayment.currency || '').toUpperCase();
+  if (payCurrency !== 'EUR') {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.CURRENCY_NOT_EUR);
+  }
+  const sessionCurrency = String((session && session.currency) || 'eur').toUpperCase();
+  if (sessionCurrency !== 'EUR') {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.SESSION_CURRENCY_MISMATCH);
+  }
+
+  const amountDue = Number(lockedPayment.amount_due_cents);
+  if (!Number.isFinite(amountDue) || amountDue <= 0) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.AMOUNT_DUE_INVALID);
+  }
+
+  const stripePaidCents = Number(session && session.amount_total);
+  if (!Number.isFinite(stripePaidCents) || stripePaidCents <= 0) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH);
+    reasons.push('stripe_amount_missing');
+  } else if (Number.isFinite(amountDue) && amountDue > 0 && stripePaidCents !== amountDue) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH);
+  }
+
+  const lockedSessionId = lockedPayment.stripe_checkout_session_id
+    ? String(lockedPayment.stripe_checkout_session_id)
+    : '';
+  const sessionId = session && session.id ? String(session.id) : '';
+  if (lockedSessionId && sessionId && lockedSessionId !== sessionId) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED);
+  }
+
+  const metaPaymentId = session && session.metadata && session.metadata.payment_id
+    ? String(session.metadata.payment_id)
+    : '';
+  const lockedPaymentId = String(lockedPayment.payment_id || '');
+  const sessionBindingAuthoritative = !!(lockedSessionId && sessionId && lockedSessionId === sessionId);
+  if (metaPaymentId && metaPaymentId !== lockedPaymentId && !sessionBindingAuthoritative) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH);
+  }
+
+  if (reasons.length) {
+    // Prefer the first stable locked_* code as err.code for logging.
+    const primary = reasons.find((r) => String(r).startsWith('locked_')) || reasons[0];
+    throwLockedPaymentValidation(primary, reasons);
+  }
+  return { ok: true };
 }
 
 /**
@@ -275,11 +396,12 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     };
   }
 
-  if (String(lockedPayment.booking_id) !== String(pm.booking_id)) {
-    const err = new Error('payment_booking_mismatch');
-    err.code = 'payment_booking_mismatch';
-    throw err;
-  }
+  // Fail closed before aggregation/writes when the locked row no longer matches
+  // the Stripe session that was validated against the pre-lock snapshot.
+  validateLockedPaymentForStripeTruth(lockedPayment, session, {
+    expectedBookingId: pm.booking_id,
+    expectedClientId: pm.client_id,
+  });
 
   const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(
     pg,
@@ -288,13 +410,15 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     pm.client_id,
   );
 
-  const bkTotal = locked.bk_total != null ? locked.bk_total : pm.bk_total;
-  const paymentKind = lockedPayment.payment_kind || pm.payment_kind;
-  const amountDueCents = lockedPayment.amount_due_cents != null
-    ? lockedPayment.amount_due_cents
-    : pm.amount_due_cents;
+  // Authoritative money fields come ONLY from the locked payment + locked booking.
+  const bkTotal = locked.bk_total;
+  const paymentKind = lockedPayment.payment_kind;
+  const amountDueCents = lockedPayment.amount_due_cents;
 
-  let stripePaidCents = rawStripePaid;
+  let stripePaidCents = Number(session.amount_total);
+  if (!Number.isFinite(stripePaidCents) || stripePaidCents <= 0) {
+    stripePaidCents = Number(rawStripePaid);
+  }
   if (capStripeToRemaining) {
     const bookingTotal = Number(bkTotal || 0);
     const remaining = Math.max(bookingTotal - Number(prevCompletedPaid || 0), 0);
@@ -420,7 +544,8 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
-  const guestId = lockedPayment.booking_guest_id || pm.booking_guest_id;
+  // Guest linkage is taken from the locked payment only (no stale pre-lock id).
+  const guestId = lockedPayment.booking_guest_id || null;
   if (guestId) {
     const gUpd = await pg.query(
       `UPDATE booking_guests
@@ -456,11 +581,14 @@ module.exports = {
   PAYMENT_ON_TERMINAL_BOOKING_META_KEY,
   AUTO_CONFIRM_ELIGIBLE_STATUSES,
   CANCELLED_STATUSES,
+  LOCKED_PAYMENT_VALIDATION_CODES,
   coerceDbBool,
+  isLockedPaymentValidationError,
   buildPaymentAfterHoldExpiryMetadata,
   buildPaymentOnTerminalBookingMetadata,
   lockBookingForStripePaymentTruth,
   lockPaymentForStripePaymentTruth,
+  validateLockedPaymentForStripeTruth,
   decideStripeHoldPromote,
   applyStripeBookingPaymentTruthWrites,
 };
