@@ -296,6 +296,7 @@ const {
   createLessonTimeRule,
   patchLessonTimeRule,
   deactivateLessonTimeRule,
+  setRentalGroupAvailability,
 } = require('./lib/tenant-admin-writes');
 const {
   defaultPackConfig,
@@ -23456,14 +23457,11 @@ function renderAdminPriceCardEditForm(pid, p, groupKey){
   var parsed = adminParsePriceRow(p);
   var period = parsed.periodWindow || '1_day';
   var ik = adminPriceInputKey(pid);
-  var isAvailable = p && p.active !== false;
   return '<div class="portal-admin-price-card-edit">' +
     '<div><label>' + escHtml(portalT('admin.edit.period')) + '</label>' +
     '<select data-admin-price-field="period" id="admin-price-period-' + escHtml(ik) + '">' + adminRentalPeriodOptions(period) + '</select></div>' +
     '<div><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
     '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' + escHtml(ik) + '" value="' + escHtml(adminEurosFromAmount(p.amount)) + '" inputmode="decimal"></div>' +
-    '<div><label class="portal-admin-check"><input type="checkbox" data-admin-price-field="available" id="admin-price-available-' + escHtml(ik) + '"' + (isAvailable ? ' checked' : '') + '> ' +
-    escHtml(portalT('admin.prices.available')) + ' / ' + escHtml(portalT('admin.prices.bookable')) + '</label></div>' +
     '</div>';
 }
 
@@ -23478,6 +23476,15 @@ function renderAdminAddPriceForm(groupKey){
     escHtml(portalT('admin.action.save')) + '</button>' +
     '<button type="button" class="btn btn-ghost" data-admin-action="cancel-edit">' + escHtml(portalT('admin.action.cancel')) + '</button>' +
     '</div></div>';
+}
+
+function adminDeriveGroupAvailState(items){
+  var total = items.length;
+  if (total === 0) return 'off';
+  var activeCount = items.filter(function(p){ return p && p.active !== false; }).length;
+  if (activeCount === total) return 'on';
+  if (activeCount === 0) return 'off';
+  return 'mixed';
 }
 
 function renderAdminSectionPricesFromConfig(cfg){
@@ -23499,12 +23506,29 @@ function renderAdminSectionPricesFromConfig(cfg){
     });
     var groupEditing = writes && adminEditTarget === ('price-group:' + key);
     var adding = writes && adminEditTarget === ('price-add:' + key);
+    var groupAvailState = adminDeriveGroupAvailState(items);
     html += '<div class="portal-admin-subsection" data-admin-price-group="' + escHtml(key) + '">';
     html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
-    if (writes){
+    if (writes && items.length > 0){
       var busyOther = adminPriceGroupBusy(key);
       if (!busyOther){
+        var isChecked = groupAvailState === 'on';
+        var isMixed = groupAvailState === 'mixed';
+        html += '<label class=\\'portal-admin-group-avail-label\\'>' +
+          '<input type=\\'checkbox\\' class=\\'portal-admin-group-avail-toggle\\'' +
+          ' data-admin-action=\\'toggle-group-availability\\'' +
+          ' data-rental-group=\\'' + escHtml(key) + '\\'' +
+          (isChecked ? ' checked' : '') +
+          (isMixed ? ' data-mixed=\\'true\\'' : '') +
+          '> ' + escHtml(portalT('admin.prices.available')) +
+          (isMixed ? ' <span class=\\'portal-admin-mixed-hint\\'>' + escHtml(portalT('admin.prices.availableMixed') || 'Mixed') + '</span>' : '') +
+          '</label>';
+      }
+    }
+    if (writes){
+      var busyOther2 = adminPriceGroupBusy(key);
+      if (!busyOther2){
         html += '<div class="portal-admin-card-actions">';
         if (!groupEditing){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-price-group" data-price-group="' +
@@ -23538,10 +23562,8 @@ function renderAdminSectionPricesFromConfig(cfg){
             escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button></div></div>';
           html += renderAdminPriceCardEditForm(pid, p, key);
         } else {
-          var availLabel = rowActive ? portalT('admin.prices.availableYes') : portalT('admin.prices.availableNo');
           html += '<div class="portal-admin-price-card-readout"><span class="portal-admin-price-period">' + escHtml(adminPeriodLabel(parsed.periodWindow)) + '</span>' +
-            '<span class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</span>' +
-            '<span class="portal-admin-price-available">' + escHtml(portalT('admin.prices.available') + ': ' + availLabel) + '</span></div>';
+            '<span class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</span></div>';
         }
         html += '</article>';
       });
@@ -23987,8 +24009,33 @@ function wireAdminTab(){
       if (tierRow && tierRow.parentNode) tierRow.parentNode.removeChild(tierRow);
       return;
     }
-    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'edit-full-day-addon' || action === 'save-full-day-addon'){
+    if (action === 'edit-capacity' || action === 'edit-price-group' || action === 'add-price' || action === 'delete-price' || action === 'save-price-group' || action === 'edit-time' || action === 'add-time' || action === 'delete-time' || action === 'save-capacity' || action === 'save-price' || action === 'save-new-price' || action === 'save-time' || action === 'save-new-time' || action === 'add-pack' || action === 'edit-pack' || action === 'delete-pack' || action === 'save-pack' || action === 'save-new-pack' || action === 'edit-private-lesson' || action === 'save-private-lesson' || action === 'edit-full-day-addon' || action === 'save-full-day-addon' || action === 'toggle-group-availability'){
       if (!adminCfgWritesEnabled(cfg)) return;
+    }
+    if (action === 'toggle-group-availability'){
+      var toggleRentalGroup = String(btn.getAttribute('data-rental-group') || '');
+      var toggleActive = !!(btn.checked);
+      if (!toggleRentalGroup){ adminShowMessage('error', portalT('admin.edit.saveFailed')); return; }
+      adminSaveBusy = true;
+      adminShowMessage('', '');
+      adminApiRequest('POST', '/staff/admin/config/prices/group-availability' + adminClientQuery(), {
+        rental_group: toggleRentalGroup,
+        active: toggleActive,
+      }).then(function(res){
+        adminSaveBusy = false;
+        if (res.status !== 200 || !res.data || res.data.success !== true){
+          adminShowMessage('error', (res.data && (res.data.message || res.data.error)) || ('HTTP ' + res.status));
+          adminReloadConfig();
+          return;
+        }
+        adminShowMessage('success', portalT('admin.edit.savedPrice'));
+        adminReloadConfig();
+      }).catch(function(err){
+        adminSaveBusy = false;
+        adminShowMessage('error', portalT('admin.edit.saveFailed') + ' ' + err.message);
+        adminReloadConfig();
+      });
+      return;
     }
     if (action === 'edit-capacity'){
       adminEditTarget = 'capacity';
@@ -24100,20 +24147,14 @@ function wireAdminTab(){
         if (!pid) return;
         var periodInput = card.querySelector('[data-admin-price-field="period"]');
         var amountInput = card.querySelector('[data-admin-price-field="amount"]');
-        var availableInput = card.querySelector('[data-admin-price-field="available"]');
         var period = periodInput ? String(periodInput.value || '').trim() : '';
         if (!period){ validationError = portalT('admin.edit.periodRequired'); return; }
         var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
         if (!centsParsed.ok){ validationError = centsParsed.error; return; }
-        var available = !!(availableInput && availableInput.checked);
-        if (available && !(centsParsed.value > 0)){
-          validationError = portalT('admin.edit.amountRequiredToEnable');
-          return;
-        }
+        // availability is now controlled at group level — omit active from per-duration patch
         jobs.push(adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(pid) + adminClientQuery(), {
           period_window: period,
           amount_cents: centsParsed.value,
-          active: available,
         }));
       });
       if (validationError){ adminShowMessage('error', validationError); return; }
@@ -38296,6 +38337,58 @@ async function handleAdminConfigPricePost(query, req, res, user) {
   }
 }
 
+async function handleAdminConfigPriceGroupAvailabilityPost(query, req, res, user) {
+  const started = Date.now();
+  const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
+  if (SQL_INJECT_RE.test(clientSlug)) return send400(res, 'invalid client slug');
+  const gate = evaluateAdminWriteGate({
+    user,
+    clientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    resolveStaffRole,
+  });
+  if (!gate.ok) return sendAdminWriteGateFailure(res, gate);
+  if (!assertStaffClientAccess(user, clientSlug, res)) return;
+
+  let body;
+  try {
+    body = JSON.parse(await readBody(req) || '{}');
+  } catch (_) {
+    return send400(res, 'invalid JSON body');
+  }
+  if (!body || typeof body !== 'object') return send400(res, 'invalid body');
+  const rentalGroup = body.rental_group != null ? String(body.rental_group).trim() : '';
+  if (!rentalGroup) return send400(res, 'rental_group required');
+  if (typeof body.active !== 'boolean') return send400(res, 'active must be boolean');
+
+  try {
+    const locationId = normalizeSunsetLocationId(query.location);
+    const result = await withPgClient(async (pg) => setRentalGroupAvailability(pg, {
+      clientSlug,
+      locationId,
+      rentalGroup,
+      desiredActive: body.active,
+      actor: { staff_user_id: user && user.staff_user_id, email: user && user.email },
+    }));
+    appendAuditLog({
+      ts: new Date().toISOString(),
+      intent: 'api:admin.config.price_group_availability',
+      category: 'admin_api',
+      client_slug: clientSlug,
+      success: result.ok,
+      staff_user_id: user ? user.staff_user_id : null,
+      elapsed_ms: Date.now() - started,
+    });
+    if (!result.ok) {
+      return sendJSON(res, 409, { success: false, error: result.error, code: result.code, elapsed_ms: Date.now() - started });
+    }
+    return sendJSON(res, 200, { success: true, ...result, elapsed_ms: Date.now() - started });
+  } catch (err) {
+    console.error('[admin.config.price_group_availability] write failed:', err && err.code, '|', err && err.message);
+    return sendJSON(res, 500, { success: false, error: 'write failed', code: err && err.code });
+  }
+}
+
 async function handleAdminConfigPriceDelete(ruleIdRaw, query, req, res, user) {
   const started = Date.now();
   const clientSlug = (String(query.client || DEFAULT_CLIENT)).trim();
@@ -45718,6 +45811,12 @@ async function router(req, res) {
     const auth = await requireAuth(req, res, 'admin');
     if (!auth.ok) return;
     return handleAdminConfigPricePost(parsed.query, req, res, auth.user);
+  }
+
+  if (pathname === '/staff/admin/config/prices/group-availability' && method === 'POST') {
+    const auth = await requireAuth(req, res, 'admin');
+    if (!auth.ok) return;
+    return handleAdminConfigPriceGroupAvailabilityPost(parsed.query, req, res, auth.user);
   }
 
   // ── Staff & Owner WhatsApp numbers — DB-backed allowlist CRUD (admin+owner) ─
