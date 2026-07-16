@@ -20,9 +20,14 @@ const NAVIGATION_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule
 const RUNTIME_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-runtime.js');
 const ROW_NORMALIZER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-row-normalizer.js');
 const DATA_LOADER_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-data-loader.js');
+const RENTAL_AVAILABILITY_MODULE = path.join(__dirname, '..', 'browser', 'sunset-schedule-rental-availability.js');
 
 function getSunsetSchedulePortalBrowserSource() {
   return fs.readFileSync(BROWSER_MODULE, 'utf8');
+}
+
+function getSunsetScheduleRentalAvailabilityBrowserSource() {
+  return fs.readFileSync(RENTAL_AVAILABILITY_MODULE, 'utf8');
 }
 
 function getSunsetScheduleDrawerViewBrowserSource() {
@@ -76,6 +81,7 @@ function injectAtMarker(html, marker, moduleJs) {
 }
 
 function injectSunsetSchedulePortalModule(html) {
+  html = injectAtMarker(html, SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER, getSunsetScheduleRentalAvailabilityBrowserSource());
   html = injectAtMarker(html, SCHEDULE_PORTAL_INJECT_MARKER, getSunsetSchedulePortalBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DRAWER_VIEW_INJECT_MARKER, getSunsetScheduleDrawerViewBrowserSource());
   html = injectAtMarker(html, SCHEDULE_DRAWER_EDIT_INJECT_MARKER, getSunsetScheduleDrawerEditBrowserSource());
@@ -90,6 +96,7 @@ function injectSunsetSchedulePortalModule(html) {
   return injectAtMarker(html, SCHEDULE_DATA_LOADER_INJECT_MARKER, getSunsetScheduleDataLoaderBrowserSource());
 }
 
+const SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER = '/* INJECT:sunset-schedule-rental-availability */';
 const SCHEDULE_PORTAL_INJECT_MARKER = '/* INJECT:sunset-schedule-portal-module */';
 const SCHEDULE_DRAWER_VIEW_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-view-ui */';
 const SCHEDULE_DRAWER_EDIT_INJECT_MARKER = '/* INJECT:sunset-schedule-drawer-edit-ui */';
@@ -105,6 +112,7 @@ const SCHEDULE_DATA_LOADER_INJECT_MARKER = '/* INJECT:sunset-schedule-data-loade
 
 module.exports = {
   getSunsetSchedulePortalBrowserSource,
+  getSunsetScheduleRentalAvailabilityBrowserSource,
   getSunsetScheduleDrawerViewBrowserSource,
   getSunsetScheduleDrawerEditBrowserSource,
   getSunsetScheduleDrawerActionsBrowserSource,
@@ -119,6 +127,7 @@ module.exports = {
   injectSunsetSchedulePortalModule,
   injectAtMarker,
   BROWSER_MODULE,
+  RENTAL_AVAILABILITY_MODULE,
   DRAWER_VIEW_MODULE,
   DRAWER_EDIT_MODULE,
   DRAWER_ACTIONS_MODULE,
@@ -130,6 +139,7 @@ module.exports = {
   NAVIGATION_MODULE,
   ROW_NORMALIZER_MODULE,
   DATA_LOADER_MODULE,
+  SCHEDULE_RENTAL_AVAILABILITY_INJECT_MARKER,
   SCHEDULE_PORTAL_INJECT_MARKER,
   SCHEDULE_DRAWER_VIEW_INJECT_MARKER,
   SCHEDULE_DRAWER_EDIT_INJECT_MARKER,

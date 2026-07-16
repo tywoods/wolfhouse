@@ -681,7 +681,7 @@ if (apiSrc) {
   assert('generic rentals card removed', !apiSrc.includes('id="ps-rentals-today"'));
   assert('next 30 days view', apiSrc.includes('data-ps-view="next30"') && loaderModSrc.includes('function scheduleFetchNext30('));
   assert('today-first forward range', navModSrc.includes('function scheduleRangeStartDate(') && apiSrc.includes('function scheduleFilterFutureWeekData('));
-  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-course"') && apiSrc.includes('id="ps-create-comp-surfboard"'));
+  assert('create booking component checkboxes', apiSrc.includes('id="ps-create-comp-course"') && apiSrc.includes('id="ps-create-rentals"'));
   assert('create booking group lesson checkbox removed', !apiSrc.includes('id="ps-create-comp-lesson"'));
   assert('create booking course checkbox', apiSrc.includes('id="ps-create-comp-course"'));
   assert('create booking course dropdown', apiSrc.includes('id="ps-create-course-select"'));
@@ -934,11 +934,11 @@ console.log('\n[26] Schedule polish + edit-mode drawers');
 if (apiSrc) {
   assert('schedule light page uses portal cream bg', apiSrc.includes(':root:not([data-theme="dark"]) #tab-portal-home{') && apiSrc.includes('background:var(--cream)'));
   assert('create booking title no demo text', !/schedule\.create\.title['"]:\s*['"]Create booking \(demo\)/.test(i18nSrc));
-  assert('create component order wetsuit board course', (function(){
-    var i = apiSrc.indexOf('id="ps-create-comp-wetsuit"');
-    var j = apiSrc.indexOf('id="ps-create-comp-surfboard"', i);
-    var k = apiSrc.indexOf('id="ps-create-comp-course"', j);
-    return i > -1 && j > i && k > j;
+  assert('create rentals selector after course/private components', (function(){
+    var k = apiSrc.indexOf('id="ps-create-comp-course"');
+    var p = apiSrc.indexOf('id="ps-create-comp-private-lesson"', k);
+    var r = apiSrc.indexOf('id="ps-create-rentals"', p);
+    return k > -1 && p > k && r > p;
   })());
   assert('booking drawer view mode helper', (function () {
     const viewModPath = path.join(ROOT, 'scripts', 'browser', 'sunset-schedule-drawer-view-ui.js');
