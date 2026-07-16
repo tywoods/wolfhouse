@@ -13579,9 +13579,8 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 5. Idempotency — already paid ─────────────────────────────────────────
-  if (pm.payment_status === 'paid') {
-    if (pm.payment_kind === 'addon_service') {
+  // ── 5. Idempotency — addon_service already paid (separate path; not booking-payment truth) ──
+  if (pm.payment_status === 'paid' && pm.payment_kind === 'addon_service') {
       let svcPaidCount = 0;
       try {
         svcPaidCount = await withPgClient(async (pg) => {
@@ -13616,24 +13615,6 @@ async function handleStripeWebhook(req, res) {
         amount_paid_cents:              Number(pm.pm_amount_paid || 0),
         payment_status:                 'paid',
         message:                        'Add-on payment already marked paid (idempotent — no double-count)',
-      });
-    }
-    appendAuditLog({
-      ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
-      category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
-    });
-    return sendJSON(res, 200, {
-      success:                   true,
-      idempotent:                true,
-      event_type:                eventType,
-      payment_id:                pm.payment_id,
-      booking_id:                pm.booking_id,
-      booking_code:              pm.booking_code,
-      amount_paid_cents:         Number(pm.pm_amount_paid || 0),
-      booking_amount_paid_cents: Number(pm.bk_amount_paid || 0),
-      booking_balance_due_cents: Number(pm.bk_balance    || 0),
-      payment_status:            'paid',
-      message:                   'Payment already marked paid (idempotent — no double-count)',
     });
   }
 

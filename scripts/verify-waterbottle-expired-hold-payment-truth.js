@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * verify:waterbottle-expired-hold-payment-truth (WB-1)
+ * verify:waterbottle-expired-hold-payment-truth (WB-1 / WB-2)
  *
  * Offline proofs for expired-hold / terminal-status payment truth on BOTH paths:
  *   1) POST /staff/stripe/webhook
@@ -30,6 +30,14 @@ const TRUTH_PATH = path.join(ROOT, 'scripts', 'lib', 'stripe-webhook-payment-tru
 const RECONCILE_PATH = path.join(ROOT, 'scripts', 'lib', 'stripe-payment-reconcile.js');
 const TOTALS_PATH = path.join(ROOT, 'scripts', 'lib', 'luna-booking-payment-totals.js');
 const API_PATH = path.join(ROOT, 'scripts', 'staff-query-api.js');
+
+const { validateStripeBookingPaymentEvent } = require('./lib/stripe-webhook-payment-truth');
+const {
+  applyStripeBookingPaymentTruthWrites: applyStripeBookingPaymentTruthWritesFn,
+  isLockedPaymentValidationError: isLockedPaymentValidationErrorFn,
+  LOCKED_PAYMENT_VALIDATION_CODES: LOCKED_CODES,
+} = require('./lib/stripe-hold-promote-policy');
+const { reconcilePaidStripeSession: reconcilePaidStripeSessionFn } = require('./lib/stripe-payment-reconcile');
 
 let pass = 0;
 let fail = 0;
@@ -287,6 +295,100 @@ async function runApply(seed, pmOverrides, applyOpts) {
   return { fake, result, error };
 }
 
+function pmLookupRowFromSeed(p) {
+  return {
+    payment_id: p.id,
+    booking_id: p.booking_id,
+    client_id: p.client_id,
+    booking_guest_id: p.booking_guest_id || null,
+    payment_status: p.status,
+    payment_kind: p.payment_kind,
+    currency: p.currency || 'EUR',
+    amount_due_cents: p.amount_due_cents,
+    pm_amount_paid: p.amount_paid_cents || 0,
+    stripe_checkout_session_id: p.stripe_checkout_session_id || null,
+    client_slug: 'wolfhouse-somo',
+    booking_code: 'WB1',
+    guest_name: 'Test Guest',
+    guest_phone: '+34600000000',
+    bk_total: 50000,
+    bk_amount_paid: p.bk_amount_paid != null ? p.bk_amount_paid : 10000,
+    bk_balance: p.bk_balance != null ? p.bk_balance : 40000,
+    bk_deposit: 10000,
+    booking_status: 'confirmed',
+    hold_expires_at: null,
+  };
+}
+
+function buildPublicReconcilePg(seed) {
+  const fake = makeFakePg(seed);
+  const inner = fake.query.bind(fake);
+  fake.query = async (sql, params) => {
+    const q = String(sql);
+    if (/FROM payments p[\s\S]*stripe_checkout_session_id = \$1/i.test(q)) {
+      const sid = params[0];
+      for (const p of Object.values(fake.state.payments)) {
+        if (p.stripe_checkout_session_id === sid || p._lookupBySession) {
+          const row = pmLookupRowFromSeed(p);
+          // Unlocked lookup snapshot may still carry the session id that matched.
+          row.stripe_checkout_session_id = sid;
+          return { rowCount: 1, rows: [row] };
+        }
+      }
+      return { rows: [], rowCount: 0 };
+    }
+    if (/FROM payments p[\s\S]*WHERE p\.id = \$1::uuid/i.test(q) && /JOIN bookings/i.test(q)) {
+      const pid = params[0];
+      const p = fake.state.payments[pid];
+      return p ? { rowCount: 1, rows: [pmLookupRowFromSeed(p)] } : { rows: [], rowCount: 0 };
+    }
+    return inner(sql, params);
+  };
+  return fake;
+}
+
+async function runWebhookBookingPaymentEntry(fake, pm, session) {
+  const eventType = 'checkout.session.completed';
+  if (pm.payment_status === 'paid' && pm.payment_kind === 'addon_service') {
+    return { kind: 'addon_pre_tx_idempotent' };
+  }
+  if ((pm.currency || '').toUpperCase() !== 'EUR') {
+    return { kind: 'currency_reject' };
+  }
+  if (pm.payment_kind === 'addon_service') {
+    return { kind: 'addon_path' };
+  }
+  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType);
+  if (validationReasons.length > 0) {
+    return { kind: 'validation_failed', reasons: validationReasons };
+  }
+  const qBefore = fake.state.queries.length;
+  await fake.query('BEGIN');
+  let paymentTruthResult;
+  let dbErr;
+  try {
+    paymentTruthResult = await applyStripeBookingPaymentTruthWritesFn(fake, {
+      pm,
+      session,
+      stripePaidCents: Number(session.amount_total || pm.amount_due_cents || 0),
+      paymentMetadataPatch: { source: 'wb2_webhook_entry' },
+    });
+    await fake.query('COMMIT');
+  } catch (e) {
+    dbErr = e;
+    try { await fake.query('ROLLBACK'); } catch (_) { /* ignore */ }
+  }
+  const updates = fake.state.queries.slice(qBefore).filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
+  if (dbErr && isLockedPaymentValidationErrorFn(dbErr)) {
+    return { kind: 'locked_reject', error: dbErr, updates };
+  }
+  if (dbErr) throw dbErr;
+  if (paymentTruthResult && paymentTruthResult.already_paid) {
+    return { kind: 'under_lock_idempotent', result: paymentTruthResult, updates };
+  }
+  return { kind: 'mutated', result: paymentTruthResult, updates };
+}
+
 async function main() {
   console.log('\nverify:waterbottle-expired-hold-payment-truth (WB-1 correction)\n');
 
@@ -355,6 +457,16 @@ async function main() {
     && LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED === 'locked_stripe_session_replaced'
     && LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH === 'locked_stripe_amount_mismatch'
     && LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING === 'locked_stripe_binding_missing');
+
+  console.log('\n[wb2-wiring] no pre-transaction paid booking shortcut');
+  assert('webhook addon paid shortcut preserved',
+    /pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'/.test(apiSrc));
+  assert('webhook no pre-tx booking paid idempotent return',
+    !/if \(pm\.payment_status === 'paid'\)[\s\S]{0,1200}Payment already marked paid \(idempotent — no double-count\)/.test(apiSrc));
+  assert('reconcile no pre-tx already_paid short-circuit before validate',
+    !/lookupPaymentForStripeSession\(pg, session\)[\s\S]{0,300}pm\.payment_status === 'paid'[\s\S]{0,200}reason:\s*'already_paid'/.test(reconcileSrc));
+  assert('reconcile under-lock already_paid path retained',
+    /paymentTruthResult && paymentTruthResult\.already_paid/.test(reconcileSrc));
 
   console.log('\n[policy] terminal confirmation matrix');
   {
@@ -971,6 +1083,172 @@ async function main() {
     assert('ROLLBACK issued', fake.state.rolledBack === true);
     assert('payment not left paid', fake.state.payments[PAYMENT].status === 'checkout_created');
     assert('booking not promoted', fake.state.bookings[BOOKING].status === 'hold');
+  }
+
+  console.log('\n[wb2-public-entry] webhook booking-payment path (post-lookup sequence)');
+  async function expectPublicPaidWebhook(label, paySeed, sessionOverrides, expectKind, expectedCode) {
+    const pay = Object.assign({
+      id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'paid',
+      payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 10000,
+      currency: 'EUR', stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+    }, paySeed || {});
+    const fake = makeFakePg({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'confirmed', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: { [PAYMENT]: pay },
+    });
+    const pm = basePm({
+      payment_status: 'paid',
+      pm_amount_paid: 10000,
+      payment_kind: pay.payment_kind,
+      amount_due_cents: pay.amount_due_cents,
+      stripe_checkout_session_id: pay.stripe_checkout_session_id,
+    });
+    const session = baseSession(sessionOverrides || {});
+    const out = await runWebhookBookingPaymentEntry(fake, pm, session);
+    assert(`${label}: kind ${expectKind}`, out.kind === expectKind, `got ${out.kind}`);
+    assert(`${label}: zero money writes`, (out.updates || []).length === 0, `got ${(out.updates || []).length}`);
+    if (expectKind === 'locked_reject') {
+      assert(`${label}: locked code`, out.error && out.error.code === expectedCode, out.error ? out.error.code : 'no err');
+      assert(`${label}: rolled back`, fake.state.rolledBack === true);
+    }
+    if (expectKind === 'under_lock_idempotent') {
+      assert(`${label}: under_lock flag`, out.result && out.result.already_paid);
+      assert(`${label}: no auto-confirm`, out.result.decision.allow_auto_confirmation === false);
+    }
+  }
+
+  await expectPublicPaidWebhook(
+    'webhook paid + exact session',
+    { stripe_checkout_session_id: 'cs_test_wb1' },
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+    'under_lock_idempotent',
+  );
+  await expectPublicPaidWebhook(
+    'webhook paid + metadata-only binding',
+    { stripe_checkout_session_id: null },
+    { metadata: { payment_id: PAYMENT, client_slug: 'wolfhouse-somo' } },
+    'under_lock_idempotent',
+  );
+  await expectPublicPaidWebhook(
+    'webhook paid + no binding',
+    { stripe_checkout_session_id: null },
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING,
+  );
+  await expectPublicPaidWebhook(
+    'webhook paid + replaced session',
+    { stripe_checkout_session_id: 'cs_old_replaced' },
+    null,
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED,
+  );
+  await expectPublicPaidWebhook(
+    'webhook paid + conflicting metadata without session',
+    { stripe_checkout_session_id: null },
+    { metadata: { payment_id: '99999999-9999-9999-9999-999999999999', client_slug: 'wolfhouse-somo' } },
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH,
+  );
+  {
+    const fake = makeFakePg({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    });
+    const out = await runWebhookBookingPaymentEntry(fake, basePm(), baseSession());
+    assert('webhook checkout_created still mutates', out.kind === 'mutated' && out.result && out.result.ok);
+    assert('webhook checkout_created payment paid', fake.state.payments[PAYMENT].status === 'paid');
+  }
+
+  console.log('\n[wb2-public-entry] reconcilePaidStripeSession entry path');
+  async function expectPublicPaidReconcile(label, paySeed, sessionOverrides, expectKind, expectedCode) {
+    const pay = Object.assign({
+      id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'paid',
+      payment_kind: 'deposit_only', amount_due_cents: 10000, amount_paid_cents: 10000,
+      currency: 'EUR', stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+    }, paySeed || {});
+    const fake = buildPublicReconcilePg({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'confirmed', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: { [PAYMENT]: pay },
+    });
+    const qBefore = fake.state.queries.length;
+    const res = await reconcilePaidStripeSessionFn(fake, baseSession(sessionOverrides || {}), {
+      eventType: 'checkout.session.completed',
+    });
+    const updates = fake.state.queries.slice(qBefore).filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
+    if (expectKind === 'under_lock_idempotent') {
+      assert(`${label}: reconciled false`, res.reconciled === false && res.reason === 'already_paid');
+      assert(`${label}: zero money writes`, updates.length === 0);
+      assert(`${label}: no_confirmation_sent`, res.no_confirmation_sent === true);
+    } else if (expectKind === 'locked_reject') {
+      assert(`${label}: locked reject`, res.ok === false && res.reason === 'locked_payment_validation_failed');
+      assert(`${label}: code`, res.code === expectedCode);
+      assert(`${label}: no_db_write`, res.no_db_write === true);
+      assert(`${label}: zero money writes`, updates.length === 0);
+    }
+  }
+
+  await expectPublicPaidReconcile(
+    'reconcile paid + exact session',
+    { stripe_checkout_session_id: 'cs_test_wb1' },
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+    'under_lock_idempotent',
+  );
+  await expectPublicPaidReconcile(
+    'reconcile paid + metadata-only binding',
+    { stripe_checkout_session_id: null },
+    { metadata: { payment_id: PAYMENT, client_slug: 'wolfhouse-somo' } },
+    'under_lock_idempotent',
+  );
+  await expectPublicPaidReconcile(
+    'reconcile paid + no binding',
+    { stripe_checkout_session_id: null, _lookupBySession: true },
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING,
+  );
+  await expectPublicPaidReconcile(
+    'reconcile paid + replaced session',
+    { stripe_checkout_session_id: 'cs_old_replaced' },
+    null,
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED,
+  );
+  await expectPublicPaidReconcile(
+    'reconcile paid + conflicting metadata without session',
+    { stripe_checkout_session_id: null, _lookupBySession: true },
+    { metadata: { payment_id: '99999999-9999-9999-9999-999999999999', client_slug: 'wolfhouse-somo' } },
+    'locked_reject',
+    LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH,
+  );
+  {
+    const fake = buildPublicReconcilePg({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    });
+    const res = await reconcilePaidStripeSessionFn(fake, baseSession(), { eventType: 'checkout.session.completed' });
+    assert('reconcile checkout_created reconciled', res.reconciled === true);
+    assert('reconcile checkout_created payment paid', fake.state.payments[PAYMENT].status === 'paid');
   }
 
   console.log('\n[idempotent path] validator + reconcile export');
