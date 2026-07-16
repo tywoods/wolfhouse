@@ -117,10 +117,19 @@ check(
 const reconcile = exists('scripts/lib/stripe-payment-reconcile.js')
   ? read('scripts/lib/stripe-payment-reconcile.js')
   : '';
+const holdPolicy = exists('scripts/lib/stripe-hold-promote-policy.js')
+  ? read('scripts/lib/stripe-hold-promote-policy.js')
+  : '';
 check(
-  'Stripe reconcile promotes hold → confirmed when paid',
-  /status\s*=\s*'hold'[\s\S]*?'confirmed'/.test(reconcile)
-    || /WHEN status = 'hold'[\s\S]*confirmed/.test(reconcile),
+  'Stripe reconcile uses shared hold promote policy',
+  /applyStripeBookingPaymentTruthWrites/.test(reconcile)
+    && /stripe-hold-promote-policy/.test(reconcile),
+);
+check(
+  'Hold promote policy gates hold → confirmed on money + expiry',
+  /status === 'hold'/.test(holdPolicy)
+    && /promote_to_confirmed: moneyOk/.test(holdPolicy)
+    && /hold_expired_by_db/.test(holdPolicy),
 );
 
 const stagingTruth = exists('scripts/lib/luna-guest-stripe-payment-truth-apply.js')
@@ -131,37 +140,37 @@ check(
   /hold_expired/.test(stagingTruth) && /hold_expires_at/.test(stagingTruth),
 );
 
-// Absence of an expire worker that transitions to expired (Phase 3B premise).
-const workerCandidates = [
+// WB-4 worker implemented — contract premises updated from "absent" to "present".
+const workerFiles = [
   'scripts/lib/booking-hold-expiry.js',
   'scripts/run-booking-hold-expiry.js',
-  'scripts/expire-booking-holds.js',
-  'scripts/run-expire-holds.js',
 ];
-for (const rel of workerCandidates) {
-  check(`expire worker not implemented yet (${rel})`, !exists(rel));
+for (const rel of workerFiles) {
+  check(`expire worker present (${rel})`, exists(rel));
 }
 
-// Soft scan: no JS under scripts/lib that UPDATEs bookings to expired as a hold job.
-// (Allow docs/tests mentioning the string.)
-const libDir = path.join(ROOT, 'scripts', 'lib');
-let suspiciousExpireUpdate = null;
-if (fs.existsSync(libDir)) {
-  for (const name of fs.readdirSync(libDir)) {
-    if (!name.endsWith('.js')) continue;
-    // Skip this verifier-adjacent contract docs only; scanning all libs for update patterns
-    const text = fs.readFileSync(path.join(libDir, name), 'utf8');
-    if (/UPDATE\s+bookings[\s\S]{0,200}status\s*=\s*'expired'/i.test(text)
-      && /hold_expires_at\s*</i.test(text)) {
-      suspiciousExpireUpdate = `scripts/lib/${name}`;
-      break;
-    }
-  }
-}
+const holdExpiryLib = exists('scripts/lib/booking-hold-expiry.js')
+  ? read('scripts/lib/booking-hold-expiry.js')
+  : '';
 check(
-  'no scripts/lib hold-expiry UPDATE…status=expired worker pattern',
-  !suspiciousExpireUpdate,
-  suspiciousExpireUpdate || '',
+  'worker sets booking status expired under lock',
+  /status = 'expired'::booking_status/.test(holdExpiryLib)
+    && /FOR UPDATE/.test(holdExpiryLib),
+);
+check(
+  'worker deletes booking_beds scoped by booking_id and client_id',
+  /DELETE FROM booking_beds[\s\S]*booking_id[\s\S]*client_id/.test(holdExpiryLib),
+);
+check(
+  'worker cancels unpaid payment links only (not paid)',
+  /status = 'cancelled'::payment_record_status/.test(holdExpiryLib)
+    && /CANCELLABLE_PAYMENT_STATUSES/.test(holdExpiryLib),
+);
+check(
+  'CLI defaults dry-run; apply flag required',
+  exists('scripts/run-booking-hold-expiry.js')
+    && /--apply/.test(read('scripts/run-booking-hold-expiry.js'))
+    && /apply:\s*false/.test(read('scripts/run-booking-hold-expiry.js')),
 );
 
 const regression = exists('docs/regression-test-plan.md') ? read('docs/regression-test-plan.md') : '';
