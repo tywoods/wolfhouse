@@ -52,6 +52,16 @@ require('dotenv').config({ path: path.join(__dirname, '..', '.env') });
 // Also load infra/.env as fallback (same pattern as pg-connect.js; root .env takes precedence)
 require('dotenv').config({ path: path.join(__dirname, '..', 'infra', '.env') });
 
+// Fail-closed auth config — validate before loading the rest of the monolith.
+const {
+  applyStaffAuthConfigOrExit,
+} = require('./lib/staff-auth-config');
+const STAFF_AUTH_CONFIG = applyStaffAuthConfigOrExit(process.env);
+const STAFF_AUTH_REQUIRED = STAFF_AUTH_CONFIG.authRequired;
+const STAFF_AUTH_HTTPS = STAFF_AUTH_CONFIG.authHttps;
+const STAFF_QUERY_API_BIND_HOST = STAFF_AUTH_CONFIG.bindHost;
+const LUNA_BOT_INTERNAL_TOKEN = STAFF_AUTH_CONFIG.botInternalToken;
+
 const { withPgClient }       = require('./lib/pg-connect');
 const {
   parsePaymentShortLinkToken,
@@ -878,10 +888,9 @@ const STRIPE_WEBHOOK_SECRET      = process.env.STRIPE_WEBHOOK_SECRET      || nul
 const STRIPE_WEBHOOK_SKIP_VERIFY = process.env.STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
 // Stage 8.5.3 — Luna bot internal token for /staff/bot/* endpoints.
-// Set LUNA_BOT_INTERNAL_TOKEN to a strong random secret (32+ chars) in infra/.env or Key Vault.
+// Validated at startup via scripts/lib/staff-auth-config.js (optional; weak values refuse startup).
 // When unset or empty: token auth path is disabled; /staff/bot/* falls through to normal session auth.
 // Token auth ONLY applies to /staff/bot/* routes — never to normal staff endpoints.
-const LUNA_BOT_INTERNAL_TOKEN = process.env.LUNA_BOT_INTERNAL_TOKEN || '';
 
 // Stage 8.6.1 — Staff Ask Luna allowlist config path.
 // File: config/clients/wolfhouse-somo.staff-whatsapp-allowlist.json
@@ -935,21 +944,20 @@ const LOOKUP_BOOKING_CODE_SQL = `
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Auth config (Stage 7.2c scaffold)
+// Auth config (Stage 7.2c + DILDO Slice 1 fail-closed)
 //
-// STAFF_AUTH_REQUIRED=false  ← local/dev default; set true to enforce sessions
+// STAFF_AUTH_REQUIRED=true   ← authenticated mode (staging/prod)
+// STAFF_AUTH_HTTPS=true      ← required outside local/test; Secure cookie flag
+// STAFF_AUTH_REQUIRED=false  ← open mode ONLY with STAFF_AUTH_ALLOW_OPEN=true
+//                              and a local/test runtime profile (loopback bind)
 // STAFF_SESSION_COOKIE_NAME  ← cookie name (default: luna_staff_session)
 // STAFF_SESSION_TTL_HOURS    ← session lifetime (default: 12 h)
-// STAFF_AUTH_HTTPS=true      ← adds Secure flag to cookie (staging/prod)
 //
-// When STAFF_AUTH_REQUIRED=false, all read routes are open (local/dev compat).
-// When STAFF_AUTH_REQUIRED=true,  all routes require a valid session + role.
+// Values are resolved by scripts/lib/staff-auth-config.js at process start.
 // ─────────────────────────────────────────────────────────────────────────────
 
-const STAFF_AUTH_REQUIRED = process.env.STAFF_AUTH_REQUIRED === 'true';
 const COOKIE_NAME         = process.env.STAFF_SESSION_COOKIE_NAME || 'luna_staff_session';
 const SESSION_TTL_HOURS   = parseInt(process.env.STAFF_SESSION_TTL_HOURS || '12', 10);
-const STAFF_AUTH_HTTPS    = process.env.STAFF_AUTH_HTTPS === 'true';
 
 // Role hierarchy: higher rank = superset of permissions
 const ROLE_RANK = { viewer: 1, operator: 2, admin: 3, owner: 4 };
@@ -45971,8 +45979,8 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, process.env.STAFF_QUERY_API_HOST || '127.0.0.1', () => {
-  console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${process.env.STAFF_QUERY_API_HOST || '127.0.0.1'}:${PORT}`);
+server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
+  console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
   console.log(`  Booking move write: ${BOOKING_MOVE_WRITE_ENABLED ? 'ENABLED (BOOKING_MOVE_WRITE_ENABLED=true)' : 'DISABLED'}`);
