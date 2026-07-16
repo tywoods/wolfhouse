@@ -28,6 +28,9 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 const SERVER_ENV = {
   STAFF_QUERY_API_PORT: String(PORT),
   STAFF_AUTH_REQUIRED: 'false',
+  STAFF_AUTH_ALLOW_OPEN: 'true',
+  NODE_ENV: 'test',
+  STAFF_QUERY_API_HOST: '127.0.0.1',
   DEFAULT_CLIENT_SLUG: 'sunset',
   STAFF_PORTAL_LOCALES: 'es,en',
   SUNSET_ADMIN_DB_READ_ENABLED: 'false',
