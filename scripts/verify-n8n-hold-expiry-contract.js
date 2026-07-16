@@ -162,9 +162,10 @@ check(
   /DELETE FROM booking_beds[\s\S]*booking_id[\s\S]*client_id/.test(holdExpiryLib),
 );
 check(
-  'worker cancels unpaid payment links only (not paid)',
-  /status = 'cancelled'::payment_record_status/.test(holdExpiryLib)
-    && /CANCELLABLE_PAYMENT_STATUSES/.test(holdExpiryLib),
+  'worker invalidates unpaid payment links without cancelling status',
+  /checkout_url = NULL/.test(holdExpiryLib)
+    && /INVALIDATABLE_PAYMENT_STATUSES/.test(holdExpiryLib)
+    && !/SET status = 'cancelled'::payment_record_status/.test(holdExpiryLib),
 );
 check(
   'CLI defaults dry-run; apply flag required',

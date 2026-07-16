@@ -18,8 +18,12 @@ const {
 } = require('./lib/booking-hold-expiry');
 const {
   decideStripeHoldPromote,
+  applyStripeBookingPaymentTruthWrites,
   PAYMENT_AFTER_HOLD_EXPIRY_META_KEY,
 } = require('./lib/stripe-hold-promote-policy');
+const {
+  resolveActionableCheckoutUrl,
+} = require('./lib/luna-front-desk-payment-link-service');
 
 const CLIENT_A = '11111111-1111-1111-1111-111111111111';
 const CLIENT_B = '22222222-2222-2222-2222-222222222222';
@@ -165,6 +169,97 @@ function makeFakePg(seed = {}) {
       };
     }
 
+    if (/FROM bookings[\s\S]*FOR UPDATE/i.test(text)) {
+      const bookingId = params[0];
+      const clientId = params[1];
+      await acquireBookingLock(bookingId);
+      const bk = state.bookings[bookingId];
+      if (!bk || bk.client_id !== clientId) {
+        releaseBookingLock(bookingId);
+        return { rowCount: 0, rows: [] };
+      }
+      return {
+        rowCount: 1,
+        rows: [{
+          booking_id: bookingId,
+          booking_status: bk.status,
+          hold_expires_at: bk.hold_expires_at || null,
+          hold_expired_by_db: bk.status === 'expired' || !!bk.hold_expired_by_db,
+          bk_total: bk.bk_total != null ? bk.bk_total : 50000,
+          bk_amount_paid: bk.amount_paid_cents || 0,
+          bk_balance: bk.balance_due_cents != null ? bk.balance_due_cents : 50000,
+          bk_deposit: bk.bk_deposit != null ? bk.bk_deposit : 10000,
+        }],
+      };
+    }
+
+    if (/FROM payments[\s\S]*FOR UPDATE/i.test(text)) {
+      const paymentId = params[0];
+      const clientId = params[1];
+      const pm = state.payments[paymentId];
+      if (!pm || pm.client_id !== clientId) return { rowCount: 0, rows: [] };
+      await sleep(1);
+      return {
+        rowCount: 1,
+        rows: [{
+          payment_id: paymentId,
+          booking_id: pm.booking_id,
+          client_id: pm.client_id,
+          booking_guest_id: pm.booking_guest_id || null,
+          payment_status: pm.status,
+          payment_kind: pm.payment_kind || 'deposit_only',
+          currency: pm.currency || 'EUR',
+          amount_due_cents: pm.amount_due_cents != null ? pm.amount_due_cents : 10000,
+          pm_amount_paid: pm.amount_paid_cents || 0,
+          stripe_checkout_session_id: pm.stripe_checkout_session_id || null,
+        }],
+      };
+    }
+
+    if (/SUM\(amount_paid_cents\)/i.test(text) || /COALESCE\(SUM\(amount_paid_cents\)/i.test(text)) {
+      const bookingId = params[0];
+      const excludeId = params[1];
+      const clientId = params[2];
+      let total = 0;
+      for (const [id, p] of Object.entries(state.payments)) {
+        if (p.booking_id !== bookingId) continue;
+        if (clientId && p.client_id !== clientId) continue;
+        if (excludeId && id === excludeId) continue;
+        if (p.status === 'paid') total += Number(p.amount_paid_cents || 0);
+      }
+      return { rowCount: 1, rows: [{ total }] };
+    }
+
+    if (/UPDATE payments/i.test(text) && /AND client_id = \$5/i.test(text)) {
+      const paymentId = params[3];
+      const clientId = params[4];
+      const pm = state.payments[paymentId];
+      if (!pm || pm.client_id !== clientId) return { rowCount: 0, rows: [] };
+      pm.status = 'paid';
+      pm.amount_paid_cents = params[0];
+      pm.metadata = Object.assign({}, pm.metadata || {}, JSON.parse(params[2] || '{}'));
+      return { rowCount: 1, rows: [] };
+    }
+
+    if (/UPDATE bookings/i.test(text) && /amount_paid_cents/i.test(text) && /AND client_id = \$/i.test(text)) {
+      const hasMeta = /metadata/.test(text);
+      const bookingId = params[3];
+      const clientId = hasMeta ? params[6] : params[5];
+      const promote = hasMeta ? params[5] : params[4];
+      const payStatus = params[2];
+      const paid = params[0];
+      const balance = params[1];
+      const metaMerge = hasMeta ? JSON.parse(params[4] || '{}') : null;
+      const bk = state.bookings[bookingId];
+      if (!bk || bk.client_id !== clientId) return { rowCount: 0, rows: [] };
+      bk.amount_paid_cents = paid;
+      bk.balance_due_cents = balance;
+      bk.payment_status = payStatus;
+      if (bk.status === 'hold' && promote) bk.status = 'confirmed';
+      if (metaMerge) bk.metadata = Object.assign({}, bk.metadata || {}, metaMerge);
+      return { rowCount: 1, rows: [] };
+    }
+
     if (/FROM payments p/i.test(text) && /COUNT/i.test(text)) {
       const bookingId = params[0];
       const clientId = params[1];
@@ -225,23 +320,29 @@ function makeFakePg(seed = {}) {
       return { rowCount: deleted.length, rows: deleted.map((id) => ({ bed_row_id: id })) };
     }
 
-    if (/UPDATE payments p[\s\S]*status = 'cancelled'/i.test(text)) {
+    if (/UPDATE payments p/i.test(text) && /checkout_url = NULL/i.test(text)) {
       const bookingId = params[0];
       const clientId = params[1];
       const statuses = params[2] || [];
       const meta = JSON.parse(params[3]);
-      const cancelled = [];
+      const invalidated = [];
       for (const [id, pm] of Object.entries(state.payments)) {
         if (pm.booking_id !== bookingId || pm.client_id !== clientId) continue;
         if (!statuses.includes(pm.status)) continue;
         if (Number(pm.amount_paid_cents || 0) > 0) continue;
         if (pm.status === 'paid') continue;
-        pm.status = 'cancelled';
         pm.checkout_url = null;
         pm.metadata = Object.assign({}, pm.metadata || {}, meta);
-        cancelled.push(id);
+        invalidated.push(id);
       }
-      return { rowCount: cancelled.length, rows: cancelled.map((id) => ({ payment_id: id })) };
+      return {
+        rowCount: invalidated.length,
+        rows: invalidated.map((id) => ({
+          payment_id: id,
+          payment_status: state.payments[id].status,
+          stripe_checkout_session_id: state.payments[id].stripe_checkout_session_id || null,
+        })),
+      };
     }
 
     throw new Error(`unhandled fake pg query: ${text.slice(0, 120)}`);
@@ -277,7 +378,11 @@ async function main() {
           client_id: CLIENT_A,
           status: 'checkout_created',
           amount_paid_cents: 0,
+          amount_due_cents: 10000,
+          payment_kind: 'deposit_only',
+          currency: 'EUR',
           checkout_url: 'https://checkout.stripe.test/x',
+          stripe_checkout_session_id: 'cs_test_hold_expiry_late',
           metadata: {},
         },
       },
@@ -288,11 +393,24 @@ async function main() {
     const summary = await expireDueBookingHolds(fake, { apply: true, now: NOW, batchSize: 10 });
     assert('expired count', summary.expired === 1, JSON.stringify(summary));
     assert('bed released', summary.beds_released === 1);
-    assert('payment cancelled', summary.payments_cancelled === 1);
+    assert('payment invalidated', summary.payments_invalidated === 1);
     assert('booking status expired', fake.state.bookings[BOOKING].status === 'expired');
     assert('worker metadata', !!fake.state.bookings[BOOKING].metadata[HOLD_EXPIRED_BY_WORKER_META_KEY]);
-    assert('paid payment row untouched', fake.state.payments[PAYMENT].status === 'cancelled');
+    assert('payment status preserved checkout_created', fake.state.payments[PAYMENT].status === 'checkout_created');
+    assert('checkout_url cleared', fake.state.payments[PAYMENT].checkout_url == null);
+    assert('stripe session id preserved',
+      fake.state.payments[PAYMENT].stripe_checkout_session_id === 'cs_test_hold_expiry_late');
     assert('bed deleted', !fake.state.beds[BED]);
+    const link = resolveActionableCheckoutUrl({
+      bookingRow: { status: fake.state.bookings[BOOKING].status, metadata: fake.state.bookings[BOOKING].metadata },
+      paymentRow: {
+        payment_id: PAYMENT,
+        payment_status: fake.state.payments[PAYMENT].status,
+        checkout_url: fake.state.payments[PAYMENT].checkout_url,
+        amount_paid_cents: 0,
+      },
+    });
+    assert('expired booking link non-actionable', link.actionable === false);
   }
 
   console.log('\n── Not-due hold skipped ──');
@@ -499,6 +617,105 @@ async function main() {
     assert('expired booking no auto-confirm', !decision.allow_auto_confirmation);
     assert('payment_after_hold_expiry flag', decision.payment_after_hold_expiry === true);
     assert('metadata patch key', decision.metadata_patch && decision.metadata_patch[PAYMENT_AFTER_HOLD_EXPIRY_META_KEY]);
+  }
+
+  console.log('\n── Integration: expire → non-actionable link → late Stripe apply ──');
+  {
+    const sessionId = 'cs_test_late_after_expiry';
+    const fake = makeFakePg({
+      bookings: {
+        [BOOKING]: {
+          client_id: CLIENT_A,
+          status: 'hold',
+          hold_expires_at: PAST.toISOString(),
+          payment_status: 'waiting_payment',
+          amount_paid_cents: 0,
+          balance_due_cents: 50000,
+          bk_total: 50000,
+          bk_deposit: 10000,
+          metadata: {},
+        },
+      },
+      payments: {
+        [PAYMENT]: {
+          booking_id: BOOKING,
+          client_id: CLIENT_A,
+          status: 'checkout_created',
+          amount_paid_cents: 0,
+          amount_due_cents: 10000,
+          payment_kind: 'deposit_only',
+          currency: 'EUR',
+          checkout_url: 'https://checkout.stripe.test/late',
+          stripe_checkout_session_id: sessionId,
+          metadata: {},
+        },
+      },
+    });
+
+    const summary = await expireDueBookingHolds(fake, { apply: true, now: NOW });
+    assert('integration expired', summary.expired === 1);
+    assert('integration session preserved',
+      fake.state.payments[PAYMENT].stripe_checkout_session_id === sessionId);
+    assert('integration status still checkout_created',
+      fake.state.payments[PAYMENT].status === 'checkout_created');
+    assert('integration checkout cleared', fake.state.payments[PAYMENT].checkout_url == null);
+
+    const resolved = resolveActionableCheckoutUrl({
+      bookingRow: {
+        status: fake.state.bookings[BOOKING].status,
+        metadata: fake.state.bookings[BOOKING].metadata,
+      },
+      paymentRow: {
+        payment_id: PAYMENT,
+        payment_status: fake.state.payments[PAYMENT].status,
+        checkout_url: fake.state.payments[PAYMENT].checkout_url,
+        amount_paid_cents: 0,
+        amount_due_cents: 10000,
+      },
+    });
+    assert('integration link non-actionable', resolved.actionable === false);
+
+    await fake.query('BEGIN');
+    const truth = await applyStripeBookingPaymentTruthWrites(fake, {
+      pm: {
+        payment_id: PAYMENT,
+        booking_id: BOOKING,
+        client_id: CLIENT_A,
+        payment_status: 'checkout_created',
+        payment_kind: 'deposit_only',
+        amount_due_cents: 10000,
+        currency: 'EUR',
+        stripe_checkout_session_id: sessionId,
+      },
+      session: {
+        id: sessionId,
+        amount_total: 10000,
+        currency: 'eur',
+        payment_intent: 'pi_test_late',
+        metadata: { payment_id: PAYMENT, client_slug: 'wolfhouse-somo' },
+      },
+      stripePaidCents: 10000,
+      paymentMetadataPatch: { source: 'wb4_late_stripe_integration' },
+      buildBookingMetaMerge: ({ money, decision }) => {
+        const merge = {};
+        if (decision && decision.metadata_patch) Object.assign(merge, decision.metadata_patch);
+        return merge;
+      },
+    });
+    await fake.query('COMMIT');
+
+    assert('integration payment becomes paid', fake.state.payments[PAYMENT].status === 'paid');
+    assert('integration money recorded on payment',
+      Number(fake.state.payments[PAYMENT].amount_paid_cents) === 10000);
+    assert('integration booking remains expired', fake.state.bookings[BOOKING].status === 'expired');
+    assert('integration booking money recorded',
+      Number(fake.state.bookings[BOOKING].amount_paid_cents) === 10000);
+    assert('integration no auto-confirmation',
+      truth.decision && truth.decision.allow_auto_confirmation === false);
+    assert('integration no promote',
+      truth.decision && truth.decision.promote_to_confirmed === false);
+    assert('integration payment_after_hold_expiry',
+      truth.decision && truth.decision.payment_after_hold_expiry === true);
   }
 
   console.log(`\n── verify:booking-hold-expiry ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);

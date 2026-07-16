@@ -4,10 +4,11 @@
  * Idempotent hold-expiry worker (WB-4).
  *
  * Expires overdue unpaid booking holds: status hold → expired, releases beds,
- * cancels unpaid payment links. No messaging. Tenant-scoped on every mutation.
- *
- * Late Stripe payment after expiry is handled by stripe-hold-promote-policy
- * (booking_already_expired / hold_expired) — this worker never revives bookings.
+ * and makes unpaid payment links non-actionable (clear checkout_url + invalidate
+ * metadata) without changing eligible unpaid payment status. Preserves
+ * stripe_checkout_session_id so a late signed Stripe event can still resolve
+ * and record money via stripe-hold-promote-policy while booking stays expired.
+ * No messaging. Tenant-scoped on every mutation.
  */
 
 const {
@@ -18,7 +19,10 @@ const HOLD_EXPIRY_WORKER_SOURCE = 'booking_hold_expiry_worker';
 const HOLD_EXPIRED_BY_WORKER_META_KEY = 'hold_expired_by_worker';
 
 const PAID_BOOKING_PAYMENT_STATUSES = new Set(['deposit_paid', 'paid']);
-const CANCELLABLE_PAYMENT_STATUSES = ['checkout_created', 'draft', 'pending'];
+/** Unpaid link ledger statuses that become non-actionable on hold expiry. */
+const INVALIDATABLE_PAYMENT_STATUSES = ['checkout_created', 'draft', 'pending'];
+/** @deprecated use INVALIDATABLE_PAYMENT_STATUSES */
+const CANCELLABLE_PAYMENT_STATUSES = INVALIDATABLE_PAYMENT_STATUSES;
 
 const DEFAULT_BATCH_SIZE = 50;
 const MAX_BATCH_SIZE = 500;
@@ -30,7 +34,7 @@ function emptySummary() {
     skipped_paid: 0,
     skipped_changed: 0,
     beds_released: 0,
-    payments_cancelled: 0,
+    payments_invalidated: 0,
     errors: [],
   };
 }
@@ -41,7 +45,7 @@ function mergeSummary(into, one) {
   into.skipped_paid += one.skipped_paid || 0;
   into.skipped_changed += one.skipped_changed || 0;
   into.beds_released += one.beds_released || 0;
-  into.payments_cancelled += one.payments_cancelled || 0;
+  into.payments_invalidated += one.payments_invalidated || 0;
   if (one.errors && one.errors.length) into.errors.push(...one.errors);
   return into;
 }
@@ -63,14 +67,16 @@ function buildHoldExpiredMetadata(locked, nowIso) {
   };
 }
 
-function buildHoldExpiryPaymentCancelMetadata(nowIso) {
+function buildHoldExpiryPaymentInvalidationMetadata(nowIso) {
   return {
-    cancelled_at: nowIso,
-    cancelled_by: HOLD_EXPIRY_WORKER_SOURCE,
-    cancel_reason: 'Hold expired — payment link invalidated',
+    invalidated_at: nowIso,
+    invalidated_by: HOLD_EXPIRY_WORKER_SOURCE,
+    invalidate_reason: 'Hold expired — payment link non-actionable',
     checkout_url_cleared: true,
     payment_link_invalidated: true,
     hold_expiry_worker: true,
+    // Status intentionally unchanged so late Stripe truth can still mark paid.
+    payment_status_preserved: true,
   };
 }
 
@@ -150,7 +156,7 @@ async function expireOneBookingHold(pg, opts = {}) {
     skipped_paid: 0,
     skipped_changed: 0,
     beds_released: 0,
-    payments_cancelled: 0,
+    payments_invalidated: 0,
     errors: [],
   };
 
@@ -211,11 +217,11 @@ async function expireOneBookingHold(pg, opts = {}) {
           AND p.client_id = $2::uuid
           AND p.status::text = ANY($3::text[])
           AND COALESCE(p.amount_paid_cents, 0) = 0`,
-      [bookingId, clientId, CANCELLABLE_PAYMENT_STATUSES],
+      [bookingId, clientId, INVALIDATABLE_PAYMENT_STATUSES],
     );
     out.expired += 1;
     out.beds_released += (bedCountRes.rows[0] && bedCountRes.rows[0].n) || 0;
-    out.payments_cancelled += (payCountRes.rows[0] && payCountRes.rows[0].n) || 0;
+    out.payments_invalidated += (payCountRes.rows[0] && payCountRes.rows[0].n) || 0;
     return out;
   }
 
@@ -250,20 +256,22 @@ async function expireOneBookingHold(pg, opts = {}) {
   );
   out.beds_released += bedsRes.rowCount || 0;
 
-  const cancelMeta = JSON.stringify(buildHoldExpiryPaymentCancelMetadata(nowIso));
+  // Invalidate unpaid links only — clear checkout_url + metadata; keep ledger
+  // status and stripe_checkout_session_id so late Stripe events remain eligible.
+  const invalidateMeta = JSON.stringify(buildHoldExpiryPaymentInvalidationMetadata(nowIso));
   const payRes = await pg.query(
     `UPDATE payments p
-        SET status = 'cancelled'::payment_record_status,
-            checkout_url = NULL,
+        SET checkout_url = NULL,
             metadata = COALESCE(p.metadata, '{}'::jsonb) || $4::jsonb
       WHERE p.booking_id = $1::uuid
         AND p.client_id = $2::uuid
         AND p.status::text = ANY($3::text[])
         AND COALESCE(p.amount_paid_cents, 0) = 0
-      RETURNING p.id::text AS payment_id`,
-    [bookingId, clientId, CANCELLABLE_PAYMENT_STATUSES, cancelMeta],
+      RETURNING p.id::text AS payment_id, p.status::text AS payment_status,
+                p.stripe_checkout_session_id`,
+    [bookingId, clientId, INVALIDATABLE_PAYMENT_STATUSES, invalidateMeta],
   );
-  out.payments_cancelled += payRes.rowCount || 0;
+  out.payments_invalidated += payRes.rowCount || 0;
   out.expired += 1;
   return out;
 }
@@ -292,7 +300,7 @@ async function expireOneBookingHoldTx(pg, opts = {}) {
       skipped_paid: 0,
       skipped_changed: 0,
       beds_released: 0,
-      payments_cancelled: 0,
+      payments_invalidated: 0,
       errors: [{ booking_id: opts.bookingId, code: err.code || 'expire_failed', message: err.message }],
     };
   }
@@ -374,12 +382,13 @@ module.exports = {
   HOLD_EXPIRY_WORKER_SOURCE,
   HOLD_EXPIRED_BY_WORKER_META_KEY,
   PAID_BOOKING_PAYMENT_STATUSES,
+  INVALIDATABLE_PAYMENT_STATUSES,
   CANCELLABLE_PAYMENT_STATUSES,
   DEFAULT_BATCH_SIZE,
   emptySummary,
   mergeSummary,
   buildHoldExpiredMetadata,
-  buildHoldExpiryPaymentCancelMetadata,
+  buildHoldExpiryPaymentInvalidationMetadata,
   isBookingPaidForHoldExpiry,
   isHoldDueForExpiry,
   selectDueHoldCandidates,
