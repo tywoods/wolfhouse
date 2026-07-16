@@ -15579,6 +15579,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
 .portal-admin-price-card.is-inactive{opacity:.62}
+.portal-admin-group-avail-label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;font-weight:650;color:var(--text-2);white-space:nowrap}.portal-admin-group-avail-label input[type=checkbox]{width:16px;height:16px;cursor:pointer;flex-shrink:0;margin:0}.portal-admin-mixed-hint{font-size:11px;font-weight:500;color:var(--text-3);margin-left:2px}
 .portal-admin-price-available{font-size:11px;font-weight:650;color:var(--text-2);white-space:nowrap}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.25;font-size:13px}
@@ -23487,6 +23488,37 @@ function adminDeriveGroupAvailState(items){
   return 'mixed';
 }
 
+function adminDedupeGroupItems(items){
+  // Collapse duplicate rows per unique key = item_code||unit||effective_from.
+  // Prefer the active row; else the one with the highest positive amount; else first.
+  var seen = {};
+  var canonical = [];
+  for (var i = 0; i < items.length; i++){
+    var p = items[i];
+    var ic = p.item_code || p.offering_key || '';
+    var u = p.unit || p.period || '';
+    var ef = p.effective_from || '';
+    var k = ic + '||' + u + '||' + ef;
+    if (!seen[k]){
+      seen[k] = { idx: canonical.length, row: p };
+      canonical.push(p);
+    } else {
+      var existing = seen[k].row;
+      var existingAmt = Number(existing.amount_cents != null ? existing.amount_cents : (existing.amount || 0));
+      var newAmt = Number(p.amount_cents != null ? p.amount_cents : (p.amount || 0));
+      var existingActive = existing.active !== false;
+      var newActive = p.active !== false;
+      // Prefer active row; else highest positive amount.
+      if ((!existingActive && newActive) ||
+          (!existingActive && !newActive && newAmt > existingAmt && newAmt > 0)){
+        canonical[seen[k].idx] = p;
+        seen[k].row = p;
+      }
+    }
+  }
+  return canonical;
+}
+
 function renderAdminSectionPricesFromConfig(cfg){
   var box = el('admin-prices-body');
   if (!box) return;
@@ -23504,12 +23536,15 @@ function renderAdminSectionPricesFromConfig(cfg){
     var items = (groups[key] || []).slice().sort(function(a, b){
       return adminRentalPeriodRank(adminParsePriceRow(a).periodWindow) - adminRentalPeriodRank(adminParsePriceRow(b).periodWindow);
     });
+    // De-duplicate: one canonical card per duration key (avoids showing stale dup rows).
+    var canonicalItems = adminDedupeGroupItems(items);
     var groupEditing = writes && adminEditTarget === ('price-group:' + key);
     var adding = writes && adminEditTarget === ('price-add:' + key);
-    var groupAvailState = adminDeriveGroupAvailState(items);
+    var groupAvailState = adminDeriveGroupAvailState(canonicalItems);
     html += '<div class="portal-admin-subsection" data-admin-price-group="' + escHtml(key) + '">';
-    html += '<div class="portal-admin-subsection-title-row"><div class="portal-admin-subsection-title-group">';
+    html += '<div class="portal-admin-subsection-title-row">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
+    html += '<div class="portal-admin-subsection-title-group">';
     if (writes && items.length > 0){
       var busyOther = adminPriceGroupBusy(key);
       if (!busyOther){
@@ -23522,7 +23557,7 @@ function renderAdminSectionPricesFromConfig(cfg){
           (isChecked ? ' checked' : '') +
           (isMixed ? ' data-mixed=\\'true\\'' : '') +
           '> ' + escHtml(portalT('admin.prices.available')) +
-          (isMixed ? ' <span class=\\'portal-admin-mixed-hint\\'>' + escHtml(portalT('admin.prices.availableMixed') || 'Mixed') + '</span>' : '') +
+          (isMixed ? ' <span class=\\'portal-admin-mixed-hint\\'>' + escHtml(portalT('admin.prices.availableMixed') || 'Some durations off') + '</span>' : '') +
           '</label>';
       }
     }
@@ -23550,9 +23585,9 @@ function renderAdminSectionPricesFromConfig(cfg){
     if (!items.length && !adding){
       html += '<p class="portal-admin-muted">' + escHtml(portalT('admin.prices.emptyCategory')) + '</p>';
     }
-    if (items.length){
+    if (canonicalItems.length){
       html += '<div class="portal-admin-card-grid" id="admin-prices-card-grid-' + escHtml(key) + '">';
-      items.forEach(function(p){
+      canonicalItems.forEach(function(p){
         var pid = adminPriceRowId(p);
         var parsed = adminParsePriceRow(p);
         var rowActive = p && p.active !== false;

@@ -1574,14 +1574,53 @@ async function setRentalGroupAvailability(client, {
         await client.query('ROLLBACK');
         return { ok: false, error: 'no positive-amount duration to enable', code: 'no_positive_row' };
       }
-      // Activate rows with positive amounts; keep others inactive.
+
+      // Group rows by unique key = item_code || unit || effective_from.
+      // This avoids the partial-unique-index violation when duplicate rows exist
+      // for the same key (e.g. two board_and_suit_rental__1_hour rows).
+      const keyOf = (r) => `${r.item_code}||${r.unit}||${r.effective_from || ''}`;
+      const keyGroups = new Map();
       for (const row of rows) {
-        const shouldBeActive = Number(row.amount_cents) > 0;
+        const k = keyOf(row);
+        if (!keyGroups.has(k)) keyGroups.set(k, []);
+        keyGroups.get(k).push(row);
+      }
+
+      // STEP 1: Deactivate ALL rows first to eliminate any transient duplicate-active
+      // collision before we selectively re-activate the canonical winner per key.
+      for (const row of rows) {
         const updated = await client.query(
-          `UPDATE tenant_price_rules SET active = $3, updated_at = NOW(), updated_by = $4::uuid
+          `UPDATE tenant_price_rules SET active = false, updated_at = NOW(), updated_by = $3::uuid
             WHERE id = $1::uuid AND client_slug = $2
             RETURNING id`,
-          [row.id, clientSlug, shouldBeActive, actor.staff_user_id || null],
+          [row.id, clientSlug, actor.staff_user_id || null],
+        );
+        if (!updated.rows[0]) {
+          await client.query('ROLLBACK');
+          return { ok: false, error: 'update row count mismatch', code: 'update_mismatch' };
+        }
+      }
+
+      // STEP 2: For each key-group that has ≥1 positive-amount row, activate exactly
+      // ONE row: prefer the row that was active BEFORE this operation; else the
+      // positive-amount row with the highest amount_cents (tie-break lowest id).
+      for (const [, group] of keyGroups) {
+        const positiveRows = group.filter((r) => Number(r.amount_cents) > 0);
+        if (positiveRows.length === 0) continue; // zero-amount key stays all-inactive
+
+        const previouslyActive = positiveRows.find((r) => r.active === true);
+        const byAmount = positiveRows.slice().sort((a, b) => {
+          const diff = Number(b.amount_cents) - Number(a.amount_cents);
+          if (diff !== 0) return diff;
+          return String(a.id) < String(b.id) ? -1 : 1;
+        });
+        const target = previouslyActive || byAmount[0];
+
+        const updated = await client.query(
+          `UPDATE tenant_price_rules SET active = true, updated_at = NOW(), updated_by = $3::uuid
+            WHERE id = $1::uuid AND client_slug = $2
+            RETURNING id`,
+          [target.id, clientSlug, actor.staff_user_id || null],
         );
         if (!updated.rows[0]) {
           await client.query('ROLLBACK');
@@ -1612,7 +1651,7 @@ async function setRentalGroupAvailability(client, {
         clientSlug,
         actor,
         action: 'update',
-        entityType: 'price_rule_group',
+        entityType: 'price_rule',
         entityId: rows[0].id,
         beforeJson: { rental_group: rentalGroup, offering_key: offeringKey, row_count: rows.length },
         afterJson: { rental_group: rentalGroup, offering_key: offeringKey, active: desiredActive, updated_ids: updatedIds },
