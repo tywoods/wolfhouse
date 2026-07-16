@@ -1070,6 +1070,8 @@ const STAFF_PORTAL_STRINGS = {
     'admin.prices.availableYes': 'Yes',
     'admin.prices.availableNo': 'No',
     'admin.prices.availableMixed': 'Some durations off — click to set all',
+    'admin.prices.enabled': 'Enabled',
+    'admin.prices.disabled': 'Disabled',
     'admin.prices.bookable': 'Bookable',
     'admin.lessonTimes.col.date': 'Date',
     'admin.lessonTimes.col.time': 'Time',

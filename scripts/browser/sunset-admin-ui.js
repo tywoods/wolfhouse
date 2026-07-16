@@ -573,25 +573,9 @@ function renderAdminSectionPricesFromConfig(cfg){
     html += '<div class="portal-admin-subsection-title-row">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
     html += '<div class="portal-admin-subsection-title-group">';
-    if (writes && items.length > 0){
+    if (writes){
       var busyOther = adminPriceGroupBusy(key);
       if (!busyOther){
-        var isChecked = groupAvailState === 'on';
-        var isMixed = groupAvailState === 'mixed';
-        html += '<label class="portal-admin-group-avail-label">' +
-          '<input type="checkbox" class="portal-admin-group-avail-toggle"' +
-          ' data-admin-action="toggle-group-availability"' +
-          ' data-rental-group="' + escHtml(key) + '"' +
-          (isChecked ? ' checked' : '') +
-          (isMixed ? ' data-mixed="true"' : '') +
-          '> ' + escHtml(portalT('admin.prices.available')) +
-          (isMixed ? ' <span class="portal-admin-mixed-hint">' + escHtml(portalT('admin.prices.availableMixed') || 'Some durations off') + '</span>' : '') +
-          '</label>';
-      }
-    }
-    if (writes){
-      var busyOther2 = adminPriceGroupBusy(key);
-      if (!busyOther2){
         html += '<div class="portal-admin-card-actions">';
         if (!groupEditing){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-price-group" data-price-group="' +
@@ -601,6 +585,20 @@ function renderAdminSectionPricesFromConfig(cfg){
               escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
           }
         } else {
+          if (items.length > 0){
+            var isChecked = groupAvailState === 'on';
+            var isMixed = groupAvailState === 'mixed';
+            var switchText = isMixed
+              ? (portalT('admin.prices.availableMixed') || 'Some durations off')
+              : (isChecked ? (portalT('admin.prices.enabled') || 'Enabled') : (portalT('admin.prices.disabled') || 'Disabled'));
+            html += '<label class="portal-admin-switch' + (isMixed ? ' is-mixed' : '') + '">' +
+              '<input type="checkbox" class="portal-admin-group-avail-toggle" data-admin-action="toggle-group-availability"' +
+              ' data-rental-group="' + escHtml(key) + '"' +
+              (isChecked ? ' checked' : '') +
+              (isMixed ? ' data-mixed="true"' : '') +
+              '><span class="portal-admin-switch-slider"></span>' +
+              '<span class="portal-admin-switch-text">' + escHtml(switchText) + '</span></label>';
+          }
           html += '<button type="button" class="btn btn-primary portal-admin-row-edit" data-admin-action="save-price-group" data-price-group="' +
             escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button>';
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' +
