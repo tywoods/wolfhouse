@@ -83,9 +83,9 @@ function buildReconcileConfirmationDraft(pm, newBkPayStatus, newBkPaid, newBkBal
 
 /**
  * Apply payment truth for a single already-retrieved Stripe session.
- * Mirrors the POST /staff/stripe/webhook DB writes exactly. Idempotent: a payment
- * already 'paid' is skipped; an unpaid/mismatched session is rejected via the
- * shared validator. Never sends messages.
+ * Mirrors the POST /staff/stripe/webhook DB writes exactly. Already-paid booking
+ * payments enter the shared apply helper under lock for identity validation.
+ * Never sends messages.
  */
 async function reconcilePaidStripeSession(pg, session, meta) {
   meta = meta || {};
@@ -94,9 +94,6 @@ async function reconcilePaidStripeSession(pg, session, meta) {
 
   const pm = await lookupPaymentForStripeSession(pg, session);
   if (!pm) return { ok: true, reconciled: false, reason: 'no_matching_payment' };
-  if (pm.payment_status === 'paid') {
-    return { ok: true, reconciled: false, reason: 'already_paid', payment_id: pm.payment_id };
-  }
   if (pm.payment_kind === 'addon_service') {
     return { ok: true, reconciled: false, reason: 'addon_service_skipped', payment_id: pm.payment_id };
   }
