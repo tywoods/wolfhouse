@@ -85,10 +85,21 @@ function makePg(opts = {}) {
   const priceAmount = opts.priceAmount != null ? opts.priceAmount : AMOUNT;
   const seats = opts.existingCourseSeats || {};
   const inserts = [];
+  const writes = [];
+  const readOnly = opts.readOnly === true;
   return {
     inserts,
+    writes,
     query: async (sql, params) => {
       const s = String(sql);
+      const isTxn = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(s);
+      const isDml = /\b(INSERT|UPDATE|DELETE)\b/i.test(s);
+      if (isTxn || isDml) {
+        writes.push({ sql: s, params: params ? [...params] : [] });
+        if (readOnly) {
+          throw new Error(`read_only_pg_write_attempted: ${s.slice(0, 120)}`);
+        }
+      }
       if (/^BEGIN/i.test(s)) return { rows: [] };
       if (/^COMMIT/i.test(s)) return { rows: [] };
       if (/^ROLLBACK/i.test(s)) return { rows: [] };
@@ -105,8 +116,26 @@ function makePg(opts = {}) {
       if (/FROM tenant_price_rules/i.test(s)) {
         const itemCode = params[2];
         const unit = params[3];
+        const locationId = params[4] || LOC;
         if (String(itemCode || '').startsWith('surf_pack_') && unit === 'day') {
-          return { rows: [{ id: 'price-1', amount_cents: priceAmount, currency: 'EUR', item_type: 'package', item_code: itemCode, unit: 'day', location_id: params[4] || LOC }] };
+          return { rows: [{ id: 'price-1', amount_cents: priceAmount, currency: 'EUR', item_type: 'package', item_code: itemCode, unit: 'day', location_id: locationId }] };
+        }
+        const rentalMap = opts.rentalPrices || {};
+        if (rentalMap[itemCode]) {
+          const row = rentalMap[itemCode];
+          if (row.active === false) return { rows: [] };
+          if (row.location_id && String(row.location_id) !== String(locationId)) return { rows: [] };
+          return {
+            rows: [{
+              id: row.id || `price-${itemCode}`,
+              amount_cents: row.amount_cents,
+              currency: 'EUR',
+              item_type: 'rental',
+              item_code: itemCode,
+              unit: unit || 'day',
+              location_id: locationId,
+            }],
+          };
         }
         return { rows: [] };
       }
@@ -249,6 +278,571 @@ async function run() {
   };
   const missing = executeSunsetQuoteSync(manualBuilt.command, { adminCfg: badCfg });
   assert('missing price fails', missing.ok === false && (missing.body.reason === 'price_missing' || missing.body.reason === 'unknown_offering'));
+
+  // ── Slice 3A: canonical rentals[] quote ─────────────────────────────────
+  console.log('\n[J] Canonical rentals quote (Slice 3A)');
+
+  const BUNDLE_1D = 2500;
+  const BOARD_1D = 1500;
+  const WETSUIT_1D = 800;
+  const BOARD_3D = 4000;
+
+  function rentalPrices(rows) {
+    return adminCfg([
+      {
+        id: 'price-pack',
+        category: 'package',
+        offering_key: ITEM,
+        item_code: ITEM,
+        amount_cents: AMOUNT,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+        location_id: LOC,
+      },
+      ...rows,
+    ]);
+  }
+
+  function rentalRow(offeringKey, amountCents, opts = {}) {
+    return {
+      id: opts.id || `price-${offeringKey}`,
+      category: 'rental',
+      offering_key: offeringKey,
+      item_code: offeringKey,
+      amount_cents: amountCents,
+      unit: opts.unit || 'day',
+      active: opts.active !== false,
+      currency: 'EUR',
+      location_id: opts.location_id || LOC,
+    };
+  }
+
+  const somoRentalCfg = rentalPrices([
+    rentalRow('board_and_suit_rental__1_day', BUNDLE_1D),
+    rentalRow('board_rental__1_day', BOARD_1D),
+    rentalRow('wetsuit_rental__1_day', WETSUIT_1D),
+    rentalRow('board_rental__3_days', BOARD_3D),
+    rentalRow('board_rental__1_day', 1200, { id: 'price-sardi-board', location_id: 'sunset-sardinero' }),
+    rentalRow('board_and_suit_rental__1_day', BUNDLE_1D, { id: 'price-inactive-bundle', active: false }),
+  ]);
+
+  function staffRentalBody(extra) {
+    return {
+      guest_name: 'Rental Guest',
+      date_from: SATURDAY,
+      date_to: SATURDAY,
+      service_dates: [SATURDAY],
+      payment_status: 'unpaid',
+      components: {},
+      ...extra,
+    };
+  }
+
+  // 1. Somo bundle 1_day resolves only board_and_suit_rental__1_day
+  const bundleBody = staffRentalBody({
+    rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+    components: {
+      surfboard: { quantity: 1 },
+      wetsuit: { quantity: 1 },
+    },
+  });
+  const bundleQuote = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, bundleBody).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('1 bundle quote ok', bundleQuote.ok === true, JSON.stringify(bundleQuote.body));
+  assert(
+    '1 Somo bundle resolves board_and_suit_rental__1_day only',
+    bundleQuote.body.total_cents === BUNDLE_1D
+      && Array.isArray(bundleQuote.body.line_items)
+      && bundleQuote.body.line_items.filter((l) => String(l.offering_id || l.offering_item_code || '').includes('rental')).length === 1
+      && bundleQuote.body.line_items.some((l) => (
+        l.offering_id === 'board_and_suit_rental__1_day'
+        || l.offering_item_code === 'board_and_suit_rental__1_day'
+      )),
+    JSON.stringify(bundleQuote.body.line_items),
+  );
+
+  // 2. Bundle quantity 2 charges exactly 2 × bundle price
+  const bundleQty2 = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 2 }],
+      components: { surfboard: { quantity: 2 }, wetsuit: { quantity: 2 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('2 bundle qty 2 = 2× bundle', bundleQty2.ok === true && bundleQty2.body.total_cents === BUNDLE_1D * 2, JSON.stringify(bundleQty2.body));
+
+  // 3. Bundle does not look up individual board/wetsuit prices
+  const bundleOnlyCfg = rentalPrices([
+    rentalRow('board_and_suit_rental__1_day', BUNDLE_1D),
+    // intentionally no separate board/wetsuit rows
+  ]);
+  const bundleNoSeparate = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, bundleBody).command,
+    { adminCfg: bundleOnlyCfg },
+  );
+  assert(
+    '3 bundle does not require individual board/wetsuit prices',
+    bundleNoSeparate.ok === true && bundleNoSeparate.body.total_cents === BUNDLE_1D,
+    JSON.stringify(bundleNoSeparate.body),
+  );
+
+  // 4. Separate board and wetsuit quote independently
+  const separateQuote = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [
+        { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 },
+      ],
+      components: { surfboard: { quantity: 1 }, wetsuit: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '4 separate board+wetsuit independent',
+    separateQuote.ok === true && separateQuote.body.total_cents === BOARD_1D + WETSUIT_1D,
+    JSON.stringify(separateQuote.body),
+  );
+
+  // 5. Bundle plus constituent rejected
+  const bundlePlusBoard = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [
+        { offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+      ],
+      components: { surfboard: { quantity: 1 }, wetsuit: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('5 bundle+constituent rejected', bundlePlusBoard.ok === false, JSON.stringify(bundlePlusBoard.body));
+
+  // 6. Invalid, duplicate, wrong-duration rejected
+  const badKey = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'kayak_rental', duration_key: '1_day', quantity: 1 }],
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('6a invalid offering_key rejected', badKey.ok === false);
+
+  const dup = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [
+        { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'board_rental', duration_key: '1_day', quantity: 2 },
+      ],
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('6b duplicate offering_key rejected', dup.ok === false);
+
+  const badQtyCases = [
+    { quantity: 0 },
+    { quantity: -1 },
+    { quantity: 1.5 },
+    { quantity: 'abc' },
+    { quantity: null },
+  ];
+  let badQtyOk = true;
+  for (const tc of badQtyCases) {
+    const q = executeSunsetQuoteSync(
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+        rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: tc.quantity }],
+        components: { surfboard: { quantity: 1 } },
+      })).command,
+      { adminCfg: somoRentalCfg },
+    );
+    if (q.ok) badQtyOk = false;
+  }
+  assert('6c invalid quantities rejected', badQtyOk);
+
+  const wrongDur = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('6d wrong-duration vs date span rejected', wrongDur.ok === false, JSON.stringify(wrongDur.body));
+
+  // Multi-day span requires matching duration_key and exact 3_days price (no ×3)
+  const threeDayBody = staffRentalBody({
+    date_from: '2026-07-18',
+    date_to: '2026-07-20',
+    service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
+    rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
+    components: { surfboard: { quantity: 1 } },
+  });
+  const threeDayQuote = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, threeDayBody).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '6e exact-duration 3_days is duration total (not × span)',
+    threeDayQuote.ok === true && threeDayQuote.body.total_cents === BOARD_3D,
+    JSON.stringify(threeDayQuote.body),
+  );
+
+  // 7. Inactive / missing / wrong-location fail closed
+  const inactiveOnly = rentalPrices([
+    rentalRow('board_rental__1_day', BOARD_1D, { active: false }),
+  ]);
+  const inactiveQ = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: inactiveOnly },
+  );
+  assert('7a inactive rental fails closed', inactiveQ.ok === false);
+
+  const missingRental = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 1 }],
+      components: { wetsuit: { quantity: 1 } },
+    })).command,
+    { adminCfg: rentalPrices([rentalRow('board_rental__1_day', BOARD_1D)]) },
+  );
+  assert('7b missing rental price fails closed', missingRental.ok === false);
+
+  const sardiOnly = rentalPrices([
+    rentalRow('board_rental__1_day', 1200, { location_id: 'sunset-sardinero' }),
+  ]);
+  // Catalog projection tags offerings to trusted location; without a Somo active row the offering is absent.
+  const wrongLoc = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: { surfboard: { quantity: 1 } },
+    }), { trustedLocationId: LOC }).command,
+    { adminCfg: sardiOnly },
+  );
+  // If catalog still surfaces the row (location stamped to Somo), async DB resolve must fail closed.
+  if (wrongLoc.ok) {
+    const pgWrong = makePg();
+    const asyncWrong = await executeSunsetQuote(pgWrong, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: { surfboard: { quantity: 1 } },
+      require_db: true,
+    })).command, { adminCfg: sardiOnly });
+    assert('7c wrong-location fails closed (async DB)', asyncWrong.ok === false, JSON.stringify(asyncWrong.body));
+    assert('7c wrong-location quote zero writes', pgWrong.inserts.length === 0);
+  } else {
+    assert('7c wrong-location fails closed (sync catalog)', wrongLoc.ok === false, JSON.stringify(wrongLoc.body));
+  }
+
+  // 8. Matching legacy components do not double-charge
+  assert(
+    '8 matching legacy does not double-charge',
+    bundleQuote.ok && bundleQuote.body.total_cents === BUNDLE_1D
+      && !(bundleQuote.body.total_cents === BUNDLE_1D + BOARD_1D + WETSUIT_1D),
+  );
+
+  // 9. Legacy quantity mismatch rejected
+  const legacyMismatch = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 2 }],
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('9 legacy quantity mismatch rejected', legacyMismatch.ok === false, JSON.stringify(legacyMismatch.body));
+
+  // 10. Course + bundle total combines correctly
+  const courseBundle = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+        surfboard: { quantity: 1 },
+        wetsuit: { quantity: 1 },
+      },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '10 course + bundle total',
+    courseBundle.ok === true && courseBundle.body.total_cents === AMOUNT + BUNDLE_1D,
+    JSON.stringify(courseBundle.body),
+  );
+
+  // 11. guest_name + non-rental quote behavior remain green
+  assert('11 guest_name on rental quote preserved in command path', bundleQuote.ok === true);
+  const courseOnlyStill = executeSunsetQuoteSync(manualBuilt.command, { adminCfg: cfg });
+  assert('11 non-rental course quote still green', courseOnlyStill.ok === true && courseOnlyStill.body.total_cents === AMOUNT);
+  assert('11 provenance still present on rental quote', bundleQuote.body.quote_provenance && bundleQuote.body.quote_provenance.quote_fingerprint);
+
+  // Legacy-only (no rentals array) preserves hardcoded __1_day behavior
+  const legacyOnly = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      components: { surfboard: { quantity: 1 } },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    '11b no rentals array preserves legacy surfboard pricing',
+    legacyOnly.ok === true && legacyOnly.body.total_cents === BOARD_1D,
+    JSON.stringify(legacyOnly.body),
+  );
+
+  // 12. Quote performs no DB writes
+  const pgRent = makePg({
+    readOnly: true,
+    rentalPrices: {
+      board_and_suit_rental__1_day: { amount_cents: BUNDLE_1D, location_id: LOC },
+    },
+  });
+  const asyncBundle = await executeSunsetQuote(pgRent, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, bundleBody).command, { adminCfg: somoRentalCfg });
+  assert('12 async rental quote ok', asyncBundle.ok === true, JSON.stringify(asyncBundle.body));
+  assert('12 rental quote zero inserts', pgRent.inserts.length === 0);
+  assert('12 rental quote zero write statements', pgRent.writes.length === 0);
+
+  // ── Slice 3A corrections: dispatch / duration / provenance ─────────────
+  console.log('\n[K] Canonical-only dispatch + authoritative duration + multi-line provenance');
+
+  const bundleOnlyNoLegacy = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    'K1 sync bundle-only with empty components quotes',
+    bundleOnlyNoLegacy.ok === true && bundleOnlyNoLegacy.body.total_cents === BUNDLE_1D,
+    JSON.stringify(bundleOnlyNoLegacy.body),
+  );
+
+  const boardOnlyNoLegacy = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 2 }],
+      components: {},
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    'K2 sync board-only with empty components quotes',
+    boardOnlyNoLegacy.ok === true && boardOnlyNoLegacy.body.total_cents === BOARD_1D * 2,
+    JSON.stringify(boardOnlyNoLegacy.body),
+  );
+
+  const asyncBundleOnly = await executeSunsetQuote(
+    makePg({
+      readOnly: true,
+      rentalPrices: { board_and_suit_rental__1_day: { amount_cents: BUNDLE_1D, location_id: LOC } },
+    }),
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K3 async bundle-only with empty components quotes', asyncBundleOnly.ok === true && asyncBundleOnly.body.total_cents === BUNDLE_1D, JSON.stringify(asyncBundleOnly.body));
+
+  const neither = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Nobody',
+      date_from: SATURDAY,
+      date_to: SATURDAY,
+      payment_status: 'unpaid',
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K4 neither components nor rentals → quote_input_required', neither.ok === false && neither.body.reason === 'quote_input_required');
+
+  // Authoritative duration from date_from/date_to — reject 3-day range + one service date + 1_day
+  const spoofedSpan = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Spoof',
+      date_from: '2026-07-18',
+      date_to: '2026-07-20',
+      service_dates: ['2026-07-18'],
+      payment_status: 'unpaid',
+      components: {},
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    'K5 3-day date range cannot submit one service_date + duration_key=1_day',
+    spoofedSpan.ok === false,
+    JSON.stringify(spoofedSpan.body),
+  );
+
+  const extraServiceDate = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Extra',
+      date_from: SATURDAY,
+      date_to: SATURDAY,
+      service_dates: [SATURDAY, '2026-07-19'],
+      payment_status: 'unpaid',
+      components: {},
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K6 service_dates with extra day rejected', extraServiceDate.ok === false, JSON.stringify(extraServiceDate.body));
+
+  const threeDayOk = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'ThreeDay',
+      date_from: '2026-07-18',
+      date_to: '2026-07-20',
+      service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
+      payment_status: 'unpaid',
+      components: {},
+      rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    'K7 matching 3-day range + service_dates + duration_key ok',
+    threeDayOk.ok === true && threeDayOk.body.total_cents === BOARD_3D,
+    JSON.stringify(threeDayOk.body),
+  );
+
+  // Multi-line provenance: fingerprint changes when rental fields change
+  const { computeQuoteFingerprint } = require('./lib/luna-front-desk-quote-service');
+  const baseCourseBundle = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K8 course+bundle quote ok', baseCourseBundle.ok === true, JSON.stringify(baseCourseBundle.body));
+  const fpBase = baseCourseBundle.body.quote_provenance.quote_fingerprint;
+
+  const qtyChanged = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 2 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K9 fingerprint changes on rental quantity', qtyChanged.ok && qtyChanged.body.quote_provenance.quote_fingerprint !== fpBase);
+
+  const offeringChanged = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert('K10 fingerprint changes on offering key', offeringChanged.ok && offeringChanged.body.quote_provenance.quote_fingerprint !== fpBase);
+
+  const durationChanged = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Dur',
+      date_from: '2026-07-18',
+      date_to: '2026-07-20',
+      service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
+      payment_status: 'unpaid',
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+      rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  // Course may fail weekday for Mon — use rental-only for duration fingerprint vs board 1_day
+  const board1dFp = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    })).command,
+    { adminCfg: somoRentalCfg },
+  );
+  const board3dFp = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, {
+      guest_name: 'Dur',
+      date_from: '2026-07-18',
+      date_to: '2026-07-20',
+      service_dates: ['2026-07-18', '2026-07-19', '2026-07-20'],
+      payment_status: 'unpaid',
+      components: {},
+      rentals: [{ offering_key: 'board_rental', duration_key: '3_days', quantity: 1 }],
+    }).command,
+    { adminCfg: somoRentalCfg },
+  );
+  assert(
+    'K11 fingerprint changes on duration',
+    board1dFp.ok && board3dFp.ok
+      && board1dFp.body.quote_provenance.quote_fingerprint !== board3dFp.body.quote_provenance.quote_fingerprint,
+    JSON.stringify({ d1: board1dFp.body, d3: board3dFp.body }),
+  );
+
+  const priceIdChangedCfg = rentalPrices([
+    rentalRow('board_and_suit_rental__1_day', BUNDLE_1D, { id: 'price-bundle-alt-id' }),
+    rentalRow('board_rental__1_day', BOARD_1D),
+    rentalRow('wetsuit_rental__1_day', WETSUIT_1D),
+    rentalRow('board_rental__3_days', BOARD_3D),
+  ]);
+  const priceIdChanged = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+    })).command,
+    { adminCfg: priceIdChangedCfg },
+  );
+  assert(
+    'K12 fingerprint changes on authoritative price_id',
+    priceIdChanged.ok
+      && priceIdChanged.body.quote_provenance.quote_fingerprint !== fpBase,
+    JSON.stringify({ base: fpBase, next: priceIdChanged.body.quote_provenance }),
+  );
+
+  const unitPriceChangedCfg = rentalPrices([
+    rentalRow('board_and_suit_rental__1_day', BUNDLE_1D + 100),
+    rentalRow('board_rental__1_day', BOARD_1D),
+    rentalRow('wetsuit_rental__1_day', WETSUIT_1D),
+    rentalRow('board_rental__3_days', BOARD_3D),
+  ]);
+  const unitPriceChanged = executeSunsetQuoteSync(
+    buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        course: { quantity: 1, course_id: PACK_ID, tier_key: TIER },
+      },
+    })).command,
+    { adminCfg: unitPriceChangedCfg },
+  );
+  assert(
+    'K13 fingerprint changes on unit price',
+    unitPriceChanged.ok
+      && unitPriceChanged.body.quote_provenance.quote_fingerprint !== fpBase,
+  );
+
+  // Deterministic line summary is what the fingerprint hashes (version bumped)
+  const linesSummary = (baseCourseBundle.body.line_items || []).map((l) => ({
+    component: l.component,
+    offering_id: l.offering_id,
+    quantity: l.quantity,
+  }));
+  assert(
+    'K14 multi-line quote includes course + rental lines',
+    linesSummary.length >= 2
+      && linesSummary.some((l) => l.component === 'course')
+      && linesSummary.some((l) => String(l.component || '').includes('rental') || String(l.offering_id || '').includes('rental')),
+    JSON.stringify(linesSummary),
+  );
+  assert(
+    'K15 provenance version bumped for multi-line lines',
+    baseCourseBundle.body.quote_provenance.quote_version >= 2,
+    String(baseCourseBundle.body.quote_provenance.quote_version),
+  );
 
   console.log(`\n── verify:luna-front-desk-quote-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   process.exit(fail ? 1 : 0);

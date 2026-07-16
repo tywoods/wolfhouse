@@ -39,7 +39,7 @@ const QUOTE_CHANNELS = Object.freeze({
   LUNA_WHATSAPP: 'luna_whatsapp',
 });
 
-const QUOTE_PROVENANCE_VERSION = 1;
+const QUOTE_PROVENANCE_VERSION = 2;
 
 const CLIENT_MONEY_FIELDS = [
   'unit_amount_cents', 'amount_cents', 'total_cents', 'line_total_cents',
@@ -59,6 +59,22 @@ function rejectClientSuppliedMoney(body) {
       for (const key of CLIENT_MONEY_FIELDS) {
         if (compVal[key] !== undefined && compVal[key] !== null && compVal[key] !== '') {
           return { ok: false, reason: 'client_money_rejected', field: `components.${compKey}.${key}` };
+        }
+      }
+    }
+  }
+  if (Array.isArray(b.rentals)) {
+    for (let i = 0; i < b.rentals.length; i += 1) {
+      const row = b.rentals[i];
+      if (!row || typeof row !== 'object') continue;
+      for (const key of CLIENT_MONEY_FIELDS) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return { ok: false, reason: 'client_money_rejected', field: `rentals[${i}].${key}` };
+        }
+      }
+      for (const key of ['amount', 'price', 'label', 'unit_price']) {
+        if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+          return { ok: false, reason: 'client_money_rejected', field: `rentals[${i}].${key}` };
         }
       }
     }
@@ -179,6 +195,32 @@ function mapQuoteFailure(reason, extra = {}) {
   };
 }
 
+function normalizeQuoteLineItemsForFingerprint(lineItems) {
+  const rows = (Array.isArray(lineItems) ? lineItems : []).map((line) => {
+    const priceIdentity = line && line.price_identity && typeof line.price_identity === 'object'
+      ? line.price_identity
+      : null;
+    return {
+      component: line && line.component != null ? String(line.component) : null,
+      offering_id: line && line.offering_id != null ? String(line.offering_id) : null,
+      offering_item_code: line && (line.offering_item_code || line.item_code) != null
+        ? String(line.offering_item_code || line.item_code)
+        : null,
+      duration_key: line && line.duration_key != null
+        ? String(line.duration_key)
+        : (line && line.tier_key != null ? String(line.tier_key) : null),
+      quantity: line && line.quantity != null ? Number(line.quantity) : null,
+      unit_amount_cents: line && line.unit_amount_cents != null ? Number(line.unit_amount_cents) : null,
+      total_cents: line && line.total_cents != null ? Number(line.total_cents) : null,
+      price_id: line && line.price_id != null
+        ? String(line.price_id)
+        : (priceIdentity && priceIdentity.price_id != null ? String(priceIdentity.price_id) : null),
+    };
+  });
+  rows.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+  return rows;
+}
+
 function buildQuoteProvenance(quoteBody) {
   const fp = computeQuoteFingerprint(quoteBody);
   return {
@@ -196,6 +238,7 @@ function buildQuoteProvenance(quoteBody) {
     currency: quoteBody.currency,
     price_source: quoteBody.price_source,
     capacity_by_date: quoteBody.capacity_by_date || null,
+    line_items: normalizeQuoteLineItemsForFingerprint(quoteBody.line_items),
   };
 }
 
@@ -216,6 +259,7 @@ function computeQuoteFingerprint(quoteBody) {
     price_source: quoteBody.price_source,
     billing_unit: quoteBody.billing_unit,
     capacity_by_date: quoteBody.capacity_by_date || null,
+    line_items: normalizeQuoteLineItemsForFingerprint(quoteBody.line_items),
   };
   return crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 }
@@ -427,6 +471,16 @@ function buildOfferingQuoteResult(command, catalog, offering, lineOut) {
     schedule_summary: offering.schedule_summary,
     capacity_by_date: line.capacity_by_date,
     quoted_at: quotedAt,
+    line_items: [{
+      ...line,
+      component: offering.offering_type === 'course'
+        ? 'course'
+        : (offering.offering_type === 'private_lesson' ? 'private_lesson' : line.component),
+      duration_key: offering.offering_type === 'rental'
+        ? (line.tier_key || offering.tier_key || null)
+        : (line.tier_key || offering.tier_key || null),
+      price_identity: offering.price_identity || null,
+    }],
   };
   quoteBody.quote_provenance = buildQuoteProvenance(quoteBody);
   return { ok: true, status: 200, body: quoteBody };
@@ -522,7 +576,140 @@ function quoteUnknownOfferingFallback(catalog, body, offeringId) {
   return { ok: false, status: 422, body: { success: false, reason: 'unknown_offering' } };
 }
 
-async function quoteByComponents(pg, command, catalog, requireDb) {
+const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
+  'board_rental',
+  'wetsuit_rental',
+  'board_and_suit_rental',
+]);
+
+function quoteHasNonEmptyComponents(body) {
+  return !!(body && body.components && typeof body.components === 'object'
+    && Object.keys(body.components).length > 0);
+}
+
+function quoteHasRentalsArray(body) {
+  return !!(body && Array.isArray(body.rentals));
+}
+
+function quoteShouldUseComponentsPath(body) {
+  return quoteHasNonEmptyComponents(body) || quoteHasRentalsArray(body);
+}
+
+function inclusiveIsoDatesFromRange(dateFrom, dateTo) {
+  const from = String(dateFrom || '').slice(0, 10);
+  const to = String(dateTo || dateFrom || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+    return [];
+  }
+  const out = [];
+  let cur = from;
+  while (cur <= to && out.length < 31) {
+    out.push(cur);
+    const d = new Date(`${cur}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    cur = d.toISOString().slice(0, 10);
+  }
+  return out;
+}
+
+function quoteRentalDurationKeyFromDateRange(dateFrom, dateTo) {
+  const dates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+  if (dates.length < 1) return null;
+  if (dates.length === 1) return '1_day';
+  return `${dates.length}_days`;
+}
+
+function assertCanonicalRentalServiceDatesMatchRange(transportBody, expectedDates) {
+  const body = transportBody && typeof transportBody === 'object' ? transportBody : {};
+  if (!Object.prototype.hasOwnProperty.call(body, 'service_dates')) {
+    return { ok: true };
+  }
+  if (!Array.isArray(body.service_dates)) {
+    return { ok: false, reason: 'invalid_service_dates', error: 'service_dates must be an array' };
+  }
+  const got = body.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean);
+  if (got.length !== body.service_dates.length) {
+    return { ok: false, reason: 'invalid_service_dates', error: 'service_dates must be YYYY-MM-DD' };
+  }
+  if (new Set(got).size !== got.length) {
+    return { ok: false, reason: 'invalid_service_dates', error: 'service_dates must not contain duplicates' };
+  }
+  const expected = [...(expectedDates || [])].slice().sort();
+  const sortedGot = got.slice().sort();
+  if (expected.length !== sortedGot.length
+    || expected.some((d, i) => d !== sortedGot[i])) {
+    return {
+      ok: false,
+      reason: 'service_dates_mismatch',
+      error: 'service_dates must match the inclusive date_from/date_to range exactly',
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Validate canonical rentals[] for quote. Returns null value when field absent
+ * (legacy component pricing). Empty array is "present" and owns rental pricing.
+ */
+function normalizeCanonicalRentalsForQuote(transportBody, expectedDurationKey) {
+  const body = transportBody && typeof transportBody === 'object' ? transportBody : {};
+  if (!Object.prototype.hasOwnProperty.call(body, 'rentals')) {
+    return { ok: true, present: false, value: null };
+  }
+  if (!Array.isArray(body.rentals)) {
+    return { ok: false, reason: 'invalid_rentals', error: 'rentals must be an array' };
+  }
+  const seen = new Set();
+  const out = [];
+  for (let i = 0; i < body.rentals.length; i += 1) {
+    const row = body.rentals[i];
+    if (!row || typeof row !== 'object') {
+      return { ok: false, reason: 'invalid_rentals', error: `rentals[${i}] must be an object` };
+    }
+    const offeringKey = String(row.offering_key || '').trim();
+    if (!CANONICAL_RENTAL_OFFERING_KEYS.includes(offeringKey)) {
+      return { ok: false, reason: 'invalid_rental_offering', error: `rentals[${i}].offering_key is not allowed` };
+    }
+    if (seen.has(offeringKey)) {
+      return { ok: false, reason: 'duplicate_rental_offering', error: `duplicate rentals offering_key ${offeringKey}` };
+    }
+    seen.add(offeringKey);
+    const durationKey = String(row.duration_key || '').trim();
+    if (!durationKey) {
+      return { ok: false, reason: 'invalid_rental_duration', error: `rentals[${i}].duration_key is required` };
+    }
+    if (expectedDurationKey && durationKey !== expectedDurationKey) {
+      return {
+        ok: false,
+        reason: 'rental_duration_mismatch',
+        error: `rentals[${i}].duration_key must be ${expectedDurationKey} for the selected dates`,
+      };
+    }
+    const qty = Number(row.quantity);
+    if (!Number.isInteger(qty) || qty < 1) {
+      return { ok: false, reason: 'invalid_rental_quantity', error: `rentals[${i}].quantity must be a positive integer` };
+    }
+    out.push({
+      offering_key: offeringKey,
+      duration_key: durationKey,
+      quantity: qty,
+    });
+  }
+  if (seen.has('board_and_suit_rental') && (seen.has('board_rental') || seen.has('wetsuit_rental'))) {
+    return {
+      ok: false,
+      reason: 'rental_bundle_conflict',
+      error: 'board_and_suit_rental cannot be combined with board_rental or wetsuit_rental',
+    };
+  }
+  return { ok: true, present: true, value: out };
+}
+
+/**
+ * Resolve quote input for component and/or canonical rental requests.
+ * Rentals-only (components: {}) is allowed; duration always from date_from/date_to.
+ */
+function resolveQuoteComponentsAndRentalsInput(command) {
   const dateNorm = normalizeSunsetBookingDatesInBody(command.transportBody, command.now);
   if (!dateNorm.ok) {
     return {
@@ -536,12 +723,189 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
       },
     };
   }
-  const validated = validateScheduleBookingBody(dateNorm.body);
-  if (!validated.ok) {
-    return { ok: false, status: 400, body: { success: false, error: validated.error, reason: validated.error } };
+  const body = dateNorm.body;
+  const hasComponents = quoteHasNonEmptyComponents(body);
+  const hasRentals = quoteHasRentalsArray(body);
+
+  let input;
+  if (hasComponents) {
+    const validated = validateScheduleBookingBody(body);
+    if (!validated.ok) {
+      return { ok: false, status: 400, body: { success: false, error: validated.error, reason: validated.error } };
+    }
+    input = validated.value;
+  } else if (hasRentals) {
+    const guestName = String(body.guest_name || '').trim();
+    if (!guestName || guestName.length > 200) {
+      return { ok: false, status: 400, body: { success: false, reason: 'guest_name is required (max 200 chars)', error: 'guest_name is required (max 200 chars)' } };
+    }
+    const dateFrom = String(body.date_from || '').slice(0, 10);
+    const dateTo = String(body.date_to || body.date_from || '').slice(0, 10);
+    if (!dateFrom || !dateTo) {
+      return {
+        ok: false,
+        status: 400,
+        body: { success: false, reason: 'invalid_date', reason_code: 'invalid_date', error: 'date_from and date_to are required for rental quotes' },
+      };
+    }
+    const rangeDates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+    if (!rangeDates.length) {
+      return {
+        ok: false,
+        status: 400,
+        body: { success: false, reason: 'invalid_date', reason_code: 'invalid_date', error: 'invalid date_from/date_to range' },
+      };
+    }
+    input = {
+      guest_name: guestName,
+      guest_phone: body.guest_phone != null ? String(body.guest_phone).trim().slice(0, 40) || null : null,
+      components: {},
+      service_dates: rangeDates,
+      payment_status: String(body.payment_status || 'unpaid').trim().toLowerCase() || 'unpaid',
+      notes: body.notes != null ? String(body.notes).trim().slice(0, 2000) : '',
+      needs_reply: false,
+      idempotency_key: null,
+      rental_pricing: null,
+      date_from: dateFrom,
+      date_to: dateTo,
+    };
+  } else {
+    return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
-  const input = validated.value;
+
+  let rentalsNorm = { ok: true, present: false, value: null };
+  if (hasRentals) {
+    const dateFrom = String((input.date_from != null ? input.date_from : body.date_from) || '').slice(0, 10);
+    const dateTo = String((input.date_to != null ? input.date_to : body.date_to) || '').slice(0, 10);
+    if (!dateFrom || !dateTo) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          reason: 'invalid_date',
+          reason_code: 'invalid_date',
+          error: 'date_from and date_to are required for canonical rental quotes',
+        },
+      };
+    }
+    const rangeDates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+    if (!rangeDates.length) {
+      return {
+        ok: false,
+        status: 400,
+        body: { success: false, reason: 'invalid_date', reason_code: 'invalid_date', error: 'invalid date_from/date_to range' },
+      };
+    }
+    const datesMatch = assertCanonicalRentalServiceDatesMatchRange(body, rangeDates);
+    if (!datesMatch.ok) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          reason: datesMatch.reason,
+          reason_code: datesMatch.reason,
+          error: datesMatch.error,
+        },
+      };
+    }
+    // Canonical rentals always bill against the authoritative inclusive date range.
+    input.service_dates = rangeDates;
+    input.date_from = dateFrom;
+    input.date_to = dateTo;
+    const expectedDuration = quoteRentalDurationKeyFromDateRange(dateFrom, dateTo);
+    rentalsNorm = normalizeCanonicalRentalsForQuote(command.transportBody, expectedDuration);
+    if (!rentalsNorm.ok) {
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          success: false,
+          reason: rentalsNorm.reason,
+          reason_code: rentalsNorm.reason,
+          error: rentalsNorm.error,
+        },
+      };
+    }
+    if (rentalsNorm.present) {
+      const legacyMatch = assertLegacyRentalQuantitiesMatch(rentalsNorm.value, input.components);
+      if (!legacyMatch.ok) {
+        return {
+          ok: false,
+          status: 400,
+          body: {
+            success: false,
+            reason: legacyMatch.reason,
+            reason_code: legacyMatch.reason,
+            error: legacyMatch.error,
+          },
+        };
+      }
+    }
+  }
+
+  return { ok: true, input, rentalsNorm };
+}
+
+function assertLegacyRentalQuantitiesMatch(rentals, components) {
+  const comps = components && typeof components === 'object' ? components : {};
+  const expected = { surfboard: null, wetsuit: null };
+  for (const row of rentals || []) {
+    if (row.offering_key === 'board_rental') expected.surfboard = row.quantity;
+    else if (row.offering_key === 'wetsuit_rental') expected.wetsuit = row.quantity;
+    else if (row.offering_key === 'board_and_suit_rental') {
+      expected.surfboard = row.quantity;
+      expected.wetsuit = row.quantity;
+    }
+  }
+  for (const key of ['surfboard', 'wetsuit']) {
+    const leg = comps[key];
+    if (!leg) continue;
+    const legQty = Number(leg.quantity);
+    if (expected[key] == null || !Number.isInteger(legQty) || legQty !== expected[key]) {
+      return {
+        ok: false,
+        reason: 'legacy_rental_mismatch',
+        error: `components.${key}.quantity does not match canonical rentals`,
+      };
+    }
+  }
+  return { ok: true };
+}
+
+function findExactRentalCatalogOffering(catalog, offeringKey, durationKey, locationId) {
+  const itemCode = `${offeringKey}__${durationKey}`;
+  const matches = findCatalogOffering({ offerings: catalog.offerings }, itemCode)
+    .filter((o) => o && o.offering_type === 'rental' && String(o.item_code || o.offering_id || '') === itemCode);
+  if (!matches.length) return [];
+  const adminCfg = catalog && catalog._adminCfg;
+  if (adminCfg && Array.isArray(adminCfg.prices)) {
+    const loc = String(locationId || '').trim();
+    const pricedHere = adminCfg.prices.some((p) => {
+      if (!p || p.active === false) return false;
+      const key = String(p.offering_key || p.item_code || '').trim();
+      if (key !== itemCode) return false;
+      if (p.location_id != null && String(p.location_id).trim()
+        && loc && String(p.location_id).trim() !== loc) {
+        return false;
+      }
+      const cents = p.amount_cents != null
+        ? Number(p.amount_cents)
+        : (p.amount != null ? Math.round(Number(p.amount) * 100) : null);
+      return cents != null && cents > 0;
+    });
+    if (!pricedHere) return [];
+  }
+  return matches;
+}
+
+async function quoteByComponents(pg, command, catalog, requireDb) {
+  const resolved = resolveQuoteComponentsAndRentalsInput(command);
+  if (!resolved.ok) return resolved;
+  const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
+
   const lines = [];
   let totalCents = 0;
   let currency = 'EUR';
@@ -584,25 +948,52 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
     currency = lineOut.line.currency;
   }
 
-  for (const rentalKey of ['surfboard', 'wetsuit']) {
-    if (!input.components[rentalKey]) continue;
-    const comp = input.components[rentalKey];
-    const rentalOfferingKey = rentalKey === 'surfboard' ? 'board_rental__1_day' : 'wetsuit_rental__1_day';
-    const matches = findCatalogOffering({ offerings: catalog.offerings }, rentalOfferingKey)
-      .concat((catalog.offerings || []).filter((o) => o.offering_type === 'rental'
-        && String(o.item_code || o.offering_id || '').includes(rentalKey === 'surfboard' ? 'board' : 'wetsuit')));
-    if (!matches.length) {
-      return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+  if (rentalsNorm.present) {
+    for (const rental of rentalsNorm.value) {
+      const matches = findExactRentalCatalogOffering(
+        catalog,
+        rental.offering_key,
+        rental.duration_key,
+        command.locationId,
+      );
+      if (!matches.length) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      const offering = nestOfferingForQuote(matches[0]);
+      const lineOut = pg
+        ? await quoteOfferingLine(pg, command, offering, serviceDates, rental.quantity, requireDb)
+        : quoteOfferingLineSync(command, offering, serviceDates, rental.quantity, requireDb);
+      if (!lineOut.ok) return lineOut;
+      lines.push({
+        ...lineOut.line,
+        component: rental.offering_key,
+        duration_key: rental.duration_key,
+      });
+      totalCents += lineOut.line.total_cents;
+      currency = lineOut.line.currency;
     }
-    const offering = nestOfferingForQuote(matches[0]);
-    const qty = Math.max(1, Number(comp.quantity) || 1);
-    const lineOut = pg
-      ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
-      : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
-    if (!lineOut.ok) return lineOut;
-    lines.push({ ...lineOut.line, component: rentalKey });
-    totalCents += lineOut.line.total_cents;
-    currency = lineOut.line.currency;
+  } else {
+    // Legacy components.surfboard / components.wetsuit (hardcoded __1_day) when rentals absent.
+    for (const rentalKey of ['surfboard', 'wetsuit']) {
+      if (!input.components[rentalKey]) continue;
+      const comp = input.components[rentalKey];
+      const rentalOfferingKey = rentalKey === 'surfboard' ? 'board_rental__1_day' : 'wetsuit_rental__1_day';
+      const matches = findCatalogOffering({ offerings: catalog.offerings }, rentalOfferingKey)
+        .concat((catalog.offerings || []).filter((o) => o.offering_type === 'rental'
+          && String(o.item_code || o.offering_id || '').includes(rentalKey === 'surfboard' ? 'board' : 'wetsuit')));
+      if (!matches.length) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      const offering = nestOfferingForQuote(matches[0]);
+      const qty = Math.max(1, Number(comp.quantity) || 1);
+      const lineOut = pg
+        ? await quoteOfferingLine(pg, command, offering, serviceDates, qty, requireDb)
+        : quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
+      if (!lineOut.ok) return lineOut;
+      lines.push({ ...lineOut.line, component: rentalKey });
+      totalCents += lineOut.line.total_cents;
+      currency = lineOut.line.currency;
+    }
   }
 
   if (!lines.length) {
@@ -639,28 +1030,16 @@ async function quoteByComponents(pg, command, catalog, requireDb) {
 }
 
 function quoteByComponentsSync(command, catalog, requireDb) {
-  const dateNorm = normalizeSunsetBookingDatesInBody(command.transportBody, command.now);
-  if (!dateNorm.ok) {
-    return {
-      ok: false,
-      status: 400,
-      body: {
-        success: false,
-        reason: dateNorm.reason || 'invalid_date',
-        reason_code: dateNorm.reason || 'invalid_date',
-        needs_clarification: dateNorm.needs_clarification === true,
-      },
-    };
-  }
-  const validated = validateScheduleBookingBody(dateNorm.body);
-  if (!validated.ok) {
-    return { ok: false, status: 400, body: { success: false, error: validated.error, reason: validated.error } };
-  }
-  const input = validated.value;
+  // Sync callers must not receive a Promise — price with catalog amounts only.
+  const resolved = resolveQuoteComponentsAndRentalsInput(command);
+  if (!resolved.ok) return resolved;
+  const { input, rentalsNorm } = resolved;
   const serviceDates = input.service_dates || [];
+
   const lines = [];
   let totalCents = 0;
   let currency = 'EUR';
+
   if (input.components.course) {
     const comp = input.components.course;
     const tierKey = String(comp.tier_key || '').trim();
@@ -677,9 +1056,71 @@ function quoteByComponentsSync(command, catalog, requireDb) {
     totalCents += lineOut.line.total_cents;
     currency = lineOut.line.currency;
   }
+
+  if (input.components.private_lesson) {
+    const pl = input.components.private_lesson;
+    const matches = (catalog.offerings || []).filter((o) => o.offering_type === 'private_lesson');
+    if (!matches.length) {
+      return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+    }
+    const offering = nestOfferingForQuote(matches[0]);
+    const sessions = pl.sessions || [];
+    const dates = sessions.map((s) => String(s.date).slice(0, 10)).filter(Boolean);
+    const qty = Math.max(1, Number(pl.quantity) || 1);
+    const lineOut = quoteOfferingLineSync(command, offering, dates.length ? dates : serviceDates, qty, requireDb);
+    if (!lineOut.ok) return lineOut;
+    lines.push({ ...lineOut.line, component: 'private_lesson' });
+    totalCents += lineOut.line.total_cents;
+    currency = lineOut.line.currency;
+  }
+
+  if (rentalsNorm.present) {
+    for (const rental of rentalsNorm.value) {
+      const matches = findExactRentalCatalogOffering(
+        catalog,
+        rental.offering_key,
+        rental.duration_key,
+        command.locationId,
+      );
+      if (!matches.length) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      const offering = nestOfferingForQuote(matches[0]);
+      const lineOut = quoteOfferingLineSync(command, offering, serviceDates, rental.quantity, requireDb);
+      if (!lineOut.ok) return lineOut;
+      lines.push({
+        ...lineOut.line,
+        component: rental.offering_key,
+        duration_key: rental.duration_key,
+      });
+      totalCents += lineOut.line.total_cents;
+      currency = lineOut.line.currency;
+    }
+  } else {
+    for (const rentalKey of ['surfboard', 'wetsuit']) {
+      if (!input.components[rentalKey]) continue;
+      const comp = input.components[rentalKey];
+      const rentalOfferingKey = rentalKey === 'surfboard' ? 'board_rental__1_day' : 'wetsuit_rental__1_day';
+      const matches = findCatalogOffering({ offerings: catalog.offerings }, rentalOfferingKey)
+        .concat((catalog.offerings || []).filter((o) => o.offering_type === 'rental'
+          && String(o.item_code || o.offering_id || '').includes(rentalKey === 'surfboard' ? 'board' : 'wetsuit')));
+      if (!matches.length) {
+        return { ok: false, status: 422, body: { success: false, reason: 'price_missing' } };
+      }
+      const offering = nestOfferingForQuote(matches[0]);
+      const qty = Math.max(1, Number(comp.quantity) || 1);
+      const lineOut = quoteOfferingLineSync(command, offering, serviceDates, qty, requireDb);
+      if (!lineOut.ok) return lineOut;
+      lines.push({ ...lineOut.line, component: rentalKey });
+      totalCents += lineOut.line.total_cents;
+      currency = lineOut.line.currency;
+    }
+  }
+
   if (!lines.length) {
     return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
   }
+
   const primary = lines[0];
   const quotedAt = command.now.toISOString();
   const quoteBody = {
@@ -746,7 +1187,7 @@ function executeSunsetQuoteSync(command, opts = {}) {
   if (body.offering_id) {
     return quoteByOfferingIdSync(command, filtered, requireDb);
   }
-  if (body.components && Object.keys(body.components).length) {
+  if (quoteShouldUseComponentsPath(body)) {
     return quoteByComponentsSync(command, filtered, requireDb);
   }
   return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
@@ -796,7 +1237,7 @@ async function executeSunsetQuote(pg, command, opts = {}) {
   if (body.offering_id) {
     return quoteByOfferingId(pg, command, catalog, requireDb);
   }
-  if (body.components && Object.keys(body.components).length) {
+  if (quoteShouldUseComponentsPath(body)) {
     return quoteByComponents(pg, command, catalog, requireDb);
   }
   return { ok: false, status: 400, body: { success: false, reason: 'quote_input_required' } };
@@ -815,8 +1256,11 @@ async function validateQuoteProvenanceForCreate(pg, command, provenance, opts = 
     quantity: provenance.quantity != null ? provenance.quantity : command.transportBody.quantity,
     require_db: true,
   };
-  if (command.transportBody.components && Object.keys(command.transportBody.components).length) {
+  if (quoteShouldUseComponentsPath(command.transportBody)) {
     quoteTransport.components = command.transportBody.components;
+    if (Array.isArray(command.transportBody.rentals)) {
+      quoteTransport.rentals = command.transportBody.rentals;
+    }
     delete quoteTransport.offering_id;
   } else {
     quoteTransport.offering_id = provenance.offering_id || command.transportBody.offering_id;
