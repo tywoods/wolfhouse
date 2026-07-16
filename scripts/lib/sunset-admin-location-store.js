@@ -137,6 +137,7 @@ function applyStoreToResolvedConfig(config, locationId) {
         label: ov.label || ov.display_name || withId.label,
         amount: ov.amount != null ? Number(ov.amount) : withId.amount,
         currency: ov.currency || withId.currency,
+        active: ov.active != null ? ov.active !== false : withId.active,
         effective_state: 'location_override',
         source: 'location_store',
       };
@@ -197,14 +198,31 @@ function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
   const bucket = ensureLocationBucket(store, locationId);
   const key = stablePriceKey(category, offeringKey, unit);
   const prev = bucket.prices[key] || {};
+  const nextAmount = patch.amount_cents != null
+    ? Number(patch.amount_cents) / 100
+    : (prev.amount != null ? Number(prev.amount) : null);
+  const nextActive = patch.active != null
+    ? patch.active === true
+    : (prev.active !== false);
+  if (nextActive === true) {
+    const cents = nextAmount == null ? NaN : Math.round(Number(nextAmount) * 100);
+    if (!Number.isInteger(cents) || cents <= 0) {
+      return {
+        ok: false,
+        status: 400,
+        body: { success: false, error: 'amount_cents must be > 0 to enable' },
+      };
+    }
+  }
   bucket.prices[key] = {
     ...prev,
     category,
     offering_key: offeringKey,
     unit,
     label: patch.display_name != null ? patch.display_name : (prev.label || prev.display_name),
-    amount: patch.amount_cents != null ? Number(patch.amount_cents) / 100 : prev.amount,
+    amount: nextAmount,
     currency: patch.currency || prev.currency || 'EUR',
+    active: nextActive,
     updated_at: new Date().toISOString(),
   };
   writeStoreSync(store);
@@ -216,6 +234,7 @@ function patchConfigPrice(locationId, category, offeringKey, unit, patch) {
       price_rule: {
         id: priceIdFromParts(locationId, category, offeringKey, unit),
         ...bucket.prices[key],
+        active: nextActive,
       },
       storage: 'location_store',
     },

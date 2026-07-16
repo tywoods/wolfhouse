@@ -254,6 +254,14 @@ function resolveRentalGroupOffering(rentalGroup) {
   return { ok: true, rental_group: key, offering_key: RENTAL_GROUP_OFFERING[key] };
 }
 
+function assertPositiveAmountForActivation(amountCents) {
+  const n = Number(amountCents);
+  if (!Number.isInteger(n) || n <= 0) {
+    return { ok: false, error: 'amount_cents must be > 0 to enable' };
+  }
+  return { ok: true, value: n };
+}
+
 function validatePriceCreateBody(body) {
   const allowed = new Set(['rental_group', 'period_window', 'amount_cents', 'currency']);
   const unknown = rejectUnknownFields(body, allowed);
@@ -264,6 +272,9 @@ function validatePriceCreateBody(body) {
   if (!RENTAL_PERIOD_WINDOWS.has(period)) return { ok: false, error: 'invalid period_window' };
   const n = Number(body.amount_cents);
   if (!Number.isInteger(n) || n < 0) return { ok: false, error: 'amount_cents must be integer >= 0' };
+  // Create always inserts active=true — require a positive sellable amount.
+  const positive = assertPositiveAmountForActivation(n);
+  if (!positive.ok) return positive;
   const currency = body.currency != null ? String(body.currency).trim().toUpperCase() : 'EUR';
   if (body.currency != null && !CURRENCY_RE.test(currency)) return { ok: false, error: 'currency must be 3-letter code' };
   return {
@@ -323,6 +334,15 @@ function validatePricePatchBody(body) {
     out.effective_to = parsed.value;
   }
   if (!Object.keys(out).length) return { ok: false, error: 'empty body' };
+  // Enabling requires a positive owner-entered amount in the same patch.
+  // Re-enable-with-existing-amount is enforced in patchPriceRule when amount omitted.
+  if (out.active === true && out.amount_cents != null) {
+    const positive = assertPositiveAmountForActivation(out.amount_cents);
+    if (!positive.ok) return positive;
+  }
+  if (out.active === true && out.amount_cents == null) {
+    return { ok: false, error: 'amount_cents must be > 0 to enable' };
+  }
   return { ok: true, patch: out };
 }
 
@@ -522,6 +542,9 @@ async function findPriceRuleRow(client, {
     );
   }
   const pref = preferUnit != null ? String(preferUnit).trim() : '';
+  // Inactive identity fallback is rental-only (Admin Available/Bookable re-enable).
+  // Lesson/package lookups must keep pre-PR active-only behavior.
+  const allowInactiveRental = String(itemType || '') === 'rental';
   if (pref) {
     const exact = await client.query(
       hasLoc
@@ -536,8 +559,26 @@ async function findPriceRuleRow(client, {
       hasLoc ? [clientSlug, loc, itemType, itemCode, pref] : [clientSlug, itemType, itemCode, pref],
     );
     if (exact.rows.length) return exact;
+    if (allowInactiveRental) {
+      // Prefer active; fall back to inactive rental so re-enable/upsert updates the same row.
+      const includeInactive = await client.query(
+        hasLoc
+          ? `SELECT * FROM tenant_price_rules
+              WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4
+                AND unit = $5
+              ORDER BY active DESC NULLS LAST, updated_at DESC NULLS LAST
+              FOR UPDATE`
+          : `SELECT * FROM tenant_price_rules
+              WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+                AND unit = $4
+              ORDER BY active DESC NULLS LAST, updated_at DESC NULLS LAST
+              FOR UPDATE`,
+        hasLoc ? [clientSlug, loc, itemType, itemCode, pref] : [clientSlug, itemType, itemCode, pref],
+      );
+      if (includeInactive.rows.length) return includeInactive;
+    }
   }
-  return client.query(
+  const activeOnly = await client.query(
     hasLoc
       ? `SELECT * FROM tenant_price_rules
           WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4 AND active = true
@@ -546,6 +587,20 @@ async function findPriceRuleRow(client, {
       : `SELECT * FROM tenant_price_rules
           WHERE client_slug = $1 AND item_type = $2 AND item_code = $3 AND active = true
           ORDER BY updated_at DESC NULLS LAST
+          FOR UPDATE`,
+    hasLoc ? [clientSlug, loc, itemType, itemCode] : [clientSlug, itemType, itemCode],
+  );
+  if (activeOnly.rows.length || !allowInactiveRental) return activeOnly;
+  // Prefer active; fall back to inactive rental only (identity without preferUnit).
+  return client.query(
+    hasLoc
+      ? `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND location_id = $2 AND item_type = $3 AND item_code = $4
+          ORDER BY active DESC NULLS LAST, updated_at DESC NULLS LAST
+          FOR UPDATE`
+      : `SELECT * FROM tenant_price_rules
+          WHERE client_slug = $1 AND item_type = $2 AND item_code = $3
+          ORDER BY active DESC NULLS LAST, updated_at DESC NULLS LAST
           FOR UPDATE`,
     hasLoc ? [clientSlug, loc, itemType, itemCode] : [clientSlug, itemType, itemCode],
   );
@@ -625,6 +680,7 @@ async function createRentalPriceRule(client, { clientSlug, locationId, patch, ac
       display_name: displayName,
       amount_cents: patch.amount_cents,
       currency: patch.currency || 'EUR',
+      active: true,
     },
     actor,
     forceItemCode: itemCode,
@@ -1466,4 +1522,6 @@ module.exports = {
   lessonSlotPriceItemCode,
   isLessonSlotPriceItemCode,
   preparePriceDbPatch,
+  assertPositiveAmountForActivation,
+  findPriceRuleRow,
 };
