@@ -9,16 +9,17 @@
  * Correct transaction boundary (caller owns BEGIN/COMMIT/ROLLBACK):
  *   1. Lock booking (id + client_id) FOR UPDATE
  *   2. Lock/reload payment (id + client_id) FOR UPDATE
- *   3. If payment already paid → idempotent return (no second auto-send)
- *   4. Revalidate locked payment vs Stripe session (fail closed; no stale fields)
- *   5. Sum completed payments scoped by client_id (exclude this payment)
- *   6. Derive booking money totals under the locks from locked payment fields
- *   7. Decide promote / auto-confirmation from locked booking status + DB expiry
- *   8. Apply payment / booking / guest writes
+ *   3. Validate locked identity binding vs Stripe session (always; before paid shortcut)
+ *   4. If payment already paid → idempotent return (no second auto-send)
+ *   5. Validate locked mutable eligibility/money fields vs Stripe session
+ *   6. Sum completed payments scoped by client_id (exclude this payment)
+ *   7. Derive booking money totals under the locks from locked payment fields
+ *   8. Decide promote / auto-confirmation from locked booking status + DB expiry
+ *   9. Apply payment / booking / guest writes
  *
  * Invariant: Stripe money is persisted only when the locked payment still matches
- * the session; expired/terminal bookings never silently promote or revive;
- * unknown non-bookable statuses fail closed for auto-confirmation.
+ * the session via an authoritative binding; expired/terminal bookings never silently
+ * promote or revive; unknown non-bookable statuses fail closed for auto-confirmation.
  */
 
 const {
@@ -51,6 +52,8 @@ const LOCKED_PAYMENT_VALIDATION_CODES = Object.freeze({
   SESSION_CURRENCY_MISMATCH: 'locked_stripe_session_currency_mismatch',
   AMOUNT_DUE_INVALID: 'locked_amount_due_invalid',
   STRIPE_AMOUNT_MISMATCH: 'locked_stripe_amount_mismatch',
+  SESSION_ID_MISSING: 'locked_stripe_session_id_missing',
+  BINDING_MISSING: 'locked_stripe_binding_missing',
   SESSION_REPLACED: 'locked_stripe_session_replaced',
   METADATA_PAYMENT_ID_MISMATCH: 'locked_stripe_metadata_payment_id_mismatch',
 });
@@ -69,6 +72,12 @@ function throwLockedPaymentValidation(code, extraReasons) {
   err.reasons = reasons;
   err.locked_payment_validation = true;
   throw err;
+}
+
+function throwIfLockedReasons(reasons) {
+  if (!reasons.length) return;
+  const primary = reasons.find((r) => String(r).startsWith('locked_')) || reasons[0];
+  throwLockedPaymentValidation(primary, reasons);
 }
 
 function coerceDbBool(value) {
@@ -146,17 +155,18 @@ async function lockPaymentForStripePaymentTruth(pg, { paymentId, clientId }) {
 }
 
 /**
- * Revalidate the locked payment row against the Stripe session and trusted
- * original booking/client context. Must run after FOR UPDATE and before any
- * aggregation or money writes. Uses ONLY locked payment fields for kind,
- * amount, currency, and session binding — never stale pre-lock snapshots.
+ * Authoritative Stripe↔payment identity under lock.
+ * Runs after FOR UPDATE and BEFORE the already-paid shortcut.
  *
- * @param {object} lockedPayment
- * @param {object} session
- * @param {{ expectedBookingId: string, expectedClientId: string }} ctx
- * @returns {{ ok: true } | never} — throws locked_payment_validation on failure
+ * Requires at least one authoritative binding:
+ *   - locked stripe_checkout_session_id exactly equals session.id; OR
+ *   - session.metadata.payment_id exactly equals locked payment_id
+ *
+ * A conflicting locked session ID always rejects (replaced checkout), even when
+ * metadata points at the payment. Conflicting metadata rejects unless the
+ * locked session ID authoritatively matches.
  */
-function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
+function validateLockedPaymentIdentityForStripeTruth(lockedPayment, session, ctx) {
   const expectedBookingId = ctx && ctx.expectedBookingId;
   const expectedClientId = ctx && ctx.expectedClientId;
   const reasons = [];
@@ -167,17 +177,62 @@ function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
     ]);
   }
 
-  const status = String(lockedPayment.payment_status || '');
-  if (!ELIGIBLE_PAYMENT_LEDGER_STATUSES.includes(status)) {
-    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
-    reasons.push(`payment_status_${status || 'empty'}_not_eligible`);
-  }
-
   if (String(lockedPayment.booking_id) !== String(expectedBookingId)) {
     reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.BOOKING_MISMATCH);
   }
   if (String(lockedPayment.client_id) !== String(expectedClientId)) {
     reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.CLIENT_MISMATCH);
+  }
+
+  const sessionId = session && session.id != null ? String(session.id).trim() : '';
+  if (!sessionId) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.SESSION_ID_MISSING);
+    throwIfLockedReasons(reasons);
+  }
+
+  const lockedSessionId = lockedPayment.stripe_checkout_session_id
+    ? String(lockedPayment.stripe_checkout_session_id).trim()
+    : '';
+  const metaPaymentId = session && session.metadata && session.metadata.payment_id != null
+    ? String(session.metadata.payment_id).trim()
+    : '';
+  const lockedPaymentId = String(lockedPayment.payment_id || '');
+
+  if (lockedSessionId && lockedSessionId !== sessionId) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED);
+    throwIfLockedReasons(reasons);
+  }
+
+  const sessionBindingAuthoritative = !!(lockedSessionId && lockedSessionId === sessionId);
+  if (metaPaymentId && metaPaymentId !== lockedPaymentId && !sessionBindingAuthoritative) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH);
+    throwIfLockedReasons(reasons);
+  }
+
+  const metadataBindingAuthoritative = !!(metaPaymentId && metaPaymentId === lockedPaymentId);
+  if (!sessionBindingAuthoritative && !metadataBindingAuthoritative) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING);
+  }
+
+  throwIfLockedReasons(reasons);
+  return {
+    ok: true,
+    session_binding_authoritative: sessionBindingAuthoritative,
+    metadata_binding_authoritative: metadataBindingAuthoritative,
+  };
+}
+
+/**
+ * Mutable locked-state checks for non-paid payments (status/kind/amount/currency).
+ * Must not run for already-paid rows; identity is validated separately first.
+ */
+function validateLockedPaymentMutableStateForStripeTruth(lockedPayment, session) {
+  const reasons = [];
+
+  const status = String(lockedPayment.payment_status || '');
+  if (!ELIGIBLE_PAYMENT_LEDGER_STATUSES.includes(status)) {
+    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
+    reasons.push(`payment_status_${status || 'empty'}_not_eligible`);
   }
 
   const paymentKind = String(lockedPayment.payment_kind || '');
@@ -207,28 +262,17 @@ function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
     reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH);
   }
 
-  const lockedSessionId = lockedPayment.stripe_checkout_session_id
-    ? String(lockedPayment.stripe_checkout_session_id)
-    : '';
-  const sessionId = session && session.id ? String(session.id) : '';
-  if (lockedSessionId && sessionId && lockedSessionId !== sessionId) {
-    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED);
-  }
+  throwIfLockedReasons(reasons);
+  return { ok: true };
+}
 
-  const metaPaymentId = session && session.metadata && session.metadata.payment_id
-    ? String(session.metadata.payment_id)
-    : '';
-  const lockedPaymentId = String(lockedPayment.payment_id || '');
-  const sessionBindingAuthoritative = !!(lockedSessionId && sessionId && lockedSessionId === sessionId);
-  if (metaPaymentId && metaPaymentId !== lockedPaymentId && !sessionBindingAuthoritative) {
-    reasons.push(LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH);
-  }
-
-  if (reasons.length) {
-    // Prefer the first stable locked_* code as err.code for logging.
-    const primary = reasons.find((r) => String(r).startsWith('locked_')) || reasons[0];
-    throwLockedPaymentValidation(primary, reasons);
-  }
+/**
+ * Full locked revalidation for a non-paid payment (identity + mutable state).
+ * Prefer calling identity then mutable separately around the already-paid branch.
+ */
+function validateLockedPaymentForStripeTruth(lockedPayment, session, ctx) {
+  validateLockedPaymentIdentityForStripeTruth(lockedPayment, session, ctx);
+  validateLockedPaymentMutableStateForStripeTruth(lockedPayment, session);
   return { ok: true };
 }
 
@@ -376,6 +420,15 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     throw err;
   }
 
+  const identityCtx = {
+    expectedBookingId: pm.booking_id,
+    expectedClientId: pm.client_id,
+  };
+
+  // Identity always runs before the already-paid shortcut so a mismatched /
+  // replaced / unbound session cannot be acknowledged as idempotent success.
+  validateLockedPaymentIdentityForStripeTruth(lockedPayment, session, identityCtx);
+
   if (lockedPayment.payment_status === 'paid') {
     return {
       ok: true,
@@ -396,12 +449,9 @@ async function applyStripeBookingPaymentTruthWrites(pg, opts) {
     };
   }
 
-  // Fail closed before aggregation/writes when the locked row no longer matches
-  // the Stripe session that was validated against the pre-lock snapshot.
-  validateLockedPaymentForStripeTruth(lockedPayment, session, {
-    expectedBookingId: pm.booking_id,
-    expectedClientId: pm.client_id,
-  });
+  // Fail closed before aggregation/writes when locked mutable state no longer
+  // matches the Stripe session (status/kind/amount/currency).
+  validateLockedPaymentMutableStateForStripeTruth(lockedPayment, session);
 
   const prevCompletedPaid = await sumCompletedPaymentCentsForBooking(
     pg,
@@ -588,6 +638,8 @@ module.exports = {
   buildPaymentOnTerminalBookingMetadata,
   lockBookingForStripePaymentTruth,
   lockPaymentForStripePaymentTruth,
+  validateLockedPaymentIdentityForStripeTruth,
+  validateLockedPaymentMutableStateForStripeTruth,
   validateLockedPaymentForStripeTruth,
   decideStripeHoldPromote,
   applyStripeBookingPaymentTruthWrites,

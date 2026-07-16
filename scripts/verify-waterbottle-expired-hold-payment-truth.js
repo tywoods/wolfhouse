@@ -7,14 +7,16 @@
  *   1) POST /staff/stripe/webhook
  *   2) stripe-payment-reconcile.reconcilePaidStripeSession
  *
- * Correct boundary: BEGIN → lock booking → lock payment → paid idempotent OR
- * revalidate locked payment vs Stripe session → derive under locks → writes.
+ * Correct boundary: BEGIN → lock booking → lock payment → identity binding →
+ * paid idempotent OR mutable revalidate → derive under locks → writes.
  *
  * Concurrency section below is a deterministic lock-order / interleaving harness
  * on a shared fake client. It does NOT prove PostgreSQL transaction isolation.
  *
  * Optional real-Postgres probe: scripts/verify-waterbottle-locked-payment-pg.js
- * (skips unless WB1_PG_INTEGRATION=1).
+ * (generic lock-semantics probe only; skips unless WB1_PG_INTEGRATION=1).
+ * Source checks confirm intended one-client BEGIN→helper→COMMIT/ROLLBACK usage
+ * in source; they do not prove runtime client affinity.
  *
  * Run: node scripts/verify-waterbottle-expired-hold-payment-truth.js
  */
@@ -298,6 +300,8 @@ async function main() {
     decideStripeHoldPromote,
     applyStripeBookingPaymentTruthWrites,
     validateLockedPaymentForStripeTruth,
+    validateLockedPaymentIdentityForStripeTruth,
+    validateLockedPaymentMutableStateForStripeTruth,
     isLockedPaymentValidationError,
   } = require('./lib/stripe-hold-promote-policy');
   const { validateStripeBookingPaymentEvent } = require('./lib/stripe-webhook-payment-truth');
@@ -318,12 +322,21 @@ async function main() {
     /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
   assert('reconcile one pg client for BEGIN→helper→COMMIT/ROLLBACK',
     /await pg\.query\('BEGIN'\)[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,500}ROLLBACK/.test(reconcileSrc));
-  assert('webhook maps locked validation to 422',
-    /isLockedPaymentValidationError[\s\S]{0,600}422/.test(apiSrc));
+  assert('webhook maps locked validation to HTTP 200 application rejection',
+    /isLockedPaymentValidationError[\s\S]{0,800}sendJSON\(res,\s*200[\s\S]{0,400}rejected:\s*true[\s\S]{0,200}locked_payment_validation_failed/.test(apiSrc)
+    || /isLockedPaymentValidationError[\s\S]{0,800}processed:\s*false[\s\S]{0,200}rejected:\s*true/.test(apiSrc));
+  assert('webhook locked rejection is not HTTP 422',
+    !/isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}sendJSON\(res,\s*422/.test(apiSrc));
   assert('reconcile returns locked_payment_validation_failed',
     /locked_payment_validation_failed/.test(reconcileSrc));
+  assert('validateLockedPaymentIdentityForStripeTruth exported', typeof validateLockedPaymentIdentityForStripeTruth === 'function');
+  assert('validateLockedPaymentMutableStateForStripeTruth exported', typeof validateLockedPaymentMutableStateForStripeTruth === 'function');
   assert('validateLockedPaymentForStripeTruth exported', typeof validateLockedPaymentForStripeTruth === 'function');
   assert('isLockedPaymentValidationError exported', typeof isLockedPaymentValidationError === 'function');
+  assert('identity validated before already_paid shortcut',
+    /validateLockedPaymentIdentityForStripeTruth[\s\S]{0,400}payment_status === 'paid'/.test(policySrc));
+  assert('binding missing code present',
+    LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING === 'locked_stripe_binding_missing');
   assert('no stale payment_kind fallback after lock',
     !/lockedPayment\.payment_kind\s*\|\|\s*pm\.payment_kind/.test(policySrc));
   assert('no stale amount_due fallback after lock',
@@ -340,7 +353,8 @@ async function main() {
   assert('LOCKED_PAYMENT_VALIDATION_CODES stable keys present',
     LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE === 'locked_payment_status_not_eligible'
     && LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED === 'locked_stripe_session_replaced'
-    && LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH === 'locked_stripe_amount_mismatch');
+    && LOCKED_PAYMENT_VALIDATION_CODES.STRIPE_AMOUNT_MISMATCH === 'locked_stripe_amount_mismatch'
+    && LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING === 'locked_stripe_binding_missing');
 
   console.log('\n[policy] terminal confirmation matrix');
   {
@@ -471,16 +485,17 @@ async function main() {
   }
 
   console.log('\n[locked-revalidate] RED mutations under lock → zero writes + rollback');
-  async function expectLockedReject(label, paymentSeedPatch, expectedCode, sessionOverrides) {
+  async function expectLockedReject(label, paymentSeedPatch, expectedCode, sessionOverrides, bookingSeedPatch) {
     const paySeed = Object.assign({
       id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
       payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
       stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
     }, paymentSeedPatch || {});
+    const bkSeed = Object.assign({
+      client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000,
+    }, bookingSeedPatch || {});
     const { fake, result, error } = await runApply({
-      bookings: {
-        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
-      },
+      bookings: { [BOOKING]: bkSeed },
       payments: { [PAYMENT]: paySeed },
     }, null, sessionOverrides ? { session: baseSession(sessionOverrides) } : null);
     const updates = fake.state.queries.filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
@@ -491,7 +506,7 @@ async function main() {
     assert(`${label}: no result`, !result);
     assert(`${label}: zero money writes`, updates.length === 0, `got ${updates.length}`);
     assert(`${label}: payment unchanged`, fake.state.payments[PAYMENT].status === paySeed.status);
-    assert(`${label}: booking unchanged`, fake.state.bookings[BOOKING].status === 'hold');
+    assert(`${label}: booking unchanged`, fake.state.bookings[BOOKING].status === bkSeed.status);
     assert(`${label}: rolled back`, fake.state.rolledBack === true && fake.state.committed === false);
   }
 
@@ -532,6 +547,81 @@ async function main() {
     { metadata: { payment_id: '99999999-9999-9999-9999-999999999999', client_slug: 'wolfhouse-somo' } },
   );
 
+  console.log('\n[identity-binding] authoritative Stripe binding matrix');
+  await expectLockedReject(
+    '1 cleared session + empty metadata → binding missing',
+    { stripe_checkout_session_id: null },
+    LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING,
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+  );
+  {
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: null, metadata: {},
+        },
+      },
+    }, null, {
+      session: baseSession({
+        metadata: { payment_id: PAYMENT, client_slug: 'wolfhouse-somo' },
+      }),
+    });
+    assert('2 absent session + matching metadata accepted', !error && result && result.ok && !result.already_paid);
+    assert('2 payment marked paid via metadata binding', fake.state.payments[PAYMENT].status === 'paid');
+  }
+  {
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    }, null, {
+      session: baseSession({ metadata: { client_slug: 'wolfhouse-somo' } }),
+    });
+    assert('3 exact session match + absent metadata accepted', !error && result && result.ok && !result.already_paid);
+    assert('3 payment marked paid via session binding', fake.state.payments[PAYMENT].status === 'paid');
+  }
+  await expectLockedReject(
+    '4 replaced session + matching metadata → reject replacement',
+    { stripe_checkout_session_id: 'cs_replaced_other' },
+    LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED,
+    { metadata: { payment_id: PAYMENT, client_slug: 'wolfhouse-somo' } },
+  );
+  {
+    const { fake, result, error } = await runApply({
+      bookings: {
+        [BOOKING]: { client_id: CLIENT_A, status: 'hold', hold_expired_by_db: false, metadata: {}, bk_total: 50000 },
+      },
+      payments: {
+        [PAYMENT]: {
+          id: PAYMENT, client_id: CLIENT_A, booking_id: BOOKING, status: 'checkout_created',
+          payment_kind: 'deposit_only', amount_due_cents: 10000, currency: 'EUR',
+          stripe_checkout_session_id: 'cs_test_wb1', metadata: {},
+        },
+      },
+    }, null, {
+      session: baseSession({
+        metadata: {
+          payment_id: '99999999-9999-9999-9999-999999999999',
+          client_slug: 'wolfhouse-somo',
+        },
+      }),
+    });
+    assert('5 conflicting metadata + exact session match accepted', !error && result && result.ok && !result.already_paid);
+    assert('5 payment paid via authoritative session binding', fake.state.payments[PAYMENT].status === 'paid');
+  }
+
   console.log('\n[locked-revalidate] GREEN eligible locked payment still succeeds');
   {
     const { fake, result, error } = await runApply({
@@ -551,7 +641,7 @@ async function main() {
     assert('eligible locked payment paid', fake.state.payments[PAYMENT].status === 'paid');
   }
 
-  console.log('\n[locked-revalidate] already-paid under lock remains idempotent (no second send)');
+  console.log('\n[already-paid] identity required before idempotent return');
   {
     const { fake, result, error } = await runApply({
       bookings: {
@@ -566,10 +656,45 @@ async function main() {
       },
     });
     const updates = fake.state.queries.filter((q) => /UPDATE (payments|bookings|booking_guests)/i.test(q.text));
-    assert('already-paid ok', !error && result && result.already_paid);
-    assert('already-paid no money writes', updates.length === 0);
-    assert('already-paid suppresses auto-confirm', result.decision.allow_auto_confirmation === false);
-    assert('already-paid ledger unchanged', fake.state.payments[PAYMENT].amount_paid_cents === 10000);
+    assert('6 already-paid + exact session → idempotent', !error && result && result.already_paid);
+    assert('6 already-paid no money writes', updates.length === 0);
+    assert('6 already-paid suppresses auto-confirm', result.decision.allow_auto_confirmation === false);
+    assert('6 already-paid ledger unchanged', fake.state.payments[PAYMENT].amount_paid_cents === 10000);
+  }
+  await expectLockedReject(
+    '7 already-paid + missing both bindings',
+    {
+      status: 'paid', amount_paid_cents: 10000, stripe_checkout_session_id: null,
+    },
+    LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING,
+    { metadata: { client_slug: 'wolfhouse-somo' } },
+    { status: 'confirmed' },
+  );
+  await expectLockedReject(
+    '8 already-paid + replaced session',
+    {
+      status: 'paid', amount_paid_cents: 10000, stripe_checkout_session_id: 'cs_old_other',
+    },
+    LOCKED_PAYMENT_VALIDATION_CODES.SESSION_REPLACED,
+    null,
+    { status: 'confirmed' },
+  );
+  await expectLockedReject(
+    '9 already-paid + conflicting metadata without session match',
+    {
+      status: 'paid', amount_paid_cents: 10000, stripe_checkout_session_id: null,
+    },
+    LOCKED_PAYMENT_VALIDATION_CODES.METADATA_PAYMENT_ID_MISMATCH,
+    { metadata: { payment_id: '99999999-9999-9999-9999-999999999999', client_slug: 'wolfhouse-somo' } },
+    { status: 'confirmed' },
+  );
+
+  console.log('\n[webhook-response] locked rejection is HTTP 200 application-level');
+  {
+    assert('10 webhook source returns 200 rejected/no-write',
+      /isLockedPaymentValidationError\(dbErr\)[\s\S]{0,900}sendJSON\(res,\s*200[\s\S]{0,500}processed:\s*false[\s\S]{0,200}rejected:\s*true[\s\S]{0,300}no_db_write:\s*true[\s\S]{0,200}no_confirmation_sent:\s*true[\s\S]{0,200}no_whatsapp:\s*true/.test(apiSrc));
+    assert('10 webhook reason locked_payment_validation_failed',
+      /reason:\s*'locked_payment_validation_failed'/.test(apiSrc));
   }
 
   console.log('\n[locked-revalidate] reconcile surfaces locked reject without writes');
@@ -641,10 +766,10 @@ async function main() {
     };
     const res = await reconcilePaidStripeSession(pg, baseSession(), { eventType: 'checkout.session.completed' });
     assert('reconcile locked reject ok:false', res.ok === false && res.reconciled === false);
-    assert('reconcile reason locked_payment_validation_failed', res.reason === 'locked_payment_validation_failed');
-    assert('reconcile code status not eligible', res.code === LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
-    assert('reconcile no_db_write', res.no_db_write === true);
-    assert('reconcile zero updates', state.updates === 0);
+    assert('11 reconcile reason locked_payment_validation_failed', res.reason === 'locked_payment_validation_failed');
+    assert('11 reconcile code status not eligible', res.code === LOCKED_PAYMENT_VALIDATION_CODES.STATUS_NOT_ELIGIBLE);
+    assert('11 reconcile no_db_write', res.no_db_write === true);
+    assert('11 reconcile zero updates', state.updates === 0);
     assert('reconcile did lookup', lookupCount >= 1);
   }
 

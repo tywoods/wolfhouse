@@ -13855,15 +13855,19 @@ async function handleStripeWebhook(req, res) {
         code: dbErr.code || dbErr.message,
         reasons: dbErr.reasons || [dbErr.code || dbErr.message],
       });
-      return sendJSON(res, 422, {
-        success: false,
-        error: 'Locked payment validation failed',
+      return sendJSON(res, 200, {
+        success: true,
+        processed: false,
+        rejected: true,
+        reason: 'locked_payment_validation_failed',
         code: dbErr.code || dbErr.message,
         reasons: dbErr.reasons || [dbErr.code || dbErr.message],
         payment_id: pm.payment_id,
         booking_id: pm.booking_id,
         session_id: sessionId,
         no_db_write: true,
+        no_confirmation_sent: true,
+        no_whatsapp: true,
       });
     }
     appendAuditLog({

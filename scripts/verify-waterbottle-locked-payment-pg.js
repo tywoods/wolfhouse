@@ -1,15 +1,21 @@
 'use strict';
 
 /**
- * Optional real-Postgres probe for WB-1 locked-payment concurrency claims.
+ * Optional generic PostgreSQL lock-semantics probe (WB-1 companion).
  *
  * Skips unless WB1_PG_INTEGRATION=1. Uses two independent pool clients and a
  * temporary probe table (created + dropped in the same run). Does not require
  * credentials for the normal no-key gate.
  *
- * Proves (when DB available):
- *   - same-row double apply → one mutate + one idempotent under real locks
- *   - distinct-row booking advisory serialization via FOR UPDATE on shared booking key
+ * This is a miniature lock-order probe only. It does NOT exercise:
+ *   - production payments/bookings schema
+ *   - applyStripeBookingPaymentTruthWrites
+ *   - production ROLLBACK continuity
+ *   - full production transaction affinity
+ *
+ * When DB is available it only shows that PostgreSQL FOR UPDATE can serialize
+ * two clients on a shared booking key and support same-row mutate+idempotent
+ * interleaving on a simplified probe table.
  *
  * Run:
  *   WB1_PG_INTEGRATION=1 node scripts/verify-waterbottle-locked-payment-pg.js
@@ -41,10 +47,10 @@ function connectionString() {
 }
 
 async function main() {
-  console.log('\nverify:waterbottle-locked-payment-pg (optional)\n');
+  console.log('\nverify:waterbottle-locked-payment-pg (generic PostgreSQL lock-semantics probe)\n');
 
   if (process.env.WB1_PG_INTEGRATION !== '1') {
-    assert('skipped (set WB1_PG_INTEGRATION=1 to enable real Postgres probe)', true);
+    assert('skipped (set WB1_PG_INTEGRATION=1 to enable generic PG lock probe)', true);
     console.log(`\n── verify:waterbottle-locked-payment-pg SKIPPED (pass=${pass}) ──\n`);
     process.exit(0);
   }
@@ -115,13 +121,12 @@ async function main() {
     ]);
     const mutating = [r1, r2].filter((r) => r && !r.already_paid);
     const idem = [r1, r2].filter((r) => r && r.already_paid);
-    assert('real PG same-payment: one mutate', mutating.length === 1);
-    assert('real PG same-payment: one idempotent', idem.length === 1);
+    assert('PG lock probe same-row: one mutate', mutating.length === 1);
+    assert('PG lock probe same-row: one idempotent', idem.length === 1);
     const paid = await clientA.query(`SELECT status, amount_paid_cents FROM ${table} WHERE payment_id = 'pay-same'`);
-    assert('real PG same-payment: ledger paid once',
+    assert('PG lock probe same-row: ledger paid once',
       paid.rows[0].status === 'paid' && Number(paid.rows[0].amount_paid_cents) === 10000);
 
-    // Distinct payments on same booking_id serialize via booking FOR UPDATE.
     const order = [];
     async function applyDistinct(client, paymentId, amount, delayMs) {
       await client.query('BEGIN');
@@ -158,13 +163,13 @@ async function main() {
       applyDistinct(clientB, 'pay-b', 40000, 0),
     ]);
     const priors = [priorA, priorB].sort((a, b) => a - b);
-    assert('real PG distinct: one starts at 0', priors[0] === 0);
-    assert('real PG distinct: later sees first', priors[1] === 10000);
+    assert('PG lock probe distinct: one starts at 0', priors[0] === 0);
+    assert('PG lock probe distinct: later sees first', priors[1] === 10000);
     const sum = await clientA.query(
       `SELECT COALESCE(SUM(amount_paid_cents),0)::int AS total FROM ${table} WHERE booking_id = 'bk-2'`,
     );
-    assert('real PG distinct: booking total 50000', Number(sum.rows[0].total) === 50000);
-    assert('real PG lock order recorded', order.length === 4);
+    assert('PG lock probe distinct: booking total 50000', Number(sum.rows[0].total) === 50000);
+    assert('PG lock probe lock order recorded', order.length === 4);
   } finally {
     try {
       await clientA.query(`DROP TABLE IF EXISTS ${table}`);

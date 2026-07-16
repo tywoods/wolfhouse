@@ -68,9 +68,13 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('Sunset paid metadata patch wired', apiSrc.includes('bookingMetadataPatchForStripePayment'));
   assert('webhook uses shared hold-promote apply', apiSrc.includes('applyStripeBookingPaymentTruthWrites'));
   assert('webhook imports isLockedPaymentValidationError', apiSrc.includes('isLockedPaymentValidationError'));
-  assert('webhook returns 422 on locked payment validation failure',
-    /locked_payment_validation_failed[\s\S]{0,400}sendJSON\(res,\s*422/.test(apiSrc)
-    || /isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}422/.test(apiSrc));
+  assert('webhook returns HTTP 200 application-level locked rejection',
+    /isLockedPaymentValidationError\(dbErr\)[\s\S]{0,800}sendJSON\(res,\s*200/.test(apiSrc)
+    && /rejected:\s*true/.test(apiSrc)
+    && /processed:\s*false/.test(apiSrc)
+    && /reason:\s*'locked_payment_validation_failed'/.test(apiSrc));
+  assert('webhook locked rejection is not HTTP 422',
+    !/isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}sendJSON\(res,\s*422/.test(apiSrc));
   assert('webhook BEGIN→apply→COMMIT/ROLLBACK on one withPgClient',
     /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
 } else {
