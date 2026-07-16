@@ -17,7 +17,10 @@ const {
   SUNSET_CLIENT_SLUG,
 } = require('./sunset-schedule-booking-writes');
 const { priceSunsetBookingAfterCreate } = require('./sunset-stripe-payment-links');
-const { validateQuoteProvenanceForCreate } = require('./luna-front-desk-quote-service');
+const {
+  validateQuoteProvenanceForCreate,
+  rejectClientSuppliedMoney,
+} = require('./luna-front-desk-quote-service');
 const { staffFacingSunsetPriceError } = require('./sunset-course-lesson-price-lookup');
 const {
   normalizeSunsetLocationId,
@@ -151,8 +154,24 @@ async function executeSunsetBookingCreate(pg, command) {
     };
   }
 
+  const moneyCheck = rejectClientSuppliedMoney(dateNorm.body);
+  if (!moneyCheck.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        error: 'client-supplied money fields are not allowed',
+        reason_code: 'client_money_rejected',
+        field: moneyCheck.field,
+      },
+    };
+  }
+
   const provenance = command.transportBody.quote_provenance || command.transportBody.quoteProvenance;
-  if (provenance) {
+  const hasCanonicalRentals = Array.isArray(dateNorm.body.rentals);
+  // Canonical rentals re-quote + provenance check happen inside the write transaction.
+  if (provenance && !hasCanonicalRentals) {
     const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
     const adminCfgForStale = await resolveTenantBusinessConfigAsync(SUNSET_CLIENT_SLUG, {
       locationId: command.locationId,
@@ -172,6 +191,9 @@ async function executeSunsetBookingCreate(pg, command) {
     body: dateNorm.body,
     locationId: command.locationId,
     actor: command.actor,
+    now: command.now,
+    quoteProvenance: hasCanonicalRentals ? provenance : null,
+    quoteChannel: command.channel,
   });
 
   if (!result.ok) {

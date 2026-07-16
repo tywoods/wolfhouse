@@ -21,6 +21,10 @@ const {
   executeSunsetBookingCreate,
 } = require('./lib/luna-front-desk-booking-create-service');
 const { packPriceItemCode } = require('./lib/sunset-admin-price-identity');
+const {
+  applyAuthoritativeQuoteAmounts,
+  FULL_DAY_EQUIPMENT_ADDON_KEY,
+} = require('./lib/sunset-schedule-booking-writes');
 
 let pass = 0;
 let fail = 0;
@@ -84,12 +88,88 @@ function makePg(opts = {}) {
   }));
   const priceAmount = opts.priceAmount != null ? opts.priceAmount : AMOUNT;
   const seats = opts.existingCourseSeats || {};
-  const inserts = [];
   const writes = [];
   const readOnly = opts.readOnly === true;
-  return {
-    inserts,
+  const failServiceInsertAt = opts.failServiceInsertAt != null ? Number(opts.failServiceInsertAt) : null;
+  const ghostServiceInsert = opts.ghostServiceInsert === true;
+  const ghostBookingInsert = opts.ghostBookingInsert === true;
+  const forceServiceClientSlug = opts.forceServiceClientSlug != null ? String(opts.forceServiceClientSlug) : null;
+  const forceBookingClientId = opts.forceBookingClientId != null ? String(opts.forceBookingClientId) : null;
+
+  function emptyState() {
+    return {
+      bookings: [],
+      services: [],
+      amounts: Object.create(null),
+      bookingTotals: Object.create(null),
+      bookingMeta: Object.create(null),
+      serviceInsertCount: 0,
+    };
+  }
+  function cloneState(src) {
+    return {
+      bookings: src.bookings.map((row) => ({ ...row, params: [...row.params] })),
+      services: src.services.map((row) => ({ ...row, params: [...row.params] })),
+      amounts: { ...src.amounts },
+      bookingTotals: { ...src.bookingTotals },
+      bookingMeta: { ...src.bookingMeta },
+      serviceInsertCount: src.serviceInsertCount,
+    };
+  }
+
+  let committed = emptyState();
+  let txn = null;
+  let committedFlag = false;
+  let rolledBackFlag = false;
+
+  function state() {
+    return txn || committed;
+  }
+
+  const api = {
     writes,
+    get inserts() {
+      return committed.bookings.concat(committed.services);
+    },
+    get amountsById() {
+      return committed.amounts;
+    },
+    get persistedBookings() {
+      return committed.bookings.slice();
+    },
+    get persistedServices() {
+      return committed.services.slice();
+    },
+    get persistedAmounts() {
+      return { ...committed.amounts };
+    },
+    get persistedBookingTotals() {
+      return { ...committed.bookingTotals };
+    },
+    get committed() { return committedFlag; },
+    get rolledBack() { return rolledBackFlag; },
+    seedServiceRecord(id, clientSlug) {
+      const st = state();
+      const slug = String(clientSlug || 'sunset');
+      st.services.push({
+        table: 'booking_service_records',
+        id: String(id),
+        client_slug: slug,
+        params: [slug],
+      });
+      st.amounts[String(id)] = 0;
+    },
+    seedBooking(id, clientId) {
+      const st = state();
+      const cid = String(clientId || 'client-sunset');
+      st.bookings.push({
+        table: 'bookings',
+        id: String(id),
+        client_id: cid,
+        params: [cid],
+      });
+      st.bookingTotals[String(id)] = 0;
+    },
     query: async (sql, params) => {
       const s = String(sql);
       const isTxn = /^\s*(BEGIN|COMMIT|ROLLBACK)\b/i.test(s);
@@ -97,37 +177,57 @@ function makePg(opts = {}) {
       if (isTxn || isDml) {
         writes.push({ sql: s, params: params ? [...params] : [] });
         if (readOnly) {
-          throw new Error(`read_only_pg_write_attempted: ${s.slice(0, 120)}`);
+          throw new Error('read_only_pg_write_attempted: ' + s.slice(0, 120));
         }
       }
-      if (/^BEGIN/i.test(s)) return { rows: [] };
-      if (/^COMMIT/i.test(s)) return { rows: [] };
-      if (/^ROLLBACK/i.test(s)) return { rows: [] };
-      if (/SELECT id FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-sunset' }] };
-      if (/information_schema\.(tables|columns)/i.test(s)) return { rows: [{ '?column?': 1 }] };
-      if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_price_rules' }] };
-      if (/FROM tenant_surf_pack_rules/i.test(s)) return { rows: packs };
+      if (/^BEGIN/i.test(s)) {
+        txn = cloneState(committed);
+        committedFlag = false;
+        rolledBackFlag = false;
+        return { rows: [], rowCount: 0 };
+      }
+      if (/^COMMIT/i.test(s)) {
+        if (txn) committed = txn;
+        txn = null;
+        committedFlag = true;
+        rolledBackFlag = false;
+        return { rows: [], rowCount: 0 };
+      }
+      if (/^ROLLBACK/i.test(s)) {
+        txn = null;
+        rolledBackFlag = true;
+        committedFlag = false;
+        return { rows: [], rowCount: 0 };
+      }
+      const st = state();
+      if (/SELECT id FROM clients WHERE slug/i.test(s)) return { rows: [{ id: 'client-sunset' }], rowCount: 1 };
+      if (/information_schema\.(tables|columns)/i.test(s)) return { rows: [{ '?column?': 1 }], rowCount: 1 };
+      if (/to_regclass/i.test(s)) return { rows: [{ reg: 'tenant_price_rules' }], rowCount: 1 };
+      if (/FROM tenant_surf_pack_rules/i.test(s)) return { rows: packs, rowCount: packs.length };
       if (/COALESCE\(SUM/i.test(s) && /booking_service_records/i.test(s)) {
         const date = String(params[1]).slice(0, 10);
         const courseId = params[2];
-        const key = `${courseId}|${date}`;
-        return { rows: [{ seats: seats[key] != null ? seats[key] : 0 }] };
+        const key = courseId + '|' + date;
+        return { rows: [{ seats: seats[key] != null ? seats[key] : 0 }], rowCount: 1 };
       }
       if (/FROM tenant_price_rules/i.test(s)) {
         const itemCode = params[2];
         const unit = params[3];
         const locationId = params[4] || LOC;
         if (String(itemCode || '').startsWith('surf_pack_') && unit === 'day') {
-          return { rows: [{ id: 'price-1', amount_cents: priceAmount, currency: 'EUR', item_type: 'package', item_code: itemCode, unit: 'day', location_id: locationId }] };
+          return {
+            rows: [{ id: 'price-1', amount_cents: priceAmount, currency: 'EUR', item_type: 'package', item_code: itemCode, unit: 'day', location_id: locationId }],
+            rowCount: 1,
+          };
         }
         const rentalMap = opts.rentalPrices || {};
         if (rentalMap[itemCode]) {
           const row = rentalMap[itemCode];
-          if (row.active === false) return { rows: [] };
-          if (row.location_id && String(row.location_id) !== String(locationId)) return { rows: [] };
+          if (row.active === false) return { rows: [], rowCount: 0 };
+          if (row.location_id && String(row.location_id) !== String(locationId)) return { rows: [], rowCount: 0 };
           return {
             rows: [{
-              id: row.id || `price-${itemCode}`,
+              id: row.id || ('price-' + itemCode),
               amount_cents: row.amount_cents,
               currency: 'EUR',
               item_type: 'rental',
@@ -135,36 +235,140 @@ function makePg(opts = {}) {
               unit: unit || 'day',
               location_id: locationId,
             }],
+            rowCount: 1,
           };
         }
-        return { rows: [] };
+        return { rows: [], rowCount: 0 };
       }
       if (/INSERT INTO bookings/i.test(s)) {
-        inserts.push({ table: 'bookings', params: [...params] });
-        return { rows: [{ id: 'booking-uuid-1', booking_code: 'SUNSET-QTE-01' }] };
+        const bookingId = 'booking-uuid-1';
+        const meta = typeof params[8] === 'string' ? JSON.parse(params[8]) : (params[8] || {});
+        const clientId = forceBookingClientId != null ? forceBookingClientId : String(params[0]);
+        if (!ghostBookingInsert) {
+          const row = {
+            table: 'bookings',
+            id: bookingId,
+            client_id: clientId,
+            params: [...params],
+          };
+          st.bookings.push(row);
+          st.bookingMeta[bookingId] = meta;
+          st.bookingTotals[bookingId] = 0;
+        }
+        return { rows: [{ id: bookingId, booking_code: 'SUNSET-QTE-01' }], rowCount: 1 };
       }
       if (/INSERT INTO booking_service_records/i.test(s)) {
-        inserts.push({ table: 'booking_service_records', params: [...params] });
+        st.serviceInsertCount += 1;
+        if (failServiceInsertAt != null && st.serviceInsertCount === failServiceInsertAt) {
+          throw new Error('forced_service_insert_failure');
+        }
+        const id = 'sr-' + st.serviceInsertCount;
         const meta = typeof params[9] === 'string' ? JSON.parse(params[9]) : params[9];
-        return { rows: [{ service_record_id: 'sr-1', booking_id: 'booking-uuid-1', amount_due_cents: priceAmount, metadata: meta }] };
-      }
-      if (/SELECT metadata FROM bookings/i.test(s)) return { rows: [{ metadata: { location_id: LOC, source: 'staff_manual_schedule' } }] };
-      if (/SELECT id, service_type/i.test(s) && /FROM booking_service_records/i.test(s)) {
+        const clientSlug = forceServiceClientSlug != null ? forceServiceClientSlug : String(params[0]);
+        if (!ghostServiceInsert) {
+          const row = {
+            table: 'booking_service_records',
+            id,
+            client_slug: clientSlug,
+            params: [...params],
+          };
+          st.services.push(row);
+          st.amounts[id] = 0;
+        }
         return {
-          rows: inserts.filter((i) => i.table === 'booking_service_records').map((row, idx) => ({
-            id: `sr-${idx + 1}`,
-            service_type: row.params[4],
-            service_date: row.params[5],
-            quantity: row.params[6],
+          rows: [{
+            service_record_id: id,
+            id,
+            booking_id: 'booking-uuid-1',
+            booking_code: 'SUNSET-QTE-01',
+            guest_name: params[3],
+            service_type: params[4],
+            service_date: params[5],
+            quantity: params[6],
             amount_due_cents: 0,
-            metadata: typeof row.params[9] === 'string' ? JSON.parse(row.params[9]) : row.params[9],
-          })),
+            payment_status: params[7],
+            record_source: params[8],
+            metadata: meta,
+            staff_ui_service_type: meta && meta.staff_ui_service_type,
+            metadata_component: meta && meta.component,
+            bundle_id: meta && meta.bundle_id,
+            metadata_components: meta && Array.isArray(meta.components) ? meta.components.join(',') : null,
+          }],
+          rowCount: 1,
         };
       }
-      if (/UPDATE booking_service_records/i.test(s) || /UPDATE bookings SET/i.test(s)) return { rows: [] };
-      return { rows: [] };
+      if (/SELECT metadata FROM bookings/i.test(s)) {
+        const bookingId = params && params[1] ? String(params[1]) : 'booking-uuid-1';
+        return {
+          rows: [{
+            metadata: st.bookingMeta[bookingId] || { location_id: LOC, source: 'staff_manual_schedule' },
+          }],
+          rowCount: 1,
+        };
+      }
+      if (/SELECT id, service_type/i.test(s) && /FROM booking_service_records/i.test(s)) {
+        return {
+          rows: st.services.map((row) => {
+            const meta = typeof row.params[9] === 'string' ? JSON.parse(row.params[9]) : row.params[9];
+            return {
+              id: row.id,
+              service_type: row.params[4],
+              service_date: row.params[5],
+              quantity: row.params[6],
+              amount_due_cents: st.amounts[row.id] != null ? st.amounts[row.id] : 0,
+              metadata: meta,
+            };
+          }),
+          rowCount: st.services.length,
+        };
+      }
+      if (/UPDATE booking_service_records\s+SET\s+amount_due_cents/i.test(s)) {
+        const due = Number(params[0]);
+        const id = String(params[1]);
+        // Authoritative quote path scopes by client_slug ($3); legacy price path is id-only.
+        if (/client_slug/i.test(s)) {
+          const clientSlug = String(params[2]);
+          const row = st.services.find((svc) => String(svc.id) === id && String(svc.client_slug) === clientSlug);
+          if (!row) {
+            return { rows: [], rowCount: 0 };
+          }
+          st.amounts[id] = due;
+          return { rows: [], rowCount: 1 };
+        }
+        const row = st.services.find((svc) => String(svc.id) === id);
+        if (!row) {
+          return { rows: [], rowCount: 0 };
+        }
+        st.amounts[id] = due;
+        return { rows: [], rowCount: 1 };
+      }
+      if (/UPDATE bookings\s+SET\s+total_amount_cents/i.test(s)) {
+        const total = Number(params[0]);
+        // Authoritative quote path: WHERE id = $3 AND client_id = $4
+        // Legacy price path: WHERE id = $3 only.
+        if (/client_id/i.test(s)) {
+          const bookingId = String(params[2]);
+          const clientId = String(params[3]);
+          const row = st.bookings.find((b) => String(b.id) === bookingId && String(b.client_id) === clientId);
+          if (!row) {
+            return { rows: [], rowCount: 0 };
+          }
+          st.bookingTotals[bookingId] = total;
+          return { rows: [], rowCount: 1 };
+        }
+        const bookingId = String(params[2]);
+        const row = st.bookings.find((b) => String(b.id) === bookingId);
+        if (!row) {
+          return { rows: [], rowCount: 0 };
+        }
+        st.bookingTotals[bookingId] = total;
+        return { rows: [], rowCount: 1 };
+      }
+      if (/UPDATE booking_service_records/i.test(s) || /UPDATE bookings SET/i.test(s)) return { rows: [], rowCount: 0 };
+      return { rows: [], rowCount: 0 };
     },
   };
+  return api;
 }
 
 function buildQuoteCmd(channel, body, extra = {}) {
@@ -843,6 +1047,654 @@ async function run() {
     baseCourseBundle.body.quote_provenance.quote_version >= 2,
     String(baseCourseBundle.body.quote_provenance.quote_version),
   );
+
+  // ── Slice 3B: canonical rentals[] create/writes ─────────────────────────
+  console.log('\n[L] Canonical rentals create (Slice 3B)');
+
+  const rentalPgOpts = {
+    rentalPrices: {
+      board_and_suit_rental__1_day: { amount_cents: BUNDLE_1D, location_id: LOC, id: 'price-board_and_suit_rental__1_day' },
+      board_rental__1_day: { amount_cents: BOARD_1D, location_id: LOC, id: 'price-board_rental__1_day' },
+      wetsuit_rental__1_day: { amount_cents: WETSUIT_1D, location_id: LOC, id: 'price-wetsuit_rental__1_day' },
+      board_rental__3_days: { amount_cents: BOARD_3D, location_id: LOC, id: 'price-board_rental__3_days' },
+    },
+  };
+
+  function serviceInserts(pg) {
+    return pg.inserts.filter((i) => i.table === 'booking_service_records');
+  }
+  function metaOf(ins) {
+    return typeof ins.params[9] === 'string' ? JSON.parse(ins.params[9]) : ins.params[9];
+  }
+  function sumAmounts(pg) {
+    return Object.values(pg.amountsById).reduce((a, b) => a + (Number(b) || 0), 0);
+  }
+
+  async function withCfg(cfgObj, fn) {
+    const { resolveTenantBusinessConfigAsync } = require('./lib/tenant-business-config');
+    const orig = resolveTenantBusinessConfigAsync;
+    require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = async () => cfgObj;
+    try {
+      return await fn();
+    } finally {
+      require('./lib/tenant-business-config').resolveTenantBusinessConfigAsync = orig;
+    }
+  }
+
+  // L1: bundle qty 1 → linked board+wetsuit rows with shared identity
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => {
+      const q = await executeSunsetQuote(pg, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command, { adminCfg: somoRentalCfg });
+      return executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command);
+    });
+    const rows = serviceInserts(pg);
+    const board = rows.filter((r) => r.params[4] === 'surfboard');
+    const suit = rows.filter((r) => r.params[4] === 'wetsuit');
+    const metas = rows.map(metaOf);
+    assert('L1 create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L1 linked board+wetsuit rows', board.length >= 1 && suit.length >= 1, JSON.stringify(rows.map((r) => r.params[4])));
+    assert(
+      'L1 shared bundle identity + bundle parts',
+      metas.every((m) => m.offering_key === 'board_and_suit_rental' && m.duration_key === '1_day' && m.quantity === 1)
+        && metas.some((m) => m.bundle_part === 'surfboard' || m.rental_pricing_role === 'surfboard')
+        && metas.some((m) => m.bundle_part === 'wetsuit' || m.rental_pricing_role === 'wetsuit')
+        && new Set(metas.map((m) => m.pricing_group_id || m.rental_bundle_id)).size === 1,
+      JSON.stringify(metas),
+    );
+    assert('L1 billable aggregate equals quote', created.body.total_cents === BUNDLE_1D && sumAmounts(pg) === BUNDLE_1D, `${created.body.total_cents}/${sumAmounts(pg)}`);
+  }
+
+  // L2: bundle qty 2 preserves quantity 2 without double charge
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 2 }],
+      components: {},
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => {
+      const q = await executeSunsetQuote(pg, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command, { adminCfg: somoRentalCfg });
+      return executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command);
+    });
+    const metas = serviceInserts(pg).map(metaOf);
+    assert('L2 create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L2 quantity 2 on operational rows', metas.every((m) => Number(m.quantity) === 2) && serviceInserts(pg).every((r) => Number(r.params[6]) === 2));
+    assert('L2 no double charge', created.body.total_cents === BUNDLE_1D * 2 && sumAmounts(pg) === BUNDLE_1D * 2, `${created.body.total_cents}/${sumAmounts(pg)}`);
+  }
+
+  // L3: separate board + wetsuit create independently
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [
+        { offering_key: 'board_rental', duration_key: '1_day', quantity: 1 },
+        { offering_key: 'wetsuit_rental', duration_key: '1_day', quantity: 2 },
+      ],
+      components: {},
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => {
+      const q = await executeSunsetQuote(pg, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command, { adminCfg: somoRentalCfg });
+      return executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command);
+    });
+    const expected = BOARD_1D + WETSUIT_1D * 2;
+    const board = serviceInserts(pg).filter((r) => r.params[4] === 'surfboard');
+    const suit = serviceInserts(pg).filter((r) => r.params[4] === 'wetsuit');
+    assert('L3 create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L3 separate board+wetsuit rows', board.length >= 1 && suit.length >= 1);
+    assert('L3 aggregate equals quote', created.body.total_cents === expected && sumAmounts(pg) === expected, `${created.body.total_cents}/${sumAmounts(pg)}`);
+  }
+
+  // L4: course + bundle total equals authoritative quote
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: TIER } },
+    });
+    const pg = makePg(rentalPgOpts);
+    let quoteTotal = null;
+    const created = await withCfg(somoRentalCfg, async () => {
+      const q = await executeSunsetQuote(pg, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command, { adminCfg: somoRentalCfg });
+      quoteTotal = q.ok ? q.body.total_cents : null;
+      return executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command);
+    });
+    const expected = AMOUNT + BUNDLE_1D;
+    assert('L4 course+bundle create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L4 total equals quote', created.body.total_cents === expected && quoteTotal === expected, `${created.body.total_cents} vs ${quoteTotal}`);
+    assert(
+      'L4 persisted service amount sum equals quote total',
+      sumAmounts(pg) === expected && Object.values(pg.persistedAmounts).reduce((a, b) => a + Number(b), 0) === expected,
+      JSON.stringify(pg.persistedAmounts),
+    );
+    assert(
+      'L4 booking header total equals quote',
+      Number(pg.persistedBookingTotals['booking-uuid-1']) === expected,
+      JSON.stringify(pg.persistedBookingTotals),
+    );
+  }
+
+  // L5: stale price → zero writes
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const staleCfg = rentalPrices([
+      rentalRow('board_and_suit_rental__1_day', BUNDLE_1D + 500),
+      rentalRow('board_rental__1_day', BOARD_1D),
+      rentalRow('wetsuit_rental__1_day', WETSUIT_1D),
+      rentalRow('board_rental__3_days', BOARD_3D),
+    ]);
+    const pg = makePg({
+      rentalPrices: {
+        board_and_suit_rental__1_day: { amount_cents: BUNDLE_1D + 500, location_id: LOC },
+      },
+    });
+    const created = await withCfg(staleCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L5 stale create blocked', created.ok === false, JSON.stringify(created.body));
+    assert('L5 zero persisted bookings', pg.persistedBookings.length === 0, String(pg.persistedBookings.length));
+    assert('L5 zero persisted services', pg.persistedServices.length === 0, String(pg.persistedServices.length));
+    assert(
+      'L5 zero persisted amounts + no commit',
+      Object.keys(pg.persistedAmounts).length === 0 && pg.committed !== true,
+      JSON.stringify({ amounts: pg.persistedAmounts, committed: pg.committed, rolledBack: pg.rolledBack }),
+    );
+  }
+
+  // L6: second operational-row failure rolls back booking + all service rows
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const pg = makePg({ ...rentalPgOpts, failServiceInsertAt: 2 });
+    let threw = false;
+    let created = null;
+    try {
+      created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command));
+    } catch (_) {
+      threw = true;
+    }
+    assert(
+      'L6 second insert fails closed',
+      threw || (created && created.ok === false),
+      JSON.stringify(created && created.body),
+    );
+    assert('L6 zero persisted bookings', pg.persistedBookings.length === 0);
+    assert('L6 zero persisted services', pg.persistedServices.length === 0);
+    assert(
+      'L6 zero persisted amounts + COMMIT not called',
+      Object.keys(pg.persistedAmounts).length === 0 && pg.committed !== true,
+      JSON.stringify({ amounts: pg.persistedAmounts, committed: pg.committed, rolledBack: pg.rolledBack }),
+    );
+  }
+
+  // L7: client amount fields do not influence writes
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1, unit_amount_cents: 1, total_cents: 1 }],
+      components: {},
+      total_cents: 1,
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: quoteBody,
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert(
+      'L7 client money rejected or ignored (never €1 write)',
+      (created.ok === false)
+        || (created.ok === true && created.body.total_cents === BOARD_1D && sumAmounts(pg) === BOARD_1D),
+      JSON.stringify(created.body),
+    );
+    if (created.ok) {
+      assert('L7 not client amount', created.body.total_cents !== 1 && sumAmounts(pg) !== 1);
+    }
+  }
+
+  // L8: legacy create without rentals[] remains green
+  {
+    const legacyBody = {
+      guest_name: 'Legacy Board',
+      date_from: SATURDAY,
+      date_to: SATURDAY,
+      service_dates: [SATURDAY],
+      payment_status: 'unpaid',
+      components: { surfboard: { quantity: 1 } },
+    };
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: legacyBody,
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L8 legacy create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L8 legacy surfboard row', serviceInserts(pg).some((r) => r.params[4] === 'surfboard'));
+    assert('L8 legacy priced', created.body.total_cents === BOARD_1D, String(created.body.total_cents));
+  }
+
+  // L9: rental + full-day add-on cannot commit without authoritative quote line
+  {
+    const addonCfg = rentalPrices([
+      rentalRow('board_and_suit_rental__1_day', BUNDLE_1D),
+      rentalRow('board_rental__1_day', BOARD_1D),
+      rentalRow('wetsuit_rental__1_day', WETSUIT_1D),
+      rentalRow('board_rental__3_days', BOARD_3D),
+      {
+        id: 'price-fullday',
+        category: 'rental',
+        offering_key: FULL_DAY_EQUIPMENT_ADDON_KEY,
+        item_code: FULL_DAY_EQUIPMENT_ADDON_KEY,
+        amount_cents: 1000,
+        unit: 'day',
+        active: true,
+        currency: 'EUR',
+        location_id: LOC,
+      },
+    ]);
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        [FULL_DAY_EQUIPMENT_ADDON_KEY]: {
+          enabled: true,
+          dates: { [SATURDAY]: 1 },
+        },
+      },
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(addonCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: quoteBody,
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L9 rental+addon blocked without quote line', created.ok === false, JSON.stringify(created.body));
+    assert('L9 zero persisted bookings', pg.persistedBookings.length === 0);
+    assert('L9 zero persisted services', pg.persistedServices.length === 0);
+    assert('L9 COMMIT not called', pg.committed !== true);
+  }
+
+  // L10: rental + unquoted legacy lesson cannot commit
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_rental', duration_key: '1_day', quantity: 1 }],
+      components: {
+        lesson: { quantity: 1, slot_time: '09:30' },
+      },
+    });
+    const pg = makePg(rentalPgOpts);
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: quoteBody,
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L10 rental+lesson blocked', created.ok === false, JSON.stringify(created.body));
+    assert('L10 zero persisted rows', pg.persistedBookings.length === 0 && pg.persistedServices.length === 0);
+    assert('L10 COMMIT not called', pg.committed !== true);
+  }
+
+  // L11–L14: applyAuthoritativeQuoteAmounts accounting unit proofs
+  {
+    const pg = makePg(rentalPgOpts);
+    await pg.query('BEGIN');
+    pg.seedServiceRecord('sr-board', 'sunset');
+    pg.seedServiceRecord('sr-suit', 'sunset');
+    pg.seedServiceRecord('sr-extra', 'sunset');
+    pg.seedServiceRecord('sr-dup', 'sunset');
+    const quoteBody = {
+      total_cents: BUNDLE_1D,
+      line_items: [{
+        component: 'board_and_suit_rental',
+        offering_id: 'board_and_suit_rental__1_day',
+        total_cents: BUNDLE_1D,
+        unit_amount_cents: BUNDLE_1D,
+        quantity: 1,
+      }],
+    };
+    const boardRow = {
+      service_record_id: 'sr-board',
+      id: 'sr-board',
+      service_type: 'surfboard',
+      service_date: SATURDAY,
+      metadata: {
+        offering_key: 'board_and_suit_rental',
+        component: 'surfboard',
+        bundle_part: 'surfboard',
+      },
+    };
+    const suitRow = {
+      service_record_id: 'sr-suit',
+      id: 'sr-suit',
+      service_type: 'wetsuit',
+      service_date: SATURDAY,
+      metadata: {
+        offering_key: 'board_and_suit_rental',
+        component: 'wetsuit',
+        bundle_part: 'wetsuit',
+      },
+    };
+    // Seed txn-local ids so UPDATE amount path works
+    pg.writes.length = 0;
+    const okApply = await applyAuthoritativeQuoteAmounts(pg, [boardRow, suitRow], quoteBody, { clientSlug: 'sunset' });
+    assert('L11 bundle apply ok with exact parity', okApply.ok === true && okApply.total_cents === BUNDLE_1D, JSON.stringify(okApply));
+
+    const extra = await applyAuthoritativeQuoteAmounts(pg, [boardRow, suitRow, {
+      service_record_id: 'sr-extra',
+      id: 'sr-extra',
+      service_type: 'lesson',
+      service_date: SATURDAY,
+      metadata: { component: 'lesson' },
+    }], quoteBody, { clientSlug: 'sunset' });
+    assert('L12 unexpected extra row rejected', extra.ok === false && /unclaimed_service_row/.test(String(extra.error)), JSON.stringify(extra));
+
+    const missing = await applyAuthoritativeQuoteAmounts(pg, [boardRow], {
+      total_cents: BUNDLE_1D + BOARD_1D,
+      line_items: [
+        { component: 'board_and_suit_rental', total_cents: BUNDLE_1D },
+        { component: 'board_rental', total_cents: BOARD_1D },
+      ],
+    }, { clientSlug: 'sunset' });
+    assert('L13 missing row for quote line rejected', missing.ok === false && /no_operational_rows_for_board_rental/.test(String(missing.error)), JSON.stringify(missing));
+
+    const dup = await applyAuthoritativeQuoteAmounts(pg, [{
+      service_record_id: 'sr-dup',
+      id: 'sr-dup',
+      service_type: 'surfboard',
+      service_date: SATURDAY,
+      metadata: { offering_key: 'board_and_suit_rental', component: 'surfboard', bundle_part: 'surfboard' },
+    }], {
+      total_cents: BUNDLE_1D * 2,
+      line_items: [
+        { component: 'board_and_suit_rental', total_cents: BUNDLE_1D },
+        { component: 'board_and_suit_rental', total_cents: BUNDLE_1D },
+      ],
+    }, { clientSlug: 'sunset' });
+    assert('L14 duplicate row claim rejected', dup.ok === false && dup.error === 'duplicate_row_claim', JSON.stringify(dup));
+    await pg.query('ROLLBACK');
+  }
+
+  // L15: course+bundle persisted amount sum equals quote (already covered in L4; reinforce via direct apply)
+  {
+    const pg = makePg(rentalPgOpts);
+    await pg.query('BEGIN');
+    pg.seedServiceRecord('sr-course', 'sunset');
+    pg.seedServiceRecord('sr-board', 'sunset');
+    pg.seedServiceRecord('sr-suit', 'sunset');
+    const quoteBody = {
+      total_cents: AMOUNT + BUNDLE_1D,
+      line_items: [
+        {
+          component: 'course',
+          offering_id: ITEM,
+          total_cents: AMOUNT,
+          unit_amount_cents: AMOUNT,
+          quantity: 1,
+        },
+        {
+          component: 'board_and_suit_rental',
+          offering_id: 'board_and_suit_rental__1_day',
+          total_cents: BUNDLE_1D,
+          unit_amount_cents: BUNDLE_1D,
+          quantity: 1,
+        },
+      ],
+    };
+    const rows = [
+      {
+        service_record_id: 'sr-course',
+        id: 'sr-course',
+        service_type: 'course',
+        service_date: SATURDAY,
+        metadata: { component: 'course' },
+      },
+      {
+        service_record_id: 'sr-board',
+        id: 'sr-board',
+        service_type: 'surfboard',
+        service_date: SATURDAY,
+        metadata: { offering_key: 'board_and_suit_rental', component: 'surfboard', bundle_part: 'surfboard' },
+      },
+      {
+        service_record_id: 'sr-suit',
+        id: 'sr-suit',
+        service_type: 'wetsuit',
+        service_date: SATURDAY,
+        metadata: { offering_key: 'board_and_suit_rental', component: 'wetsuit', bundle_part: 'wetsuit' },
+      },
+    ];
+    const applied = await applyAuthoritativeQuoteAmounts(pg, rows, quoteBody, { clientSlug: 'sunset' });
+    assert(
+      'L15 applied + persisted sums equal quote total',
+      applied.ok === true
+        && applied.total_cents === quoteBody.total_cents
+        && applied.applied_line_total_cents === quoteBody.total_cents,
+      JSON.stringify(applied),
+    );
+    await pg.query('ROLLBACK');
+  }
+
+  // L16: missing service-record ID → amount UPDATE rowCount 0 → rollback, zero persisted
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const pg = makePg({ ...rentalPgOpts, ghostServiceInsert: true });
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L16 missing service id blocked', created.ok === false, JSON.stringify(created.body));
+    assert(
+      'L16 reason service_amount_update_mismatch',
+      /service_amount_update_mismatch/.test(JSON.stringify(created.body)),
+      JSON.stringify(created.body),
+    );
+    assert('L16 zero persisted bookings', pg.persistedBookings.length === 0);
+    assert('L16 zero persisted services', pg.persistedServices.length === 0);
+    assert(
+      'L16 zero persisted amounts + no COMMIT',
+      Object.keys(pg.persistedAmounts).length === 0 && pg.committed !== true,
+      JSON.stringify({ amounts: pg.persistedAmounts, committed: pg.committed }),
+    );
+  }
+
+  // L17: wrong service client_slug → amount UPDATE rowCount 0 → rollback
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const pg = makePg({ ...rentalPgOpts, forceServiceClientSlug: 'other-tenant' });
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L17 wrong service client_slug blocked', created.ok === false, JSON.stringify(created.body));
+    assert(
+      'L17 reason service_amount_update_mismatch',
+      /service_amount_update_mismatch/.test(JSON.stringify(created.body)),
+      JSON.stringify(created.body),
+    );
+    assert('L17 zero persisted state', pg.persistedBookings.length === 0 && pg.persistedServices.length === 0);
+    assert('L17 COMMIT not called', pg.committed !== true);
+  }
+
+  // L18: missing booking ID → header UPDATE rowCount 0 → rollback
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const pg = makePg({ ...rentalPgOpts, ghostBookingInsert: true });
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L18 missing booking id blocked', created.ok === false, JSON.stringify(created.body));
+    assert(
+      'L18 reason booking_total_update_mismatch',
+      /booking_total_update_mismatch/.test(JSON.stringify(created.body)),
+      JSON.stringify(created.body),
+    );
+    assert('L18 zero persisted bookings', pg.persistedBookings.length === 0);
+    assert('L18 zero persisted services', pg.persistedServices.length === 0);
+    assert('L18 COMMIT not called', pg.committed !== true);
+  }
+
+  // L19: wrong booking client_id → header UPDATE rowCount 0 → rollback
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: {},
+    });
+    const qPg = makePg(rentalPgOpts);
+    const q = await withCfg(somoRentalCfg, async () => executeSunsetQuote(
+      qPg,
+      buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command,
+      { adminCfg: somoRentalCfg },
+    ));
+    const pg = makePg({ ...rentalPgOpts, forceBookingClientId: 'other-client' });
+    const created = await withCfg(somoRentalCfg, async () => executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+      channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+      transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+      trustedLocationId: LOC,
+      actorHints: { email: 'staff@test.com' },
+      now: FIXED_NOW,
+    }).command));
+    assert('L19 wrong booking client_id blocked', created.ok === false, JSON.stringify(created.body));
+    assert(
+      'L19 reason booking_total_update_mismatch',
+      /booking_total_update_mismatch/.test(JSON.stringify(created.body)),
+      JSON.stringify(created.body),
+    );
+    assert('L19 zero persisted bookings', pg.persistedBookings.length === 0);
+    assert('L19 zero persisted services', pg.persistedServices.length === 0);
+    assert('L19 COMMIT not called', pg.committed !== true);
+  }
+
+  // L20: course + bundle still commits with exact quote/service/header parity
+  {
+    const quoteBody = staffRentalBody({
+      rentals: [{ offering_key: 'board_and_suit_rental', duration_key: '1_day', quantity: 1 }],
+      components: { course: { quantity: 1, course_id: PACK_ID, tier_key: TIER } },
+    });
+    const pg = makePg(rentalPgOpts);
+    let quoteTotal = null;
+    const created = await withCfg(somoRentalCfg, async () => {
+      const q = await executeSunsetQuote(pg, buildQuoteCmd(QUOTE_CHANNELS.MANUAL_STAFF, quoteBody).command, { adminCfg: somoRentalCfg });
+      quoteTotal = q.ok ? q.body.total_cents : null;
+      return executeSunsetBookingCreate(pg, buildSunsetBookingCreateCommand({
+        channel: BOOKING_CREATE_CHANNELS.MANUAL_STAFF,
+        transportBody: { ...quoteBody, quote_provenance: q.body.quote_provenance },
+        trustedLocationId: LOC,
+        actorHints: { email: 'staff@test.com' },
+        now: FIXED_NOW,
+      }).command);
+    });
+    const expected = AMOUNT + BUNDLE_1D;
+    assert('L20 course+bundle create ok', created.ok === true, JSON.stringify(created.body));
+    assert('L20 quote/service/header parity',
+      quoteTotal === expected
+        && created.body.total_cents === expected
+        && sumAmounts(pg) === expected
+        && Number(pg.persistedBookingTotals['booking-uuid-1']) === expected
+        && pg.committed === true,
+      JSON.stringify({
+        quoteTotal,
+        body: created.body.total_cents,
+        services: sumAmounts(pg),
+        header: pg.persistedBookingTotals,
+        committed: pg.committed,
+      }),
+    );
+  }
 
   console.log(`\n── verify:luna-front-desk-quote-service ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
   process.exit(fail ? 1 : 0);
