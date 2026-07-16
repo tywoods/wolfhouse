@@ -15849,6 +15849,12 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-schedule-create-components{display:flex;flex-direction:column;gap:8px;margin:8px 0}
 .portal-schedule-create-components label,.portal-schedule-create-check{font-size:13px;display:flex;align-items:center;gap:10px;padding:10px 14px;border:1px solid var(--border-soft);border-radius:var(--radius-sm);background:var(--surface-soft);color:var(--text);cursor:pointer;margin:0}
 .portal-schedule-create-components input[type=checkbox],.portal-schedule-create-check input[type=checkbox]{width:18px;height:18px;flex-shrink:0;accent-color:var(--primary);margin:0}
+.portal-schedule-create-rentals{display:flex;flex-direction:column;gap:8px;margin-top:8px}
+.portal-schedule-create-rental-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px}
+.portal-schedule-create-rental-qty{display:flex;align-items:center;gap:8px}
+.portal-schedule-create-rental-qty input[type=number]{width:72px;min-height:40px}
+.portal-schedule-create-rentals-empty{margin:0;padding:10px 12px;border:1px dashed var(--border-soft);border-radius:var(--radius-sm);color:var(--text-muted);font-size:13px}
+.portal-schedule-create-check.is-disabled,.portal-schedule-create-check:has(input:disabled){opacity:.55;cursor:not-allowed}
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field input,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field select,
 :root:not([data-theme="dark"]) #tab-portal-home .portal-schedule-create-field textarea{background:var(--sched-surface);border-color:var(--sched-border-soft);color:var(--sched-text)}
@@ -17627,11 +17633,10 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field"><label for="ps-create-phone" data-i18n="schedule.create.phone">Phone number</label><input id="ps-create-phone" type="tel" autocomplete="tel" inputmode="tel"></div>
     <div class="portal-schedule-create-field"><span class="portal-schedule-create-label" data-i18n="schedule.create.components">Booking components</span>
       <div class="portal-schedule-create-components">
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-wetsuit" type="checkbox" checked> <span data-i18n="schedule.type.wetsuitRental">Wetsuit</span></label>
-        <label class="portal-schedule-create-check"><input id="ps-create-comp-surfboard" type="checkbox" checked> <span data-i18n="schedule.type.boardRental">Surfboard</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-course" type="checkbox" checked> <span data-i18n="schedule.type.course">Group course</span></label>
         <label class="portal-schedule-create-check"><input id="ps-create-comp-private-lesson" type="checkbox"> <span data-i18n="schedule.type.privateLesson">Private Course</span></label>
       </div>
+      <div id="ps-create-rentals" class="portal-schedule-create-rentals" aria-live="polite"></div>
     </div>
     <div class="portal-schedule-create-field portal-schedule-addon-field" id="ps-create-addon-fullday-field" style="display:none">
       <label class="portal-schedule-create-check portal-schedule-addon-toggle" style="min-height:44px;display:flex;align-items:center"><input id="ps-create-comp-fullday" type="checkbox"> <span data-i18n="schedule.type.fullDayEquipment">Full-day equipment</span></label>
@@ -17649,8 +17654,6 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
     <div class="portal-schedule-create-field" id="ps-create-course-fields" style="display:none"><label for="ps-create-course-select" data-i18n="schedule.create.courseSelect">Group course</label><select id="ps-create-course-select"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-tier-wrap" style="display:none"><label for="ps-create-course-tier" data-i18n="schedule.create.courseTier">Course duration</label><select id="ps-create-course-tier"></select></div>
     <div class="portal-schedule-create-field" id="ps-create-course-qty-wrap" style="display:none"><label for="ps-create-course-qty" data-i18n="schedule.create.surferCount">Surfers</label><input id="ps-create-course-qty" type="number" min="1" max="99" value="1"></div>
-    <div class="portal-schedule-create-field" id="ps-create-board-qty-wrap" style="display:none"><label for="ps-create-board-qty" data-i18n="schedule.create.boardQty">Boards</label><input id="ps-create-board-qty" type="number" min="1" max="99" value="1"></div>
-    <div class="portal-schedule-create-field" id="ps-create-wetsuit-qty-wrap" style="display:none"><label for="ps-create-wetsuit-qty" data-i18n="schedule.create.wetsuitQty">Wetsuits</label><input id="ps-create-wetsuit-qty" type="number" min="1" max="99" value="1"></div>
     <div id="ps-create-date-range">
     <div class="portal-schedule-create-field"><label for="ps-create-date-from" data-i18n="schedule.create.dateFrom">From date</label><input id="ps-create-date-from" type="date"></div>
     <div class="portal-schedule-create-field"><label for="ps-create-date-to" data-i18n="schedule.create.dateTo">To date</label><input id="ps-create-date-to" type="date"></div>
@@ -18633,6 +18636,7 @@ window.__portalProfileGateFailsafe = setTimeout(function(){
 
 /* ── Helpers ──────────────────────────────────────────────────────────────── */
 function el(id){ return document.getElementById(id); }
+/* INJECT:sunset-schedule-rental-availability */
 /* INJECT:sunset-schedule-portal-module */
 /* INJECT:sunset-schedule-drawer-view-ui */
 /* INJECT:sunset-schedule-drawer-edit-ui */
@@ -20890,6 +20894,14 @@ function scheduleSyncPrivateLessonSessions(){
       scheduleRemovePrivateLessonSession(parseInt(btn.getAttribute('data-session-remove'), 10));
     });
   });
+  wrap.querySelectorAll('.ps-pl-session-date').forEach(function(dateEl){
+    if (dateEl.dataset.rentalDateWired) return;
+    dateEl.dataset.rentalDateWired = '1';
+    dateEl.addEventListener('change', function(){
+      scheduleRenderCreateRentals();
+      scheduleRefreshCreateFullDayAddon();
+    });
+  });
   var modal = el('ps-create-modal');
   if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
 }
@@ -20965,26 +20977,31 @@ function scheduleRowBookingRef(row, group){
 function schedulePopulateCreateComponentFields(){
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
-  var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
+  var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
+    ? scheduleReadCreateRentalSelectionFromDom()
+    : [];
+  var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental'; });
+  var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental'; });
   var cf = el('ps-create-course-fields');
   var ct = el('ps-create-course-tier-wrap');
   var cq = el('ps-create-course-qty-wrap');
   var pf = el('ps-create-private-lesson-fields');
-  var bq = el('ps-create-board-qty-wrap');
-  var wq = el('ps-create-wetsuit-qty-wrap');
   if (cf) cf.style.display = courseOn ? '' : 'none';
   if (ct) ct.style.display = courseOn ? '' : 'none';
   if (cq) cq.style.display = courseOn ? '' : 'none';
   if (pf) pf.style.display = privateOn ? '' : 'none';
-  if (bq) bq.style.display = boardOn ? '' : 'none';
-  if (wq) wq.style.display = wetsuitOn ? '' : 'none';
   // Private Course uses per-session dates, so hide the group date-range UI when it is selected.
   var dateRange = el('ps-create-date-range');
   if (dateRange) dateRange.style.display = privateOn ? 'none' : '';
   if (courseOn) schedulePopulateCreateCourseFields();
   if (privateOn) {
-    scheduleFetchLessonTimesConfig(getClient()).then(function(){ scheduleSyncPrivateLessonSessions(); });
+    scheduleFetchLessonTimesConfig(getClient()).then(function(){
+      scheduleSyncPrivateLessonSessions();
+      scheduleRenderCreateRentals();
+      scheduleRefreshCreateFullDayAddon();
+    });
+  } else {
+    scheduleRenderCreateRentals();
   }
   scheduleRefreshCreateFullDayAddon();
 }
@@ -20996,9 +21013,12 @@ function scheduleRefreshCreateFullDayAddon(){
   if (!field) return;
   var courseOn = !!(el('ps-create-comp-course') && el('ps-create-comp-course').checked);
   var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
-  var boardOn = !!(el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked);
-  var wetsuitOn = !!(el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked);
-  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn;
+  var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
+    ? scheduleReadCreateRentalSelectionFromDom()
+    : [];
+  var boardOn = rentals.some(function(r){ return r.offering_key === 'board_rental' || r.offering_key === 'board_and_suit_rental'; });
+  var wetsuitOn = rentals.some(function(r){ return r.offering_key === 'wetsuit_rental' || r.offering_key === 'board_and_suit_rental'; });
+  var hasEligibleBase = courseOn || privateOn || boardOn || wetsuitOn || rentals.length > 0;
   var eligibleDates = [];
   var defaultQty = 1;
   if (privateOn){
@@ -21013,8 +21033,7 @@ function scheduleRefreshCreateFullDayAddon(){
     eligibleDates = scheduleEnumerateDates(from, to || from);
     var qtys = [];
     if (courseOn) qtys.push(parseInt((el('ps-create-course-qty') && el('ps-create-course-qty').value)||'1',10)||1);
-    if (boardOn) qtys.push(parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value)||'1',10)||1);
-    if (wetsuitOn) qtys.push(parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value)||'1',10)||1);
+    rentals.forEach(function(r){ qtys.push(parseInt(r.quantity, 10) || 1); });
     defaultQty = qtys.length ? Math.max.apply(null, qtys) : 1;
   }
   var show = scheduleFullDayAddonEnabled && hasEligibleBase && eligibleDates.length > 0;
@@ -21068,11 +21087,12 @@ function scheduleReadCreatePayload(){
       components.course.offering_id = 'surf_pack_' + courseId + '__' + tierKey;
     }
   }
-  if (el('ps-create-comp-surfboard') && el('ps-create-comp-surfboard').checked){
-    components.surfboard = { quantity: parseInt((el('ps-create-board-qty') && el('ps-create-board-qty').value) || '1', 10) || 1 };
-  }
-  if (el('ps-create-comp-wetsuit') && el('ps-create-comp-wetsuit').checked){
-    components.wetsuit = { quantity: parseInt((el('ps-create-wetsuit-qty') && el('ps-create-wetsuit-qty').value) || '1', 10) || 1 };
+  var rentals = typeof scheduleReadCreateRentalSelectionFromDom === 'function'
+    ? scheduleReadCreateRentalSelectionFromDom()
+    : [];
+  if (typeof scheduleRentalsToLegacyComponents === 'function') {
+    var rentalComponents = scheduleRentalsToLegacyComponents(rentals);
+    Object.keys(rentalComponents).forEach(function(k){ components[k] = rentalComponents[k]; });
   }
   if (el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked){
     var plQty = parseInt((el('ps-create-private-lesson-qty') && el('ps-create-private-lesson-qty').value) || '1', 10) || 1;
@@ -21101,12 +21121,198 @@ function scheduleReadCreatePayload(){
       components.full_day_equipment_extension = { enabled: true, dates: addonDates };
     }
   }
-  return { guest_name: guest, guest_phone: phone || null, date_from: dateFrom, date_to: dateTo, payment_status: payment, notes: notes, components: components };
+  return {
+    guest_name: guest,
+    guest_phone: phone || null,
+    date_from: dateFrom,
+    date_to: dateTo,
+    payment_status: payment,
+    notes: notes,
+    components: components,
+    rentals: rentals,
+  };
 }
 
 // Full-day equipment add-on unit price (cents), set from admin config on drawer open. Never hard-coded.
 var scheduleFullDayAddonUnitCents = null;
 var scheduleFullDayAddonEnabled = false;
+var scheduleAdminPricesCache = [];
+
+function scheduleCreateDateSpanForRentals(){
+  var privateOn = !!(el('ps-create-comp-private-lesson') && el('ps-create-comp-private-lesson').checked);
+  if (privateOn) {
+    var sessions = scheduleReadPrivateLessonSessionsFromDom();
+    var dates = [];
+    var seen = {};
+    for (var i = 0; i < sessions.length; i++) {
+      var d = sessions[i] && sessions[i].date ? String(sessions[i].date).slice(0, 10) : '';
+      if (d && !seen[d]) { seen[d] = 1; dates.push(d); }
+    }
+    dates.sort();
+    if (dates.length) return { from: dates[0], to: dates[dates.length - 1] };
+  }
+  var from = el('ps-create-date-from') ? el('ps-create-date-from').value : scheduleTodayIso();
+  var to = el('ps-create-date-to') ? el('ps-create-date-to').value : from;
+  return { from: from, to: to || from };
+}
+
+function scheduleReadCreateRentalSelectionFromDom(){
+  var wrap = el('ps-create-rentals');
+  if (!wrap) return [];
+  var duration = String(wrap.getAttribute('data-duration-key') || '').trim();
+  var selection = [];
+  wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
+    var key = String(row.getAttribute('data-rental-offering') || '').trim();
+    var check = row.querySelector('.ps-create-rental-check');
+    var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
+    if (!check || !check.checked || !key) return;
+    var qty = parseInt(qtyEl && qtyEl.value, 10);
+    if (!Number.isInteger(qty) || qty < 1) return;
+    selection.push({
+      offering_key: key,
+      duration_key: duration,
+      quantity: qty,
+    });
+  });
+  if (typeof scheduleSerializeRentalsSelection === 'function') {
+    return scheduleSerializeRentalsSelection(selection, duration);
+  }
+  return selection;
+}
+
+function scheduleApplyCreateRentalExclusionUi(wrap, selectedKeys){
+  if (!wrap) return;
+  var selected = selectedKeys || [];
+  var bundleOn = selected.indexOf('board_and_suit_rental') >= 0;
+  var separateOn = selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0;
+  wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
+    var key = String(row.getAttribute('data-rental-offering') || '');
+    var check = row.querySelector('.ps-create-rental-check');
+    var qtyWrap = row.querySelector('.portal-schedule-create-rental-qty');
+    var label = row.querySelector('.portal-schedule-create-check');
+    if (!check) return;
+    var isOn = selected.indexOf(key) >= 0;
+    check.checked = isOn;
+    if (key === 'board_and_suit_rental') {
+      check.disabled = separateOn && !isOn;
+    } else if (key === 'board_rental' || key === 'wetsuit_rental') {
+      check.disabled = bundleOn && !isOn;
+    } else {
+      check.disabled = false;
+    }
+    if (label) {
+      if (check.disabled) label.classList.add('is-disabled');
+      else label.classList.remove('is-disabled');
+    }
+    if (qtyWrap) qtyWrap.style.display = isOn ? '' : 'none';
+  });
+}
+
+function scheduleWireCreateRentals(wrap){
+  if (!wrap || wrap.dataset.rentalWired === '1') return;
+  wrap.dataset.rentalWired = '1';
+  wrap.addEventListener('change', function(ev){
+    var t = ev && ev.target;
+    if (!t) return;
+    if (t.classList && t.classList.contains('ps-create-rental-check')) {
+      var key = String(t.getAttribute('data-offering-key') || '');
+      var selected = [];
+      wrap.querySelectorAll('.ps-create-rental-check').forEach(function(c){
+        if (c.checked) selected.push(String(c.getAttribute('data-offering-key') || ''));
+      });
+      var next = typeof scheduleApplyRentalMutualExclusion === 'function'
+        ? scheduleApplyRentalMutualExclusion(selected.filter(function(k){ return k !== key; }), key, !!t.checked)
+        : (t.checked ? selected.concat([key]) : selected.filter(function(k){ return k !== key; }));
+      scheduleApplyCreateRentalExclusionUi(wrap, next);
+      scheduleRefreshCreateFullDayAddon();
+      scheduleUpdateCreateTotalPreview();
+      return;
+    }
+    if (t.classList && t.classList.contains('ps-create-rental-qty-input')) {
+      scheduleRefreshCreateFullDayAddon();
+      scheduleUpdateCreateTotalPreview();
+    }
+  });
+  wrap.addEventListener('input', function(ev){
+    var t = ev && ev.target;
+    if (t && t.classList && t.classList.contains('ps-create-rental-qty-input')) {
+      scheduleRefreshCreateFullDayAddon();
+      scheduleUpdateCreateTotalPreview();
+    }
+  });
+}
+
+function scheduleRenderCreateRentals(){
+  var wrap = el('ps-create-rentals');
+  if (!wrap) return;
+  var prev = {};
+  wrap.querySelectorAll('[data-rental-offering]').forEach(function(row){
+    var key = String(row.getAttribute('data-rental-offering') || '');
+    var check = row.querySelector('.ps-create-rental-check');
+    var qtyEl = row.querySelector('input.ps-create-rental-qty-input');
+    if (!key) return;
+    var qty = parseInt(qtyEl && qtyEl.value, 10);
+    prev[key] = {
+      checked: !!(check && check.checked),
+      quantity: (Number.isInteger(qty) && qty >= 1) ? qty : null,
+    };
+  });
+  var span = scheduleCreateDateSpanForRentals();
+  var duration = typeof scheduleRentalDurationKeyFromDates === 'function'
+    ? scheduleRentalDurationKeyFromDates(span.from, span.to, scheduleEnumerateDates)
+    : null;
+  var locationId = typeof getSunsetLocation === 'function' ? getSunsetLocation() : '';
+  var offerings = (duration && typeof scheduleActiveRentalsForDuration === 'function')
+    ? scheduleActiveRentalsForDuration(scheduleAdminPricesCache, duration, locationId)
+    : [];
+  var mode = typeof scheduleRentalOfferingsMode === 'function'
+    ? scheduleRentalOfferingsMode(offerings)
+    : (offerings.length ? 'separate_only' : 'none');
+  wrap.setAttribute('data-duration-key', duration || '');
+  wrap.setAttribute('data-rental-mode', mode);
+  wrap.dataset.rentalWired = '';
+  if (!offerings.length || mode === 'none') {
+    wrap.innerHTML = '<p class="portal-schedule-create-rentals-empty" data-i18n="schedule.create.noRentalsAvailable">No equipment rentals available for these dates</p>';
+    var modalEmpty = el('ps-create-modal');
+    if (modalEmpty && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modalEmpty);
+    return;
+  }
+  var html = '';
+  offerings.forEach(function(o){
+    var key = o.offering_key;
+    var labelKey = typeof scheduleRentalOfferingLabelKey === 'function'
+      ? scheduleRentalOfferingLabelKey(key)
+      : 'schedule.type.boardRental';
+    var fallback = key === 'wetsuit_rental' ? 'Wetsuit'
+      : (key === 'board_and_suit_rental' ? 'Surfboard + wetsuit' : 'Surfboard');
+    var was = prev[key] || {};
+    var checked = !!was.checked;
+    var qty = (was.quantity != null && was.quantity >= 1) ? was.quantity : 1;
+    html += '<div class="portal-schedule-create-rental-row" data-rental-offering="' + escHtml(key) + '">'
+      + '<label class="portal-schedule-create-check"><input type="checkbox" class="ps-create-rental-check" data-offering-key="'
+      + escHtml(key) + '"' + (checked ? ' checked' : '') + '> <span data-i18n="' + escHtml(labelKey) + '">'
+      + escHtml(fallback) + '</span></label>'
+      + '<div class="portal-schedule-create-rental-qty"' + (checked ? '' : ' style="display:none"') + '>'
+      + '<label><span data-i18n="schedule.create.rentalQty">Quantity</span>'
+      + '<input type="number" min="1" max="99" class="ps-create-rental-qty-input" value="' + escHtml(String(qty)) + '"></label>'
+      + '</div></div>';
+  });
+  wrap.innerHTML = html;
+  var selected = [];
+  offerings.forEach(function(o){
+    if (prev[o.offering_key] && prev[o.offering_key].checked) selected.push(o.offering_key);
+  });
+  if (selected.indexOf('board_and_suit_rental') >= 0
+    && (selected.indexOf('board_rental') >= 0 || selected.indexOf('wetsuit_rental') >= 0)) {
+    selected = typeof scheduleApplyRentalMutualExclusion === 'function'
+      ? scheduleApplyRentalMutualExclusion(selected, 'board_and_suit_rental', true)
+      : ['board_and_suit_rental'];
+  }
+  scheduleApplyCreateRentalExclusionUi(wrap, selected);
+  scheduleWireCreateRentals(wrap);
+  var modal = el('ps-create-modal');
+  if (modal && typeof window.applyStaffPortalI18n === 'function') window.applyStaffPortalI18n(modal);
+}
 
 // Read the add-on unit price + enabled state from the /staff/admin/config prices array.
 // Matches offering_key 'full_day_equipment_extension' (config baseline) or the DB
@@ -21319,6 +21525,8 @@ function scheduleFetchLessonTimesConfig(client, opts){
         scheduleCoursesCache = scheduleCoursesFromConfig((data && data.prices) || [], (data && data.surf_packs) || []);
       }
       scheduleSetFullDayAddonFromConfig((data && data.prices) || []);
+      scheduleAdminPricesCache = Array.isArray(data && data.prices) ? data.prices.slice() : [];
+      scheduleRenderCreateRentals();
       if (data && data.private_lesson && data.private_lesson.default_duration_minutes != null) {
         schedulePrivateLessonDurationCache = Number(data.private_lesson.default_duration_minutes) || 120;
       }
@@ -22614,6 +22822,7 @@ function openScheduleCreateModal(){
   // Always re-fetch Admin catalog so newly created courses appear without restart.
   scheduleFetchLessonTimesConfig(getClient(), { force: true }).then(function(){
     schedulePopulateCreateCourseFields();
+    scheduleRenderCreateRentals();
     scheduleRefreshCreateFullDayAddon();
   });
 }
@@ -22664,7 +22873,7 @@ function wireScheduleControls(){
     btn.dataset.wired = '1';
     btn.addEventListener('click', function(){ setScheduleFilter(btn.getAttribute('data-ps-filter')); });
   });
-  ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-comp-surfboard','ps-create-comp-wetsuit'].forEach(function(id){
+  ['ps-create-comp-course','ps-create-comp-private-lesson'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.wired){
       node.dataset.wired = '1';
@@ -22677,11 +22886,14 @@ function wireScheduleControls(){
     fulldayToggle.dataset.wired = '1';
     fulldayToggle.addEventListener('change', scheduleRefreshCreateFullDayAddon);
   }
-  ['ps-create-comp-course','ps-create-comp-surfboard','ps-create-comp-wetsuit','ps-create-comp-private-lesson','ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-board-qty','ps-create-wetsuit-qty','ps-create-private-lesson-surfers'].forEach(function(id){
+  ['ps-create-comp-course','ps-create-comp-private-lesson','ps-create-date-from','ps-create-date-to','ps-create-course-qty','ps-create-private-lesson-surfers'].forEach(function(id){
     var node = el(id);
     if (node && !node.dataset.addonWired){
       node.dataset.addonWired = '1';
-      node.addEventListener('change', scheduleRefreshCreateFullDayAddon);
+      node.addEventListener('change', function(){
+        if (id === 'ps-create-date-from' || id === 'ps-create-date-to') scheduleRenderCreateRentals();
+        scheduleRefreshCreateFullDayAddon();
+      });
       node.addEventListener('input', scheduleRefreshCreateFullDayAddon);
     }
   });

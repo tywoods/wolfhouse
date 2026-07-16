@@ -348,6 +348,8 @@ module.exports = {
   'schedule.col.time': 'Hora',
   'schedule.col.type': 'Tipo',
   'schedule.create.boardQty': 'Cantidad de tablas',
+  'schedule.create.rentalQty': 'Cantidad',
+  'schedule.create.noRentalsAvailable': 'No hay alquileres de equipo disponibles para estas fechas',
   'schedule.create.bookingType': 'Tipo de reserva',
   'schedule.create.cancel': 'Cancelar',
   'schedule.create.components': 'Componentes',

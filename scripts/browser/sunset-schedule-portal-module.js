@@ -63,6 +63,7 @@ function schedulePortalFetchQuote(createPayload) {
     date_from: createPayload.date_from,
     date_to: createPayload.date_to,
     components: createPayload.components,
+    rentals: Array.isArray(createPayload.rentals) ? createPayload.rentals : [],
     service_dates: schedulePortalServiceDatesFromPayload(createPayload),
   };
   return schedulePortalFetchJson('/staff/schedule/bookings/quote?' + schedulePortalClientQuery(), {

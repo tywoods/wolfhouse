@@ -740,6 +740,8 @@ const STAFF_PORTAL_STRINGS = {
     'schedule.create.surferCount': 'Surfers',
     'schedule.create.boardQty': 'Boards',
     'schedule.create.wetsuitQty': 'Wetsuits',
+    'schedule.create.rentalQty': 'Quantity',
+    'schedule.create.noRentalsAvailable': 'No equipment rentals available for these dates',
     'schedule.create.dateFrom': 'From date',
     'schedule.create.dateTo': 'To date',
     'schedule.create.lessonCategory': 'Adult (Over 12)',
