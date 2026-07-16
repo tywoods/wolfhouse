@@ -841,9 +841,17 @@ async function main() {
         if (/tenant_config_audit_log/i.test(s)) return { rows: [] };
         if (/UPDATE tenant_price_rules/i.test(s)) {
           const idParam = params[0];
-          const activeParam = params[2];
           const row = boardRows.find((r) => r.id === idParam);
-          if (row) row.active = activeParam;
+          if (row) {
+            // Detect active value from the SQL literal or from $3 param position.
+            if (/active = false/i.test(s) && !/active = \$/.test(s)) {
+              row.active = false;
+            } else if (/active = true/i.test(s) && !/active = \$/.test(s)) {
+              row.active = true;
+            } else if (/active = \$/.test(s)) {
+              row.active = params[2]; // $3 = active value
+            }
+          }
           return { rows: [{ id: idParam }] };
         }
         return { rows: [] };
@@ -1023,6 +1031,258 @@ async function main() {
     /item_type = \\'rental\\'|item_type = 'rental'/.test(writesSrc));
   assert('no new availability column added for rental groups (no group_active or avail_state column)',
     !/group_active|avail_state|group_state|rental_group_available/i.test(writesSrc));
+
+  console.log('\n[J] Duplicate-row invariants: one-active-per-key, prefer-previously-active, audit entity_type');
+
+  // Helper: build a mock PG that enforces the real unique-active-index invariant.
+  // It tracks per-key active counts and throws on violations.
+  function makeDupMockPg(seedRows) {
+    // Clone seed so we can mutate
+    const rows = seedRows.map((r) => ({ ...r }));
+    let lastAuditEntityType = null;
+    return {
+      rows,
+      getLastAuditEntityType: () => lastAuditEntityType,
+      async query(sql, params) {
+        const s = String(sql);
+        if (s === 'BEGIN' || s === 'ROLLBACK') return { rows: [] };
+        if (s === 'COMMIT') {
+          // Enforce unique-active-index: at most one active row per (item_code, unit, effective_from).
+          const seen = {};
+          for (const r of rows) {
+            if (r.active !== true) continue;
+            const k = `${r.item_code}||${r.unit}||${r.effective_from || ''}`;
+            if (seen[k]) throw new Error(`unique-active-index violation at key=${k}`);
+            seen[k] = true;
+          }
+          return { rows: [] };
+        }
+        if (/information_schema\.columns/i.test(s)) return { rows: [{ '?column?': 1 }] };
+        if (/item_code LIKE/i.test(s) && /FOR UPDATE/i.test(s)) {
+          return { rows: rows.map((r) => ({ ...r })) }; // snapshot
+        }
+        if (/tenant_config_audit_log/i.test(s) && /INSERT/i.test(s)) {
+          // Capture entity_type from INSERT params. It's the 6th param in insertConfigAudit.
+          // entity_type is passed as $6 in the INSERT.
+          if (params) lastAuditEntityType = params[5] || null;
+          return { rows: [] };
+        }
+        if (/UPDATE tenant_price_rules SET/i.test(s)) {
+          const idParam = params[0];
+          const row = rows.find((r) => String(r.id) === String(idParam));
+          if (!row) return { rows: [] };
+          // Detect active= in SET clause
+          if (/active = false/i.test(s) && !/active = \$/.test(s)) {
+            row.active = false;
+          } else if (/active = true/i.test(s) && !/active = \$/.test(s)) {
+            row.active = true;
+          } else if (/active = \$/.test(s)) {
+            // Find position of active param: it's $3 in these UPDATEs
+            const activeVal = params[2];
+            row.active = activeVal;
+          }
+          return { rows: [{ id: row.id }] };
+        }
+        return { rows: [] };
+      },
+    };
+  }
+
+  const ALLOWED_ENTITY_TYPES = ['price_rule', 'capacity_rule', 'lesson_time_rule'];
+
+  // J1: duplicate rows for same duration key — ON must not violate unique-active index
+  {
+    const dupRows = [
+      { id: 'dup-a', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1013, active: false },
+      { id: 'dup-b', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1500, active: false },
+      { id: 'dup-c', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_and_suit_rental__2_hours', unit: 'hour', effective_from: null, amount_cents: 2500, active: false },
+    ];
+    const pg = makeDupMockPg(dupRows);
+    let threw = false;
+    let res;
+    try {
+      res = await setRentalGroupAvailability(pg, {
+        clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'bundles', desiredActive: true, actor,
+      });
+    } catch (e) {
+      threw = true;
+      console.error('J1 threw:', e.message);
+    }
+    assert('J1: ON with duplicate rows does not throw (no unique-index violation)', !threw && res && res.ok === true,
+      threw ? 'threw' : JSON.stringify(res));
+
+    // At most one active per key
+    const keyActiveCount = {};
+    for (const r of pg.rows) {
+      if (r.active !== true) continue;
+      const k = `${r.item_code}||${r.unit}||${r.effective_from || ''}`;
+      keyActiveCount[k] = (keyActiveCount[k] || 0) + 1;
+    }
+    const maxActive = Math.max(0, ...Object.values(keyActiveCount));
+    assert('J1: at most ONE active row per (item_code,unit,effective_from) after ON',
+      maxActive <= 1, `max active per key = ${maxActive}, keys = ${JSON.stringify(keyActiveCount)}`);
+
+    // Both positive-amount keys have exactly one active row
+    const key1Count = keyActiveCount['board_and_suit_rental__1_hour||hour||'] || 0;
+    const key2Count = keyActiveCount['board_and_suit_rental__2_hours||hour||'] || 0;
+    assert('J1: each positive-amount key has exactly 1 active row after ON',
+      key1Count === 1 && key2Count === 1,
+      `key1=${key1Count} key2=${key2Count}`);
+  }
+
+  // J2: ON prefers the previously-active duplicate when one exists
+  {
+    const dupRows = [
+      { id: 'prev-inactive', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1013, active: false },
+      { id: 'prev-active',   tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1500, active: true },
+    ];
+    const pg = makeDupMockPg(dupRows);
+    const res = await setRentalGroupAvailability(pg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: true, actor,
+    });
+    assert('J2: ON ok=true with prev-active duplicate', res && res.ok === true, JSON.stringify(res));
+    const activeRow = pg.rows.find((r) => r.active === true);
+    assert('J2: previously-active row is chosen as winner',
+      activeRow && activeRow.id === 'prev-active',
+      `active id = ${activeRow && activeRow.id}`);
+    const inactiveRow2 = pg.rows.find((r) => r.id === 'prev-inactive');
+    assert('J2: the other duplicate is left inactive', inactiveRow2 && inactiveRow2.active !== true);
+  }
+
+  // J3: ON with no prev-active dup — picks highest amount_cents
+  {
+    const dupRows = [
+      { id: 'lo-amt', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'wetsuit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 800, active: false },
+      { id: 'hi-amt', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'wetsuit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1200, active: false },
+    ];
+    const pg = makeDupMockPg(dupRows);
+    const res = await setRentalGroupAvailability(pg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'wetsuits', desiredActive: true, actor,
+    });
+    assert('J3: ON ok=true picking highest amount', res && res.ok === true, JSON.stringify(res));
+    const activeRow = pg.rows.find((r) => r.active === true);
+    assert('J3: highest-amount duplicate is chosen when no prev-active',
+      activeRow && activeRow.id === 'hi-amt',
+      `active id = ${activeRow && activeRow.id}`);
+  }
+
+  // J4: OFF deactivates ALL duplicates
+  {
+    const dupRows = [
+      { id: 'off-a', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_rental__1_day', unit: 'day', effective_from: null, amount_cents: 1500, active: true },
+      { id: 'off-b', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_rental__1_day', unit: 'day', effective_from: null, amount_cents: 1800, active: false },
+    ];
+    const pg = makeDupMockPg(dupRows);
+    const res = await setRentalGroupAvailability(pg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: false, actor,
+    });
+    assert('J4: OFF ok=true', res && res.ok === true, JSON.stringify(res));
+    assert('J4: OFF deactivates all duplicates',
+      pg.rows.every((r) => r.active !== true),
+      JSON.stringify(pg.rows.map((r) => ({ id: r.id, active: r.active }))));
+  }
+
+  // J5: Audit entity_type is always a valid CHECK value, never 'price_rule_group'
+  {
+    const simpleRows = [
+      { id: 'audit-row', tenant_id: 'sunset', client_slug: 'sunset', location_id: 'sunset-somo', item_type: 'rental',
+        item_code: 'board_rental__1_day', unit: 'day', effective_from: null, amount_cents: 1500, active: false },
+    ];
+    const pg = makeDupMockPg(simpleRows);
+    await setRentalGroupAvailability(pg, {
+      clientSlug: 'sunset', locationId: 'sunset-somo', rentalGroup: 'boards', desiredActive: true, actor,
+    });
+    const entityType = pg.getLastAuditEntityType();
+    assert('J5: audit entity_type is allowed CHECK value (not price_rule_group)',
+      entityType !== null && ALLOWED_ENTITY_TYPES.includes(entityType),
+      `entity_type = ${JSON.stringify(entityType)}`);
+    assert('J5: audit entity_type is specifically price_rule',
+      entityType === 'price_rule', `entity_type = ${JSON.stringify(entityType)}`);
+  }
+
+  // J6: Render dedup — adminDedupeGroupItems collapses duplicates, adminDeriveGroupAvailState on deduped list
+  {
+    // Simulate the browser-side adminDedupeGroupItems + adminDeriveGroupAvailState functions
+    // by evaluating them via the source text (they are plain functions, not DOM-dependent).
+    // We eval a minimal harness that extracts them.
+    const fnSrc = adminUi;
+    // Extract adminDedupeGroupItems and adminDeriveGroupAvailState from the source text.
+    const dedupMatch = fnSrc.match(/function adminDedupeGroupItems\(items\)\{[\s\S]*?\n\}/);
+    const deriveMatch = fnSrc.match(/function adminDeriveGroupAvailState\(items\)\{[\s\S]*?\n\}/);
+    assert('J6: adminDedupeGroupItems defined in browser UI', !!dedupMatch);
+    assert('J6: adminDeriveGroupAvailState defined in browser UI (for dedup use)', !!deriveMatch);
+
+    if (dedupMatch && deriveMatch) {
+      // Safe eval of pure utility functions only (no DOM, no network).
+      const dedupFn = new Function(`${dedupMatch[0]}; return adminDedupeGroupItems;`)();
+      const deriveFn = new Function(`${deriveMatch[0]}; return adminDeriveGroupAvailState;`)();
+
+      const dupItems = [
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1013, active: false },
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1500, active: true },
+        { item_code: 'board_and_suit_rental__2_hours', unit: 'hour', effective_from: null, amount_cents: 2500, active: true },
+      ];
+      const deduped = dedupFn(dupItems);
+      assert('J6: dedup collapses 3 items (2 dup keys) to 2 canonical',
+        deduped.length === 2, `length = ${deduped.length}`);
+      const hourRow = deduped.find((p) => p.item_code === 'board_and_suit_rental__1_hour');
+      assert('J6: dedup picks active row for board_and_suit_rental__1_hour dup',
+        hourRow && hourRow.active !== false && hourRow.amount_cents === 1500,
+        JSON.stringify(hourRow));
+
+      // With both canonical active → state should be 'on'
+      const state = deriveFn(deduped);
+      assert('J6: adminDeriveGroupAvailState on deduped-all-active list = on',
+        state === 'on', `state = ${state}`);
+
+      // Make one inactive → mixed
+      const mixedItems = [
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1500, active: true },
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1013, active: false },
+        { item_code: 'board_and_suit_rental__2_hours', unit: 'hour', effective_from: null, amount_cents: 2500, active: false },
+      ];
+      const mixedDeduped = dedupFn(mixedItems);
+      const mixedState = deriveFn(mixedDeduped);
+      assert('J6: deduped mixed (one on, one off) → mixed state',
+        mixedState === 'mixed', `state = ${mixedState}`);
+
+      // All inactive → off
+      const offItems = [
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1500, active: false },
+        { item_code: 'board_and_suit_rental__1_hour', unit: 'hour', effective_from: null, amount_cents: 1013, active: false },
+        { item_code: 'board_and_suit_rental__2_hours', unit: 'hour', effective_from: null, amount_cents: 2500, active: false },
+      ];
+      const offDeduped = dedupFn(offItems);
+      const offState = deriveFn(offDeduped);
+      assert('J6: deduped all-inactive → off state',
+        offState === 'off', `state = ${offState}`);
+    }
+  }
+
+  // J7: i18n mixed hint updated to plain copy
+  assert('J7: EN availableMixed updated to plain copy',
+    en.includes("'admin.prices.availableMixed': 'Some durations off — click to set all'"),
+    'expected new EN mixed hint');
+  assert('J7: ES availableMixed updated to plain copy',
+    es.includes("'admin.prices.availableMixed': 'Algunas duraciones desactivadas — pulsa para activar todas'"),
+    'expected new ES mixed hint');
+  assert('J7: old "save to normalize" text removed from EN i18n',
+    !en.includes('save to normalize'));
+  assert('J7: old "guarda para normalizar" text removed from ES i18n',
+    !es.includes('guarda para normalizar'));
+
+  // J8: audit entity_type assertion — source never writes 'price_rule_group'
+  assert('J8: writes source does not contain invalid entity_type price_rule_group',
+    !writesSrc.includes("'price_rule_group'") && !writesSrc.includes('"price_rule_group"'));
 
   console.log(`\n${'─'.repeat(48)}`);
   console.log(`Results: ${pass} passed, ${fail} failed`);
