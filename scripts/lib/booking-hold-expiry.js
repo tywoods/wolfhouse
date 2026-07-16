@@ -100,17 +100,19 @@ function isHoldDueForExpiry(bookingRow, now) {
 
 /**
  * List candidate booking ids due for hold expiry (read-only scan).
+ * Does not reference bookings.location_id — that column is absent on Sunset staging.
  */
 async function selectDueHoldCandidates(pg, opts = {}) {
   const now = opts.now || new Date();
   const batchSize = clampBatchSize(opts.batchSize);
   const clientId = opts.clientId || null;
-  const locationId = opts.locationId || null;
+  if (opts.locationId) {
+    throw new Error('location filter is not supported: bookings.location_id is not present on all tenants');
+  }
 
   const res = await pg.query(
     `SELECT b.id::text AS booking_id,
             b.client_id::text AS client_id,
-            b.location_id::text AS location_id,
             c.slug AS client_slug,
             b.booking_code,
             b.hold_expires_at,
@@ -121,12 +123,11 @@ async function selectDueHoldCandidates(pg, opts = {}) {
         AND b.hold_expires_at IS NOT NULL
         AND b.hold_expires_at <= $1::timestamptz
         AND ($2::uuid IS NULL OR b.client_id = $2::uuid)
-        AND ($3::uuid IS NULL OR b.location_id = $3::uuid)
       ORDER BY b.hold_expires_at ASC
-      LIMIT $4`,
-    [now, clientId, locationId, batchSize],
+      LIMIT $3`,
+    [now, clientId, batchSize],
   );
-  return res.rows || [];
+  return (res.rows || []).map((row) => ({ ...row, location_id: null }));
 }
 
 async function resolveClientIdForSlug(pg, clientSlug) {
