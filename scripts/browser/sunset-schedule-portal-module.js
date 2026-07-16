@@ -59,6 +59,7 @@ function schedulePortalFetchCatalog(opts) {
 function schedulePortalFetchQuote(createPayload) {
   var body = {
     location_id: getSunsetLocation(),
+    guest_name: createPayload.guest_name,
     date_from: createPayload.date_from,
     date_to: createPayload.date_to,
     components: createPayload.components,
