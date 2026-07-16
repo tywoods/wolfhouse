@@ -137,7 +137,7 @@ function collect() {
     warnings.push('Could not read Lunabox repo (SSH/az unavailable or no clone at /opt/wolfhouse/WH).');
   }
   if (vm) {
-    if (vm.dirty) {
+    if (vm.dirty && !ignoreDirty) {
       warnings.push('Lunabox repo has uncommitted changes — Captain should commit + push before laptop overwrites.');
     }
     if (localHead && vm.head && vm.head !== localHead) {
