@@ -59,4 +59,41 @@ async function withPgClient(fn) {
   }
 }
 
-module.exports = { getConnectionString, withPgClient };
+/**
+ * Close the shared pool and clear keep-alive. Safe when never opened or already closed.
+ * Staff API must not call this — long-lived servers keep the pool warm.
+ * One-shot CLIs (e.g. hold-expiry) should call this in finally so the process can exit.
+ */
+async function closePgPool() {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  if (!pool) return;
+  const ending = pool;
+  pool = null;
+  await ending.end();
+}
+
+/** Test seam: install a fake pool/timer without opening Postgres. */
+function _setPoolForTests(nextPool, nextTimer = null) {
+  if (keepAliveTimer) {
+    clearInterval(keepAliveTimer);
+    keepAliveTimer = null;
+  }
+  pool = nextPool || null;
+  keepAliveTimer = nextTimer || null;
+}
+
+function _getPoolForTests() {
+  return pool;
+}
+
+module.exports = {
+  getConnectionString,
+  getPool,
+  withPgClient,
+  closePgPool,
+  _setPoolForTests,
+  _getPoolForTests,
+};

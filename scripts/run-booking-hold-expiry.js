@@ -11,7 +11,7 @@
  *   node scripts/run-booking-hold-expiry.js --now=2026-07-16T12:00:00Z --apply
  */
 
-const { withPgClient } = require('./lib/pg-connect');
+const pgConnect = require('./lib/pg-connect');
 const { expireDueBookingHolds } = require('./lib/booking-hold-expiry');
 
 function parseCliArgs(argv) {
@@ -44,13 +44,30 @@ Options:
 `);
 }
 
-async function main() {
+/**
+ * @param {string[]} [argv]
+ * @param {{
+ *   withPgClient?: typeof pgConnect.withPgClient,
+ *   closePgPool?: typeof pgConnect.closePgPool,
+ *   expireDueBookingHolds?: typeof expireDueBookingHolds,
+ *   log?: (...args: any[]) => void,
+ *   error?: (...args: any[]) => void,
+ * }} [deps]
+ */
+async function runHoldExpiryCli(argv = process.argv.slice(2), deps = {}) {
+  const withPg = deps.withPgClient || pgConnect.withPgClient;
+  const closePool = deps.closePgPool || pgConnect.closePgPool;
+  const expire = deps.expireDueBookingHolds || expireDueBookingHolds;
+  const log = deps.log || console.log.bind(console);
+  const error = deps.error || console.error.bind(console);
+
   let opts;
   try {
-    opts = parseCliArgs(process.argv.slice(2));
+    opts = parseCliArgs(argv);
   } catch (err) {
-    console.error(String(err.message || err));
-    process.exit(1);
+    error(String(err.message || err));
+    process.exitCode = 1;
+    return;
   }
 
   if (opts.help) {
@@ -58,30 +75,45 @@ async function main() {
     return;
   }
 
-  const now = opts.now || new Date();
-  const summary = await withPgClient((pg) => expireDueBookingHolds(pg, {
-    apply: opts.apply,
-    batchSize: opts.batchSize,
-    clientSlug: opts.clientSlug,
-    locationId: opts.locationId,
-    now,
-  }));
+  try {
+    const now = opts.now || new Date();
+    const summary = await withPg((pg) => expire(pg, {
+      apply: opts.apply,
+      batchSize: opts.batchSize,
+      clientSlug: opts.clientSlug,
+      locationId: opts.locationId,
+      now,
+    }));
 
-  console.log(JSON.stringify({
-    mode: opts.apply ? 'apply' : 'dry_run',
-    now: now.toISOString(),
-    client: opts.clientSlug || null,
-    location: opts.locationId || null,
-    batch_size: opts.batchSize,
-    ...summary,
-  }, null, 2));
+    log(JSON.stringify({
+      mode: opts.apply ? 'apply' : 'dry_run',
+      now: now.toISOString(),
+      client: opts.clientSlug || null,
+      location: opts.locationId || null,
+      batch_size: opts.batchSize,
+      ...summary,
+    }, null, 2));
 
-  if (summary.errors && summary.errors.length) {
-    process.exit(1);
+    if (summary.errors && summary.errors.length) {
+      process.exitCode = 1;
+    }
+  } catch (err) {
+    error(err.stack || err.message || String(err));
+    process.exitCode = 1;
+  } finally {
+    await closePool();
   }
 }
 
-main().catch((err) => {
-  console.error(err.stack || err.message || String(err));
-  process.exit(1);
-});
+if (require.main === module) {
+  runHoldExpiryCli().catch((err) => {
+    console.error(err.stack || err.message || String(err));
+    process.exitCode = 1;
+  });
+}
+
+module.exports = {
+  parseCliArgs,
+  printHelp,
+  runHoldExpiryCli,
+};
