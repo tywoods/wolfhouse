@@ -15577,6 +15577,8 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection-title{font-size:12px;font-weight:850;text-transform:uppercase;letter-spacing:.04em;color:var(--text-2);margin:0 0 6px}
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
+.portal-admin-price-card.is-inactive{opacity:.62}
+.portal-admin-price-available{font-size:11px;font-weight:650;color:var(--text-2);white-space:nowrap}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.25;font-size:13px}
 .portal-admin-price-meta,.portal-admin-lesson-meta{font-size:11px;color:var(--text-3);margin-top:2px}
@@ -23242,11 +23244,14 @@ function renderAdminPriceCardEditForm(pid, p, groupKey){
   var parsed = adminParsePriceRow(p);
   var period = parsed.periodWindow || '1_day';
   var ik = adminPriceInputKey(pid);
+  var isAvailable = p && p.active !== false;
   return '<div class="portal-admin-price-card-edit">' +
     '<div><label>' + escHtml(portalT('admin.edit.period')) + '</label>' +
     '<select data-admin-price-field="period" id="admin-price-period-' + escHtml(ik) + '">' + adminRentalPeriodOptions(period) + '</select></div>' +
     '<div><label>' + escHtml(portalT('admin.edit.amountEur')) + '</label>' +
     '<input type="text" data-admin-price-field="amount" id="admin-price-amount-' + escHtml(ik) + '" value="' + escHtml(adminEurosFromAmount(p.amount)) + '" inputmode="decimal"></div>' +
+    '<div><label class="portal-admin-check"><input type="checkbox" data-admin-price-field="available" id="admin-price-available-' + escHtml(ik) + '"' + (isAvailable ? ' checked' : '') + '> ' +
+    escHtml(portalT('admin.prices.available')) + ' / ' + escHtml(portalT('admin.prices.bookable')) + '</label></div>' +
     '</div>';
 }
 
@@ -23314,14 +23319,17 @@ function renderAdminSectionPricesFromConfig(cfg){
       items.forEach(function(p){
         var pid = adminPriceRowId(p);
         var parsed = adminParsePriceRow(p);
-        html += '<article class="portal-admin-price-card' + (groupEditing && pid ? ' is-editing' : '') + '" data-admin-price-card="' + escHtml(pid) + '">';
+        var rowActive = p && p.active !== false;
+        html += '<article class="portal-admin-price-card' + (groupEditing && pid ? ' is-editing' : '') + (rowActive ? '' : ' is-inactive') + '" data-admin-price-card="' + escHtml(pid) + '" data-admin-price-active="' + (rowActive ? 'true' : 'false') + '">';
         if (groupEditing){
           html += '<div class="portal-admin-card-title-row"><div></div><div class="portal-admin-card-actions"><button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn portal-admin-danger" data-admin-action="delete-price" data-price-id="' +
             escHtml(pid) + '" aria-label="' + escHtml(portalT('admin.action.remove')) + '">×</button></div></div>';
           html += renderAdminPriceCardEditForm(pid, p, key);
         } else {
+          var availLabel = rowActive ? portalT('admin.prices.availableYes') : portalT('admin.prices.availableNo');
           html += '<div class="portal-admin-price-card-readout"><span class="portal-admin-price-period">' + escHtml(adminPeriodLabel(parsed.periodWindow)) + '</span>' +
-            '<span class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</span></div>';
+            '<span class="portal-admin-price-amount">' + escHtml(adminEurosFromAmount(p.amount) + ' ' + (p.currency || 'EUR')) + '</span>' +
+            '<span class="portal-admin-price-available">' + escHtml(portalT('admin.prices.available') + ': ' + availLabel) + '</span></div>';
         }
         html += '</article>';
       });
@@ -23880,13 +23888,20 @@ function wireAdminTab(){
         if (!pid) return;
         var periodInput = card.querySelector('[data-admin-price-field="period"]');
         var amountInput = card.querySelector('[data-admin-price-field="amount"]');
+        var availableInput = card.querySelector('[data-admin-price-field="available"]');
         var period = periodInput ? String(periodInput.value || '').trim() : '';
         if (!period){ validationError = portalT('admin.edit.periodRequired'); return; }
         var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
         if (!centsParsed.ok){ validationError = centsParsed.error; return; }
+        var available = !!(availableInput && availableInput.checked);
+        if (available && !(centsParsed.value > 0)){
+          validationError = portalT('admin.edit.amountRequiredToEnable');
+          return;
+        }
         jobs.push(adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(pid) + adminClientQuery(), {
           period_window: period,
           amount_cents: centsParsed.value,
+          active: available,
         }));
       });
       if (validationError){ adminShowMessage('error', validationError); return; }
@@ -23913,15 +23928,22 @@ function wireAdminTab(){
       var priceId = String(btn.getAttribute('data-price-id') || '');
       var periodInput = el('admin-price-period-' + priceId);
       var amountInput = el('admin-price-amount-' + priceId);
+      var availableInput = el('admin-price-available-' + priceId);
       var period = periodInput ? String(periodInput.value || '').trim() : '';
       if (!period){ adminShowMessage('error', portalT('admin.edit.periodRequired')); return; }
       var centsParsed = adminParseEurosToCents(amountInput && amountInput.value);
       if (!centsParsed.ok){ adminShowMessage('error', centsParsed.error); return; }
+      var available = availableInput ? !!availableInput.checked : true;
+      if (available && !(centsParsed.value > 0)){
+        adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable'));
+        return;
+      }
       adminSaveBusy = true;
       adminShowMessage('', '');
       adminApiRequest('PATCH', '/staff/admin/config/prices/' + encodeURIComponent(priceId) + adminClientQuery(), {
         period_window: period,
         amount_cents: centsParsed.value,
+        active: available,
       }).then(function(res){
         adminSaveBusy = false;
         if (res.status !== 200 || !res.data || res.data.success !== true){
@@ -23944,6 +23966,10 @@ function wireAdminTab(){
       if (!newPeriod){ adminShowMessage('error', portalT('admin.edit.periodRequired')); return; }
       var newCents = adminParseEurosToCents(newAmountInput && newAmountInput.value);
       if (!newCents.ok){ adminShowMessage('error', newCents.error); return; }
+      if (!(newCents.value > 0)){
+        adminShowMessage('error', portalT('admin.edit.amountRequiredToEnable'));
+        return;
+      }
       adminSaveBusy = true;
       adminShowMessage('', '');
       adminApiRequest('POST', '/staff/admin/config/prices' + adminClientQuery(), {
@@ -37491,7 +37517,10 @@ async function handleAdminConfig(query, res, user) {
 
   const locationId = normalizeSunsetLocationId(query.location);
   const resolved = isSunsetAdminDbReadEnabled()
-    ? await resolveTenantBusinessConfigAsync(clientSlug, { locationId })
+    ? await resolveTenantBusinessConfigAsync(clientSlug, {
+      locationId,
+      includeInactiveCanonicalRentals: true,
+    })
     : resolveTenantBusinessConfig(clientSlug, locationId);
   if (!resolved.ok) {
     appendAuditLog({

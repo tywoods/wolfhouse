@@ -368,7 +368,7 @@ async function adminConfigTablesExist(client) {
  * @param {import('pg').PoolClient} client
  * @returns {Promise<{ ok: boolean, reason?: string, hasData: boolean, prices?: any[], lesson_capacity?: any, lesson_times?: any[], change_history?: any[] }>}
  */
-async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
+async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId, opts = {}) {
   const slug = String(clientSlug || '').trim();
   if (slug !== SUNSET_ADMIN_CLIENT) {
     throw new Error('tenant_scope_violation');
@@ -388,9 +388,38 @@ async function loadTenantBusinessConfigFromDb(clientSlug, client, locationId) {
   const timeParams = timeHasLoc ? [slug, loc] : [slug];
   const auditParams = [slug];
 
-  const priceWhere = priceHasLoc
+  // Shared Schedule/Luna/catalog projection: active rows only (pre-PR behavior).
+  // Admin may opt into inactive canonical rental durations via includeInactiveCanonicalRentals.
+  let priceWhere = priceHasLoc
     ? 'client_slug = $1 AND location_id = $2 AND active = true'
     : 'client_slug = $1 AND active = true';
+  if (opts.includeInactiveCanonicalRentals) {
+    // Admin Available/Bookable: active everything + inactive board/wetsuit/bundle durations only.
+    // Excludes inactive full_day_equipment_extension and other non-duration rentals.
+    priceWhere = priceHasLoc
+      ? `client_slug = $1 AND location_id = $2 AND (
+           active = true
+           OR (
+             item_type = 'rental'
+             AND (
+               item_code LIKE 'board_rental__%'
+               OR item_code LIKE 'wetsuit_rental__%'
+               OR item_code LIKE 'board_and_suit_rental__%'
+             )
+           )
+         )`
+      : `client_slug = $1 AND (
+           active = true
+           OR (
+             item_type = 'rental'
+             AND (
+               item_code LIKE 'board_rental__%'
+               OR item_code LIKE 'wetsuit_rental__%'
+               OR item_code LIKE 'board_and_suit_rental__%'
+             )
+           )
+         )`;
+  }
   const capWhere = capHasLoc
     ? 'client_slug = $1 AND location_id = $2 AND active = true'
     : 'client_slug = $1 AND active = true';
@@ -613,12 +642,12 @@ async function loadTenantPriceRuleFromDb(client, params) {
   };
 }
 
-async function defaultLoadFromDb(clientSlug, pgClient, locationId) {
+async function defaultLoadFromDb(clientSlug, pgClient, locationId, opts = {}) {
   if (pgClient) {
-    return loadTenantBusinessConfigFromDb(clientSlug, pgClient, locationId);
+    return loadTenantBusinessConfigFromDb(clientSlug, pgClient, locationId, opts);
   }
   const { withPgClient } = require('./pg-connect');
-  return withPgClient((client) => loadTenantBusinessConfigFromDb(clientSlug, client, locationId));
+  return withPgClient((client) => loadTenantBusinessConfigFromDb(clientSlug, client, locationId, opts));
 }
 
 /**
@@ -691,8 +720,12 @@ async function resolveTenantBusinessConfigAsync(clientSlug, options = {}) {
   let merged = configBaseline;
   if (isSunsetAdminDbReadEnabled() && !options.skipDb) {
     try {
-      const loadFn = options.loadFromDb || defaultLoadFromDb;
-      const dbResult = await loadFn(clientSlug, options.pgClient, locationId);
+      const loadOpts = {
+        includeInactiveCanonicalRentals: options.includeInactiveCanonicalRentals === true,
+      };
+      const dbResult = options.loadFromDb
+        ? await options.loadFromDb(clientSlug, options.pgClient, locationId)
+        : await defaultLoadFromDb(clientSlug, options.pgClient, locationId, loadOpts);
 
       if (!dbResult || dbResult.reason === 'tables_missing') {
         merged = {

@@ -17,6 +17,8 @@ const {
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
 } = require('./lib/tenant-business-config');
+const fs = require('fs');
+const path = require('path');
 
 let pass = 0;
 let fail = 0;
@@ -206,6 +208,22 @@ async function runAsyncChecks() {
   assert('unknown price field rejected', unknownField.ok === false);
   const goodPrice = writes.validatePricePatchBody({ amount_cents: 1500, currency: 'eur' });
   assert('valid price patch accepted', goodPrice.ok === true && goodPrice.patch.amount_cents === 1500);
+  const enableZero = writes.validatePricePatchBody({ active: true, amount_cents: 0 });
+  assert('cannot enable with zero amount', enableZero.ok === false);
+  const createZeroAmt = writes.validatePriceCreateBody({
+    rental_group: 'boards', period_window: '1_day', amount_cents: 0,
+  });
+  assert('cannot create rental with zero amount', createZeroAmt.ok === false);
+  assert(
+    'admin price load includes inactive rentals only when opted in',
+    fs.readFileSync(path.join(__dirname, 'lib', 'tenant-business-config.js'), 'utf8')
+      .includes('includeInactiveCanonicalRentals'),
+  );
+  assert(
+    'shared default price WHERE remains active-only',
+    fs.readFileSync(path.join(__dirname, 'lib', 'tenant-business-config.js'), 'utf8')
+      .includes("client_slug = $1 AND location_id = $2 AND active = true"),
+  );
 
   const badCap = writes.validateLessonCapacityBody({ default_daily_cap: 0 });
   assert('capacity zero rejected', badCap.ok === false);
