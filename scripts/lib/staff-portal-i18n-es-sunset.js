@@ -138,6 +138,8 @@ module.exports = {
   'admin.prices.availableYes': 'Sí',
   'admin.prices.availableNo': 'No',
   'admin.prices.availableMixed': 'Algunas duraciones desactivadas — pulsa para activar todas',
+  'admin.prices.enabled': 'Activado',
+  'admin.prices.disabled': 'Desactivado',
   'admin.prices.bookable': 'Reservable',
   'admin.lessonTimes.help': 'Gestiona los horarios de clases en grupo que aparecen en Schedule y usa el equipo.',
   'admin.lessonTimes.recurring': 'Todos los días activos',

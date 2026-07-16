@@ -15579,7 +15579,7 @@ body.portal-no-dev-tabs #tab-query-tools,body.portal-no-dev-tabs #tab-luna-guest
 .portal-admin-subsection-title-row .portal-admin-subsection-title{margin-bottom:0}
 .portal-admin-price-card,.portal-admin-lesson-card{border:1px solid var(--border-soft);border-radius:8px;background:var(--surface-soft);padding:8px 10px;display:flex;flex-direction:column;gap:5px;min-height:0}
 .portal-admin-price-card.is-inactive{opacity:.62}
-.portal-admin-group-avail-label{display:inline-flex;align-items:center;gap:5px;cursor:pointer;font-size:12px;font-weight:650;color:var(--text-2);white-space:nowrap}.portal-admin-group-avail-label input[type=checkbox]{width:16px;height:16px;cursor:pointer;flex-shrink:0;margin:0}.portal-admin-mixed-hint{font-size:11px;font-weight:500;color:var(--text-3);margin-left:2px}
+.portal-admin-switch{display:inline-flex;align-items:center;gap:7px;cursor:pointer;user-select:none;margin-right:8px}.portal-admin-switch input{position:absolute;opacity:0;width:0;height:0}.portal-admin-switch-slider{position:relative;width:34px;height:19px;background:var(--border-soft,#c9c2b8);border-radius:999px;transition:background .15s ease;flex-shrink:0}.portal-admin-switch-slider::before{content:"";position:absolute;top:2px;left:2px;width:15px;height:15px;border-radius:50%;background:#fff;transition:transform .15s ease;box-shadow:0 1px 2px rgba(0,0,0,.28)}.portal-admin-switch input:checked+.portal-admin-switch-slider{background:#2e8b57}.portal-admin-switch input:checked+.portal-admin-switch-slider::before{transform:translateX(15px)}.portal-admin-switch.is-mixed .portal-admin-switch-slider{background:#c88a00}.portal-admin-switch-text{font-size:12px;font-weight:650;color:var(--text-2);white-space:nowrap;min-width:52px}
 .portal-admin-price-available{font-size:11px;font-weight:650;color:var(--text-2);white-space:nowrap}
 .portal-admin-price-card-main,.portal-admin-lesson-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
 .portal-admin-price-title,.portal-admin-lesson-title{font-weight:750;color:var(--text);line-height:1.25;font-size:13px}
@@ -23545,25 +23545,9 @@ function renderAdminSectionPricesFromConfig(cfg){
     html += '<div class="portal-admin-subsection-title-row">';
     html += '<h3 class="portal-admin-subsection-title">' + escHtml(adminPriceGroupTitle(key)) + '</h3>';
     html += '<div class="portal-admin-subsection-title-group">';
-    if (writes && items.length > 0){
+    if (writes){
       var busyOther = adminPriceGroupBusy(key);
       if (!busyOther){
-        var isChecked = groupAvailState === 'on';
-        var isMixed = groupAvailState === 'mixed';
-        html += '<label class=\\'portal-admin-group-avail-label\\'>' +
-          '<input type=\\'checkbox\\' class=\\'portal-admin-group-avail-toggle\\'' +
-          ' data-admin-action=\\'toggle-group-availability\\'' +
-          ' data-rental-group=\\'' + escHtml(key) + '\\'' +
-          (isChecked ? ' checked' : '') +
-          (isMixed ? ' data-mixed=\\'true\\'' : '') +
-          '> ' + escHtml(portalT('admin.prices.available')) +
-          (isMixed ? ' <span class=\\'portal-admin-mixed-hint\\'>' + escHtml(portalT('admin.prices.availableMixed') || 'Some durations off') + '</span>' : '') +
-          '</label>';
-      }
-    }
-    if (writes){
-      var busyOther2 = adminPriceGroupBusy(key);
-      if (!busyOther2){
         html += '<div class="portal-admin-card-actions">';
         if (!groupEditing){
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit portal-admin-icon-btn" data-admin-action="edit-price-group" data-price-group="' +
@@ -23573,6 +23557,20 @@ function renderAdminSectionPricesFromConfig(cfg){
               escHtml(key) + '" aria-label="' + escHtml(portalT('admin.action.add')) + '">+</button>';
           }
         } else {
+          if (items.length > 0){
+            var isChecked = groupAvailState === 'on';
+            var isMixed = groupAvailState === 'mixed';
+            var switchText = isMixed
+              ? (portalT('admin.prices.availableMixed') || 'Some durations off')
+              : (isChecked ? (portalT('admin.prices.enabled') || 'Enabled') : (portalT('admin.prices.disabled') || 'Disabled'));
+            html += '<label class="portal-admin-switch' + (isMixed ? ' is-mixed' : '') + '">' +
+              '<input type="checkbox" class="portal-admin-group-avail-toggle" data-admin-action="toggle-group-availability"' +
+              ' data-rental-group="' + escHtml(key) + '"' +
+              (isChecked ? ' checked' : '') +
+              (isMixed ? ' data-mixed="true"' : '') +
+              '><span class="portal-admin-switch-slider"></span>' +
+              '<span class="portal-admin-switch-text">' + escHtml(switchText) + '</span></label>';
+          }
           html += '<button type="button" class="btn btn-primary portal-admin-row-edit" data-admin-action="save-price-group" data-price-group="' +
             escHtml(key) + '">' + escHtml(portalT('admin.action.save')) + '</button>';
           html += '<button type="button" class="btn btn-ghost portal-admin-row-edit" data-admin-action="cancel-edit">' +
