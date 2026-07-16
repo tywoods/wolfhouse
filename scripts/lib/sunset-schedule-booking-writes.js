@@ -204,6 +204,328 @@ function buildRentalPricingDescriptor(rentalPricing, serviceDates) {
   };
 }
 
+const CANONICAL_RENTAL_OFFERING_KEYS = Object.freeze([
+  'board_rental',
+  'wetsuit_rental',
+  'board_and_suit_rental',
+]);
+
+const CLIENT_RENTAL_MONEY_FIELDS = Object.freeze([
+  'unit_amount_cents', 'amount_cents', 'total_cents', 'line_total_cents',
+  'unit_price', 'unit_amount', 'line_total', 'currency_amount', 'price_source',
+  'amount', 'price', 'label',
+]);
+
+function inclusiveIsoDatesFromRange(dateFrom, dateTo) {
+  const from = String(dateFrom || '').slice(0, 10);
+  const to = String(dateTo || dateFrom || '').slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || to < from) {
+    return [];
+  }
+  const out = [];
+  let cur = from;
+  while (cur <= to && out.length < 31) {
+    out.push(cur);
+    const d = new Date(`${cur}T12:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 1);
+    cur = d.toISOString().slice(0, 10);
+  }
+  return out;
+}
+
+function rentalDurationKeyFromDateRange(dateFrom, dateTo) {
+  const dates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+  if (dates.length < 1) return null;
+  if (dates.length === 1) return '1_day';
+  return `${dates.length}_days`;
+}
+
+/**
+ * When canonical rentals[] is present, expand into operational components and
+ * capture rental context for authoritative quote application on create.
+ */
+function prepareCanonicalRentalsForCreate(body) {
+  const b = body && typeof body === 'object' ? body : {};
+  if (!Object.prototype.hasOwnProperty.call(b, 'rentals')) {
+    return { ok: true, present: false, body: b, rentals: null };
+  }
+  if (!Array.isArray(b.rentals)) {
+    return { ok: false, error: 'rentals must be an array', reason: 'invalid_rentals' };
+  }
+  for (let i = 0; i < b.rentals.length; i += 1) {
+    const row = b.rentals[i];
+    if (!row || typeof row !== 'object') {
+      return { ok: false, error: `rentals[${i}] must be an object`, reason: 'invalid_rentals' };
+    }
+    for (const key of CLIENT_RENTAL_MONEY_FIELDS) {
+      if (row[key] !== undefined && row[key] !== null && row[key] !== '') {
+        return { ok: false, error: `rentals[${i}].${key} must not be supplied by the client`, reason: 'client_money_rejected' };
+      }
+    }
+  }
+
+  const dateFrom = String(b.date_from || '').slice(0, 10);
+  const dateTo = String(b.date_to || b.date_from || '').slice(0, 10);
+  if (!dateFrom || !dateTo) {
+    return { ok: false, error: 'date_from and date_to are required for canonical rental bookings', reason: 'invalid_date' };
+  }
+  const rangeDates = inclusiveIsoDatesFromRange(dateFrom, dateTo);
+  if (!rangeDates.length) {
+    return { ok: false, error: 'invalid date_from/date_to range', reason: 'invalid_date' };
+  }
+  if (Object.prototype.hasOwnProperty.call(b, 'service_dates')) {
+    if (!Array.isArray(b.service_dates)) {
+      return { ok: false, error: 'service_dates must be an array', reason: 'invalid_service_dates' };
+    }
+    const got = b.service_dates.map((d) => String(d || '').slice(0, 10)).filter(Boolean);
+    if (got.length !== b.service_dates.length || new Set(got).size !== got.length) {
+      return { ok: false, error: 'service_dates must be unique YYYY-MM-DD dates', reason: 'invalid_service_dates' };
+    }
+    const expected = rangeDates.slice().sort();
+    const sortedGot = got.slice().sort();
+    if (expected.length !== sortedGot.length || expected.some((d, i) => d !== sortedGot[i])) {
+      return {
+        ok: false,
+        error: 'service_dates must match the inclusive date_from/date_to range exactly',
+        reason: 'service_dates_mismatch',
+      };
+    }
+  }
+
+  const expectedDuration = rentalDurationKeyFromDateRange(dateFrom, dateTo);
+  const seen = new Set();
+  const rentals = [];
+  for (let i = 0; i < b.rentals.length; i += 1) {
+    const row = b.rentals[i];
+    const offeringKey = String(row.offering_key || '').trim();
+    if (!CANONICAL_RENTAL_OFFERING_KEYS.includes(offeringKey)) {
+      return { ok: false, error: `rentals[${i}].offering_key is not allowed`, reason: 'invalid_rental_offering' };
+    }
+    if (seen.has(offeringKey)) {
+      return { ok: false, error: `duplicate rentals offering_key ${offeringKey}`, reason: 'duplicate_rental_offering' };
+    }
+    seen.add(offeringKey);
+    const durationKey = String(row.duration_key || '').trim();
+    if (!durationKey) {
+      return { ok: false, error: `rentals[${i}].duration_key is required`, reason: 'invalid_rental_duration' };
+    }
+    if (durationKey !== expectedDuration) {
+      return {
+        ok: false,
+        error: `rentals[${i}].duration_key must be ${expectedDuration} for the selected dates`,
+        reason: 'rental_duration_mismatch',
+      };
+    }
+    const qty = Number(row.quantity);
+    if (!Number.isInteger(qty) || qty < 1) {
+      return { ok: false, error: `rentals[${i}].quantity must be a positive integer`, reason: 'invalid_rental_quantity' };
+    }
+    rentals.push({ offering_key: offeringKey, duration_key: durationKey, quantity: qty });
+  }
+  if (seen.has('board_and_suit_rental') && (seen.has('board_rental') || seen.has('wetsuit_rental'))) {
+    return {
+      ok: false,
+      error: 'board_and_suit_rental cannot be combined with board_rental or wetsuit_rental',
+      reason: 'rental_bundle_conflict',
+    };
+  }
+
+  const components = { ...(b.components && typeof b.components === 'object' ? b.components : {}) };
+  const expectedLegacy = { surfboard: null, wetsuit: null };
+  for (const row of rentals) {
+    if (row.offering_key === 'board_rental') expectedLegacy.surfboard = row.quantity;
+    else if (row.offering_key === 'wetsuit_rental') expectedLegacy.wetsuit = row.quantity;
+    else if (row.offering_key === 'board_and_suit_rental') {
+      expectedLegacy.surfboard = row.quantity;
+      expectedLegacy.wetsuit = row.quantity;
+    }
+  }
+  for (const key of ['surfboard', 'wetsuit']) {
+    if (expectedLegacy[key] == null) continue;
+    if (components[key]) {
+      const legQty = Number(components[key].quantity);
+      if (!Number.isInteger(legQty) || legQty !== expectedLegacy[key]) {
+        return {
+          ok: false,
+          error: `components.${key}.quantity does not match canonical rentals`,
+          reason: 'legacy_rental_mismatch',
+        };
+      }
+    } else {
+      components[key] = { quantity: expectedLegacy[key] };
+    }
+  }
+
+  return {
+    ok: true,
+    present: true,
+    rentals,
+    rentalSpanDates: rangeDates,
+    pricingGroupId: crypto.randomBytes(8).toString('hex'),
+    body: {
+      ...b,
+      components,
+      service_dates: rangeDates,
+      date_from: dateFrom,
+      date_to: dateTo,
+    },
+  };
+}
+
+function findQuoteLineForRentalOffering(lineItems, offeringKey) {
+  const lines = Array.isArray(lineItems) ? lineItems : [];
+  return lines.find((l) => l && (
+    String(l.component || '') === offeringKey
+    || String(l.offering_id || '') === offeringKey
+    || String(l.offering_item_code || '').startsWith(`${offeringKey}__`)
+  )) || null;
+}
+
+function rowMetadata(row) {
+  if (row && row.metadata && typeof row.metadata === 'object') return row.metadata;
+  if (row && typeof row.metadata === 'string') {
+    try { return JSON.parse(row.metadata); } catch (_) { return {}; }
+  }
+  return {};
+}
+
+function rowMatchesQuoteLine(row, line) {
+  const component = String((line && line.component) || '').trim();
+  const meta = rowMetadata(row);
+  const serviceType = String(row.service_type || '').trim();
+  if (component === 'course') {
+    return meta.component === 'course' || serviceType === 'course';
+  }
+  if (component === 'private_lesson') {
+    return meta.component === 'private_lesson' || serviceType === 'private_lesson';
+  }
+  if (component === 'lesson') {
+    return meta.component === 'lesson' || serviceType === 'lesson';
+  }
+  if (component === 'board_and_suit_rental') {
+    return meta.offering_key === 'board_and_suit_rental'
+      && (serviceType === 'surfboard' || serviceType === 'wetsuit'
+        || meta.component === 'surfboard' || meta.component === 'wetsuit'
+        || meta.bundle_part === 'surfboard' || meta.bundle_part === 'wetsuit');
+  }
+  if (component === 'board_rental') {
+    return meta.offering_key === 'board_rental'
+      && (serviceType === 'surfboard' || meta.component === 'surfboard');
+  }
+  if (component === 'wetsuit_rental') {
+    return meta.offering_key === 'wetsuit_rental'
+      && (serviceType === 'wetsuit' || meta.component === 'wetsuit');
+  }
+  if (component === FULL_DAY_EQUIPMENT_ADDON_KEY || component === 'addon_service') {
+    return meta.component === FULL_DAY_EQUIPMENT_ADDON_KEY
+      || serviceType === 'addon_service'
+      || meta.service_key === FULL_DAY_EQUIPMENT_ADDON_KEY;
+  }
+  return false;
+}
+
+/**
+ * Assign every operational row to exactly one authoritative quote line and
+ * persist amounts. Bundle constituents beyond the primary row are explicitly
+ * zero-valued. Unclaimed / double-claimed / missing rows fail closed.
+ */
+async function applyAuthoritativeQuoteAmounts(pg, createdRows, quoteBody, opts = {}) {
+  const clientSlug = String((opts && opts.clientSlug) || '').trim();
+  if (!clientSlug) {
+    return { ok: false, error: 'client_slug_required' };
+  }
+  const lines = Array.isArray(quoteBody && quoteBody.line_items) ? quoteBody.line_items.slice() : [];
+  if (!lines.length) {
+    return { ok: false, error: 'quote_line_items_required' };
+  }
+  const quoteTotal = Number(quoteBody && quoteBody.total_cents);
+  if (!Number.isFinite(quoteTotal) || quoteTotal < 0) {
+    return { ok: false, error: 'invalid_quote_total' };
+  }
+  const lineTotalSum = lines.reduce((sum, line) => sum + (Number(line && line.total_cents) || 0), 0);
+  if (lineTotalSum !== quoteTotal) {
+    return { ok: false, error: 'quote_line_total_mismatch' };
+  }
+
+  const sortedRows = (createdRows || []).slice().sort((a, b) => {
+    const d = String(a.service_date || '').localeCompare(String(b.service_date || ''));
+    if (d) return d;
+    return String(a.service_record_id || a.id || '').localeCompare(String(b.service_record_id || b.id || ''));
+  });
+
+  // Exclusive ownership: each row may match at most one quote line.
+  const rowToLineIndex = new Map();
+  for (const row of sortedRows) {
+    const id = String(row.service_record_id || row.id || '');
+    const matches = [];
+    for (let i = 0; i < lines.length; i += 1) {
+      if (rowMatchesQuoteLine(row, lines[i])) matches.push(i);
+    }
+    if (matches.length > 1) {
+      return { ok: false, error: 'duplicate_row_claim' };
+    }
+    if (matches.length === 1) {
+      rowToLineIndex.set(id, matches[0]);
+    }
+  }
+
+  const unclaimed = sortedRows.filter((row) => {
+    const id = String(row.service_record_id || row.id || '');
+    return !rowToLineIndex.has(id);
+  });
+  if (unclaimed.length) {
+    const meta = rowMetadata(unclaimed[0]);
+    const label = meta.component || meta.offering_key || unclaimed[0].service_type || 'unknown';
+    return { ok: false, error: 'unclaimed_service_row_' + label };
+  }
+
+  let appliedLineTotal = 0;
+  let persistedAmountSum = 0;
+
+  for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex];
+    const component = String((line && line.component) || '').trim() || 'line';
+    const matches = sortedRows.filter((row) => {
+      const id = String(row.service_record_id || row.id || '');
+      return rowToLineIndex.get(id) === lineIndex;
+    });
+    if (!matches.length) {
+      return { ok: false, error: 'no_operational_rows_for_' + component };
+    }
+    const lineTotal = Number(line.total_cents);
+    if (!Number.isFinite(lineTotal) || lineTotal < 0) {
+      return { ok: false, error: 'invalid_quote_line_total' };
+    }
+    appliedLineTotal += lineTotal;
+    for (let i = 0; i < matches.length; i += 1) {
+      const row = matches[i];
+      const id = String(row.service_record_id || row.id || '');
+      // Primary row carries the line total; remaining bundle/span constituents are explicit zeros.
+      const due = i === 0 ? lineTotal : 0;
+      const upd = await pg.query(
+        // MULTICLIENT_SCOPE_OK: same-txn service row; client_slug predicate defense-in-depth
+        'UPDATE booking_service_records SET amount_due_cents = $1 WHERE id = $2::uuid AND client_slug = $3',
+        [due, id, clientSlug],
+      );
+      if (Number(upd && upd.rowCount) !== 1) {
+        return { ok: false, error: 'service_amount_update_mismatch' };
+      }
+      persistedAmountSum += due;
+    }
+  }
+
+  if (appliedLineTotal !== quoteTotal) {
+    return { ok: false, error: 'applied_line_total_mismatch' };
+  }
+  if (persistedAmountSum !== quoteTotal) {
+    return { ok: false, error: 'persisted_amount_sum_mismatch' };
+  }
+  if (quoteTotal <= 0) {
+    return { ok: false, error: 'booking_total_zero' };
+  }
+  return { ok: true, total_cents: persistedAmountSum, applied_line_total_cents: appliedLineTotal };
+}
+
 function parsePrivateLessonQuantity(raw) {
   const quantity = parseInt(String(raw == null ? 1 : raw), 10);
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > PRIVATE_LESSON_MAX_SESSIONS) return null;
@@ -840,13 +1162,30 @@ async function createSunsetScheduleBooking(pg, opts) {
     return { ok: false, status: 403, body: { success: false, error: 'unsupported_client', client_slug: clientSlug } };
   }
 
-  const validated = validateScheduleBookingBody(opts.body);
+  const rentalPrep = prepareCanonicalRentalsForCreate(opts.body);
+  if (!rentalPrep.ok) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        success: false,
+        error: rentalPrep.error,
+        reason: rentalPrep.reason,
+        reason_code: rentalPrep.reason,
+      },
+    };
+  }
+
+  const validated = validateScheduleBookingBody(rentalPrep.body);
   if (!validated.ok) {
     return { ok: false, status: 400, body: { success: false, error: validated.error } };
   }
   const input = validated.value;
   const locationId = opts.locationId != null ? String(opts.locationId).trim() : '';
   const attribution = resolveScheduleBookingAttribution(opts.actor);
+  const canonicalRentals = rentalPrep.present ? rentalPrep.rentals : null;
+  const rentalSpanDates = rentalPrep.present ? rentalPrep.rentalSpanDates : null;
+  const rentalPricingGroupId = rentalPrep.present ? rentalPrep.pricingGroupId : null;
 
   if (input.idempotency_key) {
     const existingRows = await findIdempotentBooking(pg, clientSlug, input.idempotency_key);
@@ -996,13 +1335,114 @@ async function createSunsetScheduleBooking(pg, opts) {
   const bookingStatus = bookingStatusFromPayment(input.payment_status);
   const bookingCode = generateSunsetManualBookingCode(locationId);
   const bundleId = crypto.randomBytes(8).toString('hex');
-  const rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
+  let rentalPricingDescriptor = buildRentalPricingDescriptor(input.rental_pricing, input.service_dates);
+  if (canonicalRentals) {
+    const bundleRental = canonicalRentals.find((r) => r.offering_key === 'board_and_suit_rental');
+    if (bundleRental) {
+      rentalPricingDescriptor = {
+        pricing_group_id: rentalPricingGroupId,
+        offering_key: bundleRental.offering_key,
+        duration: bundleRental.duration_key,
+        quantity: bundleRental.quantity,
+        service_date: (rentalSpanDates && rentalSpanDates[0]) || input.service_dates[0],
+        components: ['surfboard', 'wetsuit'],
+        quoted_total_cents: null,
+        rental_service_dates: rentalSpanDates,
+      };
+    }
+  }
   const componentKeys = componentList(input.components);
   const guestCount = resolveGuestCount(input.components);
   const { firstDate } = bookingHeaderDates(input);
 
   await pg.query('BEGIN');
   try {
+    let authoritativeQuote = null;
+    if (canonicalRentals) {
+      const {
+        buildSunsetQuoteCommand,
+        executeSunsetQuote,
+        buildQuoteProvenance,
+        QUOTE_CHANNELS,
+      } = require('./luna-front-desk-quote-service');
+      const { resolveTenantBusinessConfigAsync } = require('./tenant-business-config');
+      const adminCfg = await resolveTenantBusinessConfigAsync(clientSlug, {
+        locationId,
+        pgClient: pg,
+      });
+      if (!adminCfg || adminCfg.ok === false) {
+        const err = new Error('admin_config_unavailable');
+        err.sunsetPriceFail = {
+          ok: false,
+          status: 422,
+          body: { success: false, error: 'admin_config_unavailable', reason_code: 'admin_db_expected_unavailable' },
+        };
+        throw err;
+      }
+      const channel = opts.quoteChannel === 'luna_whatsapp'
+        ? QUOTE_CHANNELS.LUNA_WHATSAPP
+        : QUOTE_CHANNELS.MANUAL_STAFF;
+      const quoteBuilt = buildSunsetQuoteCommand({
+        channel,
+        trustedLocationId: locationId,
+        transportBody: {
+          ...rentalPrep.body,
+          require_db: true,
+        },
+        now: opts.now instanceof Date ? opts.now : new Date(),
+      });
+      if (!quoteBuilt.ok) {
+        const err = new Error((quoteBuilt.body && quoteBuilt.body.error) || 'quote_failed');
+        err.sunsetPriceFail = quoteBuilt;
+        throw err;
+      }
+      const freshQuote = await executeSunsetQuote(pg, quoteBuilt.command, { adminCfg });
+      if (!freshQuote.ok) {
+        const err = new Error((freshQuote.body && (freshQuote.body.error || freshQuote.body.reason)) || 'quote_failed');
+        err.sunsetPriceFail = {
+          ok: false,
+          status: freshQuote.status || 422,
+          body: {
+            success: false,
+            error: (freshQuote.body && (freshQuote.body.error || freshQuote.body.reason)) || 'quote_failed',
+            reason_code: (freshQuote.body && (freshQuote.body.reason_code || freshQuote.body.reason)) || 'quote_failed',
+            quote_error: freshQuote.body,
+          },
+        };
+        throw err;
+      }
+      const provenance = opts.quoteProvenance;
+      if (provenance && typeof provenance === 'object') {
+        const freshProv = buildQuoteProvenance(freshQuote.body);
+        if (String(provenance.quote_fingerprint || '') !== String(freshProv.quote_fingerprint || '')) {
+          const err = new Error('stale_quote');
+          err.sunsetPriceFail = {
+            ok: false,
+            status: 409,
+            body: {
+              success: false,
+              error: 'The quoted price is no longer available. Please request a fresh quote.',
+              reason_code: 'stale_quote',
+              detail: 'quote_fingerprint_mismatch',
+              expected_fingerprint: provenance.quote_fingerprint,
+              current_fingerprint: freshProv.quote_fingerprint,
+            },
+          };
+          throw err;
+        }
+      }
+      authoritativeQuote = freshQuote.body;
+      if (rentalPricingDescriptor && rentalPricingDescriptor.offering_key === 'board_and_suit_rental') {
+        const bundleLine = findQuoteLineForRentalOffering(
+          authoritativeQuote.line_items,
+          'board_and_suit_rental',
+        );
+        if (bundleLine && bundleLine.total_cents != null) {
+          rentalPricingDescriptor.quoted_total_cents = Number(bundleLine.total_cents);
+        }
+      }
+    }
+
     const bookingIns = await pg.query(
       `INSERT INTO bookings (
          client_id, booking_code, guest_name, phone, status, payment_status,
@@ -1031,6 +1471,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           guest_phone: input.guest_phone,
           location_id: locationId || null,
           rental_pricing: rentalPricingDescriptor || null,
+          rentals: canonicalRentals || null,
         }),
       ],
     );
@@ -1111,7 +1552,38 @@ async function createSunsetScheduleBooking(pg, opts) {
           created_by_staff: attribution.createdByStaff,
           idempotency_key: input.idempotency_key,
         };
-        if (rentalPricingDescriptor
+        if (canonicalRentals && (componentKey === 'surfboard' || componentKey === 'wetsuit')) {
+          const rental = canonicalRentals.find((r) => {
+            if (r.offering_key === 'board_and_suit_rental') return true;
+            if (componentKey === 'surfboard') return r.offering_key === 'board_rental';
+            return r.offering_key === 'wetsuit_rental';
+          });
+          if (rental) {
+            const quoteLine = authoritativeQuote
+              ? findQuoteLineForRentalOffering(authoritativeQuote.line_items, rental.offering_key)
+              : null;
+            metadata.offering_key = rental.offering_key;
+            metadata.duration_key = rental.duration_key;
+            metadata.quantity = rental.quantity;
+            metadata.rental_service_dates = rentalSpanDates;
+            metadata.offering_id = `${rental.offering_key}__${rental.duration_key}`;
+            if (rental.offering_key === 'board_and_suit_rental') {
+              metadata.pricing_group_id = rentalPricingGroupId;
+              metadata.bundle_part = componentKey;
+              metadata.rental_pricing_role = componentKey;
+              metadata.rental_bundle_id = rentalPricingGroupId;
+            }
+            if (quoteLine) {
+              metadata.price_id = quoteLine.price_id || null;
+              metadata.unit_amount_cents = quoteLine.unit_amount_cents;
+              metadata.price_identity = {
+                price_id: quoteLine.price_id || null,
+                item_code: quoteLine.offering_item_code || quoteLine.offering_id || metadata.offering_id,
+                unit: rental.duration_key,
+              };
+            }
+          }
+        } else if (rentalPricingDescriptor
           && (componentKey === 'surfboard' || componentKey === 'wetsuit')
           && serviceDate === rentalPricingDescriptor.service_date) {
           metadata.pricing_group_id = rentalPricingDescriptor.pricing_group_id;
@@ -1129,7 +1601,7 @@ async function createSunsetScheduleBooking(pg, opts) {
           attribution.dbSource,
           JSON.stringify(metadata),
         ]);
-        createdRows.push(row);
+        createdRows.push({ ...row, metadata });
       }
     }
 
@@ -1156,23 +1628,93 @@ async function createSunsetScheduleBooking(pg, opts) {
       addonRows.forEach((r) => createdRows.push(r));
     }
 
-    // Price inside the same transaction. On failure ROLLBACK — no cancelled leftovers.
-    const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
-    const priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
-    if (!priced || !priced.ok) {
-      const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
-      const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
-      const err = new Error(faced.error);
-      err.sunsetPriceFail = {
-        ok: false,
-        status: 422,
-        body: {
-          success: false,
-          error: faced.error,
-          reason_code: faced.reason_code,
-        },
+    let priced;
+    if (authoritativeQuote) {
+      const applied = await applyAuthoritativeQuoteAmounts(pg, createdRows, authoritativeQuote, {
+        clientSlug,
+      });
+      if (!applied.ok) {
+        const err = new Error(applied.error || 'quote_amount_apply_failed');
+        err.sunsetPriceFail = {
+          ok: false,
+          status: 422,
+          body: {
+            success: false,
+            error: applied.error || 'quote_amount_apply_failed',
+            reason_code: applied.error || 'quote_amount_apply_failed',
+          },
+        };
+        throw err;
+      }
+      const bookingUpd = await pg.query(
+        // MULTICLIENT_SCOPE_OK: same-txn booking header; client_id predicate defense-in-depth
+        `UPDATE bookings
+            SET total_amount_cents = $1,
+                balance_due_cents = GREATEST($1 - COALESCE(amount_paid_cents, 0), 0),
+                metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb
+          WHERE id = $3::uuid AND client_id = $4::uuid`,
+        [
+          applied.total_cents,
+          JSON.stringify({
+            sunset_priced_at: new Date().toISOString(),
+            sunset_price_source: 'authoritative_quote',
+            quote_fingerprint: authoritativeQuote.quote_provenance
+              && authoritativeQuote.quote_provenance.quote_fingerprint,
+          }),
+          bookingId,
+          clientId,
+        ],
+      );
+      if (Number(bookingUpd && bookingUpd.rowCount) !== 1) {
+        const err = new Error('booking_total_update_mismatch');
+        err.sunsetPriceFail = {
+          ok: false,
+          status: 422,
+          body: {
+            success: false,
+            error: 'booking_total_update_mismatch',
+            reason_code: 'booking_total_update_mismatch',
+          },
+        };
+        throw err;
+      }
+      priced = {
+        ok: true,
+        total_cents: applied.total_cents,
+        sunset_price_source: 'authoritative_quote',
       };
-      throw err;
+      if (Number(authoritativeQuote.total_cents) !== Number(applied.total_cents)) {
+        const err = new Error('quote_total_mismatch');
+        err.sunsetPriceFail = {
+          ok: false,
+          status: 422,
+          body: {
+            success: false,
+            error: 'quote_total_mismatch',
+            reason_code: 'quote_total_mismatch',
+          },
+        };
+        throw err;
+      }
+    } else {
+      // Price inside the same transaction. On failure ROLLBACK — no cancelled leftovers.
+      const { priceSunsetBookingServices } = require('./sunset-stripe-payment-links');
+      priced = await priceSunsetBookingServices(pg, clientSlug, bookingId);
+      if (!priced || !priced.ok) {
+        const { staffFacingSunsetAdminPriceError } = require('./sunset-admin-price-resolve');
+        const faced = staffFacingSunsetAdminPriceError((priced && priced.error) || 'pricing_failed');
+        const err = new Error(faced.error);
+        err.sunsetPriceFail = {
+          ok: false,
+          status: 422,
+          body: {
+            success: false,
+            error: faced.error,
+            reason_code: faced.reason_code,
+          },
+        };
+        throw err;
+      }
     }
 
     await pg.query('COMMIT');
@@ -1251,4 +1793,6 @@ module.exports = {
   generateSunsetManualBookingCode,
   scheduleRowFromDb,
   createSunsetScheduleBooking,
+  prepareCanonicalRentalsForCreate,
+  applyAuthoritativeQuoteAmounts,
 };
