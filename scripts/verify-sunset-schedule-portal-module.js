@@ -139,5 +139,100 @@ assert('stripe section uses portal resolver', (function () {
   return paySrc.includes('schedulePortalStripeLinkFromCtx');
 })());
 
-console.log(`\n── verify:sunset-schedule-portal-module ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
-process.exit(fail ? 1 : 0);
+console.log('\n[7] Quote payload browser contract (VM)');
+assert(
+  'schedulePortalFetchQuote body includes guest_name',
+  /function schedulePortalFetchQuote\([\s\S]*?guest_name:\s*createPayload\.guest_name/.test(modSrc)
+);
+
+const formPayload = {
+  guest_name: 'Ada Lovelace',
+  date_from: '2026-07-20',
+  date_to: '2026-07-22',
+  components: {
+    course: { course_id: 'course-beginner', tier_key: '1_week', quantity: 1 },
+  },
+  amount_due_cents: 99999,
+  total_cents: 99999,
+};
+
+const fetchLog = [];
+const quoteCtx = {
+  console,
+  getClient: function() { return 'sunset'; },
+  getSunsetLocation: function() { return 'sunset-somo'; },
+  sunsetLocationQuerySuffix: function() { return '&location_id=sunset-somo'; },
+  scheduleEnumerateDates: function(from, to) {
+    return [String(from).slice(0, 10), String(to).slice(0, 10)];
+  },
+  fetch: function(url, opts) {
+    fetchLog.push({ url: String(url), opts: opts || {} });
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: function() {
+        return Promise.resolve({
+          success: true,
+          total_cents: 13500,
+          quote_provenance: { source: 'test' },
+        });
+      },
+    });
+  },
+};
+
+vm.createContext(quoteCtx);
+vm.runInContext(modSrc, quoteCtx);
+assert('schedulePortalFetchQuote exported in sandbox', typeof quoteCtx.schedulePortalFetchQuote === 'function');
+
+(async function runQuotePayloadContract() {
+  fetchLog.length = 0;
+  const result = await quoteCtx.schedulePortalFetchQuote(formPayload);
+  assert('quote fetch returns ok', result && result.ok === true);
+
+  const quoteCalls = fetchLog.filter(function(entry) {
+    return entry.url.indexOf('/staff/schedule/bookings/quote') >= 0
+      && entry.opts
+      && entry.opts.method === 'POST';
+  });
+  assert('one quote POST issued', quoteCalls.length === 1);
+
+  let body = null;
+  try {
+    body = JSON.parse(quoteCalls[0].opts.body);
+  } catch (err) {
+    body = null;
+  }
+  assert('quote POST body is JSON', body != null);
+  assert(
+    'quote body guest_name matches form payload exactly',
+    body && body.guest_name === formPayload.guest_name,
+    body && body.guest_name
+  );
+  assert('quote body date_from matches form', body && body.date_from === formPayload.date_from);
+  assert('quote body date_to matches form', body && body.date_to === formPayload.date_to);
+  assert(
+    'quote body components match form',
+    body
+      && body.components
+      && body.components.course
+      && body.components.course.course_id === formPayload.components.course.course_id
+      && body.components.course.tier_key === formPayload.components.course.tier_key
+  );
+  assert('quote body includes location_id', body && body.location_id === 'sunset-somo');
+  assert(
+    'quote body includes service_dates derived from form',
+    body
+      && Array.isArray(body.service_dates)
+      && body.service_dates[0] === '2026-07-20'
+      && body.service_dates[1] === '2026-07-22'
+  );
+  assert('quote body omits amount_due_cents', body && !Object.prototype.hasOwnProperty.call(body, 'amount_due_cents'));
+  assert('quote body omits total_cents', body && !Object.prototype.hasOwnProperty.call(body, 'total_cents'));
+
+  console.log(`\n── verify:sunset-schedule-portal-module ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
+  process.exit(fail ? 1 : 0);
+})().catch(function(err) {
+  console.error(err);
+  process.exit(1);
+});
