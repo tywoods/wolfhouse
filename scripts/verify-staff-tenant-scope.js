@@ -12,6 +12,7 @@
  */
 
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 
 const {
@@ -29,7 +30,9 @@ const {
   loadScopeDebtRegistry,
   classifyDebtHotspots,
   summarizeClassification,
-  assertPaymentLinkClientScope,
+  assertDraftPaymentLinkClientScope,
+  assertBalancePaymentLinkClientScope,
+  findDuplicateScanFingerprints,
 } = require('./lib/staff-tenant-scope-hotspot');
 
 const REPO_ROOT = path.join(__dirname, '..');
@@ -69,6 +72,16 @@ function extractHandleAuthSessionSource(source) {
   const devBlock = authSplit[1] ? authSplit[1].split('let user;')[0] : '';
   const authBlock = authSplit[1] ? authSplit[1].split('let user;')[1] || '' : fnBody;
   return { fnBody, devBlock, authBlock };
+}
+
+function withTempJsonFile(label, payload, runFn) {
+  const tmpPath = path.join(os.tmpdir(), `wh-staff-tenant-scope-${process.pid}-${label}.json`);
+  try {
+    fs.writeFileSync(tmpPath, JSON.stringify(payload));
+    return runFn(tmpPath);
+  } finally {
+    try { fs.unlinkSync(tmpPath); } catch (_) {}
+  }
 }
 
 function runRegistrySelfTests() {
@@ -128,35 +141,47 @@ function runRegistrySelfTests() {
       },
     ],
   };
-  const tmpRegistry = path.join(__dirname, 'fixtures', '.selftest-tenant-scope-registry.json');
-  fs.writeFileSync(tmpRegistry, JSON.stringify(fakeRegistry));
-  const loaded = loadScopeDebtRegistry(tmpRegistry);
-  const { unclassified, stale } = classifyDebtHotspots(hitsV2, loaded.byFingerprint);
-  ok('S4 deleted hotspot surfaces stale registry entry', stale.length === 1 && stale[0].id === 'stale-entry');
-  ok('S4b moved hotspot still classifies by fingerprint', unclassified.length === 0);
-  fs.unlinkSync(tmpRegistry);
+  withTempJsonFile('registry', fakeRegistry, (tmpRegistry) => {
+    const loaded = loadScopeDebtRegistry(tmpRegistry);
+    const { unclassified, stale } = classifyDebtHotspots(hitsV2, loaded.byFingerprint);
+    ok('S4 deleted hotspot surfaces stale registry entry', stale.length === 1 && stale[0].id === 'stale-entry');
+    ok('S4b moved hotspot still classifies by fingerprint', unclassified.length === 0);
+  });
 
   let dupThrew = false;
   try {
-    const dupPath = path.join(__dirname, 'fixtures', '.selftest-dup-registry.json');
-    const real = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
-    real.entries.push({ ...real.entries[0], id: 'dup-copy' });
-    fs.writeFileSync(dupPath, JSON.stringify(real));
-    loadScopeDebtRegistry(dupPath);
-    fs.unlinkSync(dupPath);
+    withTempJsonFile('dup-registry', (() => {
+      const real = JSON.parse(fs.readFileSync(REGISTRY_PATH, 'utf8'));
+      real.entries.push({ ...real.entries[0], id: 'dup-copy' });
+      return real;
+    })(), (dupPath) => {
+      loadScopeDebtRegistry(dupPath);
+    });
   } catch (e) {
     dupThrew = /duplicate registry fingerprint/i.test(e.message);
-    const dupPath = path.join(__dirname, 'fixtures', '.selftest-dup-registry.json');
-    try { fs.unlinkSync(dupPath); } catch (_) {}
   }
-  ok('S5 duplicate fingerprints fail closed', dupThrew);
+  ok('S5 duplicate registry fingerprints fail closed', dupThrew);
+
+  const dupText = `'use strict';\nasync function applyPaid(pg) {\n${baseSql}\n${baseSql}\n}\n`;
+  const dupHits = scanTextDebt(REPO_ROOT, rel, dupText);
+  const scanDups = findDuplicateScanFingerprints(dupHits);
+  ok('S7 duplicate scanned hotspots share fingerprint (negative fixture)', scanDups.length === 1 && scanDups[0].count === 2);
 
   const paymentLinkSrc = fs.readFileSync(PAYMENT_LINK_SERVICE_PATH, 'utf8');
-  ok('S6 E6 payment-link UPDATE requires client_id predicate', assertPaymentLinkClientScope(paymentLinkSrc));
-  const broken = paymentLinkSrc
-    .replace(/(async function createDraftPaymentStripeLink[\s\S]*?WHERE id = \$5::uuid) AND client_id = \$6/, '$1')
-    .replace(/(async function createBookingBalancePaymentLink[\s\S]*?WHERE id = \$5::uuid) AND client_id = \$6/, '$1');
-  ok('S6b E6 fails when client_id predicate removed', !assertPaymentLinkClientScope(broken));
+  ok('S6a createDraftPaymentStripeLink scoped', assertDraftPaymentLinkClientScope(paymentLinkSrc));
+  ok('S6b createBookingBalancePaymentLink scoped', assertBalancePaymentLinkClientScope(paymentLinkSrc));
+  const brokenDraft = paymentLinkSrc.replace(
+    /(async function createDraftPaymentStripeLink[\s\S]*?WHERE id = \$5::uuid) AND client_id = \$6/,
+    '$1',
+  );
+  ok('S6c draft fails independently when client_id removed',
+    !assertDraftPaymentLinkClientScope(brokenDraft) && assertBalancePaymentLinkClientScope(brokenDraft));
+  const brokenBalance = paymentLinkSrc.replace(
+    /(async function createBookingBalancePaymentLink[\s\S]*?WHERE id = \$5::uuid) AND client_id = \$6/,
+    '$1',
+  );
+  ok('S6d balance fails independently when client_id removed',
+    assertDraftPaymentLinkClientScope(brokenBalance) && !assertBalancePaymentLinkClientScope(brokenBalance));
 }
 
 console.log('verify:staff-tenant-scope — Staff API tenant/session guardrails\n');
@@ -263,8 +288,10 @@ ok('E5 stripe webhook payment UPDATE includes client_id predicate',
   ((fs.readFileSync(path.join(__dirname, 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
     .match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 1)
   && ((staffApiSource.match(/WHERE id = \$4\s+AND client_id = \$5/g) || []).length >= 1));
-ok('E6 staff payment link UPDATE includes client_id predicate',
-  assertPaymentLinkClientScope(paymentLinkServiceSource));
+ok('E6a createDraftPaymentStripeLink UPDATE includes client_id predicate',
+  assertDraftPaymentLinkClientScope(paymentLinkServiceSource));
+ok('E6b createBookingBalancePaymentLink UPDATE includes client_id predicate',
+  assertBalancePaymentLinkClientScope(paymentLinkServiceSource));
 
 // ── F. Final payment-scope blocker (Slice 8) ─────────────────────────────────
 console.log('\n── Combo-waive payment scope ──');
@@ -314,12 +341,17 @@ runRegistrySelfTests();
 console.log('\n── SQL tenant scope scan (debt registry) ──');
 
 const { debt, todos } = scanSqlScopeDebt(REPO_ROOT);
+const scanFingerprintDups = findDuplicateScanFingerprints(debt);
 const strict = debt.filter((hit) => {
   const win = windowTextForHit(REPO_ROOT, hit);
   return MIRLEFT_LAWAVE.test(win) && !GRANDFATHER_OK.test(win);
 });
 const { unclassified, classified, stale } = classifyDebtHotspots(debt, registry.byFingerprint);
 const { byStatus, byRisk, todoItems } = summarizeClassification(classified);
+
+ok('A0 scanned hotspots have unique fingerprints', scanFingerprintDups.length === 0, scanFingerprintDups.length
+  ? scanFingerprintDups.map((d) => `${d.fingerprint} x${d.count} (${d.hits.map((h) => `${h.rel}:${h.line}`).join(', ')})`).join('; ')
+  : null);
 
 ok('A1 every scanned hotspot is classified in debt registry', unclassified.length === 0, unclassified.length
   ? unclassified.map((h) => `${h.fingerprint} ${h.rel}:${h.line} [${h.table}]`).join('; ')

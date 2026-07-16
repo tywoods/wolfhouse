@@ -248,7 +248,7 @@ function loadScopeDebtRegistry(registryPath) {
   const schemaVersion = parsed.schema_version || 1;
   if (schemaVersion < 2) {
     throw new Error(
-      `registry schema_version ${schemaVersion} is obsolete — run node scripts/migrate-staff-tenant-scope-debt-registry-v2.js`,
+      `registry schema_version ${schemaVersion} is obsolete — regenerate fingerprint-keyed registry (schema v2)`,
     );
   }
   const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
@@ -405,10 +405,35 @@ function scanTextDebt(repoRoot, relPathStr, text) {
   return debt;
 }
 
-function assertPaymentLinkClientScope(source) {
-  const draftScoped = /async function createDraftPaymentStripeLink[\s\S]*?UPDATE payments[\s\S]*?WHERE id = \$5::uuid AND client_id = \$6/.test(source);
-  const balanceScoped = /async function createBookingBalancePaymentLink[\s\S]*?UPDATE payments[\s\S]*?WHERE id = \$5::uuid AND client_id = \$6/.test(source);
-  return draftScoped && balanceScoped;
+function extractFunctionBody(source, fnName) {
+  const start = source.indexOf(`async function ${fnName}`);
+  if (start < 0) return '';
+  const rest = source.slice(start);
+  const end = rest.search(/\nasync function [A-Za-z0-9_]+/);
+  return end > 0 ? rest.slice(0, end) : rest;
+}
+
+function assertDraftPaymentLinkClientScope(source) {
+  const body = extractFunctionBody(source, 'createDraftPaymentStripeLink');
+  return /UPDATE payments[\s\S]*?WHERE id = \$5::uuid AND client_id = \$6/.test(body);
+}
+
+function assertBalancePaymentLinkClientScope(source) {
+  const body = extractFunctionBody(source, 'createBookingBalancePaymentLink');
+  return /UPDATE payments[\s\S]*?WHERE id = \$5::uuid AND client_id = \$6/.test(body);
+}
+
+function findDuplicateScanFingerprints(debt) {
+  const byFp = new Map();
+  for (const hit of debt) {
+    if (!byFp.has(hit.fingerprint)) byFp.set(hit.fingerprint, []);
+    byFp.get(hit.fingerprint).push(hit);
+  }
+  const out = [];
+  for (const [fingerprint, hits] of byFp) {
+    if (hits.length > 1) out.push({ fingerprint, hits, count: hits.length });
+  }
+  return out;
 }
 
 module.exports = {
@@ -425,6 +450,8 @@ module.exports = {
   summarizeClassification,
   classifyHotspotByEvidence,
   buildRegistryEntryFromHotspot,
-  assertPaymentLinkClientScope,
+  assertDraftPaymentLinkClientScope,
+  assertBalancePaymentLinkClientScope,
+  findDuplicateScanFingerprints,
   normalizeContent,
 };

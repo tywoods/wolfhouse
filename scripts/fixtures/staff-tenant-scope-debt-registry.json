@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "identity_model": "fingerprint:v1",
-  "generated_from": "scripts/migrate-staff-tenant-scope-debt-registry-v2.js",
+  "generated_from": "scripts/verify-staff-tenant-scope.js scan + manual classification (WB-3)",
   "slice": "wb-3-tenant-scope-debt-stable-identity",
   "summary": {
     "total": 50,
