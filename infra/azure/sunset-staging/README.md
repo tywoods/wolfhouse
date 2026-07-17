@@ -13,6 +13,7 @@
 | `main.bicep` | Sunset-only staging resources (Staff API + DB + KV + identity) |
 | `acr-pull-role.bicep` | Cross-RG module: `AcrPull` on `whstagingacr` for Sunset identity |
 | `parameters.example.json` | Example values — **no secrets** |
+| `inventory/` | FOUNDATION Slice 1 live-to-IaC drift baseline (read-only; do not “fix” Bicep from it) |
 | `README.md` | This runbook |
 
 ---

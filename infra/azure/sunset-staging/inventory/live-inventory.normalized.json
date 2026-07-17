@@ -1,0 +1,429 @@
+{
+  "schemaVersion": 1,
+  "capturedAt": "2026-07-17T10:05:00Z",
+  "sourceMasterSha": "186307418400581a74f86b096e02bc32a41513b6",
+  "comparedAgainst": {
+    "mainBicep": "infra/azure/sunset-staging/main.bicep",
+    "acrPullRoleBicep": "infra/azure/sunset-staging/acr-pull-role.bicep",
+    "parametersExample": "infra/azure/sunset-staging/parameters.example.json",
+    "readme": "infra/azure/sunset-staging/README.md"
+  },
+  "scope": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "app": "luna-sunset-staging-staff-api",
+    "tenant": "sunset",
+    "environment": "staging"
+  },
+  "cost": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-17",
+      "label": "month-to-date"
+    },
+    "amount": 13.493559344086,
+    "currency": "USD",
+    "note": "Read-only Cost Management query. No Azure mutations."
+  },
+  "resourceCount": 9,
+  "resources": [
+    {
+      "name": "luna-sunset-staging-identity",
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "location": "westeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-logs",
+      "type": "Microsoft.OperationalInsights/workspaces",
+      "location": "westeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-pg-app",
+      "type": "Microsoft.DBforPostgreSQL/flexibleServers",
+      "location": "westeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-kv",
+      "type": "Microsoft.KeyVault/vaults",
+      "location": "westeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-appinsights",
+      "type": "Microsoft.Insights/components",
+      "location": "westeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-env",
+      "type": "Microsoft.App/managedEnvironments",
+      "location": "northeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "owner": "tywoods",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-staff-api",
+      "type": "Microsoft.App/containerApps",
+      "location": "northeurope",
+      "tags": {
+        "product": "Luna Front Desk",
+        "tenant": "sunset",
+        "environment": "staging",
+        "slice": "portal-1"
+      }
+    },
+    {
+      "name": "luna-sunset-staging-env/mc-luna-sunset-st-sunset-staging-l-4218",
+      "type": "Microsoft.App/managedEnvironments/managedCertificates",
+      "location": "northeurope",
+      "tags": null
+    },
+    {
+      "name": "luna-sunset-staging-hold-expiry",
+      "type": "Microsoft.App/jobs",
+      "location": "northeurope",
+      "tags": null
+    }
+  ],
+  "normalized": {
+    "identity": {
+      "name": "luna-sunset-staging-identity",
+      "location": "westeurope",
+      "principalId": "5338388f-1685-40cb-ae69-dc2e00f32ad6",
+      "clientId": "0e05fbe3-e8c5-48aa-a914-30aed284e6f7"
+    },
+    "keyVault": {
+      "name": "luna-sunset-staging-kv",
+      "sku": "standard",
+      "enableRbacAuthorization": true,
+      "enableSoftDelete": true,
+      "softDeleteRetentionInDays": 7,
+      "publicNetworkAccess": "Enabled",
+      "secretNamesOnly": [
+        "meta-whatsapp-token",
+        "staff-session-secret",
+        "stripe-secret-key",
+        "stripe-webhook-secret",
+        "sunset-database-url"
+      ]
+    },
+    "postgres": {
+      "name": "luna-sunset-staging-pg-app",
+      "sku": "Standard_B1ms",
+      "tier": "Burstable",
+      "version": "15",
+      "administratorLogin": "sunsetadmin",
+      "storageSizeGB": 32,
+      "backupRetentionDays": 7,
+      "geoRedundantBackup": "Disabled",
+      "highAvailability": "Disabled",
+      "publicNetworkAccess": "Enabled",
+      "appDatabase": "sunset_staging",
+      "firewallRules": [
+        { "name": "AllowSunsetCaeEgress", "startIpAddress": "4.209.106.13", "endIpAddress": "4.209.106.13" },
+        { "name": "AllowSunsetAppEgress", "startIpAddress": "4.208.189.26", "endIpAddress": "4.208.189.26" }
+      ]
+    },
+    "logAnalytics": {
+      "name": "luna-sunset-staging-logs",
+      "sku": "PerGB2018",
+      "retentionInDays": 30
+    },
+    "appInsights": {
+      "name": "luna-sunset-staging-appinsights",
+      "kind": "web",
+      "applicationType": "web",
+      "workspace": "luna-sunset-staging-logs"
+    },
+    "containerAppsEnvironment": {
+      "name": "luna-sunset-staging-env",
+      "location": "northeurope",
+      "staticIp": "4.209.106.13",
+      "defaultDomain": "redriver-a800b8d6.northeurope.azurecontainerapps.io",
+      "logsDestination": "log-analytics"
+    },
+    "staffApi": {
+      "name": "luna-sunset-staging-staff-api",
+      "location": "northeurope",
+      "identity": "UserAssigned",
+      "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+      "cpu": 0.5,
+      "memory": "1Gi",
+      "probes": null,
+      "scale": { "minReplicas": 1, "maxReplicas": 1 },
+      "ingress": {
+        "external": true,
+        "targetPort": 3036,
+        "transport": "Auto",
+        "allowInsecure": false,
+        "fqdn": "luna-sunset-staging-staff-api.redriver-a800b8d6.northeurope.azurecontainerapps.io",
+        "customDomains": ["sunset-staging.lunafrontdesk.com"]
+      },
+      "activeRevision": {
+        "name": "luna-sunset-staging-staff-api--0000266",
+        "trafficWeight": 100,
+        "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6"
+      },
+      "registryServer": "whstagingacr.azurecr.io",
+      "secretRefs": [
+        { "name": "sunset-database-url", "keyVaultSecret": "sunset-database-url" },
+        { "name": "stripe-secret-key", "keyVaultSecret": "stripe-secret-key" },
+        { "name": "stripe-webhook-secret", "keyVaultSecret": "stripe-webhook-secret" },
+        { "name": "staff-session-secret", "keyVaultSecret": "staff-session-secret" },
+        { "name": "meta-whatsapp-token", "keyVaultSecret": "meta-whatsapp-token" },
+        { "name": "luna-bot-internal-token", "keyVaultSecret": null }
+      ],
+      "plainEnv": {
+        "WHATSAPP_DRY_RUN": "true",
+        "STAFF_ACTIONS_ENABLED": "true",
+        "STAFF_AUTH_REQUIRED": "true",
+        "STAFF_AUTH_HTTPS": "true",
+        "STRIPE_WEBHOOK_SKIP_VERIFY": "false",
+        "STAFF_QUERY_API_PORT": "3036",
+        "NODE_ENV": "staging",
+        "DEFAULT_CLIENT_SLUG": "sunset",
+        "SUNSET_ADMIN_DB_READ_ENABLED": "true",
+        "SUNSET_ADMIN_WRITES_ENABLED": "true",
+        "STRIPE_LINKS_ENABLED": "true",
+        "BOT_BOOKING_ENABLED": "true",
+        "BOT_ADDON_REQUESTS_ENABLED": "true",
+        "BOT_PAUSE_CONTROLS_ENABLED": "true"
+      },
+      "envClassifications": {
+        "WHATSAPP_DRY_RUN": "matches",
+        "STAFF_ACTIONS_ENABLED": "materially_drifted",
+        "STAFF_AUTH_REQUIRED": "matches",
+        "STAFF_AUTH_HTTPS": "matches",
+        "STRIPE_WEBHOOK_SKIP_VERIFY": "matches",
+        "STAFF_QUERY_API_PORT": "matches",
+        "NODE_ENV": "matches",
+        "DEFAULT_CLIENT_SLUG": "live_but_unmanaged",
+        "SUNSET_ADMIN_DB_READ_ENABLED": "live_but_unmanaged",
+        "SUNSET_ADMIN_WRITES_ENABLED": "live_but_unmanaged",
+        "STRIPE_LINKS_ENABLED": "live_but_unmanaged",
+        "BOT_BOOKING_ENABLED": "live_but_unmanaged",
+        "BOT_ADDON_REQUESTS_ENABLED": "live_but_unmanaged",
+        "BOT_PAUSE_CONTROLS_ENABLED": "live_but_unmanaged"
+      }
+    },
+    "holdExpiryJob": {
+      "name": "luna-sunset-staging-hold-expiry",
+      "triggerType": "Schedule",
+      "cronExpression": "15 * * * *",
+      "imageDigestRepo": "whstagingacr.azurecr.io/luna-sunset-staff-api",
+      "secretNamesOnly": ["sunset-database-url", "stripe-secret-key", "stripe-webhook-secret"]
+    },
+    "managedCertificate": {
+      "name": "mc-luna-sunset-st-sunset-staging-l-4218",
+      "subjectName": "sunset-staging.lunafrontdesk.com",
+      "provisioningState": "Succeeded"
+    },
+    "roleAssignments": [
+      {
+        "principal": "luna-sunset-staging-identity",
+        "role": "AcrPull",
+        "scope": "whstagingacr (wh-staging-rg)"
+      },
+      {
+        "principal": "luna-sunset-staging-identity",
+        "role": "Key Vault Secrets User",
+        "scope": "luna-sunset-staging-kv"
+      },
+      {
+        "principal": "operator-human",
+        "role": "Key Vault Secrets Officer",
+        "scope": "luna-sunset-staging-kv"
+      }
+    ],
+    "sharedAcr": {
+      "name": "whstagingacr",
+      "resourceGroup": "wh-staging-rg",
+      "loginServer": "whstagingacr.azurecr.io",
+      "sku": "Basic"
+    },
+    "dnsCustomDomain": {
+      "hostname": "sunset-staging.lunafrontdesk.com",
+      "boundOnContainerApp": true,
+      "certificateOwnedBy": "managedCertificate/mc-luna-sunset-st-sunset-staging-l-4218",
+      "azureDnsZoneInSubscription": false
+    }
+  },
+  "items": [
+    {
+      "id": "identity",
+      "resourceKey": "Microsoft.ManagedIdentity/userAssignedIdentities::luna-sunset-staging-identity",
+      "classification": "matches",
+      "declared": "luna-sunset-staging-identity in main.bicep",
+      "live": "present westeurope with expected tags",
+      "resolved": true
+    },
+    {
+      "id": "log-analytics",
+      "resourceKey": "Microsoft.OperationalInsights/workspaces::luna-sunset-staging-logs",
+      "classification": "matches",
+      "declared": "PerGB2018 retention 30",
+      "live": "PerGB2018 retention 30",
+      "resolved": true
+    },
+    {
+      "id": "app-insights",
+      "resourceKey": "Microsoft.Insights/components::luna-sunset-staging-appinsights",
+      "classification": "matches",
+      "declared": "web + workspace link",
+      "live": "web + linked to luna-sunset-staging-logs",
+      "resolved": true
+    },
+    {
+      "id": "key-vault",
+      "resourceKey": "Microsoft.KeyVault/vaults::luna-sunset-staging-kv",
+      "classification": "matches",
+      "declared": "standard RBAC soft-delete 7d",
+      "live": "standard RBAC soft-delete 7d",
+      "resolved": true
+    },
+    {
+      "id": "postgres-core",
+      "resourceKey": "Microsoft.DBforPostgreSQL/flexibleServers::luna-sunset-staging-pg-app",
+      "classification": "matches",
+      "declared": "Standard_B1ms / 15 / HA Disabled / public / sunset_staging",
+      "live": "same core SKU/version/HA/network/db",
+      "resolved": true
+    },
+    {
+      "id": "cae",
+      "resourceKey": "Microsoft.App/managedEnvironments::luna-sunset-staging-env",
+      "classification": "materially_drifted",
+      "declared": "containerAppsLocation defaults to resourceGroup location (westeurope in parameters.example.json)",
+      "live": "northeurope (README notes NE as capacity fallback)",
+      "resolved": true
+    },
+    {
+      "id": "staff-api-app",
+      "resourceKey": "Microsoft.App/containerApps::luna-sunset-staging-staff-api",
+      "classification": "materially_drifted",
+      "declared": "optional via deployContainerApps/deployStaffApi=false defaults; scale minReplicas=0; STAFF_ACTIONS_ENABLED=false; image tag 2551855…; transport http",
+      "live": "deployed in northeurope; minReplicas=1; STAFF_ACTIONS_ENABLED=true; image tag 1863074…; transport Auto; missing owner tag; many extra plain env flags",
+      "resolved": true
+    },
+    {
+      "id": "managed-certificate",
+      "resourceKey": "Microsoft.App/managedEnvironments/managedCertificates::luna-sunset-staging-env/mc-luna-sunset-st-sunset-staging-l-4218",
+      "classification": "live_but_unmanaged",
+      "declared": "not encoded in main.bicep (DNS/cert is post-deploy Phase H)",
+      "live": "managed cert for sunset-staging.lunafrontdesk.com Succeeded",
+      "resolved": true
+    },
+    {
+      "id": "hold-expiry-job",
+      "resourceKey": "Microsoft.App/jobs::luna-sunset-staging-hold-expiry",
+      "classification": "live_but_unmanaged",
+      "declared": "not in main.bicep",
+      "live": "scheduled Container Apps job cron 15 * * * * on shared sunset image",
+      "resolved": true
+    },
+    {
+      "id": "kv-secret-names",
+      "resourceKey": "Microsoft.KeyVault/vaults::luna-sunset-staging-kv",
+      "classification": "secret_manual_dependency",
+      "declared": "README lists five secret names; Bicep does not create secret values",
+      "live": "five secret names present; values never inventoried",
+      "resolved": true
+    },
+    {
+      "id": "app-inline-bot-token-secret",
+      "resourceKey": "Microsoft.App/containerApps::luna-sunset-staging-staff-api",
+      "classification": "secret_manual_dependency",
+      "declared": "Bicep only KV-backed secrets",
+      "live": "container secret luna-bot-internal-token has no keyVaultUrl (manual/inline)",
+      "resolved": true
+    },
+    {
+      "id": "kv-operator-officer-role",
+      "resourceKey": "Microsoft.KeyVault/vaults::luna-sunset-staging-kv",
+      "classification": "secret_manual_dependency",
+      "declared": "Bicep assigns only Key Vault Secrets User to managed identity",
+      "live": "additional Key Vault Secrets Officer for human operator",
+      "resolved": true
+    },
+    {
+      "id": "postgres-firewall-rules",
+      "resourceKey": "Microsoft.DBforPostgreSQL/flexibleServers::luna-sunset-staging-pg-app",
+      "classification": "live_but_unmanaged",
+      "declared": "parameters.example postgresAllowedIpAddresses=[] ; README says add CAE egress post-deploy",
+      "live": "AllowSunsetCaeEgress + AllowSunsetAppEgress present (not named AllowSunsetStagingEgress{i})",
+      "resolved": true
+    },
+    {
+      "id": "custom-domain-dns",
+      "resourceKey": "Microsoft.App/containerApps::luna-sunset-staging-staff-api",
+      "classification": "secret_manual_dependency",
+      "declared": "Phase H DNS outside Bicep",
+      "live": "custom domain bound; no Azure DNS zone for lunafrontdesk.com in this subscription",
+      "resolved": true
+    },
+    {
+      "id": "shared-acr",
+      "resourceKey": "Microsoft.ContainerRegistry/registries::whstagingacr",
+      "classification": "intentionally_shared_external_dependency",
+      "declared": "Option A reuse whstagingacr + AcrPull via acr-pull-role.bicep",
+      "live": "AcrPull present for sunset identity on whstagingacr",
+      "resolved": true
+    },
+    {
+      "id": "bicep-default-deploy-flags",
+      "resourceKey": "Microsoft.App/containerApps::luna-sunset-staging-staff-api",
+      "classification": "materially_drifted",
+      "declared": "deployContainerApps=false deployStaffApi=false in parameters.example.json",
+      "live": "staff API exists and serves traffic — template defaults are not authoritative for live",
+      "resolved": true
+    },
+    {
+      "id": "no-declared-absent-core",
+      "resourceKey": "Microsoft.ManagedIdentity/userAssignedIdentities::luna-sunset-staging-identity",
+      "classification": "matches",
+      "declared": "core Bicep resources when deploy flags true",
+      "live": "all core declared names present; nothing core declared-but-absent",
+      "resolved": true
+    }
+  ]
+}
