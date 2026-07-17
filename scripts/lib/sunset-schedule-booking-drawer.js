@@ -2,7 +2,9 @@
 
 /**
  * Sunset Schedule — booking drawer context, payment summary, and updates.
- * Sunset client only. Totals computed live from Admin config unless amount_due_cents stored.
+ * Sunset client only. Prefer persisted amount_due_cents (including explicit 0 for
+ * zeroed bundle peers / course companions). Live Admin fallback only when the
+ * amount was never stored (null/undefined).
  */
 
 const crypto = require('crypto');
@@ -33,7 +35,11 @@ const {
   insertFullDayEquipmentAddonRows,
 } = require('./sunset-schedule-booking-writes');
 
-const { serviceRecordUnitPriceCents } = require('./sunset-stripe-payment-links');
+const {
+  serviceRecordUnitPriceCents,
+  isBundleRentalServiceRow,
+  parseRentalPricingMeta,
+} = require('./sunset-stripe-payment-links');
 const { reconcilePendingStripePaymentsForBooking } = require('./stripe-payment-reconcile');
 
 const { loadPrivateLessonFromDb, defaultPrivateLessonApi } = require('./sunset-admin-private-lesson-rules');
@@ -262,49 +268,87 @@ function deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents) {
   return 'unpaid';
 }
 
+/** Persisted due amount including explicit 0. null = never stored (live fallback eligible). */
+function readPersistedServiceDueCents(sr) {
+  if (!sr || sr.amount_due_cents == null || sr.amount_due_cents === '') return null;
+  const n = Number(sr.amount_due_cents);
+  return Number.isFinite(n) ? Math.round(n) : null;
+}
+
+function readAuthoritativeBookingTotalCents(booking) {
+  if (!booking || booking.total_amount_cents == null || booking.total_amount_cents === '') return null;
+  const n = Number(booking.total_amount_cents);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
+function readAuthoritativeBalanceDueCents(booking) {
+  if (!booking || booking.balance_due_cents == null || booking.balance_due_cents === '') return null;
+  const n = Number(booking.balance_due_cents);
+  return Number.isFinite(n) && n >= 0 ? Math.round(n) : null;
+}
+
 function buildPaymentSummary(prices, booking, services, adminSource, paymentsPaidCents, adminCfg) {
+  const bookingMeta = parseMeta(booking && booking.metadata);
+  const rentalPricing = parseRentalPricingMeta(bookingMeta);
   const lineItems = [];
-  let subtotalCents = 0;
+  let lineSumCents = 0;
   (services || []).forEach((sr) => {
-    let lineCents = Number(sr.amount_due_cents) || 0;
-    // Prefer persisted amount_due_cents (written by priceSunsetBookingServices).
-    // Live fallback must receive adminCfg so course tier / offering identity resolve.
-    const liveUnit = lineCents <= 0
-      ? serviceRecordUnitPriceCents(prices, sr, adminCfg || null)
-      : null;
-    const usedLive = lineCents <= 0 && liveUnit != null;
-    if (usedLive) lineCents = liveUnit;
-    subtotalCents += lineCents;
+    const persisted = readPersistedServiceDueCents(sr);
+    let lineCents = 0;
+    let usedLive = false;
+    if (persisted != null) {
+      // Explicit 0 is create-accounting truth for zeroed bundle/course peers — never reprice.
+      lineCents = persisted;
+    } else if (rentalPricing && isBundleRentalServiceRow(sr, rentalPricing)) {
+      // Ambiguous legacy bundle constituent with null amount: do not invent independent live prices.
+      lineCents = 0;
+      usedLive = false;
+    } else {
+      const liveUnit = serviceRecordUnitPriceCents(prices, sr, adminCfg || null);
+      usedLive = liveUnit != null;
+      if (usedLive) lineCents = liveUnit;
+    }
+    lineSumCents += lineCents;
+    const qty = Number(sr.quantity) || 1;
     lineItems.push({
       service_record_id: sr.service_record_id,
       service_type: sr.service_type,
       service_date: sr.service_date,
-      quantity: Number(sr.quantity) || 1,
-      unit_cents: liveUnit != null && Number(sr.quantity) ? Math.round(lineCents / (Number(sr.quantity) || 1)) : null,
+      quantity: qty,
+      unit_cents: (usedLive || persisted != null) && qty
+        ? Math.round(lineCents / qty)
+        : null,
       line_cents: lineCents,
       label: lineItemLabel(sr.service_type, sr.quantity, sr.service_date, sr.slot_time, sr),
       priced_live: usedLive,
     });
   });
-  const storedPaid = Number(booking.amount_paid_cents);
+  const bookingTotal = readAuthoritativeBookingTotalCents(booking);
+  // Prefer server booking total when present so headline money matches create/quote truth.
+  const subtotalCents = bookingTotal != null ? bookingTotal : lineSumCents;
+  const storedPaid = Number(booking && booking.amount_paid_cents);
   const ledgerPaid = Number(paymentsPaidCents);
   const paidCents = Math.max(
     Number.isFinite(storedPaid) ? storedPaid : 0,
     Number.isFinite(ledgerPaid) ? ledgerPaid : 0,
   );
   const uiStatus = deriveDrawerPaymentUiStatus(booking, subtotalCents, paidCents);
-  const balanceDue = Math.max(subtotalCents - paidCents, 0);
-  const meta = parseMeta(booking.metadata);
+  const storedBalance = readAuthoritativeBalanceDueCents(booking);
+  const balanceDue = uiStatus === 'paid'
+    ? 0
+    : (storedBalance != null ? storedBalance : Math.max(subtotalCents - paidCents, 0));
   return {
     line_items: lineItems,
     subtotal_cents: subtotalCents,
     total_cents: subtotalCents,
     paid_cents: paidCents,
-    balance_due_cents: uiStatus === 'paid' ? 0 : balanceDue,
+    balance_due_cents: balanceDue,
     payment_status: uiStatus,
-    price_source: adminSource || meta.sunset_price_source || 'config',
+    price_source: adminSource || bookingMeta.sunset_price_source || 'config',
     live_pricing: lineItems.some((li) => li.priced_live),
-    pricing_note: 'Totals use current Admin prices when line amounts are not stored.',
+    pricing_note: bookingTotal != null
+      ? 'Totals use persisted booking amount_due; line amounts keep create allocation (explicit zeros preserved).'
+      : 'Totals use current Admin prices when line amounts are not stored.',
   };
 }
 
