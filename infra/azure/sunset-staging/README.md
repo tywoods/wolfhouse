@@ -1,8 +1,10 @@
-# Sunset Isolated Staging — Azure Bicep Runbook (REVIEW ONLY)
+# Sunset Isolated Staging — Azure Bicep Runbook
 
-> **Status: DRAFT — DO NOT RUN `az deployment` until Captain signs the infra-creation checkbox in `docs/sunset/SUNSET-PORTAL-SLICE-1-STAGING-APPROVAL-PACKET.md`.**
+> **FOUNDATION Slice 2:** core Bicep reconciled to `inventory/live-inventory.normalized.json`.  
+> **Do not `az deployment group create` from this slice — what-if only until Captain approves a later deploy.**
 >
-> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)
+> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)  
+> Live drift baseline: [`inventory/DRIFT-REPORT.md`](inventory/DRIFT-REPORT.md)
 
 ---
 
@@ -10,11 +12,40 @@
 
 | File | Purpose |
 |------|---------|
-| `main.bicep` | Sunset-only staging resources (Staff API + DB + KV + identity) |
+| `main.bicep` | Sunset-only staging resources (Staff API + DB + KV + identity) — reconciled to live core |
 | `acr-pull-role.bicep` | Cross-RG module: `AcrPull` on `whstagingacr` for Sunset identity |
-| `parameters.example.json` | Example values — **no secrets** |
-| `inventory/` | FOUNDATION Slice 1 live-to-IaC drift baseline (read-only; do not “fix” Bicep from it) |
+| `parameters.example.json` | **NON-DEPLOYABLE** example — unmistakable `<REQUIRED…>` placeholders only; supply real values via ignored secure params file or CLI |
+| `inventory/` | FOUNDATION Slice 1 live-to-IaC drift baseline (read-only source of truth) |
 | `README.md` | This runbook |
+
+> **parameters.example.json cannot be used for deployment** without explicit real values for secure/operational parameters (`deploySha`, `forceRevision`, WhatsApp numbers/IDs, inbox emails, `lunaBotInternalToken`, `postgresAdminPassword`) supplied through an ignored secure parameter file or approved secret source. Never commit those values.
+
+---
+
+## Live reconcile contract (Slice 2)
+
+| Setting | Declared value |
+|---------|----------------|
+| Non-CA resources location | `westeurope` |
+| Container Apps env + Staff API location | `northeurope` |
+| Staff API scale | `minReplicas=1`, `maxReplicas=1` |
+| `STAFF_ACTIONS_ENABLED` | `true` (hardcoded; matches live) |
+| Image | `whstagingacr.azurecr.io/luna-sunset-staff-api:<staffApiImageTag>` — **tag required via parameters** |
+| Deploy flags | `deployContainerApps=true`, `deployStaffApi=true` (represent existing live app) |
+| Owner tag | `tywoods` (parameter; omitted on staff-api tags to match live) |
+
+### Still unmanaged / manual (not claimed by Bicep)
+
+| Item | Notes |
+|------|-------|
+| Managed certificate | Custom domain TLS — live only |
+| `luna-sunset-staging-hold-expiry` job | Scheduled job — live only |
+| Postgres firewall rules | Live egress allow rules — leave `postgresAllowedIpAddresses: []` |
+| External DNS | `sunset-staging.lunafrontdesk.com` outside this subscription |
+| Operator Key Vault Secrets Officer | Human RBAC — not in template |
+| Inline `luna-bot-internal-token` | Value remains manual secure param at what-if/deploy time — **never committed** |
+| Managed certificate resource | Cert is `existing` reference only — Bicep does not create/rotate it |
+| Custom domain binding | Declared against existing cert for live parity; DNS still external |
 
 ---
 
@@ -63,7 +94,7 @@ Bicep guards via `@allowed` on `appNamePrefix` and `appDbName`; image repo hardc
 
 - **Reuse** `whstagingacr` in `wh-staging-rg`
 - **Image repo:** `luna-sunset-staff-api` only
-- **Default tag:** `25518554bcf635b59c594dae8f930c0190609209`
+- **Live reconcile tag (example):** `186307418400581a74f86b096e02bc32a41513b6`
 - **Never** deploy or reference `wh-staff-api` images
 
 ### ACR RBAC limitation (Captain review)
@@ -79,7 +110,6 @@ luna-sunset-staging-identity  →  AcrPull  →  whstagingacr (entire registry)
 1. Bicep hardcodes image path `luna-sunset-staff-api:<tag>` (repo not parameterizable)
 2. No `AcrPush` on Sunset identity
 3. Ops pre-flight: verify deployed image repo before traffic enable
-4. **Future:** Dedicated ACR (Option B) or Azure Container Registry **token** scoped to `luna-sunset-staff-api` repository (manual/token pipeline — not in this Bicep draft)
 
 ---
 
@@ -87,11 +117,8 @@ luna-sunset-staging-identity  →  AcrPull  →  whstagingacr (entire registry)
 
 | Principal | Role | Scope | Notes |
 |-----------|------|-------|-------|
-| `luna-sunset-staging-identity` | Key Vault Secrets User (`4633458b-…`) | `luna-sunset-staging-kv` | get/list secrets only |
-| `luna-sunset-staging-identity` | AcrPull (`7f951dda-…`) | `whstagingacr` | pull only; no push |
-| — | — | `wh-staging-kv` | **No assignment** |
-| — | — | `wh-staging-staff-api` | **No assignment** |
-| — | — | `wh-staging-pg-app` | **No assignment** |
+| `luna-sunset-staging-identity` | Key Vault Secrets User | `luna-sunset-staging-kv` | get/list secrets only |
+| `luna-sunset-staging-identity` | AcrPull | `whstagingacr` | pull only; no push |
 
 Container App uses user-assigned identity for Key Vault secret refs and ACR pull.
 
@@ -105,63 +132,17 @@ Container App uses user-assigned identity for Key Vault secret refs and ACR pull
 | Server | `luna-sunset-staging-pg-app` |
 | Database | `sunset_staging` |
 | `publicNetworkAccess` | `Enabled` |
-| `0.0.0.0` firewall rule | **Not created** |
-| Initial firewall rules | Empty (`postgresAllowedIpAddresses: []`) |
+| Declared firewall rules | Empty by default — **live rules remain manual** |
 
-**Post-deploy:** Container Apps egress IPs are not known until `luna-sunset-staging-env` exists. After CAE creation:
-
-```bash
-# PROPOSED ONLY — discover outbound IPs, then re-deploy or add rules via CLI
-az containerapp env show \
-  --resource-group luna-sunset-staging-rg \
-  --name luna-sunset-staging-env \
-  --query properties.staticIp -o tsv
-
-# Add each IP to postgresAllowedIpAddresses and redeploy, OR:
-az postgres flexible-server firewall-rule create \
-  --resource-group luna-sunset-staging-rg \
-  --name luna-sunset-staging-pg-app \
-  --rule-name AllowSunsetStagingEgress0 \
-  --start-ip-address <CAE_EGRESS_IP> \
-  --end-ip-address <CAE_EGRESS_IP>
-```
-
-**Private Endpoint / VNet integration:** Not in Slice 1 Bicep. If Captain requires no public Postgres endpoint, add CAE VNet integration + private DNS in a follow-up template revision.
-
-**Wolfhouse DB:** Never referenced. Admin user default `sunsetadmin` (not `whadmin`).
+**Wolfhouse DB:** Never referenced. Admin user default `sunsetadmin`.
 
 ---
 
-## Secrets (Key Vault — manual post-KV creation)
+## Secrets (Key Vault — manual; names only in git)
 
-Secrets are **not** created by Bicep. Populate via CLI after KV exists:
+Secrets are **not** created by Bicep. Expected secret **names:** `sunset-database-url`, `staff-session-secret`, `stripe-secret-key`, `stripe-webhook-secret`, `meta-whatsapp-token`.
 
-```bash
-# PROPOSED ONLY — placeholders; never commit real values
-az keyvault secret set --vault-name luna-sunset-staging-kv \
-  --name sunset-database-url \
-  --value "postgres://sunsetadmin:<DB_PASSWORD>@luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging?sslmode=require"
-
-az keyvault secret set --vault-name luna-sunset-staging-kv \
-  --name staff-session-secret \
-  --value "<RANDOM_SESSION_SECRET>"
-
-# Stripe: sk_test_* ONLY for staging — never sk_live_*
-az keyvault secret set --vault-name luna-sunset-staging-kv \
-  --name stripe-secret-key \
-  --value "sk_test_<PLACEHOLDER>"
-
-az keyvault secret set --vault-name luna-sunset-staging-kv \
-  --name stripe-webhook-secret \
-  --value "whsec_<PLACEHOLDER>"
-
-# WhatsApp: dry-run enforced; placeholder token acceptable
-az keyvault secret set --vault-name luna-sunset-staging-kv \
-  --name meta-whatsapp-token \
-  --value "EAAG_PLACEHOLDER_DRY_RUN_ONLY"
-```
-
-**App env mapping:** KV secret `sunset-database-url` → env `WOLFHOUSE_DATABASE_URL` (generic PG env name in Staff API code; **value** must be Sunset DB only).
+**App env mapping:** KV secret `sunset-database-url` → env `WOLFHOUSE_DATABASE_URL` (value must be Sunset DB only).
 
 ---
 
@@ -170,149 +151,80 @@ az keyvault secret set --vault-name luna-sunset-staging-kv \
 | Variable | Value |
 |----------|-------|
 | `WHATSAPP_DRY_RUN` | `true` |
-| `STAFF_ACTIONS_ENABLED` | `false` |
+| `STAFF_ACTIONS_ENABLED` | `true` (live reconcile) |
 | `STAFF_AUTH_REQUIRED` | `true` |
+| `STAFF_AUTH_HTTPS` | `true` |
 | `STRIPE_WEBHOOK_SKIP_VERIFY` | `false` |
 
 ---
 
-## Portal access (least privilege — image build, not Bicep)
+## What-if only (FOUNDATION Slice 2)
 
-Sunset isolated staging must **not** rely on `all_clients_emails`. At image build time (separate deploy checkbox), configure `config/clients/staff-portal-access.json` with **Sunset-only** `client_access` for the owner demo user:
+```bash
+# Compile / lint
+az bicep build --file infra/azure/sunset-staging/main.bicep
+az bicep lint --file infra/azure/sunset-staging/main.bicep
 
-```json
-{
-  "users": [
-    {
-      "email": "<OWNER_DEMO_EMAIL>",
-      "client_access": ["sunset"]
-    }
-  ]
-}
+# Incremental what-if — NEVER deployment create in this slice
+az deployment group what-if \
+  --resource-group luna-sunset-staging-rg \
+  --mode Incremental \
+  --template-file infra/azure/sunset-staging/main.bicep \
+  --parameters @infra/azure/sunset-staging/parameters.example.json \
+  --parameters postgresAdminPassword='<EPHEMERAL>' \
+              lunaBotInternalToken='<EPHEMERAL>' \
+              deploySha='<LIVE_OR_APPROVED>' \
+              forceRevision='<LIVE_OR_APPROVED>' \
+              sunsetSomoWhatsappNumber='<LIVE_OR_APPROVED>' \
+              sunsetSardineroWhatsappNumber='<LIVE_OR_APPROVED>' \
+              sunsetSomoWhatsappPhoneNumberId='<LIVE_OR_APPROVED>' \
+              sunsetSardineroWhatsappPhoneNumberId='<LIVE_OR_APPROVED>' \
+              sunsetSomoInboxEmail='<LIVE_OR_APPROVED>' \
+              sunsetSardineroInboxEmail='<LIVE_OR_APPROVED>'
 ```
 
-No real passwords or session secrets in the git repo. Seed staff users after migrations (manual step).
+Prefer an **ignored** local secure params file (gitignored) over shell history for real values. Never record live values in the repo.
 
----
+Expect: **no Create/Delete** and **no material Modify** on declared core resources. Classify secret/redacted/no-effect noise explicitly (secure param diffs, reference() resolution, platform default properties).
 
-## Migration-015 gap (required before DB use)
+### Slice 2 what-if result (2026-07-17, Incremental, read-only)
 
-**This IaC does not run migrations.**
+| Resource | Change | Classification |
+|----------|--------|----------------|
+| `luna-sunset-staging-identity` | Nochange | matches |
+| `luna-sunset-staging-logs` | Nochange | matches |
+| `luna-sunset-staging-kv` | Nochange | matches |
+| `sunset_staging` database | Nochange | matches |
+| `luna-sunset-staging-staff-api` | Modify (platform props: `exposedPort`, `maxInactiveRevisions`, `runningStatus`; six ingress-routing env values shown as `parameters('…')` expressions) | **harmless no-effect / secure-param resolution noise** (live values supplied only at execution time; not committed) |
+| `luna-sunset-staging-env` | Modify (`peerAuthentication` omit; Log Analytics `customerId` reference()) | **harmless no-effect noise** |
+| `luna-sunset-staging-pg-app` | Modify (omit platform defaults: storage tier/iops, replica role, authConfig) | **harmless no-effect noise** |
+| `luna-sunset-staging-appinsights` | Modify (add default `Flow_Type`/`Request_Source`) | **harmless no-effect noise** |
+| KV Secrets User role assignment | Modify (`principalId` reference(); `principalType` unsupported) | **harmless reference / unsupported noise** |
+| `luna-sunset-staging-hold-expiry` | Ignore | unmanaged (not claimed) |
+| managed certificate | Ignore | unmanaged (existing reference only) |
+| ACR AcrPull assignment | Unsupported (cross-RG ID until deploy) | **harmless unsupported analysis noise** |
 
-Before applying migrations to fresh `sunset_staging`, resolve the **migration-015 gap** documented in `docs/sunset/VERIFY-LUNA-GOLDEN-DB-NOTE.md`. Captain must approve DB creation checkbox before any migration run against `luna-sunset-staging-pg-app`.
+**Create: 0 · Delete: 0 · Material Modify: 0**
+
+Verifier:
+
+```bash
+node scripts/verify-sunset-staging-bicep-reconcile.js --self-test
+node scripts/verify-sunset-staging-bicep-reconcile.js
+```
 
 ---
 
 ## Cost attribution tags
-
-All resources tagged:
 
 | Tag | Example |
 |-----|---------|
 | `product` | `Luna Front Desk` |
 | `tenant` | `sunset` |
 | `environment` | `staging` |
-| `owner` | `<FILL_ME_OWNER>` (parameter) |
+| `owner` | `tywoods` (parameter; not on staff-api live tags) |
 | `slice` | `portal-1` |
 
-Not billed as Wolfhouse (`tenant=sunset`).
-
 ---
 
-## Deployment phases (proposed — not executed)
-
-### Phase A — Preflight (safe)
-
-```bash
-# Verify RG name before any command
-TARGET_RG=luna-sunset-staging-rg
-test "$TARGET_RG" = "luna-sunset-staging-rg"
-
-# Optional: compile Bicep locally
-az bicep build --file infra/azure/sunset-staging/main.bicep
-```
-
-### Phase B — Create resource group (checkbox #1)
-
-```bash
-# PROPOSED ONLY
-az group create \
-  --name luna-sunset-staging-rg \
-  --location westeurope \
-  --tags product="Luna Front Desk" tenant=sunset environment=staging
-```
-
-### Phase C — What-if (safe — no changes)
-
-```bash
-# PROPOSED ONLY
-az deployment group what-if \
-  --resource-group luna-sunset-staging-rg \
-  --template-file infra/azure/sunset-staging/main.bicep \
-  --parameters @infra/azure/sunset-staging/parameters.example.json \
-  --parameters postgresAdminPassword="<PLACEHOLDER_FOR_WHATIF_ONLY>"
-```
-
-### Phase D — Deploy base infra (checkbox #1 — approval required)
-
-```bash
-# PROPOSED ONLY — deployContainerApps=false by default
-az deployment group create \
-  --resource-group luna-sunset-staging-rg \
-  --template-file infra/azure/sunset-staging/main.bicep \
-  --parameters @infra/azure/sunset-staging/parameters.example.json \
-  --parameters postgresAdminPassword="<STRONG_PASSWORD>" \
-  --name "luna-sunset-staging-infra-YYYYMMDD"
-```
-
-### Phase E — Key Vault secrets (manual)
-
-See §Secrets above.
-
-### Phase F — Build image (checkbox #2)
-
-```bash
-# PROPOSED ONLY — dedicated repo only
-az acr build --registry whstagingacr \
-  --image luna-sunset-staff-api:25518554bcf635b59c594dae8f930c0190609209 \
-  --file Dockerfile .
-```
-
-### Phase G — Postgres firewall + redeploy Staff API (checkbox #2/#4)
-
-1. Add CAE egress IPs to `postgresAllowedIpAddresses`
-2. Redeploy with `deployContainerApps=true` and `deployStaffApi=true`
-
-### Phase H — DNS (checkbox #3)
-
-CNAME `sunset-staging.lunafrontdesk.com` → `luna-sunset-staging-staff-api` ingress FQDN; bind managed cert.
-
----
-
-## Rollback (Sunset only)
-
-```bash
-# PROPOSED ONLY — disable traffic
-az containerapp ingress disable \
-  --resource-group luna-sunset-staging-rg \
-  --name luna-sunset-staging-staff-api
-
-# PROPOSED ONLY — delete Sunset RG (destructive)
-az group delete --name luna-sunset-staging-rg --yes --no-wait
-```
-
-**Never** delete or modify `wh-staging-rg` resources for Sunset rollback.
-
----
-
-## Bicep validation
-
-```bash
-az bicep build --file infra/azure/sunset-staging/main.bicep
-```
-
-If `az bicep` is unavailable, perform static review of `main.bicep` + `parameters.example.json` only.
-
----
-
-*Draft version: 1.0 — 2026-06-19 — review only, no resources created*
+*FOUNDATION Slice 2 — reconcile to live; what-if only — 2026-07-17*

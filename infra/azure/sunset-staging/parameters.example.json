@@ -1,6 +1,9 @@
 {
   "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
   "contentVersion": "1.0.0.0",
+  "metadata": {
+    "description": "NON-DEPLOYABLE EXAMPLE ONLY. Required secure/operational values are unmistakable placeholders — supply real values via an ignored secure parameter file or CLI at what-if/deploy time. Never commit real WhatsApp numbers, phone IDs, inbox emails, tokens, or passwords."
+  },
   "parameters": {
     "environmentName": {
       "value": "staging"
@@ -9,7 +12,7 @@
       "value": "westeurope"
     },
     "containerAppsLocation": {
-      "value": "westeurope"
+      "value": "northeurope"
     },
     "appNamePrefix": {
       "value": "luna-sunset-staging"
@@ -21,7 +24,7 @@
       "value": "wh-staging-rg"
     },
     "staffApiImageTag": {
-      "value": "25518554bcf635b59c594dae8f930c0190609209"
+      "value": "186307418400581a74f86b096e02bc32a41513b6"
     },
     "postgresSku": {
       "value": "Standard_B1ms"
@@ -45,16 +48,46 @@
       "value": "sunset_staging"
     },
     "ownerTag": {
-      "value": "<FILL_ME_OWNER>"
+      "value": "tywoods"
     },
     "postgresAllowedIpAddresses": {
       "value": []
     },
     "deployContainerApps": {
-      "value": false
+      "value": true
     },
     "deployStaffApi": {
-      "value": false
+      "value": true
+    },
+    "staffApiMinReplicas": {
+      "value": 1
+    },
+    "staffApiMaxReplicas": {
+      "value": 1
+    },
+    "deploySha": {
+      "value": "<REQUIRED_DEPLOY_SHA_NOT_FOR_DEPLOY>"
+    },
+    "forceRevision": {
+      "value": "<REQUIRED_FORCE_REVISION_NOT_FOR_DEPLOY>"
+    },
+    "sunsetSomoWhatsappNumber": {
+      "value": "<REQUIRED_SECURE_SOMO_WHATSAPP_NUMBER>"
+    },
+    "sunsetSardineroWhatsappNumber": {
+      "value": "<REQUIRED_SECURE_SARDINERO_WHATSAPP_NUMBER>"
+    },
+    "sunsetSomoWhatsappPhoneNumberId": {
+      "value": "<REQUIRED_SECURE_SOMO_PHONE_NUMBER_ID>"
+    },
+    "sunsetSardineroWhatsappPhoneNumberId": {
+      "value": "<REQUIRED_SECURE_SARDINERO_PHONE_NUMBER_ID>"
+    },
+    "sunsetSomoInboxEmail": {
+      "value": "<REQUIRED_SECURE_SOMO_INBOX_EMAIL>"
+    },
+    "sunsetSardineroInboxEmail": {
+      "value": "<REQUIRED_SECURE_SARDINERO_INBOX_EMAIL>"
     }
   }
 }

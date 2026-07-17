@@ -19,11 +19,15 @@ const ROOT = path.join(__dirname, '..');
 const DISCOVERY_PATHSPECS = [
   'infra/azure/sunset-staging/inventory',
   'infra/azure/sunset-staging/README.md',
+  'infra/azure/sunset-staging/main.bicep',
+  'infra/azure/sunset-staging/parameters.example.json',
+  'infra/azure/sunset-staging/acr-pull-role.bicep',
   'scripts/lib/sunset-staging-iac-drift.js',
   'scripts/inventory-sunset-staging-live.js',
   'scripts/verify-sunset-staging-live-iac-drift.js',
   'scripts/verify-sunset-staging-iac-secret-scan.js',
   'scripts/verify-sunset-staging-iac-diff-check.js',
+  'scripts/verify-sunset-staging-bicep-reconcile.js',
 ];
 
 function discoverCommittedArtifacts() {

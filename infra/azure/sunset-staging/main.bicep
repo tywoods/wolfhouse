@@ -1,12 +1,22 @@
-// Sunset isolated staging — Azure Bicep draft (REVIEW ONLY — DO NOT DEPLOY)
-// Parent: docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md
+// Sunset isolated staging — Azure Bicep (FOUNDATION Slice 2: reconciled to live inventory)
+// Source of truth: infra/azure/sunset-staging/inventory/live-inventory.normalized.json
 // Runbook: infra/azure/sunset-staging/README.md
 //
 // SAFETY DEFAULTS (hardcoded — not overridable via parameters):
 //   WHATSAPP_DRY_RUN=true
-//   STAFF_ACTIONS_ENABLED=false
 //   STAFF_AUTH_REQUIRED=true
+//   STAFF_AUTH_HTTPS=true
 //   STRIPE_WEBHOOK_SKIP_VERIFY=false
+//
+// Reconciled to live (Slice 2):
+//   STAFF_ACTIONS_ENABLED=true
+//   containerAppsLocation=northeurope
+//   staff API scale minReplicas=1 / maxReplicas=1
+//   staffApiImageTag supplied explicitly via parameters (immutable digest/tag)
+//
+// Still unmanaged / manual (not declared here):
+//   managed certificate, hold-expiry job, postgres firewall rules,
+//   external DNS, operator Key Vault Secrets Officer RBAC, inline luna-bot-internal-token
 //
 // All runtime secrets via Key Vault secret refs only. No secret values in this file.
 // ACR Option A: reuse whstagingacr; image repo luna-sunset-staff-api only (never wh-staff-api).
@@ -16,11 +26,11 @@ targetScope = 'resourceGroup'
 @description('Short environment label')
 param environmentName string = 'staging'
 
-@description('Azure region for Sunset staging resources')
-param location string = resourceGroup().location
+@description('Azure region for non-Container-App Sunset staging resources (live: westeurope)')
+param location string = 'westeurope'
 
-@description('Container Apps managed environment region (use northeurope if westeurope has capacity pressure)')
-param containerAppsLocation string = location
+@description('Container Apps environment + Staff API region (live: northeurope)')
+param containerAppsLocation string = 'northeurope'
 
 @description('Locked Sunset staging name prefix — must not be wh-staging')
 @allowed([
@@ -34,8 +44,8 @@ param acrName string = 'whstagingacr'
 @description('Resource group containing the shared ACR (read-only reference + AcrPull RBAC only)')
 param acrResourceGroupName string = 'wh-staging-rg'
 
-@description('Sunset Staff API image tag (never wh-staff-api)')
-param staffApiImageTag string = '25518554bcf635b59c594dae8f930c0190609209'
+@description('Sunset Staff API image tag — must be supplied explicitly for live reconcile / what-if (never wh-staff-api)')
+param staffApiImageTag string
 
 @description('Postgres SKU')
 param postgresSku string = 'Standard_B1ms'
@@ -44,7 +54,7 @@ param postgresSku string = 'Standard_B1ms'
 param postgresVersion string = '15'
 
 @secure()
-@description('Postgres admin password. Pass at deploy time only; never store in parameter files.')
+@description('Postgres admin password. Pass at deploy/what-if time only; never store in parameter files.')
 param postgresAdminPassword string
 
 @description('Staff API container CPU')
@@ -65,17 +75,63 @@ param postgresAdminUser string = 'sunsetadmin'
 ])
 param appDbName string = 'sunset_staging'
 
-@description('Cost attribution owner tag placeholder')
-param ownerTag string = '<FILL_ME_OWNER>'
+@description('Cost attribution owner tag (live: tywoods)')
+param ownerTag string = 'tywoods'
 
-@description('Container Apps egress IPs allowed to reach Postgres. Do NOT use 0.0.0.0. Add after CAE exists.')
+@description('Container Apps egress IPs for Postgres firewall. Leave empty to avoid claiming live firewall rules (manual).')
 param postgresAllowedIpAddresses array = []
 
-@description('Deploy Container Apps after Key Vault secrets and Staff API image exist')
-param deployContainerApps bool = false
+@description('When true with deployStaffApi, declare the live Staff API Container App (reconcile/what-if)')
+param deployContainerApps bool = true
 
-@description('Deploy luna-sunset-staging-staff-api Container App')
-param deployStaffApi bool = false
+@description('Declare luna-sunset-staging-staff-api Container App (live exists — true for reconcile what-if)')
+param deployStaffApi bool = true
+
+@description('Staff API min replicas (live: 1)')
+param staffApiMinReplicas int = 1
+
+@description('Staff API max replicas (live: 1)')
+param staffApiMaxReplicas int = 1
+
+@secure()
+@description('Inline Container App secret luna-bot-internal-token value. Manual dependency — pass only at what-if/deploy time; never commit. Empty must not be deployed.')
+param lunaBotInternalToken string
+
+@description('Operational DEPLOY_SHA stamp. Required — no default; supply at what-if/deploy time only.')
+param deploySha string
+
+@description('Operational FORCE_REVISION stamp. Required — no default; supply at what-if/deploy time only.')
+param forceRevision string
+
+@secure()
+@description('Sunset Somo WhatsApp E.164 number. Required — no deployable default; never commit real values.')
+param sunsetSomoWhatsappNumber string
+
+@secure()
+@description('Sunset Sardinero WhatsApp E.164 number. Required — no deployable default; never commit real values.')
+param sunsetSardineroWhatsappNumber string
+
+@secure()
+@description('Sunset Somo WhatsApp phone number ID. Required — no deployable default; never commit real values.')
+param sunsetSomoWhatsappPhoneNumberId string
+
+@secure()
+@description('Sunset Sardinero WhatsApp phone number ID. Required — no deployable default; never commit real values.')
+param sunsetSardineroWhatsappPhoneNumberId string
+
+@secure()
+@description('Sunset Somo inbox email. Required — no deployable default; never commit real values.')
+param sunsetSomoInboxEmail string
+
+@secure()
+@description('Sunset Sardinero inbox email. Required — no deployable default; never commit real values.')
+param sunsetSardineroInboxEmail string
+
+@description('Existing managed certificate name (referenced only; cert resource remains unmanaged)')
+param managedCertificateName string = 'mc-luna-sunset-st-sunset-staging-l-4218'
+
+@description('Custom hostname already bound on live Staff API (DNS remains external/manual)')
+param staffApiCustomDomain string = 'sunset-staging.lunafrontdesk.com'
 
 // --- Derived names (Sunset-only) ---
 var prefix = appNamePrefix
@@ -95,8 +151,17 @@ var resourceTags = {
   slice: 'portal-1'
 }
 
+// Live staff-api tags omit owner — keep parity for non-destructive what-if.
+var staffApiTags = {
+  product: 'Luna Front Desk'
+  tenant: 'sunset'
+  environment: environmentName
+  slice: 'portal-1'
+}
+
 // Image is always luna-sunset-staff-api repo (never wh-staff-api) — tag is parameterized only.
-var staffApiImage = '${existingAcr.properties.loginServer}/luna-sunset-staff-api:${staffApiImageTag}'
+// Literal login server matches live Option A ACR (avoids what-if reference() noise).
+var staffApiImage = 'whstagingacr.azurecr.io/luna-sunset-staff-api:${staffApiImageTag}'
 
 // --- Existing shared ACR (read-only; AcrPull RBAC only — no push, no Wolfhouse app changes) ---
 resource existingAcr 'Microsoft.ContainerRegistry/registries@2023-07-01' existing = {
@@ -212,7 +277,7 @@ resource appDb 'Microsoft.DBforPostgreSQL/flexibleServers/databases@2023-06-01-p
   }
 }
 
-// Restricted public access: no 0.0.0.0 rule. Allow only explicit Container Apps egress IPs.
+// Firewall rules are manual/live-owned. Default empty array declares none (incremental does not delete existing rules).
 resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRules@2023-06-01-preview' = [for (ip, i) in postgresAllowedIpAddresses: {
   parent: pgApp
   name: 'AllowSunsetStagingEgress${i}'
@@ -222,7 +287,7 @@ resource pgFirewallRules 'Microsoft.DBforPostgreSQL/flexibleServers/firewallRule
   }
 }]
 
-// --- Container Apps environment ---
+// --- Container Apps environment (always declared; live exists in northeurope) ---
 resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
   name: envName
   location: containerAppsLocation
@@ -240,11 +305,19 @@ resource containerAppsEnv 'Microsoft.App/managedEnvironments@2023-05-01' = {
 
 var kvBaseUri = 'https://${kvName}.vault.azure.net/secrets'
 
+// Existing managed cert — referenced for hostname binding only (resource not created here).
+resource existingManagedCert 'Microsoft.App/managedEnvironments/managedCertificates@2023-05-01' existing = {
+  parent: containerAppsEnv
+  name: managedCertificateName
+}
+
 // --- Staff API Container App ---
+// Still unmanaged as resources: hold-expiry job, managed cert creation, postgres firewall, external DNS, operator KV officer RBAC.
+// luna-bot-internal-token value remains a manual secure param (never committed).
 resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContainerApps && deployStaffApi) {
   name: staffApiAppName
   location: containerAppsLocation
-  tags: resourceTags
+  tags: staffApiTags
   identity: {
     type: 'UserAssigned'
     userAssignedIdentities: {
@@ -257,23 +330,36 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
       ingress: {
         external: true
         targetPort: 3036
-        transport: 'http'
+        transport: 'auto'
         allowInsecure: false
+        traffic: [
+          {
+            latestRevision: true
+            weight: 100
+          }
+        ]
+        customDomains: [
+          {
+            name: staffApiCustomDomain
+            bindingType: 'SniEnabled'
+            certificateId: existingManagedCert.id
+          }
+        ]
       }
       secrets: [
+        {
+          name: 'stripe-webhook-secret'
+          keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret'
+          identity: managedIdentity.id
+        }
         {
           name: 'sunset-database-url'
           keyVaultUrl: '${kvBaseUri}/sunset-database-url'
           identity: managedIdentity.id
         }
         {
-          name: 'stripe-secret-key'
-          keyVaultUrl: '${kvBaseUri}/stripe-secret-key'
-          identity: managedIdentity.id
-        }
-        {
-          name: 'stripe-webhook-secret'
-          keyVaultUrl: '${kvBaseUri}/stripe-webhook-secret'
+          name: 'meta-whatsapp-token'
+          keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token'
           identity: managedIdentity.id
         }
         {
@@ -282,14 +368,18 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           identity: managedIdentity.id
         }
         {
-          name: 'meta-whatsapp-token'
-          keyVaultUrl: '${kvBaseUri}/meta-whatsapp-token'
+          name: 'stripe-secret-key'
+          keyVaultUrl: '${kvBaseUri}/stripe-secret-key'
           identity: managedIdentity.id
+        }
+        {
+          name: 'luna-bot-internal-token'
+          value: lunaBotInternalToken
         }
       ]
       registries: [
         {
-          server: existingAcr.properties.loginServer
+          server: 'whstagingacr.azurecr.io'
           identity: managedIdentity.id
         }
       ]
@@ -297,7 +387,7 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
     template: {
       containers: [
         {
-          name: 'staff-api'
+          name: 'luna-sunset-staging-staff-api'
           image: staffApiImage
           resources: {
             cpu: json(staffApiCpu)
@@ -305,7 +395,7 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
           }
           env: [
             { name: 'WHATSAPP_DRY_RUN', value: 'true' }
-            { name: 'STAFF_ACTIONS_ENABLED', value: 'false' }
+            { name: 'STAFF_ACTIONS_ENABLED', value: 'true' }
             { name: 'STAFF_AUTH_REQUIRED', value: 'true' }
             { name: 'STAFF_AUTH_HTTPS', value: 'true' }
             { name: 'STRIPE_WEBHOOK_SKIP_VERIFY', value: 'false' }
@@ -319,12 +409,32 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'STRIPE_WEBHOOK_SECRET', secretRef: 'stripe-webhook-secret' }
             { name: 'STAFF_SESSION_SECRET', secretRef: 'staff-session-secret' }
             { name: 'META_WHATSAPP_TOKEN', secretRef: 'meta-whatsapp-token' }
+            { name: 'SUNSET_ADMIN_DB_READ_ENABLED', value: 'true' }
+            { name: 'SUNSET_ADMIN_WRITES_ENABLED', value: 'true' }
+            { name: 'STRIPE_LINKS_ENABLED', value: 'true' }
+            { name: 'STRIPE_CHECKOUT_SUCCESS_URL', value: 'https://sunset-staging.lunafrontdesk.com/staff/login?checkout=success&session_id={CHECKOUT_SESSION_ID}' }
+            { name: 'STRIPE_CHECKOUT_CANCEL_URL', value: 'https://sunset-staging.lunafrontdesk.com/staff/login?checkout=cancel' }
+            { name: 'NODE_OPTIONS', value: '--dns-result-order=ipv4first' }
+            { name: 'SUNSET_ADMIN_JSON_OVERLAY', value: 'false' }
+            { name: 'SUNSET_SOMO_WHATSAPP_NUMBER', value: sunsetSomoWhatsappNumber }
+            { name: 'SUNSET_SARDINERO_WHATSAPP_NUMBER', value: sunsetSardineroWhatsappNumber }
+            { name: 'SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID', value: sunsetSomoWhatsappPhoneNumberId }
+            { name: 'SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID', value: sunsetSardineroWhatsappPhoneNumberId }
+            { name: 'SUNSET_SOMO_INBOX_EMAIL', value: sunsetSomoInboxEmail }
+            { name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: sunsetSardineroInboxEmail }
+            { name: 'BOT_PAUSE_CONTROLS_ENABLED', value: 'true' }
+            { name: 'DEFAULT_CLIENT_SLUG', value: 'sunset' }
+            { name: 'LUNA_BOT_INTERNAL_TOKEN', secretRef: 'luna-bot-internal-token' }
+            { name: 'BOT_BOOKING_ENABLED', value: 'true' }
+            { name: 'BOT_ADDON_REQUESTS_ENABLED', value: 'true' }
+            { name: 'DEPLOY_SHA', value: deploySha }
+            { name: 'FORCE_REVISION', value: forceRevision }
           ]
         }
       ]
       scale: {
-        minReplicas: 0
-        maxReplicas: 1
+        minReplicas: staffApiMinReplicas
+        maxReplicas: staffApiMaxReplicas
       }
     }
   }
@@ -338,8 +448,11 @@ output managedIdentityPrincipalId string = managedIdentity.properties.principalI
 output postgresServerName string = pgApp.name
 output postgresFqdn string = pgApp.properties.fullyQualifiedDomainName
 output databaseName string = appDb.name
-output containerAppsEnvironmentName string = containerAppsEnv.name
+output containerAppsEnvironmentName string = envName
 output staffApiAppName string = staffApiAppName
 output staffApiImage string = staffApiImage
+output containerAppsLocationOut string = containerAppsLocation
+output staffApiMinReplicasOut int = staffApiMinReplicas
+output staffApiMaxReplicasOut int = staffApiMaxReplicas
 output acrLoginServer string = existingAcr.properties.loginServer
 output portalUrlTarget string = 'https://sunset-staging.lunafrontdesk.com'
