@@ -33,10 +33,24 @@ Numeric file order (`001`, `002`, `003`) does not match fresh-DB dependency orde
 
 `020_wolfhouse_room_gender_metadata.sql` updates `rooms` for `wolfhouse-somo` only. On an empty Sunset database it is a **no-op** (zero matching rows) but should still run to keep migration parity with Wolfhouse.
 
-## Migration ledger
+## Migration ledger (FOUNDATION Slice 4)
 
-There is **no** `schema_migrations` table or migration ledger in this repository today. Apply order is manual/script-driven.
+Canonical forward chain + classifications live in `canonical-manifest.json` (immutable checksums).
 
-### Follow-up recommendation
+```bash
+# Integrity gate (no database)
+node scripts/verify-migration-integrity.js
 
-Add a migration ledger and a single guarded runner before future fresh-DB work (staging, CI, new tenants). Until then, document and script the explicit apply order above.
+# Fail-closed runner — ephemeral local DB only (wh_mig_* + localhost)
+# WH_MIG_HOST=127.0.0.1 WH_MIG_PORT=... WH_MIG_USER=... WH_MIG_PASSWORD=... WH_MIG_DATABASE=wh_mig_...
+node scripts/run-canonical-migrations.js
+
+# Disposable Docker proof (unique container/volume/credentials; guaranteed cleanup)
+node scripts/prove-canonical-migrations-fresh-db.js
+```
+
+The runner refuses Azure / staging / production hosts and forbidden DB names (`sunset_staging`, `wolfhouse_staging`, …). It records applies in `schema_migration_ledger` under a PostgreSQL advisory lock.
+
+**015 gap:** intentionally unused (documented above). Duplicate numbers `024` / `030` / `033` are resolved in the manifest without renaming SQL files.
+
+---
