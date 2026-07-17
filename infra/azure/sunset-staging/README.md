@@ -213,6 +213,33 @@ node scripts/verify-sunset-staging-bicep-reconcile.js --self-test
 node scripts/verify-sunset-staging-bicep-reconcile.js
 ```
 
+## Deployment preflight (FOUNDATION Slice 3 — fail-closed, read-only)
+
+Never creates/updates Azure resources. Incremental what-if only (`az deployment group what-if --no-pretty-print`). No `deployment group create` path exists in the preflight command surface.
+
+**Scope note:** ACR image existence is the **post-build** deployment gate (immutable tag == master SHA must already be in ACR). This command does **not** replace the existing **pre-build** master/source preflight (`assert-repo-sync` / `assert-deploy-from-master`). Run those before building/pushing an image; run this preflight before any Sunset Bicep deploy candidate.
+
+Prerequisite short-circuit: if Git, secure-params provenance, or parameters fail, Azure account/ACR/cost/what-if are **not** called. If subscription/RG validation fails, ACR/cost/what-if are skipped. Skipped checks are reported with `skipped: true` and reason codes (never as passes).
+
+Secure params provenance: in-repo files must be **untracked** and match `git check-ignore` (tracked `tmp`/`local` names are rejected). Outside-repo paths must be regular files (no symlinks). Env-only `WH_SUNSET_PF_*` remains allowed. File contents are never printed.
+
+```bash
+# Secure params must be gitignored (tmp/*.local.json) or WH_SUNSET_PF_* env vars
+node scripts/preflight-sunset-staging-bicep.js \
+  --base-params infra/azure/sunset-staging/parameters.example.json \
+  --secure-params tmp/sunset-preflight.secure.local.json \
+  --report tmp/sunset-bicep-preflight-report.json
+
+node scripts/verify-sunset-staging-bicep-preflight.js
+
+# Optional: live Azure probe from a feature branch (mocks clean origin/master git)
+node scripts/run-sunset-staging-bicep-preflight-live-probe.js
+```
+
+Requires: clean `HEAD == origin/master`, `staffApiImageTag`/`deploySha`/`forceRevision` == full master SHA, immutable ACR image present, subscription/RG match Slice 1 inventory, rejected placeholders/`****`/example.test routing literals absent, and what-if with Create=Delete=Replace=MaterialModify=0 (only explicitly fingerprinted platform noise allowed).
+
+Secret-free live probe fixture: `fixtures/sunset-staging-bicep-preflight/live-preflight-report.json`.
+
 ---
 
 ## Cost attribution tags
@@ -227,4 +254,4 @@ node scripts/verify-sunset-staging-bicep-reconcile.js
 
 ---
 
-*FOUNDATION Slice 2 — reconcile to live; what-if only — 2026-07-17*
+*FOUNDATION Slice 3 — enforced Bicep deployment preflight (read-only; fail-closed) — 2026-07-17*
