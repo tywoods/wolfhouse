@@ -26,6 +26,7 @@ const {
   isBundleRentalServiceRow,
   BOARD_AND_SUIT_OFFERING_KEY,
 } = require('./lib/sunset-stripe-payment-links');
+const { buildPaymentSummary } = require('./lib/sunset-schedule-booking-drawer');
 
 let pass = 0;
 let fail = 0;
@@ -520,6 +521,156 @@ assert('mismatch meta parsed', mismatchMeta && mismatchMeta.quoted_total_cents =
   assert('mismatch has no payment INSERT', pgStripeMismatch.paymentInserts.length === 0);
   assert('mismatch has no Stripe fetch', stripeFetchCount === 0);
   assert('mismatch rolls back transaction', pgStripeMismatch.rolledBack());
+
+  console.log('\n[11] Drawer payment summary — bundled rentals charge once (no live reprice of zero peer)');
+  const bundleLivePrices = [
+    { category: 'rental', offering_key: 'board_rental', unit: '1_day', amount: 65.12, active: true },
+    { category: 'rental', offering_key: 'wetsuit_rental', unit: '1_day', amount: 65.12, active: true },
+    { category: 'rental', offering_key: 'board_and_suit_rental', unit: '1_day', amount: 65.12, active: true },
+  ];
+  const rentalPricingMeta = bundleDescriptor({ quoted_total_cents: 6512 });
+  // Canonical create accounting: lexicographic primary carries bundle total; peer is explicit 0.
+  const primarySr = {
+    service_record_id: 'sr-board-a',
+    service_type: 'surfboard',
+    service_date: '2026-07-18',
+    quantity: 1,
+    amount_due_cents: 6512,
+    metadata: JSON.stringify({
+      component: 'surfboard',
+      pricing_group_id: GROUP_ID,
+      location_id: 'sunset-somo',
+    }),
+  };
+  const peerSr = {
+    service_record_id: 'sr-suit-b',
+    service_type: 'wetsuit',
+    service_date: '2026-07-18',
+    quantity: 1,
+    amount_due_cents: 0,
+    metadata: JSON.stringify({
+      component: 'wetsuit',
+      pricing_group_id: GROUP_ID,
+      location_id: 'sunset-somo',
+    }),
+  };
+  const bundleBooking = {
+    payment_status: 'unpaid',
+    total_amount_cents: 6512,
+    amount_paid_cents: 0,
+    balance_due_cents: 6512,
+    metadata: {
+      rental_pricing: rentalPricingMeta,
+      location_id: 'sunset-somo',
+      sunset_price_source: 'admin_db',
+    },
+  };
+  const doubledIfLive = buildPaymentSummary(
+    bundleLivePrices,
+    bundleBooking,
+    [primarySr, peerSr],
+    'admin_db',
+    0,
+    { ok: true, source: 'admin_db', prices: bundleLivePrices },
+  );
+  const lineSum = (doubledIfLive.line_items || []).reduce((a, li) => a + Number(li.line_cents || 0), 0);
+  assert('bundle drawer line sum equals authoritative 6512', lineSum === 6512, String(lineSum));
+  assert('bundle drawer subtotal equals 6512', doubledIfLive.subtotal_cents === 6512, String(doubledIfLive.subtotal_cents));
+  assert('bundle drawer total equals 6512', doubledIfLive.total_cents === 6512, String(doubledIfLive.total_cents));
+  assert('bundle drawer balance equals 6512', doubledIfLive.balance_due_cents === 6512, String(doubledIfLive.balance_due_cents));
+  assert('bundle drawer does not double to 13024', doubledIfLive.total_cents !== 13024);
+  assert(
+    'primary line carries 6512',
+    doubledIfLive.line_items.some((li) => li.service_record_id === 'sr-board-a' && li.line_cents === 6512),
+  );
+  assert(
+    'zero peer stays visible at 0 (not live-repriced)',
+    doubledIfLive.line_items.some((li) => li.service_record_id === 'sr-suit-b' && li.line_cents === 0 && li.priced_live !== true),
+  );
+  assert('bundle drawer stays unpaid', doubledIfLive.payment_status === 'unpaid');
+
+  // Independent board + wetsuit offerings remain separately chargeable.
+  const independentBoardSuit = buildPaymentSummary(
+    bundleLivePrices,
+    {
+      payment_status: 'unpaid',
+      total_amount_cents: 13024,
+      amount_paid_cents: 0,
+      balance_due_cents: 13024,
+      metadata: { location_id: 'sunset-somo' },
+    },
+    [
+      { ...primarySr, amount_due_cents: 6512, metadata: JSON.stringify({ component: 'surfboard', location_id: 'sunset-somo' }) },
+      { ...peerSr, amount_due_cents: 6512, metadata: JSON.stringify({ component: 'wetsuit', location_id: 'sunset-somo' }) },
+    ],
+    'admin_db',
+    0,
+    { ok: true, source: 'admin_db', prices: bundleLivePrices },
+  );
+  assert('independent board+wetsuit sum to 13024', independentBoardSuit.total_cents === 13024, String(independentBoardSuit.total_cents));
+
+  // Mixed course + rental retains complete line provenance.
+  const coursePlusBundle = buildPaymentSummary(
+    [
+      ...bundleLivePrices,
+      { category: 'lesson', offering_key: 'group_lesson_adult', unit: 'single_lesson', amount: 45, active: true },
+    ],
+    {
+      payment_status: 'unpaid',
+      total_amount_cents: 11012,
+      amount_paid_cents: 0,
+      balance_due_cents: 11012,
+      metadata: { location_id: 'sunset-somo' },
+    },
+    [
+      {
+        service_record_id: 'sr-course',
+        service_type: 'surf_lesson',
+        service_date: '2026-07-18',
+        quantity: 1,
+        amount_due_cents: 4500,
+        metadata: JSON.stringify({ component: 'course', course_label: 'Curso', course_id: 'c1' }),
+        course_label: 'Curso',
+      },
+      primarySr,
+      peerSr,
+    ],
+    'admin_db',
+    0,
+    { ok: true, source: 'admin_db', prices: bundleLivePrices },
+  );
+  assert('mixed course+bundle line count is 3', coursePlusBundle.line_items.length === 3, String(coursePlusBundle.line_items.length));
+  assert('mixed course+bundle total is 11012', coursePlusBundle.total_cents === 11012, String(coursePlusBundle.total_cents));
+  assert('mixed keeps course line at 4500', coursePlusBundle.line_items.some((li) => li.service_record_id === 'sr-course' && li.line_cents === 4500));
+  assert('mixed keeps zero peer at 0', coursePlusBundle.line_items.some((li) => li.service_record_id === 'sr-suit-b' && li.line_cents === 0));
+
+  // Ambiguous legacy: null amounts on bundle constituents — do not invent live allocation.
+  const ambiguousBundle = buildPaymentSummary(
+    bundleLivePrices,
+    {
+      payment_status: 'unpaid',
+      total_amount_cents: 6512,
+      amount_paid_cents: 0,
+      balance_due_cents: 6512,
+      metadata: { rental_pricing: rentalPricingMeta, location_id: 'sunset-somo' },
+    },
+    [
+      { ...primarySr, amount_due_cents: null },
+      { ...peerSr, amount_due_cents: null },
+    ],
+    'admin_db',
+    0,
+    { ok: true, source: 'admin_db', prices: bundleLivePrices },
+  );
+  assert(
+    'ambiguous bundle peers are not live-doubled',
+    ambiguousBundle.total_cents === 6512 && !(ambiguousBundle.line_items || []).some((li) => li.priced_live),
+    `total=${ambiguousBundle.total_cents} live=${JSON.stringify(ambiguousBundle.line_items)}`,
+  );
+  assert(
+    'ambiguous uses server booking total for money',
+    ambiguousBundle.subtotal_cents === 6512 && ambiguousBundle.balance_due_cents === 6512,
+  );
 
   console.log(`\n── verify:sunset-rental-bundle-integrity ${fail ? 'FAILED' : 'PASSED'} (${pass}/${pass + fail}) ──\n`);
   if (fail > 0) process.exit(1);
