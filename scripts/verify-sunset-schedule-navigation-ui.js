@@ -59,6 +59,7 @@ assert('monolith keeps scheduleFormatRangeLabel', apiSrc.includes('function sche
 assert('module does not fetch', !modSrc.includes('fetch('));
 assert('module does not render grids', !modSrc.includes('renderScheduleViewGrid') && !modSrc.includes('scheduleRenderForecastCardHtml'));
 assert('module delegates to runtime', modSrc.includes('SunsetScheduleRuntime.nav'));
+assert('nav does not expose window.scheduleRequestPageLoad', !/window\.scheduleRequestPageLoad/.test(modSrc));
 
 console.log('\n[2] Module owns navigation symbols');
 [

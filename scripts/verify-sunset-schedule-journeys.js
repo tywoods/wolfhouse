@@ -157,6 +157,18 @@ async function openScheduleDay(page) {
   await page.waitForTimeout(900);
 }
 
+/** Reload Schedule via real UI nav (IIFE-scoped loadSchedulePage is not on window). */
+async function reloadScheduleViaUi(page) {
+  await page.evaluate(() => {
+    document.querySelector('.portal-schedule-view-btn[data-ps-view="week"]')?.click();
+  });
+  await page.waitForTimeout(700);
+  await page.evaluate(() => {
+    document.querySelector('.portal-schedule-view-btn[data-ps-view="day"]')?.click();
+  });
+  await page.waitForTimeout(2200);
+}
+
 async function navSnapshot(page) {
   return page.evaluate(() => {
     const active = document.querySelector('.portal-schedule-view-btn.active');
@@ -231,11 +243,7 @@ async function createPrivateLesson(page, guestName) {
   if (!created.ok) {
     throw new Error('create failed: ' + JSON.stringify(created.detail || created).slice(0, 300));
   }
-  await page.evaluate(() => {
-    if (typeof loadSchedulePage === 'function') loadSchedulePage();
-    else if (typeof scheduleRequestPageLoad === 'function') scheduleRequestPageLoad();
-  });
-  await page.waitForTimeout(2200);
+  await reloadScheduleViaUi(page);
   return created;
 }
 

@@ -373,14 +373,65 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     return loadGen === navState.loadGen;
   }
 
+  function peerStableRowId(row) {
+    if (!row) return '';
+    return String(row.service_record_id || row._scheduleId || '').trim();
+  }
+
+  function peerLocationId(row) {
+    if (!row) return '';
+    var meta = rowMetaParse(row);
+    return String(row.location_id || meta.location_id || '').trim();
+  }
+
+  /**
+   * Multi-component bookings share one booking_id/code across several service rows.
+   * Pick one deterministic peer for drawer open. Fail closed on genuine conflicts —
+   * inconsistent booking identity, conflicting location, or missing stable row id.
+   * Display grouping remains scheduleBuildDisplayGroups / scheduleFindGroupForRow.
+   */
+  function pickStableCachedPeer(matches, opts) {
+    opts = opts || {};
+    if (!matches || !matches.length) return null;
+
+    var i;
+    for (i = 0; i < matches.length; i++) {
+      if (!peerStableRowId(matches[i])) return null;
+    }
+
+    var bookingIds = {};
+    for (i = 0; i < matches.length; i++) {
+      var bid = String(matches[i].booking_id || '').trim();
+      if (bid) bookingIds[bid] = true;
+    }
+    var bookingIdKeys = Object.keys(bookingIds);
+    if (bookingIdKeys.length > 1) return null;
+    if (opts.requireBookingId) {
+      if (bookingIdKeys.length !== 1) return null;
+      var missingBid = matches.some(function(r) { return !String(r.booking_id || '').trim(); });
+      if (missingBid) return null;
+    }
+
+    var locations = {};
+    for (i = 0; i < matches.length; i++) {
+      var loc = peerLocationId(matches[i]);
+      if (loc) locations[loc] = true;
+    }
+    if (Object.keys(locations).length > 1) return null;
+
+    var sorted = matches.slice().sort(function(a, b) {
+      return peerStableRowId(a).localeCompare(peerStableRowId(b));
+    });
+    return finalizeResolvedRow(loaderCloneRow(sorted[0]), 'canonical');
+  }
+
   function findCachedRowByBookingId(bookingId) {
     var id = String(bookingId || '').trim();
     if (!id) return null;
     var matches = (loaderState.rowsSnapshot || []).filter(function(r) {
       return String(r.booking_id || '').trim() === id;
     });
-    if (matches.length !== 1) return null;
-    return finalizeResolvedRow(loaderCloneRow(matches[0]), 'canonical');
+    return pickStableCachedPeer(matches, { requireBookingId: true });
   }
 
   function findCachedRowByBookingCode(bookingCode) {
@@ -389,8 +440,8 @@ var SunsetScheduleRuntime = (function scheduleRuntimeFactory() {
     var matches = (loaderState.rowsSnapshot || []).filter(function(r) {
       return String(r.booking_code || '').trim() === code;
     });
-    if (matches.length !== 1) return null;
-    return finalizeResolvedRow(loaderCloneRow(matches[0]), 'canonical');
+    // Code lookup must resolve to one booking identity (same booking_id on all peers).
+    return pickStableCachedPeer(matches, { requireBookingId: true });
   }
 
   function finalizeResolvedRow(row, kind) {

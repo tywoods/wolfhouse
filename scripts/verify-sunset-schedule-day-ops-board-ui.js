@@ -425,6 +425,84 @@ if (modExists) {
     assert('mobile inner span resolves without cache-only miss', !!ctx.scheduleResolveDayOpsRowFromChip(mobileChip._guestSpan));
   }
 
+  // rental-only board+wetsuit bundle → openable day-board chip (no course/lesson)
+  rows.length = 0;
+  cache.length = 0;
+  drawerOpens.length = 0;
+  const boardRow = {
+    _scheduleId: 'sr-rental-board',
+    service_record_id: 'sr-rental-board',
+    booking_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    booking_code: 'SUNSET-RENT-ONLY',
+    guest_name: 'Rental Only Bundle',
+    service_date: '2026-07-20',
+    service_type: 'board_rental',
+    _scheduleType: 'rental',
+    record_source: 'staff_manual',
+    _isDbManual: true,
+    quantity: 1,
+    payment_status: 'unpaid',
+    metadata: { component: 'surfboard' },
+    _meta: { component: 'surfboard' },
+  };
+  const wetsuitRow = {
+    _scheduleId: 'sr-rental-wetsuit',
+    service_record_id: 'sr-rental-wetsuit',
+    booking_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    booking_code: 'SUNSET-RENT-ONLY',
+    guest_name: 'Rental Only Bundle',
+    service_date: '2026-07-20',
+    service_type: 'wetsuit_rental',
+    _scheduleType: 'rental',
+    record_source: 'staff_manual',
+    _isDbManual: true,
+    quantity: 1,
+    payment_status: 'unpaid',
+    metadata: { component: 'wetsuit' },
+    _meta: { component: 'wetsuit' },
+  };
+  const prevBuildSessions = ctx.scheduleBuildDaySessions;
+  const prevBuildGroups = ctx.scheduleBuildDisplayGroups;
+  const prevStandalone = ctx.scheduleGroupIsStandaloneRental;
+  const prevPickupKind = ctx.scheduleRentalPickupKind;
+  const prevBoards = ctx.scheduleGroupBoardsNeeded;
+  const prevWets = ctx.scheduleGroupWetsuitsNeeded;
+  ctx.scheduleBuildDaySessions = () => [];
+  ctx.scheduleBuildDisplayGroups = (rs) => [{
+    _scheduleId: 'sr-rental-board',
+    booking_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+    guest_name: 'Rental Only Bundle',
+    service_date: '2026-07-20',
+    record_source: 'staff_manual',
+    _isDbManual: true,
+    payment_status: 'unpaid',
+    quantity: 1,
+    components: { surfboard: true, wetsuit: true },
+    records: rs || [boardRow, wetsuitRow],
+  }];
+  ctx.scheduleGroupIsStandaloneRental = (g) => !!(g && g.components && (g.components.surfboard || g.components.wetsuit)
+    && !g.components.lesson && !g.components.course && !g.components.private_lesson);
+  ctx.scheduleRentalPickupKind = () => 'both';
+  ctx.scheduleGroupBoardsNeeded = () => 1;
+  ctx.scheduleGroupWetsuitsNeeded = () => 1;
+  installCache([boardRow, wetsuitRow]);
+  ctx.renderScheduleDayOpsBoard({ rows: [boardRow, wetsuitRow], gear: [boardRow, wetsuitRow], lessons: [] }, '2026-07-20');
+  const rentalHtml = dom['ps-ops-board'].innerHTML;
+  assert('rental-only section rendered', rentalHtml.includes('portal-schedule-ops-rental-pickups'));
+  assert('rental-only guest chip visible', rentalHtml.includes('Rental Only Bundle'));
+  const rentalChip = dom['ps-ops-board'].querySelector('[data-ps-booking-id]');
+  assert('rental-only chip carries booking identity', !!rentalChip
+    && rentalChip.getAttribute('data-ps-booking-id') === 'sr-rental-board');
+  drawerOpens.length = 0;
+  if (rentalChip) clickChip(rentalChip, rentalChip._guestSpan || rentalChip);
+  assert('rental-only chip opens drawer via existing wiring', drawerOpens.length === 1 && drawerOpens[0] === 'sr-rental-board');
+  ctx.scheduleBuildDaySessions = prevBuildSessions;
+  ctx.scheduleBuildDisplayGroups = prevBuildGroups;
+  ctx.scheduleGroupIsStandaloneRental = prevStandalone;
+  ctx.scheduleRentalPickupKind = prevPickupKind;
+  ctx.scheduleGroupBoardsNeeded = prevBoards;
+  ctx.scheduleGroupWetsuitsNeeded = prevWets;
+
   assert('board module never fetched', fetchCount === 0);
 }
 
