@@ -28,6 +28,10 @@ const DISCOVERY_PATHSPECS = [
   'scripts/verify-sunset-staging-iac-secret-scan.js',
   'scripts/verify-sunset-staging-iac-diff-check.js',
   'scripts/verify-sunset-staging-bicep-reconcile.js',
+  'scripts/verify-sunset-staging-bicep-preflight.js',
+  'scripts/preflight-sunset-staging-bicep.js',
+  'scripts/lib/sunset-staging-bicep-preflight.js',
+  'scripts/run-sunset-staging-bicep-preflight-live-probe.js',
 ];
 
 function discoverCommittedArtifacts() {

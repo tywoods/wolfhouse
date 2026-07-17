@@ -19,6 +19,9 @@ config/clients/*.secrets.json
 # Staging channel routing with real Meta phone_number_id values — copy from channel-routing.staging.example.json outside git
 config/clients/channel-routing.staging.json
 
+# Sunset Bicep preflight secure overlays (FOUNDATION Slice 3 — must match git check-ignore)
+tmp/**/*.local.json
+
 # Private / raw WhatsApp exports (never commit)
 data/private/
 data/raw-whatsapp/

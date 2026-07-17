@@ -1,0 +1,234 @@
+{
+  "schemaVersion": 1,
+  "kind": "sunset-staging-bicep-preflight",
+  "ok": false,
+  "generatedAt": "2026-07-17T12:05:35.427Z",
+  "candidateSha": "701cd650383936b24769fa7c8a9afa39a1c9281c",
+  "target": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "app": "luna-sunset-staging-staff-api",
+    "mode": "Incremental"
+  },
+  "costBaseline": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-17",
+      "label": "month-to-date"
+    },
+    "amount": 13.493559344086,
+    "currency": "USD"
+  },
+  "templateHash": "fc47aa4d97a3b1edaafed3e6f748afbd4d4efbfe19bc8b0064e613f8a85b61c7",
+  "checks": [
+    {
+      "name": "git",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "secure_params_provenance",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "parameters",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "forbidden_refs",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "template_gates",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "azure_target",
+      "ok": true,
+      "errors": []
+    },
+    {
+      "name": "acr_image",
+      "ok": false,
+      "errors": [
+        {
+          "code": "acr_image_missing",
+          "message": "immutable image luna-sunset-staff-api:701cd650383936b24769fa7c8a9afa39a1c9281c not found in whstagingacr"
+        }
+      ]
+    },
+    {
+      "name": "what_if",
+      "ok": false,
+      "errors": [
+        {
+          "code": "whatif_material_modify",
+          "message": "material Modify: containerApps/material-image-or-env"
+        }
+      ],
+      "summary": {
+        "create": 0,
+        "delete": 0,
+        "replace": 0,
+        "materialModify": 1,
+        "allowedNoise": 17,
+        "changeCount": 12
+      }
+    },
+    {
+      "name": "cost_baseline",
+      "ok": true,
+      "errors": []
+    }
+  ],
+  "whatIf": {
+    "mode": "Incremental",
+    "summary": {
+      "create": 0,
+      "delete": 0,
+      "replace": 0,
+      "materialModify": 1,
+      "allowedNoise": 17,
+      "changeCount": 12
+    },
+    "normalized": [
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "fingerprint": "containerApps/exposedPort"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "fingerprint": "containerApps/maxInactiveRevisions"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "fingerprint": "containerApps/runningStatus"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "fingerprint": "containerApps/env-param-expression"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
+        "fingerprint": "containerApps/material-image-or-env"
+      },
+      {
+        "changeType": "Ignore",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-hold-expiry",
+        "fingerprint": "ignore/hold-expiry-job"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env",
+        "fingerprint": "managedEnvironments/peerAuthentication"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env",
+        "fingerprint": "managedEnvironments/logAnalytics-customerId-reference"
+      },
+      {
+        "changeType": "Ignore",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/managedEnvironments/luna-sunset-staging-env/managedCertificates/mc-luna-sunset-st-sunset-staging-l-4218",
+        "fingerprint": "ignore/managed-certificate"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+        "fingerprint": "postgres/platform-defaults"
+      },
+      {
+        "changeType": "NoChange",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app/databases/sunset_staging",
+        "fingerprint": "nochange"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/components/luna-sunset-staging-appinsights",
+        "fingerprint": "appinsights/default-flow-props"
+      },
+      {
+        "changeType": "NoChange",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+        "fingerprint": "nochange"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv/providers/Microsoft.Authorization/roleAssignments/e6a5bc9b-2795-58c6-bccb-2dc8479dd970",
+        "fingerprint": "roleAssignment/principalId-reference"
+      },
+      {
+        "changeType": "Modify",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv/providers/Microsoft.Authorization/roleAssignments/e6a5bc9b-2795-58c6-bccb-2dc8479dd970",
+        "fingerprint": "roleAssignment/principalType-unsupported"
+      },
+      {
+        "changeType": "NoChange",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity",
+        "fingerprint": "nochange"
+      },
+      {
+        "changeType": "NoChange",
+        "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.OperationalInsights/workspaces/luna-sunset-staging-logs",
+        "fingerprint": "nochange"
+      },
+      {
+        "changeType": "Unsupported",
+        "resourceId": "[extensionResourceId('/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.ContainerRegistry/registries/whstagingacr', 'Microsoft.Authorization/roleAssignments', guid('/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.ContainerRegistry/registries/whstagingacr', reference('/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/luna-sunset-staging-identity', '2023-01-31').principalId, '7f951dda-4ed3-4680-a7ca-43fe172d538d'))]",
+        "fingerprint": "roleAssignment/principalType-unsupported"
+      }
+    ]
+  },
+  "parametersRedacted": {
+    "environmentName": "staging",
+    "location": "westeurope",
+    "containerAppsLocation": "northeurope",
+    "appNamePrefix": "luna-sunset-staging",
+    "acrName": "whstagingacr",
+    "acrResourceGroupName": "wh-staging-rg",
+    "staffApiImageTag": "701cd650383936b24769fa7c8a9afa39a1c9281c",
+    "postgresSku": "Standard_B1ms",
+    "postgresVersion": "15",
+    "staffApiCpu": "0.5",
+    "staffApiMemory": "1Gi",
+    "logRetentionDays": 30,
+    "postgresAdminUser": "sunsetadmin",
+    "appDbName": "sunset_staging",
+    "ownerTag": "tywoods",
+    "postgresAllowedIpAddresses": [],
+    "deployContainerApps": true,
+    "deployStaffApi": true,
+    "staffApiMinReplicas": 1,
+    "staffApiMaxReplicas": 1,
+    "deploySha": "701cd650383936b24769fa7c8a9afa39a1c9281c",
+    "forceRevision": "701cd650383936b24769fa7c8a9afa39a1c9281c",
+    "sunsetSomoWhatsappNumber": "[REDACTED]",
+    "sunsetSardineroWhatsappNumber": "[REDACTED]",
+    "sunsetSomoWhatsappPhoneNumberId": "[REDACTED]",
+    "sunsetSardineroWhatsappPhoneNumberId": "[REDACTED]",
+    "sunsetSomoInboxEmail": "[REDACTED]",
+    "sunsetSardineroInboxEmail": "[REDACTED]",
+    "lunaBotInternalToken": "[REDACTED]",
+    "postgresAdminPassword": "[REDACTED]"
+  },
+  "probeNotes": {
+    "liveEnvHadRejectedLiterals": [
+      "SUNSET_SOMO_WHATSAPP_PHONE_NUMBER_ID",
+      "SUNSET_SARDINERO_WHATSAPP_PHONE_NUMBER_ID",
+      "SUNSET_SOMO_INBOX_EMAIL",
+      "SUNSET_SARDINERO_INBOX_EMAIL"
+    ],
+    "note": "Secure overlay used synthetic what-if-safe values where live stamps matched rejected example/test literals. ACR missing for candidate master SHA is an expected fail-closed gate."
+  }
+}
