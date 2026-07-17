@@ -32,6 +32,9 @@ const DISCOVERY_PATHSPECS = [
   'scripts/preflight-sunset-staging-bicep.js',
   'scripts/lib/sunset-staging-bicep-preflight.js',
   'scripts/run-sunset-staging-bicep-preflight-live-probe.js',
+  'scripts/lib/sunset-schema-drift.js',
+  'scripts/verify-sunset-schema-drift.js',
+  'scripts/probe-sunset-live-schema-drift.js',
 ];
 
 function discoverCommittedArtifacts() {

@@ -284,6 +284,8 @@
     "verify:migration-integrity": "node scripts/verify-migration-integrity.js",
     "migrate:canonical": "node scripts/run-canonical-migrations.js",
     "prove:canonical-migrations-fresh-db": "node scripts/prove-canonical-migrations-fresh-db.js",
+    "verify:sunset-schema-drift": "node scripts/verify-sunset-schema-drift.js",
+    "probe:sunset-live-schema-drift": "node scripts/probe-sunset-live-schema-drift.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
     "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",
