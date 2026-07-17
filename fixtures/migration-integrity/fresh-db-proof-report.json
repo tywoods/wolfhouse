@@ -1,0 +1,76 @@
+{
+  "ok": true,
+  "kind": "canonical-migration-fresh-db-proof",
+  "masterSha": "4502fe3938dd907c14d2c7218e7252d19b3d985d",
+  "container": "wh-mig-proof-1571bb48",
+  "volume": "wh-mig-proof-vol-1571bb48",
+  "hostPort": 53789,
+  "databases": {
+    "a": "wh_mig_a_1571bb48",
+    "b": "wh_mig_b_1571bb48",
+    "c": "wh_mig_c_1571bb48"
+  },
+  "forwardCount": 36,
+  "steps": {
+    "atomicRollbackInject": {
+      "applyOk": false,
+      "errorCode": "injected_ledger_failure",
+      "hostelsPresent": false,
+      "clientsPresent": false,
+      "ledgerRows": 0
+    },
+    "atomicRollbackRecover": {
+      "ok": true,
+      "appliedCount": 36,
+      "ledgerRows": 36,
+      "firstMigrationLedgerRows": 1
+    },
+    "firstApply": {
+      "ok": true,
+      "appliedCount": 36,
+      "skippedCount": 0,
+      "errors": []
+    },
+    "secondApply": {
+      "ok": true,
+      "appliedCount": 0,
+      "skippedCount": 36,
+      "errors": []
+    },
+    "secondDbApply": {
+      "ok": true,
+      "appliedCount": 36,
+      "errors": []
+    },
+    "schemaFingerprint": {
+      "a": "57a11e8bbaa68975247d668309e56d05e8fbe90e568ab390705e6959be804d67",
+      "b": "57a11e8bbaa68975247d668309e56d05e8fbe90e568ab390705e6959be804d67",
+      "match": true
+    },
+    "forcedChecksumMismatch": {
+      "ok": false,
+      "errors": [
+        {
+          "code": "ledger_checksum_mismatch",
+          "message": "ledger checksum mismatch for 001_init"
+        }
+      ]
+    },
+    "forcedPartialLedger": {
+      "ok": false,
+      "errors": [
+        {
+          "code": "ledger_partial_history",
+          "message": "ledger is not a contiguous prefix (gap at order 1)"
+        }
+      ]
+    }
+  },
+  "cleanup": {
+    "containerRemoved": true,
+    "volumeRemoved": true,
+    "credentialsNotPersisted": true,
+    "note": "Ephemeral password existed only in process memory; not written to report."
+  },
+  "schemaFingerprint": "57a11e8bbaa68975247d668309e56d05e8fbe90e568ab390705e6959be804d67"
+}
