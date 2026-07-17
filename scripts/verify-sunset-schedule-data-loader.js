@@ -53,6 +53,7 @@ assert('loader installs dual indexes from view-model', fs.readFileSync(RUNTIME_M
   && fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('viewModel.presentationOnlyRows')
   && fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('replaceLoadSnapshots'));
 assert('runtime owns resolveRow', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('function resolveRow('));
+assert('runtime picks stable peer for multi-row bookings', fs.readFileSync(RUNTIME_MODULE, 'utf8').includes('function pickStableCachedPeer('));
 assert('inline var scheduleRowsCache removed', !/var scheduleRowsCache\s*=/.test(apiSrc));
 assert('inline function loadSchedulePage removed from monolith', !/function loadSchedulePage\(/.test(apiSrc));
 assert('inline scheduleFetchDay removed from monolith', !/function scheduleFetchDay\(/.test(apiSrc));
@@ -62,7 +63,8 @@ assert('inline scheduleFindRowById removed from monolith', !/function scheduleFi
 assert('monolith keeps scheduleBuildLoadedViewModel', apiSrc.includes('function scheduleBuildLoadedViewModel('));
 assert('monolith keeps scheduleRenderLoadedViewModel', apiSrc.includes('function scheduleRenderLoadedViewModel('));
 assert('module does not fetch aggregates', !modSrc.includes('scheduleDaySeatStats') && !modSrc.includes('renderScheduleSummary'));
-assert('module does not expose window', !/window\.schedule/.test(modSrc));
+assert('module does not expose window.loadSchedulePage', !/window\.loadSchedulePage/.test(modSrc));
+assert('module does not expose window.schedule* aliases', !/window\.schedule/.test(modSrc));
 
 console.log('\n[2] Module owns loader/cache symbols');
 [
@@ -230,10 +232,76 @@ if (modExists) {
     assert('presentation not in canonical snapshot', !ctx.scheduleGetRowsSnapshot().some((r) => r._scheduleId === 'demo-presentation-1'));
     injectPresentationOnBuild = false;
     ctx.scheduleReplaceRowsSnapshot([
-      { booking_id: 'dup', _scheduleId: 'd1', guest_name: 'One', service_date: '2026-07-15' },
-      { booking_id: 'dup', _scheduleId: 'd2', guest_name: 'Two', service_date: '2026-07-15' },
+      { booking_id: 'dup', booking_code: 'SUN-DUP', _scheduleId: 'd2', service_record_id: 'd2', guest_name: 'Two', service_date: '2026-07-15', location_id: 'sunset-somo' },
+      { booking_id: 'dup', booking_code: 'SUN-DUP', _scheduleId: 'd1', service_record_id: 'd1', guest_name: 'One', service_date: '2026-07-15', location_id: 'sunset-somo' },
     ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
-    assert('ambiguous booking identity fail closed', ctx.scheduleFindCachedRowByBookingId('dup') === null);
+    assert('multi-row booking id resolves stable peer', (() => {
+      const r = ctx.scheduleFindCachedRowByBookingId('dup');
+      return !!r && r.booking_id === 'dup' && r._scheduleId === 'd1';
+    })());
+    assert('multi-row booking code resolves stable peer', (() => {
+      const r = ctx.scheduleFindCachedRowByBookingCode('SUN-DUP');
+      return !!r && r.booking_code === 'SUN-DUP' && r._scheduleId === 'd1';
+    })());
+    assert('stable peer deterministic regardless of row order', (() => {
+      ctx.scheduleReplaceRowsSnapshot([
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'z-last', service_record_id: 'z-last', guest_name: 'Z', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'a-first', service_record_id: 'a-first', guest_name: 'A', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'm-mid', service_record_id: 'm-mid', guest_name: 'M', service_date: '2026-07-15', location_id: 'sunset-somo' },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      const forward = ctx.scheduleFindCachedRowByBookingId('ord');
+      ctx.scheduleReplaceRowsSnapshot([
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'm-mid', service_record_id: 'm-mid', guest_name: 'M', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'a-first', service_record_id: 'a-first', guest_name: 'A', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'ord', booking_code: 'SUN-ORD', _scheduleId: 'z-last', service_record_id: 'z-last', guest_name: 'Z', service_date: '2026-07-15', location_id: 'sunset-somo' },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      const reverse = ctx.scheduleFindCachedRowByBookingCode('SUN-ORD');
+      return !!forward && !!reverse && forward._scheduleId === 'a-first' && reverse._scheduleId === 'a-first';
+    })());
+    assert('rental-only bundle board+wetsuit resolves for drawer open', (() => {
+      ctx.scheduleReplaceRowsSnapshot([
+        {
+          booking_id: 'rent-1', booking_code: 'SUNSET-RENT', _scheduleId: 'sr-wetsuit', service_record_id: 'sr-wetsuit',
+          guest_name: 'Rental Bundle Guest', service_date: '2026-07-15', service_type: 'wetsuit_rental',
+          _scheduleType: 'rental', record_source: 'staff_manual', location_id: 'sunset-somo',
+          metadata: { component: 'wetsuit' },
+        },
+        {
+          booking_id: 'rent-1', booking_code: 'SUNSET-RENT', _scheduleId: 'sr-board', service_record_id: 'sr-board',
+          guest_name: 'Rental Bundle Guest', service_date: '2026-07-15', service_type: 'board_rental',
+          _scheduleType: 'rental', record_source: 'staff_manual', location_id: 'sunset-somo',
+          metadata: { component: 'surfboard' },
+        },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      const byCode = ctx.scheduleFindCachedRowByBookingCode('SUNSET-RENT');
+      const byId = ctx.scheduleFindCachedRowByBookingId('rent-1');
+      return !!byCode && !!byId && byCode.guest_name === 'Rental Bundle Guest'
+        && byCode._scheduleId === 'sr-board' && byId._scheduleId === 'sr-board';
+    })());
+    assert('conflicting booking identity under same code fail closed', (() => {
+      ctx.scheduleReplaceRowsSnapshot([
+        { booking_id: 'bk-a', booking_code: 'SUN-COLLIDE', _scheduleId: 'c1', service_record_id: 'c1', guest_name: 'A', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'bk-b', booking_code: 'SUN-COLLIDE', _scheduleId: 'c2', service_record_id: 'c2', guest_name: 'B', service_date: '2026-07-15', location_id: 'sunset-somo' },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      return ctx.scheduleFindCachedRowByBookingCode('SUN-COLLIDE') === null;
+    })());
+    assert('conflicting tenant/location under same booking fail closed', (() => {
+      ctx.scheduleReplaceRowsSnapshot([
+        { booking_id: 'bk-loc', booking_code: 'SUN-LOC', _scheduleId: 'l1', service_record_id: 'l1', guest_name: 'Loc', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'bk-loc', booking_code: 'SUN-LOC', _scheduleId: 'l2', service_record_id: 'l2', guest_name: 'Loc', service_date: '2026-07-15', location_id: 'sunset-sardinero' },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      return ctx.scheduleFindCachedRowByBookingId('bk-loc') === null
+        && ctx.scheduleFindCachedRowByBookingCode('SUN-LOC') === null;
+    })());
+    assert('missing stable row identity fail closed', (() => {
+      ctx.scheduleReplaceRowsSnapshot([
+        { booking_id: 'bk-miss', booking_code: 'SUN-MISS', guest_name: 'NoId', service_date: '2026-07-15', location_id: 'sunset-somo' },
+        { booking_id: 'bk-miss', booking_code: 'SUN-MISS', _scheduleId: 'ok', service_record_id: 'ok', guest_name: 'HasId', service_date: '2026-07-15', location_id: 'sunset-somo' },
+      ], { mode: 'day', forwardOffset: 0, loadGen: ctx.scheduleNavigationLoadGen(), todayIso: '2026-07-15' });
+      return ctx.scheduleFindCachedRowByBookingId('bk-miss') === null
+        && ctx.scheduleFindCachedRowByBookingCode('SUN-MISS') === null;
+    })());
+    assert('missing booking code still null', ctx.scheduleFindCachedRowByBookingCode('NOPE') === null);
 
     const snap = ctx.scheduleGetRowsSnapshot();
     snap[0].guest_name = 'mutated';

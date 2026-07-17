@@ -266,6 +266,34 @@ if (modExists) {
   assert('27 loaded response normalizes once', loaded.canonicalRows.length === 2);
   assert('28 canonical snapshot separate from demo', Array.isArray(loaded.canonicalRows) && loaded.presentationOnlyRows.length === 0);
 
+  const rentalOnlyRaw = [
+    Object.assign({}, staffRaw, {
+      service_record_id: 'sr-rent-board',
+      booking_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      booking_code: 'SUNSET-RENT',
+      guest_name: 'Rental Only Guest',
+      service_type: 'surfboard',
+      staff_ui_service_type: 'board_rental',
+      metadata: { component: 'surfboard', staff_ui_service_type: 'board_rental', location_id: 'sunset-somo' },
+    }),
+    Object.assign({}, staffRaw, {
+      service_record_id: 'sr-rent-wetsuit',
+      booking_id: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      booking_code: 'SUNSET-RENT',
+      guest_name: 'Rental Only Guest',
+      service_type: 'wetsuit',
+      staff_ui_service_type: 'wetsuit_rental',
+      metadata: { component: 'wetsuit', staff_ui_service_type: 'wetsuit_rental', location_id: 'sunset-somo' },
+    }),
+  ];
+  const rentalLoaded = ctx.scheduleNormalizeLoadedScheduleResponse([
+    { dateIso: '2026-07-15', rows: rentalOnlyRaw, lessons: [], gear: [] },
+  ], { demo_mode: false }, normCtx);
+  const rentalDay = rentalLoaded.weekData[0];
+  assert('29 rental-only rows stay in day pack', rentalDay.rows.length === 2 && rentalDay.gear.length === 2 && rentalDay.lessons.length === 0);
+  assert('30 rental-only typed as rental', rentalDay.rows.every((r) => r._scheduleType === 'rental'));
+  assert('31 rental-only keeps booking identity', rentalDay.rows.every((r) => r.booking_id === 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb'));
+
   console.log('\n[4] Integration — loader installs canonical snapshot only');
   const dom = { 'ps-state': { textContent: '', className: '', style: { display: '' } } };
   let navGen = 0;
