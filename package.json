@@ -276,6 +276,7 @@
     "verify:luna-add-guest-paid": "node scripts/verify-luna-add-guest-paid.js",
     "verify:luna-all": "node scripts/verify-luna-all.js",
     "verify:sunset-staging-live-iac-drift": "node scripts/verify-sunset-staging-live-iac-drift.js",
+    "verify:sunset-staging-bicep-reconcile": "node scripts/verify-sunset-staging-bicep-reconcile.js",
     "verify:sunset-staging-iac-secret-scan": "node scripts/verify-sunset-staging-iac-secret-scan.js",
     "verify:sunset-staging-iac-diff-check": "node scripts/verify-sunset-staging-iac-diff-check.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
