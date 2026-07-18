@@ -42,7 +42,7 @@
 |------|-------|
 | Managed certificate | Custom domain TLS — live only |
 | `luna-sunset-staging-hold-expiry` job | Scheduled job — live only |
-| Schema observer dedicated RO DB role + KV secret | Future slice — Bicep references `sunset-schema-observer-database-url` only when job gate is on |
+| Schema observer dedicated RO DB role + KV secret | FOUNDATION Slice 7 tooling (`scripts/provision-sunset-schema-observer-role.js`); **live apply disabled** — dry-run only until a later approved execution slice; Bicep references `sunset-schema-observer-database-url` only when job gate is on |
 | Postgres firewall rules | Live egress allow rules — leave `postgresAllowedIpAddresses: []` |
 | External DNS | `sunset-staging.lunafrontdesk.com` outside this subscription |
 | Operator Key Vault Secrets Officer | Human RBAC — not in template |
@@ -270,4 +270,40 @@ Secret-free live probe fixture: `fixtures/sunset-staging-bicep-preflight/live-pr
 
 ---
 
+## Schema observer role + KV secret (FOUNDATION Slice 7 — source only)
+
+Fail-closed provision tooling for the dedicated observer role / DSN secret. **Default is dry-run. Live apply is disabled in this slice** (`LIVE_APPLY_ENABLED=false`) even with `--apply`.
+
+| Locked target | Value |
+|---------------|-------|
+| RG | `luna-sunset-staging-rg` |
+| PostgreSQL | `luna-sunset-staging-pg-app` |
+| Database | `sunset_staging` |
+| Key Vault | `luna-sunset-staging-kv` |
+| Role | `sunset_schema_observer` |
+| Secret | `sunset-schema-observer-database-url` |
+
+```bash
+# Dry-run (default) — prints plan; no Azure/Postgres mutation
+node scripts/provision-sunset-schema-observer-role.js
+
+# Focused verifier (no Azure)
+npm run verify:sunset-schema-observer-role-provision
+```
+
+Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION`, `default_transaction_read_only=on`, `CONNECT` on `sunset_staging` only (no product DML/DDL grants; no firewall/network mutation). DSN must use the exact Azure hostname/database and `sslmode=verify-full`.
+
+Future apply (do **not** run until a later approved slice enables live apply):
+
+```bash
+SUNSET_SCHEMA_OBSERVER_ROLE_APPLY=1 \
+AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
+SUNSET_STAGING_PG_ADMIN_USER=<admin-login> \
+SUNSET_STAGING_PG_ADMIN_PASSWORD=<admin-password> \
+  node scripts/provision-sunset-schema-observer-role.js --apply
+```
+
+---
+
 *FOUNDATION Slice 3 — enforced Bicep deployment preflight (read-only; fail-closed) — 2026-07-17*
+*FOUNDATION Slice 7 — schema-observer role/KV provision tooling (source-only; live apply disabled) — 2026-07-18*
