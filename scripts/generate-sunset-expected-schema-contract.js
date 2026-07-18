@@ -26,6 +26,9 @@ const {
   CONTRACT_SCOPE,
   INCLUDED_SECTIONS,
   EXCLUDED_SECTIONS,
+  OWNERSHIP_COVERAGE,
+  ACL_COVERAGE,
+  EXTENSION_COVERAGE,
 } = require('./lib/sunset-schema-observer');
 
 const ROOT = path.join(__dirname, '..');
@@ -121,12 +124,15 @@ async function main() {
     scope: CONTRACT_SCOPE,
     includedSections: INCLUDED_SECTIONS.slice(),
     excludedSections: EXCLUDED_SECTIONS.slice(),
+    ownershipCoverage: OWNERSHIP_COVERAGE.slice(),
+    aclCoverage: ACL_COVERAGE.slice(),
+    extensionCoverage: EXTENSION_COVERAGE.slice(),
     generatedAt: new Date().toISOString(),
     forwardCount: forward.length,
     manifestHash,
     productFingerprint,
     excludes: [LEDGER_TABLE],
-    note: 'Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded.',
+    note: 'Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded. Ownership/ACL cover schema, relations, functions, types; extensions include owner/schema/relocatable/config identity.',
     snapshot,
   };
   fs.mkdirSync(path.dirname(OUT), { recursive: true });

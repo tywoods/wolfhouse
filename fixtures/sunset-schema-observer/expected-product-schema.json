@@ -25,14 +25,36 @@
     "publications_subscriptions",
     "event_triggers"
   ],
-  "generatedAt": "2026-07-18T08:41:14.828Z",
+  "ownershipCoverage": [
+    "schema",
+    "relation",
+    "function",
+    "type",
+    "extension"
+  ],
+  "aclCoverage": [
+    "schema",
+    "relation",
+    "function",
+    "type"
+  ],
+  "extensionCoverage": [
+    "name",
+    "version",
+    "owner",
+    "schema",
+    "relocatable",
+    "config_relations",
+    "config_conditions"
+  ],
+  "generatedAt": "2026-07-18T11:00:28.607Z",
   "forwardCount": 36,
   "manifestHash": "c2a935588bc9ace536d1e76ddd9026b6c92c8aaac80aa78a9d701cf4ec3bc430",
-  "productFingerprint": "dee11a6c0338907432f54a791cb77c9346245bdda2d72fa0f0624d98b8f2ee7d",
+  "productFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "excludes": [
     "schema_migration_ledger"
   ],
-  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded.",
+  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded. Ownership/ACL cover schema, relations, functions, types; extensions include owner/schema/relocatable/config identity.",
   "snapshot": {
     "tables": [
       "add_on_items",
@@ -10265,526 +10287,1566 @@
     "rlsPolicies": [],
     "ownership": [
       {
+        "kind": "extension",
+        "name": "pgcrypto",
+        "identity": "pgcrypto",
+        "subkind": "",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "extension",
+        "name": "plpgsql",
+        "identity": "plpgsql",
+        "subkind": "",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea, text[], text[])",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "ceil_eur_to_nearest_5",
+        "identity": "public.ceil_eur_to_nearest_5(amount_eur numeric)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "crypt",
+        "identity": "public.crypt(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "dearmor",
+        "identity": "public.dearmor(text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "decrypt_iv",
+        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "decrypt",
+        "identity": "public.decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "encrypt_iv",
+        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "encrypt",
+        "identity": "public.encrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "gen_random_bytes",
+        "identity": "public.gen_random_bytes(integer)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "gen_random_uuid",
+        "identity": "public.gen_random_uuid()",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text, integer)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(text, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "package_display_nightly_per_person_eur",
+        "identity": "public.package_display_nightly_per_person_eur(weekly_price_eur numeric)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "package_stay_total_per_person_eur",
+        "identity": "public.package_stay_total_per_person_eur(weekly_price_eur numeric, nights integer)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_armor_headers",
+        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_key_id",
+        "identity": "public.pgp_key_id(bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "set_updated_at",
+        "identity": "public.set_updated_at()",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
+        "name": "sync_customer_from_touch",
+        "identity": "public.sync_customer_from_touch()",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "relation",
         "name": "add_on_items",
-        "kind": "r",
+        "identity": "add_on_items",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "add_on_orders",
-        "kind": "r",
+        "identity": "add_on_orders",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "auth_sessions",
-        "kind": "r",
+        "identity": "auth_sessions",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "automation_errors",
-        "kind": "r",
+        "identity": "automation_errors",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "beds",
-        "kind": "r",
+        "identity": "beds",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "booking_beds",
-        "kind": "r",
+        "identity": "booking_beds",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "booking_guests",
-        "kind": "r",
+        "identity": "booking_guests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "booking_service_records",
-        "kind": "r",
+        "identity": "booking_service_records",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "booking_transfers",
-        "kind": "r",
+        "identity": "booking_transfers",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "bookings",
-        "kind": "r",
+        "identity": "bookings",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "bot_pause_states",
-        "kind": "r",
+        "identity": "bot_pause_states",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "client_notification_events",
-        "kind": "r",
+        "identity": "client_notification_events",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "client_notification_settings",
-        "kind": "r",
+        "identity": "client_notification_settings",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "clients",
-        "kind": "r",
+        "identity": "clients",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "conversations",
-        "kind": "r",
+        "identity": "conversations",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "customer_message_templates",
-        "kind": "r",
+        "identity": "customer_message_templates",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "customers",
-        "kind": "r",
+        "identity": "customers",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "guest_message_events",
-        "kind": "r",
+        "identity": "guest_message_events",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "guest_message_sends",
-        "kind": "r",
+        "identity": "guest_message_sends",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "guests",
-        "kind": "r",
+        "identity": "guests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "lesson_requests",
-        "kind": "r",
+        "identity": "lesson_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "manual_entries",
-        "kind": "r",
+        "identity": "manual_entries",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "meal_requests",
-        "kind": "r",
+        "identity": "meal_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "messages",
-        "kind": "r",
+        "identity": "messages",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "operator_room_release_requests",
-        "kind": "r",
+        "identity": "operator_room_release_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "package_price_rules",
-        "kind": "r",
+        "identity": "package_price_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "packages",
-        "kind": "r",
+        "identity": "packages",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "payment_events",
-        "kind": "r",
+        "identity": "payment_events",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "payments",
-        "kind": "r",
+        "identity": "payments",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "rental_requests",
-        "kind": "r",
+        "identity": "rental_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "rooms",
-        "kind": "r",
+        "identity": "rooms",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_automated_notification_events",
-        "kind": "r",
+        "identity": "staff_automated_notification_events",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_automated_notifications",
-        "kind": "r",
+        "identity": "staff_automated_notifications",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_handoffs",
-        "kind": "r",
+        "identity": "staff_handoffs",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_phone_access",
-        "kind": "r",
+        "identity": "staff_phone_access",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_tasks",
-        "kind": "r",
+        "identity": "staff_tasks",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "staff_users",
-        "kind": "r",
+        "identity": "staff_users",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_config_audit_log",
-        "kind": "r",
+        "identity": "tenant_config_audit_log",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_house_notes",
-        "kind": "r",
+        "identity": "tenant_house_notes",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_lesson_capacity_rules",
-        "kind": "r",
+        "identity": "tenant_lesson_capacity_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_lesson_time_rules",
-        "kind": "r",
+        "identity": "tenant_lesson_time_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_price_rules",
-        "kind": "r",
+        "identity": "tenant_price_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_private_lesson_rules",
-        "kind": "r",
+        "identity": "tenant_private_lesson_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_services",
-        "kind": "r",
+        "identity": "tenant_services",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "tenant_surf_pack_rules",
-        "kind": "r",
+        "identity": "tenant_surf_pack_rules",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "transfer_requests",
-        "kind": "r",
+        "identity": "transfer_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "waiver_form_requests",
-        "kind": "r",
+        "identity": "waiver_form_requests",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "waiver_form_submissions",
-        "kind": "r",
+        "identity": "waiver_form_submissions",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "wolfhouse_staff_whatsapp_numbers",
-        "kind": "r",
+        "identity": "wolfhouse_staff_whatsapp_numbers",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "workflow_events",
-        "kind": "r",
+        "identity": "workflow_events",
+        "subkind": "r",
         "owner": "$db_owner"
       },
       {
+        "kind": "relation",
         "name": "yoga_requests",
-        "kind": "r",
+        "identity": "yoga_requests",
+        "subkind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "owner": "pg_database_owner"
+      },
+      {
+        "kind": "type",
+        "name": "assignment_status",
+        "identity": "public.assignment_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "automation_error_status",
+        "identity": "public.automation_error_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "availability_check_status",
+        "identity": "public.availability_check_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "block_type",
+        "identity": "public.block_type",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "booking_source",
+        "identity": "public.booking_source",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "booking_status",
+        "identity": "public.booking_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "bot_mode",
+        "identity": "public.bot_mode",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "conversation_status",
+        "identity": "public.conversation_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "manual_entry_action",
+        "identity": "public.manual_entry_action",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "manual_entry_sync_status",
+        "identity": "public.manual_entry_sync_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "message_direction",
+        "identity": "public.message_direction",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "operator_release_status",
+        "identity": "public.operator_release_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "payment_kind",
+        "identity": "public.payment_kind",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "payment_record_status",
+        "identity": "public.payment_record_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "payment_status",
+        "identity": "public.payment_status",
+        "subkind": "e",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "type",
+        "name": "workflow_event_level",
+        "identity": "public.workflow_event_level",
+        "subkind": "e",
         "owner": "$db_owner"
       }
     ],
     "acls": [
       {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea, text[], text[])",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "ceil_eur_to_nearest_5",
+        "identity": "public.ceil_eur_to_nearest_5(amount_eur numeric)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "crypt",
+        "identity": "public.crypt(text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "dearmor",
+        "identity": "public.dearmor(text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "decrypt_iv",
+        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "decrypt",
+        "identity": "public.decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "encrypt_iv",
+        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "encrypt",
+        "identity": "public.encrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "gen_random_bytes",
+        "identity": "public.gen_random_bytes(integer)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "gen_random_uuid",
+        "identity": "public.gen_random_uuid()",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text, integer)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(text, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "package_display_nightly_per_person_eur",
+        "identity": "public.package_display_nightly_per_person_eur(weekly_price_eur numeric)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "package_stay_total_per_person_eur",
+        "identity": "public.package_stay_total_per_person_eur(weekly_price_eur numeric, nights integer)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_armor_headers",
+        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_key_id",
+        "identity": "public.pgp_key_id(bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text)",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "set_updated_at",
+        "identity": "public.set_updated_at()",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
+        "name": "sync_customer_from_touch",
+        "identity": "public.sync_customer_from_touch()",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "relation",
         "name": "add_on_items",
-        "kind": "r",
+        "identity": "add_on_items",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "add_on_orders",
-        "kind": "r",
+        "identity": "add_on_orders",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "auth_sessions",
-        "kind": "r",
+        "identity": "auth_sessions",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "automation_errors",
-        "kind": "r",
+        "identity": "automation_errors",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "beds",
-        "kind": "r",
+        "identity": "beds",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "booking_beds",
-        "kind": "r",
+        "identity": "booking_beds",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "booking_guests",
-        "kind": "r",
+        "identity": "booking_guests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "booking_service_records",
-        "kind": "r",
+        "identity": "booking_service_records",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "booking_transfers",
-        "kind": "r",
+        "identity": "booking_transfers",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "bookings",
-        "kind": "r",
+        "identity": "bookings",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "bot_pause_states",
-        "kind": "r",
+        "identity": "bot_pause_states",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "client_notification_events",
-        "kind": "r",
+        "identity": "client_notification_events",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "client_notification_settings",
-        "kind": "r",
+        "identity": "client_notification_settings",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "clients",
-        "kind": "r",
+        "identity": "clients",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "conversations",
-        "kind": "r",
+        "identity": "conversations",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "customer_message_templates",
-        "kind": "r",
+        "identity": "customer_message_templates",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "customers",
-        "kind": "r",
+        "identity": "customers",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "guest_message_events",
-        "kind": "r",
+        "identity": "guest_message_events",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "guest_message_sends",
-        "kind": "r",
+        "identity": "guest_message_sends",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "guests",
-        "kind": "r",
+        "identity": "guests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "lesson_requests",
-        "kind": "r",
+        "identity": "lesson_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "manual_entries",
-        "kind": "r",
+        "identity": "manual_entries",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "meal_requests",
-        "kind": "r",
+        "identity": "meal_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "messages",
-        "kind": "r",
+        "identity": "messages",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "operator_room_release_requests",
-        "kind": "r",
+        "identity": "operator_room_release_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "package_price_rules",
-        "kind": "r",
+        "identity": "package_price_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "packages",
-        "kind": "r",
+        "identity": "packages",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "payment_events",
-        "kind": "r",
+        "identity": "payment_events",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "payments",
-        "kind": "r",
+        "identity": "payments",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "rental_requests",
-        "kind": "r",
+        "identity": "rental_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "rooms",
-        "kind": "r",
+        "identity": "rooms",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_automated_notification_events",
-        "kind": "r",
+        "identity": "staff_automated_notification_events",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_automated_notifications",
-        "kind": "r",
+        "identity": "staff_automated_notifications",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_handoffs",
-        "kind": "r",
+        "identity": "staff_handoffs",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_phone_access",
-        "kind": "r",
+        "identity": "staff_phone_access",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_tasks",
-        "kind": "r",
+        "identity": "staff_tasks",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "staff_users",
-        "kind": "r",
+        "identity": "staff_users",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_config_audit_log",
-        "kind": "r",
+        "identity": "tenant_config_audit_log",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_house_notes",
-        "kind": "r",
+        "identity": "tenant_house_notes",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_lesson_capacity_rules",
-        "kind": "r",
+        "identity": "tenant_lesson_capacity_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_lesson_time_rules",
-        "kind": "r",
+        "identity": "tenant_lesson_time_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_price_rules",
-        "kind": "r",
+        "identity": "tenant_price_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_private_lesson_rules",
-        "kind": "r",
+        "identity": "tenant_private_lesson_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_services",
-        "kind": "r",
+        "identity": "tenant_services",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "tenant_surf_pack_rules",
-        "kind": "r",
+        "identity": "tenant_surf_pack_rules",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "transfer_requests",
-        "kind": "r",
+        "identity": "transfer_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "waiver_form_requests",
-        "kind": "r",
+        "identity": "waiver_form_requests",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "waiver_form_submissions",
-        "kind": "r",
+        "identity": "waiver_form_submissions",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "wolfhouse_staff_whatsapp_numbers",
-        "kind": "r",
+        "identity": "wolfhouse_staff_whatsapp_numbers",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "workflow_events",
-        "kind": "r",
+        "identity": "workflow_events",
+        "subkind": "r",
         "acl": ""
       },
       {
+        "kind": "relation",
         "name": "yoga_requests",
-        "kind": "r",
+        "identity": "yoga_requests",
+        "subkind": "r",
+        "acl": ""
+      },
+      {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "acl": "=U/pg_database_owner,pg_database_owner=UC/pg_database_owner"
+      },
+      {
+        "kind": "type",
+        "name": "assignment_status",
+        "identity": "public.assignment_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "automation_error_status",
+        "identity": "public.automation_error_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "availability_check_status",
+        "identity": "public.availability_check_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "block_type",
+        "identity": "public.block_type",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "booking_source",
+        "identity": "public.booking_source",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "booking_status",
+        "identity": "public.booking_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "bot_mode",
+        "identity": "public.bot_mode",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "conversation_status",
+        "identity": "public.conversation_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "manual_entry_action",
+        "identity": "public.manual_entry_action",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "manual_entry_sync_status",
+        "identity": "public.manual_entry_sync_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "message_direction",
+        "identity": "public.message_direction",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "operator_release_status",
+        "identity": "public.operator_release_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "payment_kind",
+        "identity": "public.payment_kind",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "payment_record_status",
+        "identity": "public.payment_record_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "payment_status",
+        "identity": "public.payment_status",
+        "subkind": "e",
+        "acl": ""
+      },
+      {
+        "kind": "type",
+        "name": "workflow_event_level",
+        "identity": "public.workflow_event_level",
+        "subkind": "e",
         "acl": ""
       }
     ],
     "extensions": [
       {
         "name": "pgcrypto",
-        "version": "1.3"
+        "version": "1.3",
+        "owner": "$db_owner",
+        "schema": "public",
+        "relocatable": true,
+        "configRelations": "",
+        "configConditions": ""
       },
       {
         "name": "plpgsql",
-        "version": "1.0"
+        "version": "1.0",
+        "owner": "$db_owner",
+        "schema": "pg_catalog",
+        "relocatable": false,
+        "configRelations": "",
+        "configConditions": ""
       }
     ]
   }

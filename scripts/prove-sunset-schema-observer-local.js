@@ -132,8 +132,8 @@ async function createRestrictedObserverRole(adminConn) {
       NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION
   `);
   await c.query(`GRANT CONNECT ON DATABASE ${DB} TO ${OBS_ROLE}`);
-  await c.query(`GRANT USAGE ON SCHEMA public TO ${OBS_ROLE}`);
-  // Catalog introspection only — no DML grants on product tables.
+  // Do not GRANT USAGE/SELECT — that would mutate schema/relation ACLs vs the committed contract.
+  // PUBLIC already has USAGE on schema public and catalog read access for introspection.
   await c.query(`ALTER ROLE ${OBS_ROLE} SET default_transaction_read_only = on`);
   const superCheck = await c.query(
     `SELECT rolsuper, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = $1`,
@@ -311,6 +311,31 @@ async function main() {
     `status=${enumDrift.status} counts=${JSON.stringify(enumJson && enumJson.drift && enumJson.drift.counts)}`,
   );
   report.enumDrift = enumJson;
+
+  // Representative ownership/ACL mutation → exit 4
+  {
+    const c = new Client(conn);
+    await c.connect();
+    await c.query(`CREATE ROLE wh_obs_acl_probe_${suffix} NOLOGIN`);
+    await c.query(`ALTER TYPE booking_status OWNER TO wh_obs_acl_probe_${suffix}`);
+    await c.end();
+  }
+  const ownerDrift = runObserverInImage(dsnHost);
+  const ownerJson = parseObserverJson(ownerDrift.stdout);
+  const ownerHit = ownerJson
+    && Array.isArray(ownerJson.drift && ownerJson.drift.sample)
+    && ownerJson.drift.sample.some((d) => d.section === 'ownership' || d.section === 'acls');
+  step(
+    'observer-owner-acl-drift-exit-4',
+    ownerDrift.status === 4 && ownerJson && ownerJson.ok === false && (
+      Number(ownerJson.drift.counts.definition_mismatch) >= 1
+      || Number(ownerJson.drift.counts.expected_only) >= 1
+      || Number(ownerJson.drift.counts.live_only) >= 1
+      || ownerHit
+    ),
+    `status=${ownerDrift.status} counts=${JSON.stringify(ownerJson && ownerJson.drift && ownerJson.drift.counts)}`,
+  );
+  report.ownerDrift = ownerJson;
 
   const wrongDsn = 'postgresql://'
     + encodeURIComponent(OBS_ROLE)

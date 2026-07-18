@@ -19,6 +19,8 @@ const {
   CONTRACT_SCOPE,
   INCLUDED_SECTIONS,
   EXCLUDED_SECTIONS,
+  OWNERSHIP_COVERAGE,
+  ACL_COVERAGE,
   assertSqlAllowed,
   assertObserverTarget,
   assertNoLeakedDsn,
@@ -268,6 +270,77 @@ async function main() {
       !bCmp.ok && bCmp.drifts.some((d) => d.section === 'rlsPolicies' && d.kind === 'definition_mismatch'),
     );
   }
+  {
+    const exp = {
+      tables: [], columns: [], constraints: [], indexes: [], sequences: [], views: [],
+      enums: [], functions: [], triggers: [], rlsFlags: [], rlsPolicies: [],
+      ownership: [
+        { kind: 'function', name: 'wh_obs_probe', identity: 'public.wh_obs_probe()', subkind: 'f', owner: '$db_owner' },
+        { kind: 'type', name: 'booking_status', identity: 'public.booking_status', subkind: 'e', owner: '$db_owner' },
+        { kind: 'schema', name: 'public', identity: 'public', subkind: '', owner: '$db_owner' },
+        { kind: 'extension', name: 'pgcrypto', identity: 'pgcrypto', subkind: '', owner: '$db_owner' },
+      ],
+      acls: [
+        { kind: 'function', name: 'wh_obs_probe', identity: 'public.wh_obs_probe()', subkind: 'f', acl: '' },
+        { kind: 'schema', name: 'public', identity: 'public', subkind: '', acl: '$db_owner=UC/$db_owner' },
+      ],
+      extensions: [
+        {
+          name: 'pgcrypto', version: '1.3', owner: '$db_owner', schema: 'public',
+          relocatable: true, configRelations: '', configConditions: '',
+        },
+      ],
+    };
+    const ownerFn = deepClone(exp);
+    ownerFn.ownership[0].owner = 'other_role';
+    pass(
+      'red-function-owner-mismatch',
+      !compareSnapshots(exp, ownerFn).ok
+        && compareSnapshots(exp, ownerFn).drifts.some((d) => d.section === 'ownership' && d.kind === 'definition_mismatch'),
+    );
+    const aclFn = deepClone(exp);
+    aclFn.acls[0].acl = 'public=X/$db_owner';
+    pass(
+      'red-function-execute-acl-broadened',
+      !compareSnapshots(exp, aclFn).ok
+        && compareSnapshots(exp, aclFn).drifts.some((d) => d.section === 'acls' && d.kind === 'definition_mismatch'),
+    );
+    const typeOwner = deepClone(exp);
+    typeOwner.ownership[1].owner = 'other_role';
+    pass(
+      'red-type-owner-mismatch',
+      !compareSnapshots(exp, typeOwner).ok
+        && compareSnapshots(exp, typeOwner).drifts.some((d) => d.section === 'ownership' && d.kind === 'definition_mismatch'),
+    );
+    const schemaAcl = deepClone(exp);
+    schemaAcl.acls[1].acl = '$db_owner=UC/$db_owner,other_role=U/$db_owner';
+    pass(
+      'red-schema-acl-mismatch',
+      !compareSnapshots(exp, schemaAcl).ok
+        && compareSnapshots(exp, schemaAcl).drifts.some((d) => d.section === 'acls' && d.kind === 'definition_mismatch'),
+    );
+    const schemaOwner = deepClone(exp);
+    schemaOwner.ownership[2].owner = 'other_role';
+    pass(
+      'red-schema-owner-mismatch',
+      !compareSnapshots(exp, schemaOwner).ok
+        && compareSnapshots(exp, schemaOwner).drifts.some((d) => d.section === 'ownership' && d.kind === 'definition_mismatch'),
+    );
+    const extOwner = deepClone(exp);
+    extOwner.extensions[0].owner = 'other_role';
+    pass(
+      'red-extension-owner-mismatch',
+      !compareSnapshots(exp, extOwner).ok
+        && compareSnapshots(exp, extOwner).drifts.some((d) => d.section === 'extensions' && d.kind === 'definition_mismatch'),
+    );
+    const extSchema = deepClone(exp);
+    extSchema.extensions[0].schema = 'elsewhere';
+    pass(
+      'red-extension-schema-mismatch',
+      !compareSnapshots(exp, extSchema).ok
+        && compareSnapshots(exp, extSchema).drifts.some((d) => d.section === 'extensions' && d.kind === 'definition_mismatch'),
+    );
+  }
 
   pass('contract-file-exists', fs.existsSync(CONTRACT), CONTRACT);
   if (fs.existsSync(CONTRACT)) {
@@ -286,9 +359,20 @@ async function main() {
         && Array.isArray(contract.snapshot.rlsPolicies),
     );
     pass(
-      'green-contract-has-enums',
-      (contract.snapshot.enums || []).length > 0,
-      `enumCount=${(contract.snapshot.enums || []).length}`,
+      'green-contract-ownership-acl-coverage',
+      Array.isArray(contract.ownershipCoverage)
+        && OWNERSHIP_COVERAGE.every((k) => contract.ownershipCoverage.includes(k))
+        && Array.isArray(contract.aclCoverage)
+        && ACL_COVERAGE.every((k) => contract.aclCoverage.includes(k))
+        && (contract.snapshot.ownership || []).some((o) => o.kind === 'schema')
+        && (contract.snapshot.ownership || []).some((o) => o.kind === 'relation')
+        && (contract.snapshot.ownership || []).some((o) => o.kind === 'type')
+        && (contract.snapshot.ownership || []).some((o) => o.kind === 'extension')
+        && (contract.snapshot.acls || []).some((a) => a.kind === 'schema')
+        && (contract.snapshot.acls || []).some((a) => a.kind === 'relation')
+        && (contract.snapshot.acls || []).some((a) => a.kind === 'type')
+        && (contract.snapshot.extensions || []).every((e) => e.owner && e.schema != null),
+      `own=${(contract.snapshot.ownership || []).length} acl=${(contract.snapshot.acls || []).length}`,
     );
     pass(
       'green-contract-excludes-ledger-only-safe',

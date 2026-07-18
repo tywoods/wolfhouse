@@ -38,6 +38,34 @@ const INCLUDED_SECTIONS = Object.freeze([
   'extensions',
 ]);
 
+/** Machine-readable ownership coverage claimed by the contract. */
+const OWNERSHIP_COVERAGE = Object.freeze([
+  'schema',
+  'relation',
+  'function',
+  'type',
+  'extension',
+]);
+
+/** Machine-readable ACL coverage claimed by the contract. */
+const ACL_COVERAGE = Object.freeze([
+  'schema',
+  'relation',
+  'function',
+  'type',
+]);
+
+/** Machine-readable extension field coverage. */
+const EXTENSION_COVERAGE = Object.freeze([
+  'name',
+  'version',
+  'owner',
+  'schema',
+  'relocatable',
+  'config_relations',
+  'config_conditions',
+]);
+
 /**
  * Explicit non-claims. Do not document this contract as complete schema equivalence.
  * Enums, public functions, and RLS/policies are included (not listed here).
@@ -204,20 +232,84 @@ SELECT
 FROM pg_catalog.pg_policies pol
 WHERE pol.schemaname = 'public'
 ORDER BY pol.tablename, pol.policyname`.trim(),
-  ownership: `
+  ownership_schema: `
 SELECT
+  'schema'::text AS owner_kind,
+  n.nspname AS object_name,
+  ''::text AS object_identity,
+  ''::text AS object_subkind,
+  pg_catalog.pg_get_userbyid(n.nspowner) AS owner
+FROM pg_catalog.pg_namespace n
+WHERE n.nspname = 'public'`.trim(),
+  ownership_relations: `
+SELECT
+  'relation'::text AS owner_kind,
   c.relname AS object_name,
-  c.relkind AS object_kind,
+  ''::text AS object_identity,
+  c.relkind::text AS object_subkind,
   pg_catalog.pg_get_userbyid(c.relowner) AS owner
 FROM pg_catalog.pg_class c
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public'
   AND c.relkind IN ('r', 'v', 'S', 'm')
 ORDER BY c.relkind, c.relname`.trim(),
-  acls: `
+  ownership_functions: `
 SELECT
+  'function'::text AS owner_kind,
+  p.proname AS object_name,
+  n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' AS object_identity,
+  p.prokind::text AS object_subkind,
+  pg_catalog.pg_get_userbyid(p.proowner) AS owner
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.prokind IN ('f', 'p')
+ORDER BY object_identity`.trim(),
+  ownership_types: `
+SELECT
+  'type'::text AS owner_kind,
+  t.typname AS object_name,
+  n.nspname || '.' || t.typname AS object_identity,
+  t.typtype::text AS object_subkind,
+  pg_catalog.pg_get_userbyid(t.typowner) AS owner
+FROM pg_catalog.pg_type t
+JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+WHERE n.nspname = 'public'
+  AND t.typtype IN ('e', 'c', 'd')
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_depend d
+    WHERE d.classid = 'pg_catalog.pg_type'::regclass
+      AND d.objid = t.oid
+      AND d.deptype = 'i'
+  )
+ORDER BY t.typname`.trim(),
+  ownership_extensions: `
+SELECT
+  'extension'::text AS owner_kind,
+  e.extname AS object_name,
+  e.extname AS object_identity,
+  ''::text AS object_subkind,
+  pg_catalog.pg_get_userbyid(e.extowner) AS owner
+FROM pg_catalog.pg_extension e
+ORDER BY e.extname`.trim(),
+  acls_schema: `
+SELECT
+  'schema'::text AS acl_kind,
+  n.nspname AS object_name,
+  ''::text AS object_identity,
+  ''::text AS object_subkind,
+  COALESCE((
+    SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
+    FROM unnest(COALESCE(n.nspacl, ARRAY[]::aclitem[])) AS aclitem
+  ), '') AS acl
+FROM pg_catalog.pg_namespace n
+WHERE n.nspname = 'public'`.trim(),
+  acls_relations: `
+SELECT
+  'relation'::text AS acl_kind,
   c.relname AS object_name,
-  c.relkind AS object_kind,
+  ''::text AS object_identity,
+  c.relkind::text AS object_subkind,
   COALESCE((
     SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
     FROM unnest(COALESCE(c.relacl, ARRAY[]::aclitem[])) AS aclitem
@@ -227,12 +319,63 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public'
   AND c.relkind IN ('r', 'v', 'S', 'm')
 ORDER BY c.relkind, c.relname`.trim(),
+  acls_functions: `
+SELECT
+  'function'::text AS acl_kind,
+  p.proname AS object_name,
+  n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' AS object_identity,
+  p.prokind::text AS object_subkind,
+  COALESCE((
+    SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
+    FROM unnest(COALESCE(p.proacl, ARRAY[]::aclitem[])) AS aclitem
+  ), '') AS acl
+FROM pg_catalog.pg_proc p
+JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+WHERE n.nspname = 'public'
+  AND p.prokind IN ('f', 'p')
+ORDER BY object_identity`.trim(),
+  acls_types: `
+SELECT
+  'type'::text AS acl_kind,
+  t.typname AS object_name,
+  n.nspname || '.' || t.typname AS object_identity,
+  t.typtype::text AS object_subkind,
+  COALESCE((
+    SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
+    FROM unnest(COALESCE(t.typacl, ARRAY[]::aclitem[])) AS aclitem
+  ), '') AS acl
+FROM pg_catalog.pg_type t
+JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+WHERE n.nspname = 'public'
+  AND t.typtype IN ('e', 'c', 'd')
+  AND NOT EXISTS (
+    SELECT 1 FROM pg_catalog.pg_depend d
+    WHERE d.classid = 'pg_catalog.pg_type'::regclass
+      AND d.objid = t.oid
+      AND d.deptype = 'i'
+  )
+ORDER BY t.typname`.trim(),
   extensions: `
-SELECT e.extname, e.extversion
+SELECT
+  e.extname,
+  e.extversion,
+  pg_catalog.pg_get_userbyid(e.extowner) AS extowner,
+  n.nspname AS extnamespace,
+  e.extrelocatable,
+  COALESCE((
+    SELECT string_agg(cn.nspname || '.' || c.relname, ',' ORDER BY cn.nspname, c.relname)
+    FROM unnest(COALESCE(e.extconfig, ARRAY[]::oid[])) AS cfg_oid
+    JOIN pg_catalog.pg_class c ON c.oid = cfg_oid
+    JOIN pg_catalog.pg_namespace cn ON cn.oid = c.relnamespace
+  ), '') AS config_relations,
+  COALESCE((
+    SELECT string_agg(cond, ',' ORDER BY cond)
+    FROM unnest(COALESCE(e.extcondition, ARRAY[]::text[])) AS cond
+  ), '') AS config_conditions
 FROM pg_catalog.pg_extension e
+JOIN pg_catalog.pg_namespace n ON n.oid = e.extnamespace
 ORDER BY e.extname`.trim(),
 });
-
 const SQL_REGISTRY_IDS = Object.freeze(Object.keys(INTROSPECTION_SQL));
 
 const FORBIDDEN_SQL_VERBS = Object.freeze([
@@ -601,26 +744,46 @@ function buildProductSchemaSnapshot(rowsByKind, opts) {
       withCheck: p.with_check == null ? null : String(p.with_check),
     }))
     .sort((a, b) => `${a.table}.${a.name}`.localeCompare(`${b.table}.${b.name}`));
-  const ownership = (rowsByKind.ownership || [])
+  const ownershipRows = []
+    .concat(rowsByKind.ownership_schema || [])
+    .concat(rowsByKind.ownership_relations || [])
+    .concat(rowsByKind.ownership_functions || [])
+    .concat(rowsByKind.ownership_types || [])
+    .concat(rowsByKind.ownership_extensions || []);
+  const ownership = ownershipRows
     .filter((o) => o.object_name !== LEDGER_TABLE)
     .map((o) => ({
-      name: o.object_name,
-      kind: o.object_kind,
+      kind: String(o.owner_kind || ''),
+      name: String(o.object_name || ''),
+      identity: String(o.object_identity || o.object_name || ''),
+      subkind: String(o.object_subkind || ''),
       owner: normalizeOwnerName(o.owner, dbOwner),
     }))
-    .sort((a, b) => `${a.kind}.${a.name}`.localeCompare(`${b.kind}.${b.name}`));
-  const acls = (rowsByKind.acls || [])
+    .sort((a, b) => `${a.kind}.${a.identity}`.localeCompare(`${b.kind}.${b.identity}`));
+  const aclRows = []
+    .concat(rowsByKind.acls_schema || [])
+    .concat(rowsByKind.acls_relations || [])
+    .concat(rowsByKind.acls_functions || [])
+    .concat(rowsByKind.acls_types || []);
+  const acls = aclRows
     .filter((a) => a.object_name !== LEDGER_TABLE)
     .map((a) => ({
-      name: a.object_name,
-      kind: a.object_kind,
+      kind: String(a.acl_kind || ''),
+      name: String(a.object_name || ''),
+      identity: String(a.object_identity || a.object_name || ''),
+      subkind: String(a.object_subkind || ''),
       acl: normalizeAclText(a.acl, dbOwner),
     }))
-    .sort((a, b) => `${a.kind}.${a.name}`.localeCompare(`${b.kind}.${b.name}`));
+    .sort((a, b) => `${a.kind}.${a.identity}`.localeCompare(`${b.kind}.${b.identity}`));
   const extensions = (rowsByKind.extensions || [])
     .map((e) => ({
       name: e.extname,
       version: String(e.extversion || ''),
+      owner: normalizeOwnerName(e.extowner, dbOwner),
+      schema: String(e.extnamespace || ''),
+      relocatable: e.extrelocatable === true || e.extrelocatable === 't',
+      configRelations: String(e.config_relations || ''),
+      configConditions: String(e.config_conditions || ''),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
   return {
@@ -681,8 +844,8 @@ function compareSnapshots(expected, live) {
   diffSection('triggers', expected.triggers, live.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
   diffSection('rlsFlags', expected.rlsFlags, live.rlsFlags, (r) => r.table, deepEqual);
   diffSection('rlsPolicies', expected.rlsPolicies, live.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
-  diffSection('ownership', expected.ownership, live.ownership, (o) => `${o.kind}.${o.name}`, deepEqual);
-  diffSection('acls', expected.acls, live.acls, (a) => `${a.kind}.${a.name}`, deepEqual);
+  diffSection('ownership', expected.ownership, live.ownership, (o) => `${o.kind}:${o.identity}`, deepEqual);
+  diffSection('acls', expected.acls, live.acls, (a) => `${a.kind}:${a.identity}`, deepEqual);
   diffSection('extensions', expected.extensions, live.extensions, (e) => e.name, deepEqual);
   const counts = {
     expected_only: drifts.filter((d) => d.kind === 'expected_only').length,
@@ -747,8 +910,15 @@ async function introspectProductSchema(client) {
     triggers: await q('triggers'),
     rls_flags: await q('rls_flags'),
     rls_policies: await q('rls_policies'),
-    ownership: await q('ownership'),
-    acls: await q('acls'),
+    ownership_schema: await q('ownership_schema'),
+    ownership_relations: await q('ownership_relations'),
+    ownership_functions: await q('ownership_functions'),
+    ownership_types: await q('ownership_types'),
+    ownership_extensions: await q('ownership_extensions'),
+    acls_schema: await q('acls_schema'),
+    acls_relations: await q('acls_relations'),
+    acls_functions: await q('acls_functions'),
+    acls_types: await q('acls_types'),
     extensions: await q('extensions'),
   };
   return {
@@ -798,6 +968,9 @@ function contractScopeMeta(contract) {
     scope: (contract && contract.scope) || CONTRACT_SCOPE,
     includedSections: (contract && contract.includedSections) || INCLUDED_SECTIONS.slice(),
     excludedSections: (contract && contract.excludedSections) || EXCLUDED_SECTIONS.slice(),
+    ownershipCoverage: (contract && contract.ownershipCoverage) || OWNERSHIP_COVERAGE.slice(),
+    aclCoverage: (contract && contract.aclCoverage) || ACL_COVERAGE.slice(),
+    extensionCoverage: (contract && contract.extensionCoverage) || EXTENSION_COVERAGE.slice(),
   };
 }
 
@@ -832,6 +1005,30 @@ function contractStalenessErrors(contract, manifest) {
       errors.push({ code: 'snapshot_missing_section', message: sec });
     }
   }
+  for (const kind of OWNERSHIP_COVERAGE) {
+    if (!Array.isArray(contract.ownershipCoverage) || !contract.ownershipCoverage.includes(kind)) {
+      errors.push({ code: 'missing_ownership_coverage', message: kind });
+    }
+    if (contract.snapshot && Array.isArray(contract.snapshot.ownership)
+      && !contract.snapshot.ownership.some((o) => o.kind === kind)
+      && kind !== 'function' /* public functions may be empty in canonical chain */) {
+      // schema/relation/type/extension must appear for canonical Sunset DB
+      if (['schema', 'relation', 'type', 'extension'].includes(kind)
+        && !(contract.snapshot.ownership || []).some((o) => o.kind === kind)) {
+        errors.push({ code: 'snapshot_missing_ownership_kind', message: kind });
+      }
+    }
+  }
+  for (const kind of ACL_COVERAGE) {
+    if (!Array.isArray(contract.aclCoverage) || !contract.aclCoverage.includes(kind)) {
+      errors.push({ code: 'missing_acl_coverage', message: kind });
+    }
+  }
+  for (const field of EXTENSION_COVERAGE) {
+    if (!Array.isArray(contract.extensionCoverage) || !contract.extensionCoverage.includes(field)) {
+      errors.push({ code: 'missing_extension_coverage', message: field });
+    }
+  }
   if (Array.isArray(contract.excludedSections)
     && contract.excludedSections.some((s) => /enum|function|rls|policy/i.test(String(s)))) {
     errors.push({ code: 'forbidden_exclusion', message: 'enums/functions/RLS must not be excluded' });
@@ -855,6 +1052,9 @@ module.exports = {
   OBSERVER_DSN_ENV,
   INCLUDED_SECTIONS,
   EXCLUDED_SECTIONS,
+  OWNERSHIP_COVERAGE,
+  ACL_COVERAGE,
+  EXTENSION_COVERAGE,
   CONTRACT_SCOPE,
   INTROSPECTION_SQL,
   SQL_REGISTRY_IDS,
