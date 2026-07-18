@@ -2,11 +2,16 @@
 
 /**
  * Sunset schema observer helpers (FOUNDATION Slice 6).
- * Pure schema-normalization + exact SQL registry for the read-only observer CLI.
- * Never mutates Azure. Reuses the reviewed exact-match registry pattern (not PR #36 probe).
+ * Exact SQL registry + normalization for the read-only observer CLI.
+ * Never mutates Azure. Non-local TLS requires sslmode=verify-full + rejectUnauthorized.
  */
 
 const crypto = require('crypto');
+const tls = require('tls');
+const { execFileSync } = require('child_process');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 const { URL } = require('url');
 
 const EXPECTED_HOST =
@@ -16,21 +21,80 @@ const APPLICATION_NAME = 'wh-sunset-schema-observer';
 const LEDGER_TABLE = 'schema_migration_ledger';
 const OBSERVER_DSN_ENV = 'SUNSET_SCHEMA_OBSERVER_DATABASE_URL';
 
+const INCLUDED_SECTIONS = Object.freeze([
+  'tables',
+  'columns',
+  'constraints',
+  'indexes',
+  'sequences',
+  'views',
+  'enums',
+  'functions',
+  'triggers',
+  'rlsFlags',
+  'rlsPolicies',
+  'ownership',
+  'acls',
+  'extensions',
+]);
+
+/**
+ * Explicit non-claims. Do not document this contract as complete schema equivalence.
+ * Enums, public functions, and RLS/policies are included (not listed here).
+ */
+const EXCLUDED_SECTIONS = Object.freeze([
+  'schema_migration_ledger',
+  'guest_row_data',
+  'table_statistics',
+  'toast_storage',
+  'publications_subscriptions',
+  'event_triggers',
+]);
+
+const CONTRACT_SCOPE = 'structural-and-security-product-schema';
+
 const INTROSPECTION_SQL = Object.freeze({
   show_transaction_read_only: 'SHOW transaction_read_only',
   show_statement_timeout: 'SHOW statement_timeout',
   show_lock_timeout: 'SHOW lock_timeout',
   show_application_name: 'SHOW application_name',
+  db_owner: `
+SELECT pg_catalog.pg_get_userbyid(d.datdba) AS db_owner
+FROM pg_catalog.pg_database d
+WHERE d.datname = current_database()`.trim(),
   tables: `
-SELECT table_schema, table_name, table_type
-FROM information_schema.tables
-WHERE table_schema = 'public'
-ORDER BY table_name`.trim(),
+SELECT
+  n.nspname AS table_schema,
+  c.relname AS table_name,
+  CASE c.relkind
+    WHEN 'r' THEN 'BASE TABLE'
+    WHEN 'v' THEN 'VIEW'
+    ELSE c.relkind::text
+  END AS table_type
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'v')
+ORDER BY c.relname`.trim(),
   columns: `
-SELECT table_schema, table_name, column_name, data_type, udt_name, is_nullable, column_default
-FROM information_schema.columns
-WHERE table_schema = 'public'
-ORDER BY table_name, ordinal_position`.trim(),
+SELECT
+  n.nspname AS table_schema,
+  c.relname AS table_name,
+  a.attname AS column_name,
+  pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type,
+  t.typname AS udt_name,
+  CASE WHEN a.attnotnull THEN 'NO' ELSE 'YES' END AS is_nullable,
+  pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) AS column_default
+FROM pg_catalog.pg_attribute a
+JOIN pg_catalog.pg_class c ON c.oid = a.attrelid
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+LEFT JOIN pg_catalog.pg_attrdef ad ON ad.adrelid = a.attrelid AND ad.adnum = a.attnum
+WHERE n.nspname = 'public'
+  AND c.relkind = 'r'
+  AND a.attnum > 0
+  AND NOT a.attisdropped
+ORDER BY c.relname, a.attnum`.trim(),
   constraints: `
 SELECT
   n.nspname AS table_schema,
@@ -61,16 +125,47 @@ JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND c.relkind = 'S'
 ORDER BY c.relname`.trim(),
   views: `
-SELECT table_schema, table_name, view_definition
-FROM information_schema.views
-WHERE table_schema = 'public'
-ORDER BY table_name`.trim(),
+SELECT
+  n.nspname AS table_schema,
+  c.relname AS table_name,
+  pg_catalog.pg_get_viewdef(c.oid, true) AS view_definition
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind = 'v'
+ORDER BY c.relname`.trim(),
+  enums: `
+SELECT
+  n.nspname AS type_schema,
+  t.typname AS type_name,
+  e.enumlabel AS enum_label,
+  e.enumsortorder AS enum_sort_order
+FROM pg_catalog.pg_type t
+JOIN pg_catalog.pg_namespace n ON n.oid = t.typnamespace
+JOIN pg_catalog.pg_enum e ON e.enumtypid = t.oid
+WHERE n.nspname = 'public' AND t.typtype = 'e'
+ORDER BY t.typname, e.enumsortorder, e.enumlabel`.trim(),
   functions: `
-SELECT n.nspname AS routine_schema,
-       p.proname AS routine_name,
-       n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' AS identity
+SELECT
+  n.nspname || '.' || p.proname || '(' || pg_catalog.pg_get_function_identity_arguments(p.oid) || ')' AS identity,
+  p.proname AS routine_name,
+  pg_catalog.pg_get_functiondef(p.oid) AS definition,
+  pg_catalog.pg_get_function_result(p.oid) AS return_type,
+  l.lanname AS language,
+  CASE p.provolatile
+    WHEN 'i' THEN 'immutable'
+    WHEN 's' THEN 'stable'
+    WHEN 'v' THEN 'volatile'
+    ELSE p.provolatile::text
+  END AS volatility,
+  p.prosecdef AS security_definer,
+  COALESCE((
+    SELECT string_agg(cfg, ',' ORDER BY cfg)
+    FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) AS cfg
+  ), '') AS proconfig
 FROM pg_catalog.pg_proc p
 JOIN pg_catalog.pg_namespace n ON n.oid = p.pronamespace
+JOIN pg_catalog.pg_language l ON l.oid = p.prolang
 WHERE n.nspname = 'public'
   AND p.prokind IN ('f', 'p')
 ORDER BY identity`.trim(),
@@ -83,6 +178,59 @@ JOIN pg_catalog.pg_class c ON c.oid = t.tgrelid
 JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
 WHERE n.nspname = 'public' AND NOT t.tgisinternal
 ORDER BY c.relname, t.tgname`.trim(),
+  rls_flags: `
+SELECT
+  c.relname AS table_name,
+  c.relrowsecurity AS rls_enabled,
+  c.relforcerowsecurity AS rls_forced
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind = 'r'
+ORDER BY c.relname`.trim(),
+  rls_policies: `
+SELECT
+  pol.schemaname,
+  pol.tablename,
+  pol.policyname,
+  pol.permissive,
+  COALESCE((
+    SELECT string_agg(role_name, ',' ORDER BY role_name)
+    FROM unnest(pol.roles) AS role_name
+  ), '') AS roles,
+  pol.cmd,
+  pol.qual,
+  pol.with_check
+FROM pg_catalog.pg_policies pol
+WHERE pol.schemaname = 'public'
+ORDER BY pol.tablename, pol.policyname`.trim(),
+  ownership: `
+SELECT
+  c.relname AS object_name,
+  c.relkind AS object_kind,
+  pg_catalog.pg_get_userbyid(c.relowner) AS owner
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'v', 'S', 'm')
+ORDER BY c.relkind, c.relname`.trim(),
+  acls: `
+SELECT
+  c.relname AS object_name,
+  c.relkind AS object_kind,
+  COALESCE((
+    SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
+    FROM unnest(COALESCE(c.relacl, ARRAY[]::aclitem[])) AS aclitem
+  ), '') AS acl
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+WHERE n.nspname = 'public'
+  AND c.relkind IN ('r', 'v', 'S', 'm')
+ORDER BY c.relkind, c.relname`.trim(),
+  extensions: `
+SELECT e.extname, e.extversion
+FROM pg_catalog.pg_extension e
+ORDER BY e.extname`.trim(),
 });
 
 const SQL_REGISTRY_IDS = Object.freeze(Object.keys(INTROSPECTION_SQL));
@@ -151,12 +299,7 @@ function parseDatabaseUrl(dsn) {
   }
   const sslmode = (url.searchParams.get('sslmode') || '').toLowerCase();
   const ssl = (url.searchParams.get('ssl') || '').toLowerCase();
-  const tlsOk =
-    sslmode === 'require'
-    || sslmode === 'verify-ca'
-    || sslmode === 'verify-full'
-    || ssl === 'true'
-    || ssl === '1';
+  const tlsOk = sslmode === 'verify-full';
   return {
     ok: true,
     errors: [],
@@ -167,6 +310,7 @@ function parseDatabaseUrl(dsn) {
       user: decodeURIComponent(url.username || ''),
       hasPassword: Boolean(url.password),
       sslmode: sslmode || null,
+      sslParam: ssl || null,
       tlsOk,
     },
   };
@@ -191,7 +335,10 @@ function assertObserverTarget(parsed, opts) {
     errors.push({ code: 'missing_host', message: 'DSN host missing' });
   } else if (allowLocalEphemeral) {
     if (!isLocalEphemeralHost(parsed.host)) {
-      errors.push({ code: 'local_host_not_loopback', message: 'local proof host must be loopback or disposable docker alias' });
+      errors.push({
+        code: 'local_host_not_loopback',
+        message: 'local proof host must be loopback or disposable docker alias',
+      });
     }
   } else if (parsed.host !== EXPECTED_HOST) {
     errors.push({ code: 'wrong_host', message: `host must be exactly ${EXPECTED_HOST}` });
@@ -206,8 +353,13 @@ function assertObserverTarget(parsed, opts) {
   if (parsed && /wolfhouse|production|^prod$/i.test(parsed.database || '')) {
     errors.push({ code: 'forbidden_database', message: 'forbidden database name' });
   }
-  if (!allowLocalEphemeral && parsed && !parsed.tlsOk) {
-    errors.push({ code: 'missing_tls', message: 'DSN must require TLS' });
+  if (!allowLocalEphemeral) {
+    if (!parsed || parsed.sslmode !== 'verify-full') {
+      errors.push({
+        code: 'tls_not_verify_full',
+        message: 'DSN must use sslmode=verify-full (ssl=true / require / verify-ca are insufficient)',
+      });
+    }
   }
   return { ok: errors.length === 0, errors };
 }
@@ -243,9 +395,90 @@ function clientConfigFromDsn(dsn, opts) {
     connectionTimeoutMillis: 20000,
   };
   if (!options.allowLocalEphemeral) {
-    cfg.ssl = { rejectUnauthorized: false };
+    cfg.ssl = {
+      rejectUnauthorized: true,
+      servername: url.hostname,
+    };
   }
   return cfg;
+}
+
+function createEphemeralSelfSigned() {
+  const fixtureDir = path.join(__dirname, '..', '..', 'fixtures', 'sunset-schema-observer', 'tls-red');
+  const fixtureKey = path.join(fixtureDir, 'untrusted-key.pem');
+  const fixtureCert = path.join(fixtureDir, 'untrusted-cert.pem');
+  if (fs.existsSync(fixtureKey) && fs.existsSync(fixtureCert)) {
+    return {
+      key: fs.readFileSync(fixtureKey, 'utf8'),
+      cert: fs.readFileSync(fixtureCert, 'utf8'),
+    };
+  }
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-obs-tls-'));
+  const keyPath = path.join(dir, 'key.pem');
+  const certPath = path.join(dir, 'cert.pem');
+  execFileSync(
+    'openssl',
+    [
+      'req', '-x509', '-newkey', 'rsa:2048', '-keyout', keyPath, '-out', certPath,
+      '-days', '1', '-nodes', '-subj', '/CN=localhost',
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true },
+  );
+  const key = fs.readFileSync(keyPath, 'utf8');
+  const cert = fs.readFileSync(certPath, 'utf8');
+  try {
+    fs.rmSync(dir, { recursive: true, force: true });
+  } catch (_) { /* ignore */ }
+  return { key, cert };
+}
+
+/** Transport proof: rejectUnauthorized:true rejects untrusted cert. No live Sunset. */
+function proveTlsRejectsUntrustedCertificate() {
+  return new Promise((resolve) => {
+    let selfsigned;
+    try {
+      selfsigned = createEphemeralSelfSigned();
+    } catch (e) {
+      resolve({
+        ok: false,
+        code: 'tls_fixture_unavailable',
+        message: String(e && e.message ? e.message : e).slice(0, 200),
+      });
+      return;
+    }
+    const server = tls.createServer(
+      { key: selfsigned.key, cert: selfsigned.cert },
+      (socket) => {
+        socket.end('ok');
+      },
+    );
+    server.listen(0, '127.0.0.1', () => {
+      const { port } = server.address();
+      const socket = tls.connect(
+        {
+          host: '127.0.0.1',
+          port,
+          servername: 'localhost',
+          rejectUnauthorized: true,
+        },
+        () => {
+          socket.destroy();
+          server.close();
+          resolve({ ok: false, code: 'unexpected_trust', message: 'untrusted cert was accepted' });
+        },
+      );
+      socket.on('error', (err) => {
+        server.close();
+        const msg = String(err && err.message ? err.message : err);
+        const rejected = /self-signed|UNABLE_TO_VERIFY|unable to verify|certificate/i.test(msg);
+        resolve({
+          ok: rejected,
+          code: rejected ? 'untrusted_cert_rejected' : 'unexpected_tls_error',
+          message: msg.slice(0, 200),
+        });
+      });
+    });
+  });
 }
 
 function normalizeDefault(def) {
@@ -253,7 +486,33 @@ function normalizeDefault(def) {
   return String(def).replace(/\s+/g, ' ').trim();
 }
 
-function buildProductSchemaSnapshot(rowsByKind) {
+function normalizeWhitespace(text) {
+  return String(text || '').replace(/\r\n/g, '\n').replace(/[ \t]+/g, ' ').replace(/\n+/g, '\n').trim();
+}
+
+function normalizeOwnerName(owner, dbOwner) {
+  const o = String(owner || '');
+  if (dbOwner && o === dbOwner) return '$db_owner';
+  return o;
+}
+
+function normalizeAclText(acl, dbOwner) {
+  let s = String(acl || '');
+  if (dbOwner) {
+    const re = new RegExp(dbOwner.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g');
+    s = s.replace(re, '$db_owner');
+  }
+  return s
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .sort()
+    .join(',');
+}
+
+function buildProductSchemaSnapshot(rowsByKind, opts) {
+  const options = opts || {};
+  const dbOwner = options.dbOwner || null;
   const tables = (rowsByKind.tables || [])
     .filter((t) => t.table_schema === 'public' && t.table_type === 'BASE TABLE' && t.table_name !== LEDGER_TABLE)
     .map((t) => t.table_name)
@@ -294,8 +553,25 @@ function buildProductSchemaSnapshot(rowsByKind) {
       def: String(v.view_definition || '').replace(/\s+/g, ' ').trim(),
     }))
     .sort((a, b) => a.name.localeCompare(b.name));
+  const enums = (rowsByKind.enums || [])
+    .filter((e) => e.type_schema === 'public')
+    .map((e) => ({
+      type: e.type_name,
+      label: e.enum_label,
+      order: Number(e.enum_sort_order),
+    }))
+    .sort((a, b) => `${a.type}:${a.order}:${a.label}`.localeCompare(`${b.type}:${b.order}:${b.label}`));
   const functions = (rowsByKind.functions || [])
-    .map((f) => ({ name: f.routine_name, identity: f.identity }))
+    .map((f) => ({
+      name: f.routine_name,
+      identity: f.identity,
+      definition: normalizeWhitespace(f.definition),
+      returnType: String(f.return_type || ''),
+      language: String(f.language || ''),
+      volatility: String(f.volatility || ''),
+      securityDefiner: f.security_definer === true || f.security_definer === 't',
+      proconfig: String(f.proconfig || ''),
+    }))
     .sort((a, b) => String(a.identity).localeCompare(String(b.identity)));
   const triggers = (rowsByKind.triggers || [])
     .filter((t) => t.tgrelid_name !== LEDGER_TABLE)
@@ -305,7 +581,64 @@ function buildProductSchemaSnapshot(rowsByKind) {
       def: String(t.tgdef || '').replace(/\s+/g, ' ').trim(),
     }))
     .sort((a, b) => `${a.table}.${a.name}`.localeCompare(`${b.table}.${b.name}`));
-  return { tables, columns, constraints, indexes, sequences, views, functions, triggers };
+  const rlsFlags = (rowsByKind.rls_flags || [])
+    .filter((r) => r.table_name !== LEDGER_TABLE)
+    .map((r) => ({
+      table: r.table_name,
+      enabled: r.rls_enabled === true || r.rls_enabled === 't',
+      forced: r.rls_forced === true || r.rls_forced === 't',
+    }))
+    .sort((a, b) => a.table.localeCompare(b.table));
+  const rlsPolicies = (rowsByKind.rls_policies || [])
+    .filter((p) => p.tablename !== LEDGER_TABLE)
+    .map((p) => ({
+      table: p.tablename,
+      name: p.policyname,
+      permissive: String(p.permissive || ''),
+      roles: String(p.roles || ''),
+      cmd: String(p.cmd || ''),
+      qual: p.qual == null ? null : String(p.qual),
+      withCheck: p.with_check == null ? null : String(p.with_check),
+    }))
+    .sort((a, b) => `${a.table}.${a.name}`.localeCompare(`${b.table}.${b.name}`));
+  const ownership = (rowsByKind.ownership || [])
+    .filter((o) => o.object_name !== LEDGER_TABLE)
+    .map((o) => ({
+      name: o.object_name,
+      kind: o.object_kind,
+      owner: normalizeOwnerName(o.owner, dbOwner),
+    }))
+    .sort((a, b) => `${a.kind}.${a.name}`.localeCompare(`${b.kind}.${b.name}`));
+  const acls = (rowsByKind.acls || [])
+    .filter((a) => a.object_name !== LEDGER_TABLE)
+    .map((a) => ({
+      name: a.object_name,
+      kind: a.object_kind,
+      acl: normalizeAclText(a.acl, dbOwner),
+    }))
+    .sort((a, b) => `${a.kind}.${a.name}`.localeCompare(`${b.kind}.${b.name}`));
+  const extensions = (rowsByKind.extensions || [])
+    .map((e) => ({
+      name: e.extname,
+      version: String(e.extversion || ''),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return {
+    tables,
+    columns,
+    constraints,
+    indexes,
+    sequences,
+    views,
+    enums,
+    functions,
+    triggers,
+    rlsFlags,
+    rlsPolicies,
+    ownership,
+    acls,
+    extensions,
+  };
 }
 
 function fingerprintProductSchema(snapshot) {
@@ -318,11 +651,15 @@ function indexByKey(items, keyFn) {
   return map;
 }
 
+function deepEqual(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 function compareSnapshots(expected, live) {
   const drifts = [];
   function diffSection(name, expList, liveList, keyFn, equalFn) {
-    const eMap = indexByKey(expList, keyFn);
-    const lMap = indexByKey(liveList, keyFn);
+    const eMap = indexByKey(expList || [], keyFn);
+    const lMap = indexByKey(liveList || [], keyFn);
     for (const [k, ev] of eMap) {
       if (!lMap.has(k)) drifts.push({ kind: 'expected_only', section: name, key: k });
       else if (!equalFn(ev, lMap.get(k))) {
@@ -333,14 +670,20 @@ function compareSnapshots(expected, live) {
       if (!eMap.has(k)) drifts.push({ kind: 'live_only', section: name, key: k });
     }
   }
-  diffSection('tables', expected.tables.map((t) => ({ name: t })), live.tables.map((t) => ({ name: t })), (x) => x.name, () => true);
-  diffSection('columns', expected.columns, live.columns, (c) => `${c.table}.${c.column}`, (a, b) => JSON.stringify(a) === JSON.stringify(b));
-  diffSection('constraints', expected.constraints, live.constraints, (c) => `${c.table}.${c.name}.${c.type}`, (a, b) => JSON.stringify(a) === JSON.stringify(b));
+  diffSection('tables', (expected.tables || []).map((t) => ({ name: t })), (live.tables || []).map((t) => ({ name: t })), (x) => x.name, () => true);
+  diffSection('columns', expected.columns, live.columns, (c) => `${c.table}.${c.column}`, deepEqual);
+  diffSection('constraints', expected.constraints, live.constraints, (c) => `${c.table}.${c.name}.${c.type}`, deepEqual);
   diffSection('indexes', expected.indexes, live.indexes, (i) => `${i.table}.${i.name}`, (a, b) => a.def === b.def);
-  diffSection('sequences', expected.sequences.map((s) => ({ name: s })), live.sequences.map((s) => ({ name: s })), (x) => x.name, () => true);
+  diffSection('sequences', (expected.sequences || []).map((s) => ({ name: s })), (live.sequences || []).map((s) => ({ name: s })), (x) => x.name, () => true);
   diffSection('views', expected.views, live.views, (v) => v.name, (a, b) => a.def === b.def);
-  diffSection('functions', expected.functions, live.functions, (f) => f.identity || f.name, (a, b) => (a.identity || a.name) === (b.identity || b.name));
+  diffSection('enums', expected.enums, live.enums, (e) => `${e.type}:${e.label}`, (a, b) => a.order === b.order && a.label === b.label);
+  diffSection('functions', expected.functions, live.functions, (f) => f.identity || f.name, deepEqual);
   diffSection('triggers', expected.triggers, live.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
+  diffSection('rlsFlags', expected.rlsFlags, live.rlsFlags, (r) => r.table, deepEqual);
+  diffSection('rlsPolicies', expected.rlsPolicies, live.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
+  diffSection('ownership', expected.ownership, live.ownership, (o) => `${o.kind}.${o.name}`, deepEqual);
+  diffSection('acls', expected.acls, live.acls, (a) => `${a.kind}.${a.name}`, deepEqual);
+  diffSection('extensions', expected.extensions, live.extensions, (e) => e.name, deepEqual);
   const counts = {
     expected_only: drifts.filter((d) => d.kind === 'expected_only').length,
     live_only: drifts.filter((d) => d.kind === 'live_only').length,
@@ -390,6 +733,8 @@ async function introspectProductSchema(client) {
     usedAllowlist.push(out.allowlistId);
     return out.rows;
   }
+  const dbOwnerRows = await q('db_owner');
+  const dbOwner = dbOwnerRows[0] && dbOwnerRows[0].db_owner ? String(dbOwnerRows[0].db_owner) : null;
   const rowsByKind = {
     tables: await q('tables'),
     columns: await q('columns'),
@@ -397,12 +742,19 @@ async function introspectProductSchema(client) {
     indexes: await q('indexes'),
     sequences: (await q('sequences')).map((r) => ({ relname: r.relname })),
     views: await q('views'),
+    enums: await q('enums'),
     functions: await q('functions'),
     triggers: await q('triggers'),
+    rls_flags: await q('rls_flags'),
+    rls_policies: await q('rls_policies'),
+    ownership: await q('ownership'),
+    acls: await q('acls'),
+    extensions: await q('extensions'),
   };
   return {
-    snapshot: buildProductSchemaSnapshot(rowsByKind),
+    snapshot: buildProductSchemaSnapshot(rowsByKind, { dbOwner }),
     usedAllowlist: [...new Set(usedAllowlist)],
+    dbOwner,
   };
 }
 
@@ -441,6 +793,14 @@ function hashCanonicalManifest(manifest) {
   };
 }
 
+function contractScopeMeta(contract) {
+  return {
+    scope: (contract && contract.scope) || CONTRACT_SCOPE,
+    includedSections: (contract && contract.includedSections) || INCLUDED_SECTIONS.slice(),
+    excludedSections: (contract && contract.excludedSections) || EXCLUDED_SECTIONS.slice(),
+  };
+}
+
 function contractStalenessErrors(contract, manifest) {
   const errors = [];
   if (!contract || typeof contract !== 'object') {
@@ -461,7 +821,30 @@ function contractStalenessErrors(contract, manifest) {
       message: `contract forwardCount ${contract.forwardCount} != ${forward.length}`,
     });
   }
+  if (contract.scope !== CONTRACT_SCOPE) {
+    errors.push({ code: 'bad_contract_scope', message: `scope must be ${CONTRACT_SCOPE}` });
+  }
+  for (const sec of ['enums', 'functions', 'rlsFlags', 'rlsPolicies', 'ownership', 'acls', 'extensions']) {
+    if (!Array.isArray(contract.includedSections) || !contract.includedSections.includes(sec)) {
+      errors.push({ code: 'missing_included_section', message: sec });
+    }
+    if (!contract.snapshot || !Array.isArray(contract.snapshot[sec])) {
+      errors.push({ code: 'snapshot_missing_section', message: sec });
+    }
+  }
+  if (Array.isArray(contract.excludedSections)
+    && contract.excludedSections.some((s) => /enum|function|rls|policy/i.test(String(s)))) {
+    errors.push({ code: 'forbidden_exclusion', message: 'enums/functions/RLS must not be excluded' });
+  }
   return errors;
+}
+
+function claimsCompleteEquivalence(text) {
+  const s = String(text || '').replace(/\*+/g, '');
+  // Allow explicit non-claims such as "not complete schema equivalence".
+  const scrubbed = s.replace(/not\s+complete\s+(product[- ])?schema\s+equivalence/gi, '');
+  return /(?<!not\s)complete\s+(product[- ])?schema\s+equivalence/i.test(scrubbed)
+    || /full\s+schema\s+equivalence/i.test(scrubbed);
 }
 
 module.exports = {
@@ -470,6 +853,9 @@ module.exports = {
   APPLICATION_NAME,
   LEDGER_TABLE,
   OBSERVER_DSN_ENV,
+  INCLUDED_SECTIONS,
+  EXCLUDED_SECTIONS,
+  CONTRACT_SCOPE,
   INTROSPECTION_SQL,
   SQL_REGISTRY_IDS,
   sha256Text,
@@ -481,6 +867,7 @@ module.exports = {
   assertObserverTarget,
   assertNoLeakedDsn,
   clientConfigFromDsn,
+  proveTlsRejectsUntrustedCertificate,
   buildProductSchemaSnapshot,
   fingerprintProductSchema,
   compareSnapshots,
@@ -489,5 +876,7 @@ module.exports = {
   introspectProductSchema,
   verifyLiveSession,
   hashCanonicalManifest,
+  contractScopeMeta,
   contractStalenessErrors,
+  claimsCompleteEquivalence,
 };

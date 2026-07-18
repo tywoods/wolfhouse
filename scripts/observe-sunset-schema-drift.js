@@ -26,6 +26,7 @@ const {
   introspectProductSchema,
   verifyLiveSession,
   contractStalenessErrors,
+  contractScopeMeta,
   redactSecrets,
 } = require('./lib/sunset-schema-observer');
 const { loadManifest, MANIFEST_PATH } = require('./lib/migration-integrity');
@@ -108,10 +109,14 @@ async function main() {
     match: false,
     drift: { counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 }, sample: [] },
     sqlRegistryExact: SQL_REGISTRY_IDS.slice(),
+    ...contractScopeMeta(contract),
     contract: {
       manifestHash: contract.manifestHash,
       productFingerprint: contract.productFingerprint,
       forwardCount: contract.forwardCount,
+      scope: contract.scope,
+      includedSections: contract.includedSections,
+      excludedSections: contract.excludedSections,
     },
   };
 

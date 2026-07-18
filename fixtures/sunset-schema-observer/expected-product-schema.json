@@ -1,13 +1,38 @@
 {
   "kind": "sunset-expected-product-schema",
-  "generatedAt": "2026-07-18T07:09:01.169Z",
+  "scope": "structural-and-security-product-schema",
+  "includedSections": [
+    "tables",
+    "columns",
+    "constraints",
+    "indexes",
+    "sequences",
+    "views",
+    "enums",
+    "functions",
+    "triggers",
+    "rlsFlags",
+    "rlsPolicies",
+    "ownership",
+    "acls",
+    "extensions"
+  ],
+  "excludedSections": [
+    "schema_migration_ledger",
+    "guest_row_data",
+    "table_statistics",
+    "toast_storage",
+    "publications_subscriptions",
+    "event_triggers"
+  ],
+  "generatedAt": "2026-07-18T08:41:14.828Z",
   "forwardCount": 36,
   "manifestHash": "c2a935588bc9ace536d1e76ddd9026b6c92c8aaac80aa78a9d701cf4ec3bc430",
-  "productFingerprint": "9b78caf5dda5fce6acadffc10e2e8f68a8470cffaf41d336467ecae5b70f2665",
+  "productFingerprint": "dee11a6c0338907432f54a791cb77c9346245bdda2d72fa0f0624d98b8f2ee7d",
   "excludes": [
     "schema_migration_ledger"
   ],
-  "note": "schema_migration_ledger excluded from product equivalence",
+  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded.",
   "snapshot": {
     "tables": [
       "add_on_items",
@@ -218,7 +243,7 @@
       {
         "table": "add_on_orders",
         "column": "currency",
-        "type": "character",
+        "type": "character(3)",
         "udt": "bpchar",
         "nullable": "NO",
         "default": "'EUR'::bpchar"
@@ -554,7 +579,7 @@
       {
         "table": "automation_errors",
         "column": "status",
-        "type": "USER-DEFINED",
+        "type": "automation_error_status",
         "udt": "automation_error_status",
         "nullable": "NO",
         "default": "'open'::automation_error_status"
@@ -1298,7 +1323,7 @@
       {
         "table": "bookings",
         "column": "assignment_status",
-        "type": "USER-DEFINED",
+        "type": "assignment_status",
         "udt": "assignment_status",
         "nullable": "NO",
         "default": "'unassigned'::assignment_status"
@@ -1306,7 +1331,7 @@
       {
         "table": "bookings",
         "column": "availability_check_status",
-        "type": "USER-DEFINED",
+        "type": "availability_check_status",
         "udt": "availability_check_status",
         "nullable": "NO",
         "default": "'unknown'::availability_check_status"
@@ -1322,7 +1347,7 @@
       {
         "table": "bookings",
         "column": "block_type",
-        "type": "USER-DEFINED",
+        "type": "block_type",
         "udt": "block_type",
         "nullable": "NO",
         "default": "'none'::block_type"
@@ -1338,7 +1363,7 @@
       {
         "table": "bookings",
         "column": "booking_source",
-        "type": "USER-DEFINED",
+        "type": "booking_source",
         "udt": "booking_source",
         "nullable": "NO",
         "default": "'whatsapp'::booking_source"
@@ -1538,7 +1563,7 @@
       {
         "table": "bookings",
         "column": "payment_status",
-        "type": "USER-DEFINED",
+        "type": "payment_status",
         "udt": "payment_status",
         "nullable": "NO",
         "default": "'not_requested'::payment_status"
@@ -1586,7 +1611,7 @@
       {
         "table": "bookings",
         "column": "rooming_confidence",
-        "type": "numeric",
+        "type": "numeric(4,3)",
         "udt": "numeric",
         "nullable": "YES",
         "default": null
@@ -1618,7 +1643,7 @@
       {
         "table": "bookings",
         "column": "status",
-        "type": "USER-DEFINED",
+        "type": "booking_status",
         "udt": "booking_status",
         "nullable": "NO",
         "default": "'hold'::booking_status"
@@ -1946,7 +1971,7 @@
       {
         "table": "clients",
         "column": "currency",
-        "type": "character",
+        "type": "character(3)",
         "udt": "bpchar",
         "nullable": "NO",
         "default": "'EUR'::bpchar"
@@ -2034,7 +2059,7 @@
       {
         "table": "conversations",
         "column": "bot_mode",
-        "type": "USER-DEFINED",
+        "type": "bot_mode",
         "udt": "bot_mode",
         "nullable": "NO",
         "default": "'bot'::bot_mode"
@@ -2218,7 +2243,7 @@
       {
         "table": "conversations",
         "column": "status",
-        "type": "USER-DEFINED",
+        "type": "conversation_status",
         "udt": "conversation_status",
         "nullable": "NO",
         "default": "'open'::conversation_status"
@@ -2898,7 +2923,7 @@
       {
         "table": "manual_entries",
         "column": "action",
-        "type": "USER-DEFINED",
+        "type": "manual_entry_action",
         "udt": "manual_entry_action",
         "nullable": "NO",
         "default": "'create'::manual_entry_action"
@@ -3074,7 +3099,7 @@
       {
         "table": "manual_entries",
         "column": "sync_status",
-        "type": "USER-DEFINED",
+        "type": "manual_entry_sync_status",
         "udt": "manual_entry_sync_status",
         "nullable": "NO",
         "default": "'pending'::manual_entry_sync_status"
@@ -3250,7 +3275,7 @@
       {
         "table": "messages",
         "column": "direction",
-        "type": "USER-DEFINED",
+        "type": "message_direction",
         "udt": "message_direction",
         "nullable": "NO",
         "default": null
@@ -3450,7 +3475,7 @@
       {
         "table": "operator_room_release_requests",
         "column": "status",
-        "type": "USER-DEFINED",
+        "type": "operator_release_status",
         "udt": "operator_release_status",
         "nullable": "NO",
         "default": "'pending'::operator_release_status"
@@ -3506,7 +3531,7 @@
       {
         "table": "package_price_rules",
         "column": "month_numbers",
-        "type": "ARRAY",
+        "type": "integer[]",
         "udt": "_int4",
         "nullable": "NO",
         "default": null
@@ -3778,7 +3803,7 @@
       {
         "table": "payments",
         "column": "currency",
-        "type": "character",
+        "type": "character(3)",
         "udt": "bpchar",
         "nullable": "NO",
         "default": "'EUR'::bpchar"
@@ -3818,7 +3843,7 @@
       {
         "table": "payments",
         "column": "payment_kind",
-        "type": "USER-DEFINED",
+        "type": "payment_kind",
         "udt": "payment_kind",
         "nullable": "NO",
         "default": "'deposit_only'::payment_kind"
@@ -3826,7 +3851,7 @@
       {
         "table": "payments",
         "column": "status",
-        "type": "USER-DEFINED",
+        "type": "payment_record_status",
         "udt": "payment_record_status",
         "nullable": "NO",
         "default": "'draft'::payment_record_status"
@@ -4250,7 +4275,7 @@
       {
         "table": "staff_automated_notifications",
         "column": "days_of_week",
-        "type": "ARRAY",
+        "type": "integer[]",
         "udt": "_int4",
         "nullable": "NO",
         "default": null
@@ -5170,7 +5195,7 @@
       {
         "table": "tenant_lesson_time_rules",
         "column": "weekdays_active",
-        "type": "ARRAY",
+        "type": "smallint[]",
         "udt": "_int2",
         "nullable": "NO",
         "default": "'{}'::smallint[]"
@@ -5210,7 +5235,7 @@
       {
         "table": "tenant_price_rules",
         "column": "currency",
-        "type": "character",
+        "type": "character(3)",
         "udt": "bpchar",
         "nullable": "NO",
         "default": "'EUR'::bpchar"
@@ -5426,7 +5451,7 @@
       {
         "table": "tenant_services",
         "column": "keywords",
-        "type": "ARRAY",
+        "type": "text[]",
         "udt": "_text",
         "nullable": "NO",
         "default": "'{}'::text[]"
@@ -6162,7 +6187,7 @@
       {
         "table": "workflow_events",
         "column": "event_level",
-        "type": "USER-DEFINED",
+        "type": "workflow_event_level",
         "udt": "workflow_event_level",
         "nullable": "NO",
         "default": "'info'::workflow_event_level"
@@ -9009,170 +9034,773 @@
     ],
     "sequences": [],
     "views": [],
+    "enums": [
+      {
+        "type": "assignment_status",
+        "label": "unassigned",
+        "order": 1
+      },
+      {
+        "type": "assignment_status",
+        "label": "assigning",
+        "order": 2
+      },
+      {
+        "type": "assignment_status",
+        "label": "assigned",
+        "order": 3
+      },
+      {
+        "type": "assignment_status",
+        "label": "needs_review",
+        "order": 4
+      },
+      {
+        "type": "automation_error_status",
+        "label": "open",
+        "order": 1
+      },
+      {
+        "type": "automation_error_status",
+        "label": "retrying",
+        "order": 2
+      },
+      {
+        "type": "automation_error_status",
+        "label": "resolved",
+        "order": 3
+      },
+      {
+        "type": "automation_error_status",
+        "label": "ignored",
+        "order": 4
+      },
+      {
+        "type": "availability_check_status",
+        "label": "unknown",
+        "order": 1
+      },
+      {
+        "type": "availability_check_status",
+        "label": "available",
+        "order": 2
+      },
+      {
+        "type": "availability_check_status",
+        "label": "conflict",
+        "order": 3
+      },
+      {
+        "type": "availability_check_status",
+        "label": "needs_review",
+        "order": 4
+      },
+      {
+        "type": "block_type",
+        "label": "none",
+        "order": 1
+      },
+      {
+        "type": "block_type",
+        "label": "whole_room",
+        "order": 2
+      },
+      {
+        "type": "block_type",
+        "label": "partial",
+        "order": 3
+      },
+      {
+        "type": "block_type",
+        "label": "other",
+        "order": 4
+      },
+      {
+        "type": "booking_source",
+        "label": "whatsapp",
+        "order": 1
+      },
+      {
+        "type": "booking_source",
+        "label": "manual_staff",
+        "order": 2
+      },
+      {
+        "type": "booking_source",
+        "label": "operator",
+        "order": 3
+      },
+      {
+        "type": "booking_source",
+        "label": "other",
+        "order": 4
+      },
+      {
+        "type": "booking_status",
+        "label": "hold",
+        "order": 1
+      },
+      {
+        "type": "booking_status",
+        "label": "payment_pending",
+        "order": 2
+      },
+      {
+        "type": "booking_status",
+        "label": "confirmed",
+        "order": 3
+      },
+      {
+        "type": "booking_status",
+        "label": "cancelled",
+        "order": 4
+      },
+      {
+        "type": "booking_status",
+        "label": "expired",
+        "order": 5
+      },
+      {
+        "type": "booking_status",
+        "label": "needs_review",
+        "order": 6
+      },
+      {
+        "type": "booking_status",
+        "label": "checked_in",
+        "order": 7
+      },
+      {
+        "type": "booking_status",
+        "label": "blocked",
+        "order": 8
+      },
+      {
+        "type": "bot_mode",
+        "label": "bot",
+        "order": 1
+      },
+      {
+        "type": "bot_mode",
+        "label": "staff",
+        "order": 2
+      },
+      {
+        "type": "bot_mode",
+        "label": "paused",
+        "order": 3
+      },
+      {
+        "type": "conversation_status",
+        "label": "open",
+        "order": 1
+      },
+      {
+        "type": "conversation_status",
+        "label": "closed",
+        "order": 2
+      },
+      {
+        "type": "conversation_status",
+        "label": "on_hold",
+        "order": 3
+      },
+      {
+        "type": "manual_entry_action",
+        "label": "create",
+        "order": 1
+      },
+      {
+        "type": "manual_entry_action",
+        "label": "update",
+        "order": 2
+      },
+      {
+        "type": "manual_entry_action",
+        "label": "delete",
+        "order": 3
+      },
+      {
+        "type": "manual_entry_action",
+        "label": "sync",
+        "order": 4
+      },
+      {
+        "type": "manual_entry_sync_status",
+        "label": "pending",
+        "order": 1
+      },
+      {
+        "type": "manual_entry_sync_status",
+        "label": "processing",
+        "order": 2
+      },
+      {
+        "type": "manual_entry_sync_status",
+        "label": "synced",
+        "order": 3
+      },
+      {
+        "type": "manual_entry_sync_status",
+        "label": "error",
+        "order": 4
+      },
+      {
+        "type": "manual_entry_sync_status",
+        "label": "deleted",
+        "order": 5
+      },
+      {
+        "type": "message_direction",
+        "label": "inbound",
+        "order": 1
+      },
+      {
+        "type": "message_direction",
+        "label": "outbound",
+        "order": 2
+      },
+      {
+        "type": "operator_release_status",
+        "label": "pending",
+        "order": 1
+      },
+      {
+        "type": "operator_release_status",
+        "label": "processing",
+        "order": 2
+      },
+      {
+        "type": "operator_release_status",
+        "label": "completed",
+        "order": 3
+      },
+      {
+        "type": "operator_release_status",
+        "label": "failed",
+        "order": 4
+      },
+      {
+        "type": "payment_kind",
+        "label": "deposit_only",
+        "order": 1
+      },
+      {
+        "type": "payment_kind",
+        "label": "full_amount",
+        "order": 2
+      },
+      {
+        "type": "payment_kind",
+        "label": "addon_service",
+        "order": 3
+      },
+      {
+        "type": "payment_record_status",
+        "label": "draft",
+        "order": 1
+      },
+      {
+        "type": "payment_record_status",
+        "label": "checkout_created",
+        "order": 2
+      },
+      {
+        "type": "payment_record_status",
+        "label": "pending",
+        "order": 3
+      },
+      {
+        "type": "payment_record_status",
+        "label": "paid",
+        "order": 4
+      },
+      {
+        "type": "payment_record_status",
+        "label": "expired",
+        "order": 5
+      },
+      {
+        "type": "payment_record_status",
+        "label": "cancelled",
+        "order": 6
+      },
+      {
+        "type": "payment_record_status",
+        "label": "failed",
+        "order": 7
+      },
+      {
+        "type": "payment_status",
+        "label": "not_requested",
+        "order": 1
+      },
+      {
+        "type": "payment_status",
+        "label": "waiting_payment",
+        "order": 2
+      },
+      {
+        "type": "payment_status",
+        "label": "payment_link_sent",
+        "order": 2.5
+      },
+      {
+        "type": "payment_status",
+        "label": "deposit_paid",
+        "order": 3
+      },
+      {
+        "type": "payment_status",
+        "label": "paid",
+        "order": 4
+      },
+      {
+        "type": "payment_status",
+        "label": "refunded",
+        "order": 5
+      },
+      {
+        "type": "payment_status",
+        "label": "failed",
+        "order": 6
+      },
+      {
+        "type": "payment_status",
+        "label": "expired",
+        "order": 7
+      },
+      {
+        "type": "workflow_event_level",
+        "label": "debug",
+        "order": 1
+      },
+      {
+        "type": "workflow_event_level",
+        "label": "info",
+        "order": 2
+      },
+      {
+        "type": "workflow_event_level",
+        "label": "warn",
+        "order": 3
+      },
+      {
+        "type": "workflow_event_level",
+        "label": "error",
+        "order": 4
+      }
+    ],
     "functions": [
       {
         "name": "armor",
-        "identity": "public.armor(bytea, text[], text[])"
+        "identity": "public.armor(bytea, text[], text[])",
+        "definition": "CREATE OR REPLACE FUNCTION public.armor(bytea, text[], text[])\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_armor$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "armor",
-        "identity": "public.armor(bytea)"
+        "identity": "public.armor(bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.armor(bytea)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_armor$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "ceil_eur_to_nearest_5",
-        "identity": "public.ceil_eur_to_nearest_5(amount_eur numeric)"
+        "identity": "public.ceil_eur_to_nearest_5(amount_eur numeric)",
+        "definition": "CREATE OR REPLACE FUNCTION public.ceil_eur_to_nearest_5(amount_eur numeric)\n RETURNS numeric\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE\nAS $function$\n SELECT CEIL(amount_eur / 5) * 5;\n$function$",
+        "returnType": "numeric",
+        "language": "sql",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "crypt",
-        "identity": "public.crypt(text, text)"
+        "identity": "public.crypt(text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.crypt(text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_crypt$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "dearmor",
-        "identity": "public.dearmor(text)"
+        "identity": "public.dearmor(text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.dearmor(text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_dearmor$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "decrypt_iv",
-        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)"
+        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.decrypt_iv(bytea, bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_decrypt_iv$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "decrypt",
-        "identity": "public.decrypt(bytea, bytea, text)"
+        "identity": "public.decrypt(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.decrypt(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_decrypt$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "digest",
-        "identity": "public.digest(bytea, text)"
+        "identity": "public.digest(bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.digest(bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_digest$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "digest",
-        "identity": "public.digest(text, text)"
+        "identity": "public.digest(text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.digest(text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_digest$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "encrypt_iv",
-        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)"
+        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.encrypt_iv(bytea, bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_encrypt_iv$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "encrypt",
-        "identity": "public.encrypt(bytea, bytea, text)"
+        "identity": "public.encrypt(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.encrypt(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_encrypt$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "gen_random_bytes",
-        "identity": "public.gen_random_bytes(integer)"
+        "identity": "public.gen_random_bytes(integer)",
+        "definition": "CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_random_bytes$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "gen_random_uuid",
-        "identity": "public.gen_random_uuid()"
+        "identity": "public.gen_random_uuid()",
+        "definition": "CREATE OR REPLACE FUNCTION public.gen_random_uuid()\n RETURNS uuid\n LANGUAGE c\n PARALLEL SAFE\nAS '$libdir/pgcrypto', $function$pg_random_uuid$function$",
+        "returnType": "uuid",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "gen_salt",
-        "identity": "public.gen_salt(text, integer)"
+        "identity": "public.gen_salt(text, integer)",
+        "definition": "CREATE OR REPLACE FUNCTION public.gen_salt(text, integer)\n RETURNS text\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_gen_salt_rounds$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "gen_salt",
-        "identity": "public.gen_salt(text)"
+        "identity": "public.gen_salt(text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.gen_salt(text)\n RETURNS text\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_gen_salt$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "hmac",
-        "identity": "public.hmac(bytea, bytea, text)"
+        "identity": "public.hmac(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.hmac(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_hmac$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "hmac",
-        "identity": "public.hmac(text, text, text)"
+        "identity": "public.hmac(text, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.hmac(text, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_hmac$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "package_display_nightly_per_person_eur",
-        "identity": "public.package_display_nightly_per_person_eur(weekly_price_eur numeric)"
+        "identity": "public.package_display_nightly_per_person_eur(weekly_price_eur numeric)",
+        "definition": "CREATE OR REPLACE FUNCTION public.package_display_nightly_per_person_eur(weekly_price_eur numeric)\n RETURNS numeric\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE\nAS $function$\n SELECT ceil_eur_to_nearest_5(weekly_price_eur / 7.0);\n$function$",
+        "returnType": "numeric",
+        "language": "sql",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "package_stay_total_per_person_eur",
-        "identity": "public.package_stay_total_per_person_eur(weekly_price_eur numeric, nights integer)"
+        "identity": "public.package_stay_total_per_person_eur(weekly_price_eur numeric, nights integer)",
+        "definition": "CREATE OR REPLACE FUNCTION public.package_stay_total_per_person_eur(weekly_price_eur numeric, nights integer)\n RETURNS numeric\n LANGUAGE sql\n IMMUTABLE PARALLEL SAFE\nAS $function$\n SELECT ceil_eur_to_nearest_5(weekly_price_eur * GREATEST(nights, 1) / 7.0);\n$function$",
+        "returnType": "numeric",
+        "language": "sql",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_armor_headers",
-        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)"
+        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_armor_headers(text, OUT key text, OUT value text)\n RETURNS SETOF record\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_armor_headers$function$",
+        "returnType": "SETOF record",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_key_id",
-        "identity": "public.pgp_key_id(bytea)"
+        "identity": "public.pgp_key_id(bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_key_id(bytea)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_key_id_w$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt_bytea",
-        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)"
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt_bytea",
-        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)"
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt_bytea",
-        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)"
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt_bytea(bytea, bytea)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt",
-        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)"
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt",
-        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)"
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_decrypt",
-        "identity": "public.pgp_pub_decrypt(bytea, bytea)"
+        "identity": "public.pgp_pub_decrypt(bytea, bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_decrypt(bytea, bytea)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_decrypt_text$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_encrypt_bytea",
-        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)"
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_encrypt_bytea",
-        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)"
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt_bytea(bytea, bytea)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_encrypt",
-        "identity": "public.pgp_pub_encrypt(text, bytea, text)"
+        "identity": "public.pgp_pub_encrypt(text, bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_pub_encrypt",
-        "identity": "public.pgp_pub_encrypt(text, bytea)"
+        "identity": "public.pgp_pub_encrypt(text, bytea)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_pub_encrypt(text, bytea)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_pub_encrypt_text$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_decrypt_bytea",
-        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)"
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_decrypt_bytea",
-        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)"
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt_bytea(bytea, text)\n RETURNS bytea\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_decrypt",
-        "identity": "public.pgp_sym_decrypt(bytea, text, text)"
+        "identity": "public.pgp_sym_decrypt(bytea, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_decrypt",
-        "identity": "public.pgp_sym_decrypt(bytea, text)"
+        "identity": "public.pgp_sym_decrypt(bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_decrypt(bytea, text)\n RETURNS text\n LANGUAGE c\n IMMUTABLE PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_decrypt_text$function$",
+        "returnType": "text",
+        "language": "c",
+        "volatility": "immutable",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_encrypt_bytea",
-        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)"
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_encrypt_bytea",
-        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)"
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt_bytea(bytea, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_bytea$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_encrypt",
-        "identity": "public.pgp_sym_encrypt(text, text, text)"
+        "identity": "public.pgp_sym_encrypt(text, text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "pgp_sym_encrypt",
-        "identity": "public.pgp_sym_encrypt(text, text)"
+        "identity": "public.pgp_sym_encrypt(text, text)",
+        "definition": "CREATE OR REPLACE FUNCTION public.pgp_sym_encrypt(text, text)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pgp_sym_encrypt_text$function$",
+        "returnType": "bytea",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "set_updated_at",
-        "identity": "public.set_updated_at()"
+        "identity": "public.set_updated_at()",
+        "definition": "CREATE OR REPLACE FUNCTION public.set_updated_at()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nBEGIN\n NEW.updated_at = NOW();\n RETURN NEW;\nEND;\n$function$",
+        "returnType": "trigger",
+        "language": "plpgsql",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       },
       {
         "name": "sync_customer_from_touch",
-        "identity": "public.sync_customer_from_touch()"
+        "identity": "public.sync_customer_from_touch()",
+        "definition": "CREATE OR REPLACE FUNCTION public.sync_customer_from_touch()\n RETURNS trigger\n LANGUAGE plpgsql\nAS $function$\nDECLARE\n v_phone text;\n v_name text;\n v_email text;\n v_loc text;\n v_cid uuid;\nBEGIN\n v_phone := NULLIF(TRIM(COALESCE(NEW.phone, '')), '');\n IF v_phone IS NULL THEN\n RETURN NEW;\n END IF;\n IF TG_TABLE_NAME = 'conversations' THEN\n v_name := NULLIF(TRIM(COALESCE(NEW.display_name, '')), '');\n v_email := NULLIF(TRIM(COALESCE(NEW.email, '')), '');\n v_loc := NULL;\n ELSE -- bookings\n v_name := NULLIF(TRIM(COALESCE(NEW.guest_name, '')), '');\n v_email := NULLIF(TRIM(COALESCE(NEW.email, '')), '');\n v_loc := NULLIF(TRIM(COALESCE(NEW.metadata->>'location_id', '')), '');\n END IF;\n INSERT INTO customers (client_id, phone, full_name, email, location_id, first_seen, last_seen)\n VALUES (NEW.client_id, v_phone, v_name, v_email, v_loc, NOW(), NOW())\n ON CONFLICT (client_id, phone) DO UPDATE SET\n full_name = COALESCE(EXCLUDED.full_name, customers.full_name),\n email = COALESCE(EXCLUDED.email, customers.email),\n location_id = COALESCE(EXCLUDED.location_id, customers.location_id),\n last_seen = NOW(),\n updated_at = NOW()\n RETURNING id INTO v_cid;\n NEW.customer_id := v_cid;\n RETURN NEW;\nEND;\n$function$",
+        "returnType": "trigger",
+        "language": "plpgsql",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
       }
     ],
     "triggers": [
@@ -9375,6 +10003,788 @@
         "name": "yoga_requests_updated_at",
         "table": "yoga_requests",
         "def": "CREATE TRIGGER yoga_requests_updated_at BEFORE UPDATE ON public.yoga_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      }
+    ],
+    "rlsFlags": [
+      {
+        "table": "add_on_items",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "add_on_orders",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "auth_sessions",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "automation_errors",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "beds",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "booking_beds",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "booking_guests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "booking_service_records",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "booking_transfers",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "bookings",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "bot_pause_states",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "client_notification_events",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "client_notification_settings",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "clients",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "conversations",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "customer_message_templates",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "customers",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "guest_message_events",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "guest_message_sends",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "guests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "lesson_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "manual_entries",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "meal_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "messages",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "operator_room_release_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "package_price_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "packages",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "payment_events",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "payments",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "rental_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "rooms",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_automated_notifications",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_handoffs",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_phone_access",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_tasks",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "staff_users",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_house_notes",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_price_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_services",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "transfer_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "waiver_form_requests",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "waiver_form_submissions",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "workflow_events",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "yoga_requests",
+        "enabled": false,
+        "forced": false
+      }
+    ],
+    "rlsPolicies": [],
+    "ownership": [
+      {
+        "name": "add_on_items",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "add_on_orders",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "auth_sessions",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "automation_errors",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "beds",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "booking_beds",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "booking_guests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "booking_service_records",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "booking_transfers",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "bookings",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "bot_pause_states",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "client_notification_events",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "client_notification_settings",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "clients",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "conversations",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "customer_message_templates",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "customers",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "guest_message_events",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "guest_message_sends",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "guests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "lesson_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "manual_entries",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "meal_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "messages",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "operator_room_release_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "package_price_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "packages",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "payment_events",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "payments",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "rental_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "rooms",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_automated_notification_events",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_automated_notifications",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_handoffs",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_phone_access",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_tasks",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "staff_users",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_config_audit_log",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_house_notes",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_lesson_capacity_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_lesson_time_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_price_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_private_lesson_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_services",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "tenant_surf_pack_rules",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "transfer_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "waiver_form_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "waiver_form_submissions",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "wolfhouse_staff_whatsapp_numbers",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "workflow_events",
+        "kind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "name": "yoga_requests",
+        "kind": "r",
+        "owner": "$db_owner"
+      }
+    ],
+    "acls": [
+      {
+        "name": "add_on_items",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "add_on_orders",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "auth_sessions",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "automation_errors",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "beds",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "booking_beds",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "booking_guests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "booking_service_records",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "booking_transfers",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "bookings",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "bot_pause_states",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "client_notification_events",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "client_notification_settings",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "clients",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "conversations",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "customer_message_templates",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "customers",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "guest_message_events",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "guest_message_sends",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "guests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "lesson_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "manual_entries",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "meal_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "messages",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "operator_room_release_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "package_price_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "packages",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "payment_events",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "payments",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "rental_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "rooms",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_automated_notification_events",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_automated_notifications",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_handoffs",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_phone_access",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_tasks",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "staff_users",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_config_audit_log",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_house_notes",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_lesson_capacity_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_lesson_time_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_price_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_private_lesson_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_services",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "tenant_surf_pack_rules",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "transfer_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "waiver_form_requests",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "waiver_form_submissions",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "wolfhouse_staff_whatsapp_numbers",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "workflow_events",
+        "kind": "r",
+        "acl": ""
+      },
+      {
+        "name": "yoga_requests",
+        "kind": "r",
+        "acl": ""
+      }
+    ],
+    "extensions": [
+      {
+        "name": "pgcrypto",
+        "version": "1.3"
+      },
+      {
+        "name": "plpgsql",
+        "version": "1.0"
       }
     ]
   }

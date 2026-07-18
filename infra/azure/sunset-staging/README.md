@@ -1,9 +1,9 @@
 # Sunset Isolated Staging — Azure Bicep Runbook
 
-> **FOUNDATION Slice 2:** core Bicep reconciled to `inventory/live-inventory.normalized.json`.  
+> **FOUNDATION Slice 2:** core Bicep reconciled to `inventory/live-inventory.normalized.json`.
 > **Do not `az deployment group create` from this slice — what-if only until Captain approves a later deploy.**
 >
-> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)  
+> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)
 > Live drift baseline: [`inventory/DRIFT-REPORT.md`](inventory/DRIFT-REPORT.md)
 
 ---
@@ -212,6 +212,8 @@ Expect: **no Create/Delete** and **no material Modify** on declared core resourc
 ### Slice 6 schema observer (source-only)
 
 Manual Container Apps Job module `schema-observer-job.bicep`, wired only when `deploySchemaObserverJob=true`. Default remains `false` so Incremental what-if stays Create=0. Proposal what-if with the flag enabled should show exactly one Create (`luna-sunset-staging-sch-obs`, ≤32-char job name) and no other Creates. Dedicated read-only DB identity/secret are **not** provisioned in this slice. Existing deployment preflight stays fail-closed on Create until a later approved slice.
+
+The committed fixture is a **structural-and-security product-schema contract** (tables/columns/constraints/indexes/sequences/views/enums/functions/triggers/RLS flags+policies/ownership/ACLs/extensions). It is **not** complete schema equivalence — see `excludedSections` in the contract and observer report (`schema_migration_ledger`, guest rows, statistics, toast, publications, event triggers). Enums, public function definitions, and RLS/policies are included.
 
 Local observer proof (no Azure job create):
 

@@ -46,11 +46,11 @@ function discoverCommittedArtifacts() {
     cwd: ROOT,
     encoding: 'utf8',
   });
+  // Scan every discovered committed artifact, including fixtures (no broad path exclusions).
   return out
     .split('\0')
     .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((rel) => !rel.startsWith('fixtures/'));
+    .filter(Boolean);
 }
 
 let failed = 0;

@@ -23,6 +23,9 @@ const {
   fingerprintProductSchema,
   hashCanonicalManifest,
   LEDGER_TABLE,
+  CONTRACT_SCOPE,
+  INCLUDED_SECTIONS,
+  EXCLUDED_SECTIONS,
 } = require('./lib/sunset-schema-observer');
 
 const ROOT = path.join(__dirname, '..');
@@ -115,12 +118,15 @@ async function main() {
 
   const contract = {
     kind: 'sunset-expected-product-schema',
+    scope: CONTRACT_SCOPE,
+    includedSections: INCLUDED_SECTIONS.slice(),
+    excludedSections: EXCLUDED_SECTIONS.slice(),
     generatedAt: new Date().toISOString(),
     forwardCount: forward.length,
     manifestHash,
     productFingerprint,
     excludes: [LEDGER_TABLE],
-    note: 'schema_migration_ledger excluded from product equivalence',
+    note: 'Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded.',
     snapshot,
   };
   fs.mkdirSync(path.dirname(OUT), { recursive: true });

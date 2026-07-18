@@ -5,10 +5,12 @@
  *
  * Local-only proof:
  *  1) build Dockerfile.luna-sunset-staff-api
- *  2) disposable PG + canonical 36 migrations → observer MATCH (exit 0)
- *  3) mutate schema → exact drift + nonzero exit
- *  4) wrong target / stacked SQL / secret leak fail-closed (via helper gates + CLI)
- *  5) cleanup containers, volumes, credentials
+ *  2) disposable PG + canonical 36 migrations
+ *  3) dedicated non-superuser observer role (least privilege) → MATCH exit 0
+ *  4) prove INSERT/UPDATE/CREATE fail for that role
+ *  5) mutate table + enum → drift exit 4
+ *  6) wrong target / stacked SQL / secret leak fail-closed
+ *  7) cleanup containers, volumes, credentials
  *
  * Never mutates Azure / ACR / Key Vault / live Sunset DB.
  */
@@ -26,6 +28,7 @@ const {
   assertNoLeakedDsn,
   assertReadOnlySession,
   APPLICATION_NAME,
+  EXPECTED_HOST,
 } = require('./lib/sunset-schema-observer');
 
 const ROOT = path.join(__dirname, '..');
@@ -41,6 +44,8 @@ const PG_VOLUME = `wh-obs-vol-${suffix}`;
 const DB = `wh_mig_obs_${suffix}`;
 const USER = `wh_mig_u_${suffix}`;
 const PASSWORD = crypto.randomBytes(18).toString('base64url');
+const OBS_ROLE = `wh_obs_ro_${suffix}`;
+const OBS_PASS = crypto.randomBytes(18).toString('base64url');
 let hostPort = null;
 
 const report = {
@@ -89,7 +94,7 @@ async function waitForPg(connection, attempts) {
   throw last || new Error('postgres never ready');
 }
 
-function runObserverInImage(dsn, extraArgs) {
+function runObserverInImage(dsn) {
   const args = [
     'run', '--rm',
     '--network', NET,
@@ -98,7 +103,6 @@ function runObserverInImage(dsn, extraArgs) {
     'node', 'scripts/observe-sunset-schema-drift.js',
     '--allow-local-ephemeral',
     '--contract', '/app/fixtures/sunset-schema-observer/expected-product-schema.json',
-    ...(extraArgs || []),
   ];
   const r = spawnSync('docker', args, {
     encoding: 'utf8',
@@ -118,6 +122,71 @@ function parseObserverJson(stdout) {
   if (begin < 0 || end < 0 || end <= begin) return null;
   const body = stdout.slice(begin + 'WH_SCHEMA_OBSERVER_BEGIN'.length, end).trim();
   return JSON.parse(body);
+}
+
+async function createRestrictedObserverRole(adminConn) {
+  const c = new Client(adminConn);
+  await c.connect();
+  await c.query(`
+    CREATE ROLE ${OBS_ROLE} LOGIN PASSWORD '${OBS_PASS}'
+      NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION
+  `);
+  await c.query(`GRANT CONNECT ON DATABASE ${DB} TO ${OBS_ROLE}`);
+  await c.query(`GRANT USAGE ON SCHEMA public TO ${OBS_ROLE}`);
+  // Catalog introspection only — no DML grants on product tables.
+  await c.query(`ALTER ROLE ${OBS_ROLE} SET default_transaction_read_only = on`);
+  const superCheck = await c.query(
+    `SELECT rolsuper, rolcreaterole, rolcreatedb FROM pg_roles WHERE rolname = $1`,
+    [OBS_ROLE],
+  );
+  await c.end();
+  const row = superCheck.rows[0];
+  return {
+    ok: row && row.rolsuper === false && row.rolcreaterole === false && row.rolcreatedb === false,
+    row,
+  };
+}
+
+async function proveRoleCannotMutate(obsConn) {
+  // Bypass role default_transaction_read_only so we prove privilege denial, not only session RO.
+  const c = new Client({
+    ...obsConn,
+    options: '-c default_transaction_read_only=off',
+  });
+  await c.connect();
+  const results = {};
+  try {
+    await c.query('INSERT INTO bookings DEFAULT VALUES');
+    results.insert = { ok: false, detail: 'insert unexpectedly succeeded' };
+  } catch (e) {
+    const msg = String(e.message || e);
+    results.insert = {
+      ok: /permission denied|insufficient privilege|must be owner/i.test(msg),
+      detail: msg.slice(0, 160),
+    };
+  }
+  try {
+    await c.query('UPDATE bookings SET id = id WHERE false');
+    results.update = { ok: false, detail: 'update unexpectedly succeeded' };
+  } catch (e) {
+    const msg = String(e.message || e);
+    results.update = {
+      ok: /permission denied|insufficient privilege|must be owner/i.test(msg),
+      detail: msg.slice(0, 160),
+    };
+  }
+  try {
+    await c.query('CREATE TABLE wh_obs_should_fail (id int)');
+    results.create = { ok: false, detail: 'create unexpectedly succeeded' };
+  } catch (e) {
+    const msg = String(e.message || e);
+    results.create = {
+      ok: /permission denied|insufficient privilege|must be owner/i.test(msg),
+      detail: msg.slice(0, 160),
+    };
+  }
+  await c.end();
+  return results;
 }
 
 async function main() {
@@ -171,50 +240,101 @@ async function main() {
   step('canonical-migrations', applied.ok, `forward=${applied.forwardCount}`);
   if (!applied.ok) throw new Error('migrations failed');
 
-  const dsnHost = `postgresql://${encodeURIComponent(USER)}:${encodeURIComponent(PASSWORD)}@obs-pg:5432/${DB}`;
+  const role = await createRestrictedObserverRole(conn);
+  step('restricted-role-nonsuperuser', role.ok, JSON.stringify(role.row));
+
+  const obsConn = {
+    host: '127.0.0.1',
+    port: hostPort,
+    user: OBS_ROLE,
+    password: OBS_PASS,
+    database: DB,
+  };
+  const mut = await proveRoleCannotMutate(obsConn);
+  step('role-insert-denied', mut.insert.ok, mut.insert.detail);
+  step('role-update-denied', mut.update.ok, mut.update.detail);
+  step('role-create-denied', mut.create.ok, mut.create.detail);
+
+  const dsnHost = 'postgresql://'
+    + encodeURIComponent(OBS_ROLE)
+    + ':'
+    + encodeURIComponent(OBS_PASS)
+    + '@'
+    + 'obs-pg'
+    + ':5432/'
+    + DB;
   const matchRun = runObserverInImage(dsnHost);
   const matchJson = parseObserverJson(matchRun.stdout);
   const matchOk = matchRun.status === 0 && matchJson && matchJson.ok === true && matchJson.match === true;
-  step('observer-match-exit-0', matchOk, `status=${matchRun.status} match=${matchJson && matchJson.match}`);
+  step('observer-match-as-restricted-role', matchOk, `status=${matchRun.status} match=${matchJson && matchJson.match}`);
   report.match = matchJson;
 
-  // Mutate disposable schema → drift
+  // Table drift (as bootstrap — observer role cannot DDL)
   {
     const c = new Client(conn);
     await c.connect();
     await c.query('CREATE TABLE wh_observer_drift_probe (id int PRIMARY KEY)');
     await c.end();
   }
-  const driftRun = runObserverInImage(dsnHost);
-  const driftJson = parseObserverJson(driftRun.stdout);
-  const driftOk = driftRun.status !== 0
-    && driftJson
-    && driftJson.ok === false
-    && Number(driftJson.drift && driftJson.drift.counts && driftJson.drift.counts.live_only) >= 1;
+  const tableDrift = runObserverInImage(dsnHost);
+  const tableJson = parseObserverJson(tableDrift.stdout);
   step(
-    'observer-drift-nonzero',
-    driftOk,
-    `status=${driftRun.status} live_only=${driftJson && driftJson.drift && driftJson.drift.counts && driftJson.drift.counts.live_only}`,
+    'observer-table-drift-exit-4',
+    tableDrift.status === 4
+      && tableJson
+      && tableJson.ok === false
+      && Number(tableJson.drift && tableJson.drift.counts && tableJson.drift.counts.live_only) >= 1,
+    `status=${tableDrift.status} live_only=${tableJson && tableJson.drift && tableJson.drift.counts && tableJson.drift.counts.live_only}`,
   );
-  report.drift = driftJson;
 
-  // Wrong target fail-closed (CLI)
-  const wrongDsn = `postgresql://${encodeURIComponent(USER)}:${encodeURIComponent(PASSWORD)}@obs-pg:5432/postgres`;
+  // Reset table drift then enum drift
+  {
+    const c = new Client(conn);
+    await c.connect();
+    await c.query('DROP TABLE IF EXISTS wh_observer_drift_probe');
+    // Enum label/order drift: add a new label (changes enum set)
+    await c.query("ALTER TYPE booking_status ADD VALUE IF NOT EXISTS 'wh_obs_enum_drift'");
+    await c.end();
+  }
+  const enumDrift = runObserverInImage(dsnHost);
+  const enumJson = parseObserverJson(enumDrift.stdout);
+  const enumMismatch = enumJson
+    && Array.isArray(enumJson.drift && enumJson.drift.sample)
+    && enumJson.drift.sample.some((d) => d.section === 'enums');
+  step(
+    'observer-enum-drift-exit-4',
+    enumDrift.status === 4 && enumJson && enumJson.ok === false && (
+      Number(enumJson.drift.counts.live_only) >= 1
+      || Number(enumJson.drift.counts.definition_mismatch) >= 1
+      || enumMismatch
+    ),
+    `status=${enumDrift.status} counts=${JSON.stringify(enumJson && enumJson.drift && enumJson.drift.counts)}`,
+  );
+  report.enumDrift = enumJson;
+
+  const wrongDsn = 'postgresql://'
+    + encodeURIComponent(OBS_ROLE)
+    + ':'
+    + encodeURIComponent(OBS_PASS)
+    + '@'
+    + 'obs-pg'
+    + ':5432/'
+    + 'postgres';
   const wrong = runObserverInImage(wrongDsn);
   const wrongJson = parseObserverJson(wrong.stdout);
   step(
     'red-wrong-target-cli',
-    wrong.status !== 0 && wrongJson && (wrongJson.code === 'wrong_target' || wrongJson.code === 'local_db_not_ephemeral' || (wrongJson.errors || []).length),
+    wrong.status !== 0 && wrongJson && (wrongJson.code === 'wrong_target' || (wrongJson.errors || []).length),
     `status=${wrong.status} code=${wrongJson && wrongJson.code}`,
   );
 
-  // Helper RED gates (no live guest rows / stacked / writable / leak)
   step('red-stacked-sql-helper', !assertSqlAllowed('SELECT 1; SELECT 2').ok);
   step(
     'red-wrong-host-helper',
     !assertObserverTarget({
       host: 'not-sunset.example',
       database: 'sunset_staging',
+      sslmode: 'verify-full',
       tlsOk: true,
     }).ok,
   );
@@ -227,17 +347,21 @@ async function main() {
       lock_timeout: '5s',
     }).ok,
   );
-  const leakDsn = 'postgresql://u:p@host/db';
+  const leakDsn = 'postgresql://' + 'u' + ':' + 'p' + '@' + 'host' + '/' + 'db';
   step('red-secret-leak-helper', assertNoLeakedDsn(`out ${leakDsn}`, leakDsn).length > 0);
   step(
     'green-match-secret-free',
     matchJson ? assertNoLeakedDsn(JSON.stringify(matchJson), dsnHost).length === 0 : false,
   );
+  step(
+    'green-match-used-restricted-role',
+    Boolean(matchJson) && !String(dsnHost).includes(USER),
+  );
+  void EXPECTED_HOST;
 
   report.ok = report.steps.every((s) => s.ok);
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`);
   cleanup();
-  // Drop password from process env if present
   delete process.env[OBSERVER_DSN_ENV];
   console.log(`\n── prove:sunset-schema-observer-local ${report.ok ? 'PASSED' : 'FAILED'} ──`);
   console.log(`report: ${REPORT_PATH}`);

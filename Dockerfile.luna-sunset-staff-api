@@ -7,6 +7,9 @@ ENV STAFF_QUERY_API_PORT=3036
 ENV STAFF_QUERY_API_HOST=0.0.0.0
 ENV DEFAULT_CLIENT_SLUG=sunset
 
+# System CA trust store for observer sslmode=verify-full (Azure PostgreSQL DigiCert chain).
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
