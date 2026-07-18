@@ -17,6 +17,8 @@
 // Still unmanaged / manual (not declared here):
 //   managed certificate, hold-expiry job, postgres firewall rules,
 //   external DNS, operator Key Vault Secrets Officer RBAC, inline luna-bot-internal-token
+// Schema observer job: declared only when deploySchemaObserverJob=true (default false).
+// Dedicated observer DB role/secret are out of scope for this slice.
 //
 // All runtime secrets via Key Vault secret refs only. No secret values in this file.
 // ACR Option A: reuse whstagingacr; image repo luna-sunset-staff-api only (never wh-staff-api).
@@ -86,6 +88,9 @@ param deployContainerApps bool = true
 
 @description('Declare luna-sunset-staging-staff-api Container App (live exists — true for reconcile what-if)')
 param deployStaffApi bool = true
+
+@description('When true, declare the manual schema-observer Container Apps Job (default false — source-only until approved create)')
+param deploySchemaObserverJob bool = false
 
 @description('Staff API min replicas (live: 1)')
 param staffApiMinReplicas int = 1
@@ -440,6 +445,22 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
   }
 }
 
+// --- Schema observer job (manual, gated; default off) ---
+// Does not claim hold-expiry. Dedicated RO KV secret is a future dependency (not created here).
+module schemaObserverJob 'schema-observer-job.bicep' = if (deployContainerApps && deploySchemaObserverJob) {
+  name: 'schemaObserverJob'
+  params: {
+    // Container Apps Job names max 32 chars; keep under limit.
+    jobName: '${appNamePrefix}-sch-obs'
+    containerAppsLocation: containerAppsLocation
+    environmentId: containerAppsEnv.id
+    managedIdentityId: managedIdentity.id
+    staffApiImage: staffApiImage
+    kvBaseUri: kvBaseUri
+    tags: resourceTags
+  }
+}
+
 // --- Outputs ---
 output resourceGroupName string = resourceGroup().name
 output keyVaultName string = keyVault.name
@@ -456,3 +477,4 @@ output staffApiMinReplicasOut int = staffApiMinReplicas
 output staffApiMaxReplicasOut int = staffApiMaxReplicas
 output acrLoginServer string = existingAcr.properties.loginServer
 output portalUrlTarget string = 'https://sunset-staging.lunafrontdesk.com'
+output deploySchemaObserverJobOut bool = deploySchemaObserverJob

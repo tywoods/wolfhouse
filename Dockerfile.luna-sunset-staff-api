@@ -14,6 +14,8 @@ COPY scripts ./scripts
 COPY database ./database
 COPY config ./config
 COPY public ./public
+# Slice 6: expected product-schema contract for observe-sunset-schema-drift.js
+COPY fixtures/sunset-schema-observer ./fixtures/sunset-schema-observer
 
 # Sunset isolated staging: explicit Sunset-only portal access (no all_clients_emails).
 RUN cp config/clients/staff-portal-access.sunset-staging.json config/clients/staff-portal-access.json \

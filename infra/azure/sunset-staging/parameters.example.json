@@ -59,6 +59,9 @@
     "deployStaffApi": {
       "value": true
     },
+    "deploySchemaObserverJob": {
+      "value": false
+    },
     "staffApiMinReplicas": {
       "value": 1
     },
