@@ -80,6 +80,9 @@ function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
   if (val('deployContainerApps') !== true || val('deployStaffApi') !== true) {
     errors.push('params deploy flags must be true (represent live app)');
   }
+  if (val('deploySchemaObserverJob') !== false) {
+    errors.push('params deploySchemaObserverJob must stay false by default (source-only gate)');
+  }
   if (val('staffApiImageTag') !== LIVE_IMAGE_TAG) {
     errors.push(`params.staffApiImageTag must be live immutable tag ${LIVE_IMAGE_TAG}`);
   }
@@ -155,8 +158,14 @@ function evaluate(bicepText, paramsObj, readmeText, inventory, label) {
     && !/value:\s*lunaBotInternalToken/.test(bicepText)) {
     errors.push('bicep luna-bot-internal-token must stay a secure-param value (manual), not a committed literal');
   }
-  if (/Microsoft\.App\/jobs/.test(bicepText)) {
-    errors.push('bicep must not declare hold-expiry / Container Apps jobs');
+  if (/luna-sunset-staging-hold-expiry/.test(bicepText)) {
+    errors.push('bicep must not claim hold-expiry job');
+  }
+  if (!/param deploySchemaObserverJob bool = false/.test(bicepText)) {
+    errors.push('bicep deploySchemaObserverJob must default false');
+  }
+  if (!/module schemaObserverJob 'schema-observer-job\.bicep' = if \(deployContainerApps && deploySchemaObserverJob\)/.test(bicepText)) {
+    errors.push('bicep schema observer job must be gated by deployContainerApps && deploySchemaObserverJob');
   }
   if (/resource \w+ 'Microsoft\.App\/managedEnvironments\/managedCertificates[^']*' = \{/.test(bicepText)) {
     errors.push('bicep must not create managed certificates (use existing reference only)');
@@ -341,6 +350,16 @@ function runSelfTest() {
       "name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: 'hardcoded@not-from-param.invalid'",
     );
     expectFail('red-ingress-env-not-from-param', bad, params, 'SUNSET_SARDINERO_INBOX_EMAIL must resolve from parameter');
+  }
+
+  {
+    const p = deepClone(params);
+    p.parameters.deploySchemaObserverJob = { value: true };
+    expectFail('red-observer-enabled-in-example', bicep, p, 'deploySchemaObserverJob must stay false');
+  }
+  {
+    const bad = `${bicep}\n// luna-sunset-staging-hold-expiry claimed`;
+    expectFail('red-hold-expiry-claim', bad, params, 'hold-expiry');
   }
 
   console.log(`\n── self-test: ${failed ? 'FAILED' : 'PASSED'} ──`);

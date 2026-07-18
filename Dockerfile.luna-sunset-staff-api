@@ -7,6 +7,9 @@ ENV STAFF_QUERY_API_PORT=3036
 ENV STAFF_QUERY_API_HOST=0.0.0.0
 ENV DEFAULT_CLIENT_SLUG=sunset
 
+# System CA trust store for observer sslmode=verify-full (Azure PostgreSQL DigiCert chain).
+RUN apk add --no-cache ca-certificates && update-ca-certificates
+
 COPY package*.json ./
 RUN npm ci --omit=dev
 
@@ -14,6 +17,8 @@ COPY scripts ./scripts
 COPY database ./database
 COPY config ./config
 COPY public ./public
+# Slice 6: expected product-schema contract for observe-sunset-schema-drift.js
+COPY fixtures/sunset-schema-observer ./fixtures/sunset-schema-observer
 
 # Sunset isolated staging: explicit Sunset-only portal access (no all_clients_emails).
 RUN cp config/clients/staff-portal-access.sunset-staging.json config/clients/staff-portal-access.json \

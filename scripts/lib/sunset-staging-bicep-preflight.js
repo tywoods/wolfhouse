@@ -573,7 +573,15 @@ function extractPropertyFingerprints(change) {
     /staff-api/i.test(String(change.resourceId || '')) &&
     /image|FORCE_REVISION|DEPLOY_SHA|WHATSAPP|INBOX_EMAIL|containers\[/i.test(joined)
   ) {
-    fps.push('containerApps/material-image-or-env');
+    // Secure env stamps often appear as parameters('…') expressions vs live literals.
+    // That is allowed noise (env-param-expression). Only flag material when an image
+    // tag/digest literal or non-expression stamp change is present.
+    const hasImageLiteral = /luna-sunset-staff-api:[a-f0-9.@]+/i.test(joined)
+      || /"path"\s*:\s*"image"/i.test(joined);
+    const onlyParamExpressions = /parameters\(/i.test(joined) && !hasImageLiteral;
+    if (!onlyParamExpressions) {
+      fps.push('containerApps/material-image-or-env');
+    }
   }
   return fps;
 }

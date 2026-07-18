@@ -22,16 +22,23 @@ const DISCOVERY_PATHSPECS = [
   'infra/azure/sunset-staging/main.bicep',
   'infra/azure/sunset-staging/parameters.example.json',
   'infra/azure/sunset-staging/acr-pull-role.bicep',
+  'infra/azure/sunset-staging/schema-observer-job.bicep',
   'scripts/lib/sunset-staging-iac-drift.js',
+  'scripts/lib/sunset-schema-observer.js',
   'scripts/inventory-sunset-staging-live.js',
   'scripts/verify-sunset-staging-live-iac-drift.js',
   'scripts/verify-sunset-staging-iac-secret-scan.js',
   'scripts/verify-sunset-staging-iac-diff-check.js',
   'scripts/verify-sunset-staging-bicep-reconcile.js',
   'scripts/verify-sunset-staging-bicep-preflight.js',
+  'scripts/verify-sunset-schema-observer.js',
+  'scripts/observe-sunset-schema-drift.js',
+  'scripts/generate-sunset-expected-schema-contract.js',
+  'scripts/prove-sunset-schema-observer-local.js',
   'scripts/preflight-sunset-staging-bicep.js',
   'scripts/lib/sunset-staging-bicep-preflight.js',
   'scripts/run-sunset-staging-bicep-preflight-live-probe.js',
+  'fixtures/sunset-schema-observer',
 ];
 
 function discoverCommittedArtifacts() {
@@ -39,11 +46,11 @@ function discoverCommittedArtifacts() {
     cwd: ROOT,
     encoding: 'utf8',
   });
+  // Scan every discovered committed artifact, including fixtures (no broad path exclusions).
   return out
     .split('\0')
     .map((l) => l.trim())
-    .filter(Boolean)
-    .filter((rel) => !rel.startsWith('fixtures/'));
+    .filter(Boolean);
 }
 
 let failed = 0;

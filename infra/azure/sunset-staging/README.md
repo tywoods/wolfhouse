@@ -1,9 +1,9 @@
 # Sunset Isolated Staging — Azure Bicep Runbook
 
-> **FOUNDATION Slice 2:** core Bicep reconciled to `inventory/live-inventory.normalized.json`.  
+> **FOUNDATION Slice 2:** core Bicep reconciled to `inventory/live-inventory.normalized.json`.
 > **Do not `az deployment group create` from this slice — what-if only until Captain approves a later deploy.**
 >
-> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)  
+> Parent plan: [`docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md`](../../../docs/sunset/SUNSET-PORTAL-SLICE-1-INFRA-BUILD-PLAN.md)
 > Live drift baseline: [`inventory/DRIFT-REPORT.md`](inventory/DRIFT-REPORT.md)
 
 ---
@@ -13,6 +13,7 @@
 | File | Purpose |
 |------|---------|
 | `main.bicep` | Sunset-only staging resources (Staff API + DB + KV + identity) — reconciled to live core |
+| `schema-observer-job.bicep` | Manual schema-drift observer job module (gated; default off) |
 | `acr-pull-role.bicep` | Cross-RG module: `AcrPull` on `whstagingacr` for Sunset identity |
 | `parameters.example.json` | **NON-DEPLOYABLE** example — unmistakable `<REQUIRED…>` placeholders only; supply real values via ignored secure params file or CLI |
 | `inventory/` | FOUNDATION Slice 1 live-to-IaC drift baseline (read-only source of truth) |
@@ -32,6 +33,7 @@
 | `STAFF_ACTIONS_ENABLED` | `true` (hardcoded; matches live) |
 | Image | `whstagingacr.azurecr.io/luna-sunset-staff-api:<staffApiImageTag>` — **tag required via parameters** |
 | Deploy flags | `deployContainerApps=true`, `deployStaffApi=true` (represent existing live app) |
+| Schema observer job | `deploySchemaObserverJob=false` (source-only; no Azure create in this slice) |
 | Owner tag | `tywoods` (parameter; omitted on staff-api tags to match live) |
 
 ### Still unmanaged / manual (not claimed by Bicep)
@@ -40,6 +42,7 @@
 |------|-------|
 | Managed certificate | Custom domain TLS — live only |
 | `luna-sunset-staging-hold-expiry` job | Scheduled job — live only |
+| Schema observer dedicated RO DB role + KV secret | Future slice — Bicep references `sunset-schema-observer-database-url` only when job gate is on |
 | Postgres firewall rules | Live egress allow rules — leave `postgresAllowedIpAddresses: []` |
 | External DNS | `sunset-staging.lunafrontdesk.com` outside this subscription |
 | Operator Key Vault Secrets Officer | Human RBAC — not in template |
@@ -206,8 +209,21 @@ Expect: **no Create/Delete** and **no material Modify** on declared core resourc
 
 **Create: 0 · Delete: 0 · Material Modify: 0**
 
-Verifier:
+### Slice 6 schema observer (source-only)
 
+Manual Container Apps Job module `schema-observer-job.bicep`, wired only when `deploySchemaObserverJob=true`. Default remains `false` so Incremental what-if stays Create=0. Proposal what-if with the flag enabled should show exactly one Create (`luna-sunset-staging-sch-obs`, ≤32-char job name) and no other Creates. Dedicated read-only DB identity/secret are **not** provisioned in this slice. Existing deployment preflight stays fail-closed on Create until a later approved slice.
+
+The committed fixture is a **structural-and-security product-schema contract** (tables/columns/constraints/indexes/sequences/views/enums/functions/triggers/RLS flags+policies/ownership/ACLs/extensions). It is **not** complete schema equivalence — see `excludedSections` in the contract and observer report (`schema_migration_ledger`, guest rows, statistics, toast, publications, event triggers). Enums, public function definitions, and RLS/policies are included.
+
+Local observer proof (no Azure job create):
+
+```bash
+node scripts/generate-sunset-expected-schema-contract.js
+node scripts/verify-sunset-schema-observer.js
+node scripts/prove-sunset-schema-observer-local.js
+```
+
+Verifier:
 ```bash
 node scripts/verify-sunset-staging-bicep-reconcile.js --self-test
 node scripts/verify-sunset-staging-bicep-reconcile.js
