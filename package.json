@@ -291,6 +291,7 @@
     "verify:sunset-schema-observer-role-provision": "node scripts/verify-sunset-schema-observer-role-provision.js",
     "provision:sunset-schema-observer-role": "node scripts/provision-sunset-schema-observer-role.js",
     "capture:sunset-staging-rg-cost": "node scripts/capture-sunset-staging-rg-cost.js",
+    "prepare:sunset-schema-observer-job-slice10-params": "node scripts/prepare-sunset-schema-observer-job-slice10-params.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
     "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",
