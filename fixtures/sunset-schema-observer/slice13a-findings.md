@@ -10,7 +10,7 @@
 - Runtime observer image is already repaired (Slice 12). This slice classifies **why** live still differs.
 - **Do not bless live as canonical. Do not apply migrations or mutate ownership from this report.**
 - `schema_migration_ledger` is **absent** live → applied-set is inferred from catalog signatures only.
-- **migration_integrity_blocker:** `canonical-manifest.json` sha256 values do **not** equal current Git blob hashes for 34/36 forward migrations (deterministic CRLF working-tree hashing at Slice 4). Executable SQL (LF-normalized) is unchanged since manifest creation. **Do not claim byte-verified hashes or reliable historical application from this manifest.**
+- **migration_integrity_blocker:** `canonical-manifest.json` sha256 values do **not** equal current Git blob hashes for 34/36 forward migrations (deterministic CRLF working-tree hashing at Slice 4). Executable SQL (LF-normalized) is unchanged since manifest creation. **Historical (13A):** Do not claim byte-verified hashes from the CRLF-era manifest. **Post-13A.1:** hashes are verified under `canonical_lf_v1` (see transition report).
 
 ## Classification totals
 
@@ -65,3 +65,10 @@ Structural states are **not** byte-manifest-verified apply proofs while the inte
 ## Forbidden (honored)
 
 No live DDL/DML, ledger, role, credential, image, job, Staff API, Luna, firewall/network, Wolfhouse, or production mutation. No executable repair tooling. No observer job start. No product-row reads. No blind manifest regeneration.
+
+
+## Slice 13A.1 resolution (DEC-007)
+
+**Resolved.** Manifest checksum mode is now `canonical_lf_v1` (EOL-normalized SHA-256). All manifest entries were rewritten to canonical-LF hashes; CRLF Git blobs were normalized to LF after EOL-only / token-aware SQL semantic proof. `validateManifestIntegrity` is identical on Windows and Linux. Product schema fingerprint remains `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52`.
+
+See `slice13a1-checksum-canonical-lf-v1-transition-report.json`. Historical investigation still documents that Slice 4 recorded CRLF working-tree hashes (migration_integrity_blocker at 13A time). That blocker is cleared under `canonical_lf_v1`.

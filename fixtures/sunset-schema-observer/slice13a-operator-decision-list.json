@@ -53,11 +53,18 @@
     {
       "id": "DEC-007",
       "topic": "Canonical manifest sha256 ≠ current Git blob (migration_integrity_blocker)",
-      "recommendation": "Do not regenerate or rewrite canonical-manifest.json in Slice 13A. Open a dedicated manifest-integrity repair to re-hash from committed Git blobs (and/or pin eol=lf) after confirming executable SQL is unchanged. Until then, do not claim byte-verified migration provenance or reliable historical apply from the manifest.",
-      "status": "migration_integrity_blocker",
+      "recommendation": "Resolved in Slice 13A.1 via checksumMode canonical_lf_v1. Historical CRLF-era hashes retained as legacySha256 for narrow ledger acceptance only.",
+      "status": "resolved_by_slice_13a1",
       "relatedReport": "fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json",
       "bytesMatchManifest": 2,
-      "bytesMismatchManifest": 34
+      "bytesMismatchManifest": 34,
+      "resolvedAt": "2026-07-19T14:18:23.783Z",
+      "resolution": {
+        "slice": "13A.1",
+        "checksumMode": "canonical_lf_v1",
+        "transitionReport": "fixtures/sunset-schema-observer/slice13a1-checksum-canonical-lf-v1-transition-report.json",
+        "note": "Manifest checksums rewritten to canonical_lf_v1; CRLF Git blobs normalized to LF after EOL-only proof; validateManifestIntegrity is EOL-invariant across Windows/Linux."
+      }
     }
   ]
 }

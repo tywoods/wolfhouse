@@ -49,7 +49,7 @@
   ],
   "generatedAt": "2026-07-18T11:00:28.607Z",
   "forwardCount": 36,
-  "manifestHash": "c2a935588bc9ace536d1e76ddd9026b6c92c8aaac80aa78a9d701cf4ec3bc430",
+  "manifestHash": "d13655e129b6358dd8742111a956216bf4a2203d50efd654214786565fd146ed",
   "productFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "excludes": [
     "schema_migration_ledger"
@@ -11849,5 +11849,8 @@
         "configConditions": ""
       }
     ]
-  }
+  },
+  "checksumMode": "canonical_lf_v1",
+  "generatedFromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
+  "slice13a1Note": "manifestHash regenerated for canonical_lf_v1; productFingerprint unchanged"
 }

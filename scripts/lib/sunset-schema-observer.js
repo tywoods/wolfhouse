@@ -957,6 +957,7 @@ function hashCanonicalManifest(manifest) {
     forward,
     manifestHash: sha256Text(JSON.stringify({
       version: manifest.version || null,
+      checksumMode: manifest.checksumMode || null,
       intentionalGaps: manifest.intentionalGaps || [],
       forward: forward.map((e) => ({ id: e.id, order: e.order, filename: e.filename, sha256: e.sha256 })),
     })),
