@@ -1,23 +1,27 @@
 {
   "kind": "sunset-schema-observer-slice12-image-repair-contract",
-  "status": "follow-up-required",
-  "prerequisite": "Merge PR #42 drift-evidence corrections to master first.",
-  "scope": "Separate repair slice — observer job image only. Do not repair database drift in that slice.",
-  "requiredSteps": [
-    "Build an immutable observer-job image from corrected merged master (canonical expected-product-schema.json).",
-    "Prove the image embeds the exact canonical fingerprint daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52.",
-    "Update only Container Apps job luna-sunset-staging-sch-obs to that image (Staff API app image may remain unchanged).",
-    "Run the canonical observer (observe-sunset-schema-drift.js) and require exit 4 / match=false while live drift remains.",
-    "Do not repair DB drift, migrations, ledger, role/secret, firewall/network, Staff API, Luna, WhatsApp, Wolfhouse, or production in the image-deployment slice."
+  "status": "complete",
+  "scope": "Observer job image only. Database drift was not repaired in this slice.",
+  "completedSteps": [
+    "Built immutable observer-job image from corrected merged master (canonical expected-product-schema.json).",
+    "Proved the image embeds the exact canonical fingerprint daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52.",
+    "Updated only Container Apps job luna-sunset-staging-sch-obs to that image (Staff API app image unchanged).",
+    "Ran the canonical observer (observe-sunset-schema-drift.js) and required exit 4 / match=false while live drift remains."
   ],
   "canonicalExpectedFingerprintRequired": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "knownLiveFingerprintAtSlice11": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
   "expectedObserverExitWhileDriftRemains": 4,
   "expectedMismatchCountAtSlice11Capture": 88,
-  "currentJobUnsafeUntilImageRepair": true,
+  "currentJobUnsafeUntilImageRepair": false,
+  "runtimeImageRepairComplete": true,
+  "safeForCanonicalMonitoring": true,
   "databaseRepairOutOfScope": true,
+  "databaseDriftUnresolved": true,
+  "foundationBlocked": true,
+  "evidencePath": "fixtures/sunset-schema-observer/slice12-observer-image-repair-evidence.json",
   "notes": [
-    "Bicep NoChange on the current job proves configuration convergence only, not fixture content correctness.",
-    "Default execution of the current job image would false-green because it still embeds a live-derived expected fixture."
+    "Runtime-image repair is complete; canonical live observer returns exit 4.",
+    "Database drift remains unresolved; FOUNDATION remains blocked.",
+    "Do not bless live state or regenerate canonical expected state from live."
   ]
 }

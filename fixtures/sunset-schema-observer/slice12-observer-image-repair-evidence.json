@@ -1,0 +1,168 @@
+{
+  "kind": "sunset-schema-observer-slice12-image-repair-evidence",
+  "generatedAt": "2026-07-19T12:36:00.000Z",
+  "masterShaAtStart": "86de3ee59901205a22e3cdffef9ccc922e312d8d",
+  "outcome": "COMPLETE: observer runtime image repaired from merged canonical master. Live manual observe fails honestly (exit 4 / match=false / mismatchCount 88). Database drift remains unresolved. FOUNDATION remains blocked.",
+  "passed": true,
+  "runtimeImageRepairComplete": true,
+  "databaseDriftUnresolved": true,
+  "foundationBlocked": true,
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "acr": "whstagingacr",
+    "jobName": "luna-sunset-staging-sch-obs",
+    "staffApiApp": "luna-sunset-staging-staff-api",
+    "database": "sunset_staging",
+    "role": "sunset_schema_observer",
+    "secretName": "sunset-schema-observer-database-url"
+  },
+  "preflight": {
+    "headEqualsOriginMaster": true,
+    "masterSha": "86de3ee59901205a22e3cdffef9ccc922e312d8d",
+    "assertRepoSync": true,
+    "assertDeployFromMaster": true,
+    "deployPreflight": true,
+    "jobManual": true,
+    "jobScheduleAbsent": true,
+    "priorUnsafeImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final",
+    "staffApiImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+    "staffApiRevision": "luna-sunset-staging-staff-api--0000266",
+    "gitCanonicalFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52"
+  },
+  "imageBuild": {
+    "dockerfile": "Dockerfile.luna-sunset-staff-api",
+    "tag": "86de3ee59901205a22e3cdffef9ccc922e312d8d-slice12observer",
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:86de3ee59901205a22e3cdffef9ccc922e312d8d-slice12observer",
+    "digest": "sha256:42708ce7a4fdde4e46fd37ec40dcaae53dd3c86dda0e42c3aca93795d82d1db3",
+    "acrBuildId": "cb10m",
+    "tagContainsMasterSha": true,
+    "neverLatest": true,
+    "staffApiAppNotUpdated": true
+  },
+  "imageContentProof": {
+    "method": "az acr run (docker run; no PostgreSQL)",
+    "acrRunId": "cb10p",
+    "observeScriptPresent": true,
+    "canonicalFixturePresent": true,
+    "canonicalFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "forwardCount": 36,
+    "customer_message_templatesPresent": true,
+    "liveDerivedSourceMarker": false,
+    "unsafeSlice11FalseGreenFixture": false,
+    "contactedPostgreSQL": false,
+    "secretsPrinted": false
+  },
+  "deployment": {
+    "module": "infra/azure/sunset-staging/schema-observer-job.bicep",
+    "deploymentName": "slice12-schema-observer-job",
+    "deploymentId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Resources/deployments/slice12-schema-observer-job",
+    "provisioningState": "Succeeded",
+    "correlationId": "12741c3c-582e-4afb-bc86-e894bb19a976",
+    "timestamp": "2026-07-19T12:32:13.352264+00:00",
+    "staffApiImageParam": "whstagingacr.azurecr.io/luna-sunset-staff-api@sha256:42708ce7a4fdde4e46fd37ec40dcaae53dd3c86dda0e42c3aca93795d82d1db3",
+    "preDeployWhatIf": {
+      "create": 0,
+      "delete": 0,
+      "modify": 1,
+      "ignore": 9,
+      "materialChange": "luna-sunset-staging-sch-obs image only",
+      "triggerRemainsManual": true,
+      "scheduleRemainsAbsent": true,
+      "staffApiIgnored": true
+    },
+    "postDeployWhatIf": {
+      "create": 0,
+      "delete": 0,
+      "modify": 0,
+      "noChange": 1,
+      "ignore": 9,
+      "jobChangeType": "NoChange"
+    }
+  },
+  "canonicalLiveExecution": {
+    "executionName": "luna-sunset-staging-sch-obs-egrrb8d",
+    "executionId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs/executions/luna-sunset-staging-sch-obs-egrrb8d",
+    "azureStatus": "Failed",
+    "startTime": "2026-07-19T12:32:56+00:00",
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api@sha256:42708ce7a4fdde4e46fd37ec40dcaae53dd3c86dda0e42c3aca93795d82d1db3",
+    "exitCode": 4,
+    "exitCodeSource": "observe-sunset-schema-drift.js contract (process.exit(4) on product_schema_differs + match=false + ok=false); Azure execution status Failed; Container Apps execution API does not surface numeric exitCode",
+    "code": "product_schema_differs",
+    "match": false,
+    "ok": false,
+    "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "mismatchCount": 88,
+    "counts": {
+      "expected_only": 31,
+      "live_only": 15,
+      "definition_mismatch": 42
+    },
+    "customer_message_templatesExpectedOnly": true,
+    "replicaRetryAttemptsObserved": 2,
+    "secretLeakageInLogs": false,
+    "falseGreen": false
+  },
+  "finalJobState": {
+    "name": "luna-sunset-staging-sch-obs",
+    "triggerType": "Manual",
+    "hasSchedule": false,
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api@sha256:42708ce7a4fdde4e46fd37ec40dcaae53dd3c86dda0e42c3aca93795d82d1db3",
+    "imageTag": "86de3ee59901205a22e3cdffef9ccc922e312d8d-slice12observer",
+    "imageDigest": "sha256:42708ce7a4fdde4e46fd37ec40dcaae53dd3c86dda0e42c3aca93795d82d1db3",
+    "differsFromUnsafeSlice11Image": true,
+    "command": ["node", "scripts/observe-sunset-schema-drift.js"],
+    "secretNames": ["sunset-schema-observer-database-url"],
+    "currentImageContainsLiveDerivedExpectedFixture": false,
+    "safeForCanonicalMonitoring": true,
+    "defaultExecutionWouldFalseGreen": false,
+    "lastExecutionFailedForCanonicalSchemaDrift": true,
+    "lastExecutionNotRuntimeImageOrSecretFailure": true
+  },
+  "staffApiUnchanged": {
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+    "revision": "luna-sunset-staging-staff-api--0000266",
+    "redeployed": false
+  },
+  "cost": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-19",
+      "label": "month-to-date"
+    },
+    "before": 15.7855919462366,
+    "after": 15.7855919462366,
+    "delta": 0,
+    "currency": "USD",
+    "beforeCapturedAt": "2026-07-19T12:25:23.756Z",
+    "afterCapturedAt": "2026-07-19T12:35:17.151Z"
+  },
+  "mutations": {
+    "postgresqlSchema": false,
+    "migrationLedger": false,
+    "roles": false,
+    "credentials": false,
+    "grants": false,
+    "data": false,
+    "firewall": false,
+    "network": false,
+    "staffApiApp": false,
+    "luna": false,
+    "whatsapp": false,
+    "payments": false,
+    "wolfhouse": false,
+    "production": false,
+    "jobScheduled": false,
+    "canonicalFixtureRefreshedFromLive": false
+  },
+  "unresolvedBlocker": {
+    "code": "canonical_live_schema_drift",
+    "mismatchCount": 88,
+    "requiresDatabaseRepairInvestigation": true,
+    "databaseRepairOutOfScopeForThisSlice": true,
+    "foundationRemainsBlocked": true
+  }
+}

@@ -33,7 +33,7 @@
 | `STAFF_ACTIONS_ENABLED` | `true` (hardcoded; matches live) |
 | Image | `whstagingacr.azurecr.io/luna-sunset-staff-api:<staffApiImageTag>` — **tag required via parameters** |
 | Deploy flags | `deployContainerApps=true`, `deployStaffApi=true` (represent existing live app) |
-| Schema observer job | Live: `luna-sunset-staging-sch-obs` Manual/unscheduled; Slice 11 executed (not scheduled) |
+| Schema observer job | Live: `luna-sunset-staging-sch-obs` Manual/unscheduled; Slice 12 canonical image (digest-pinned); DB drift still unresolved |
 | Owner tag | `tywoods` (parameter; omitted on staff-api tags to match live) |
 
 ### Still unmanaged / manual (not claimed by Bicep)
@@ -302,7 +302,7 @@ Manual job `luna-sunset-staging-sch-obs` was executed (not scheduled). Evidence:
 - Baseline observe uses `node scripts/observe-sunset-schema-drift.js` with KV secretRef DSN only and the **canonical** fixture.
 - Optional evidence-only live observation assembler (`scripts/capture-sunset-live-schema-observation.js`) consumes observer-job dump chunks and writes solely under gitignored `tmp/foundation-slice11/actual-live-state-evidence.json` (label: “actual live state — not canonical”). It **cannot** overwrite `expected-product-schema.json` and must not run via Staff API / arbitrary staged source.
 - Committed audit report (all mismatch keys, secret-free): `fixtures/sunset-schema-observer/slice11-canonical-vs-live-mismatch-report.json`.
-- **Current job image is unsafe for canonical monitoring** (`currentImageContainsLiveDerivedExpectedFixture=true`, `safeForCanonicalMonitoring=false`). Default execution would false-green. Bicep `NoChange` means configuration convergence only, not fixture content correctness. Follow-up image repair: `fixtures/sunset-schema-observer/slice12-observer-image-repair-contract.json` (DB drift repair out of scope for that slice).
+- Slice 11 left the job image unsafe for canonical monitoring (live-derived expected fixture). That image defect is repaired in Slice 12 (below). Database drift itself was not repaired in Slice 11.
 - Safe synthetic drift proofs (in-job) compare against the **canonical** fixture via a temporary override; they must not alter canonical or live state.
 
 ```bash
@@ -310,6 +310,29 @@ Manual job `luna-sunset-staging-sch-obs` was executed (not scheduled). Evidence:
 node scripts/prepare-sunset-schema-observer-job-slice10-params.js
 # az deployment group what-if --template-file infra/azure/sunset-staging/schema-observer-job.bicep \
 #   --parameters @tmp/foundation-slice10/slice10-job-module.secure.local.json
+```
+
+---
+
+## Schema observer image repair (FOUNDATION Slice 12)
+
+**Outcome:** Runtime-image repair **complete**. Manual job `luna-sunset-staging-sch-obs` now runs an immutable image built from merged master `86de3ee59901205a22e3cdffef9ccc922e312d8d` (tag suffix `-slice12observer`, digest `sha256:42708ce7…`). Canonical live observe returns **exit 4** / `match=false` / `mismatchCount=88` against existing Sunset schema drift. **Database drift remains unresolved; FOUNDATION remains blocked.**
+
+Evidence: `fixtures/sunset-schema-observer/slice12-observer-image-repair-evidence.json`. Contract: `fixtures/sunset-schema-observer/slice12-observer-image-repair-contract.json`.
+
+| Check | Result |
+|-------|--------|
+| Job trigger | Manual; schedule absent |
+| Job image | Digest-pinned Slice 12 observer image (not Slice 11 `…-slice11final`) |
+| Embedded fixture fingerprint | `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52` |
+| Staff API app image/revision | Unchanged (`…1863074…` / `--0000266`) |
+| Canonical execution | `luna-sunset-staging-sch-obs-egrrb8d` → Azure `Failed`, exit 4, `product_schema_differs` |
+| `safeForCanonicalMonitoring` | `true` (image content); live still drifts |
+| DB / ledger / role / secret / firewall / network | Not mutated |
+| Fixture refresh / live blessing | Forbidden; not performed |
+
+```bash
+npm run verify:sunset-schema-observer
 ```
 
 ---
@@ -363,3 +386,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 9 — live Sunset staging role+KV provision (approved; no job/firewall/schema/data) — 2026-07-19*
 *FOUNDATION Slice 10 — deploy manual unscheduled `luna-sunset-staging-sch-obs` job (not executed; KV secret ref only) — 2026-07-19*
 *FOUNDATION Slice 11 — execute manual schema-observer job; canonical-vs-live drift unresolved (exit 4 / 88 mismatches); live blessing forbidden; follow-up image repair required — 2026-07-19*
+*FOUNDATION Slice 12 — repair observer job image from canonical master; live observe exit 4; DB drift unresolved; FOUNDATION blocked — 2026-07-19*
