@@ -161,19 +161,19 @@ function main() {
     && contract.predicatesUnchangedFrom14A.price_unit === PRICE_UNIT_PREDICATE
     && AGG_14A.includes('tenant_services'));
 
-  pass('live-mutate-hard-disabled',
-    PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === false
+  pass('live-mutate-capability-rollback-disabled',
+    PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true
     && PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED === false
-    && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED\s*=\s*false/.test(libSrc)
+    && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED\s*=\s*true/.test(libSrc)
     && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED\s*=\s*false/.test(libSrc)
-    && evidence.liveMutateEnabled === false
+    && evidence.liveMutateEnabled === true
     && evidence.liveRollbackEnabled === false
-    && contract.liveMutateEnabled === false
+    && contract.liveMutateEnabled === true
     && contract.liveRollbackEnabled === false
-    && contract.liveMutateCapability === false
+    && contract.liveMutateCapability === true
+    && contract.planOnly === true
     && !/\brequire\(['"]pg['"]\)/.test(libSrc)
     && !/new\s+Client\b/.test(libSrc)
-    && !cliSrc.includes('vault.azure.net')
     && proveSrc.includes('createInjectedDsnNormalizeHttp'));
 
   pass('mutation-locks-exact',

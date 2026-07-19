@@ -1,12 +1,12 @@
 # FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (offline)
 
-**Status:** complete (plan + offline injected-HTTP proof; live mutate/rollback hard-disabled; zero live KV read/write)
+**Status:** complete (plan + offline injected-HTTP proof; live HTTP capability activated in 14K gated apply; rollback hard-disabled; plan CLI zero live KV read/write)
 **Master basis:** `ec6a5e9589026db1675a82f4d0b05ddc4a62320e`
-**Generated:** 2026-07-19T20:18:01.125Z
+**Generated:** 2026-07-19T20:26:47.212Z
 
 ## Outcome
 
-Built and offline-proven a locked, recoverable operator plan to normalize **only** the existing Key Vault secret `luna-sunset-staging-kv/sunset-database-url` from a TLS-deficient PostgreSQL DSN to the same exact host, port, database, username and password with `sslmode=verify-full` — **without** reading or mutating the live secret in this slice.
+Built and offline-proven a locked, recoverable operator plan to normalize **only** the existing Key Vault secret `luna-sunset-staging-kv/sunset-database-url` from a TLS-deficient PostgreSQL DSN to the same exact host, port, database, username and password with `sslmode=verify-full` — **without** reading or mutating the live secret via the plan CLI.
 
 | Lock | Value |
 |------|-------|
@@ -59,4 +59,4 @@ npm run phase-d:kv-dsn-verify-full-plan -- \
 
 ## Zero live mutation
 
-Plan-only offline emission + injected-HTTP proof. Default/wrong args → zero KV writes. Live mutate and live rollback flags remain `false`.
+Plan-only offline emission + injected-HTTP proof. Default/wrong args → zero KV writes. Live HTTP capability is activated for the gated Slice 14K apply CLI; rollback remains `false`. Plan CLI never mutates live KV.

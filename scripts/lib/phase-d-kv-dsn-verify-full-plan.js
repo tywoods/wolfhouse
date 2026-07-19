@@ -1,28 +1,27 @@
 'use strict';
 
 /**
- * phase-d-kv-dsn-verify-full-plan — FOUNDATION Slice 14J
+ * phase-d-kv-dsn-verify-full-plan — FOUNDATION Slice 14J (+ 14K live transport)
  *
- * Locked, recoverable operator plan to normalize only the existing Key Vault
- * secret luna-sunset-staging-kv/sunset-database-url from a TLS-deficient
- * PostgreSQL DSN to the same host/port/database/user/password with
- * sslmode=verify-full — without reading or mutating the live secret in this
- * slice.
+ * Locked, recoverable operator plan + metadata-preserving sslmode-only mutation
+ * adapter for luna-sunset-staging-kv/sunset-database-url → sslmode=verify-full
+ * (same host/port/database/user/password).
  *
- * Future live adapter (offline-proven with injected HTTP only):
+ * Adapter sequence (injected HTTP offline; live HTTP only via Slice 14K apply
+ * CLI after exact gates — never auto-network from bare adapter calls):
  *   IMDS GET → KV GET → capture user metadata in memory → sslmode-only mutate →
  *   KV PUT (value + preserved metadata) → verification GET proves metadata
  *   equality (only system version id/timestamps may differ) → zero private refs.
- * Rollback (separate approval, default-disabled): IMDS → GET current → LIST
- * versions (pagination rejected) → prove caller prior ID is immediately previous
- * by immutable version IDs + created timestamps → GET prior → validate target →
- * PUT value+preserved metadata → verify. Live mutate / rollback hard-disabled here.
+ * Rollback (separate approval): still hard-disabled. Live HTTP transport exists
+ * for the gated apply command; plan CLI remains plan-only.
  *
  * Never exposes/persists/hashes/evidences DSN, credentials, or sensitive metadata
  * values (contentType/tags). Safe version IDs / created timestamps only.
  * Never instantiates a pg Client. No retries. No delete/purge/disable.
  */
 
+const http = require('http');
+const https = require('https');
 const {
   TARGETS,
   redactSecrets,
@@ -37,11 +36,14 @@ const {
 } = require('./phase-d-managed-identity-credential-loader');
 
 /**
- * Live KV mutate / rollback hard-disabled for Slice 14J.
- * Offline plan + injected-HTTP proof only — no live KV read/write.
+ * Live HTTP transport capability activated in Slice 14K for the gated apply CLI.
+ * Bare executeDsnNormalizeAdapter still requires an explicit httpRequest
+ * (inject offline, or locked live transport supplied by apply after gates).
+ * Live rollback remains hard-disabled.
  */
-const PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED = false;
+const PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED = true;
 const PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED = false;
+const PHASE_D_KV_DSN_VERIFY_FULL_LIVE_HTTP_ENABLED = true;
 
 const ENV_DSN_PLAN = 'SUNSET_PHASE_D_KV_DSN_VERIFY_FULL_PLAN';
 const ENV_DSN_ROLLBACK = 'SUNSET_PHASE_D_KV_DSN_VERIFY_FULL_ROLLBACK';
@@ -176,7 +178,7 @@ const LOCKED_MUTATION_PLAN = Object.freeze({
     'PUT preserves exact contentType/tags/enabled/nbf/exp from current version',
     'Verification GET proves preserved metadata equality; only version id/timestamps may differ',
     'One PUT new secret version; prior version ID retained for rollback',
-    'Slice 14J is plan + offline proof only — zero live KV read/write',
+    'Plan CLI remains plan-only; gated apply CLI (Slice 14K) supplies locked live HTTP',
   ]),
 });
 
@@ -224,8 +226,13 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
   'planOnly',
   'rollbackPlanOnly',
   'liveMutateEnabled',
+  'liveHttpEnabled',
   'liveRollbackEnabled',
   'liveMutation',
+  'usedLiveHttp',
+  'realImdsCall',
+  'realKeyVaultCall',
+  'realPostgresCall',
   'kvWriteCount',
   'kvPutCount',
   'httpRequestCount',
@@ -268,6 +275,7 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
 
 const FORBIDDEN_ARGV_FLAGS = Object.freeze([
   '--apply',
+  '--apply-verify-full',
   '--deploy',
   '--mutate',
   '--execute',
@@ -1158,12 +1166,8 @@ function evaluateDsnPlanGates({ env = process.env, argv = [] } = {}) {
     }
   }
 
-  if (PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true) {
-    errors.push({
-      code: 'live_mutate_must_stay_disabled',
-      message: 'Slice 14J live mutate must remain false',
-    });
-  }
+  // Plan path never invokes the mutation adapter. LIVE_MUTATE/LIVE_HTTP may be
+  // true (Slice 14K apply capability) without enabling plan-only writes.
 
   const ok = errors.length === 0;
   return {
@@ -1255,7 +1259,8 @@ function safePlanOutput(plan, extra = {}) {
     code: 'dsn_verify_full_plan_only_ok',
     planOnly: true,
     rollbackPlanOnly: false,
-    liveMutateEnabled: false,
+    liveMutateEnabled: PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true,
+    liveHttpEnabled: PHASE_D_KV_DSN_VERIFY_FULL_LIVE_HTTP_ENABLED === true,
     liveRollbackEnabled: false,
     liveMutation: false,
     kvWriteCount: counters.kvWriteCount,
@@ -1278,7 +1283,7 @@ function safePlanOutput(plan, extra = {}) {
     mutationField: 'sslmode',
     httpSequence: [...LOCKED_MUTATION_PLAN.httpSequence],
     pgClientInstantiated: counters.pgClientInstantiated,
-    note: 'Plan-only — zero live KV read/write (no mutate/rollback)',
+    note: 'Plan-only — zero live KV read/write (apply via gated Slice 14K command)',
     ...extra,
   };
 }
@@ -1358,14 +1363,17 @@ function executeDsnVerifyFullPlanOnly({ env = process.env, argv = [] } = {}) {
     };
   }
 
-  if (PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED || argv.includes('--apply') || argv.includes('--mutate')) {
+  if (argv.includes('--apply') || argv.includes('--mutate') || argv.includes('--apply-verify-full')) {
     return {
       ok: false,
-      code: 'live_mutate_disabled',
+      code: 'plan_cli_apply_forbidden',
       planOnly: true,
       liveMutation: false,
       kvWriteCount: getDsnPlanCounters().kvWriteCount,
-      errors: [{ code: 'live_mutate_disabled', message: 'Slice 14J cannot mutate live KV' }],
+      errors: [{
+        code: 'plan_cli_apply_forbidden',
+        message: 'plan CLI cannot apply — use gated phase-d:kv-dsn-verify-full-apply',
+      }],
     };
   }
 
@@ -1373,8 +1381,10 @@ function executeDsnVerifyFullPlanOnly({ env = process.env, argv = [] } = {}) {
 }
 
 /**
- * Future live adapter — offline-proven with injected httpRequest only.
- * Live mutate remains hard-disabled: without inject, refuses (zero writes).
+ * Metadata-preserving sslmode-only mutation adapter (Slice 14J).
+ * Requires explicit httpRequest (offline inject, or locked live transport from
+ * the Slice 14K apply CLI after gates). Bare calls without httpRequest refuse
+ * with zero writes — never auto-networks.
  *
  * Exact success sequence: IMDS GET + KV GET + KV PUT + verification GET.
  * One PUT only. Secret-free output. Prior-version safe ID only.
@@ -1416,12 +1426,11 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     }, secrets);
   };
 
-  if (PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true && typeof httpRequest !== 'function') {
-    return fail('live_mutate_requires_future_slice', 'live mutate not enabled in Slice 14J');
-  }
-
   if (typeof httpRequest !== 'function') {
-    return fail('offline_inject_required', 'injected httpRequest required (live mutate disabled)');
+    return fail(
+      'http_request_required',
+      'httpRequest required (inject offline; apply CLI supplies locked live transport after gates)',
+    );
   }
 
   try {
@@ -1637,7 +1646,8 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     return {
       ok: true,
       code: 'dsn_normalize_adapter_ok',
-      liveMutateEnabled: false,
+      liveMutateEnabled: PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true,
+      liveHttpEnabled: PHASE_D_KV_DSN_VERIFY_FULL_LIVE_HTTP_ENABLED === true,
       liveMutation: false,
       sourceTlsDeficient: true,
       sslmodeNormalized: true,
@@ -1662,7 +1672,7 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
       kvWriteCount: counters.kvWriteCount - countersBefore.kvWriteCount,
       pgClientInstantiated: 0,
       privateRefsZeroed: true,
-      note: 'Offline injected-HTTP proof only — no live KV mutation',
+      note: 'Adapter success — httpRequest supplied by caller (inject or gated live transport)',
     };
   } catch (err) {
     const safe = sanitizePlanError(err, secrets);
@@ -1990,6 +2000,261 @@ async function executeDsnRollbackAdapter({
     token = null;
     zeroPrivateRefs(privateBag);
   }
+}
+
+/**
+ * Assert a live HTTP request matches the locked IMDS/KV mutation contract.
+ * Rejects host/path/method/body deviations before any socket write.
+ */
+function assertLockedDsnNormalizeLiveRequest(request) {
+  const req = request || {};
+  const purpose = String(req.purpose || '');
+  const method = String(req.method || '').toUpperCase();
+  const hostname = String(req.hostname || '');
+  const pathFull = String(req.path || '');
+  const pathOnly = pathFull.split('?')[0];
+
+  const imdsUrl = new URL(buildLockedImdsTokenUrl());
+  const kvUrl = new URL(buildLockedKeyVaultSecretUrl());
+  const lockedImdsPath = `${imdsUrl.pathname}${imdsUrl.search}`;
+  const lockedKvPath = `${kvUrl.pathname}${kvUrl.search}`;
+
+  if (purpose === 'imds_token') {
+    if (method !== 'GET') {
+      throw Object.assign(new Error('IMDS method must be GET'), { code: 'http_method_forbidden' });
+    }
+    if (hostname !== DSN_PLAN_LOCKS.imdsHost || hostname !== imdsUrl.hostname) {
+      throw Object.assign(new Error('IMDS host lock violated'), { code: 'imds_host_rejected' });
+    }
+    if (pathFull !== lockedImdsPath) {
+      throw Object.assign(new Error('IMDS path lock violated'), { code: 'imds_path_rejected' });
+    }
+    assertImdsRequestClientIdLocked(pathFull);
+    if (!req.headers || req.headers.Metadata !== 'true') {
+      throw Object.assign(new Error('IMDS Metadata header required'), {
+        code: 'imds_metadata_header_required',
+      });
+    }
+    if (req.body != null && String(req.body) !== '') {
+      throw Object.assign(new Error('IMDS GET must not carry a body'), {
+        code: 'http_body_forbidden',
+      });
+    }
+    return { protocol: 'http:', port: 80, hostname: DSN_PLAN_LOCKS.imdsHost, path: lockedImdsPath };
+  }
+
+  if (purpose === 'keyvault_secret_get' || purpose === 'keyvault_secret_verify_get') {
+    if (method !== 'GET') {
+      throw Object.assign(new Error('Key Vault GET method required'), {
+        code: 'http_method_forbidden',
+      });
+    }
+    if (hostname !== kvUrl.hostname) {
+      throw Object.assign(new Error('Key Vault host lock violated'), { code: 'kv_host_rejected' });
+    }
+    if (pathFull !== lockedKvPath || pathOnly !== kvUrl.pathname) {
+      throw Object.assign(new Error('Key Vault secret path lock violated'), {
+        code: 'kv_path_rejected',
+      });
+    }
+    if (pathFull.includes('/versions') || /\/secrets\/[^/]+\/[^/?]+/.test(pathOnly)) {
+      // current secret GET has no version segment; versioned paths rejected here
+      if (/\/secrets\/[^/]+\/[^/?]+$/.test(pathOnly)) {
+        throw Object.assign(new Error('versioned secret path forbidden on current GET'), {
+          code: 'kv_path_rejected',
+        });
+      }
+    }
+    if (req.body != null && String(req.body) !== '') {
+      throw Object.assign(new Error('Key Vault GET must not carry a body'), {
+        code: 'http_body_forbidden',
+      });
+    }
+    if (!req.headers || !req.headers.Authorization) {
+      throw Object.assign(new Error('Key Vault Authorization required'), {
+        code: 'kv_auth_required',
+      });
+    }
+    return { protocol: 'https:', port: 443, hostname: kvUrl.hostname, path: lockedKvPath };
+  }
+
+  if (purpose === 'keyvault_secret_put') {
+    if (method !== 'PUT') {
+      throw Object.assign(new Error('Key Vault PUT method required'), {
+        code: 'http_method_forbidden',
+      });
+    }
+    if (hostname !== kvUrl.hostname) {
+      throw Object.assign(new Error('Key Vault host lock violated'), { code: 'kv_host_rejected' });
+    }
+    if (pathFull !== lockedKvPath || pathOnly !== kvUrl.pathname) {
+      throw Object.assign(new Error('Key Vault PUT path must be exact current secret'), {
+        code: 'kv_path_rejected',
+      });
+    }
+    if (pathFull.includes('/versions')) {
+      throw Object.assign(new Error('Key Vault PUT versions path forbidden'), {
+        code: 'kv_path_rejected',
+      });
+    }
+    let parsed;
+    try {
+      parsed = JSON.parse(String(req.body || ''));
+    } catch (_) {
+      throw Object.assign(new Error('Key Vault PUT body must be JSON'), {
+        code: 'kv_put_body_rejected',
+      });
+    }
+    if (!parsed || typeof parsed !== 'object' || parsed.value == null) {
+      throw Object.assign(new Error('Key Vault PUT body requires value'), {
+        code: 'kv_put_body_rejected',
+      });
+    }
+    for (const key of Object.keys(parsed)) {
+      if (!['value', 'contentType', 'tags', 'attributes'].includes(key)) {
+        throw Object.assign(new Error('Key Vault PUT unsupported top-level key'), {
+          code: 'kv_put_body_rejected',
+        });
+      }
+    }
+    if (parsed.attributes && typeof parsed.attributes === 'object') {
+      for (const key of Object.keys(parsed.attributes)) {
+        if (!DSN_PLAN_LOCKS.supportedAttributeKeys.includes(key)) {
+          throw Object.assign(new Error('Key Vault PUT unsupported attributes key'), {
+            code: 'kv_put_body_rejected',
+          });
+        }
+      }
+    }
+    if (!req.headers || !req.headers.Authorization) {
+      throw Object.assign(new Error('Key Vault Authorization required'), {
+        code: 'kv_auth_required',
+      });
+    }
+    if (!req.headers['Content-Type'] && !req.headers['content-type']) {
+      throw Object.assign(new Error('Key Vault PUT Content-Type required'), {
+        code: 'kv_put_content_type_required',
+      });
+    }
+    return {
+      protocol: 'https:',
+      port: 443,
+      hostname: kvUrl.hostname,
+      path: lockedKvPath,
+      body: JSON.stringify(parsed),
+    };
+  }
+
+  throw Object.assign(
+    new Error(`live HTTP purpose rejected: ${purpose || 'missing'}`),
+    { code: 'http_purpose_rejected' },
+  );
+}
+
+/**
+ * Real Node http/https transport for the locked DSN normalize sequence only:
+ * IMDS GET, current-secret GET, exactly one same-secret PUT, verification GET.
+ * Never follows redirects. Never retries. Rejects host/path/method/body drift.
+ * Never logs Authorization / token / secret / metadata values.
+ */
+function createLiveDsnNormalizeHttpRequest() {
+  let putCountLocal = 0;
+
+  async function httpRequest(req) {
+    const locked = assertLockedDsnNormalizeLiveRequest(req);
+    const method = String(req.method || '').toUpperCase();
+    if (method === 'PUT') {
+      putCountLocal += 1;
+      if (putCountLocal > 1) {
+        throw Object.assign(new Error('exactly one PUT allowed — retries rejected'), {
+          code: 'http_retry_rejected',
+        });
+      }
+    }
+
+    const lib = locked.protocol === 'https:' ? https : http;
+    const headers = { ...(req.headers || {}) };
+    if (locked.body != null) {
+      headers['Content-Length'] = Buffer.byteLength(locked.body);
+    }
+
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve(value);
+      };
+      const nodeReq = lib.request({
+        hostname: locked.hostname,
+        port: locked.port,
+        path: locked.path,
+        method,
+        headers,
+        timeout: 15000,
+        // Locked hostname only — no custom lookup / DNS override knobs.
+      }, (res) => {
+        const statusCode = Number(res.statusCode);
+        if (statusCode >= 300 && statusCode < 400) {
+          res.resume();
+          finish(Object.assign(new Error('http redirect rejected'), {
+            code: 'http_redirect_rejected',
+          }));
+          return;
+        }
+        const chunks = [];
+        res.on('data', (c) => { chunks.push(c); });
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          finish(null, { statusCode, body });
+        });
+        res.on('error', (err) => {
+          finish(Object.assign(
+            new Error(String((err && err.message) || err || 'http response failed').slice(0, 240)),
+            { code: 'http_request_failed' },
+          ));
+        });
+      });
+      nodeReq.on('timeout', () => {
+        nodeReq.destroy();
+        finish(Object.assign(new Error('http request timeout'), {
+          code: 'http_request_failed',
+        }));
+      });
+      nodeReq.on('error', (err) => {
+        finish(Object.assign(
+          new Error(String((err && err.message) || err || 'http request failed').slice(0, 240)),
+          { code: 'http_request_failed' },
+        ));
+      });
+      if (locked.body != null) nodeReq.write(locked.body);
+      nodeReq.end();
+    });
+  }
+
+  httpRequest.getPutCount = () => putCountLocal;
+  httpRequest.resetPutCount = () => { putCountLocal = 0; };
+  return httpRequest;
+}
+
+/**
+ * Resolve inject vs locked live HTTP. Live only when LIVE_HTTP is enabled and
+ * no inject is supplied (apply CLI after gates). Returns { httpRequest, usedLiveHttp }.
+ */
+function resolveDsnNormalizeHttpRequest(opts) {
+  const options = opts || {};
+  if (typeof options.httpRequest === 'function') {
+    return { httpRequest: options.httpRequest, usedLiveHttp: false };
+  }
+  if (PHASE_D_KV_DSN_VERIFY_FULL_LIVE_HTTP_ENABLED === true
+    && PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true) {
+    return {
+      httpRequest: createLiveDsnNormalizeHttpRequest(),
+      usedLiveHttp: true,
+    };
+  }
+  return { httpRequest: null, usedLiveHttp: false };
 }
 
 /**
@@ -2468,6 +2733,7 @@ function renderDsnPlanUsage() {
 module.exports = {
   PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED,
   PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED,
+  PHASE_D_KV_DSN_VERIFY_FULL_LIVE_HTTP_ENABLED,
   ENV_DSN_PLAN,
   ENV_DSN_ROLLBACK,
   CLI_PLAN_ONLY,
@@ -2501,6 +2767,9 @@ module.exports = {
   executeDsnNormalizeAdapter,
   executeDsnRollbackAdapter,
   createInjectedDsnNormalizeHttp,
+  createLiveDsnNormalizeHttpRequest,
+  resolveDsnNormalizeHttpRequest,
+  assertLockedDsnNormalizeLiveRequest,
   buildOfflineProofTlsDeficientSunsetDatabaseUrl,
   buildOfflineProofVerifyFullSunsetDatabaseUrl,
   exactDsnPlanArgv,

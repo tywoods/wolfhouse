@@ -1,10 +1,10 @@
 {
   "kind": "sunset-schema-observer-slice14j-kv-dsn-verify-full-plan-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T20:18:01.125Z",
+  "generatedAt": "2026-07-19T20:26:47.212Z",
   "masterShaBasis": "ec6a5e9589026db1675a82f4d0b05ddc4a62320e",
   "slice": "14J",
-  "liveMutateEnabled": false,
+  "liveMutateEnabled": true,
   "liveRollbackEnabled": false,
   "liveMutation": false,
   "azureConnectivity": false,
@@ -62,7 +62,7 @@
     {
       "name": "adapter_without_inject_zero_writes",
       "ok": true,
-      "code": "offline_inject_required",
+      "code": "http_request_required",
       "kvWriteCount": 0,
       "httpRequestCount": 0
     },
@@ -185,6 +185,7 @@
     {
       "name": "live_disabled_hashes_preserved_no_pg_client",
       "ok": true,
+      "note": "LIVE_MUTATE capability true (14K); plan still offline; rollback false; no pg Client",
       "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
       "expectedByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
       "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"

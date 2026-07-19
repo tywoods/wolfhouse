@@ -72,7 +72,7 @@
       "PUT preserves exact contentType/tags/enabled/nbf/exp from current version",
       "Verification GET proves preserved metadata equality; only version id/timestamps may differ",
       "One PUT new secret version; prior version ID retained for rollback",
-      "Slice 14J is plan + offline proof only — zero live KV read/write"
+      "Plan CLI remains plan-only; gated apply CLI (Slice 14K) supplies locked live HTTP"
     ]
   },
   "rollback": {

@@ -661,3 +661,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14G — Phase D live metadata-only credential preflight (gated real IMDS+KV GET; no pg Client; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14H — Key Vault Secrets User RBAC apply-plan for Lunabox wh-staging-identity (plan-only; offline prove; zero Azure mutation) — 2026-07-19*
 *FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (plan-only; offline injected-HTTP proof; zero live KV mutation) — 2026-07-19*
+*FOUNDATION Slice 14K — Key Vault DSN sslmode=verify-full apply activation (gated CLI; locked live HTTP transport; offline injected proof; zero live IMDS/KV/PG) — 2026-07-19*
