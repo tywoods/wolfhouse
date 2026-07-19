@@ -482,6 +482,12 @@ function parseSunsetDatabaseUrlSecretInMemory(secretValue) {
 }
 
 async function invokeInjectedHttp(httpRequest, request) {
+  const method = String((request && request.method) || 'GET').toUpperCase();
+  if (method !== 'GET') {
+    throw Object.assign(new Error(`http method ${method} forbidden (GET only)`), {
+      code: 'http_method_forbidden',
+    });
+  }
   httpRequestCount += 1;
   const res = await httpRequest(request);
   if (!res || typeof res !== 'object') {
@@ -776,16 +782,24 @@ function createInjectedManagedIdentityHttp(script) {
 
   async function httpRequest(req) {
     const request = req || {};
+    const method = String(request.method || 'GET').toUpperCase();
     calls.push({
       purpose: request.purpose || null,
       hostname: request.hostname || null,
       path: request.path ? String(request.path).split('?')[0] : null,
-      method: request.method || null,
+      method,
       // Never record Authorization / token / body secrets.
       hasAuthorization: Boolean(
         request.headers && request.headers.Authorization,
       ),
     });
+
+    if (method !== 'GET') {
+      return {
+        statusCode: 405,
+        body: JSON.stringify({ error: 'http_method_forbidden', method }),
+      };
+    }
 
     if (s.throwOn && s.throwOn === request.purpose) {
       const e = s.throwError || new Error('injected http failure');

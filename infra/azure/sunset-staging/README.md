@@ -527,6 +527,19 @@ npm run verify:sunset-schema-slice14e
 
 Artifacts: `slice14e-phase-d-managed-identity-loader-contract.json`, `slice14e-phase-d-managed-identity-loader-evidence.json`, `slice14e-findings.md`.
 
+### Slice 14F — Phase D credential-preflight activation (implemented)
+
+Activates the merged 14E managed-identity HTTP loader behind an explicit **metadata-only** credential-preflight CLI (`scripts/run-phase-d-credential-preflight.js` / `npm run phase-d:credential-preflight`). Requires dedicated env `SUNSET_PHASE_D_CREDENTIAL_PREFLIGHT=1` + `--credential-preflight-only` + `SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity` + `--credential-source managed-identity` + exact `--subscription` / `--resource-group` / `--vm-resource-group` / `--vm-name` / `--managed-identity` / `--key-vault` / `--secret-name` / `--postgres-server` / `--database`. Default/missing/wrong inputs make zero HTTP/pg Clients. On approved offline execution: exact locked IMDS GET then exact locked Key Vault secret GET; validate secret DSN in memory; immediately zero private refs; output only safe booleans + identity/vault/secret/PG host/database/TLS — never token, DSN, user/password, version values, secret metadata IDs, or hashes. Never instantiates a pg Client. No POST/PUT/PATCH/DELETE. Count-only DB command **unchanged**. `PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=false` — offline injected-HTTP proof only. **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger, or migration/predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14f-phase-d-credential-preflight
+npm run verify:sunset-schema-slice14f
+# default refuse (zero HTTP / zero Clients):
+npm run phase-d:credential-preflight
+```
+
+Artifacts: `slice14f-phase-d-credential-preflight-contract.json`, `slice14f-phase-d-credential-preflight-evidence.json`, `slice14f-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -592,3 +605,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14B — Phase D live read-only connection boundary (gates only; CONNECT_ENABLED activated in 14D; offline injected-adapter proof; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter (activated gated in 14D; offline fake-Client proof; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14D — Phase D live read-only activation + gated count-only CLI (default-disabled; offline injected-Client proof; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14E — Phase D managed-identity credential loader (live HTTP hard-disabled; offline injected-HTTP proof; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14F — Phase D credential-preflight activation (metadata-only; offline injected-HTTP proof; no pg Client; no live mutation) — 2026-07-19*
