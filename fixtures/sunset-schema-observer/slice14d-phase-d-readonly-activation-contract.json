@@ -16,7 +16,7 @@
   "executeCountOnlyGateRequired": true,
   "exactTargetCliConfirmationRequired": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:19:08.766Z",
+  "generatedAt": "2026-07-19T20:49:08.019Z",
   "masterShaBasis": "6edd63762ea5a28cec764428c176da2118032729",
   "slice": "14D",
   "purpose": "Activate merged 14C live read-only adapter behind exact 14B gates + explicit count-only execution CLI/env gate; offline injected-Client proof only; no live/Azure query.",

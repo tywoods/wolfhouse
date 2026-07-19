@@ -402,7 +402,9 @@ async function main() {
   });
   leakScan(connectFail, secrets);
   if (connectFail.ok !== false
-    || connectFail.code !== 'connect_failed'
+    || connectFail.code !== 'ECONNREFUSED'
+    || connectFail.connectCategory !== 'refused'
+    || connectFail.message !== 'connect failed'
     || connectFail.clientsInstantiated !== 1
     || !FakeConnectFail.instances[0].calls.some((c) => c.method === 'end')) {
     throw new Error(`connect failure path failed: ${JSON.stringify(connectFail)}`);

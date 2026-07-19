@@ -296,7 +296,9 @@ async function main() {
     Client: FakeConnectFail,
   });
   leakScan(connectFail, secrets);
-  if (connectFail.ok !== false || connectFail.code !== 'connect_failed'
+  if (connectFail.ok !== false || connectFail.code !== 'ECONNREFUSED'
+    || connectFail.connectCategory !== 'refused'
+    || connectFail.message !== 'connect failed'
     || !FakeConnectFail.instances[0].calls.some((c) => c.method === 'end')) {
     throw new Error('connect failure path failed');
   }

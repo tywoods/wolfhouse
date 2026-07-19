@@ -319,6 +319,8 @@
     "verify:sunset-schema-slice14j": "node scripts/verify-sunset-schema-slice14j.js",
     "prove:sunset-schema-slice14k-kv-dsn-verify-full-activation": "node scripts/prove-sunset-schema-slice14k-kv-dsn-verify-full-activation.js",
     "verify:sunset-schema-slice14k": "node scripts/verify-sunset-schema-slice14k.js",
+    "prove:sunset-schema-slice14m-phase-d-live-readonly-counts": "node scripts/prove-sunset-schema-slice14m-phase-d-live-readonly-counts.js",
+    "verify:sunset-schema-slice14m": "node scripts/verify-sunset-schema-slice14m.js",
     "phase-d:live-readonly-count-only": "node scripts/run-phase-d-live-readonly-count-only.js",
     "phase-d:credential-preflight": "node scripts/run-phase-d-credential-preflight.js",
     "phase-d:kv-secrets-user-rbac-plan": "node scripts/run-phase-d-kv-secrets-user-rbac-plan.js",

@@ -114,6 +114,7 @@ async function main() {
   const safe = redactDeep({
     ok: result.ok,
     code: result.code,
+    connectCategory: result.connectCategory || undefined,
     counts: result.counts || null,
     steps: result.steps || [],
     outputKeys: result.outputKeys || null,
@@ -121,13 +122,28 @@ async function main() {
     clientsInstantiated: result.clientsInstantiated,
     counters: result.counters,
     credentialSource: gates.credentialSource,
+    managedIdentityName: gates.credentialSource === 'managed-identity'
+      ? 'wh-staging-identity'
+      : undefined,
+    keyVaultName: gates.credentialSource === 'managed-identity'
+      ? 'luna-sunset-staging-kv'
+      : undefined,
+    secretName: gates.credentialSource === 'managed-identity'
+      ? 'sunset-database-url'
+      : undefined,
+    postgresHost: TARGETS.postgresHost,
+    database: TARGETS.database,
+    sslmode: TARGETS.sslmode,
+    applicationName: TARGETS.applicationName,
     liveReadonlyConnectEnabled: result.liveReadonlyConnectEnabled,
     liveQueryExecution: result.liveQueryExecution === true,
     liveMutation: false,
     appliesConstraints: false,
     writesLedger: false,
     errors: result.errors || undefined,
-    message: result.message || undefined,
+    message: result.connectCategory
+      ? 'connect failed'
+      : (result.message || undefined),
   }, secrets);
 
   if (result.ok) {

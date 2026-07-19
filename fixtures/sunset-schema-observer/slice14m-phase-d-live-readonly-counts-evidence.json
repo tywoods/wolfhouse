@@ -1,0 +1,632 @@
+{
+  "kind": "sunset-schema-observer-slice14m-phase-d-live-readonly-counts-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T20:55:45.068Z",
+  "masterShaBasis": "45203b370997917fc8c3a39cf87948f46d9e5b5a",
+  "slice": "14M",
+  "outcome": "phase_d_live_readonly_counts_blocked",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "liveApplyEnabled": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "existingCliGatesUnchanged": true,
+  "connectErrorClassifierApplied": true,
+  "connectMessageClassifierApplied": true,
+  "diagnosticAttempt2Authorized": true,
+  "diagnosticAttempt3Authorized": true,
+  "credentialPreflightAttemptCount": 3,
+  "liveCountAttemptCount": 3,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "authorizedSequence": [
+    "IMDS GET",
+    "Key Vault secret GET",
+    "in-memory exact target validation",
+    "one pg Client (TLS verify-full, application_name wh-sunset-phase-d-preflight)",
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingExecuteGateZeroClients": true,
+    "wrongOrForbiddenCliArgsZeroClients": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "connectClassifierSecretMessagesSanitize": true,
+    "injectedHttpSuccessExactCountSequence": true,
+    "cliGatesManagedIdentityExactTargets": true,
+    "countOnlyCliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "applyDisabledConnectAndHttpEnabled": true,
+    "connectClassifierCategoryMappings": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flags_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_execute_gate_zero_clients",
+      "ok": true,
+      "code": "target_accepted_execute_count_only_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_or_forbidden_cli_args_zero_clients",
+      "ok": true,
+      "wrongDatabaseRejected": true,
+      "forbiddenDsnRejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode"
+      ]
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "connect_classifier_secret_messages_sanitize",
+      "ok": true,
+      "classifiedUnknown": {
+        "category": "unknown",
+        "code": "unknown",
+        "message": "connect failed"
+      },
+      "classifiedDnsWithSecrets": {
+        "category": "dns",
+        "code": "ENOTFOUND",
+        "message": "connect failed"
+      },
+      "adversarialMessageClassifications": [
+        {
+          "name": "msg_tls",
+          "category": "tls",
+          "code": "MSG_TLS",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_auth",
+          "category": "auth",
+          "code": "MSG_AUTH",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_firewall",
+          "category": "firewall",
+          "code": "MSG_FIREWALL",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_dns",
+          "category": "dns",
+          "code": "MSG_DNS",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_timeout",
+          "category": "timeout",
+          "code": "MSG_TIMEOUT",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_database",
+          "category": "database",
+          "code": "MSG_DATABASE",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_client_config",
+          "category": "client_config",
+          "code": "MSG_CLIENT_CONFIG",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_unknown_with_secrets",
+          "category": "unknown",
+          "code": "unknown",
+          "message": "connect failed"
+        }
+      ],
+      "adapterTls": {
+        "category": "tls",
+        "code": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        "message": "connect failed"
+      },
+      "messageProbeMaxLen": 512
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_success_exact_count_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "aggregate",
+        "COMMIT"
+      ],
+      "counts": {
+        "total_rows": 11,
+        "date_window_violations": 2,
+        "price_unit_violations": 1
+      },
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "imdsRequestCount": 1,
+      "keyVaultRequestCount": 1,
+      "queryCalls": 6,
+      "credentialSource": "managed_identity",
+      "closed": true
+    },
+    {
+      "name": "cli_gates_managed_identity_exact_targets",
+      "ok": true,
+      "confirmed": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "luna-sunset-staging-rg",
+        "postgresServer": "luna-sunset-staging-pg-app",
+        "database": "sunset_staging"
+      }
+    },
+    {
+      "name": "count_only_cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "sslmode": "verify-full",
+      "applicationName": "wh-sunset-phase-d-preflight"
+    },
+    {
+      "name": "apply_disabled_connect_and_http_enabled",
+      "ok": true,
+      "liveReadonlyConnectEnabled": true,
+      "liveHttpEnabled": true,
+      "liveApplyEnabled": false
+    },
+    {
+      "name": "connect_classifier_category_mappings",
+      "ok": true,
+      "mappings": [
+        {
+          "driverCode": "ENOTFOUND",
+          "category": "dns",
+          "code": "ENOTFOUND",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "EAI_AGAIN",
+          "category": "dns",
+          "code": "EAI_AGAIN",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ETIMEDOUT",
+          "category": "timeout",
+          "code": "ETIMEDOUT",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ECONNREFUSED",
+          "category": "refused",
+          "code": "ECONNREFUSED",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ENETUNREACH",
+          "category": "unreachable",
+          "code": "ENETUNREACH",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "EHOSTUNREACH",
+          "category": "unreachable",
+          "code": "EHOSTUNREACH",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ECONNRESET",
+          "category": "reset",
+          "code": "ECONNRESET",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+          "category": "tls",
+          "code": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "CERT_HAS_EXPIRED",
+          "category": "tls",
+          "code": "CERT_HAS_EXPIRED",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ERR_TLS_CERT_ALTNAME_INVALID",
+          "category": "tls",
+          "code": "ERR_TLS_CERT_ALTNAME_INVALID",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "DEPTH_ZERO_SELF_SIGNED_CERT",
+          "category": "tls",
+          "code": "DEPTH_ZERO_SELF_SIGNED_CERT",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "28P01",
+          "category": "auth",
+          "code": "28P01",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "28000",
+          "category": "auth",
+          "code": "28000",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "3D000",
+          "category": "database",
+          "code": "3D000",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08006",
+          "category": "connection",
+          "code": "08006",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08001",
+          "category": "connection",
+          "code": "08001",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08P01",
+          "category": "connection",
+          "code": "08P01",
+          "message": "connect failed"
+        }
+      ],
+      "messageMappings": [
+        {
+          "category": "tls",
+          "code": "MSG_TLS",
+          "message": "connect failed"
+        },
+        {
+          "category": "auth",
+          "code": "MSG_AUTH",
+          "message": "connect failed"
+        },
+        {
+          "category": "firewall",
+          "code": "MSG_FIREWALL",
+          "message": "connect failed"
+        },
+        {
+          "category": "dns",
+          "code": "MSG_DNS",
+          "message": "connect failed"
+        },
+        {
+          "category": "timeout",
+          "code": "MSG_TIMEOUT",
+          "message": "connect failed"
+        },
+        {
+          "category": "database",
+          "code": "MSG_DATABASE",
+          "message": "connect failed"
+        },
+        {
+          "category": "client_config",
+          "code": "MSG_CLIENT_CONFIG",
+          "message": "connect failed"
+        }
+      ],
+      "codeFirstPrecedence": {
+        "category": "dns",
+        "code": "ENOTFOUND",
+        "message": "connect failed"
+      },
+      "clientConfigBeforeAuth": {
+        "category": "client_config",
+        "code": "MSG_CLIENT_CONFIG",
+        "message": "connect failed"
+      },
+      "unknown": {
+        "category": "unknown",
+        "code": "unknown",
+        "message": "connect failed"
+      },
+      "allowlistEntryCount": 25,
+      "syntheticCodes": {
+        "client_config": "MSG_CLIENT_CONFIG",
+        "auth": "MSG_AUTH",
+        "database": "MSG_DATABASE",
+        "firewall": "MSG_FIREWALL",
+        "tls": "MSG_TLS",
+        "dns": "MSG_DNS",
+        "timeout": "MSG_TIMEOUT",
+        "unknown": "unknown"
+      },
+      "categories": [
+        "dns",
+        "timeout",
+        "refused",
+        "unreachable",
+        "reset",
+        "tls",
+        "auth",
+        "database",
+        "connection",
+        "firewall",
+        "client_config",
+        "unknown"
+      ]
+    }
+  ],
+  "redCaseCount": 5,
+  "greenCaseCount": 6,
+  "httpCallCounts": {
+    "successPathHttpRequestCount": 2,
+    "successPathImdsRequestCount": 1,
+    "successPathKeyVaultRequestCount": 1,
+    "defaultPathHttpRequestCount": 0,
+    "liveCredentialPreflightHttpCallsDelta": 2,
+    "liveCredentialPreflightImdsRequestCount": 1,
+    "liveCredentialPreflightKeyVaultRequestCount": 1,
+    "liveCountHttpRequestCount": 2,
+    "liveCountImdsRequestCount": 1,
+    "liveCountKeyVaultRequestCount": 1
+  },
+  "clientCallCounts": {
+    "successPathClientsInstantiated": 1,
+    "successPathQueryCalls": 6,
+    "defaultPathClientsInstantiated": 0,
+    "liveCredentialPreflightClientsInstantiated": 0,
+    "liveCountClientsInstantiated": 1,
+    "liveCountConnectCalls": 1,
+    "liveCountQueryCalls": 0,
+    "liveCountEndCalls": 1,
+    "liveCountSessions": 1,
+    "liveCountAttempt1ClientsInstantiated": 1,
+    "liveCountAttempt1ConnectCalls": 1,
+    "liveCountAttempt1QueryCalls": 0,
+    "liveCountAttempt1EndCalls": 1,
+    "liveCountAttempt2ClientsInstantiated": 1,
+    "liveCountAttempt2ConnectCalls": 1,
+    "liveCountAttempt2QueryCalls": 0,
+    "liveCountAttempt2EndCalls": 1
+  },
+  "safeCounts": null,
+  "credentialPreflightOutcome": {
+    "ok": true,
+    "code": "credential_preflight_ok",
+    "exitCode": 0,
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "secretTargetValid": true,
+    "httpCallsDelta": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "clientsInstantiated": 0,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": false,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": null
+  },
+  "liveCountAttempt1": {
+    "attempt": 1,
+    "diagnostic": false,
+    "classifierApplied": false,
+    "ok": false,
+    "code": "connect_failed",
+    "connectCategory": null,
+    "message": null,
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "connect_failed",
+    "note": "First live count retained from pre-classifier evidence; opaque connect_failed"
+  },
+  "liveCountDiagnosticAttempt2": {
+    "attempt": 2,
+    "diagnostic": true,
+    "classifierApplied": true,
+    "ok": false,
+    "code": "unknown",
+    "connectCategory": "unknown",
+    "message": "connect failed",
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "unknown"
+  },
+  "liveCountDiagnosticAttempt3": {
+    "attempt": 3,
+    "diagnostic": true,
+    "classifierApplied": true,
+    "messageClassifierStage": true,
+    "ok": false,
+    "code": "MSG_TIMEOUT",
+    "connectCategory": "timeout",
+    "message": "connect failed",
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "timeout"
+  },
+  "liveCountOutcome": {
+    "attempt": 3,
+    "diagnostic": true,
+    "classifierApplied": true,
+    "messageClassifierStage": true,
+    "ok": false,
+    "code": "MSG_TIMEOUT",
+    "connectCategory": "timeout",
+    "message": "connect failed",
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "timeout"
+  },
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true,
+    "connectClassifierNeverOutputsRawMessage": true,
+    "connectMessageClassifierNeverOutputsMatchedFragment": true
+  }
+}

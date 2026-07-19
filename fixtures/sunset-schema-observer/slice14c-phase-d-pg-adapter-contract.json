@@ -15,7 +15,7 @@
   "dualEnableFlagsRequired": true,
   "executeCountOnlyGateRequired": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:13:59.164Z",
+  "generatedAt": "2026-07-19T20:49:07.867Z",
   "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
   "slice": "14C",
   "purpose": "Real PostgreSQL read-only adapter behind merged 14B boundary; CONNECT_ENABLED activated in 14D behind execute-count-only gate; this proof uses offline scripted fake pg Client only (no live query).",
