@@ -12,7 +12,7 @@ Credential preflight **ok** (secretTargetValid=true, clientsInstantiated=0).
 
 Live constraint apply **ok** (beforeConstraints=0, afterConstraints=2, committed=true, queryCalls=12, schemaMutation=true, dataMutation=false).
 
-Observer **drift or blocked** (mismatchCountAfter=499, blocker=observer_drift). Phase D CHECK keys cleared from drift (`phaseDCheckKeysCleared=true`). **Do not claim mismatch 2→0** (`mismatchReduced2to0=false`); overall live product schema still differs.
+Observer **drift or blocked** (mismatchCountAfter=499, blocker=observer_drift, phaseDCheckKeysCleared=true). **Do not claim mismatch 2→0** (mismatchReduced2to0=false).
 
 Outcome code: `phase_d_constraint_apply_ok_observer_drift`.
 

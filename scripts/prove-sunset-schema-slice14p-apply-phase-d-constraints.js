@@ -579,7 +579,7 @@ async function main() {
     env: constraintApplyEnv(),
     argv: [
       ...applyArgv(),
-      '--dsn', 'postgresql://x:y@h/db',
+      '--dsn', 'forbidden-dsn-value',
       '--sql', 'DROP TABLE public.tenant_services',
       '--drop',
       '--dml',
@@ -592,7 +592,7 @@ async function main() {
     env: constraintApplyEnv(),
     argv: [
       ...applyArgv(),
-      '--dsn', 'postgresql://x:y@h/db',
+      '--dsn', 'forbidden-dsn-value',
       '--sql', 'DELETE FROM public.tenant_services',
       '--drop',
       '--dml',
@@ -1291,7 +1291,7 @@ async function main() {
     ? 'Observer **not attempted**.'
     : observerOk
       ? `Observer **match** (mismatchCount ${observerOutcome.mismatchCountBeforeClaim}→${observerOutcome.mismatchCountAfter}).`
-      : `Observer **drift or blocked** (mismatchCountAfter=${observerOutcome.mismatchCountAfter}, blocker=${observerOutcome.blocker || 'n/a'}). **Do not claim mismatch 2→0.**`;
+      : `Observer **drift or blocked** (mismatchCountAfter=${observerOutcome && observerOutcome.mismatchCountAfter}, blocker=${(observerOutcome && observerOutcome.blocker) || 'n/a'}, phaseDCheckKeysCleared=${observerOutcome && observerOutcome.phaseDCheckKeysCleared === true}). **Do not claim mismatch 2→0** (mismatchReduced2to0=false).`;
 
   const findings = `# FOUNDATION Slice 14P — Apply Phase D CHECK constraints
 
