@@ -1,0 +1,145 @@
+{
+  "kind": "sunset-schema-observer-slice13c3c-six-key-map",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "generatedAt": "2026-07-19T16:41:19.967Z",
+  "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
+  "migrationId": "041_notification_surfpack_convergence",
+  "migrationFilename": "041_notification_surfpack_convergence.sql",
+  "keys": [
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "object": "idx_client_notification_events_client_created",
+      "type": "index",
+      "historicalOwner": "032_client_notification_settings.sql",
+      "canonicalDefinition": "CREATE INDEX idx_client_notification_events_client_created ON public.client_notification_events USING btree (client_slug, created_at DESC)",
+      "catalogContract": {
+        "schema": "public",
+        "table": "client_notification_events",
+        "unique": false,
+        "am": "btree",
+        "keys": [
+          "client_slug",
+          "created_at DESC"
+        ],
+        "predicate": null,
+        "include": false,
+        "constraintOwned": false
+      },
+      "convergenceAction": "ensure_index_fail_closed"
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "object": "idx_client_notification_events_conversation",
+      "type": "index",
+      "historicalOwner": "032_client_notification_settings.sql",
+      "canonicalDefinition": "CREATE INDEX idx_client_notification_events_conversation ON public.client_notification_events USING btree (conversation_id, notification_type)",
+      "catalogContract": {
+        "schema": "public",
+        "table": "client_notification_events",
+        "unique": false,
+        "am": "btree",
+        "keys": [
+          "conversation_id",
+          "notification_type"
+        ],
+        "predicate": null,
+        "include": false,
+        "constraintOwned": false
+      },
+      "convergenceAction": "ensure_index_fail_closed"
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "object": "idx_client_notification_settings_client",
+      "type": "index",
+      "historicalOwner": "032_client_notification_settings.sql",
+      "canonicalDefinition": "CREATE INDEX idx_client_notification_settings_client ON public.client_notification_settings USING btree (client_slug, location_id)",
+      "catalogContract": {
+        "schema": "public",
+        "table": "client_notification_settings",
+        "unique": false,
+        "am": "btree",
+        "keys": [
+          "client_slug",
+          "location_id"
+        ],
+        "predicate": null,
+        "include": false,
+        "constraintOwned": false
+      },
+      "convergenceAction": "ensure_index_fail_closed"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "object": "idx_tenant_surf_pack_client_loc",
+      "type": "index",
+      "historicalOwner": "026_tenant_surf_pack_rules.sql",
+      "canonicalDefinition": "CREATE INDEX idx_tenant_surf_pack_client_loc ON public.tenant_surf_pack_rules USING btree (client_slug, location_id) WHERE (active = true)",
+      "catalogContract": {
+        "schema": "public",
+        "table": "tenant_surf_pack_rules",
+        "unique": false,
+        "am": "btree",
+        "keys": [
+          "client_slug",
+          "location_id"
+        ],
+        "predicate": "active = true",
+        "include": false,
+        "constraintOwned": false
+      },
+      "convergenceAction": "ensure_index_fail_closed"
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "object": "tenant_surf_pack_rules_updated_by_fkey",
+      "type": "foreign_key",
+      "historicalOwner": "026_tenant_surf_pack_rules.sql",
+      "canonicalDefinition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL",
+      "catalogContract": {
+        "table": "tenant_surf_pack_rules",
+        "srcCols": [
+          "updated_by"
+        ],
+        "tgtTable": "staff_users",
+        "tgtCols": [
+          "id"
+        ],
+        "updateAction": "a",
+        "deleteAction": "n",
+        "match": "s",
+        "validated": true,
+        "deferrable": false,
+        "deferred": false
+      },
+      "convergenceAction": "ensure_fk_fail_closed"
+    },
+    {
+      "stableKey": "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "object": "tenant_surf_pack_rules_updated_at",
+      "type": "trigger",
+      "historicalOwner": "026_tenant_surf_pack_rules.sql",
+      "canonicalDefinition": "CREATE TRIGGER tenant_surf_pack_rules_updated_at BEFORE UPDATE ON public.tenant_surf_pack_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at()",
+      "catalogContract": {
+        "table": "tenant_surf_pack_rules",
+        "timing": "BEFORE",
+        "events": [
+          "UPDATE"
+        ],
+        "level": "ROW",
+        "enabled": "O",
+        "functionIdentity": "public.set_updated_at()",
+        "nargs": 0,
+        "tgtype": 19
+      },
+      "convergenceAction": "ensure_trigger_fail_closed"
+    }
+  ],
+  "phaseDExcluded": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+  ]
+}

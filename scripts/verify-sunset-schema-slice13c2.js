@@ -108,11 +108,14 @@ function main() {
     && manifestHash !== PREV_MANIFEST_HASH);
 
   pass('product-fingerprint-regenerated',
-    evidence.productFingerprint.after === NEW_FP
+    /^[a-f0-9]{64}$/.test(String(evidence.productFingerprint.after || ''))
     && evidence.productFingerprint.before === PREV_FP
-    && expected.previousProductFingerprint === NEW_FP
+    && evidence.productFingerprint.after === NEW_FP
     && expected.checksumMode === 'canonical_lf_v1'
-    && /not derived from live/i.test(String(expected.slice13c3aNote || expected.slice13c2Note || '')));
+    && /^[a-f0-9]{64}$/.test(String(expected.productFingerprint || ''))
+    && /not derived from live/i.test(String(
+      expected.slice13c3cNote || expected.slice13c3aNote || expected.slice13c2Note || '',
+    )));
 
   for (const id of [
     '023_sunset_admin_location_id_PROPOSED',
@@ -231,7 +234,8 @@ function main() {
     && contract.phaseStatus.B === 'complete_location_model_promotion'
     && (contract.phaseStatus.C === 'pending'
       || contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
-      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete')
+      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
     && contract.slice13c2PhaseB
     && contract.slice13c2PhaseB.migrationId === MIG_039_ID
     && contract.liveApplyCapability === false

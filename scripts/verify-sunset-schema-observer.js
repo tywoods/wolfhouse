@@ -348,7 +348,7 @@ async function main() {
     const manifest = loadManifest(MANIFEST_PATH);
     const stale = contractStalenessErrors(contract, manifest);
     pass('green-contract-fresh', stale.length === 0, JSON.stringify(stale.slice(0, 3)));
-    pass('green-contract-forward-38', Number(contract.forwardCount) === 38);
+    pass('green-contract-forward-39', Number(contract.forwardCount) === 39);
     pass('green-contract-scope', contract.scope === CONTRACT_SCOPE);
     pass(
       'green-contract-includes-enums-functions-rls',
@@ -820,7 +820,7 @@ async function main() {
   {
     const { forward, manifestHash } = hashCanonicalManifest(loadManifest(MANIFEST_PATH));
     pass('green-manifest-hash-stable-shape', /^[a-f0-9]{64}$/.test(manifestHash));
-    pass('green-forward-count-38', forward.length === 38);
+    pass('green-forward-count-39', forward.length === 39);
     pass(
       'normalize-sql-idempotent',
       normalizeSql(INTROSPECTION_SQL.tables) === normalizeSql(`  ${INTROSPECTION_SQL.tables}  ;`),

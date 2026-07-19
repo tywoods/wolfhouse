@@ -422,6 +422,15 @@
       "rationale": "Slice 13C.3a: promote approved tenant_services live-only SaaS catalog columns (weekdays, room-block model). Phase D CHECKs deferred."
     },
     {
+      "id": "041_notification_surfpack_convergence",
+      "filename": "041_notification_surfpack_convergence.sql",
+      "sha256": "e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9",
+      "order": 39,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Slice 13C.3c: fail-closed additive convergence for six Phase C notification indexes + surf-pack FK/index/trigger. Phase D CHECKs deferred."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

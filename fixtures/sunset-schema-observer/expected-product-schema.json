@@ -47,14 +47,14 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T15:53:50.523Z",
-  "generatedFromMaster": "5158320585f0a894329d8ff017fa658d86d041bf",
-  "slice13c3aNote": "Regenerated from disposable canonical chain including 040_tenant_services_saas_catalog_columns; not derived from live.",
+  "generatedAt": "2026-07-19T16:40:09.154Z",
+  "generatedFromMaster": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
+  "slice13c3cNote": "Regenerated from disposable canonical chain including 041_notification_surfpack_convergence; product fingerprint unchanged (six objects already canonical); not derived from live.",
   "checksumMode": "canonical_lf_v1",
-  "forwardCount": 38,
-  "manifestHash": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+  "forwardCount": 39,
+  "manifestHash": "be9bd14c8f50ebf9036f5578dedb80f3ea2048ff7565aeb6aba3c201300aeaed",
   "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
-  "previousProductFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+  "previousProductFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
   "excludes": [
     "schema_migration_ledger"
   ],

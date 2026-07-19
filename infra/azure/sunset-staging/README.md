@@ -431,6 +431,24 @@ npm run verify:sunset-schema-slice13c3b
 
 Artifacts: `slice13c3b-migration-035-rehearsal-evidence.json`, `slice13c3b-mismatch-25-to-8-evidence.json`, `slice13c3b-migration-035-owned-key-map.json`, `slice13c3b-findings.md`.
 
+### Slice 13C.3c — Phase C notification / surf-pack convergence (implemented)
+
+Promoted fail-closed additive convergence for the six remaining Phase C notification indexes + surf-pack FK/index/trigger into one new canonical forward migration `041_notification_surfpack_convergence.sql`. Disposable dual-path proof only. Offline mismatch trajectory **8 → 2** (six Phase C keys resolved; two Phase D `tenant_services` CHECKs remain). Product fingerprint **unchanged** (objects already canonical via 026/032). Still `product_schema_differs`. **No live apply / observer job / image deploy.**
+
+| Measure | Value |
+|---------|------:|
+| Forward count | **38 → 39** |
+| Migration hash (`canonical_lf_v1`) | `e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9` |
+| Manifest hash | `be9bd14c8f50ebf9036f5578dedb80f3ea2048ff7565aeb6aba3c201300aeaed` |
+| Product fingerprint | unchanged `120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18` |
+
+```bash
+npm run prove:sunset-schema-slice13c3c-notification-surfpack
+npm run verify:sunset-schema-slice13c3c
+```
+
+Artifacts: `slice13c3c-notification-surfpack-evidence.json`, `slice13c3c-mismatch-8-to-2-evidence.json`, `slice13c3c-six-key-map.json`, `slice13c3c-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
