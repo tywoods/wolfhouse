@@ -33,7 +33,7 @@
 | `STAFF_ACTIONS_ENABLED` | `true` (hardcoded; matches live) |
 | Image | `whstagingacr.azurecr.io/luna-sunset-staff-api:<staffApiImageTag>` — **tag required via parameters** |
 | Deploy flags | `deployContainerApps=true`, `deployStaffApi=true` (represent existing live app) |
-| Schema observer job | `deploySchemaObserverJob=false` (source-only; no Azure create in this slice) |
+| Schema observer job | Live: `luna-sunset-staging-sch-obs` Manual/unscheduled (Slice 10). Source default remains `deploySchemaObserverJob=false` |
 | Owner tag | `tywoods` (parameter; omitted on staff-api tags to match live) |
 
 ### Still unmanaged / manual (not claimed by Bicep)
@@ -270,6 +270,25 @@ Secret-free live probe fixture: `fixtures/sunset-staging-bicep-preflight/live-pr
 
 ---
 
+## Schema observer job (FOUNDATION Slice 10)
+
+Manual, unscheduled Container Apps Job `luna-sunset-staging-sch-obs` is deployed in Sunset staging and wired to Key Vault secret `sunset-schema-observer-database-url` (secretRef only — never plaintext DSN).
+
+- **Source default stays off:** `deploySchemaObserverJob=false` in `main.bicep` / `parameters.example.json`.
+- **Deployment path (only):** standalone `infra/azure/sunset-staging/schema-observer-job.bicep` with gitignored `tmp/foundation-slice10/slice10-job-module.secure.local.json`.
+- **Parameter preparer:** `node scripts/prepare-sunset-schema-observer-job-slice10-params.js` writes that module file only (non-secret locked metadata: job name, CAE/MI IDs, live Staff API image, KV base URI, observer secret **name**, compute/retry/timeout, tags). It never prepares a `main.bicep` overlay and never reads app DB DSN, bot tokens, WhatsApp/inbox values, or any secret **value**.
+- Do **not** start or schedule the job from this slice.
+- Evidence: `fixtures/sunset-schema-observer/slice10-job-deploy-evidence.json`.
+
+```bash
+node scripts/prepare-sunset-schema-observer-job-slice10-params.js
+# then operator-approved what-if/create against schema-observer-job.bicep only:
+# az deployment group what-if --template-file infra/azure/sunset-staging/schema-observer-job.bicep \
+#   --parameters @tmp/foundation-slice10/slice10-job-module.secure.local.json
+```
+
+---
+
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
 
 Fail-closed convergent provision tooling for the dedicated observer role / DSN secret. **Default is dry-run.** Slice 9 enables live apply for Sunset staging only (`LIVE_APPLY_ENABLED=true`) when `--apply` and env gates are set.
@@ -317,3 +336,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 7 — schema-observer role/KV provision tooling (source-only; live apply disabled) — 2026-07-18*
 *FOUNDATION Slice 8 — convergent/safe provisioner hardenings — 2026-07-18*
 *FOUNDATION Slice 9 — live Sunset staging role+KV provision (approved; no job/firewall/schema/data) — 2026-07-19*
+*FOUNDATION Slice 10 — deploy manual unscheduled `luna-sunset-staging-sch-obs` job (not executed; KV secret ref only) — 2026-07-19*

@@ -449,6 +449,91 @@ async function main() {
       /structural|security|not complete schema equivalence|product-schema contract/i.test(readme)
         || /schema observer/i.test(readme),
     );
+    pass(
+      'docs-slice10-standalone-module-only',
+      /standalone `infra\/azure\/sunset-staging\/schema-observer-job\.bicep`/i.test(readme)
+        || /standalone schema-observer-job\.bicep only/i.test(readme)
+        || /Deployment path \(only\):.*schema-observer-job\.bicep/i.test(readme),
+    );
+  }
+
+  // Slice 10 parameter preparer: module-only, no unrelated secret inputs
+  {
+    const PREP = path.join(ROOT, 'scripts', 'prepare-sunset-schema-observer-job-slice10-params.js');
+    const EVIDENCE = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice10-job-deploy-evidence.json');
+    pass('slice10-preparer-exists', fs.existsSync(PREP));
+    if (fs.existsSync(PREP)) {
+      const src = fs.readFileSync(PREP, 'utf8');
+      pass('slice10-preparer-writes-module-params-only', /slice10-job-module\.secure\.local\.json/.test(src));
+      const overlayName = ['slice10', 'deploy', 'secure', 'local', 'json'].join('-').replace(
+        /^(slice10)-(deploy)-(secure)-(local)-(json)$/,
+        '$1-$2.$3.$4.$5',
+      );
+      const pgAdmin = ['postgres', 'Admin', 'Password'].join('');
+      const botTok = ['luna', 'Bot', 'Internal', 'Token'].join('');
+      const appDsnSecret = ['sunset', 'database', 'url'].join('-');
+      pass(
+        'slice10-preparer-no-main-overlay-path',
+        !src.includes(overlayName),
+      );
+      pass(
+        'slice10-preparer-no-unrelated-secret-inputs',
+        !src.includes(pgAdmin)
+          && !src.includes(botTok)
+          && !/SUNSET_[A-Z0-9_]*WHATSAPP/.test(src)
+          && !src.includes(overlayName)
+          && !src.includes(appDsnSecret)
+          && !/secret show[\s\S]*luna-bot/i.test(src),
+      );
+      pass(
+        'slice10-preparer-no-keyvault-secret-show',
+        !/['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]show['"]/.test(src)
+          && !/\bsecret['\s,]+show\b/.test(src)
+          && !/secrets\/get/i.test(src)
+          && !/Get Secret/i.test(src),
+      );
+      const observerCheck = (src.match(
+        /Metadata-only listing[\s\S]*?(?=const image =)/,
+      ) || [''])[0];
+      pass(
+        'slice10-preparer-observer-secret-metadata-only',
+        Boolean(observerCheck)
+          && /['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]list['"]/.test(observerCheck)
+          && /\[\?name=='\$\{OBSERVER_SECRET\}'\]\.\{name:name, enabled:attributes\.enabled\}/.test(observerCheck)
+          && /observer_secret_missing/.test(observerCheck)
+          && /observer_secret_disabled/.test(observerCheck)
+          && /observer_secret_ambiguous/.test(observerCheck)
+          && /observer_secret_metadata_malformed/.test(observerCheck)
+          && /observerSecretValueRetrieved:\s*false/.test(src),
+      );
+      pass(
+        'slice10-preparer-no-secret-value-fields',
+        Boolean(observerCheck)
+          && !/['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]show['"]/.test(observerCheck)
+          && !/\bsecret['\s,]+show\b/.test(observerCheck)
+          && !/\bvalue\s*:/.test(observerCheck)
+          && !/attributes\.value/.test(observerCheck)
+          && !/['"]value['"]/.test(observerCheck),
+      );
+    }
+    if (fs.existsSync(EVIDENCE)) {
+      const ev = JSON.parse(fs.readFileSync(EVIDENCE, 'utf8'));
+      const overlayName = ['slice10', 'deploy', 'secure', 'local', 'json'].join('-').replace(
+        /^(slice10)-(deploy)-(secure)-(local)-(json)$/,
+        '$1-$2.$3.$4.$5',
+      );
+      pass(
+        'slice10-evidence-no-main-overlay',
+        ev.deploymentPath
+          && ev.deploymentPath.mainOverlayPrepared === false
+          && !String(JSON.stringify(ev)).includes(overlayName),
+      );
+      pass(
+        'slice10-evidence-no-secret-value-retrieval',
+        ev.parameterPreparerContract
+          && ev.parameterPreparerContract.observerSecretValueRetrieved === false,
+      );
+    }
   }
 
   {

@@ -44,6 +44,7 @@ const DISCOVERY_PATHSPECS = [
   'scripts/capture-sunset-staging-rg-cost.js',
   'scripts/load-sunset-staging-pg-admin-env.js',
   'scripts/run-sunset-schema-observer-role-slice9.js',
+  'scripts/prepare-sunset-schema-observer-job-slice10-params.js',
   'scripts/preflight-sunset-staging-bicep.js',
   'scripts/lib/sunset-staging-bicep-preflight.js',
   'scripts/run-sunset-staging-bicep-preflight-live-probe.js',

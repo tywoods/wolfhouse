@@ -1,0 +1,140 @@
+{
+  "kind": "sunset-schema-observer-job-slice10-evidence",
+  "generatedAt": "2026-07-19T08:19:30.000Z",
+  "masterSha": "9cee01f03864d6fcc024755387bb918dca536eeb",
+  "outcome": "Deployed luna-sunset-staging-sch-obs as Manual unscheduled Container Apps Job; job not executed",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "jobName": "luna-sunset-staging-sch-obs",
+    "secretName": "sunset-schema-observer-database-url",
+    "managedIdentity": "luna-sunset-staging-identity",
+    "containerAppsEnvironment": "luna-sunset-staging-env",
+    "staffApiImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6"
+  },
+  "sourceDefaultsPreserved": {
+    "deploySchemaObserverJobDefault": false,
+    "parametersExampleDeploySchemaObserverJob": false
+  },
+  "deploymentPath": {
+    "template": "infra/azure/sunset-staging/schema-observer-job.bicep",
+    "mode": "Incremental",
+    "note": "Standalone schema-observer-job.bicep only. Parameter preparer writes solely slice10-job-module.secure.local.json (non-secret locked metadata). No main.bicep overlay; no postgres/WhatsApp/bot-token inputs.",
+    "secureParams": "tmp/foundation-slice10/slice10-job-module.secure.local.json (gitignored)",
+    "mainOverlayPrepared": false,
+    "unrelatedSecretsRetrieved": false
+  },
+  "parameterPreparerContract": {
+    "outputFile": "tmp/foundation-slice10/slice10-job-module.secure.local.json",
+    "allowedInputs": [
+      "jobName",
+      "environmentId",
+      "managedIdentityId",
+      "staffApiImage",
+      "kvBaseUri",
+      "observerDatabaseSecretName",
+      "replicaTimeout",
+      "replicaRetryLimit",
+      "cpu",
+      "memory",
+      "tags"
+    ],
+    "forbidsMainBicepOverlay": true,
+    "forbidsAppDbDsnRetrieval": true,
+    "forbidsBotTokenRetrieval": true,
+    "forbidsWhatsAppOrInboxRetrieval": true,
+    "forbidsDeployShaForceRevision": true,
+    "observerSecretCheck": "az keyvault secret list (exact-name metadata filter; name + attributes.enabled only)",
+    "forbidsKeyVaultSecretShow": true,
+    "observerSecretValueRetrieved": false
+  },
+  "preDeployWhatIf": {
+    "creates": ["luna-sunset-staging-sch-obs"],
+    "createCount": 1,
+    "deleteCount": 0,
+    "modifyCount": 0,
+    "otherResources": "Ignore only (staff-api, hold-expiry, env, certificate, postgres, appinsights, kv, identity, logs)"
+  },
+  "deployment": {
+    "ok": true,
+    "provisioningState": "Succeeded",
+    "deploymentName": "sunset-slice10-sch-obs-20260719101745",
+    "deploymentId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Resources/deployments/sunset-slice10-sch-obs-20260719101745",
+    "jobId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs",
+    "timestamp": "2026-07-19T08:18:13.809753+00:00"
+  },
+  "postDeployJob": {
+    "name": "luna-sunset-staging-sch-obs",
+    "triggerType": "Manual",
+    "hasSchedule": false,
+    "scheduleTriggerConfig": null,
+    "executionCount": 0,
+    "replicaTimeout": 120,
+    "replicaRetryLimit": 1,
+    "manualTriggerConfig": {
+      "parallelism": 1,
+      "replicaCompletionCount": 1
+    },
+    "cpu": 0.25,
+    "memory": "0.5Gi",
+    "command": ["node", "scripts/observe-sunset-schema-drift.js"],
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+    "identityType": "UserAssigned",
+    "secretNames": ["sunset-schema-observer-database-url"],
+    "secretKeyVaultUrl": "https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-schema-observer-database-url",
+    "dsnEnvUsesSecretRef": true,
+    "dsnPlaintextAbsent": true,
+    "secretValueExposed": false
+  },
+  "postDeployWhatIf": {
+    "createCount": 0,
+    "deleteCount": 0,
+    "modifyCount": 0,
+    "jobChangeType": "NoChange",
+    "ok": true
+  },
+  "cost": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-19",
+      "label": "month-to-date"
+    },
+    "currency": "USD",
+    "before": 15.6024442580645,
+    "after": 15.6024442580645,
+    "delta": 0
+  },
+  "nonMutations": {
+    "jobExecuted": false,
+    "jobScheduled": false,
+    "staffApiImageRebuilt": false,
+    "staffApiRedeployed": false,
+    "postgresRoleOrSchema": false,
+    "firewallNetwork": false,
+    "wolfhouse": false,
+    "production": false
+  },
+  "correctionRereadOnlyVerify": {
+    "generatedAt": "2026-07-19T08:35:00.000Z",
+    "deploymentCreatePerformed": false,
+    "jobStartOrSchedulePerformed": false,
+    "secretValuesRetrieved": false,
+    "observerSecretCheck": "az keyvault secret list --query exact-name metadata (name + attributes.enabled)",
+    "job": {
+      "name": "luna-sunset-staging-sch-obs",
+      "exists": true,
+      "triggerType": "Manual",
+      "hasSchedule": false,
+      "executionCount": 0,
+      "matchesCommittedModule": true
+    },
+    "standaloneModuleWhatIf": {
+      "create": 0,
+      "delete": 0,
+      "modify": 0,
+      "jobChangeType": "NoChange"
+    }
+  }
+}
