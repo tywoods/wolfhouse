@@ -65,7 +65,7 @@
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
     "B": "complete_location_model_promotion",
-    "C": "partial_tenant_services_columns_complete",
+    "C": "partial_cmt_035_rehearsal_complete",
     "D": "pending",
     "E": "pending",
     "F": "pending"
@@ -79,5 +79,18 @@
     "evidence": "fixtures/sunset-schema-observer/slice13c3a-tenant-services-promotion-evidence.json",
     "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3a-mismatch-29-to-25-evidence.json",
     "note": "Phase C tenant_services live-only columns promoted into one forward migration (29→25). Phase D CHECKs/CMT/notification/surf-pack remain. No live apply."
+  },
+  "slice13c3bPhaseC": {
+    "status": "complete_migration_035_disposable_rehearsal",
+    "completedAt": "2026-07-19T16:26:10.992Z",
+    "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
+    "migrationId": "035_customer_message_templates",
+    "migrationFilename": "035_customer_message_templates.sql",
+    "sha256CanonicalLfV1": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "newForwardMigration": false,
+    "evidence": "fixtures/sunset-schema-observer/slice13c3b-migration-035-rehearsal-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3b-mismatch-25-to-8-evidence.json",
+    "keyMap": "fixtures/sunset-schema-observer/slice13c3b-migration-035-owned-key-map.json",
+    "note": "Phase C CMT via existing 035 rehearsed on disposable PostgreSQL only (25→8). Notification/surf-pack and Phase D CHECKs remain. No live apply. No new forward migration."
   }
 }

@@ -325,7 +325,8 @@ function main() {
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && (contract.phaseStatus.B === 'pending' || contract.phaseStatus.B === 'complete_location_model_promotion')
     && (contract.phaseStatus.C === 'pending'
-      || contract.phaseStatus.C === 'partial_tenant_services_columns_complete')
+      || contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
+      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete')
     && contract.phaseStatus.D === 'pending'
     && contract.phaseStatus.E === 'pending'
     && contract.slice13c1PhaseA

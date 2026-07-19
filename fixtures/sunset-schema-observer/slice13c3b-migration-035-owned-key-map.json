@@ -1,0 +1,124 @@
+{
+  "kind": "sunset-schema-observer-slice13c3b-migration-035-owned-key-map",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T16:26:10.991Z",
+  "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
+  "migrationId": "035_customer_message_templates",
+  "migrationFilename": "035_customer_message_templates.sql",
+  "sha256CanonicalLfV1": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+  "ownedKeyCount": 17,
+  "keys": [
+    {
+      "stableKey": "expected_only|tables|customer_message_templates",
+      "object": "customer_message_templates",
+      "type": "table",
+      "expectedAction": "additive_create_if_absent"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.id",
+      "object": "customer_message_templates.id",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.client_id",
+      "object": "customer_message_templates.client_id",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.title",
+      "object": "customer_message_templates.title",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.body",
+      "object": "customer_message_templates.body",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.channel",
+      "object": "customer_message_templates.channel",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.tags",
+      "object": "customer_message_templates.tags",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.active",
+      "object": "customer_message_templates.active",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.created_at",
+      "object": "customer_message_templates.created_at",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.updated_at",
+      "object": "customer_message_templates.updated_at",
+      "type": "column",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "object": "customer_message_templates_pkey",
+      "type": "primary_key",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "object": "customer_message_templates_client_id_fkey",
+      "type": "foreign_key",
+      "expectedAction": "additive_create_with_table"
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+      "object": "customer_message_templates_pkey",
+      "type": "index",
+      "expectedAction": "additive_create_with_pk"
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+      "object": "idx_customer_message_templates_client_active",
+      "type": "index",
+      "expectedAction": "additive_create_if_absent"
+    },
+    {
+      "stableKey": "expected_only|rlsFlags|customer_message_templates",
+      "object": "customer_message_templates",
+      "type": "rls_flag",
+      "expectedAction": "structural_default_disabled_from_create"
+    },
+    {
+      "stableKey": "expected_only|ownership|relation:customer_message_templates",
+      "object": "customer_message_templates",
+      "type": "ownership",
+      "expectedAction": "structural_owner_from_create_no_acl_mutation"
+    },
+    {
+      "stableKey": "expected_only|acls|relation:customer_message_templates",
+      "object": "customer_message_templates",
+      "type": "acl",
+      "expectedAction": "structural_empty_acl_from_create_no_grant_mutation"
+    }
+  ],
+  "mustRemainUnchanged": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ]
+}

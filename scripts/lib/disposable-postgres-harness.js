@@ -76,7 +76,17 @@ async function startDisposablePostgresHarness() {
 
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.waitReady;
-  const port = 15000 + (suffix.charCodeAt(0) % 1000);
+  // Bind an ephemeral free port (suffix-derived ports collide under parallel/repeated proves).
+  const net = require('net');
+  const port = await new Promise((resolve, reject) => {
+    const probe = net.createServer();
+    probe.once('error', reject);
+    probe.listen(0, '127.0.0.1', () => {
+      const addr = probe.address();
+      const p = addr && typeof addr === 'object' ? addr.port : 0;
+      probe.close((err) => (err ? reject(err) : resolve(p)));
+    });
+  });
   const server = new PGLiteSocketServer({
     db,
     host: '127.0.0.1',

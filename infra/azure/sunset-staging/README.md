@@ -420,6 +420,17 @@ npm run verify:sunset-schema-slice13c3a
 
 Artifacts: `slice13c3a-tenant-services-promotion-evidence.json`, `slice13c3a-mismatch-29-to-25-evidence.json`, `slice13c3a-findings.md`.
 
+### Slice 13C.3b — Phase C migration 035 CMT disposable rehearsal (implemented)
+
+Rehearsed **existing** canonical migration `035_customer_message_templates.sql` (byte-identical; no new forward migration) against a disposable Phase-C drift pre-state that omits only 035 effects. Disabled disposable-only harness with catalog preflight; does not claim canonical-runner/ledger provenance. Offline mismatch trajectory **25 → 8** (17 CMT-owned keys resolved; notification/surf-pack + Phase D CHECKs unchanged). Still `product_schema_differs`. **No live apply / observer job / image deploy.**
+
+```bash
+npm run prove:sunset-schema-slice13c3b-migration-035-rehearsal
+npm run verify:sunset-schema-slice13c3b
+```
+
+Artifacts: `slice13c3b-migration-035-rehearsal-evidence.json`, `slice13c3b-mismatch-25-to-8-evidence.json`, `slice13c3b-migration-035-owned-key-map.json`, `slice13c3b-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -477,3 +488,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13B — approved-direction reconciliation design (design only; no repair/live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.1 — azure_flexible_server_v1 observer identity normalization (88→46; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.2 — promote location-aware admin model via 039 (46→29; disposable proof only; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.3a — promote tenant_services SaaS catalog columns via 040 (29→25; disposable proof only; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.3b — rehearse existing migration 035 CMT (25→8; disposable proof only; no live mutation; no new forward migration) — 2026-07-19*

@@ -1,0 +1,218 @@
+{
+  "kind": "sunset-schema-observer-slice13c3b-migration-035-rehearsal-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "disposableBackend": "pglite",
+  "generatedAt": "2026-07-19T16:26:10.991Z",
+  "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
+  "migration": {
+    "id": "035_customer_message_templates",
+    "filename": "035_customer_message_templates.sql",
+    "sha256CanonicalLfV1": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "order": 33,
+    "byteIdentical": true,
+    "newForwardMigration": false
+  },
+  "harness": {
+    "module": "scripts/lib/rehearse-migration-035-disposable.js",
+    "defaultDisabled": true,
+    "liveApplyEnabled": false,
+    "claimsCanonicalRunnerProvenance": false,
+    "wroteSchemaMigrationLedger": false,
+    "catalogPreflight": "pg_attribute/pg_type udt+nullability+attgenerated+attidentity+default; pg_constraint PK/FK; pg_get_indexdef; relrowsecurity/policies; pg_class.relowner+$db_owner-only normalize; relacl semantic ACL (extra/missing privilege, PUBLIC, grant option); reject unexpected triggers",
+    "ownershipAclContract": {
+      "expectedOwnerPresentation": "$db_owner",
+      "expectedAclPresentation": "",
+      "normalizeOnly": "connected_database_owner_token_to_$db_owner",
+      "mutatesOwnershipOrGrants": false
+    },
+    "dsnGate": "assertSafeDatabaseTarget (loopback + wh_mig_* only)"
+  },
+  "ownedKeyMap": "fixtures/sunset-schema-observer/slice13c3b-migration-035-owned-key-map.json",
+  "ownedKeyCount": 17,
+  "ownedKeyStructuralProofs": {
+    "expected_only|tables|customer_message_templates": "pathA.create + pathB.preserve + compareSnapshots.tables",
+    "expected_only|columns|customer_message_templates.id": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.client_id": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.title": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.body": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.channel": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.tags": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.active": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.created_at": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.updated_at": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY": "pg_constraint PK",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY": "pg_constraint FK",
+    "expected_only|indexes|customer_message_templates.customer_message_templates_pkey": "pg_index + compareSnapshots",
+    "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active": "pg_get_indexdef",
+    "expected_only|rlsFlags|customer_message_templates": "relrowsecurity/relforcerowsecurity",
+    "expected_only|ownership|relation:customer_message_templates": "pg_class.relowner + $db_owner normalize + RED incompatible_ownership",
+    "expected_only|acls|relation:customer_message_templates": "relacl semantic ACL + RED escalation/PUBLIC/grant_option/missing_privilege"
+  },
+  "forwardCountUnchanged": 38,
+  "manifestHashUnchanged": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "d6d700c8795ac4e7f4c576fccddff79281d5bdd35d3a527f25837da1065cc43c",
+  "pathA": {
+    "ok": true,
+    "preState": "38-forward canonical then DROP customer_message_templates CASCADE (omit only 035 effects)",
+    "absentClusterCreated": true,
+    "cmtClusterMatchesExpected": true,
+    "secondApplyPreserveNoOp": true,
+    "fingerprintStableAcrossSecondApply": true,
+    "canonicalOutOfSequenceDoesNotRecreateCmt": true,
+    "ownershipAclExactAfterCreate": true
+  },
+  "pathB": {
+    "ok": true,
+    "exactCompatiblePreseed": true,
+    "exactExpectedOwnerAclPreseed": true,
+    "preserveNoOp": true,
+    "ownerAclPreserved": true,
+    "attnumStable": true,
+    "secondApplyNoOp": true
+  },
+  "redFailures": [
+    {
+      "name": "incompatible_column_type",
+      "failedClosed": true,
+      "message": "035 preflight: column channel incompatible type (udt=int4, expected text)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_column_default",
+      "failedClosed": true,
+      "message": "035 preflight: column channel incompatible default (got='sms', expected='whatsapp')",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_column_nullability",
+      "failedClosed": true,
+      "message": "035 preflight: column title incompatible nullability (nullable=true)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_generated_column",
+      "failedClosed": true,
+      "message": "035 preflight: column title is a generated column",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_ownership",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ownership (got=wh_mig_wrong_cmt_owner, normalized=wh_mig_wrong_cmt_owner, expected=$db_owner)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_escalation",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL extra grantee $db_owner (arwdDxtm)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_public_broadening",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL PUBLIC broadening (r)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_grant_option",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL grant option for wh_mig_acl_go",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_missing_privilege",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL missing privilege 'w' for staff_api_role",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true,
+      "offlineSemantic": true
+    },
+    {
+      "name": "incompatible_pk",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible PRIMARY KEY definition",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_fk",
+      "failedClosed": true,
+      "message": "035 preflight: missing client_id FOREIGN KEY",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_index",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible index definition: CREATE INDEX idx_customer_message_templates_client_active ON public.customer_message_templates USING btree (client_id)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_rls_enabled",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible RLS enablement",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "missing_clients_parent",
+      "failedClosed": true,
+      "message": "035 preflight: clients table missing (FK parent required)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "absent_cluster_adds_exact_objects",
+      "ok": true
+    },
+    {
+      "name": "exact_compatible_preserved",
+      "ok": true
+    },
+    {
+      "name": "exact_compatible_owner_acl_preserved",
+      "ok": true
+    },
+    {
+      "name": "second_application_noop",
+      "ok": true
+    },
+    {
+      "name": "non_disposable_dsn_rejected",
+      "ok": true
+    },
+    {
+      "name": "harness_disabled_by_default",
+      "ok": true
+    }
+  ],
+  "mismatchTrajectory": "25 → 8",
+  "remainingClassifications": {
+    "genuine_database_drift": 8
+  },
+  "explicitlyUnchanged": [
+    "notification indexes",
+    "surf-pack FK/trigger/index",
+    "tenant_services Phase D CHECKs",
+    "canonical expected-product-schema.json",
+    "migration 035 bytes + manifest checksum",
+    "forward chain count 38"
+  ]
+}
