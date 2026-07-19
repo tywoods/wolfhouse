@@ -1,0 +1,528 @@
+{
+  "kind": "sunset-schema-observer-slice14s-phase-b-additive-reconcile-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T22:16:21.452Z",
+  "masterShaBasis": "691025bd4e92ee6d0ea5a6cd214ea10e92ca7d4e",
+  "slice": "14S",
+  "outcome": "phase_b_additive_ok_observer_drift",
+  "stillProductSchemaDiffers": true,
+  "phaseBAdditiveApplied": true,
+  "liveMutation": true,
+  "schemaMutation": true,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "createIndex": false,
+  "commentOn": false,
+  "applyFlagPresent": true,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "targetAuthorityAttemptCount": 1,
+  "firewallPrestateAttemptCount": 1,
+  "credentialPreflightAttemptCount": 1,
+  "liveApplyAttemptCount": 1,
+  "observerAttemptCount": 1,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "createTableSha256": "826046e1d5810c28b74945041a02a8c48c84dcc38bec60a98f86a8c67331763b",
+  "migration035Sha256CanonicalLfV1": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+  "mismatchCountBeforeClaim": 499,
+  "authorizedSequence": [
+    "BEGIN",
+    "SET LOCAL lock_timeout",
+    "SET LOCAL statement_timeout",
+    "pg_advisory_xact_lock",
+    "recheck_table_absent",
+    "recheck_no_incompatible_name",
+    "recheck_clients_exists",
+    "capture_existing_row_counts",
+    "CREATE TABLE customer_message_templates",
+    "verify_table_exists",
+    "verify_nine_columns_semantics",
+    "verify_row_counts_unchanged",
+    "assert_index_absent",
+    "COMMIT"
+  ],
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "phaseBAdditiveEnvGateRequired": true,
+  "phaseBAdditiveArgvGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingApplyFlagZeroClients": true,
+    "missingPhaseBEnvZeroClients": true,
+    "wrongExactTargetsZeroClients": true,
+    "forbiddenArgvDsnSqlDropDmlRetryZeroClients": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "setDriftFrom14rRefuse": true,
+    "unsafeNonemptyNotNullRefuse": true,
+    "incompatibleSameNameObjectRefuse": true,
+    "extraSqlRejected": true,
+    "dmlOrDropRejected": true,
+    "partialFailureRollback": true,
+    "wrongOrderOrGates": true,
+    "injectedHttpSuccessExactCreateTableSequence": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "globalLiveApplyRemainsFalse": true,
+    "createTableByteLockedTo035": true,
+    "phaseBSetLockedTo14r": true,
+    "noSeparateIndexInAuthorizedSql": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_apply_flag_zero_clients",
+      "ok": true,
+      "code": "phase_b_additive_flag_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_phase_b_env_zero_clients",
+      "ok": true,
+      "code": "phase_b_additive_env_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_exact_targets_zero_clients",
+      "ok": true,
+      "rejected": true,
+      "code": "exact_target_mismatch",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "forbidden_argv_dsn_sql_drop_dml_retry_zero_clients",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--url",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--ledger",
+        "--repair",
+        "--dml"
+      ],
+      "clientsInstantiated": 0,
+      "code": "forbidden_argv"
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "set_drift_from_14r_refuse",
+      "ok": true,
+      "code": "phase_b_set_drift",
+      "schemaMutation": false
+    },
+    {
+      "name": "unsafe_nonempty_not_null_refuse",
+      "ok": true,
+      "code": "unsafe_nonempty_not_null",
+      "schemaMutation": false
+    },
+    {
+      "name": "incompatible_same_name_object_refuse",
+      "ok": true,
+      "code": "incompatible_same_name_object",
+      "schemaMutation": false
+    },
+    {
+      "name": "extra_sql_rejected",
+      "ok": true,
+      "rejectedStatements": [
+        "DROP TABLE",
+        "DELETE FROM",
+        "INSERT INTO",
+        "CREATE INDEX",
+        "COMMENT ON"
+      ]
+    },
+    {
+      "name": "dml_or_drop_rejected",
+      "ok": true,
+      "rejectedStatements": [
+        "DROP TABLE",
+        "DELETE FROM",
+        "INSERT INTO"
+      ]
+    },
+    {
+      "name": "partial_failure_rollback",
+      "ok": true,
+      "code": "query_failed",
+      "rolledBack": true,
+      "noCommit": true
+    },
+    {
+      "name": "wrong_order_or_gates",
+      "ok": true,
+      "wrongOrderCode": "unauthorized_sql",
+      "gatesRejected": true,
+      "schemaMutation": false
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_success_exact_create_table_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "pg_advisory_xact_lock",
+        "recheck_table_absent",
+        "recheck_no_incompatible_name",
+        "recheck_clients_exists",
+        "capture_existing_row_counts",
+        "CREATE TABLE customer_message_templates",
+        "verify_table_exists",
+        "verify_nine_columns_semantics",
+        "verify_row_counts_unchanged",
+        "assert_index_absent",
+        "COMMIT"
+      ],
+      "queryCalls": 14,
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "createTableSha256": "826046e1d5810c28b74945041a02a8c48c84dcc38bec60a98f86a8c67331763b"
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true,
+      "applyPhaseBAdditive": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-phase-b-additive",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging"
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "phaseBAdditiveLiveEnabled": true
+    },
+    {
+      "name": "create_table_byte_locked_to_035",
+      "ok": true,
+      "createTableSha256": "826046e1d5810c28b74945041a02a8c48c84dcc38bec60a98f86a8c67331763b",
+      "migration035Sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565"
+    },
+    {
+      "name": "phase_b_set_locked_to_14r",
+      "ok": true,
+      "tables": [
+        "customer_message_templates"
+      ],
+      "columns": [
+        "customer_message_templates.active",
+        "customer_message_templates.body",
+        "customer_message_templates.channel",
+        "customer_message_templates.client_id",
+        "customer_message_templates.created_at",
+        "customer_message_templates.id",
+        "customer_message_templates.tags",
+        "customer_message_templates.title",
+        "customer_message_templates.updated_at"
+      ]
+    },
+    {
+      "name": "no_separate_index_in_authorized_sql",
+      "ok": true,
+      "forbiddenIndexName": "idx_customer_message_templates_client_active"
+    }
+  ],
+  "redCaseCount": 13,
+  "greenCaseCount": 8,
+  "clientCallCounts": {
+    "successPathClientsInstantiated": 1,
+    "successPathQueryCalls": 14,
+    "defaultPathClientsInstantiated": 0,
+    "liveApplyClientsInstantiated": 1,
+    "liveApplyQueryCalls": 14
+  },
+  "httpCallCounts": {
+    "successPathHttpRequestCount": 2,
+    "defaultPathHttpRequestCount": 0,
+    "liveApplyHttpRequestCount": 2
+  },
+  "targetAuthorityOutcome": {
+    "ok": true,
+    "code": "same_target_authority_observer_drift",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "activeRevisionName": "luna-sunset-staging-staff-api--0000266",
+    "dbEnvName": "WOLFHOUSE_DATABASE_URL",
+    "secretRefName": "sunset-database-url",
+    "blocker": null
+  },
+  "firewallPrestateOutcome": {
+    "ok": true,
+    "code": "firewall_prestate_ok",
+    "prestateOk": true,
+    "serverState": "Ready",
+    "publicNetworkAccess": "Enabled",
+    "serverReady": true,
+    "publicNetworkAccessEnabled": true,
+    "rulesCount": 3,
+    "exactThreeRules": true,
+    "allowLunaboxEgressExact": true,
+    "firewallRules": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13",
+        "cidr": "4.209.106.13/32"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26",
+        "cidr": "4.208.189.26/32"
+      },
+      {
+        "name": "AllowLunaboxEgress",
+        "startIpAddress": "20.238.124.76",
+        "endIpAddress": "20.238.124.76",
+        "cidr": "20.238.124.76/32"
+      }
+    ],
+    "httpRequestCount": 5,
+    "putCount": 0,
+    "usedLiveHttp": true,
+    "liveMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "errors": [],
+    "blocker": null
+  },
+  "credentialPreflightOutcome": {
+    "ok": true,
+    "code": "credential_preflight_ok",
+    "exitCode": 0,
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "secretTargetValid": true,
+    "httpCallsDelta": 2,
+    "clientsInstantiated": 0,
+    "realPostgresCall": false,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": null
+  },
+  "liveApplyOutcome": {
+    "attempt": 1,
+    "ok": true,
+    "code": "phase_b_additive_reconcile_ok",
+    "exitCode": 0,
+    "beforeAdditive": {
+      "tables": [],
+      "columns": []
+    },
+    "afterAdditive": {
+      "tables": [
+        "customer_message_templates"
+      ],
+      "columns": [
+        "customer_message_templates.active",
+        "customer_message_templates.body",
+        "customer_message_templates.channel",
+        "customer_message_templates.client_id",
+        "customer_message_templates.created_at",
+        "customer_message_templates.id",
+        "customer_message_templates.tags",
+        "customer_message_templates.title",
+        "customer_message_templates.updated_at"
+      ]
+    },
+    "derivedPhaseBSet": {
+      "tables": [
+        "customer_message_templates"
+      ],
+      "columns": [
+        "customer_message_templates.active",
+        "customer_message_templates.body",
+        "customer_message_templates.channel",
+        "customer_message_templates.client_id",
+        "customer_message_templates.created_at",
+        "customer_message_templates.id",
+        "customer_message_templates.tags",
+        "customer_message_templates.title",
+        "customer_message_templates.updated_at"
+      ],
+      "matches14R": true
+    },
+    "rowCountPreservation": {
+      "unchanged": true,
+      "tableCount": 50,
+      "beforeSample": [
+        {
+          "name": "add_on_items",
+          "n": 0
+        },
+        {
+          "name": "add_on_orders",
+          "n": 0
+        },
+        {
+          "name": "auth_sessions",
+          "n": 67
+        }
+      ],
+      "afterSample": [
+        {
+          "name": "add_on_items",
+          "n": 0
+        },
+        {
+          "name": "add_on_orders",
+          "n": 0
+        },
+        {
+          "name": "auth_sessions",
+          "n": 67
+        }
+      ]
+    },
+    "createTableSha256": "826046e1d5810c28b74945041a02a8c48c84dcc38bec60a98f86a8c67331763b",
+    "migration035Sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "steps": [
+      "BEGIN",
+      "SET LOCAL lock_timeout",
+      "SET LOCAL statement_timeout",
+      "pg_advisory_xact_lock",
+      "recheck_table_absent",
+      "recheck_no_incompatible_name",
+      "recheck_clients_exists",
+      "capture_existing_row_counts",
+      "CREATE TABLE customer_message_templates",
+      "verify_table_exists",
+      "verify_nine_columns_semantics",
+      "verify_row_counts_unchanged",
+      "assert_index_absent",
+      "COMMIT"
+    ],
+    "committed": true,
+    "rolledBack": false,
+    "applicationName": "wh-sunset-phase-b-additive",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 14,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveMutation": true,
+    "schemaMutation": true,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "indexAbsent": true,
+    "errors": [],
+    "blocker": null
+  },
+  "observerOutcome": {
+    "ok": false,
+    "match": false,
+    "code": "observer_drift",
+    "mismatchCount": 483,
+    "counts": {
+      "expected_only": 482,
+      "live_only": 0,
+      "definition_mismatch": 1
+    },
+    "mismatchSections": {
+      "constraints": 473,
+      "indexes": 5,
+      "functions": 1,
+      "triggers": 1,
+      "ownership": 1,
+      "acls": 1,
+      "extensions": 1
+    },
+    "phaseBTableColumnKeysCleared": true,
+    "derivedPhaseBSetAfter": {
+      "tables": [],
+      "columns": [],
+      "matches14R": false
+    },
+    "productFingerprintLive": "b46a9b52b90122de8999e5e901340e979dec437a49b21aa4598fea646396d1eb",
+    "normalizationError": null,
+    "blocker": "observer_drift",
+    "sessionReadOnly": true,
+    "mismatchCountBeforeClaim": 499,
+    "mismatchCountAfter": 483,
+    "fullRepairClaimed": false,
+    "observerMatchClaimed": false,
+    "observed": true
+  },
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true,
+    "observerNeverPersistsDsn": true
+  }
+}
