@@ -1,0 +1,94 @@
+{
+  "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "liveReadonlyConnectEnabled": false,
+  "liveQueryExecution": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "mutates": false,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "injectedFakePgClientOnly": true,
+  "generatedAt": "2026-07-19T19:02:17.059Z",
+  "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
+  "slice": "14C",
+  "purpose": "Real PostgreSQL read-only adapter behind merged 14B boundary; live execution hard-disabled; offline scripted fake pg Client proof only.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "credentialSources": {
+    "approvedUserEnv": "SUNSET_STAGING_PG_ADMIN_USER",
+    "approvedPasswordEnv": "SUNSET_STAGING_PG_ADMIN_PASSWORD",
+    "loader": "scripts/load-sunset-staging-pg-admin-env.js",
+    "keyVaultSecret": "sunset-database-url",
+    "forbidden": [
+      "argv",
+      "caller_supplied_dsn",
+      "SUNSET_SCHEMA_OBSERVER_DATABASE_URL",
+      "WOLFHOUSE_DATABASE_URL",
+      "caller host/database/query"
+    ]
+  },
+  "tls": {
+    "sslmode": "verify-full",
+    "rejectUnauthorized": true,
+    "servername": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "statementTimeoutMs": 30000
+  },
+  "authorizedSequence": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "authorizedSessionSql": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "COMMIT",
+    "ROLLBACK"
+  ],
+  "authorizedCatalogSql": [
+    "SELECT 1\nFROM pg_class rel\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\nAND rel.relname = $2\nAND rel.relkind = 'r'",
+    "SELECT\n  a.attname AS name,\n  t.typname AS udt_name,\n  NOT a.attnotnull AS is_nullable\nFROM pg_attribute a\nJOIN pg_type t ON t.oid = a.atttypid\nJOIN pg_class rel ON rel.oid = a.attrelid\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\n  AND rel.relname = $2\n  AND a.attnum > 0\n  AND NOT a.attisdropped\n  AND a.attname = ANY($3::text[])\nORDER BY a.attname"
+  ],
+  "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+  "outputKeys": [
+    "total_rows",
+    "date_window_violations",
+    "price_unit_violations"
+  ],
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "forbidden": [
+    "live connect/query execution",
+    "firewall/network mutation",
+    "credential loading / enable-flag flip",
+    "apply/DDL/ledger",
+    "migration",
+    "14A/14B target or predicate changes",
+    "credentials in logs/results/errors",
+    "caller DSN / host / database / query"
+  ],
+  "nonGoals": [
+    "No Phase D constraint apply",
+    "No Sunset repair claim",
+    "No live Azure/PostgreSQL query",
+    "No expected-fixture regeneration"
+  ]
+}

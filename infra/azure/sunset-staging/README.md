@@ -492,6 +492,17 @@ npm run verify:sunset-schema-slice14b
 
 Artifacts: `slice14b-phase-d-live-readonly-boundary-contract.json`, `slice14b-phase-d-live-readonly-boundary-evidence.json`, `slice14b-findings.md`.
 
+### Slice 14C — Phase D live read-only PostgreSQL adapter (implemented)
+
+Real `pg` Client adapter behind the merged Slice 14B boundary. Creates a Client only after all 14B gates pass; builds config only from locked TARGETS + protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`); reuses verified TLS (`rejectUnauthorized: true` + `servername` = locked FQDN) and `statement_timeout=30000`; executes only the exact authorized 14A sequence (`BEGIN READ ONLY` → read-only verification → locked catalog checks → exact aggregate → `COMMIT`/`ROLLBACK`); closes in `finally`. Live execution remains hard-disabled (`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false`). Offline scripted fake-Client proof only; **no** live/Azure query, firewall/network, credential loading, enable-flag flip, apply/DDL/ledger, migration, or 14A/14B target/predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14c-phase-d-pg-adapter
+npm run verify:sunset-schema-slice14c
+```
+
+Artifacts: `slice14c-phase-d-pg-adapter-contract.json`, `slice14c-phase-d-pg-adapter-evidence.json`, `slice14c-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -555,3 +566,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13C.3d — integrated Phase C disposable proof 040→035→041 (29→2; no new forward migration; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14A — Phase D CHECK aggregate preflight (source-only; disposable proof; no constraint apply; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14B — Phase D live read-only connection boundary (hard-disabled; offline injected-adapter proof; no live connect/query; no mutation) — 2026-07-19*
+*FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter (hard-disabled; offline fake-Client proof; no live connect/query; no mutation) — 2026-07-19*

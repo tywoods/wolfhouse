@@ -1,0 +1,154 @@
+{
+  "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T19:02:17.059Z",
+  "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
+  "slice": "14C",
+  "outcome": "phase_d_live_readonly_pg_adapter_proven_offline_hard_disabled",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": false,
+  "liveQueryExecution": false,
+  "azureConnectivity": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "credentialLoading": false,
+  "enableFlagFlipped": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "authorizedSequence": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "tls": {
+    "sslmode": "verify-full",
+    "rejectUnauthorized": true,
+    "servername": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "statementTimeoutMs": 30000
+  },
+  "offlineGates": {
+    "defaultPathZeroClients": true,
+    "liveDisabledExactTargetZeroClients": true,
+    "exactSequenceCountOnlySuccess": true,
+    "wrongReorderedExtraSqlRejected": true,
+    "connectFailureSanitizedCloseOccurs": true,
+    "queryFailureRollbackAndClose": true,
+    "commitFailureRollbackAndClose": true,
+    "closeFailureSanitized": true,
+    "credentialsNeverInLogsResultsErrors": true,
+    "callerDsnHostQueryRejected": true,
+    "observerDsnRejectedBeforeClient": true,
+    "statementTimeoutEnforcedInClientOptions": true,
+    "verifiedTlsRejectUnauthorized": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_clients",
+      "ok": true,
+      "code": "live_readonly_flags_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "caller_supplied_dsn_forbidden",
+      "ok": true,
+      "code": "caller_supplied_connect_forbidden",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "caller_supplied_host_forbidden",
+      "ok": true,
+      "code": "caller_supplied_connect_forbidden",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "observer_dsn_forbidden_zero_clients",
+      "ok": true,
+      "code": "credential_source_rejected",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_reordered_extra_sql_rejected",
+      "ok": true,
+      "wrongSql": true,
+      "reordered": true,
+      "extra": true,
+      "authGate": true
+    },
+    {
+      "name": "connect_failure_sanitized_close_occurs",
+      "ok": true,
+      "code": "connect_failed",
+      "closed": true,
+      "endCalled": true
+    },
+    {
+      "name": "query_failure_rollback_and_close",
+      "ok": true,
+      "code": "query_failed",
+      "rolledBack": true,
+      "closed": true
+    },
+    {
+      "name": "commit_failure_rollback_and_close",
+      "ok": true,
+      "code": "commit_failed",
+      "rolledBack": true
+    },
+    {
+      "name": "close_failure_sanitized",
+      "ok": true,
+      "sequenceOk": true,
+      "closed": false,
+      "closeErrorPresent": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "live_disabled_exact_target_zero_clients",
+      "ok": true,
+      "code": "target_accepted_pg_adapter_hard_disabled",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "exact_sequence_count_only_success",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "aggregate",
+        "COMMIT"
+      ],
+      "counts": {
+        "total_rows": 7,
+        "date_window_violations": 2,
+        "price_unit_violations": 1
+      },
+      "clientsInstantiated": 1,
+      "closed": true,
+      "queryCount": 6
+    }
+  ],
+  "note": "Slice 14C proves the real pg read-only adapter behind the 14B boundary with a scripted fake Client only. Live execution remains hard-disabled. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+}

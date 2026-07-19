@@ -130,8 +130,10 @@ function createDefaultOfflineAdapters() {
 }
 
 /**
- * Live adapter factory placeholder — permanently refuses in Slice 14B.
- * A later approved slice may implement real Azure/PG wiring here.
+ * Live adapter factory placeholder — permanently refuses while
+ * PHASE_D_LIVE_READONLY_CONNECT_ENABLED is false (Slice 14B/14C).
+ * Slice 14C implements the real pg adapter in
+ * phase-d-live-readonly-pg-adapter.js; live execution stays hard-disabled.
  */
 function createLiveReadonlyAdapters() {
   throw Object.assign(
