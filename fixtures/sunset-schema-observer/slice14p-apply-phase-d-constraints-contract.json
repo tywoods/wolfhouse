@@ -1,0 +1,149 @@
+{
+  "kind": "sunset-schema-observer-slice14p-apply-phase-d-constraints-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": true,
+  "liveApplyCapability": true,
+  "constraintApplyLiveEnabled": true,
+  "globalLiveApplyEnabled": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "appliesConstraints": true,
+  "writesLedger": false,
+  "dataMutation": false,
+  "mutates": true,
+  "schemaMutation": true,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "constraintApplyEnvGateRequired": true,
+  "constraintApplyArgvGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "firewallPrestateRequiredBeforeCredentialPreflight": true,
+  "credentialPreflightRequiredBeforeLiveApply": true,
+  "observerReadOnlyAfterSuccessfulApply": true,
+  "offlineInjectedHttpAndFakeClientProof": true,
+  "alterStatementsByteLocked": true,
+  "verifyNeverRerunsLive": true,
+  "generatedAt": "2026-07-19T21:36:06.973Z",
+  "masterShaBasis": "51afd90f84a9100afb95c777ce92d27fff164f2c",
+  "slice": "14P",
+  "purpose": "Apply exactly two byte-locked migration-028 CHECK constraints (tenant_services_date_window + tenant_services_price_unit) after zero-count preflight; catalog verify; canonical observer read-only; no DML/ledger/migration/Azure mutation beyond MI credential GET; verify never re-runs live.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "applyLocks": {
+    "applicationName": "wh-sunset-phase-d-constraint-apply",
+    "advisoryLockKey1": 1464356932,
+    "advisoryLockKey2": 1128811314,
+    "constraints": [
+      "tenant_services_date_window",
+      "tenant_services_price_unit"
+    ],
+    "migration028Sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "alterDateWindowSha256": "f8c654179cd6d191feb90d83f62105b0d470760efcebf64e4a41e6345cf6463b",
+    "alterPriceUnitSha256": "269f14a90133ffcca74721470d6f278d8800134dde2f2f9d9d7342269af7eedb",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full"
+  },
+  "commandContract": {
+    "credentialPreflight": {
+      "script": "scripts/run-phase-d-credential-preflight.js",
+      "npm": "phase-d:credential-preflight"
+    },
+    "constraintApply": {
+      "script": "scripts/run-phase-d-constraint-apply.js",
+      "npm": "phase-d:constraint-apply",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_CONSTRAINT_APPLY=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--apply-phase-d-constraints",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--execute-count-only",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--ledger",
+        "--repair",
+        "--dml"
+      ]
+    }
+  },
+  "authorizedSequence": [
+    "BEGIN",
+    "SET LOCAL lock_timeout",
+    "SET LOCAL statement_timeout",
+    "pg_advisory_xact_lock",
+    "catalog_table",
+    "catalog_columns",
+    "assert_constraints_absent",
+    "aggregate",
+    "ADD CONSTRAINT tenant_services_date_window",
+    "ADD CONSTRAINT tenant_services_price_unit",
+    "verify_constraints",
+    "COMMIT"
+  ],
+  "alterStatementsSha256": {
+    "date_window": "f8c654179cd6d191feb90d83f62105b0d470760efcebf64e4a41e6345cf6463b",
+    "price_unit": "269f14a90133ffcca74721470d6f278d8800134dde2f2f9d9d7342269af7eedb"
+  },
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "forbidden": [
+    "INSERT/UPDATE/DELETE",
+    "DROP/RENAME",
+    "ledger write",
+    "RBAC / network / firewall mutation",
+    "migration / predicate changes",
+    "DSN / token / username / password / secret version in evidence",
+    "broad retry on live failure",
+    "second live apply in verify"
+  ],
+  "nonGoals": [
+    "No expected-fixture regeneration",
+    "No broad Azure/KV/RBAC/network mutation",
+    "Do not claim Sunset repaired unless observer match"
+  ]
+}

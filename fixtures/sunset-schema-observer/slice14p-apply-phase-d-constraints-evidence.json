@@ -1,0 +1,445 @@
+{
+  "kind": "sunset-schema-observer-slice14p-apply-phase-d-constraints-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T21:36:06.973Z",
+  "masterShaBasis": "51afd90f84a9100afb95c777ce92d27fff164f2c",
+  "slice": "14P",
+  "outcome": "phase_d_constraint_apply_ok_observer_drift",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": true,
+  "liveMutation": true,
+  "schemaMutation": true,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "applyFlagPresent": true,
+  "appliesConstraints": true,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "firewallPrestateAttemptCount": 1,
+  "credentialPreflightAttemptCount": 1,
+  "liveApplyAttemptCount": 1,
+  "observerAttemptCount": 1,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "alterStatementsSha256": {
+    "date_window": "f8c654179cd6d191feb90d83f62105b0d470760efcebf64e4a41e6345cf6463b",
+    "price_unit": "269f14a90133ffcca74721470d6f278d8800134dde2f2f9d9d7342269af7eedb"
+  },
+  "authorizedSequence": [
+    "BEGIN",
+    "SET LOCAL lock_timeout",
+    "SET LOCAL statement_timeout",
+    "pg_advisory_xact_lock",
+    "catalog_table",
+    "catalog_columns",
+    "assert_constraints_absent",
+    "aggregate",
+    "ADD CONSTRAINT tenant_services_date_window",
+    "ADD CONSTRAINT tenant_services_price_unit",
+    "verify_constraints",
+    "COMMIT"
+  ],
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "constraintApplyEnvGateRequired": true,
+  "constraintApplyArgvGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingApplyFlagZeroClients": true,
+    "missingConstraintApplyEnvZeroClients": true,
+    "wrongExactTargetsZeroClients": true,
+    "forbiddenArgvDsnSqlDropDmlRetryZeroClients": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "nonzeroCountsRefuseRollback": true,
+    "preexistingConstraintRefuseRollback": true,
+    "wrongExtraSqlRejected": true,
+    "lockFailureRollback": true,
+    "injectedHttpSuccessExactConstraintSequence": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "globalLiveApplyRemainsFalse": true,
+    "alterStatementsByteLocked": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_apply_flag_zero_clients",
+      "ok": true,
+      "code": "constraint_apply_flag_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_constraint_apply_env_zero_clients",
+      "ok": true,
+      "code": "constraint_apply_env_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_exact_targets_zero_clients",
+      "ok": true,
+      "rejected": true,
+      "code": "exact_target_mismatch",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "forbidden_argv_dsn_sql_drop_dml_retry_zero_clients",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--execute-count-only",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--ledger",
+        "--repair",
+        "--dml"
+      ],
+      "clientsInstantiated": 0,
+      "code": "forbidden_argv"
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "nonzero_counts_refuse_rollback",
+      "ok": true,
+      "code": "nonzero_violation_counts",
+      "rolledBack": true,
+      "noCommit": true,
+      "noAddConstraint": true
+    },
+    {
+      "name": "preexisting_constraint_refuse_rollback",
+      "ok": true,
+      "code": "constraint_preexisting",
+      "rolledBack": true,
+      "noCommit": true
+    },
+    {
+      "name": "wrong_extra_sql_rejected",
+      "ok": true,
+      "rejectedStatements": [
+        "DROP TABLE",
+        "DELETE FROM",
+        "INSERT INTO"
+      ]
+    },
+    {
+      "name": "lock_failure_rollback",
+      "ok": true,
+      "code": "lock_timeout",
+      "rolledBack": true,
+      "noCommit": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_success_exact_constraint_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table",
+        "catalog_columns",
+        "assert_constraints_absent",
+        "aggregate",
+        "ADD CONSTRAINT tenant_services_date_window",
+        "ADD CONSTRAINT tenant_services_price_unit",
+        "verify_constraints",
+        "COMMIT"
+      ],
+      "beforeConstraints": [],
+      "afterConstraintsCount": 2,
+      "counts": {
+        "total_rows": 0,
+        "date_window_violations": 0,
+        "price_unit_violations": 0
+      },
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "queryCalls": 12,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true,
+      "applyConstraints": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-phase-d-constraint-apply",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging"
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "constraintApplyLiveEnabled": true
+    },
+    {
+      "name": "alter_statements_byte_locked",
+      "ok": true,
+      "migration028Sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+      "alterDateWindowSha256": "f8c654179cd6d191feb90d83f62105b0d470760efcebf64e4a41e6345cf6463b",
+      "alterPriceUnitSha256": "269f14a90133ffcca74721470d6f278d8800134dde2f2f9d9d7342269af7eedb"
+    }
+  ],
+  "redCaseCount": 10,
+  "greenCaseCount": 6,
+  "clientCallCounts": {
+    "successPathClientsInstantiated": 1,
+    "successPathQueryCalls": 12,
+    "defaultPathClientsInstantiated": 0,
+    "liveApplyClientsInstantiated": 1,
+    "liveApplyQueryCalls": 12,
+    "liveApplyConnectCalls": 1,
+    "liveApplyEndCalls": 1,
+    "liveApplySessions": 1
+  },
+  "httpCallCounts": {
+    "successPathHttpRequestCount": 2,
+    "defaultPathHttpRequestCount": 0,
+    "liveCredentialPreflightHttpCallsDelta": 2,
+    "liveApplyHttpRequestCount": 2,
+    "liveApplyImdsRequestCount": 1,
+    "liveApplyKeyVaultRequestCount": 1
+  },
+  "firewallPrestateOutcome": {
+    "ok": true,
+    "code": "firewall_prestate_ok",
+    "prestateOk": true,
+    "serverState": "Ready",
+    "publicNetworkAccess": "Enabled",
+    "serverReady": true,
+    "publicNetworkAccessEnabled": true,
+    "rulesCount": 3,
+    "exactThreeRules": true,
+    "allowLunaboxEgressExact": true,
+    "firewallRules": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13",
+        "cidr": "4.209.106.13/32"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26",
+        "cidr": "4.208.189.26/32"
+      },
+      {
+        "name": "AllowLunaboxEgress",
+        "startIpAddress": "20.238.124.76",
+        "endIpAddress": "20.238.124.76",
+        "cidr": "20.238.124.76/32"
+      }
+    ],
+    "outboundIpv4Service1": "20.238.124.76",
+    "outboundIpv4Service2": "20.238.124.76",
+    "outboundIpv4Matched": true,
+    "expectedOutboundIpv4": "20.238.124.76",
+    "httpRequestCount": 5,
+    "imdsRequestCount": 1,
+    "armGetCount": 2,
+    "armPutCount": 0,
+    "armDeleteCount": 0,
+    "outboundIpGetCount": 2,
+    "putCount": 0,
+    "retries": 0,
+    "usedLiveHttp": true,
+    "realImdsCall": true,
+    "realArmCall": true,
+    "realOutboundIpCall": true,
+    "realPostgresCall": false,
+    "pgClientInstantiated": 0,
+    "liveMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "identityMutation": false,
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "firewallRuleName": "AllowLunaboxEgress",
+    "startIpAddress": "20.238.124.76",
+    "endIpAddress": "20.238.124.76",
+    "managedIdentityName": "wh-staging-identity",
+    "errors": [],
+    "blocker": null
+  },
+  "credentialPreflightOutcome": {
+    "ok": true,
+    "code": "credential_preflight_ok",
+    "exitCode": 0,
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "secretTargetValid": true,
+    "httpCallsDelta": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "clientsInstantiated": 0,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": false,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": null
+  },
+  "liveApplyOutcome": {
+    "attempt": 1,
+    "ok": true,
+    "code": "phase_d_constraint_apply_ok",
+    "exitCode": 0,
+    "beforeConstraints": [],
+    "afterConstraints": [
+      {
+        "name": "tenant_services_date_window",
+        "contype": "c",
+        "convalidated": true
+      },
+      {
+        "name": "tenant_services_price_unit",
+        "contype": "c",
+        "convalidated": true
+      }
+    ],
+    "counts": {
+      "total_rows": 0,
+      "date_window_violations": 0,
+      "price_unit_violations": 0
+    },
+    "steps": [
+      "BEGIN",
+      "SET LOCAL lock_timeout",
+      "SET LOCAL statement_timeout",
+      "pg_advisory_xact_lock",
+      "catalog_table",
+      "catalog_columns",
+      "assert_constraints_absent",
+      "aggregate",
+      "ADD CONSTRAINT tenant_services_date_window",
+      "ADD CONSTRAINT tenant_services_price_unit",
+      "verify_constraints",
+      "COMMIT"
+    ],
+    "committed": true,
+    "rolledBack": false,
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-constraint-apply",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 12,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveMutation": true,
+    "schemaMutation": true,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "errors": [],
+    "blocker": null
+  },
+  "observerOutcome": {
+    "ok": false,
+    "match": false,
+    "code": "observer_drift",
+    "mismatchCount": 499,
+    "counts": {
+      "expected_only": 498,
+      "live_only": 0,
+      "definition_mismatch": 1
+    },
+    "constraintSamples": [],
+    "productFingerprintLive": "d5ec00d7217d34142d48c3125ef6886bbbe185371aeb01457bf1b331ecdd7050",
+    "normalizationError": null,
+    "blocker": "observer_drift",
+    "sessionReadOnly": true,
+    "mismatchCountBeforeClaim": 2,
+    "mismatchCountAfter": 499,
+    "mismatchReduced2to0": false,
+    "observed": true,
+    "phaseDCheckKeys": [
+      "tenant_services.tenant_services_date_window.CHECK",
+      "tenant_services.tenant_services_price_unit.CHECK"
+    ],
+    "phaseDCheckKeysPresentInDrift": [],
+    "phaseDCheckKeysCleared": true,
+    "note": "Overall live drift remains (not the disposable 13C3d 2-key residual). Phase D CHECK keys cleared from drift; do not claim mismatch 2→0."
+  },
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true,
+    "observerNeverPersistsDsn": true
+  }
+}
