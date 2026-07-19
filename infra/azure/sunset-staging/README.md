@@ -757,3 +757,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14O — Post-firewall Phase D live read-only counts (firewall prestate + credential preflight + one gated count; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14P — Apply Phase D CHECK constraints (offline gates + gated live apply + observer read-only; schema mutation only) — 2026-07-19*
 *FOUNDATION Slice 14Q — Active Staff API ↔ Key Vault DB target authority (read-only proof + drift classification; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14R — Live reconcile decision (occupancy + drift; clean rebuild vs in-place; zero mutation) — 2026-07-19*

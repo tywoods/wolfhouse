@@ -1,0 +1,1122 @@
+{
+  "kind": "sunset-schema-observer-slice14r-live-reconcile-decision-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T21:58:38.356Z",
+  "masterShaBasis": "7862b67ffa5c8ef2df63c15e231dcc9d266b369f",
+  "slice": "14R",
+  "outcome": "phase_d_reconcile_decision_live_preserved",
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "liveAttemptCount": 1,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "authorizedSequence": [
+    "IMDS ARM token (management.azure.com)",
+    "ARM GET container app (active revision + env secretRef)",
+    "ARM POST listSecrets (only when needed; values zeroed)",
+    "IMDS vault token + GET luna-sunset-staging-kv/sunset-database-url",
+    "In-memory semantic DSN/KeyVault-ref authority compare",
+    "TLS verify-full pg session application_name=wh-sunset-reconcile-decision",
+    "BEGIN READ ONLY → occupancy + inventory + ledger summary + observer drift grouping + decision → COMMIT"
+  ],
+  "defaultDisabled": true,
+  "applicationName": "wh-sunset-reconcile-decision",
+  "authorityLocks": {
+    "applicationName": "wh-sunset-reconcile-decision",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full"
+  },
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingProveFlagZeroHttp": true,
+    "missingReconcileEnvZeroHttp": true,
+    "wrongExactTargetsZeroHttp": true,
+    "forbiddenArgvDsnSqlRetryZeroHttp": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "wrongTargetBlocksRebuild": true,
+    "hiddenNoncanonicalDataBlocksRebuild": true,
+    "countAmbiguityBlocksRebuild": true,
+    "tableSetMismatchBlocksRebuild": true,
+    "overflowBlocksRebuild": true,
+    "unsafeRebuildRecommendationRejected": true,
+    "secretLeakageScan": true,
+    "nonReadOnlySession": true,
+    "injectedHttpEmptyDbRecommendsCleanRebuild": true,
+    "injectedHttpNonemptyRecommendsInplace": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "globalLiveApplyRemainsFalse": true,
+    "decisionCriteriaDeterministic": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_prove_flag_zero_http",
+      "ok": true,
+      "code": "reconcile_decision_flag_required"
+    },
+    {
+      "name": "missing_reconcile_env_zero_http",
+      "ok": true,
+      "code": "reconcile_decision_env_required"
+    },
+    {
+      "name": "wrong_exact_targets_zero_http",
+      "ok": true,
+      "rejected": true,
+      "code": "exact_target_mismatch"
+    },
+    {
+      "name": "forbidden_argv_dsn_sql_retry_zero_http",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--delete",
+        "--purge",
+        "--retry",
+        "--retries",
+        "--force",
+        "--deploy",
+        "--mutate",
+        "--url",
+        "--body",
+        "--token",
+        "--access-token",
+        "--imds-url",
+        "--arm-url",
+        "--dsn",
+        "--database-url",
+        "--connection-string",
+        "--host",
+        "--user",
+        "--username",
+        "--password",
+        "--file",
+        "--sql",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule",
+        "--prove-active-db-target-authority",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule"
+      ]
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "wrong_target_blocks_rebuild",
+      "ok": true,
+      "recommendation": "blocked_wrong_target"
+    },
+    {
+      "name": "hidden_noncanonical_data_blocks_rebuild",
+      "ok": true,
+      "recommendation": "controlled_export_import"
+    },
+    {
+      "name": "count_ambiguity_blocks_rebuild",
+      "ok": true,
+      "recommendation": "blocked_count_ambiguity"
+    },
+    {
+      "name": "table_set_mismatch_blocks_rebuild",
+      "ok": true,
+      "recommendation": "blocked_count_ambiguity"
+    },
+    {
+      "name": "overflow_blocks_rebuild",
+      "ok": true,
+      "recommendation": "blocked_count_ambiguity"
+    },
+    {
+      "name": "unsafe_rebuild_recommendation_rejected",
+      "ok": true,
+      "recommendation": "in_place_targeted_repair",
+      "rebuildAllowed": true
+    },
+    {
+      "name": "secret_leakage_scan",
+      "ok": true,
+      "secretFree": true
+    },
+    {
+      "name": "non_read_only_session",
+      "ok": true,
+      "code": "session_not_read_only",
+      "sameTarget": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_empty_db_recommends_clean_rebuild",
+      "ok": true,
+      "recommendation": "clean_canonical_rebuild_cutover",
+      "rebuildAllowed": true
+    },
+    {
+      "name": "injected_http_nonempty_recommends_inplace",
+      "ok": true,
+      "recommendation": "in_place_targeted_repair"
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-reconcile-decision",
+      "containerAppName": "luna-sunset-staging-staff-api",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full"
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false
+    },
+    {
+      "name": "decision_criteria_deterministic",
+      "ok": true,
+      "emptyRecommendation": "clean_canonical_rebuild_cutover",
+      "nonemptyRecommendation": "in_place_targeted_repair"
+    }
+  ],
+  "redCaseCount": 14,
+  "greenCaseCount": 7,
+  "liveReconcileDecisionOutcome": {
+    "ok": true,
+    "code": "reconcile_decision_captured",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "blocker": null,
+    "activeRevisionName": "luna-sunset-staging-staff-api--0000266",
+    "dbEnvName": "WOLFHOUSE_DATABASE_URL",
+    "secretRefName": "sunset-database-url",
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "schemaInventory": {
+      "bySchema": {
+        "public": {
+          "index": 239,
+          "table": 50
+        }
+      },
+      "totalObjects": 289,
+      "publicTables": 50,
+      "schemas": [
+        "public"
+      ]
+    },
+    "ledgerSummary": {
+      "present": false,
+      "tableName": "schema_migration_ledger",
+      "rowCount": 0,
+      "note": "ledger_table_absent"
+    },
+    "occupancy": {
+      "canonicalPublicTableCount": 51,
+      "livePublicTableCount": 50,
+      "perTableRowCounts": {
+        "add_on_items": 0,
+        "add_on_orders": 0,
+        "auth_sessions": 67,
+        "automation_errors": 0,
+        "beds": 0,
+        "booking_beds": 0,
+        "booking_guests": 0,
+        "booking_service_records": 349,
+        "booking_transfers": 0,
+        "bookings": 237,
+        "bot_pause_states": 20,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "clients": 1,
+        "conversations": 8,
+        "customers": 86,
+        "guest_message_events": 0,
+        "guest_message_sends": 0,
+        "guests": 0,
+        "lesson_requests": 0,
+        "manual_entries": 0,
+        "meal_requests": 0,
+        "messages": 129,
+        "operator_room_release_requests": 0,
+        "package_price_rules": 0,
+        "packages": 0,
+        "payment_events": 0,
+        "payments": 68,
+        "rental_requests": 0,
+        "rooms": 0,
+        "staff_automated_notification_events": 0,
+        "staff_automated_notifications": 0,
+        "staff_handoffs": 8,
+        "staff_phone_access": 0,
+        "staff_tasks": 0,
+        "staff_users": 1,
+        "tenant_config_audit_log": 795,
+        "tenant_house_notes": 1,
+        "tenant_lesson_capacity_rules": 2,
+        "tenant_lesson_time_rules": 16,
+        "tenant_price_rules": 201,
+        "tenant_private_lesson_rules": 1,
+        "tenant_services": 0,
+        "tenant_surf_pack_rules": 36,
+        "transfer_requests": 0,
+        "waiver_form_requests": 223,
+        "waiver_form_submissions": 3,
+        "wolfhouse_staff_whatsapp_numbers": 0,
+        "workflow_events": 0,
+        "yoga_requests": 0
+      },
+      "emptyApprovedTableCount": 30,
+      "nonemptyApprovedTableCount": 20,
+      "totalApprovedRowCount": 2252,
+      "countAmbiguous": false,
+      "countFailures": [],
+      "publicSequenceCount": 0,
+      "noncanonicalPublicTables": [],
+      "noncanonicalDataBearingObjectExists": false,
+      "dataBearingTableOmittedByCanonical": false,
+      "missingApprovedTables": [
+        "customer_message_templates"
+      ],
+      "enumerationComplete": true,
+      "tableSetMismatch": false
+    },
+    "groupedDrift": {
+      "counts": {
+        "expected_only": 498,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "tables": 1,
+        "columns": 9,
+        "constraints": 475,
+        "indexes": 6,
+        "functions": 1,
+        "triggers": 1,
+        "rlsFlags": 1,
+        "ownership": 2,
+        "acls": 2,
+        "extensions": 1
+      },
+      "constraintTypeDrift": {
+        "PRIMARY KEY": 1,
+        "UNIQUE": 0,
+        "FOREIGN KEY": 2,
+        "CHECK": 0,
+        "NOT_NULL": 472,
+        "other": 0
+      },
+      "missingCounts": {
+        "tables": 1,
+        "columns": 9,
+        "indexes": 6
+      },
+      "migrationOwnershipByManifestEntry": {
+        "035_customer_message_templates": {
+          "tables": 1,
+          "columns": 0,
+          "indexes": 1,
+          "constraints": 11
+        },
+        "007_add_addon_orders": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 64
+        },
+        "009_auth_staff_users": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 15
+        },
+        "001_init": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 127
+        },
+        "024_booking_guests": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 11
+        },
+        "010_booking_service_records": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 12
+        },
+        "017_booking_transfers": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 9
+        },
+        "012_bot_pause_states": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 8
+        },
+        "032_client_notification_settings": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 3,
+          "constraints": 14
+        },
+        "031_customers": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 8
+        },
+        "014_guest_message_events": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 10
+        },
+        "013_guest_message_sends": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 10
+        },
+        "002_package_pricing": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 12
+        },
+        "033_staff_automated_notifications": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 20
+        },
+        "008_add_staff_handoffs": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 18
+        },
+        "016_staff_phone_access": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 9
+        },
+        "021_sunset_admin_business_config": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 41
+        },
+        "030_tenant_house_notes": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 4
+        },
+        "033_tenant_private_lesson_rules": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 8
+        },
+        "028_tenant_services": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 18
+        },
+        "026_tenant_surf_pack_rules": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 1,
+          "constraints": 9
+        },
+        "036_sunset_waivers": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 21
+        },
+        "027_wolfhouse_staff_whatsapp_numbers": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 0,
+          "constraints": 7
+        },
+        "041_notification_surfpack_convergence": {
+          "tables": 0,
+          "columns": 0,
+          "indexes": 4,
+          "constraints": 0
+        }
+      },
+      "unownedMissingCount": 26,
+      "migrationLedgerAbsent": true
+    },
+    "migrationOwnership": {
+      "035_customer_message_templates": {
+        "tables": 1,
+        "columns": 0,
+        "indexes": 1,
+        "constraints": 11
+      },
+      "007_add_addon_orders": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 64
+      },
+      "009_auth_staff_users": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 15
+      },
+      "001_init": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 127
+      },
+      "024_booking_guests": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 11
+      },
+      "010_booking_service_records": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 12
+      },
+      "017_booking_transfers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 9
+      },
+      "012_bot_pause_states": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "032_client_notification_settings": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 3,
+        "constraints": 14
+      },
+      "031_customers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "014_guest_message_events": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 10
+      },
+      "013_guest_message_sends": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 10
+      },
+      "002_package_pricing": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 12
+      },
+      "033_staff_automated_notifications": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 20
+      },
+      "008_add_staff_handoffs": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 18
+      },
+      "016_staff_phone_access": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 9
+      },
+      "021_sunset_admin_business_config": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 41
+      },
+      "030_tenant_house_notes": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 4
+      },
+      "033_tenant_private_lesson_rules": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "028_tenant_services": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 18
+      },
+      "026_tenant_surf_pack_rules": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 1,
+        "constraints": 9
+      },
+      "036_sunset_waivers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 21
+      },
+      "027_wolfhouse_staff_whatsapp_numbers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 7
+      },
+      "041_notification_surfpack_convergence": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 4,
+        "constraints": 0
+      }
+    },
+    "ledgerAbsent": true,
+    "decision": {
+      "destructiveRebuildForbidden": true,
+      "executed": false,
+      "occupancySummary": {
+        "canonicalPublicTableCount": 51,
+        "livePublicTableCount": 50,
+        "emptyApprovedTableCount": 30,
+        "nonemptyApprovedTableCount": 20,
+        "totalApprovedRowCount": 2252,
+        "countAmbiguous": false,
+        "publicSequenceCount": 0,
+        "noncanonicalPublicTableCount": 0,
+        "missingApprovedTableCount": 1,
+        "noncanonicalDataBearingObjectExists": false,
+        "dataBearingTableOmittedByCanonical": false,
+        "tableSetMismatch": false
+      },
+      "recommendation": "in_place_targeted_repair",
+      "rationale": "Approved tables contain data; in-place targeted repair is required — destructive rebuild forbidden",
+      "rebuildAllowed": false,
+      "futureRebuildCutoverPlan": null,
+      "orderedReconciliationPhases": [
+        {
+          "id": "A",
+          "title": "Observer Azure normalization validation (no DB mutation)",
+          "risk": "low",
+          "actions": [
+            "Confirm normalization profile azure_flexible_server_v1 before interpreting drift",
+            "Re-run observer after normalization; abort if observation defect persists"
+          ],
+          "execute": false
+        },
+        {
+          "id": "B",
+          "title": "Additive tables/columns via canonical forward migrations",
+          "risk": "medium",
+          "actions": [
+            "Apply only forward migrations owning missing expected tables/columns",
+            "Validate Staff API compatibility after each additive batch"
+          ],
+          "execute": false
+        },
+        {
+          "id": "C",
+          "title": "Indexes and non-destructive constraints",
+          "risk": "medium",
+          "actions": [
+            "Create missing indexes from migration ownership map",
+            "Add UNIQUE/FOREIGN KEY only after dependency validation"
+          ],
+          "execute": false
+        },
+        {
+          "id": "D",
+          "title": "CHECK constraints and preflight validation",
+          "risk": "high",
+          "actions": [
+            "Run CHECK preflight on live data before apply",
+            "Abort on any violation; never destructive rewrite"
+          ],
+          "execute": false
+        },
+        {
+          "id": "E",
+          "title": "Migration ledger bootstrap (if absent)",
+          "risk": "medium",
+          "actions": [
+            "Bootstrap schema_migration_ledger from manifest checksums only when design-approved",
+            "Never backfill ledger without operator sign-off"
+          ],
+          "execute": false
+        },
+        {
+          "id": "F",
+          "title": "Canonical observer verification",
+          "risk": "high",
+          "actions": [
+            "Observer match required before declaring reconcile complete",
+            "Second run must be no-op"
+          ],
+          "execute": false
+        }
+      ],
+      "dependencyValidationRisk": "high"
+    },
+    "recommendation": "in_place_targeted_repair",
+    "occupancySummary": {
+      "canonicalPublicTableCount": 51,
+      "livePublicTableCount": 50,
+      "emptyApprovedTableCount": 30,
+      "nonemptyApprovedTableCount": 20,
+      "totalApprovedRowCount": 2252,
+      "countAmbiguous": false,
+      "publicSequenceCount": 0,
+      "noncanonicalPublicTableCount": 0,
+      "missingApprovedTableCount": 1,
+      "noncanonicalDataBearingObjectExists": false,
+      "dataBearingTableOmittedByCanonical": false,
+      "tableSetMismatch": false
+    },
+    "httpRequestCount": 4,
+    "clientsInstantiated": 1,
+    "usedLiveHttp": true,
+    "realImdsCall": true,
+    "realArmCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": true,
+    "applicationName": "wh-sunset-reconcile-decision",
+    "errors": []
+  },
+  "recommendation": "in_place_targeted_repair",
+  "occupancySummary": {
+    "canonicalPublicTableCount": 51,
+    "livePublicTableCount": 50,
+    "emptyApprovedTableCount": 30,
+    "nonemptyApprovedTableCount": 20,
+    "totalApprovedRowCount": 2252,
+    "countAmbiguous": false,
+    "publicSequenceCount": 0,
+    "noncanonicalPublicTableCount": 0,
+    "missingApprovedTableCount": 1,
+    "noncanonicalDataBearingObjectExists": false,
+    "dataBearingTableOmittedByCanonical": false,
+    "tableSetMismatch": false
+  },
+  "groupedDrift": {
+    "counts": {
+      "expected_only": 498,
+      "live_only": 0,
+      "definition_mismatch": 1
+    },
+    "mismatchSections": {
+      "tables": 1,
+      "columns": 9,
+      "constraints": 475,
+      "indexes": 6,
+      "functions": 1,
+      "triggers": 1,
+      "rlsFlags": 1,
+      "ownership": 2,
+      "acls": 2,
+      "extensions": 1
+    },
+    "constraintTypeDrift": {
+      "PRIMARY KEY": 1,
+      "UNIQUE": 0,
+      "FOREIGN KEY": 2,
+      "CHECK": 0,
+      "NOT_NULL": 472,
+      "other": 0
+    },
+    "missingCounts": {
+      "tables": 1,
+      "columns": 9,
+      "indexes": 6
+    },
+    "migrationOwnershipByManifestEntry": {
+      "035_customer_message_templates": {
+        "tables": 1,
+        "columns": 0,
+        "indexes": 1,
+        "constraints": 11
+      },
+      "007_add_addon_orders": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 64
+      },
+      "009_auth_staff_users": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 15
+      },
+      "001_init": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 127
+      },
+      "024_booking_guests": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 11
+      },
+      "010_booking_service_records": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 12
+      },
+      "017_booking_transfers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 9
+      },
+      "012_bot_pause_states": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "032_client_notification_settings": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 3,
+        "constraints": 14
+      },
+      "031_customers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "014_guest_message_events": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 10
+      },
+      "013_guest_message_sends": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 10
+      },
+      "002_package_pricing": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 12
+      },
+      "033_staff_automated_notifications": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 20
+      },
+      "008_add_staff_handoffs": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 18
+      },
+      "016_staff_phone_access": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 9
+      },
+      "021_sunset_admin_business_config": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 41
+      },
+      "030_tenant_house_notes": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 4
+      },
+      "033_tenant_private_lesson_rules": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 8
+      },
+      "028_tenant_services": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 18
+      },
+      "026_tenant_surf_pack_rules": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 1,
+        "constraints": 9
+      },
+      "036_sunset_waivers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 21
+      },
+      "027_wolfhouse_staff_whatsapp_numbers": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 0,
+        "constraints": 7
+      },
+      "041_notification_surfpack_convergence": {
+        "tables": 0,
+        "columns": 0,
+        "indexes": 4,
+        "constraints": 0
+      }
+    },
+    "unownedMissingCount": 26,
+    "migrationLedgerAbsent": true
+  },
+  "migrationOwnership": {
+    "035_customer_message_templates": {
+      "tables": 1,
+      "columns": 0,
+      "indexes": 1,
+      "constraints": 11
+    },
+    "007_add_addon_orders": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 64
+    },
+    "009_auth_staff_users": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 15
+    },
+    "001_init": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 127
+    },
+    "024_booking_guests": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 11
+    },
+    "010_booking_service_records": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 12
+    },
+    "017_booking_transfers": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 9
+    },
+    "012_bot_pause_states": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 8
+    },
+    "032_client_notification_settings": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 3,
+      "constraints": 14
+    },
+    "031_customers": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 8
+    },
+    "014_guest_message_events": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 10
+    },
+    "013_guest_message_sends": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 10
+    },
+    "002_package_pricing": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 12
+    },
+    "033_staff_automated_notifications": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 20
+    },
+    "008_add_staff_handoffs": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 18
+    },
+    "016_staff_phone_access": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 9
+    },
+    "021_sunset_admin_business_config": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 41
+    },
+    "030_tenant_house_notes": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 4
+    },
+    "033_tenant_private_lesson_rules": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 8
+    },
+    "028_tenant_services": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 18
+    },
+    "026_tenant_surf_pack_rules": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 1,
+      "constraints": 9
+    },
+    "036_sunset_waivers": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 21
+    },
+    "027_wolfhouse_staff_whatsapp_numbers": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 0,
+      "constraints": 7
+    },
+    "041_notification_surfpack_convergence": {
+      "tables": 0,
+      "columns": 0,
+      "indexes": 4,
+      "constraints": 0
+    }
+  },
+  "ledgerAbsent": true,
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true
+  }
+}

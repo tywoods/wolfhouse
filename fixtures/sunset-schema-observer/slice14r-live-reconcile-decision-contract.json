@@ -1,0 +1,165 @@
+{
+  "kind": "sunset-schema-observer-slice14r-live-reconcile-decision-contract",
+  "secretFree": true,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "reconcileDecisionLiveEnabled": true,
+  "globalLiveApplyEnabled": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "writesLedger": false,
+  "dataMutation": false,
+  "schemaMutation": false,
+  "liveMutation": false,
+  "kvMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "reconcileDecisionEnvGateRequired": true,
+  "reconcileDecisionArgvGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineInjectedHttpAndFakeClientProof": true,
+  "verifyNeverRerunsLive": true,
+  "readOnlyReconcileDecisionProof": true,
+  "occupancyCaptureEnabled": true,
+  "driftGroupingEnabled": true,
+  "deterministicDecisionFunction": "decideReconcileStrategy",
+  "generatedAt": "2026-07-19T21:58:38.356Z",
+  "masterShaBasis": "7862b67ffa5c8ef2df63c15e231dcc9d266b369f",
+  "slice": "14R",
+  "purpose": "Choose safest deterministic global schema reconciliation strategy (clean rebuild/cutover vs in-place repair) from read-only occupancy + drift evidence; zero mutation.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "authorityLocks": {
+    "applicationName": "wh-sunset-reconcile-decision",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full"
+  },
+  "commandContract": {
+    "reconcileDecision": {
+      "script": "scripts/run-phase-d-reconcile-decision.js",
+      "npm": "phase-d:reconcile-decision",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_RECONCILE_DECISION=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--prove-reconcile-decision",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--container-app luna-sunset-staging-staff-api",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--delete",
+        "--purge",
+        "--retry",
+        "--retries",
+        "--force",
+        "--deploy",
+        "--mutate",
+        "--url",
+        "--body",
+        "--token",
+        "--access-token",
+        "--imds-url",
+        "--arm-url",
+        "--dsn",
+        "--database-url",
+        "--connection-string",
+        "--host",
+        "--user",
+        "--username",
+        "--password",
+        "--file",
+        "--sql",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule",
+        "--prove-active-db-target-authority",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule"
+      ]
+    }
+  },
+  "authorizedSequence": [
+    "IMDS ARM token (management.azure.com)",
+    "ARM GET container app (active revision + env secretRef)",
+    "ARM POST listSecrets (only when needed; values zeroed)",
+    "IMDS vault token + GET luna-sunset-staging-kv/sunset-database-url",
+    "In-memory semantic DSN/KeyVault-ref authority compare",
+    "TLS verify-full pg session application_name=wh-sunset-reconcile-decision",
+    "BEGIN READ ONLY → occupancy + inventory + ledger summary + observer drift grouping + decision → COMMIT"
+  ],
+  "offlineGateNames": {
+    "red": [
+      "default_path_zero_http_and_clients",
+      "missing_prove_flag_zero_http",
+      "missing_reconcile_env_zero_http",
+      "wrong_exact_targets_zero_http",
+      "forbidden_argv_dsn_sql_retry_zero_http",
+      "managed_identity_requires_env_and_argv",
+      "wrong_target_blocks_rebuild",
+      "hidden_noncanonical_data_blocks_rebuild",
+      "count_ambiguity_blocks_rebuild",
+      "table_set_mismatch_blocks_rebuild",
+      "overflow_blocks_rebuild",
+      "unsafe_rebuild_recommendation_rejected",
+      "secret_leakage_scan",
+      "non_read_only_session"
+    ],
+    "green": [
+      "injected_http_empty_db_recommends_clean_rebuild",
+      "injected_http_nonempty_recommends_inplace",
+      "cli_gates_exact_targets",
+      "cli_default_disabled",
+      "locks_identity_vault_secret_pg_tls_application_name",
+      "global_live_apply_remains_false",
+      "decision_criteria_deterministic"
+    ]
+  },
+  "hashes": {
+    "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+    "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+    "migration028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "migration035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "migration040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "migration041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "decisionCriteria": {
+    "cleanRebuildOnlyWhen": [
+      "sameTarget === true",
+      "all approved existing tables row count === 0",
+      "no count ambiguity",
+      "noncanonicalDataBearingObjectExists === false",
+      "dataBearingTableOmittedByCanonical === false",
+      "no missing approved tables"
+    ],
+    "neverDestructiveRebuildWhenDataExists": true
+  },
+  "forbidden": [
+    "DDL / DML / ledger writes",
+    "KV write / RBAC / network / firewall mutation",
+    "DSN / token / password in evidence",
+    "second live run in verify"
+  ]
+}
