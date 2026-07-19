@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14e-phase-d-managed-identity-loader-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:32:56.157Z",
+  "generatedAt": "2026-07-19T19:46:39.280Z",
   "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
   "slice": "14E",
   "outcome": "phase_d_managed_identity_credential_loader_proven_offline",
@@ -10,14 +10,14 @@
   "liveMutation": false,
   "liveReadonlyConnectEnabled": true,
   "liveQueryExecution": false,
-  "liveHttpEnabled": false,
+  "liveHttpEnabled": true,
   "azureConnectivity": false,
   "firewallAction": false,
   "networkMutation": false,
   "realImdsCall": false,
   "realKeyVaultCall": false,
   "realPostgresCall": false,
-  "enableFlagFlipped": false,
+  "enableFlagFlipped": true,
   "cliExecutedLive": false,
   "migrationAdded": false,
   "ledgerWritten": false,
@@ -48,7 +48,7 @@
   ],
   "offlineGates": {
     "defaultPathZeroHttpAndClients": true,
-    "managedIdentityWithoutInjectHttpDisabled": true,
+    "liveHttpActivatedOfflineInjectRequired": true,
     "managedIdentityFlagRequiresEnvAndArgv": true,
     "callerUrlsNamesTokensDsnsRejected": true,
     "wrongImdsRejected": true,
@@ -72,11 +72,13 @@
       "clientsInstantiated": 0
     },
     {
-      "name": "managed_identity_without_inject_http_disabled",
+      "name": "live_http_activated_offline_inject_required",
       "ok": true,
-      "code": "http_disabled",
-      "clientsInstantiated": 0,
-      "httpRequestCount": 0
+      "liveHttpEnabled": true,
+      "createLiveManagedIdentityHttpRequestExported": true,
+      "defaultPathHttpRequestCount": 0,
+      "defaultPathClientsInstantiated": 0,
+      "offlineInjectOnly": true
     },
     {
       "name": "managed_identity_flag_requires_env_and_argv",

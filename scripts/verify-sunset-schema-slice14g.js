@@ -1,9 +1,9 @@
 'use strict';
 
 /**
- * verify:sunset-schema-slice14f — FOUNDATION Slice 14F RED→GREEN
- * Phase D credential-preflight activation (offline injected HTTP).
- * Offline gates + evidence. No Azure / live mutation / live secret read.
+ * verify:sunset-schema-slice14g — FOUNDATION Slice 14G RED→GREEN
+ * Phase D live metadata-only credential-preflight (offline gates + live evidence).
+ * Does NOT re-run live CLI.
  */
 
 const crypto = require('crypto');
@@ -60,7 +60,7 @@ const {
 
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(ROOT, 'fixtures', 'sunset-schema-observer');
-const MASTER = '7467642653a54eb2db373e26bfc752865c1b55df';
+const MASTER = 'cbd5512afbf73b0a84ead6113d6d919de7b2b411';
 const CANON_FP = '120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18';
 const MANIFEST_HASH = '99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e';
 const EXPECTED_BYTE_SHA = 'cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5';
@@ -76,26 +76,22 @@ const REQUIRED_RED = [
   'default_path_zero_http_and_clients',
   'missing_env_approval_zero_http',
   'missing_or_wrong_exact_targets_zero_http',
-  'managed_identity_flag_requires_env_and_argv',
-  'caller_urls_tokens_rejected',
-  'forbidden_dsn_host_query_token_argv',
-  'redirects_status_body_identity_errors_sanitized',
-  'wrong_secret_pg_target_rejected',
-  'no_post_put_patch_delete',
   'live_http_activated_offline_inject_required',
+  'forbidden_dsn_host_query_token_argv',
+  'no_post_put_patch_delete',
 ];
 
 const REQUIRED_GREEN = [
   'injected_http_exact_two_call_success_safe_metadata',
   'cli_gates_exact_targets_and_managed_identity',
   'cli_default_disabled',
-  'live_http_enabled_gates_report_flag_injected_not_real',
   'locks_subscription_rg_vm_identity_vault_secret_pg_tls',
+  'live_http_transport_present_in_loader_source',
 ];
 
-const FAKE_USER = 'verify-slice14f-admin-user';
-const FAKE_PASSWORD = 'verify-slice14f-admin-password';
-const FAKE_TOKEN = 'verify-slice14f-imds-token';
+const FAKE_USER = 'verify-slice14g-admin-user';
+const FAKE_PASSWORD = 'verify-slice14g-admin-password';
+const FAKE_TOKEN = 'verify-slice14g-imds-token';
 
 let failed = 0;
 function pass(name, cond, detail) {
@@ -107,14 +103,14 @@ function pass(name, cond, detail) {
 }
 
 async function main() {
-  console.log('verify:sunset-schema-slice14f — RED→GREEN\n');
+  console.log('verify:sunset-schema-slice14g — RED→GREEN\n');
 
-  const evidencePath = path.join(FIX, 'slice14f-phase-d-credential-preflight-evidence.json');
-  const contractPath = path.join(FIX, 'slice14f-phase-d-credential-preflight-contract.json');
-  const findingsPath = path.join(FIX, 'slice14f-findings.md');
+  const evidencePath = path.join(FIX, 'slice14g-phase-d-live-credential-preflight-evidence.json');
+  const contractPath = path.join(FIX, 'slice14g-phase-d-live-credential-preflight-contract.json');
+  const findingsPath = path.join(FIX, 'slice14g-findings.md');
   const expectedPath = path.join(FIX, 'expected-product-schema.json');
-  const provePath = path.join(ROOT, 'scripts', 'prove-sunset-schema-slice14f-phase-d-credential-preflight.js');
-  const verifyPath = path.join(ROOT, 'scripts', 'verify-sunset-schema-slice14f.js');
+  const provePath = path.join(ROOT, 'scripts', 'prove-sunset-schema-slice14g-phase-d-live-credential-preflight.js');
+  const verifyPath = path.join(ROOT, 'scripts', 'verify-sunset-schema-slice14g.js');
   const cliPath = path.join(ROOT, 'scripts', 'run-phase-d-credential-preflight.js');
   const libPath = path.join(ROOT, 'scripts', 'lib', 'phase-d-credential-preflight.js');
   const loaderPath = path.join(ROOT, 'scripts', 'lib', 'phase-d-managed-identity-credential-loader.js');
@@ -180,8 +176,7 @@ async function main() {
     && evidence.liveHttpEnabled === true
     && evidence.enableFlagFlipped === true
     && contract.liveHttpEnabled === true
-    && contract.offlineInjectedHttpProof === true
-    && contract.injectedHttpOnly === false);
+    && contract.neverInstantiatesPgClient === true);
 
   pass('command-contract',
     contract.commandContract.script === 'scripts/run-phase-d-credential-preflight.js'
@@ -222,20 +217,35 @@ async function main() {
   const greenNames = (evidence.greenCases || []).map((c) => c.name);
   pass('red-cases-present', REQUIRED_RED.every((n) => redNames.includes(n)));
   pass('green-cases-present', REQUIRED_GREEN.every((n) => greenNames.includes(n)));
+
+  const live = evidence.liveOutcome || {};
   pass('offline-gates',
     evidence.offlineGates.defaultPathZeroHttpAndClients === true
     && evidence.offlineGates.liveHttpActivatedOfflineInjectRequired === true
     && evidence.offlineGates.injectedHttpExactTwoCallSuccessSafeMetadata === true
     && evidence.offlineGates.noPostPutPatchDelete === true
     && evidence.offlineGates.cliDefaultDisabled === true
-    && evidence.offlineGates.liveHttpEnabledGatesReportFlagInjectedNotReal === true
-    && evidence.offlineGates.zeroPersistenceChildEnv === true
-    && evidence.realImdsCall === false
-    && evidence.realKeyVaultCall === false
+    && evidence.offlineGates.liveHttpTransportPresentInLoaderSource === true
     && evidence.realPostgresCall === false
     && evidence.liveMutation === false
     && evidence.stillProductSchemaDiffers === true
     && evidence.neverInstantiatesPgClient === true);
+
+  pass('live-evidence-recorded',
+    evidence.cliExecutedLive === true
+    && evidence.liveCallAttemptCount === 1
+    && (evidence.outcome === 'phase_d_live_credential_preflight_ok'
+      || evidence.outcome === 'phase_d_live_credential_preflight_blocked')
+    && live.realPostgresCall === false
+    && live.liveMutation === false
+    && live.clientsInstantiated === 0
+    && evidence.clientCallCounts.liveClientsInstantiated === 0
+    && typeof live.code === 'string'
+    && Number.isFinite(live.exitCode));
+
+  pass('live-outcome-consistency',
+    (live.ok === true && evidence.outcome === 'phase_d_live_credential_preflight_ok' && live.blocker === null)
+    || (live.ok === false && evidence.outcome === 'phase_d_live_credential_preflight_blocked' && live.blocker !== null));
 
   pass('call-counts-evidence',
     evidence.redCaseCount === REQUIRED_RED.length
@@ -292,32 +302,6 @@ async function main() {
     && ok.realKeyVaultCall === false
     && !Object.prototype.hasOwnProperty.call(ok, 'password'));
 
-  // Runtime: gates report liveHttpEnabled; injected path stays offline
-  const gatesLive = evaluateCredentialPreflightGates({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-  });
-  pass('runtime-gates-live-http-flag',
-    gatesLive.ok === true && gatesLive.liveHttpEnabled === true);
-
-  // Runtime: identity reject before KV
-  resetManagedIdentityHttpCounters();
-  const wrongIdentity = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_TOKEN,
-      imdsResponseClientId: '0e05fbe3-e8c5-48aa-a914-30aed284e6f7',
-      defaultSecretValue: secretValue,
-    }),
-  });
-  pass('runtime-identity-reject-before-kv',
-    wrongIdentity.ok === false
-    && wrongIdentity.code === 'imds_token_identity_mismatch'
-    && getManagedIdentityHttpCounters().keyVaultRequestCount === 0
-    && getManagedIdentityHttpCounters().imdsRequestCount === 1
-    && getPgClientInstantiateCount() === 0);
-
   // Runtime: CLI default
   const cliDefault = spawnSync(process.execPath, [cliPath], {
     encoding: 'utf8',
@@ -335,6 +319,7 @@ async function main() {
   pass('runtime-cli-gates',
     gates.ok === true
     && gates.credentialSource === CREDENTIAL_SOURCE_MANAGED_IDENTITY
+    && gates.liveHttpEnabled === true
     && ENV_CREDENTIAL_SOURCE === 'SUNSET_PHASE_D_CREDENTIAL_SOURCE'
     && CLI_CREDENTIAL_SOURCE === '--credential-source');
 
@@ -347,14 +332,17 @@ async function main() {
     && !/ADD\s+CONSTRAINT\s+tenant_services_date_window/i.test(libSrc)
     && !/schema_migration_ledger/.test(libSrc)
     && /PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED\s*=\s*true/.test(loaderSrc)
+    && /createLiveManagedIdentityHttpRequest/.test(loaderSrc)
+    && /require\(['"]http['"]\)/.test(loaderSrc)
+    && /require\(['"]https['"]\)/.test(loaderSrc)
     && /http_method_forbidden/.test(loaderSrc)
     && evidence.stillProductSchemaDiffers === true);
 
   pass('npm-commands',
-    pkg.scripts['prove:sunset-schema-slice14f-phase-d-credential-preflight']
-      === 'node scripts/prove-sunset-schema-slice14f-phase-d-credential-preflight.js'
-    && pkg.scripts['verify:sunset-schema-slice14f']
-      === 'node scripts/verify-sunset-schema-slice14f.js'
+    pkg.scripts['prove:sunset-schema-slice14g-phase-d-live-credential-preflight']
+      === 'node scripts/prove-sunset-schema-slice14g-phase-d-live-credential-preflight.js'
+    && pkg.scripts['verify:sunset-schema-slice14g']
+      === 'node scripts/verify-sunset-schema-slice14g.js'
     && pkg.scripts['phase-d:credential-preflight']
       === 'node scripts/run-phase-d-credential-preflight.js'
     && pkg.scripts['phase-d:live-readonly-count-only']
@@ -362,14 +350,15 @@ async function main() {
 
   pass('findings-non-claim',
     /Do not claim/i.test(findings)
-    && /Zero live\/Azure mutation/i.test(findings)
+    && /Zero DB mutation/i.test(findings)
     && /credential-preflight/i.test(findings)
     && /wh-staging-identity/.test(findings)
+    && /live metadata-only/i.test(findings)
     && !/Sunset is repaired/i.test(findings.replace(/Do not claim[\s\S]*?repaired/i, '')));
 
   const artifactText = `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`;
   pass('no-secret-tokens-in-artifacts',
-    !/slice14f-proof-admin-password|verify-slice14f-admin-password|slice14f-proof-imds-token/i.test(artifactText)
+    !/slice14g-proof-admin-password|verify-slice14g-admin-password|slice14g-proof-imds-token/i.test(artifactText)
     && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(artifactText));
 
   pass('master-basis',
@@ -380,13 +369,18 @@ async function main() {
     !/require\(['"]pg['"]\)/.test(verifySrc)
     && !/require\(['"].*load-sunset-staging-pg-admin-env['"]\)/.test(verifySrc)
     && /createInjectedManagedIdentityHttp/.test(verifySrc)
-    && /executeCredentialPreflight/.test(verifySrc));
+    && /executeCredentialPreflight/.test(verifySrc)
+    && !/spawnSync\(process\.execPath,\s*\[CLI_PATH,\s*\.\.\.liveArgv\]/.test(verifySrc));
+
+  pass('prove-one-live-spawn',
+    /spawnSync\(process\.execPath,\s*\[CLI_PATH,\s*\.\.\.liveArgv\]/.test(proveSrc)
+    && !/retry/i.test(proveSrc.replace(/\/\/[^\n]*/g, '')));
 
   if (failed > 0) {
-    console.log(`\nverify:sunset-schema-slice14f FAILED (${failed})`);
+    console.log(`\nverify:sunset-schema-slice14g FAILED (${failed})`);
     process.exit(1);
   }
-  console.log('\nverify:sunset-schema-slice14f GREEN');
+  console.log('\nverify:sunset-schema-slice14g GREEN');
 }
 
 main().catch((err) => {

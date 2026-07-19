@@ -311,6 +311,8 @@
     "verify:sunset-schema-slice14e": "node scripts/verify-sunset-schema-slice14e.js",
     "prove:sunset-schema-slice14f-phase-d-credential-preflight": "node scripts/prove-sunset-schema-slice14f-phase-d-credential-preflight.js",
     "verify:sunset-schema-slice14f": "node scripts/verify-sunset-schema-slice14f.js",
+    "prove:sunset-schema-slice14g-phase-d-live-credential-preflight": "node scripts/prove-sunset-schema-slice14g-phase-d-live-credential-preflight.js",
+    "verify:sunset-schema-slice14g": "node scripts/verify-sunset-schema-slice14g.js",
     "phase-d:live-readonly-count-only": "node scripts/run-phase-d-live-readonly-count-only.js",
     "phase-d:credential-preflight": "node scripts/run-phase-d-credential-preflight.js",
     "prove:sunset-schema-slice13c2-location-promotion": "node scripts/prove-sunset-schema-slice13c2-location-promotion.js",

@@ -2,19 +2,26 @@
 
 /**
  * FOUNDATION Slice 14E — Phase D managed-identity credential loader
+ * (live HTTP activated in Slice 14G behind 14F credential-preflight gates)
  *
  * In-process loader that obtains protected admin credentials from Lunabox
  * managed identity + the exact Sunset staging Key Vault secret
  * `sunset-database-url`, then hands user/password privately to the 14D
  * adapter path.
  *
- * This slice keeps live HTTP hard-disabled: only an injected `httpRequest`
- * may run (offline proof). No real IMDS / Key Vault / PostgreSQL call.
+ * Slice 14G activates PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED. Real IMDS /
+ * Key Vault HTTP runs only when no httpRequest inject is supplied and every
+ * caller gate has already passed (14F credential-preflight env+argv+exact
+ * targets, or explicit managed-identity credential-source flags for the
+ * loader itself). Default / missing-gate paths make zero HTTP. Offline proof
+ * may inject httpRequest. Never opens a PostgreSQL Client.
  *
  * Never prints, returns, persists, hashes, evidences, argv-embeds, temp-files,
  * or child-process-envs the IMDS token, DSN, or credentials.
  */
 
+const http = require('http');
+const https = require('https');
 const {
   TARGETS,
   buildLockedAdminConnectConfig,
@@ -26,8 +33,12 @@ const {
 } = require('./phase-d-live-readonly-boundary');
 const { parseDatabaseUrl } = require('./sunset-schema-observer');
 
-/** Live IMDS/KV HTTP remains hard-disabled in Slice 14E. */
-const PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED = false;
+/**
+ * Live IMDS/KV HTTP activated in Slice 14G. Still requires explicit caller
+ * gates (14F credential-preflight or managed-identity credential-source).
+ * Default path makes zero HTTP. Offline proof may inject httpRequest.
+ */
+const PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED = true;
 
 const CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV = 'protected-admin-env';
 const CREDENTIAL_SOURCE_MANAGED_IDENTITY = 'managed-identity';
@@ -481,6 +492,93 @@ function parseSunsetDatabaseUrlSecretInMemory(secretValue) {
   }
 }
 
+/**
+ * Real Node http/https GET for locked IMDS / Key Vault only.
+ * Same request/response shape as the offline inject. Never follows redirects.
+ * Never logs headers/body (Authorization / token / secret value).
+ */
+function createLiveManagedIdentityHttpRequest() {
+  async function httpRequest(req) {
+    const request = req || {};
+    const method = String(request.method || 'GET').toUpperCase();
+    if (method !== 'GET') {
+      throw Object.assign(new Error(`http method ${method} forbidden (GET only)`), {
+        code: 'http_method_forbidden',
+      });
+    }
+    const protocol = String(request.protocol || '');
+    const lib = protocol === 'https:' ? https : http;
+    if (protocol !== 'http:' && protocol !== 'https:') {
+      throw Object.assign(new Error('http protocol rejected'), {
+        code: 'http_protocol_rejected',
+      });
+    }
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (err, value) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve(value);
+      };
+      const nodeReq = lib.request({
+        hostname: request.hostname,
+        port: request.port,
+        path: request.path,
+        method: 'GET',
+        headers: request.headers || {},
+        timeout: 15000,
+      }, (res) => {
+        const statusCode = Number(res.statusCode);
+        const chunks = [];
+        res.on('data', (c) => { chunks.push(c); });
+        res.on('end', () => {
+          const body = Buffer.concat(chunks).toString('utf8');
+          finish(null, { statusCode, body });
+        });
+        res.on('error', (err) => {
+          finish(Object.assign(
+            new Error(String((err && err.message) || err || 'http response failed').slice(0, 240)),
+            { code: 'http_request_failed' },
+          ));
+        });
+      });
+      nodeReq.on('timeout', () => {
+        nodeReq.destroy();
+        finish(Object.assign(new Error('http request timeout'), {
+          code: 'http_request_failed',
+        }));
+      });
+      nodeReq.on('error', (err) => {
+        finish(Object.assign(
+          new Error(String((err && err.message) || err || 'http request failed').slice(0, 240)),
+          { code: 'http_request_failed' },
+        ));
+      });
+      nodeReq.end();
+    });
+  }
+  return httpRequest;
+}
+
+/**
+ * Resolve inject vs live HTTP. Live only when flag is true and no inject.
+ * Returns { httpRequest, usedLiveHttp }.
+ */
+function resolveManagedIdentityHttpRequest(opts) {
+  const options = opts || {};
+  if (typeof options.httpRequest === 'function') {
+    return { httpRequest: options.httpRequest, usedLiveHttp: false };
+  }
+  if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true) {
+    return {
+      httpRequest: createLiveManagedIdentityHttpRequest(),
+      usedLiveHttp: true,
+    };
+  }
+  return { httpRequest: null, usedLiveHttp: false };
+}
+
 async function invokeInjectedHttp(httpRequest, request) {
   const method = String((request && request.method) || 'GET').toUpperCase();
   if (method !== 'GET') {
@@ -515,18 +613,14 @@ async function invokeInjectedHttp(httpRequest, request) {
 }
 
 /**
- * Fetch IMDS token via injected HTTP only (live HTTP hard-disabled).
+ * Fetch IMDS token via injected HTTP or (when activated) live HTTP.
  * Token stays in memory; never returned on the public result.
  */
 async function fetchImdsAccessToken(opts) {
   const options = opts || {};
-  const httpRequest = options.httpRequest;
+  const resolved = resolveManagedIdentityHttpRequest(options);
+  const httpRequest = resolved.httpRequest;
   if (typeof httpRequest !== 'function') {
-    if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true) {
-      throw Object.assign(new Error('live IMDS HTTP not available in this slice'), {
-        code: 'live_http_disabled',
-      });
-    }
     throw Object.assign(new Error('managed-identity HTTP disabled (inject httpRequest for offline proof)'), {
       code: 'http_disabled',
     });
@@ -580,12 +674,13 @@ async function fetchImdsAccessToken(opts) {
 }
 
 /**
- * Fetch Key Vault secret via injected HTTP only.
+ * Fetch Key Vault secret via injected HTTP or (when activated) live HTTP.
  * Secret value stays in memory; never returned on the public result.
  */
 async function fetchKeyVaultSunsetDatabaseUrl(opts) {
   const options = opts || {};
-  const httpRequest = options.httpRequest;
+  const resolved = resolveManagedIdentityHttpRequest(options);
+  const httpRequest = resolved.httpRequest;
   const token = options._token;
   if (!token) {
     throw Object.assign(new Error('Key Vault token missing'), {
@@ -637,7 +732,9 @@ async function fetchKeyVaultSunsetDatabaseUrl(opts) {
 /**
  * Load protected admin credentials via managed identity + locked KV secret.
  * Requires explicit managed-identity credential-source flags.
- * Default / missing injection → zero HTTP.
+ * Default / missing injection → zero HTTP when live flag is false; when live
+ * HTTP is activated (14G), missing inject uses real IMDS/KV GET only after
+ * caller gates have already selected managed-identity.
  *
  * Public return is secret-free except private underscore fields for in-process
  * handoff to the 14D adapter. Caller must zeroPrivateCredentialRefs after use.
@@ -657,6 +754,9 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
       counters: getManagedIdentityHttpCounters(),
       httpCallsDelta: 0,
       liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realKeyVaultCall: false,
     }, []);
   }
 
@@ -681,11 +781,14 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
       counters: getManagedIdentityHttpCounters(),
       httpCallsDelta: 0,
       liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realKeyVaultCall: false,
     }, []);
   }
 
-  if (typeof options.httpRequest !== 'function'
-    && PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED !== true) {
+  const resolvedHttp = resolveManagedIdentityHttpRequest(options);
+  if (typeof resolvedHttp.httpRequest !== 'function') {
     return redactDeep({
       ok: false,
       code: 'http_disabled',
@@ -697,16 +800,24 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
       counters: getManagedIdentityHttpCounters(),
       httpCallsDelta: 0,
       liveHttpEnabled: false,
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realKeyVaultCall: false,
     }, []);
   }
 
+  const usedLiveHttp = resolvedHttp.usedLiveHttp === true;
   let token = null;
   let secretValue = null;
+  let imdsStarted = false;
+  let kvStarted = false;
   try {
-    token = await fetchImdsAccessToken({ httpRequest: options.httpRequest });
+    imdsStarted = true;
+    token = await fetchImdsAccessToken({ httpRequest: resolvedHttp.httpRequest });
     secrets.push(token);
+    kvStarted = true;
     secretValue = await fetchKeyVaultSunsetDatabaseUrl({
-      httpRequest: options.httpRequest,
+      httpRequest: resolvedHttp.httpRequest,
       _token: token,
     });
     secrets.push(secretValue);
@@ -727,6 +838,9 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
         httpCallsDelta: getManagedIdentityHttpCounters().httpRequestCount
           - countersBefore.httpRequestCount,
         liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+        usedLiveHttp,
+        realImdsCall: usedLiveHttp && imdsStarted,
+        realKeyVaultCall: usedLiveHttp && kvStarted,
       }, secrets);
     }
 
@@ -741,6 +855,9 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
       httpCallsDelta: getManagedIdentityHttpCounters().httpRequestCount
         - countersBefore.httpRequestCount,
       liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+      usedLiveHttp,
+      realImdsCall: usedLiveHttp,
+      realKeyVaultCall: usedLiveHttp,
       // Private in-process handoff only — never serialize to evidence.
       _user: parsed._user,
       _password: parsed._password,
@@ -753,15 +870,19 @@ async function loadProtectedAdminCredentialsViaManagedIdentity(opts) {
     return publicView;
   } catch (err) {
     const safe = sanitizeLoaderError(err, secrets);
+    const counters = getManagedIdentityHttpCounters();
     return redactDeep({
       ok: false,
       code: safe.code,
       errors: [{ code: safe.code, message: safe.message }],
       source: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
-      counters: getManagedIdentityHttpCounters(),
-      httpCallsDelta: getManagedIdentityHttpCounters().httpRequestCount
-        - countersBefore.httpRequestCount,
+      counters,
+      httpCallsDelta: counters.httpRequestCount - countersBefore.httpRequestCount,
       liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+      usedLiveHttp,
+      realImdsCall: usedLiveHttp && (counters.imdsRequestCount > countersBefore.imdsRequestCount),
+      realKeyVaultCall: usedLiveHttp
+        && (counters.keyVaultRequestCount > countersBefore.keyVaultRequestCount),
     }, secrets);
   } finally {
     token = null;
@@ -947,6 +1068,8 @@ module.exports = {
   zeroPrivateCredentialRefs,
   sanitizeLoaderError,
   createInjectedManagedIdentityHttp,
+  createLiveManagedIdentityHttpRequest,
+  resolveManagedIdentityHttpRequest,
   buildOfflineProofSunsetDatabaseUrl,
   getManagedIdentityHttpCounters,
   resetManagedIdentityHttpCounters,

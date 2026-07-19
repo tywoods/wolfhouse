@@ -2,11 +2,13 @@
 
 /**
  * FOUNDATION Slice 14F — Phase D managed-identity credential-preflight
+ * (live HTTP activated in Slice 14G behind these exact gates)
  *
  * Activates the merged 14E managed-identity HTTP loader behind an explicit
  * metadata-only credential-preflight command. Never instantiates a pg Client.
- * Live IMDS/KV HTTP remains hard-disabled (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED
- * stays false); offline proof injects httpRequest only.
+ * Slice 14G sets PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true so gated
+ * operator runs may perform real IMDS + Key Vault GETs; default / missing
+ * gates still make zero HTTP. Offline proof injects httpRequest.
  *
  * Output is secret-free: booleans + identity/vault/secret/PG host/database/TLS
  * names only. Never token, DSN, user/password values, API version values,
@@ -323,6 +325,7 @@ function assertHttpRequestMethodsGetOnly(httpRequest) {
  */
 function buildCredentialPreflightSafeOutput(parts) {
   const p = parts || {};
+  const usedLiveHttp = p.usedLiveHttp === true;
   const out = {
     ok: p.ok === true,
     code: p.code || (p.ok ? 'credential_preflight_ok' : 'credential_preflight_failed'),
@@ -345,8 +348,9 @@ function buildCredentialPreflightSafeOutput(parts) {
     liveMutation: false,
     appliesConstraints: false,
     writesLedger: false,
-    realImdsCall: false,
-    realKeyVaultCall: false,
+    realImdsCall: p.realImdsCall === true || (usedLiveHttp && (Number(p.imdsRequestCount) || 0) > 0),
+    realKeyVaultCall: p.realKeyVaultCall === true
+      || (usedLiveHttp && (Number(p.keyVaultRequestCount) || 0) > 0),
     realPostgresCall: false,
   };
   if (p.errors) out.errors = p.errors;
@@ -358,7 +362,7 @@ function buildCredentialPreflightSafeOutput(parts) {
     '_user', '_password', '_token', '_dsn', '_secretValue', '_accessToken',
     '_connectConfig', 'token', 'access_token', 'password', 'user', 'dsn',
     'connectionString', 'databaseUrl', 'value', 'id', 'kid', 'version',
-    'secretId', 'attributes', 'hash', 'sha256',
+    'secretId', 'attributes', 'hash', 'sha256', 'usedLiveHttp',
   ];
   for (const k of forbidden) {
     if (Object.prototype.hasOwnProperty.call(out, k)) delete out[k];
@@ -368,13 +372,16 @@ function buildCredentialPreflightSafeOutput(parts) {
 
 /**
  * Execute metadata-only credential preflight.
- * Requires gates + (for offline) injected httpRequest. Never creates pg Client.
+ * Requires gates + (for offline) injected httpRequest, or (when 14G live HTTP
+ * is enabled) gated real IMDS/KV GETs. Never creates pg Client.
  * On success: exact IMDS GET + KV GET via loader, validate DSN in memory,
  * immediately zero private refs, return safe booleans/names only.
  */
 async function executeCredentialPreflight(opts) {
   const options = opts || {};
   const secrets = [];
+  const usedLiveHttp = typeof options.httpRequest !== 'function'
+    && PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true;
 
   const overrideGate = assertNoCallerOverrides(options);
   if (!overrideGate.ok) {
@@ -383,6 +390,9 @@ async function executeCredentialPreflight(opts) {
       code: 'caller_supplied_loader_override_forbidden',
       errors: overrideGate.errors,
       clientsInstantiated: getPgClientInstantiateCount(),
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realKeyVaultCall: false,
       note: 'caller overrides rejected — zero HTTP / zero Clients',
     });
   }
@@ -401,6 +411,9 @@ async function executeCredentialPreflight(opts) {
       httpRequestCount: getManagedIdentityHttpCounters().httpRequestCount,
       imdsRequestCount: getManagedIdentityHttpCounters().imdsRequestCount,
       keyVaultRequestCount: getManagedIdentityHttpCounters().keyVaultRequestCount,
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realKeyVaultCall: false,
       note: 'CLI gates failed — zero HTTP / zero Clients',
     });
   }
@@ -428,8 +441,17 @@ async function executeCredentialPreflight(opts) {
         keyVaultRequestCount: getManagedIdentityHttpCounters().keyVaultRequestCount,
         httpCallsDelta: getManagedIdentityHttpCounters().httpRequestCount
           - countersBefore.httpRequestCount,
+        usedLiveHttp: false,
+        realImdsCall: false,
+        realKeyVaultCall: false,
       });
     }
+
+    const liveFlags = {
+      usedLiveHttp: (loaded && loaded.usedLiveHttp === true) || usedLiveHttp,
+      realImdsCall: Boolean(loaded && loaded.realImdsCall),
+      realKeyVaultCall: Boolean(loaded && loaded.realKeyVaultCall),
+    };
 
     if (!loaded || !loaded.ok) {
       zeroPrivateCredentialRefs(loaded);
@@ -456,6 +478,9 @@ async function executeCredentialPreflight(opts) {
         imdsRequestCount: counters.imdsRequestCount,
         keyVaultRequestCount: counters.keyVaultRequestCount,
         httpCallsDelta: counters.httpRequestCount - countersBefore.httpRequestCount,
+        usedLiveHttp: liveFlags.usedLiveHttp,
+        realImdsCall: liveFlags.realImdsCall,
+        realKeyVaultCall: liveFlags.realKeyVaultCall,
         secrets,
       });
     }
@@ -492,6 +517,9 @@ async function executeCredentialPreflight(opts) {
         }],
         credentialSource: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
         clientsInstantiated: getPgClientInstantiateCount(),
+        usedLiveHttp: liveFlags.usedLiveHttp,
+        realImdsCall: liveFlags.realImdsCall,
+        realKeyVaultCall: liveFlags.realKeyVaultCall,
       });
     }
 
@@ -523,6 +551,9 @@ async function executeCredentialPreflight(opts) {
         imdsRequestCount: counters.imdsRequestCount,
         keyVaultRequestCount: counters.keyVaultRequestCount,
         httpCallsDelta: httpDelta,
+        usedLiveHttp: liveFlags.usedLiveHttp,
+        realImdsCall: liveFlags.realImdsCall,
+        realKeyVaultCall: liveFlags.realKeyVaultCall,
       });
     }
 
@@ -546,8 +577,13 @@ async function executeCredentialPreflight(opts) {
       imdsRequestCount: counters.imdsRequestCount,
       keyVaultRequestCount: counters.keyVaultRequestCount,
       httpCallsDelta: httpDelta,
+      usedLiveHttp: liveFlags.usedLiveHttp,
+      realImdsCall: liveFlags.realImdsCall,
+      realKeyVaultCall: liveFlags.realKeyVaultCall,
       note: secretTargetValid
-        ? 'metadata-only credential preflight — private refs zeroed; no pg Client'
+        ? (liveFlags.usedLiveHttp
+          ? 'metadata-only live credential preflight — private refs zeroed; no pg Client'
+          : 'metadata-only credential preflight — private refs zeroed; no pg Client')
         : 'secret target validation failed after load',
     });
   } catch (err) {
@@ -565,6 +601,10 @@ async function executeCredentialPreflight(opts) {
       imdsRequestCount: counters.imdsRequestCount,
       keyVaultRequestCount: counters.keyVaultRequestCount,
       httpCallsDelta: counters.httpRequestCount - countersBefore.httpRequestCount,
+      usedLiveHttp,
+      realImdsCall: usedLiveHttp && (counters.imdsRequestCount > countersBefore.imdsRequestCount),
+      realKeyVaultCall: usedLiveHttp
+        && (counters.keyVaultRequestCount > countersBefore.keyVaultRequestCount),
       secrets,
     });
   }
@@ -572,11 +612,12 @@ async function executeCredentialPreflight(opts) {
 
 function renderCredentialPreflightUsage() {
   return [
-    'Phase D managed-identity credential-preflight (FOUNDATION Slice 14F)',
+    'Phase D managed-identity credential-preflight (FOUNDATION Slice 14F/14G)',
     '',
     'DEFAULT: refused (zero HTTP / zero pg Clients). Metadata-only — never',
-    'instantiates a pg Client. Live IMDS/KV HTTP remains hard-disabled;',
-    'offline proof injects httpRequest only. Count-only DB command unchanged.',
+    'instantiates a pg Client. Live IMDS/KV HTTP is activated behind these',
+    'exact env+argv+target gates (Slice 14G). Offline proof may inject',
+    'httpRequest. Count-only DB command unchanged.',
     '',
     'Required env:',
     `  ${ENV_CREDENTIAL_PREFLIGHT}=1`,
@@ -601,7 +642,7 @@ function renderCredentialPreflightUsage() {
     '',
     'Safe output only: ok/booleans + identity/vault/secret/PG host/database/TLS.',
     'Never token, DSN, user/password, version values, secret metadata IDs, or hashes.',
-    'Does not mutate Azure/network/database. No live IMDS/KV/PG call in this slice.',
+    'Does not mutate Azure/network/database. No PostgreSQL Client/connection.',
   ].join('\n');
 }
 
