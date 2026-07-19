@@ -38,12 +38,21 @@ rowCounts: {"tenant_surf_pack_rules":36}
 
 Mutation flags: schemaMutation=true; dataMutation=false; ledgerWritten=false.
 
+## Incident / live execution disclosure
+
+- `liveExecutionCount=2` (artifacts must not imply a single live execution).
+- Attempt 1: `outcome=rolled_back_no_persisted_schema`, `code=constraint_condef_mismatch` — post-ADD NOT VALID matcher rejected PostgreSQL `pg_get_constraintdef` definition suffix ` NOT VALID`; transaction `ROLLBACK`; `committed=false`; FK absent afterward from rollback semantics; **residualRisk=none** persisted.
+- Attempt 2: preserved successful `liveApplyOutcome` (`attempt=2`, `committed=true`, observer 6→5).
+- `implementationAutomaticRetry=false` — no retry loop inside either invocation.
+- `operatorRerunAfterCodeFix=true` — second live apply was a separate operator re-invocation after the mid-state matcher fix.
+- `boundaryCompliance.stopAfterFirstLiveError=false`; `requestedNoRetryBoundaryPassed=false`; `instructionDeviation` recorded — do **not** claim the requested no-retry / stop-after-first-live-error boundary passed.
+
 ## Do not claim
 
 - Do **not** claim zero remaining drift / database matches canonical / Sunset fully repaired.
 - Do **not** run verify with `--live` (verify never re-runs live / never calls executePhaseDSurfPackFkApply live).
 - Do **not** modify expected-product-schema bytes/fingerprint or migrations.
-- Do **not** retry after partial FK failure (ROLLBACK once).
+- Do **not** claim a one-attempt live history or that the stop-after-first-live-error boundary passed.
 
 ## Operator live command
 
@@ -56,4 +65,3 @@ SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_SU
 - `fixtures/sunset-schema-observer/slice14z-surf-pack-fk-apply-evidence.json`
 - `fixtures/sunset-schema-observer/slice14z-surf-pack-fk-apply-contract.json`
 - `fixtures/sunset-schema-observer/slice14z-findings.md`
-

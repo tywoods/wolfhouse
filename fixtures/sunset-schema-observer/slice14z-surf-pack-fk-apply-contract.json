@@ -30,6 +30,17 @@
   "verifyNeverRerunsLive": true,
   "claimsZeroDrift": false,
   "claimsFullRepair": false,
+  "liveExecutionCount": 2,
+  "implementationAutomaticRetry": false,
+  "operatorRerunAfterCodeFix": true,
+  "boundaryCompliance": {
+    "stopAfterFirstLiveError": false,
+    "requestedNoRetryBoundaryPassed": false,
+    "instructionDeviation": "Requested stop-after-first-live-error / no-retry execution boundary was not honored: after attempt-1 transactional ROLLBACK on mid-state condef matcher rejection of PostgreSQL pg_get_constraintdef NOT VALID suffix, code was fixed and a second separately invoked live apply was run; not an in-process automatic retry."
+  },
+  "requiresTwoAttemptLiveDisclosure": true,
+  "rejectsHiddenOrOneAttemptLiveHistory": true,
+  "requestedNoRetryBoundaryPassed": false,
   "generatedAt": "2026-07-19T23:35:49.124Z",
   "masterShaBasis": "da67cf2c229f80d0cf118f7e361d95902cb6d32d",
   "slice": "14Z",

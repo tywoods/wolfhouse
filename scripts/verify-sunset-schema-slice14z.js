@@ -319,15 +319,81 @@ async function main() {
     && /tenant_surf_pack_rules_updated_by_fkey/.test(findings)
     && /WHPZ/.test(findings)
     && /SPFK/.test(findings)
+    && /liveExecutionCount\s*=\s*2/.test(findings)
+    && /rolled_back_no_persisted_schema/.test(findings)
+    && /constraint_condef_mismatch|NOT VALID/.test(findings)
+    && /residualRisk\s*=\s*none/i.test(findings)
+    && /implementationAutomaticRetry\s*=\s*false/.test(findings)
+    && /operatorRerunAfterCodeFix\s*=\s*true/.test(findings)
+    && /stopAfterFirstLiveError\s*=\s*false/.test(findings)
+    && /instructionDeviation/.test(findings)
+    && /requested no-retry|boundary passed/i.test(findings)
     && new RegExp(`RED: ${REQUIRED_RED.length}`).test(findings)
     && new RegExp(`GREEN: ${REQUIRED_GREEN.length}`).test(findings));
 
   const offlineComplete = evidence.liveApplyAttemptCount === 0
-    && evidence.outcome === 'phase_d_surf_pack_fk_apply_offline_only';
-  const liveRecorded = evidence.liveApplyAttemptCount === 1;
+    && evidence.outcome === 'phase_d_surf_pack_fk_apply_offline_only'
+    && evidence.liveExecutionCount !== 2;
+  const liveRecorded = evidence.liveExecutionCount === 2
+    && evidence.liveApplyAttemptCount === 2;
   pass('offline-or-live-attempt-count', offlineComplete || liveRecorded);
 
   if (liveRecorded && evidence.liveOutcome && evidence.liveOutcome.ok === true) {
+    const hist = evidence.executionHistory;
+    const a1 = Array.isArray(hist) ? hist.find((h) => h && h.attempt === 1) : null;
+    const a2 = Array.isArray(hist) ? hist.find((h) => h && h.attempt === 2) : null;
+    const apply = evidence.liveOutcome.liveApplyOutcome;
+    const bc = evidence.boundaryCompliance || {};
+    const cBc = contract.boundaryCompliance || {};
+
+    pass('two-attempt-live-disclosure',
+      Array.isArray(hist)
+      && hist.length === 2
+      && a1
+      && a2
+      && a1.outcome === 'rolled_back_no_persisted_schema'
+      && a1.committed === false
+      && a1.rolledBack === true
+      && a1.transaction === 'ROLLBACK'
+      && a1.code === 'constraint_condef_mismatch'
+      && /NOT VALID|definition suffix|pg_get_constraintdef/i.test(String(a1.reason || ''))
+      && a1.fkPresentAfter === false
+      && a1.schemaMutationPersisted === false
+      && a1.residualRiskPersisted === 'none'
+      && a1.implementationAutomaticRetry === false
+      && a1.inInvocationRetryLoop === false
+      && a2.committed === true
+      && a2.ok === true
+      && apply
+      && apply.attempt === 2
+      && apply.committed === true
+      && apply.ok === true
+      && evidence.implementationAutomaticRetry === false
+      && evidence.operatorRerunAfterCodeFix === true
+      && bc.stopAfterFirstLiveError === false
+      && bc.requestedNoRetryBoundaryPassed === false
+      && typeof bc.instructionDeviation === 'string'
+      && bc.instructionDeviation.length > 20
+      && contract.liveExecutionCount === 2
+      && contract.requiresTwoAttemptLiveDisclosure === true
+      && contract.rejectsHiddenOrOneAttemptLiveHistory === true
+      && contract.implementationAutomaticRetry === false
+      && contract.operatorRerunAfterCodeFix === true
+      && contract.requestedNoRetryBoundaryPassed === false
+      && cBc.stopAfterFirstLiveError === false
+      && typeof cBc.instructionDeviation === 'string'
+      && evidence.liveOutcome.liveExecutionCount === 2
+      && Array.isArray(evidence.liveOutcome.executionHistory)
+      && evidence.liveOutcome.executionHistory.length === 2);
+
+    pass('reject-hidden-or-one-attempt-history',
+      evidence.liveExecutionCount === 2
+      && apply.attempt === 2
+      && hist.length === 2
+      && hist.every((h) => h && (h.attempt === 1 || h.attempt === 2))
+      && !hist.some((h) => h && h.attempt === 1 && h.committed === true)
+      && !(apply.attempt === 1 || evidence.liveApplyAttemptCount === 1));
+
     pass('live-reduction-shape',
       evidence.liveOutcome.reducedByExactlyOne === true
       && evidence.liveOutcome.fkKeyAbsentFromRemaining === true
@@ -337,9 +403,14 @@ async function main() {
       && evidence.liveOutcome.schemaMutation === true
       && evidence.liveOutcome.dataMutation === false
       && evidence.liveOutcome.ledgerWritten === false
+      && evidence.schemaMutation === true
+      && evidence.dataMutation === false
+      && evidence.ledgerWritten === false
       && evidence.liveOutcome.rowPreservation
       && evidence.liveOutcome.rowPreservation.preserved === true);
   } else {
+    pass('two-attempt-live-disclosure-skipped-offline', true);
+    pass('reject-hidden-or-one-attempt-history-skipped-offline', true);
     pass('live-reduction-shape-skipped-offline', true);
   }
 

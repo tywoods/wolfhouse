@@ -1290,8 +1290,20 @@ async function main() {
   }
 
   const liveBlock = liveOutcome || previousLive || null;
+  const priorDisclosure = (preserveLive && priorEvidence) ? {
+    liveExecutionCount: priorEvidence.liveExecutionCount,
+    implementationAutomaticRetry: priorEvidence.implementationAutomaticRetry,
+    operatorRerunAfterCodeFix: priorEvidence.operatorRerunAfterCodeFix,
+    boundaryCompliance: priorEvidence.boundaryCompliance,
+    executionHistory: priorEvidence.executionHistory,
+  } : null;
+  const liveExecCount = priorDisclosure && priorDisclosure.liveExecutionCount === 2
+    ? 2
+    : (liveBlock && Number(liveBlock.liveApplyAttemptCount) > 0
+      ? Number(liveBlock.liveApplyAttemptCount)
+      : 0);
   const offlineOnlyOutcome = offlineOnly && !(liveBlock && liveBlock.ok === true
-    && liveBlock.liveApplyAttemptCount === 1);
+    && liveExecCount >= 1);
 
   const evidence = {
     kind: 'sunset-schema-observer-slice14z-surf-pack-fk-apply-evidence',
@@ -1320,7 +1332,20 @@ async function main() {
     writesLedger: false,
     forwardCountUnchanged: 39,
     newForwardMigration: false,
-    liveApplyAttemptCount: liveBlock && liveBlock.liveApplyAttemptCount === 1 ? 1 : 0,
+    liveExecutionCount: liveExecCount,
+    liveApplyAttemptCount: liveExecCount,
+    implementationAutomaticRetry: priorDisclosure
+      ? priorDisclosure.implementationAutomaticRetry === true
+      : false,
+    operatorRerunAfterCodeFix: priorDisclosure
+      ? priorDisclosure.operatorRerunAfterCodeFix === true
+      : false,
+    boundaryCompliance: priorDisclosure && priorDisclosure.boundaryCompliance
+      ? priorDisclosure.boundaryCompliance
+      : null,
+    executionHistory: priorDisclosure && Array.isArray(priorDisclosure.executionHistory)
+      ? priorDisclosure.executionHistory
+      : null,
     applicationName: APPLICATION_NAME,
     observerApplicationName: OBSERVER_APPLICATION_NAME,
     normalizationProfile: NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1,
@@ -1422,6 +1447,26 @@ async function main() {
     verifyNeverRerunsLive: true,
     claimsZeroDrift: false,
     claimsFullRepair: false,
+    liveExecutionCount: priorDisclosure && priorDisclosure.liveExecutionCount === 2
+      ? 2
+      : liveExecCount,
+    implementationAutomaticRetry: priorDisclosure
+      ? priorDisclosure.implementationAutomaticRetry === true
+      : false,
+    operatorRerunAfterCodeFix: priorDisclosure
+      ? priorDisclosure.operatorRerunAfterCodeFix === true
+      : false,
+    boundaryCompliance: priorDisclosure && priorDisclosure.boundaryCompliance
+      ? priorDisclosure.boundaryCompliance
+      : null,
+    requiresTwoAttemptLiveDisclosure: priorDisclosure
+      && priorDisclosure.liveExecutionCount === 2,
+    rejectsHiddenOrOneAttemptLiveHistory: priorDisclosure
+      && priorDisclosure.liveExecutionCount === 2,
+    requestedNoRetryBoundaryPassed: priorDisclosure
+      && priorDisclosure.boundaryCompliance
+      ? priorDisclosure.boundaryCompliance.requestedNoRetryBoundaryPassed === true
+      : false,
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14Z',
@@ -1555,13 +1600,39 @@ async function main() {
       '',
     );
   }
+  if (priorDisclosure && priorDisclosure.liveExecutionCount === 2
+    && Array.isArray(priorDisclosure.executionHistory)) {
+    const h1 = priorDisclosure.executionHistory.find((h) => h && h.attempt === 1) || {};
+    const h2 = priorDisclosure.executionHistory.find((h) => h && h.attempt === 2) || {};
+    const bc = priorDisclosure.boundaryCompliance || {};
+    findings.push(
+      '## Incident / live execution disclosure',
+      '',
+      '- `liveExecutionCount=2` (artifacts must not imply a single live execution).',
+      `- Attempt 1: \`outcome=${h1.outcome || 'rolled_back_no_persisted_schema'}\`, `
+      + `\`code=${h1.code || 'constraint_condef_mismatch'}\` — post-ADD NOT VALID matcher `
+      + 'rejected PostgreSQL `pg_get_constraintdef` definition suffix ` NOT VALID`; '
+      + 'transaction `ROLLBACK`; `committed=false`; FK absent afterward from rollback semantics; '
+      + '**residualRisk=none** persisted.',
+      `- Attempt 2: preserved successful \`liveApplyOutcome\` (\`attempt=2\`, `
+      + `\`committed=${h2.committed === true}\`, observer 6→5).`,
+      '- `implementationAutomaticRetry=false` — no retry loop inside either invocation.',
+      '- `operatorRerunAfterCodeFix=true` — second live apply was a separate operator '
+      + 're-invocation after the mid-state matcher fix.',
+      `- \`boundaryCompliance.stopAfterFirstLiveError=${bc.stopAfterFirstLiveError === true}\`; `
+      + `\`requestedNoRetryBoundaryPassed=${bc.requestedNoRetryBoundaryPassed === true}\`; `
+      + '`instructionDeviation` recorded — do **not** '
+      + 'claim the requested no-retry / stop-after-first-live-error boundary passed.',
+      '',
+    );
+  }
   findings.push(
     '## Do not claim',
     '',
     '- Do **not** claim zero remaining drift / database matches canonical / Sunset fully repaired.',
     '- Do **not** run verify with `--live` (verify never re-runs live / never calls executePhaseDSurfPackFkApply live).',
     '- Do **not** modify expected-product-schema bytes/fingerprint or migrations.',
-    '- Do **not** retry after partial FK failure (ROLLBACK once).',
+    '- Do **not** claim a one-attempt live history or that the stop-after-first-live-error boundary passed.',
     '',
     '## Operator live command',
     '',
@@ -1574,7 +1645,6 @@ async function main() {
     '- `fixtures/sunset-schema-observer/slice14z-surf-pack-fk-apply-evidence.json`',
     '- `fixtures/sunset-schema-observer/slice14z-surf-pack-fk-apply-contract.json`',
     '- `fixtures/sunset-schema-observer/slice14z-findings.md`',
-    '',
   );
   fs.writeFileSync(FINDINGS_PATH, `${findings.join('\n')}\n`);
 
