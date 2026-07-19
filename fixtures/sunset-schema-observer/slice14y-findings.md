@@ -58,4 +58,3 @@ SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_FI
 - `fixtures/sunset-schema-observer/slice14y-five-index-apply-evidence.json`
 - `fixtures/sunset-schema-observer/slice14y-five-index-apply-contract.json`
 - `fixtures/sunset-schema-observer/slice14y-findings.md`
-
