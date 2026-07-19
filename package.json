@@ -287,6 +287,8 @@
     "generate:sunset-expected-schema-contract": "node scripts/generate-sunset-expected-schema-contract.js",
     "observe:sunset-schema-drift": "node scripts/observe-sunset-schema-drift.js",
     "verify:sunset-schema-observer": "node scripts/verify-sunset-schema-observer.js",
+    "verify:sunset-schema-slice13a": "node scripts/verify-sunset-schema-slice13a.js",
+    "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",
     "prove:sunset-schema-observer-local": "node scripts/prove-sunset-schema-observer-local.js",
     "verify:sunset-schema-observer-role-provision": "node scripts/verify-sunset-schema-observer-role-provision.js",
     "provision:sunset-schema-observer-role": "node scripts/provision-sunset-schema-observer-role.js",

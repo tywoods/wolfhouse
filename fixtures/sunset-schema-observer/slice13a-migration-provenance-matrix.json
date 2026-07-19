@@ -1,0 +1,1570 @@
+{
+  "kind": "sunset-schema-observer-slice13a-migration-provenance-matrix",
+  "label": "structural inference only — schema_migration_ledger absent live; states are evidence-based not ledger-proven",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "generatedAt": "2026-07-19T13:59:27.544Z",
+  "masterShaBasis": "3c27d4ee3dd9b5678c63037d3ccc524c21907332",
+  "canonicalForwardCount": 36,
+  "schema_migration_ledger_present_live": false,
+  "provenanceTotals": {
+    "fully_applied": 27,
+    "ambiguous": 3,
+    "superseded": 1,
+    "partially_applied": 4,
+    "absent": 1
+  },
+  "migrations": [
+    {
+      "id": "001_init",
+      "filename": "001_init.sql",
+      "sha256": "890ac04fcfa26ff5e85fcf8d639b84c078afd46f234bce82b02a67e834068bae",
+      "order": 1,
+      "signaturesExpected": [
+        "index:idx_automation_errors_status",
+        "index:idx_booking_beds_booking",
+        "index:idx_messages_conversation",
+        "index:idx_payment_events_payment",
+        "index:idx_payments_booking",
+        "index:idx_workflow_events_created",
+        "index:idx_workflow_events_execution",
+        "index:payments_stripe_payment_intent_id_unique",
+        "table:automation_errors",
+        "table:beds",
+        "table:booking_beds",
+        "table:bookings",
+        "table:conversations",
+        "table:guests",
+        "table:manual_entries",
+        "table:messages",
+        "table:operator_room_release_requests",
+        "table:packages",
+        "table:payment_events",
+        "table:payments",
+        "table:rooms",
+        "table:workflow_events",
+        "trigger:automation_errors_updated_at",
+        "trigger:beds_updated_at",
+        "trigger:booking_beds_updated_at",
+        "trigger:bookings_updated_at",
+        "trigger:conversations_updated_at",
+        "trigger:guests_updated_at",
+        "trigger:manual_entries_updated_at",
+        "trigger:messages_updated_at",
+        "trigger:operator_room_release_requests_updated_at",
+        "trigger:packages_updated_at",
+        "trigger:payments_updated_at",
+        "trigger:rooms_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_automation_errors_status",
+        "index:idx_booking_beds_booking",
+        "index:idx_messages_conversation",
+        "index:idx_payment_events_payment",
+        "index:idx_payments_booking",
+        "index:idx_workflow_events_created",
+        "index:idx_workflow_events_execution",
+        "index:payments_stripe_payment_intent_id_unique",
+        "table:automation_errors",
+        "table:beds",
+        "table:booking_beds",
+        "table:bookings",
+        "table:conversations",
+        "table:guests",
+        "table:manual_entries",
+        "table:messages",
+        "table:operator_room_release_requests",
+        "table:packages",
+        "table:payment_events",
+        "table:payments",
+        "table:rooms",
+        "table:workflow_events",
+        "trigger:automation_errors_updated_at",
+        "trigger:beds_updated_at",
+        "trigger:booking_beds_updated_at",
+        "trigger:bookings_updated_at",
+        "trigger:conversations_updated_at",
+        "trigger:guests_updated_at",
+        "trigger:manual_entries_updated_at",
+        "trigger:messages_updated_at",
+        "trigger:operator_room_release_requests_updated_at",
+        "trigger:packages_updated_at",
+        "trigger:payments_updated_at",
+        "trigger:rooms_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=51",
+        "expectedVisible=34",
+        "liveHasOfExpected=34",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 44,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "definition_mismatch|ownership|extension:pgcrypto",
+        "definition_mismatch|ownership|extension:plpgsql",
+        "definition_mismatch|ownership|function:public.armor(bytea, text[], text[])",
+        "definition_mismatch|ownership|function:public.armor(bytea)",
+        "definition_mismatch|ownership|function:public.crypt(text, text)",
+        "definition_mismatch|ownership|function:public.dearmor(text)",
+        "definition_mismatch|ownership|function:public.decrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(text, text)",
+        "definition_mismatch|ownership|function:public.encrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.encrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.gen_random_bytes(integer)",
+        "definition_mismatch|ownership|function:public.gen_random_uuid()",
+        "definition_mismatch|ownership|function:public.gen_salt(text, integer)",
+        "definition_mismatch|ownership|function:public.gen_salt(text)",
+        "definition_mismatch|ownership|function:public.hmac(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.hmac(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "definition_mismatch|ownership|function:public.pgp_key_id(bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text)",
+        "definition_mismatch|ownership|schema:public",
+        "definition_mismatch|acls|schema:public",
+        "definition_mismatch|extensions|pgcrypto",
+        "definition_mismatch|extensions|plpgsql"
+      ]
+    },
+    {
+      "id": "003_rename_hostel_to_client",
+      "filename": "003_rename_hostel_to_client.sql",
+      "sha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94",
+      "order": 2,
+      "signaturesExpected": [
+        "trigger:clients_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "trigger:clients_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "002_package_pricing",
+      "filename": "002_package_pricing.sql",
+      "sha256": "5d6eef33f8171d0cff7ed86c86e0bb13c4806b59513d84bb5097e9617d8a9b5c",
+      "order": 3,
+      "signaturesExpected": [
+        "index:idx_package_price_rules_lookup",
+        "table:package_price_rules",
+        "trigger:package_price_rules_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_package_price_rules_lookup",
+        "table:package_price_rules",
+        "trigger:package_price_rules_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=3",
+        "expectedVisible=3",
+        "liveHasOfExpected=3",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "004_payment_schema_phase2",
+      "filename": "004_payment_schema_phase2.sql",
+      "sha256": "59035b804d5d32bc376e393ea76e263a2ec1c61611b5bf2fb511b134e326eea3",
+      "order": 4,
+      "signaturesExpected": [
+        "constraint:payments_amount_due_cents_check",
+        "constraint:payments_amount_paid_cents_check",
+        "index:idx_payments_booking_kind_status",
+        "index:idx_payments_client_booking"
+      ],
+      "signaturesPresentLive": [
+        "constraint:payments_amount_due_cents_check",
+        "constraint:payments_amount_paid_cents_check",
+        "index:idx_payments_booking_kind_status",
+        "index:idx_payments_client_booking"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=5",
+        "expectedVisible=4",
+        "liveHasOfExpected=4",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "005_payment_intent_unique_partial",
+      "filename": "005_payment_intent_unique_partial.sql",
+      "sha256": "6e9f1dc53766a537406e7a836d9284f811d8fe62c275d130e3c381d1f14807a6",
+      "order": 5,
+      "signaturesExpected": [
+        "index:payments_stripe_payment_intent_id_unique"
+      ],
+      "signaturesPresentLive": [
+        "index:payments_stripe_payment_intent_id_unique"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=2",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "006_confirmation_sent_at",
+      "filename": "006_confirmation_sent_at.sql",
+      "sha256": "eb91a8bfaee1aa82a909aa6a98ce29c99b0def7c7ff3107723e3684705bfa38a",
+      "order": 6,
+      "signaturesExpected": [
+        "index:idx_bookings_pending_confirmation"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_bookings_pending_confirmation"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "007_add_addon_orders",
+      "filename": "007_add_addon_orders.sql",
+      "sha256": "910e370cc48aaa99c87f8c8ee6bbbdf9b036817fe4296c052be445d9d143e0ce",
+      "order": 7,
+      "signaturesExpected": [
+        "index:idx_addon_items_order",
+        "index:idx_addon_items_service_date",
+        "index:idx_addon_items_start_date",
+        "index:idx_addon_items_type",
+        "index:idx_addon_orders_booking",
+        "index:idx_addon_orders_client",
+        "index:idx_addon_orders_payment_status",
+        "index:idx_addon_orders_requested_at",
+        "index:idx_addon_orders_status",
+        "index:idx_lesson_requests_booking",
+        "index:idx_lesson_requests_date",
+        "index:idx_lesson_requests_item",
+        "index:idx_lesson_requests_scheduling_status",
+        "index:idx_meal_requests_booking",
+        "index:idx_meal_requests_date",
+        "index:idx_meal_requests_item",
+        "index:idx_meal_requests_service_status",
+        "index:idx_rental_requests_booking",
+        "index:idx_rental_requests_dates",
+        "index:idx_rental_requests_item",
+        "index:idx_rental_requests_pickup_status",
+        "index:idx_rental_requests_type",
+        "index:idx_transfer_requests_arrival",
+        "index:idx_transfer_requests_booking",
+        "index:idx_transfer_requests_departure",
+        "index:idx_transfer_requests_driver_status",
+        "index:idx_transfer_requests_item",
+        "index:idx_yoga_requests_booking",
+        "index:idx_yoga_requests_class_date",
+        "index:idx_yoga_requests_fulfillment",
+        "index:idx_yoga_requests_item",
+        "table:add_on_items",
+        "table:add_on_orders",
+        "table:lesson_requests",
+        "table:meal_requests",
+        "table:rental_requests",
+        "table:transfer_requests",
+        "table:yoga_requests",
+        "trigger:addon_items_updated_at",
+        "trigger:addon_orders_updated_at",
+        "trigger:lesson_requests_updated_at",
+        "trigger:meal_requests_updated_at",
+        "trigger:rental_requests_updated_at",
+        "trigger:transfer_requests_updated_at",
+        "trigger:yoga_requests_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_addon_items_order",
+        "index:idx_addon_items_service_date",
+        "index:idx_addon_items_start_date",
+        "index:idx_addon_items_type",
+        "index:idx_addon_orders_booking",
+        "index:idx_addon_orders_client",
+        "index:idx_addon_orders_payment_status",
+        "index:idx_addon_orders_requested_at",
+        "index:idx_addon_orders_status",
+        "index:idx_lesson_requests_booking",
+        "index:idx_lesson_requests_date",
+        "index:idx_lesson_requests_item",
+        "index:idx_lesson_requests_scheduling_status",
+        "index:idx_meal_requests_booking",
+        "index:idx_meal_requests_date",
+        "index:idx_meal_requests_item",
+        "index:idx_meal_requests_service_status",
+        "index:idx_rental_requests_booking",
+        "index:idx_rental_requests_dates",
+        "index:idx_rental_requests_item",
+        "index:idx_rental_requests_pickup_status",
+        "index:idx_rental_requests_type",
+        "index:idx_transfer_requests_arrival",
+        "index:idx_transfer_requests_booking",
+        "index:idx_transfer_requests_departure",
+        "index:idx_transfer_requests_driver_status",
+        "index:idx_transfer_requests_item",
+        "index:idx_yoga_requests_booking",
+        "index:idx_yoga_requests_class_date",
+        "index:idx_yoga_requests_fulfillment",
+        "index:idx_yoga_requests_item",
+        "table:add_on_items",
+        "table:add_on_orders",
+        "table:lesson_requests",
+        "table:meal_requests",
+        "table:rental_requests",
+        "table:transfer_requests",
+        "table:yoga_requests",
+        "trigger:addon_items_updated_at",
+        "trigger:addon_orders_updated_at",
+        "trigger:lesson_requests_updated_at",
+        "trigger:meal_requests_updated_at",
+        "trigger:rental_requests_updated_at",
+        "trigger:transfer_requests_updated_at",
+        "trigger:yoga_requests_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=46",
+        "expectedVisible=45",
+        "liveHasOfExpected=45",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "008_add_staff_handoffs",
+      "filename": "008_add_staff_handoffs.sql",
+      "sha256": "164d75837557ec8f9418ece4f6ecb2c2a99a422b6ffe34f2d9958cf321a70fbb",
+      "order": 8,
+      "signaturesExpected": [
+        "index:idx_staff_handoffs_assigned_staff",
+        "index:idx_staff_handoffs_booking",
+        "index:idx_staff_handoffs_client",
+        "index:idx_staff_handoffs_conversation",
+        "index:idx_staff_handoffs_open",
+        "index:idx_staff_handoffs_opened_at",
+        "index:idx_staff_handoffs_phone",
+        "index:idx_staff_handoffs_priority",
+        "index:idx_staff_handoffs_reason_code",
+        "index:idx_staff_handoffs_status",
+        "index:idx_staff_tasks_assigned_staff",
+        "index:idx_staff_tasks_booking",
+        "index:idx_staff_tasks_client",
+        "index:idx_staff_tasks_due_at",
+        "index:idx_staff_tasks_handoff",
+        "index:idx_staff_tasks_status",
+        "index:uq_staff_handoffs_booking_reason_open",
+        "index:uq_staff_handoffs_conv_reason_open",
+        "table:staff_handoffs",
+        "table:staff_tasks",
+        "trigger:staff_handoffs_updated_at",
+        "trigger:staff_tasks_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_staff_handoffs_assigned_staff",
+        "index:idx_staff_handoffs_booking",
+        "index:idx_staff_handoffs_client",
+        "index:idx_staff_handoffs_conversation",
+        "index:idx_staff_handoffs_open",
+        "index:idx_staff_handoffs_opened_at",
+        "index:idx_staff_handoffs_phone",
+        "index:idx_staff_handoffs_priority",
+        "index:idx_staff_handoffs_reason_code",
+        "index:idx_staff_handoffs_status",
+        "index:idx_staff_tasks_assigned_staff",
+        "index:idx_staff_tasks_booking",
+        "index:idx_staff_tasks_client",
+        "index:idx_staff_tasks_due_at",
+        "index:idx_staff_tasks_handoff",
+        "index:idx_staff_tasks_status",
+        "index:uq_staff_handoffs_booking_reason_open",
+        "index:uq_staff_handoffs_conv_reason_open",
+        "table:staff_handoffs",
+        "table:staff_tasks",
+        "trigger:staff_handoffs_updated_at",
+        "trigger:staff_tasks_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=23",
+        "expectedVisible=22",
+        "liveHasOfExpected=22",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "009_auth_staff_users",
+      "filename": "009_auth_staff_users.sql",
+      "sha256": "7b5cb0236de2361f52b8634f49485abca6e0a2adad28a333e34186db27a355ed",
+      "order": 9,
+      "signaturesExpected": [
+        "index:idx_auth_sessions_client",
+        "index:idx_auth_sessions_expires_at",
+        "index:idx_auth_sessions_revoked_at",
+        "index:idx_auth_sessions_staff_user",
+        "index:idx_auth_sessions_user_active",
+        "index:idx_staff_users_active",
+        "index:idx_staff_users_client",
+        "index:idx_staff_users_email",
+        "index:idx_staff_users_role",
+        "index:idx_staff_users_status",
+        "index:uq_auth_sessions_token_hash",
+        "index:uq_staff_users_client_email",
+        "table:auth_sessions",
+        "table:staff_users",
+        "trigger:auth_sessions_updated_at",
+        "trigger:staff_users_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_auth_sessions_client",
+        "index:idx_auth_sessions_expires_at",
+        "index:idx_auth_sessions_revoked_at",
+        "index:idx_auth_sessions_staff_user",
+        "index:idx_auth_sessions_user_active",
+        "index:idx_staff_users_active",
+        "index:idx_staff_users_client",
+        "index:idx_staff_users_email",
+        "index:idx_staff_users_role",
+        "index:idx_staff_users_status",
+        "index:uq_auth_sessions_token_hash",
+        "index:uq_staff_users_client_email",
+        "table:auth_sessions",
+        "table:staff_users",
+        "trigger:auth_sessions_updated_at",
+        "trigger:staff_users_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=17",
+        "expectedVisible=16",
+        "liveHasOfExpected=16",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "010_booking_service_records",
+      "filename": "010_booking_service_records.sql",
+      "sha256": "e88f82baff66ff36ca7eaa7c6f7d7d2a3198003df8e6fadd8d8fb2f30b43169a",
+      "order": 10,
+      "signaturesExpected": [
+        "index:idx_booking_service_records_booking",
+        "index:idx_booking_service_records_client_date",
+        "index:idx_booking_service_records_client_type_date",
+        "index:idx_booking_service_records_payment_status",
+        "table:booking_service_records",
+        "trigger:booking_service_records_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_booking_service_records_booking",
+        "index:idx_booking_service_records_client_date",
+        "index:idx_booking_service_records_client_type_date",
+        "index:idx_booking_service_records_payment_status",
+        "table:booking_service_records",
+        "trigger:booking_service_records_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=6",
+        "expectedVisible=6",
+        "liveHasOfExpected=6",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "011_service_payment_linkage",
+      "filename": "011_service_payment_linkage.sql",
+      "sha256": "bb8ce0b7809d6f09612d91cb3ba5669d52a2199c4cfc1f17c8524f2e40263dbf",
+      "order": 11,
+      "signaturesExpected": [
+        "index:idx_booking_service_records_payment_id"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_booking_service_records_payment_id"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "012_bot_pause_states",
+      "filename": "012_bot_pause_states.sql",
+      "sha256": "21b8c04cc0b987961b95e1c447350781e025e7f185da046aab685c43987f5e11",
+      "order": 12,
+      "signaturesExpected": [
+        "constraint:bot_pause_states_scope_required",
+        "index:idx_bot_pause_states_active_conversation",
+        "index:idx_bot_pause_states_active_phone",
+        "index:idx_bot_pause_states_booking_code",
+        "index:idx_bot_pause_states_client_slug",
+        "index:idx_bot_pause_states_conversation_id",
+        "index:idx_bot_pause_states_guest_phone",
+        "table:bot_pause_states",
+        "trigger:bot_pause_states_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:bot_pause_states_scope_required",
+        "index:idx_bot_pause_states_active_conversation",
+        "index:idx_bot_pause_states_active_phone",
+        "index:idx_bot_pause_states_booking_code",
+        "index:idx_bot_pause_states_client_slug",
+        "index:idx_bot_pause_states_conversation_id",
+        "index:idx_bot_pause_states_guest_phone",
+        "table:bot_pause_states",
+        "trigger:bot_pause_states_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=9",
+        "expectedVisible=9",
+        "liveHasOfExpected=9",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "013_guest_message_sends",
+      "filename": "013_guest_message_sends.sql",
+      "sha256": "74008ce759a68a20a0cb18fadf5ac468bfd87e4449416033e89b66ad183f6f68",
+      "order": 13,
+      "signaturesExpected": [
+        "constraint:guest_message_sends_client_idempotency_unique",
+        "constraint:guest_message_sends_status_check",
+        "index:idx_guest_message_sends_client_slug",
+        "index:idx_guest_message_sends_status",
+        "table:guest_message_sends",
+        "trigger:guest_message_sends_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:guest_message_sends_client_idempotency_unique",
+        "constraint:guest_message_sends_status_check",
+        "index:idx_guest_message_sends_client_slug",
+        "index:idx_guest_message_sends_status",
+        "table:guest_message_sends",
+        "trigger:guest_message_sends_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=6",
+        "expectedVisible=6",
+        "liveHasOfExpected=6",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "014_guest_message_events",
+      "filename": "014_guest_message_events.sql",
+      "sha256": "638d22a56f34c5e036881db6bbdb1a893d7aad771c1d3276af5d0409386eabe6",
+      "order": 14,
+      "signaturesExpected": [
+        "constraint:guest_message_events_client_wa_unique",
+        "index:idx_guest_message_events_client_slug",
+        "index:idx_guest_message_events_created_at",
+        "index:idx_guest_message_events_from_phone",
+        "table:guest_message_events",
+        "trigger:guest_message_events_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:guest_message_events_client_wa_unique",
+        "index:idx_guest_message_events_client_slug",
+        "index:idx_guest_message_events_created_at",
+        "index:idx_guest_message_events_from_phone",
+        "table:guest_message_events",
+        "trigger:guest_message_events_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=6",
+        "expectedVisible=6",
+        "liveHasOfExpected=6",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "016_staff_phone_access",
+      "filename": "016_staff_phone_access.sql",
+      "sha256": "d54adfa7f12e99a2e45378877f04cf8c1b717da6ff7a2a914a94551349875288",
+      "order": 15,
+      "signaturesExpected": [
+        "constraint:staff_phone_access_client_phone_channel_unique",
+        "index:idx_staff_phone_access_client_active",
+        "index:idx_staff_phone_access_client_phone",
+        "index:idx_staff_phone_access_client_role",
+        "table:staff_phone_access",
+        "trigger:staff_phone_access_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:staff_phone_access_client_phone_channel_unique",
+        "index:idx_staff_phone_access_client_active",
+        "index:idx_staff_phone_access_client_phone",
+        "index:idx_staff_phone_access_client_role",
+        "table:staff_phone_access",
+        "trigger:staff_phone_access_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=6",
+        "expectedVisible=6",
+        "liveHasOfExpected=6",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "017_booking_transfers",
+      "filename": "017_booking_transfers.sql",
+      "sha256": "be25116cb6e6a3100bf79d63edbaa02c3c2a59bbaa6c1cf13650a7053098de2b",
+      "order": 16,
+      "signaturesExpected": [
+        "constraint:booking_transfers_booking_direction_unique",
+        "index:idx_booking_transfers_client_airport",
+        "index:idx_booking_transfers_client_booking",
+        "index:idx_booking_transfers_client_lookup_date",
+        "index:idx_booking_transfers_client_scheduled_at",
+        "index:idx_booking_transfers_client_status",
+        "table:booking_transfers",
+        "trigger:booking_transfers_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:booking_transfers_booking_direction_unique",
+        "index:idx_booking_transfers_client_airport",
+        "index:idx_booking_transfers_client_booking",
+        "index:idx_booking_transfers_client_lookup_date",
+        "index:idx_booking_transfers_client_scheduled_at",
+        "index:idx_booking_transfers_client_status",
+        "table:booking_transfers",
+        "trigger:booking_transfers_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=8",
+        "expectedVisible=8",
+        "liveHasOfExpected=8",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "018_booking_service_records_nullable_service_date",
+      "filename": "018_booking_service_records_nullable_service_date.sql",
+      "sha256": "90f2940a6f9b8fe9a26da16306219c689f32c6332a9e55a626105cea5ca1aae0",
+      "order": 17,
+      "signaturesExpected": [],
+      "signaturesPresentLive": [],
+      "inferredState": "ambiguous",
+      "confidence": "low",
+      "evidence": [
+        "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "019_bookings_language",
+      "filename": "019_bookings_language.sql",
+      "sha256": "73eb30bf4f213ba8fe3fbdc72741ea205bbef1f294e86e4ec2f4e5cbc9f6ec7e",
+      "order": 18,
+      "signaturesExpected": [],
+      "signaturesPresentLive": [],
+      "inferredState": "ambiguous",
+      "confidence": "low",
+      "evidence": [
+        "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "020_wolfhouse_room_gender_metadata",
+      "filename": "020_wolfhouse_room_gender_metadata.sql",
+      "sha256": "00b9985c056fae52a29a2d5855874bc66ebec834f83878aa447b74c3696b1ce6",
+      "order": 19,
+      "signaturesExpected": [],
+      "signaturesPresentLive": [],
+      "inferredState": "ambiguous",
+      "confidence": "low",
+      "evidence": [
+        "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "021_sunset_admin_business_config",
+      "filename": "021_sunset_admin_business_config.sql",
+      "sha256": "039908f069d535a28fe37230084d4c13a0cfb28604ec4e622f5946628979de90",
+      "order": 20,
+      "signaturesExpected": [
+        "constraint:tenant_lesson_capacity_rules_effective_window",
+        "constraint:tenant_lesson_capacity_rules_scope_columns",
+        "constraint:tenant_lesson_time_rules_effective_window",
+        "constraint:tenant_lesson_time_rules_time_window",
+        "constraint:tenant_lesson_time_rules_weekdays_valid",
+        "constraint:tenant_price_rules_effective_window",
+        "index:idx_tenant_config_audit_client_created",
+        "index:idx_tenant_config_audit_entity",
+        "index:idx_tenant_lesson_capacity_client_effective",
+        "index:idx_tenant_lesson_capacity_client_scope",
+        "index:idx_tenant_lesson_time_client_active",
+        "index:idx_tenant_lesson_time_client_date",
+        "index:idx_tenant_lesson_time_client_effective",
+        "index:idx_tenant_price_rules_client_active",
+        "index:idx_tenant_price_rules_client_effective",
+        "index:idx_tenant_price_rules_tenant_item",
+        "index:uq_tenant_lesson_capacity_date",
+        "index:uq_tenant_lesson_capacity_default",
+        "index:uq_tenant_lesson_capacity_weekday",
+        "index:uq_tenant_lesson_time_date",
+        "index:uq_tenant_lesson_time_recurring",
+        "index:uq_tenant_price_rules_active_window",
+        "table:tenant_config_audit_log",
+        "table:tenant_lesson_capacity_rules",
+        "table:tenant_lesson_time_rules",
+        "table:tenant_price_rules",
+        "trigger:tenant_lesson_capacity_rules_updated_at",
+        "trigger:tenant_lesson_time_rules_updated_at",
+        "trigger:tenant_price_rules_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:tenant_lesson_capacity_rules_effective_window",
+        "constraint:tenant_lesson_capacity_rules_scope_columns",
+        "constraint:tenant_lesson_time_rules_effective_window",
+        "constraint:tenant_lesson_time_rules_time_window",
+        "constraint:tenant_lesson_time_rules_weekdays_valid",
+        "constraint:tenant_price_rules_effective_window",
+        "index:idx_tenant_config_audit_client_created",
+        "index:idx_tenant_config_audit_entity",
+        "index:idx_tenant_lesson_capacity_client_effective",
+        "index:idx_tenant_lesson_capacity_client_scope",
+        "index:idx_tenant_lesson_time_client_active",
+        "index:idx_tenant_lesson_time_client_date",
+        "index:idx_tenant_lesson_time_client_effective",
+        "index:idx_tenant_price_rules_client_active",
+        "index:idx_tenant_price_rules_client_effective",
+        "index:idx_tenant_price_rules_tenant_item",
+        "table:tenant_config_audit_log",
+        "table:tenant_lesson_capacity_rules",
+        "table:tenant_lesson_time_rules",
+        "table:tenant_price_rules",
+        "trigger:tenant_lesson_capacity_rules_updated_at",
+        "trigger:tenant_lesson_time_rules_updated_at",
+        "trigger:tenant_price_rules_updated_at"
+      ],
+      "inferredState": "superseded",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=31",
+        "expectedVisible=29",
+        "liveHasOfExpected=23",
+        "missingOfExpected=6",
+        "missing=index:uq_tenant_lesson_capacity_date,index:uq_tenant_lesson_capacity_default,index:uq_tenant_lesson_capacity_weekday,index:uq_tenant_lesson_time_date,index:uq_tenant_lesson_time_recurring,index:uq_tenant_price_rules_active_window",
+        "Pre-location unique indexes superseded live by *_loc variants (proposed location_id path)."
+      ],
+      "relatedMismatchCount": 23,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "live_only|columns|tenant_services.block_rooms_enabled",
+        "live_only|columns|tenant_services.blocked_room_codes",
+        "live_only|columns|tenant_services.room_block_booking_ids",
+        "live_only|columns|tenant_services.weekdays",
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+      ]
+    },
+    {
+      "id": "024_booking_guests",
+      "filename": "024_booking_guests.sql",
+      "sha256": "caad18c342b126727e47833f620ef2dd177dfcc1feb61d0ce5682422019283f6",
+      "order": 21,
+      "signaturesExpected": [
+        "index:idx_booking_guests_booking",
+        "index:idx_booking_guests_client_booking",
+        "index:idx_payments_booking_guest",
+        "table:booking_guests",
+        "trigger:booking_guests_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_booking_guests_booking",
+        "index:idx_booking_guests_client_booking",
+        "index:idx_payments_booking_guest",
+        "table:booking_guests",
+        "trigger:booking_guests_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=5",
+        "expectedVisible=5",
+        "liveHasOfExpected=5",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "026_tenant_surf_pack_rules",
+      "filename": "026_tenant_surf_pack_rules.sql",
+      "sha256": "ec7b1c3264d376caba6b57d2cc36efbda20a09b3a2bad52d53a617a8e81042db",
+      "order": 22,
+      "signaturesExpected": [
+        "index:idx_tenant_surf_pack_client_active",
+        "index:idx_tenant_surf_pack_client_loc",
+        "table:tenant_surf_pack_rules",
+        "trigger:tenant_surf_pack_rules_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_tenant_surf_pack_client_active",
+        "table:tenant_surf_pack_rules"
+      ],
+      "inferredState": "partially_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=4",
+        "expectedVisible=4",
+        "liveHasOfExpected=2",
+        "missingOfExpected=2",
+        "missing=index:idx_tenant_surf_pack_client_loc,trigger:tenant_surf_pack_rules_updated_at"
+      ],
+      "relatedMismatchCount": 20,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+        "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      ]
+    },
+    {
+      "id": "027_wolfhouse_staff_whatsapp_numbers",
+      "filename": "027_wolfhouse_staff_whatsapp_numbers.sql",
+      "sha256": "0c6b170a2f224618a4278e964eaf7a69ad1a46a1482163763c1728e0108ed6f2",
+      "order": 23,
+      "signaturesExpected": [
+        "index:idx_wolfhouse_staff_whatsapp_numbers_client_active",
+        "table:wolfhouse_staff_whatsapp_numbers"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_wolfhouse_staff_whatsapp_numbers_client_active",
+        "table:wolfhouse_staff_whatsapp_numbers"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=2",
+        "expectedVisible=2",
+        "liveHasOfExpected=2",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 43,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "definition_mismatch|ownership|extension:pgcrypto",
+        "definition_mismatch|ownership|extension:plpgsql",
+        "definition_mismatch|ownership|function:public.armor(bytea, text[], text[])",
+        "definition_mismatch|ownership|function:public.armor(bytea)",
+        "definition_mismatch|ownership|function:public.crypt(text, text)",
+        "definition_mismatch|ownership|function:public.dearmor(text)",
+        "definition_mismatch|ownership|function:public.decrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(text, text)",
+        "definition_mismatch|ownership|function:public.encrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.encrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.gen_random_bytes(integer)",
+        "definition_mismatch|ownership|function:public.gen_random_uuid()",
+        "definition_mismatch|ownership|function:public.gen_salt(text, integer)",
+        "definition_mismatch|ownership|function:public.gen_salt(text)",
+        "definition_mismatch|ownership|function:public.hmac(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.hmac(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "definition_mismatch|ownership|function:public.pgp_key_id(bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text)",
+        "definition_mismatch|ownership|schema:public",
+        "definition_mismatch|acls|schema:public",
+        "definition_mismatch|extensions|pgcrypto",
+        "definition_mismatch|extensions|plpgsql"
+      ]
+    },
+    {
+      "id": "028_tenant_services",
+      "filename": "028_tenant_services.sql",
+      "sha256": "ba84b2a02004d71803075bc33c8c49a11e4b2846f62725cf0f586e26505d22ce",
+      "order": 24,
+      "signaturesExpected": [
+        "constraint:tenant_services_date_window",
+        "constraint:tenant_services_price_unit",
+        "index:idx_tenant_services_client_active",
+        "table:tenant_services"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_tenant_services_client_active",
+        "table:tenant_services"
+      ],
+      "inferredState": "partially_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=4",
+        "expectedVisible=4",
+        "liveHasOfExpected=2",
+        "missingOfExpected=2",
+        "missing=constraint:tenant_services_date_window,constraint:tenant_services_price_unit"
+      ],
+      "relatedMismatchCount": 7,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_services.block_rooms_enabled",
+        "live_only|columns|tenant_services.blocked_room_codes",
+        "live_only|columns|tenant_services.room_block_booking_ids",
+        "live_only|columns|tenant_services.weekdays",
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "029_booking_service_records_generic_type",
+      "filename": "029_booking_service_records_generic_type.sql",
+      "sha256": "3f7fe5bd23222cb13a2f86ebbabd4b0a6d73eaca2aa13ae248eb70c730896fa7",
+      "order": 25,
+      "signaturesExpected": [
+        "constraint:booking_service_records_service_type_check"
+      ],
+      "signaturesPresentLive": [
+        "constraint:booking_service_records_service_type_check"
+      ],
+      "inferredState": "partially_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=2",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 7,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_services.block_rooms_enabled",
+        "live_only|columns|tenant_services.blocked_room_codes",
+        "live_only|columns|tenant_services.room_block_booking_ids",
+        "live_only|columns|tenant_services.weekdays",
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "030_tenant_house_notes",
+      "filename": "030_tenant_house_notes.sql",
+      "sha256": "ddbac2e937d2af242f4ceed01b2ce8972a77574ccb62de6cf52de346d00f919f",
+      "order": 26,
+      "signaturesExpected": [
+        "table:tenant_house_notes"
+      ],
+      "signaturesPresentLive": [
+        "table:tenant_house_notes"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "030_booking_service_records_slot_reservations",
+      "filename": "030_booking_service_records_slot_reservations.sql",
+      "sha256": "0b1a458d729d2d7cdfe15e3e26143bd5b0fbccc2e9ad77333ed4197bc63ac09f",
+      "order": 27,
+      "signaturesExpected": [
+        "index:idx_booking_service_records_service_slot"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_booking_service_records_service_slot"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "031_customers",
+      "filename": "031_customers.sql",
+      "sha256": "6f2d020cc74ac0a00d348cd094323cf262388eebc8b54037b3bbd84f5e398325",
+      "order": 28,
+      "signaturesExpected": [
+        "index:idx_customers_client_location",
+        "index:idx_customers_client_phone",
+        "table:customers",
+        "trigger:trg_sync_customer_bookings",
+        "trigger:trg_sync_customer_conversations"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_customers_client_location",
+        "index:idx_customers_client_phone",
+        "table:customers",
+        "trigger:trg_sync_customer_bookings",
+        "trigger:trg_sync_customer_conversations"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=5",
+        "expectedVisible=5",
+        "liveHasOfExpected=5",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 59,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+        "definition_mismatch|ownership|extension:pgcrypto",
+        "definition_mismatch|ownership|extension:plpgsql",
+        "definition_mismatch|ownership|function:public.armor(bytea, text[], text[])",
+        "definition_mismatch|ownership|function:public.armor(bytea)",
+        "definition_mismatch|ownership|function:public.crypt(text, text)",
+        "definition_mismatch|ownership|function:public.dearmor(text)",
+        "definition_mismatch|ownership|function:public.decrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(bytea, text)",
+        "definition_mismatch|ownership|function:public.digest(text, text)",
+        "definition_mismatch|ownership|function:public.encrypt_iv(bytea, bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.encrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.gen_random_bytes(integer)",
+        "definition_mismatch|ownership|function:public.gen_random_uuid()",
+        "definition_mismatch|ownership|function:public.gen_salt(text, integer)",
+        "definition_mismatch|ownership|function:public.gen_salt(text)",
+        "definition_mismatch|ownership|function:public.hmac(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.hmac(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "definition_mismatch|ownership|function:public.pgp_key_id(bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text, text)",
+        "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text)",
+        "definition_mismatch|ownership|schema:public",
+        "definition_mismatch|acls|schema:public",
+        "definition_mismatch|extensions|pgcrypto",
+        "definition_mismatch|extensions|plpgsql"
+      ]
+    },
+    {
+      "id": "032_client_notification_settings",
+      "filename": "032_client_notification_settings.sql",
+      "sha256": "63da768d3c3afdb7cf34345f4fee939ab758c1257525cff3da9ca9a42ddebd25",
+      "order": 29,
+      "signaturesExpected": [
+        "index:idx_client_notification_events_client_created",
+        "index:idx_client_notification_events_conversation",
+        "index:idx_client_notification_settings_client",
+        "index:uq_client_notification_events_dedupe",
+        "index:uq_client_notification_settings_scope_type",
+        "table:client_notification_events",
+        "table:client_notification_settings"
+      ],
+      "signaturesPresentLive": [
+        "index:uq_client_notification_events_dedupe",
+        "index:uq_client_notification_settings_scope_type",
+        "table:client_notification_events",
+        "table:client_notification_settings"
+      ],
+      "inferredState": "partially_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=7",
+        "expectedVisible=7",
+        "liveHasOfExpected=4",
+        "missingOfExpected=3",
+        "missing=index:idx_client_notification_events_client_created,index:idx_client_notification_events_conversation,index:idx_client_notification_settings_client"
+      ],
+      "relatedMismatchCount": 20,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+        "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+      ]
+    },
+    {
+      "id": "033_tenant_private_lesson_rules",
+      "filename": "033_tenant_private_lesson_rules.sql",
+      "sha256": "3f67f61da9e5a05308f890c6196ee4837c21ec0f2904e3253378b4218a64fd34",
+      "order": 30,
+      "signaturesExpected": [
+        "index:idx_tenant_private_lesson_client_active",
+        "index:uq_tenant_private_lesson_client_loc",
+        "table:tenant_private_lesson_rules",
+        "trigger:tenant_private_lesson_rules_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_tenant_private_lesson_client_active",
+        "index:uq_tenant_private_lesson_client_loc",
+        "table:tenant_private_lesson_rules",
+        "trigger:tenant_private_lesson_rules_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=4",
+        "expectedVisible=4",
+        "liveHasOfExpected=4",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 17,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+      ]
+    },
+    {
+      "id": "033_staff_automated_notifications",
+      "filename": "033_staff_automated_notifications.sql",
+      "sha256": "b1c29f99bcef7b5070cff40c3477d7e27a2ad6fecb40417c63f1156828384891",
+      "order": 31,
+      "signaturesExpected": [
+        "index:idx_staff_automated_notification_events_client_created",
+        "index:idx_staff_automated_notifications_client_location",
+        "index:idx_staff_automated_notifications_client_updated",
+        "index:idx_staff_automated_notifications_enabled_time",
+        "index:uq_staff_automated_notification_events_dedupe",
+        "table:staff_automated_notification_events",
+        "table:staff_automated_notifications"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_staff_automated_notification_events_client_created",
+        "index:idx_staff_automated_notifications_client_location",
+        "index:idx_staff_automated_notifications_client_updated",
+        "index:idx_staff_automated_notifications_enabled_time",
+        "index:uq_staff_automated_notification_events_dedupe",
+        "table:staff_automated_notification_events",
+        "table:staff_automated_notifications"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=7",
+        "expectedVisible=7",
+        "liveHasOfExpected=7",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 17,
+      "relatedMismatchStableKeys": [
+        "live_only|columns|tenant_lesson_capacity_rules.location_id",
+        "live_only|columns|tenant_lesson_time_rules.capacity",
+        "live_only|columns|tenant_lesson_time_rules.location_id",
+        "live_only|columns|tenant_price_rules.location_id",
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+        "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+        "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+        "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+        "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+        "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+        "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+      ]
+    },
+    {
+      "id": "034_customers_crm_tags",
+      "filename": "034_customers_crm_tags.sql",
+      "sha256": "8f5114c2a3039ce50a5908f78eb874b684c3f049b7af3c610176c4a8a3541d16",
+      "order": 32,
+      "signaturesExpected": [
+        "index:idx_customers_crm_tags"
+      ],
+      "signaturesPresentLive": [
+        "index:idx_customers_crm_tags"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    },
+    {
+      "id": "035_customer_message_templates",
+      "filename": "035_customer_message_templates.sql",
+      "sha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+      "order": 33,
+      "signaturesExpected": [
+        "constraint:customer_message_templates_client_id_fkey",
+        "constraint:customer_message_templates_pkey",
+        "index:idx_customer_message_templates_client_active",
+        "table:customer_message_templates"
+      ],
+      "signaturesPresentLive": [],
+      "inferredState": "absent",
+      "confidence": "high",
+      "evidence": [
+        "table customer_message_templates absent live",
+        "17 expected_only mismatches attributed to 035"
+      ],
+      "relatedMismatchCount": 17,
+      "relatedMismatchStableKeys": [
+        "expected_only|tables|customer_message_templates",
+        "expected_only|columns|customer_message_templates.active",
+        "expected_only|columns|customer_message_templates.body",
+        "expected_only|columns|customer_message_templates.channel",
+        "expected_only|columns|customer_message_templates.client_id",
+        "expected_only|columns|customer_message_templates.created_at",
+        "expected_only|columns|customer_message_templates.id",
+        "expected_only|columns|customer_message_templates.tags",
+        "expected_only|columns|customer_message_templates.title",
+        "expected_only|columns|customer_message_templates.updated_at",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+        "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+        "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+        "expected_only|rlsFlags|customer_message_templates",
+        "expected_only|ownership|relation:customer_message_templates",
+        "expected_only|acls|relation:customer_message_templates"
+      ]
+    },
+    {
+      "id": "036_sunset_waivers",
+      "filename": "036_sunset_waivers.sql",
+      "sha256": "ed140ac226643f27560c647fd6914cef6096a7bb85a479bd908f5383ca6abc97",
+      "order": 34,
+      "signaturesExpected": [
+        "constraint:waiver_form_requests_public_id_unique",
+        "constraint:waiver_form_requests_token_hash_unique",
+        "index:idx_waiver_form_requests_public_id",
+        "index:idx_waiver_form_requests_tenant_booking",
+        "index:idx_waiver_form_requests_tenant_customer",
+        "index:idx_waiver_form_requests_tenant_status",
+        "index:idx_waiver_form_requests_token_hash",
+        "index:idx_waiver_form_submissions_tenant_booking",
+        "index:idx_waiver_form_submissions_tenant_customer",
+        "index:idx_waiver_form_submissions_tenant_request",
+        "index:idx_waiver_form_submissions_tenant_submitted",
+        "table:waiver_form_requests",
+        "table:waiver_form_submissions",
+        "trigger:waiver_form_requests_updated_at"
+      ],
+      "signaturesPresentLive": [
+        "constraint:waiver_form_requests_public_id_unique",
+        "constraint:waiver_form_requests_token_hash_unique",
+        "index:idx_waiver_form_requests_public_id",
+        "index:idx_waiver_form_requests_tenant_booking",
+        "index:idx_waiver_form_requests_tenant_customer",
+        "index:idx_waiver_form_requests_tenant_status",
+        "index:idx_waiver_form_requests_token_hash",
+        "index:idx_waiver_form_submissions_tenant_booking",
+        "index:idx_waiver_form_submissions_tenant_customer",
+        "index:idx_waiver_form_submissions_tenant_request",
+        "index:idx_waiver_form_submissions_tenant_submitted",
+        "table:waiver_form_requests",
+        "table:waiver_form_submissions",
+        "trigger:waiver_form_requests_updated_at"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=15",
+        "expectedVisible=14",
+        "liveHasOfExpected=14",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "037_sunset_group_waivers",
+      "filename": "037_sunset_group_waivers.sql",
+      "sha256": "a7c45c50af7c89913178f1e36c3d663e0dcdb4490dce473b3515d2c21ec7effd",
+      "order": 35,
+      "signaturesExpected": [
+        "constraint:waiver_form_requests_request_mode_check",
+        "constraint:waiver_form_requests_target_count_check",
+        "index:idx_waiver_form_requests_tenant_booking_mode",
+        "index:idx_waiver_form_requests_tenant_request_mode",
+        "index:idx_waiver_form_submissions_tenant_request_submitted"
+      ],
+      "signaturesPresentLive": [
+        "constraint:waiver_form_requests_request_mode_check",
+        "constraint:waiver_form_requests_target_count_check",
+        "index:idx_waiver_form_requests_tenant_booking_mode",
+        "index:idx_waiver_form_requests_tenant_request_mode",
+        "index:idx_waiver_form_submissions_tenant_request_submitted"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=6",
+        "expectedVisible=5",
+        "liveHasOfExpected=5",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 1,
+      "relatedMismatchStableKeys": [
+        "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      ]
+    },
+    {
+      "id": "038_sunset_payment_link_idempotency",
+      "filename": "038_sunset_payment_link_idempotency.sql",
+      "sha256": "0c134bac1248d21f64af7cdc229e103f130b0eab52666bf5ffccc0c88d9cd366",
+      "order": 36,
+      "signaturesExpected": [
+        "index:payments_sunset_authoritative_intent_unique"
+      ],
+      "signaturesPresentLive": [
+        "index:payments_sunset_authoritative_intent_unique"
+      ],
+      "inferredState": "fully_applied",
+      "confidence": "medium",
+      "evidence": [
+        "signaturesInSql=1",
+        "expectedVisible=1",
+        "liveHasOfExpected=1",
+        "missingOfExpected=0"
+      ],
+      "relatedMismatchCount": 0,
+      "relatedMismatchStableKeys": []
+    }
+  ],
+  "migration_035_customer_message_templates": {
+    "id": "035_customer_message_templates",
+    "filename": "035_customer_message_templates.sql",
+    "sha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+    "inferredState": "absent",
+    "confidence": "high",
+    "expectedObjects": [
+      "table:customer_message_templates",
+      "index:idx_customer_message_templates_client_active",
+      "constraint:customer_message_templates_pkey",
+      "constraint:customer_message_templates_client_id_fkey"
+    ],
+    "liveAbsenceConfirmed": true,
+    "partialRemnantsObserved": false,
+    "appearsSafelyAdditive": true,
+    "seedOrBackfillRequired": false,
+    "seedOrBackfillNote": "Migration 035 creates empty template table with IF NOT EXISTS; no mandatory seed rows. Optional staff-authored templates would be data, not schema. Do not apply in Slice 13A.",
+    "doNotApplyInThisSlice": true,
+    "relatedMismatchCount": 17
+  }
+}
