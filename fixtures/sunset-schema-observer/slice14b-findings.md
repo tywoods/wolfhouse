@@ -1,12 +1,12 @@
 # FOUNDATION Slice 14B — Phase D live read-only connection boundary
 
-**Status:** complete (hard-disabled boundary; offline injected-adapter proof)
+**Status:** complete (boundary gates; CONNECT_ENABLED activated in 14D; offline injected-adapter proof; boundary never connects)
 **Master basis:** `8905be445fcce5d23e813f66d339c48580c5ecd9`
-**Generated:** 2026-07-19T18:56:23.173Z
+**Generated:** 2026-07-19T19:13:56.392Z
 
 ## Outcome
 
-Added a **hard-disabled** live read-only connection boundary that can later run the merged Slice **14A** count-only preflight against the exact Sunset staging PostgreSQL/database.
+Added a live read-only connection boundary that gates the merged Slice **14A** count-only preflight against the exact Sunset staging PostgreSQL/database. Slice **14D** activates `PHASE_D_LIVE_READONLY_CONNECT_ENABLED`; this boundary still never opens sockets.
 
 ### Locked target
 
@@ -43,14 +43,14 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session `BEGIN RE
 | Case | Result |
 |------|--------|
 | Default path (no dual flags) | RED — zero connection calls |
-| Exact target + dual flags + protected admin env | GREEN accept — connect still hard-disabled (0 connect/query) |
+| Exact target + dual flags + protected admin env | GREEN accept — ready (0 connect/query in boundary) |
 | Wrong subscription / RG / host / database / TLS | RED before connect |
 | Observer DSN / missing / partial admin credentials | RED before connect |
 | Caller-supplied DSN / argv / WOLFHOUSE_DATABASE_URL / file path | RED before connect |
 | Firewall/network mutation planned | RED |
 | Unauthorized SQL | RED |
 | 14A catalog + aggregate + session SQL | GREEN authorize |
-| Live adapter factory | RED hard-disabled |
+| Live adapter factory placeholder | RED refused (CLI/adapter is live entry) |
 
 ## Unchanged hashes (byte-identical)
 
@@ -67,7 +67,7 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session `BEGIN RE
 
 ## Non-claims
 
-**Do not claim** Sunset is repaired. Phase D `ADD CONSTRAINT` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
+**Do not claim** Sunset is repaired. Phase D `ADD CONSTRAINT` is **not** implemented. Boundary connect/query remains **zero** in 14B proof; Client wiring is gated in 14D. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
 
 ## Commands
 

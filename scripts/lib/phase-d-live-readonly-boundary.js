@@ -2,9 +2,14 @@
 
 /**
  * FOUNDATION Slice 14B — Phase D live read-only connection boundary
+ * (activated for connect readiness in Slice 14D; apply/DDL remains disabled)
  *
- * Hard-disabled boundary that can later run the merged Slice 14A count-only
- * preflight against the exact Sunset staging PostgreSQL/database.
+ * Boundary that gates the merged Slice 14A count-only preflight against the
+ * exact Sunset staging PostgreSQL/database. Slice 14D flips
+ * PHASE_D_LIVE_READONLY_CONNECT_ENABLED so the 14C adapter may instantiate a
+ * real pg Client only after dual flags + exact target + protected admin env +
+ * explicit count-only execution gate. This module still never opens sockets
+ * itself and never adds apply/DDL/ledger capability.
  *
  * Locks: subscription, resource group, server FQDN, database, TLS verify-full,
  * application_name, BEGIN READ ONLY. Credentials only from protected admin env
@@ -12,9 +17,6 @@
  * by the existing locked loader from Key Vault sunset-database-url — never argv,
  * observer DSN, WOLFHOUSE_DATABASE_URL, caller-supplied DSN, file path, output,
  * or evidence.
- *
- * This slice does NOT connect to live Azure/PostgreSQL, does NOT execute live
- * queries, and does NOT add apply/DDL/ledger capability.
  */
 
 const {
@@ -49,15 +51,23 @@ const TARGETS = Object.freeze({
 });
 
 /**
- * Hard-disabled in Slice 14B. A later approved slice may flip this to allow
- * a real read-only connect + 14A count-only preflight — never apply/DDL.
+ * Activated in Slice 14D. Allows the 14C adapter to wire a real pg Client only
+ * after dual flags + exact target + protected admin env + explicit count-only
+ * execution gate. Never enables apply/DDL (PHASE_D_LIVE_APPLY_ENABLED stays false).
  */
-const PHASE_D_LIVE_READONLY_CONNECT_ENABLED = false;
+const PHASE_D_LIVE_READONLY_CONNECT_ENABLED = true;
 
 /** Dual enable flags — both required before the exact target may be accepted. */
 const ENV_LIVE_READONLY = 'SUNSET_PHASE_D_LIVE_READONLY';
 const ENV_LIVE_PREFLIGHT = 'SUNSET_PHASE_D_LIVE_PREFLIGHT';
 const ENV_SUBSCRIPTION = 'AZURE_SUBSCRIPTION_ID';
+
+/**
+ * Explicit count-only execution gate (Slice 14D). Both env=1 and CLI flag are
+ * required before any pg Client may be instantiated on the live path.
+ */
+const ENV_EXECUTE_COUNT_ONLY = 'SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY';
+const CLI_EXECUTE_COUNT_ONLY = '--execute-count-only';
 
 /**
  * Protected admin credential env only (same contract as Slice 9 provisioner /
@@ -277,6 +287,30 @@ function authorizeLiveReadonlySql(sql) {
       { code: 'unauthorized_sql' },
     );
   }
+}
+
+/**
+ * Explicit count-only execution gate. Requires BOTH env=1 and the CLI flag.
+ * Missing either → refuse Client instantiation (default-zero safety).
+ */
+function evaluateExecuteCountOnlyGate(opts) {
+  const options = opts || {};
+  const env = options.env || {};
+  const argv = Array.isArray(options.argv) ? options.argv.map(String) : [];
+  const errors = [];
+  if (String(env[ENV_EXECUTE_COUNT_ONLY] || '') !== '1') {
+    errors.push({
+      code: 'execute_count_only_env_required',
+      message: `env ${ENV_EXECUTE_COUNT_ONLY}=1 is required`,
+    });
+  }
+  if (!argv.includes(CLI_EXECUTE_COUNT_ONLY)) {
+    errors.push({
+      code: 'execute_count_only_flag_required',
+      message: `${CLI_EXECUTE_COUNT_ONLY} is required`,
+    });
+  }
+  return { ok: errors.length === 0, errors };
 }
 
 /**
@@ -640,7 +674,9 @@ function buildSecretFreePlan(credentialSource) {
 /**
  * Evaluate the live read-only boundary. Default path (missing dual flags)
  * makes zero connection calls. Exact target is accepted only when dual flags
- * are set and all locks pass — still hard-disabled for real connect/query.
+ * are set and all locks pass. When PHASE_D_LIVE_READONLY_CONNECT_ENABLED is
+ * true (Slice 14D), acceptance means the 14C adapter may proceed behind the
+ * explicit count-only execution gate — this function still never connects.
  *
  * @param {object} opts
  * @param {object} [opts.env]
@@ -782,7 +818,8 @@ async function evaluateLiveReadonlyBoundary(opts) {
     }
   }
 
-  // Hard-disabled connect: even with dual flags + exact target, refuse connect.
+  // Connect readiness (Slice 14D): boundary itself never connects/queries.
+  // Real Client instantiation remains behind the adapter's execute-count-only gate.
   if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true) {
     const plan = buildSecretFreePlan(creds.source);
     return redactDeep({
@@ -796,23 +833,23 @@ async function evaluateLiveReadonlyBoundary(opts) {
       liveMutation: false,
       appliesConstraints: false,
       writesLedger: false,
-      note: 'Exact target accepted under dual flags; live connect/query remains hard-disabled in Slice 14B',
+      note: 'Exact target accepted under dual flags; live connect/query remains hard-disabled',
     }, secrets);
   }
 
-  // Future path (not reachable while hard-disabled): would connect + run 14A.
+  const plan = buildSecretFreePlan(creds.source);
   return redactDeep({
-    ok: false,
-    accepted: false,
-    code: 'live_readonly_connect_not_implemented',
-    errors: [{
-      code: 'live_readonly_connect_not_implemented',
-      message: 'live connect path is reserved for a later approved slice',
-    }],
+    ok: true,
+    accepted: true,
+    code: 'target_accepted_live_readonly_ready',
+    plan,
     counters,
-    liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
+    liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     liveMutation: false,
+    appliesConstraints: false,
+    writesLedger: false,
+    note: 'Exact target accepted; pg Client only via activated 14C adapter behind execute-count-only gate',
   }, secrets);
 }
 
@@ -874,6 +911,8 @@ module.exports = {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
+  ENV_EXECUTE_COUNT_ONLY,
+  CLI_EXECUTE_COUNT_ONLY,
   CREDENTIAL_USER_ENV,
   CREDENTIAL_PASSWORD_ENV,
   FORBIDDEN_DSN_ENVS,
@@ -890,6 +929,7 @@ module.exports = {
   AGGREGATE_CONTRACT,
   validateTargets,
   evaluateDualEnableFlags,
+  evaluateExecuteCountOnlyGate,
   resolveProtectedAdminCredentials,
   resolveApprovedCredentials,
   buildLockedAdminConnectConfig,

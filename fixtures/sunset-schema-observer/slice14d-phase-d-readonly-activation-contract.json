@@ -1,5 +1,5 @@
 {
-  "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-contract",
+  "kind": "sunset-schema-observer-slice14d-phase-d-readonly-activation-contract",
   "secretFree": true,
   "containsRepairSql": false,
   "containsLiveApplyCode": false,
@@ -14,11 +14,12 @@
   "defaultEnabled": false,
   "dualEnableFlagsRequired": true,
   "executeCountOnlyGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:13:59.164Z",
-  "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
-  "slice": "14C",
-  "purpose": "Real PostgreSQL read-only adapter behind merged 14B boundary; CONNECT_ENABLED activated in 14D behind execute-count-only gate; this proof uses offline scripted fake pg Client only (no live query).",
+  "generatedAt": "2026-07-19T19:14:01.308Z",
+  "masterShaBasis": "6edd63762ea5a28cec764428c176da2118032729",
+  "slice": "14D",
+  "purpose": "Activate merged 14C live read-only adapter behind exact 14B gates + explicit count-only execution CLI/env gate; offline injected-Client proof only; no live/Azure query.",
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -29,24 +30,37 @@
     "applicationName": "wh-sunset-phase-d-preflight",
     "port": 5432
   },
-  "credentialSources": {
-    "approvedUserEnv": "SUNSET_STAGING_PG_ADMIN_USER",
-    "approvedPasswordEnv": "SUNSET_STAGING_PG_ADMIN_PASSWORD",
-    "loader": "scripts/load-sunset-staging-pg-admin-env.js",
-    "keyVaultSecret": "sunset-database-url",
-    "forbidden": [
-      "argv",
-      "caller_supplied_dsn",
-      "SUNSET_SCHEMA_OBSERVER_DATABASE_URL",
-      "WOLFHOUSE_DATABASE_URL",
-      "caller host/database/query"
+  "commandContract": {
+    "script": "scripts/run-phase-d-live-readonly-count-only.js",
+    "npm": "phase-d:live-readonly-count-only",
+    "requiredEnv": [
+      "SUNSET_PHASE_D_LIVE_READONLY=1",
+      "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+      "SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1",
+      "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "SUNSET_STAGING_PG_ADMIN_USER",
+      "SUNSET_STAGING_PG_ADMIN_PASSWORD"
+    ],
+    "requiredArgv": [
+      "--execute-count-only",
+      "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "--resource-group luna-sunset-staging-rg",
+      "--postgres-server luna-sunset-staging-pg-app",
+      "--database sunset_staging"
+    ],
+    "forbiddenArgv": [
+      "--dsn",
+      "--connection-string",
+      "--database-url",
+      "--host",
+      "--port",
+      "--user",
+      "--password",
+      "--username",
+      "--query",
+      "--sql",
+      "--sslmode"
     ]
-  },
-  "tls": {
-    "sslmode": "verify-full",
-    "rejectUnauthorized": true,
-    "servername": "luna-sunset-staging-pg-app.postgres.database.azure.com",
-    "statementTimeoutMs": 30000
   },
   "authorizedSequence": [
     "BEGIN READ ONLY",
@@ -62,10 +76,6 @@
     "COMMIT",
     "ROLLBACK"
   ],
-  "authorizedCatalogSql": [
-    "SELECT 1\nFROM pg_class rel\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\nAND rel.relname = $2\nAND rel.relkind = 'r'",
-    "SELECT\n  a.attname AS name,\n  t.typname AS udt_name,\n  NOT a.attnotnull AS is_nullable\nFROM pg_attribute a\nJOIN pg_type t ON t.oid = a.atttypid\nJOIN pg_class rel ON rel.oid = a.attrelid\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\n  AND rel.relname = $2\n  AND a.attnum > 0\n  AND NOT a.attisdropped\n  AND a.attname = ANY($3::text[])\nORDER BY a.attname"
-  ],
   "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
   "outputKeys": [
     "total_rows",
@@ -76,20 +86,19 @@
     "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
     "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
   },
+  "statementTimeoutMs": 30000,
   "forbidden": [
-    "live connect/query execution",
-    "firewall/network mutation",
-    "credential loading / enable-flag flip",
+    "live/Azure connection or query in this slice",
+    "Key Vault credential loading",
+    "DSN/host/query argv",
     "apply/DDL/ledger",
-    "migration",
-    "14A/14B target or predicate changes",
-    "credentials in logs/results/errors",
-    "caller DSN / host / database / query"
+    "migration / predicate changes",
+    "firewall/network mutation"
   ],
   "nonGoals": [
     "No Phase D constraint apply",
     "No Sunset repair claim",
-    "No live Azure/PostgreSQL query",
+    "No live CLI execution",
     "No expected-fixture regeneration"
   ]
 }

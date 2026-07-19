@@ -1,0 +1,158 @@
+{
+  "kind": "sunset-schema-observer-slice14d-phase-d-readonly-activation-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T19:14:01.308Z",
+  "masterShaBasis": "6edd63762ea5a28cec764428c176da2118032729",
+  "slice": "14D",
+  "outcome": "phase_d_live_readonly_activation_proven_offline",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveQueryExecution": false,
+  "azureConnectivity": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "credentialLoading": false,
+  "enableFlagFlipped": true,
+  "cliExecutedLive": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "authorizedSequence": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "offlineGates": {
+    "defaultPathZeroClients": true,
+    "executeGateMissingZeroClients": true,
+    "cliForbiddenDsnHostQuery": true,
+    "cliWrongExactTargetRejected": true,
+    "cliDefaultDisabled": true,
+    "connectFailureSanitizedClose": true,
+    "queryFailureRollbackAndClose": true,
+    "activatedExactSequenceCountOnly": true,
+    "cliGatesPassExactTarget": true,
+    "boundaryReadyZeroConnect": true,
+    "credentialsNeverInLogsResultsErrors": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_clients",
+      "ok": true,
+      "code": "live_readonly_flags_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "execute_gate_missing_zero_clients",
+      "ok": true,
+      "code": "target_accepted_execute_count_only_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "cli_forbidden_dsn_host_query",
+      "ok": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode"
+      ]
+    },
+    {
+      "name": "cli_wrong_exact_target_rejected",
+      "ok": true,
+      "wrongSubscription": true,
+      "wrongResourceGroup": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "status": 2
+    },
+    {
+      "name": "connect_failure_sanitized_close",
+      "ok": true,
+      "code": "connect_failed"
+    },
+    {
+      "name": "query_failure_rollback_and_close",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "ROLLBACK"
+      ],
+      "rolledBack": true,
+      "closed": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "activated_exact_sequence_count_only",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "aggregate",
+        "COMMIT"
+      ],
+      "counts": {
+        "total_rows": 11,
+        "date_window_violations": 2,
+        "price_unit_violations": 1
+      },
+      "clientsInstantiated": 1,
+      "closed": true,
+      "endCalls": 1
+    },
+    {
+      "name": "cli_gates_pass_exact_target",
+      "ok": true,
+      "confirmed": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "luna-sunset-staging-rg",
+        "postgresServer": "luna-sunset-staging-pg-app",
+        "database": "sunset_staging"
+      }
+    },
+    {
+      "name": "boundary_ready_zero_connect",
+      "ok": true,
+      "code": "target_accepted_live_readonly_ready",
+      "connectCalls": 0,
+      "queryCalls": 0
+    }
+  ],
+  "note": "Slice 14D activates the merged 14C adapter behind exact 14B gates and the explicit count-only execution CLI/env gate. Offline injected-Client proof only. No live/Azure query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+}

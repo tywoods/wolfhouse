@@ -2,6 +2,7 @@
 
 /**
  * FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter
+ * (activated in Slice 14D behind execute-count-only gate)
  *
  * Real pg Client wiring behind the merged Slice 14B boundary. Builds client
  * config only from locked TARGETS + protected admin env credentials. Reuses
@@ -9,10 +10,11 @@
  * the observer client-config contract. Never accepts DSN, argv credentials,
  * or caller-supplied host/database/query values.
  *
- * Live execution remains hard-disabled
- * (PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false). Offline proof injects a
- * scripted fake Client factory — default and live-disabled paths instantiate
- * zero Clients.
+ * Slice 14D activates PHASE_D_LIVE_READONLY_CONNECT_ENABLED. A real pg Client
+ * is instantiated only after dual flags + exact target + protected admin env +
+ * explicit count-only execution gate (env + --execute-count-only). Default and
+ * missing-gate paths instantiate zero Clients. Offline proof may inject a
+ * scripted fake Client factory.
  */
 
 const {
@@ -25,7 +27,10 @@ const {
   SCHEMA,
   TABLE,
   OUTPUT_COUNT_KEYS,
+  ENV_EXECUTE_COUNT_ONLY,
+  CLI_EXECUTE_COUNT_ONLY,
   evaluateLiveReadonlyBoundary,
+  evaluateExecuteCountOnlyGate,
   resolveProtectedAdminCredentials,
   assertLockedConnectConfig,
   authorizeLiveReadonlySql,
@@ -394,7 +399,7 @@ async function runAuthorizedReadOnlySequence(client, opts) {
 /**
  * Instantiate a pg Client only after config is locked.
  * deps.Client may be injected for offline proof; real require('pg') is used
- * only when live connect is enabled (still false in Slice 14C).
+ * only when live connect is enabled and every gate has already passed.
  */
 function instantiatePgClient(clientConfig, deps) {
   const d = deps || {};
@@ -402,7 +407,7 @@ function instantiatePgClient(clientConfig, deps) {
   let ClientCtor = d.Client;
   if (!ClientCtor) {
     if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true) {
-      // Should never reach here on the live-disabled path without injection.
+      // Should never reach here on the connect-disabled path without injection.
       throw Object.assign(
         new Error(
           'live pg Client instantiation hard-disabled (PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false)',
@@ -410,7 +415,7 @@ function instantiatePgClient(clientConfig, deps) {
         { code: 'live_readonly_connect_disabled' },
       );
     }
-    // Live path reserved — still gated by PHASE_D_LIVE_READONLY_CONNECT_ENABLED.
+    // Live path — gated by PHASE_D_LIVE_READONLY_CONNECT_ENABLED + execute-count-only.
     // eslint-disable-next-line global-require
     ClientCtor = require('pg').Client;
   }
@@ -468,11 +473,12 @@ function applyCloseOutcome(outcome, closeMeta) {
 }
 
 /**
- * Full adapter entry: 14B gates → build locked client config → instantiate
- * Client → connect → exact sequence → close in finally.
+ * Full adapter entry: 14B gates → execute-count-only gate → build locked
+ * client config → instantiate Client → connect → exact sequence → close.
  *
- * Live path refuses while PHASE_D_LIVE_READONLY_CONNECT_ENABLED is false
- * unless opts.Client is provided for offline proof (never opens network).
+ * Real pg Client (require('pg')) only when CONNECT_ENABLED and the explicit
+ * count-only execution gate passes. Offline proof may inject opts.Client.
+ * Missing/wrong gates instantiate zero Clients.
  */
 async function executePhaseDLiveReadonlyPgAdapter(opts) {
   const options = opts || {};
@@ -506,7 +512,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       }],
       counters,
       clientsInstantiated: getPgClientInstantiateCount(),
-      liveReadonlyConnectEnabled: false,
+      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
       liveQueryExecution: false,
       liveMutation: false,
     }, []);
@@ -539,9 +545,9 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
     }, []);
   }
 
-  // Live connect still hard-disabled: without an injected Client factory,
-  // instantiate zero Clients even when the exact target was accepted.
   const offlineProofClient = typeof options.Client === 'function';
+
+  // Legacy hard-disabled path (CONNECT_ENABLED=false): accept target, zero Clients.
   if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true && !offlineProofClient) {
     return redactDeep({
       ok: true,
@@ -558,7 +564,34 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       liveMutation: false,
       appliesConstraints: false,
       writesLedger: false,
-      note: 'Exact target accepted; Slice 14C pg adapter remains hard-disabled (no Client)',
+      note: 'Exact target accepted; pg adapter remains hard-disabled (no Client)',
+    }, []);
+  }
+
+  // Slice 14D: even when CONNECT_ENABLED, require explicit count-only execution
+  // gate before any Client (real or injected) is instantiated.
+  const execGate = evaluateExecuteCountOnlyGate({
+    env: options.env,
+    argv: options.argv || [],
+  });
+  if (!execGate.ok) {
+    return redactDeep({
+      ok: true,
+      accepted: true,
+      code: 'target_accepted_execute_count_only_required',
+      errors: execGate.errors,
+      counters: {
+        ...counters,
+        azureCalls: boundary.counters ? boundary.counters.azureCalls : 0,
+        connectInfoCalls: boundary.counters ? boundary.counters.connectInfoCalls : 0,
+      },
+      clientsInstantiated: 0,
+      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
+      liveQueryExecution: false,
+      liveMutation: false,
+      appliesConstraints: false,
+      writesLedger: false,
+      note: 'Exact target accepted; execute-count-only gate required before pg Client',
     }, []);
   }
 
@@ -573,7 +606,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       errors: creds.errors,
       counters,
       clientsInstantiated: 0,
-      liveReadonlyConnectEnabled: false,
+      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
       liveQueryExecution: false,
       liveMutation: false,
     }, []);
@@ -588,6 +621,19 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       ok: false,
       code: e.code || 'credential_target_rejected',
       errors: e.errors || [{ code: e.code, message: e.message }],
+      counters,
+      clientsInstantiated: 0,
+      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
+      liveQueryExecution: false,
+      liveMutation: false,
+    }, secrets);
+  }
+
+  // Real require('pg') only when CONNECT_ENABLED and no injection.
+  if (!offlineProofClient && PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true) {
+    return redactDeep({
+      ok: false,
+      code: 'live_readonly_connect_disabled',
       counters,
       clientsInstantiated: 0,
       liveReadonlyConnectEnabled: false,
@@ -644,13 +690,14 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       },
       clientsInstantiated: counters.clientsInstantiated,
       liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
-      liveQueryExecution: false,
+      liveQueryExecution: !offlineProofClient,
       liveMutation: false,
       appliesConstraints: false,
       writesLedger: false,
       migration028Sha256CanonicalLfV1: sequence.migration028Sha256CanonicalLfV1,
       outputKeys: OUTPUT_COUNT_KEYS.slice(),
       offlineProof: offlineProofClient,
+      executeCountOnly: true,
     };
   } catch (e) {
     const code = (e && e.code) || (e && e.result && e.result.code) || 'query_failed';
@@ -668,11 +715,12 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       },
       clientsInstantiated: counters.clientsInstantiated,
       clientConfig: secretFreeClientConfigView(clientConfig),
-      liveReadonlyConnectEnabled: false,
+      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
       liveQueryExecution: false,
       liveMutation: false,
       appliesConstraints: false,
       writesLedger: false,
+      executeCountOnly: true,
     };
   } finally {
     // Close exactly once after connect success/failure and query success/failure.
@@ -697,7 +745,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
 
 /**
  * Default operator path: process.env, no Client injection → zero Clients
- * when flags unset or live-disabled.
+ * when flags/execute-gate unset.
  */
 async function defaultPhaseDLiveReadonlyPgAdapterPath(opts) {
   return executePhaseDLiveReadonlyPgAdapter({
@@ -898,5 +946,7 @@ module.exports = {
   OUTPUT_COUNT_KEYS,
   TARGETS,
   PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
+  ENV_EXECUTE_COUNT_ONLY,
+  CLI_EXECUTE_COUNT_ONLY,
   EXPECTED_028_SHA256,
 };

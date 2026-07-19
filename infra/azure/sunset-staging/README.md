@@ -483,7 +483,7 @@ Artifacts: `slice14a-phase-d-preflight-contract.json`, `slice14a-phase-d-preflig
 
 ### Slice 14B — Phase D live read-only connection boundary (implemented)
 
-Hard-disabled live read-only connection boundary that can later run the merged Slice 14A count-only preflight against the exact Sunset staging PostgreSQL/database. Locks subscription, resource group, server FQDN, database, TLS `verify-full`, `application_name=wh-sunset-phase-d-preflight`, and `BEGIN READ ONLY`. Credentials only from protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`), populated by the existing locked loader from Key Vault `sunset-database-url` — connection config constructed only for the locked host/database. Never accepts caller-supplied DSN, argv credential, `SUNSET_SCHEMA_OBSERVER_DATABASE_URL` (CONNECT-only / no SELECT), `WOLFHOUSE_DATABASE_URL`, or arbitrary file path; never prints/persists username/password in evidence/errors. Exact target accepted only with dual enable flags (`SUNSET_PHASE_D_LIVE_READONLY=1` + `SUNSET_PHASE_D_LIVE_PREFLIGHT=1` + matching `AZURE_SUBSCRIPTION_ID`). Offline injected-adapter proof only; **no** live connect/query, firewall/network mutation, apply/DDL/ledger, migration, observer role/grant changes, or 14A predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+Live read-only connection boundary that gates the merged Slice 14A count-only preflight against the exact Sunset staging PostgreSQL/database. Locks subscription, resource group, server FQDN, database, TLS `verify-full`, `application_name=wh-sunset-phase-d-preflight`, and `BEGIN READ ONLY`. Credentials only from protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`), populated by the existing locked loader from Key Vault `sunset-database-url` — connection config constructed only for the locked host/database. Never accepts caller-supplied DSN, argv credential, `SUNSET_SCHEMA_OBSERVER_DATABASE_URL` (CONNECT-only / no SELECT), `WOLFHOUSE_DATABASE_URL`, or arbitrary file path; never prints/persists username/password in evidence/errors. Exact target accepted only with dual enable flags (`SUNSET_PHASE_D_LIVE_READONLY=1` + `SUNSET_PHASE_D_LIVE_PREFLIGHT=1` + matching `AZURE_SUBSCRIPTION_ID`). Slice 14D activates `PHASE_D_LIVE_READONLY_CONNECT_ENABLED`; the boundary itself still never connects/queries. Offline injected-adapter proof only; **no** live connect/query in the 14B proof, firewall/network mutation, apply/DDL/ledger, migration, observer role/grant changes, or 14A predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
 
 ```bash
 npm run prove:sunset-schema-slice14b-phase-d-live-readonly-boundary
@@ -494,7 +494,7 @@ Artifacts: `slice14b-phase-d-live-readonly-boundary-contract.json`, `slice14b-ph
 
 ### Slice 14C — Phase D live read-only PostgreSQL adapter (implemented)
 
-Real `pg` Client adapter behind the merged Slice 14B boundary. Creates a Client only after all 14B gates pass; builds config only from locked TARGETS + protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`); reuses verified TLS (`rejectUnauthorized: true` + `servername` = locked FQDN) and `statement_timeout=30000`; executes only the exact authorized 14A sequence (`BEGIN READ ONLY` → read-only verification → locked catalog checks → exact aggregate → `COMMIT`/`ROLLBACK`); closes exactly once in `finally`. Close/end failure is fail-closed (`ok:false` / `close_failed` when otherwise successful; primary connect/query/commit code retained with `closeFailure=true` metadata otherwise). Live execution remains hard-disabled (`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false`). Offline scripted fake-Client proof only; **no** live/Azure query, firewall/network, credential loading, enable-flag flip, apply/DDL/ledger, migration, or 14A/14B target/predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+Real `pg` Client adapter behind the merged Slice 14B boundary. Creates a Client only after all 14B gates pass **and** the Slice 14D execute-count-only gate; builds config only from locked TARGETS + protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`); reuses verified TLS (`rejectUnauthorized: true` + `servername` = locked FQDN) and `statement_timeout=30000`; executes only the exact authorized 14A sequence (`BEGIN READ ONLY` → read-only verification → locked catalog checks → exact aggregate → `COMMIT`/`ROLLBACK`); closes exactly once in `finally`. Close/end failure is fail-closed. `PHASE_D_LIVE_READONLY_CONNECT_ENABLED=true` (activated in 14D); missing execute-count-only gate instantiates **zero** Clients. Offline scripted fake-Client proof only in the 14C verifier; **no** live/Azure query in that proof. Still `product_schema_differs`. Canonical hashes **byte-identical**.
 
 ```bash
 npm run prove:sunset-schema-slice14c-phase-d-pg-adapter
@@ -502,6 +502,19 @@ npm run verify:sunset-schema-slice14c
 ```
 
 Artifacts: `slice14c-phase-d-pg-adapter-contract.json`, `slice14c-phase-d-pg-adapter-evidence.json`, `slice14c-findings.md`.
+
+### Slice 14D — Phase D live read-only activation + gated CLI (implemented)
+
+Activates the merged 14C adapter behind exact 14B target/credential/query gates. Adds a narrow operator CLI (`scripts/run-phase-d-live-readonly-count-only.js` / `npm run phase-d:live-readonly-count-only`) that remains **default-disabled** and requires dual flags + `SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1` + `--execute-count-only` + exact `--subscription` / `--resource-group` / `--postgres-server` / `--database` + protected admin env. No DSN/host/query args. Real `pg` Client only after every gate passes; default/missing/wrong inputs instantiate zero Clients. Offline injected-Client proof of the activated sequence only; **no** live CLI run, Key Vault load, Azure/network/database mutation, DDL/apply/ledger, or migration/predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14d-phase-d-readonly-activation
+npm run verify:sunset-schema-slice14d
+# default refuse (zero Clients):
+npm run phase-d:live-readonly-count-only
+```
+
+Artifacts: `slice14d-phase-d-readonly-activation-contract.json`, `slice14d-phase-d-readonly-activation-evidence.json`, `slice14d-findings.md`.
 
 ---
 
@@ -565,5 +578,6 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13C.3c — converge notification/surf-pack via 041 (8→2; disposable proof only; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.3d — integrated Phase C disposable proof 040→035→041 (29→2; no new forward migration; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14A — Phase D CHECK aggregate preflight (source-only; disposable proof; no constraint apply; no live mutation) — 2026-07-19*
-*FOUNDATION Slice 14B — Phase D live read-only connection boundary (hard-disabled; offline injected-adapter proof; no live connect/query; no mutation) — 2026-07-19*
-*FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter (hard-disabled; offline fake-Client proof; no live connect/query; no mutation) — 2026-07-19*
+*FOUNDATION Slice 14B — Phase D live read-only connection boundary (gates only; CONNECT_ENABLED activated in 14D; offline injected-adapter proof; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter (activated gated in 14D; offline fake-Client proof; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14D — Phase D live read-only activation + gated count-only CLI (default-disabled; offline injected-Client proof; no live mutation) — 2026-07-19*

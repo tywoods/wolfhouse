@@ -164,8 +164,8 @@ async function main() {
   if (AUTHORIZED_AGGREGATE_SQL !== AGG_14A) throw new Error('14A aggregate SQL drift');
   assertMigration028ByteIntegrity();
   assert028PredicatesPresentInSource();
-  if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== false) {
-    throw new Error('live readonly connect must be hard-disabled');
+  if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true) {
+    throw new Error('live readonly connect must be activated (Slice 14D)');
   }
   if (PHASE_D_LIVE_APPLY_ENABLED !== false) {
     throw new Error('live apply must remain false');
@@ -359,8 +359,11 @@ async function main() {
     if (r.counters.connectCalls !== 0 || r.counters.queryCalls !== 0) {
       throw new Error('GREEN path must not connect/query');
     }
-    if (r.liveReadonlyConnectEnabled !== false) {
-      throw new Error('connect must remain hard-disabled');
+    if (r.liveReadonlyConnectEnabled !== true) {
+      throw new Error('connect readiness must be activated (Slice 14D)');
+    }
+    if (r.code !== 'target_accepted_live_readonly_ready') {
+      throw new Error(`expected target_accepted_live_readonly_ready, got ${r.code}`);
     }
     if (!r.plan || r.plan.credentialSource !== 'protected_admin_env') {
       throw new Error('GREEN must record protected_admin_env credential source');
@@ -425,7 +428,7 @@ async function main() {
     containsRepairSql: false,
     containsLiveApplyCode: false,
     liveApplyCapability: false,
-    liveReadonlyConnectEnabled: false,
+    liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     appliesConstraints: false,
     writesLedger: false,
@@ -440,7 +443,7 @@ async function main() {
     masterShaBasis: MASTER,
     slice: '14B',
     purpose:
-      'Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Credentials from protected admin env only (Key Vault sunset-database-url loader). Offline injected-adapter proof only in this slice.',
+      'Live read-only connection boundary (CONNECT_ENABLED activated in 14D). Gates merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Boundary itself never connects/queries. Credentials from protected admin env only. Offline injected-adapter proof only in this slice.',
     targets: { ...TARGETS },
     credentialSources: {
       approvedUserEnv: CREDENTIAL_USER_ENV,
@@ -523,11 +526,11 @@ async function main() {
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14B',
-    outcome: 'phase_d_live_readonly_boundary_proven_offline_hard_disabled',
+    outcome: 'phase_d_live_readonly_boundary_proven_offline_activated_gated',
     stillProductSchemaDiffers: true,
     phaseDConstraintsApplied: false,
     liveMutation: false,
-    liveReadonlyConnectEnabled: false,
+    liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     azureConnectivity: false,
     firewallAction: false,
@@ -584,7 +587,7 @@ async function main() {
         accepted: true,
         connectCalls: 0,
         queryCalls: 0,
-        liveReadonlyConnectEnabled: false,
+        liveReadonlyConnectEnabled: true,
         credentialSource: 'protected_admin_env',
         code: green.code,
       },
@@ -599,7 +602,7 @@ async function main() {
     },
     targets: { ...TARGETS },
     note:
-      'Slice 14B proves the hard-disabled live read-only boundary only. Protected admin env credentials (not CONNECT-only observer DSN). No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
+      'Slice 14B proves the live read-only boundary gates (exact target + dual flags + protected admin env). CONNECT_ENABLED activated in 14D; boundary itself still makes zero connect/query calls. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
   };
 
   // Final secret scan on artifacts about to be written
@@ -609,13 +612,13 @@ async function main() {
 
   const findings = `# FOUNDATION Slice 14B — Phase D live read-only connection boundary
 
-**Status:** complete (hard-disabled boundary; offline injected-adapter proof)
+**Status:** complete (boundary gates; CONNECT_ENABLED activated in 14D; offline injected-adapter proof; boundary never connects)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome
 
-Added a **hard-disabled** live read-only connection boundary that can later run the merged Slice **14A** count-only preflight against the exact Sunset staging PostgreSQL/database.
+Added a live read-only connection boundary that gates the merged Slice **14A** count-only preflight against the exact Sunset staging PostgreSQL/database. Slice **14D** activates \`PHASE_D_LIVE_READONLY_CONNECT_ENABLED\`; this boundary still never opens sockets.
 
 ### Locked target
 
@@ -652,14 +655,14 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session \`BEGIN R
 | Case | Result |
 |------|--------|
 | Default path (no dual flags) | RED — zero connection calls |
-| Exact target + dual flags + protected admin env | GREEN accept — connect still hard-disabled (0 connect/query) |
+| Exact target + dual flags + protected admin env | GREEN accept — ready (0 connect/query in boundary) |
 | Wrong subscription / RG / host / database / TLS | RED before connect |
 | Observer DSN / missing / partial admin credentials | RED before connect |
 | Caller-supplied DSN / argv / WOLFHOUSE_DATABASE_URL / file path | RED before connect |
 | Firewall/network mutation planned | RED |
 | Unauthorized SQL | RED |
 | 14A catalog + aggregate + session SQL | GREEN authorize |
-| Live adapter factory | RED hard-disabled |
+| Live adapter factory placeholder | RED refused (CLI/adapter is live entry) |
 
 ## Unchanged hashes (byte-identical)
 
@@ -676,7 +679,7 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session \`BEGIN R
 
 ## Non-claims
 
-**Do not claim** Sunset is repaired. Phase D \`ADD CONSTRAINT\` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
+**Do not claim** Sunset is repaired. Phase D \`ADD CONSTRAINT\` is **not** implemented. Boundary connect/query remains **zero** in 14B proof; Client wiring is gated in 14D. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
 
 ## Commands
 
@@ -705,7 +708,7 @@ npm run verify:sunset-schema-slice14b
 
   console.log('  PASS  default-path-zero-calls');
   console.log(`  PASS  red-cases (${redCases.length})`);
-  console.log('  PASS  green-exact-target-protected-admin-env (connect hard-disabled)');
+  console.log('  PASS  green-exact-target-protected-admin-env (boundary zero connect)');
   console.log('  PASS  query-authorization + count-only + secret-free');
   console.log('  PASS  canonical-hashes-unchanged');
   console.log('\nArtifacts written:');

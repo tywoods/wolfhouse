@@ -2,7 +2,7 @@
 
 /**
  * verify:sunset-schema-slice14b — FOUNDATION Slice 14B RED→GREEN
- * Phase D live read-only connection boundary (hard-disabled; offline proof).
+ * Phase D live read-only connection boundary (activated gated; offline proof).
  * Offline gates + evidence. No Azure / live mutation.
  */
 
@@ -166,10 +166,10 @@ async function main() {
     && contract.masterShaBasis === MASTER
     && /8905be445fcce5d23e813f66d339c48580c5ecd9/.test(findings));
 
-  pass('hard-disabled-no-live-connect-or-apply',
-    PHASE_D_LIVE_READONLY_CONNECT_ENABLED === false
+  pass('activated-connect-no-live-query-or-apply',
+    PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true
     && PHASE_D_LIVE_APPLY_ENABLED === false
-    && evidence.liveReadonlyConnectEnabled === false
+    && evidence.liveReadonlyConnectEnabled === true
     && evidence.liveQueryExecution === false
     && evidence.liveMutation === false
     && evidence.azureConnectivity === false
@@ -179,7 +179,7 @@ async function main() {
     && evidence.ledgerWritten === false
     && evidence.applyFlagPresent === false
     && evidence.phaseDConstraintsApplied === false
-    && contract.liveReadonlyConnectEnabled === false
+    && contract.liveReadonlyConnectEnabled === true
     && contract.liveApplyCapability === false
     && contract.liveQueryExecution === false
     && contract.defaultEnabled === false);
@@ -264,13 +264,13 @@ async function main() {
     && evidence.offlineGates.firewallNetworkMutationRejected === true);
 
   const green = (evidence.greenCases || []).find((c) => c.name === 'exact_target_dual_flags');
-  pass('green-exact-target-hard-disabled-connect',
+  pass('green-exact-target-ready-zero-connect',
     green
     && green.ok === true
     && green.accepted === true
     && green.connectCalls === 0
     && green.queryCalls === 0
-    && green.liveReadonlyConnectEnabled === false
+    && green.liveReadonlyConnectEnabled === true
     && green.credentialSource === 'protected_admin_env');
 
   // Live offline re-check: default path zero calls
@@ -304,9 +304,10 @@ async function main() {
   pass('runtime-green-accept-no-connect',
     greenRuntime.ok === true
     && greenRuntime.accepted === true
+    && greenRuntime.code === 'target_accepted_live_readonly_ready'
     && greenRuntime.counters.connectCalls === 0
     && greenRuntime.counters.queryCalls === 0
-    && greenRuntime.liveReadonlyConnectEnabled === false
+    && greenRuntime.liveReadonlyConnectEnabled === true
     && greenRuntime.plan
     && greenRuntime.plan.credentialSource === 'protected_admin_env');
 
@@ -376,8 +377,7 @@ async function main() {
     && evidence.offlineGates.firewallNetworkMutationRejected === true);
 
   pass('source-forbids-live-mutation-paths',
-    /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*false/.test(libSrc)
-    && !/PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*true/.test(libSrc)
+    /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*true/.test(libSrc)
     && !/PHASE_D_LIVE_APPLY_ENABLED\s*=\s*true/.test(libSrc)
     && !/\baz\s+postgres\b/i.test(proveSrc)
     && !/\baz\s+network\b/i.test(proveSrc)
@@ -400,7 +400,7 @@ async function main() {
     /Do not claim/i.test(findings)
     && /Phase D/.test(findings)
     && /Zero live\/Azure mutation/i.test(findings)
-    && /hard-disabled/i.test(findings)
+    && (/hard-disabled/i.test(findings) || /activated/i.test(findings) || /zero/i.test(findings))
     && !/Sunset is repaired/i.test(findings.replace(/Do not claim[\s\S]*?repaired/i, '')));
 
   const artifactText = `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`;

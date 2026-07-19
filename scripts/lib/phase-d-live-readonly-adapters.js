@@ -5,7 +5,9 @@
  *
  * Offline / proof use only. Default factories never open network sockets,
  * never call Azure CLI, never mutate firewall/network, and never execute
- * live PostgreSQL queries.
+ * live PostgreSQL queries. Slice 14D activates CONNECT_ENABLED for the 14C
+ * pg adapter + operator CLI; this placeholder factory still refuses so the
+ * only live entry is the gated CLI / executePhaseDLiveReadonlyPgAdapter.
  */
 
 const {
@@ -130,15 +132,15 @@ function createDefaultOfflineAdapters() {
 }
 
 /**
- * Live adapter factory placeholder — permanently refuses while
- * PHASE_D_LIVE_READONLY_CONNECT_ENABLED is false (Slice 14B/14C).
- * Slice 14C implements the real pg adapter in
- * phase-d-live-readonly-pg-adapter.js; live execution stays hard-disabled.
+ * Live adapter factory placeholder — permanently refuses.
+ * Slice 14D activates the real pg path via executePhaseDLiveReadonlyPgAdapter
+ * / run-phase-d-live-readonly-count-only.js behind the execute-count-only gate.
+ * This factory stays closed so accidental require-and-call cannot bypass CLI.
  */
 function createLiveReadonlyAdapters() {
   throw Object.assign(
     new Error(
-      'live read-only adapters are hard-disabled in Slice 14B (PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false)',
+      'createLiveReadonlyAdapters refused — use gated CLI / executePhaseDLiveReadonlyPgAdapter (PHASE_D_LIVE_READONLY_CONNECT_ENABLED activated in 14D)',
     ),
     { code: 'live_readonly_connect_disabled' },
   );
