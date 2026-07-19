@@ -633,6 +633,22 @@ npm run phase-d:lunabox-pg-firewall-apply
 
 Artifacts: `slice14n-lunabox-pg-firewall-contract.json`, `slice14n-lunabox-pg-firewall-evidence.json`, `slice14n-findings.md`.
 
+### Slice 14O — Post-firewall Phase D live read-only counts
+
+Exactly **one** post-firewall live read-only Phase D count via the merged **14D/14E** managed-identity count-only CLI, after offline RED/GREEN, live firewall prestate (server Ready + `publicNetworkAccess` Enabled + exact three rules including **`AllowLunaboxEgress` `20.238.124.76/32`** + dual outbound IPv4 HTTPS echoes equal to the rule IP), and one metadata-only credential-preflight requiring exact host/database/`sslmode=verify-full`. Sequence then: one `pg` Client with `application_name=wh-sunset-phase-d-preflight` → `BEGIN READ ONLY` → verify `transaction_read_only` → locked catalog checks → exact 14A aggregate (`total_rows` / `date_window_violations` / `price_unit_violations`) → `COMMIT`/`ROLLBACK` → end. Output: safe counts/target identifiers/call counters only. On IMDS/KV/TLS/firewall/auth/query error: existing secret-free classifier, sanitize, stop (no retry). **No** INSERT/UPDATE/DELETE, DDL, constraints, ledger, RBAC, Azure/KV/network mutation. Verifier does **not** re-run live. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+# Offline RED/GREEN only (default; preserves historical live evidence):
+npm run prove:sunset-schema-slice14o-post-firewall-phase-d-counts
+npm run verify:sunset-schema-slice14o
+# Live capture (exactly once; do not re-run after historical evidence):
+# node scripts/prove-sunset-schema-slice14o-post-firewall-phase-d-counts.js --live
+# default refuse (zero Clients):
+npm run phase-d:live-readonly-count-only
+```
+
+Artifacts: `slice14o-post-firewall-phase-d-counts-contract.json`, `slice14o-post-firewall-phase-d-counts-evidence.json`, `slice14o-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -706,3 +722,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14K — Key Vault DSN sslmode=verify-full apply activation (gated CLI; locked live HTTP transport; offline injected proof; zero live IMDS/KV/PG) — 2026-07-19*
 *FOUNDATION Slice 14M — Phase D live read-only counts via managed-identity (offline RED/GREEN + credential preflight + one live count; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14N — Lunabox AllowLunaboxEgress firewall rule on luna-sunset-staging-pg-app (standalone Bicep + one gated ARM PUT; zero PostgreSQL) — 2026-07-19*
+*FOUNDATION Slice 14O — Post-firewall Phase D live read-only counts (firewall prestate + credential preflight + one gated count; zero mutation) — 2026-07-19*

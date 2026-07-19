@@ -323,6 +323,8 @@
     "verify:sunset-schema-slice14m": "node scripts/verify-sunset-schema-slice14m.js",
     "prove:sunset-schema-slice14n-lunabox-pg-firewall": "node scripts/prove-sunset-schema-slice14n-lunabox-pg-firewall.js",
     "verify:sunset-schema-slice14n": "node scripts/verify-sunset-schema-slice14n.js",
+    "prove:sunset-schema-slice14o-post-firewall-phase-d-counts": "node scripts/prove-sunset-schema-slice14o-post-firewall-phase-d-counts.js",
+    "verify:sunset-schema-slice14o": "node scripts/verify-sunset-schema-slice14o.js",
     "phase-d:live-readonly-count-only": "node scripts/run-phase-d-live-readonly-count-only.js",
     "phase-d:credential-preflight": "node scripts/run-phase-d-credential-preflight.js",
     "phase-d:kv-secrets-user-rbac-plan": "node scripts/run-phase-d-kv-secrets-user-rbac-plan.js",

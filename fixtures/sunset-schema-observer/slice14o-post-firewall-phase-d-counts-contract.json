@@ -1,0 +1,192 @@
+{
+  "kind": "sunset-schema-observer-slice14o-post-firewall-phase-d-counts-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveQueryExecution": true,
+  "liveHttpEnabled": true,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "mutates": false,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "firewallPrestateRequiredBeforeCredentialPreflight": true,
+  "credentialPreflightRequiredBeforeLiveCount": true,
+  "offlineInjectedHttpAndFakeClientProof": true,
+  "connectErrorClassifierRequired": true,
+  "connectMessageClassifierRequired": true,
+  "existingCliGatesUnchanged": true,
+  "verifyNeverRerunsLive": true,
+  "generatedAt": "2026-07-19T21:24:27.762Z",
+  "masterShaBasis": "c0874b04a622190766e74c443bc361e1776ef02f",
+  "slice": "14O",
+  "purpose": "Post-firewall: verify Ready/Enabled + exact three rules including AllowLunaboxEgress 20.238.124.76/32 + dual outbound IP match; then one metadata credential preflight; then exactly one gated managed-identity Phase D count-only aggregate; safe counts or blocker only; zero mutation; verify never re-runs live.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "firewallLocks": {
+    "firewallRuleName": "AllowLunaboxEgress",
+    "startIpAddress": "20.238.124.76",
+    "endIpAddress": "20.238.124.76",
+    "expectedOutboundIpv4": "20.238.124.76",
+    "expectedRules": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13",
+        "cidr": "4.209.106.13/32"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26",
+        "cidr": "4.208.189.26/32"
+      },
+      {
+        "name": "AllowLunaboxEgress",
+        "startIpAddress": "20.238.124.76",
+        "endIpAddress": "20.238.124.76",
+        "cidr": "20.238.124.76/32"
+      }
+    ],
+    "outboundIpServices": [
+      {
+        "name": "ipify",
+        "hostname": "api.ipify.org",
+        "path": "/"
+      },
+      {
+        "name": "ifconfig_me",
+        "hostname": "ifconfig.me",
+        "path": "/ip"
+      }
+    ]
+  },
+  "managedIdentityLocks": {
+    "imdsHost": "169.254.169.254",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "port": 5432,
+    "applicationName": "wh-sunset-phase-d-preflight"
+  },
+  "commandContract": {
+    "credentialPreflight": {
+      "script": "scripts/run-phase-d-credential-preflight.js",
+      "npm": "phase-d:credential-preflight"
+    },
+    "countOnly": {
+      "script": "scripts/run-phase-d-live-readonly-count-only.js",
+      "npm": "phase-d:live-readonly-count-only",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--execute-count-only",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode"
+      ]
+    },
+    "credentialPreflightSafeOutputKeys": [
+      "ok",
+      "code",
+      "credentialSource",
+      "managedIdentityName",
+      "keyVaultName",
+      "secretName",
+      "postgresHost",
+      "database",
+      "sslmode",
+      "secretTargetValid",
+      "hasUser",
+      "hasPassword",
+      "httpRequestCount",
+      "imdsRequestCount",
+      "keyVaultRequestCount",
+      "httpCallsDelta",
+      "clientsInstantiated",
+      "liveHttpEnabled",
+      "liveMutation",
+      "appliesConstraints",
+      "writesLedger",
+      "realImdsCall",
+      "realKeyVaultCall",
+      "realPostgresCall",
+      "errors",
+      "message",
+      "note"
+    ]
+  },
+  "authorizedSequence": [
+    "firewall prestate (server Ready + publicNetworkAccess Enabled + exact three rules + dual outbound IP)",
+    "IMDS GET",
+    "Key Vault secret GET",
+    "in-memory exact target validation",
+    "one pg Client (TLS verify-full, application_name wh-sunset-phase-d-preflight)",
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "forbidden": [
+    "INSERT/UPDATE/DELETE",
+    "DDL / ADD CONSTRAINT",
+    "ledger write",
+    "RBAC / network / firewall mutation",
+    "migration / predicate changes",
+    "DSN / token / username / password / secret version in evidence",
+    "broad retry on live failure",
+    "second live count in verify",
+    "raw connect driver message in evidence"
+  ],
+  "nonGoals": [
+    "No Phase D constraint apply",
+    "No Sunset repair claim",
+    "No expected-fixture regeneration",
+    "No Azure/KV/RBAC/network mutation"
+  ]
+}
