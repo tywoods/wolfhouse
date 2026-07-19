@@ -1,0 +1,172 @@
+{
+  "kind": "sunset-schema-observer-slice14q-active-db-target-authority-contract",
+  "secretFree": true,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "targetAuthorityLiveEnabled": true,
+  "globalLiveApplyEnabled": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "writesLedger": false,
+  "dataMutation": false,
+  "schemaMutation": false,
+  "liveMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "targetAuthorityEnvGateRequired": true,
+  "targetAuthorityArgvGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineInjectedHttpAndFakeClientProof": true,
+  "verifyNeverRerunsLive": true,
+  "readOnlyAuthorityProof": true,
+  "driftClassificationEnabled": true,
+  "generatedAt": "2026-07-19T21:48:59.569Z",
+  "masterShaBasis": "85ad38b16146bcc9cbc2abbca8a77fa1471bf3df",
+  "slice": "14Q",
+  "purpose": "Prove read-only whether active Staff API Container App and Key Vault admin sunset-database-url share the locked exact PostgreSQL authority; classify observer drift (sparse vs wrong-target vs observation-defect); zero mutation.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "authorityLocks": {
+    "applicationName": "wh-sunset-target-authority",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "managementHostname": "management.azure.com",
+    "armApiVersion": "2024-03-01",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "preferredDbEnvNames": [
+      "WOLFHOUSE_DATABASE_URL",
+      "DATABASE_URL"
+    ]
+  },
+  "commandContract": {
+    "targetAuthority": {
+      "script": "scripts/run-phase-d-active-db-target-authority.js",
+      "npm": "phase-d:active-db-target-authority",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_TARGET_AUTHORITY=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--prove-active-db-target-authority",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--container-app luna-sunset-staging-staff-api",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--delete",
+        "--purge",
+        "--retry",
+        "--retries",
+        "--force",
+        "--deploy",
+        "--mutate",
+        "--url",
+        "--body",
+        "--token",
+        "--access-token",
+        "--imds-url",
+        "--arm-url",
+        "--dsn",
+        "--database-url",
+        "--connection-string",
+        "--host",
+        "--user",
+        "--username",
+        "--password",
+        "--file",
+        "--sql",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule"
+      ]
+    }
+  },
+  "authorizedSequence": [
+    "IMDS ARM token (management.azure.com)",
+    "ARM GET container app (active revision + env secretRef)",
+    "ARM POST listSecrets (only when needed; values zeroed)",
+    "IMDS vault token + GET luna-sunset-staging-kv/sunset-database-url",
+    "In-memory semantic DSN/KeyVault-ref authority compare",
+    "TLS verify-full pg session application_name=wh-sunset-target-authority",
+    "BEGIN READ ONLY → inventory → ledger summary → observer → COMMIT"
+  ],
+  "offlineGateNames": {
+    "red": [
+      "default_path_zero_http_and_clients",
+      "missing_prove_flag_zero_http",
+      "missing_target_authority_env_zero_http",
+      "wrong_exact_targets_zero_http",
+      "forbidden_argv_dsn_sql_retry_zero_http",
+      "managed_identity_requires_env_and_argv",
+      "mismatched_app_kv_target",
+      "secret_ref_ambiguous",
+      "multiple_active_revisions",
+      "missing_db_env",
+      "malformed_dsn",
+      "secret_leakage_scan",
+      "non_read_only_session",
+      "observer_shape"
+    ],
+    "green": [
+      "injected_http_same_keyvault_ref_authority",
+      "injected_http_value_compare_same_target",
+      "cli_gates_exact_targets",
+      "cli_default_disabled",
+      "locks_identity_vault_secret_pg_tls_application_name",
+      "global_live_apply_remains_false",
+      "sparse_vs_wrong_target_classification"
+    ]
+  },
+  "hashes": {
+    "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+    "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+    "migration028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "migration035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "migration040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "migration041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "allowedDriftCodes": [
+    "wrong_target",
+    "genuinely_sparse_active_runtime_db",
+    "observation_defect",
+    "observer_match",
+    "schema_divergence"
+  ],
+  "forbidden": [
+    "INSERT/UPDATE/DELETE into schema_migration_ledger",
+    "DDL / DML / schema mutation",
+    "KV write / RBAC / network / firewall mutation",
+    "DSN / token / username / password / secret version in evidence",
+    "az CLI",
+    "second live run in verify"
+  ],
+  "nonGoals": [
+    "No expected-fixture regeneration",
+    "No schema reconcile / constraint apply",
+    "Do not claim Sunset repaired"
+  ]
+}
