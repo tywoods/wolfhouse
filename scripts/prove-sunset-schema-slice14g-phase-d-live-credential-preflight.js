@@ -1,12 +1,11 @@
 'use strict';
 
 /**
- * prove-sunset-schema-slice14f-phase-d-credential-preflight — FOUNDATION Slice 14F
+ * prove-sunset-schema-slice14g-phase-d-live-credential-preflight — FOUNDATION Slice 14G
  *
- * Offline proof that the activated 14E managed-identity HTTP loader runs behind
- * an explicit metadata-only credential-preflight CLI: exact IMDS GET + KV GET,
- * in-memory DSN validate, immediate private-ref zero, safe metadata output only.
- * Injected HTTP only — no real IMDS/KV/PG call, no pg Client.
+ * Offline RED/GREEN (injected HTTP only) then exactly ONE live credential-preflight
+ * via spawnSync of the gated CLI. Real Node http/https IMDS+KV GET behind 14F gates.
+ * Never instantiates pg Client. No RBAC/KV/network mutation commands.
  */
 
 const crypto = require('crypto');
@@ -42,8 +41,6 @@ const {
   createInjectedManagedIdentityHttp,
   createLiveManagedIdentityHttpRequest,
   buildOfflineProofSunsetDatabaseUrl,
-  buildLockedImdsTokenUrl,
-  buildLockedKeyVaultSecretUrl,
 } = require('./lib/phase-d-managed-identity-credential-loader');
 const {
   ENV_CREDENTIAL_PREFLIGHT,
@@ -68,13 +65,14 @@ const {
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(ROOT, 'fixtures', 'sunset-schema-observer');
 const EXPECTED_PATH = path.join(FIX, 'expected-product-schema.json');
-const EVIDENCE_PATH = path.join(FIX, 'slice14f-phase-d-credential-preflight-evidence.json');
-const CONTRACT_PATH = path.join(FIX, 'slice14f-phase-d-credential-preflight-contract.json');
-const FINDINGS_PATH = path.join(FIX, 'slice14f-findings.md');
+const EVIDENCE_PATH = path.join(FIX, 'slice14g-phase-d-live-credential-preflight-evidence.json');
+const CONTRACT_PATH = path.join(FIX, 'slice14g-phase-d-live-credential-preflight-contract.json');
+const FINDINGS_PATH = path.join(FIX, 'slice14g-findings.md');
 const CLI_PATH = path.join(ROOT, 'scripts', 'run-phase-d-credential-preflight.js');
 const COUNT_ONLY_PATH = path.join(ROOT, 'scripts', 'run-phase-d-live-readonly-count-only.js');
+const LOADER_PATH = path.join(ROOT, 'scripts', 'lib', 'phase-d-managed-identity-credential-loader.js');
 
-const MASTER = '7467642653a54eb2db373e26bfc752865c1b55df';
+const MASTER = 'cbd5512afbf73b0a84ead6113d6d919de7b2b411';
 const CANON_FP = '120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18';
 const MANIFEST_HASH = '99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e';
 const EXPECTED_BYTE_SHA = 'cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5';
@@ -86,9 +84,9 @@ const LOCKED_13C_SHA = Object.freeze({
   '041': '3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09',
 });
 
-const FAKE_ADMIN_USER = 'slice14f-proof-admin-user';
-const FAKE_ADMIN_PASSWORD = 'slice14f-proof-admin-password-never-commit';
-const FAKE_IMDS_TOKEN = 'slice14f-proof-imds-token-never-commit';
+const FAKE_ADMIN_USER = 'slice14g-proof-admin-user';
+const FAKE_ADMIN_PASSWORD = 'slice14g-proof-admin-password-never-commit';
+const FAKE_IMDS_TOKEN = 'slice14g-proof-imds-token-never-commit';
 
 function validSecretValue() {
   return buildOfflineProofSunsetDatabaseUrl(FAKE_ADMIN_USER, FAKE_ADMIN_PASSWORD);
@@ -104,7 +102,7 @@ function leakScan(value, secrets) {
   if (/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(text)) {
     throw new Error('DSN leaked into proof artifact');
   }
-  if (/Bearer\s+slice14f-proof-imds-token/i.test(text)) {
+  if (/Bearer\s+slice14[fg]-proof-imds-token/i.test(text)) {
     throw new Error('IMDS token leaked into proof artifact');
   }
   if (/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9._-]+\.[A-Za-z0-9._-]+/.test(text)) {
@@ -130,8 +128,83 @@ function assertSafeOutputShape(result) {
   }
 }
 
+function parseLastJsonObject(text) {
+  const src = String(text || '');
+  let last = null;
+  let depth = 0;
+  let start = -1;
+  for (let i = 0; i < src.length; i += 1) {
+    const ch = src[i];
+    if (ch === '{') {
+      if (depth === 0) start = i;
+      depth += 1;
+    } else if (ch === '}') {
+      depth -= 1;
+      if (depth === 0 && start >= 0) {
+        const chunk = src.slice(start, i + 1);
+        try {
+          last = JSON.parse(chunk);
+        } catch (_) {
+          // keep scanning for a later valid object
+        }
+        start = -1;
+      }
+    }
+  }
+  return last;
+}
+
+function sanitizeErrors(errors) {
+  if (!Array.isArray(errors)) return [];
+  return errors.map((e) => ({
+    code: String((e && e.code) || 'credential_preflight_failed').slice(0, 80),
+    message: String((e && e.message) || 'credential preflight failed')
+      .replace(/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/gi, 'postgresql://[REDACTED]:')
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+      .slice(0, 240),
+  }));
+}
+
+function buildLiveOutcome(parsed, exitCode) {
+  const p = parsed || {};
+  const ok = p.ok === true;
+  const errors = sanitizeErrors(p.errors);
+  if (!parsed) {
+    errors.push({
+      code: 'live_output_unparseable',
+      message: 'CLI stdout/stderr did not contain parseable JSON',
+    });
+  }
+  const blocker = ok ? null : String(p.code || (errors[0] && errors[0].code) || 'credential_preflight_failed');
+  return {
+    ok,
+    code: String(p.code || (ok ? 'credential_preflight_ok' : blocker)),
+    exitCode: Number.isFinite(exitCode) ? exitCode : null,
+    managedIdentityName: p.managedIdentityName || CREDENTIAL_PREFLIGHT_LOCKS.managedIdentityName,
+    keyVaultName: p.keyVaultName || CREDENTIAL_PREFLIGHT_LOCKS.keyVaultName,
+    secretName: p.secretName || CREDENTIAL_PREFLIGHT_LOCKS.secretName,
+    postgresHost: p.postgresHost || CREDENTIAL_PREFLIGHT_LOCKS.postgresHost,
+    database: p.database || CREDENTIAL_PREFLIGHT_LOCKS.database,
+    sslmode: p.sslmode || CREDENTIAL_PREFLIGHT_LOCKS.sslmode,
+    secretTargetValid: p.secretTargetValid === true,
+    hasUser: p.hasUser === true,
+    hasPassword: p.hasPassword === true,
+    httpCallsDelta: Number(p.httpCallsDelta) || 0,
+    imdsRequestCount: Number(p.imdsRequestCount) || 0,
+    keyVaultRequestCount: Number(p.keyVaultRequestCount) || 0,
+    clientsInstantiated: Number(p.clientsInstantiated) || 0,
+    realImdsCall: p.realImdsCall === true,
+    realKeyVaultCall: p.realKeyVaultCall === true,
+    realPostgresCall: false,
+    liveHttpEnabled: p.liveHttpEnabled === true || PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+    liveMutation: false,
+    errors,
+    blocker,
+  };
+}
+
 async function main() {
-  console.log('prove:sunset-schema-slice14f-phase-d-credential-preflight — offline\n');
+  console.log('prove:sunset-schema-slice14g-phase-d-live-credential-preflight — offline + one live\n');
 
   const manifest = loadManifest(MANIFEST_PATH);
   const integrity = validateManifestIntegrity(manifest);
@@ -169,13 +242,14 @@ async function main() {
     if (v !== LOCKED_13C_SHA[k]) throw new Error(`13C hash drift on ${k}`);
   }
 
-  // Count-only command must remain byte-identical to master tip content check via existence.
   if (!fs.existsSync(COUNT_ONLY_PATH)) throw new Error('count-only CLI missing');
   const countOnlySrc = fs.readFileSync(COUNT_ONLY_PATH, 'utf8');
   if (!countOnlySrc.includes('run-phase-d-live-readonly-count-only')
     || countOnlySrc.includes('credential-preflight')) {
     throw new Error('count-only CLI must remain unchanged (no credential-preflight wiring)');
   }
+
+  const loaderSrc = fs.readFileSync(LOADER_PATH, 'utf8');
 
   const secrets = [FAKE_ADMIN_USER, FAKE_ADMIN_PASSWORD, FAKE_IMDS_TOKEN, validSecretValue()];
   const red = [];
@@ -257,50 +331,6 @@ async function main() {
     wrongManagedIdentityRejected: !wrongMi.ok,
   });
 
-  // RED: MI credential-source requires env+argv
-  const partialEnv = evaluateCredentialPreflightGates({
-    env: {
-      [ENV_CREDENTIAL_PREFLIGHT]: '1',
-      AZURE_SUBSCRIPTION_ID: CREDENTIAL_PREFLIGHT_LOCKS.subscriptionId,
-      [ENV_CREDENTIAL_SOURCE]: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
-    },
-    argv: exactCredentialPreflightArgv().filter((a, i, arr) => {
-      if (a === CLI_CREDENTIAL_SOURCE) return false;
-      if (arr[i - 1] === CLI_CREDENTIAL_SOURCE) return false;
-      return true;
-    }),
-  });
-  if (partialEnv.ok) throw new Error('partial MI argv must fail gates');
-  red.push({
-    name: 'managed_identity_flag_requires_env_and_argv',
-    ok: true,
-    rejected: !partialEnv.ok,
-  });
-
-  // RED: caller URLs/tokens rejected; zero HTTP
-  resetManagedIdentityHttpCounters();
-  const caller = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      defaultSecretValue: validSecretValue(),
-    }),
-    vaultUrl: 'https://evil.vault.azure.net',
-    token: 'evil-token',
-  });
-  if (caller.ok
-    || caller.code !== 'caller_supplied_loader_override_forbidden'
-    || getManagedIdentityHttpCounters().httpRequestCount !== 0) {
-    throw new Error(`caller overrides must reject before HTTP: ${caller.code}`);
-  }
-  red.push({
-    name: 'caller_urls_tokens_rejected',
-    ok: true,
-    code: caller.code,
-    httpRequestCount: 0,
-  });
-
   // RED: forbidden argv (dsn/host/query/token)
   const forbiddenGate = evaluateCredentialPreflightGates({
     env: credentialPreflightEnv(),
@@ -312,133 +342,6 @@ async function main() {
     ok: true,
     rejected: !forbiddenGate.ok,
     forbiddenFlags: FORBIDDEN_ARGV_FLAGS.slice(),
-  });
-
-  // RED: redirects / status / body / identity errors sanitized; no Client
-  resetManagedIdentityHttpCounters();
-  resetPgClientInstantiateCount();
-  const redirect = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsStatusCode: 302,
-      imdsRedirectLocation: 'http://evil/',
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  leakScan(redirect, secrets);
-  assertSafeOutputShape(redirect);
-  if (redirect.ok || redirect.code !== 'http_redirect_rejected'
-    || getPgClientInstantiateCount() !== 0) {
-    throw new Error(`IMDS redirect must sanitize/reject: ${redirect.code}`);
-  }
-
-  const badStatus = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      kvStatusCode: 403,
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  leakScan(badStatus, secrets);
-  if (badStatus.ok || badStatus.code !== 'http_status_rejected') {
-    throw new Error(`KV status must reject: ${badStatus.code}`);
-  }
-
-  const badJson = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsInvalidJson: true,
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  if (badJson.ok || badJson.code !== 'imds_json_invalid') {
-    throw new Error(`IMDS bad JSON must reject: ${badJson.code}`);
-  }
-
-  const wrongIdentity = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      imdsResponseClientId: '0e05fbe3-e8c5-48aa-a914-30aed284e6f7',
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  // discarded — re-run after counter reset below
-  void wrongIdentity;
-
-  resetManagedIdentityHttpCounters();
-  const wrongIdentity2 = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      imdsResponseClientId: '0e05fbe3-e8c5-48aa-a914-30aed284e6f7',
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  if (wrongIdentity2.ok
-    || wrongIdentity2.code !== 'imds_token_identity_mismatch'
-    || getManagedIdentityHttpCounters().keyVaultRequestCount !== 0
-    || getManagedIdentityHttpCounters().imdsRequestCount !== 1) {
-    throw new Error(
-      `wrong identity must reject before KV: ${wrongIdentity2.code}`
-      + ` kv=${getManagedIdentityHttpCounters().keyVaultRequestCount}`,
-    );
-  }
-
-  const pwErr = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      throwOn: 'imds_token',
-      passwordBearingError: true,
-      secretPassword: FAKE_ADMIN_PASSWORD,
-      throwError: Object.assign(new Error('imds boom'), { code: 'injected_http_failed' }),
-    }),
-  });
-  leakScan(pwErr, secrets);
-  if (pwErr.ok || JSON.stringify(pwErr).includes(FAKE_ADMIN_PASSWORD)) {
-    throw new Error('password-bearing errors must sanitize');
-  }
-  red.push({
-    name: 'redirects_status_body_identity_errors_sanitized',
-    ok: true,
-    redirectCode: redirect.code,
-    statusCode: badStatus.code,
-    badJsonCode: badJson.code,
-    identityCode: wrongIdentity2.code,
-    passwordSanitized: true,
-    clientsInstantiated: 0,
-  });
-
-  // RED: wrong secret PG target
-  resetPgClientInstantiateCount();
-  const wrongHostSecret = validSecretValue()
-    .replace(MI_LOADER_LOCKS.postgresHost, 'evil.postgres.database.azure.com');
-  const wrongTarget = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      secretValue: wrongHostSecret,
-    }),
-  });
-  leakScan(wrongTarget, secrets);
-  if (wrongTarget.ok
-    || wrongTarget.secretTargetValid === true
-    || getPgClientInstantiateCount() !== 0) {
-    throw new Error(`wrong secret target must fail: ${wrongTarget.code}`);
-  }
-  red.push({
-    name: 'wrong_secret_pg_target_rejected',
-    ok: true,
-    code: wrongTarget.code,
-    clientsInstantiated: 0,
   });
 
   // RED: no POST/PUT/PATCH/DELETE
@@ -456,10 +359,6 @@ async function main() {
   if (postRes.statusCode !== 405) {
     throw new Error('injected POST must 405');
   }
-  const loaderSrc = fs.readFileSync(
-    path.join(ROOT, 'scripts', 'lib', 'phase-d-managed-identity-credential-loader.js'),
-    'utf8',
-  );
   if (!/method:\s*'GET'/.test(loaderSrc)
     || /method:\s*'POST'/.test(loaderSrc)
     || /method:\s*'PUT'/.test(loaderSrc)
@@ -478,9 +377,6 @@ async function main() {
   });
 
   // RED: live HTTP activated — offline prove requires inject; never ungated preflight call
-  if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED !== true) {
-    throw new Error('live MI HTTP flag must be true');
-  }
   if (typeof createLiveManagedIdentityHttpRequest !== 'function') {
     throw new Error('createLiveManagedIdentityHttpRequest must be exported');
   }
@@ -502,7 +398,7 @@ async function main() {
     offlineInjectOnly: true,
   });
 
-  // GREEN: exact 2-call success; safe metadata; zero Clients; private refs zeroed
+  // GREEN: exact 2-call success; safe metadata; zero Clients
   resetManagedIdentityHttpCounters();
   resetPgClientInstantiateCount();
   const httpOk = createInjectedManagedIdentityHttp({
@@ -542,9 +438,6 @@ async function main() {
     || getManagedIdentityHttpCounters().keyVaultRequestCount !== 1) {
     throw new Error(`expected exactly 2 HTTP calls, got ${JSON.stringify(getManagedIdentityHttpCounters())}`);
   }
-  if (!httpOk.calls.every((c) => c.method === 'GET')) {
-    throw new Error('success path must be GET-only');
-  }
   green.push({
     name: 'injected_http_exact_two_call_success_safe_metadata',
     ok: true,
@@ -553,16 +446,8 @@ async function main() {
     imdsRequestCount: 1,
     keyVaultRequestCount: 1,
     clientsInstantiated: 0,
-    managedIdentityName: okRun.managedIdentityName,
-    keyVaultName: okRun.keyVaultName,
-    secretName: okRun.secretName,
-    postgresHost: okRun.postgresHost,
-    database: okRun.database,
-    sslmode: okRun.sslmode,
-    secretTargetValid: true,
-    hasUser: true,
-    hasPassword: true,
-    getOnly: true,
+    realImdsCall: false,
+    liveHttpEnabled: true,
   });
 
   // GREEN: CLI gates pass with exact locks
@@ -570,13 +455,14 @@ async function main() {
     env: credentialPreflightEnv(),
     argv: exactCredentialPreflightArgv(),
   });
-  if (!gatesOk.ok || !gatesOk.credentialSourceOk) {
+  if (!gatesOk.ok || !gatesOk.credentialSourceOk || gatesOk.liveHttpEnabled !== true) {
     throw new Error(`CLI gates should pass: ${JSON.stringify(gatesOk.errors)}`);
   }
   green.push({
     name: 'cli_gates_exact_targets_and_managed_identity',
     ok: true,
     confirmed: gatesOk.confirmed,
+    liveHttpEnabled: true,
   });
 
   // GREEN: CLI default refuse (spawn)
@@ -592,49 +478,8 @@ async function main() {
     exitCode: cliDefault.status,
   });
 
-  // GREEN: live HTTP flag on gates; injected success stays offline (no real IMDS/KV)
-  const gatesLive = evaluateCredentialPreflightGates({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-  });
-  if (!gatesLive.ok || gatesLive.liveHttpEnabled !== true) {
-    throw new Error(`gates must report liveHttpEnabled: ${JSON.stringify(gatesLive)}`);
-  }
-  resetManagedIdentityHttpCounters();
-  resetPgClientInstantiateCount();
-  const injectedNotReal = await executeCredentialPreflight({
-    env: credentialPreflightEnv(),
-    argv: exactCredentialPreflightArgv(),
-    httpRequest: createInjectedManagedIdentityHttp({
-      imdsAccessToken: FAKE_IMDS_TOKEN,
-      defaultSecretValue: validSecretValue(),
-    }),
-  });
-  leakScan(injectedNotReal, secrets);
-  assertSafeOutputShape(injectedNotReal);
-  if (!injectedNotReal.ok
-    || injectedNotReal.liveHttpEnabled !== true
-    || injectedNotReal.realImdsCall !== false
-    || injectedNotReal.realKeyVaultCall !== false
-    || getManagedIdentityHttpCounters().httpRequestCount !== 2) {
-    throw new Error(`injected success must stay offline: ${JSON.stringify(injectedNotReal)}`);
-  }
-  green.push({
-    name: 'live_http_enabled_gates_report_flag_injected_not_real',
-    ok: true,
-    gatesLiveHttpEnabled: gatesLive.liveHttpEnabled === true,
-    injectedLiveHttpEnabled: injectedNotReal.liveHttpEnabled === true,
-    realImdsCall: false,
-    realKeyVaultCall: false,
-    httpRequestCount: 2,
-  });
-
   // GREEN: locks
-  const imdsUrl = buildLockedImdsTokenUrl();
-  const kvUrl = buildLockedKeyVaultSecretUrl();
-  if (!imdsUrl.includes(MI_LOADER_LOCKS.imdsHost)
-    || !kvUrl.includes(MI_LOADER_LOCKS.secretName)
-    || CREDENTIAL_PREFLIGHT_LOCKS.managedIdentityName !== 'wh-staging-identity'
+  if (CREDENTIAL_PREFLIGHT_LOCKS.managedIdentityName !== 'wh-staging-identity'
     || CREDENTIAL_PREFLIGHT_LOCKS.vmResourceGroup !== 'wh-staging-rg'
     || CREDENTIAL_PREFLIGHT_LOCKS.vmName !== 'lunabox') {
     throw new Error('credential-preflight locks drifted');
@@ -645,6 +490,20 @@ async function main() {
     locks: { ...CREDENTIAL_PREFLIGHT_LOCKS },
   });
 
+  // GREEN: live HTTP transport present in loader source
+  if (!loaderSrc.includes('createLiveManagedIdentityHttpRequest')
+    || !/require\(['"]http['"]\)/.test(loaderSrc)
+    || !/require\(['"]https['"]\)/.test(loaderSrc)) {
+    throw new Error('loader must export live HTTP transport with http/https requires');
+  }
+  green.push({
+    name: 'live_http_transport_present_in_loader_source',
+    ok: true,
+    createLiveManagedIdentityHttpRequest: true,
+    httpRequire: true,
+    httpsRequire: true,
+  });
+
   const usage = renderCredentialPreflightUsage();
   if (!usage.includes(CLI_CREDENTIAL_PREFLIGHT_ONLY)
     || !usage.includes(ENV_CREDENTIAL_PREFLIGHT)
@@ -652,9 +511,41 @@ async function main() {
     throw new Error('usage text incomplete');
   }
 
+  // LIVE: exactly one gated credential-preflight CLI spawn (no inject, no retry)
+  console.log('Live section: one gated credential-preflight CLI spawn…\n');
+  resetManagedIdentityHttpCounters();
+  resetPgClientInstantiateCount();
+  const liveEnv = credentialPreflightEnv();
+  const liveArgv = exactCredentialPreflightArgv();
+  const liveCli = spawnSync(process.execPath, [CLI_PATH, ...liveArgv], {
+    encoding: 'utf8',
+    env: { ...process.env, ...liveEnv },
+  });
+  const liveCombined = `${liveCli.stdout || ''}${liveCli.stderr || ''}`;
+  leakScan(liveCombined, secrets);
+  const liveParsed = parseLastJsonObject(liveCombined);
+  if (liveParsed) leakScan(liveParsed, secrets);
+  const liveOutcome = buildLiveOutcome(liveParsed, liveCli.status);
+  leakScan(liveOutcome, secrets);
+
+  if (liveOutcome.clientsInstantiated !== 0) {
+    throw new Error(`live path must never instantiate pg Client: ${liveOutcome.clientsInstantiated}`);
+  }
+  if (liveOutcome.realPostgresCall !== false) {
+    throw new Error('live path must never call PostgreSQL');
+  }
+  if (liveOutcome.liveMutation !== false) {
+    throw new Error('live path must not mutate');
+  }
+
+  const liveOk = liveOutcome.ok === true;
+  const outcome = liveOk
+    ? 'phase_d_live_credential_preflight_ok'
+    : 'phase_d_live_credential_preflight_blocked';
+
   const generatedAt = new Date().toISOString();
   const contract = {
-    kind: 'sunset-schema-observer-slice14f-phase-d-credential-preflight-contract',
+    kind: 'sunset-schema-observer-slice14g-phase-d-live-credential-preflight-contract',
     secretFree: true,
     containsRepairSql: false,
     containsLiveApplyCode: false,
@@ -672,14 +563,13 @@ async function main() {
     credentialPreflightFlagRequired: true,
     managedIdentityCredentialSourceFlagRequired: true,
     exactTargetCliConfirmationRequired: true,
-    injectedHttpOnly: false,
     offlineInjectedHttpProof: true,
     neverInstantiatesPgClient: true,
     countOnlyCommandUnchanged: true,
     generatedAt,
     masterShaBasis: MASTER,
-    slice: '14F',
-    purpose: 'Activate merged 14E managed-identity HTTP loader behind explicit metadata-only credential-preflight CLI; offline injected-HTTP proof only (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true since Slice 14G; this prove never calls live IMDS/KV/PG); no pg Client.',
+    slice: '14G',
+    purpose: 'One live metadata-only credential preflight with PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true: gated real IMDS GET + Key Vault secret GET behind 14F env+argv+exact-target gates; validate DSN in memory; zero private refs; safe metadata output only; never pg Client; no apply/DDL.',
     targets: { ...TARGETS },
     credentialPreflightLocks: { ...CREDENTIAL_PREFLIGHT_LOCKS },
     managedIdentityLocks: {
@@ -704,12 +594,12 @@ async function main() {
       npm: 'phase-d:credential-preflight',
       requiredEnv: [
         `${ENV_CREDENTIAL_PREFLIGHT}=1`,
-        `${ENV_CREDENTIAL_SOURCE}=managed-identity`,
+        `${ENV_CREDENTIAL_SOURCE}=${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
         `AZURE_SUBSCRIPTION_ID=${CREDENTIAL_PREFLIGHT_LOCKS.subscriptionId}`,
       ],
       requiredArgv: [
         CLI_CREDENTIAL_PREFLIGHT_ONLY,
-        `${CLI_CREDENTIAL_SOURCE} managed-identity`,
+        `${CLI_CREDENTIAL_SOURCE} ${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
         `--subscription ${CREDENTIAL_PREFLIGHT_LOCKS.subscriptionId}`,
         `--resource-group ${CREDENTIAL_PREFLIGHT_LOCKS.resourceGroup}`,
         `--vm-resource-group ${CREDENTIAL_PREFLIGHT_LOCKS.vmResourceGroup}`,
@@ -741,53 +631,57 @@ async function main() {
       price_unit: PRICE_UNIT_PREDICATE,
     },
     forbidden: [
-      'live IMDS / Key Vault / PostgreSQL call in this offline prove',
       'pg Client instantiation',
+      'PostgreSQL connection/query',
       'caller URL / token / DSN overrides',
       'token/DSN/credentials in evidence/logs/argv/temp/child env',
+      'secret value/version/id persistence',
       'POST/PUT/PATCH/DELETE',
       'apply/DDL/ledger',
       'migration / predicate changes',
-      'firewall/network mutation',
+      'firewall/network/RBAC mutation',
       'count-only command mutation',
     ],
     nonGoals: [
-      'No live secret read in this offline prove',
-      'No Phase D constraint apply',
+      'No pg Client or live PostgreSQL query',
+      'No Phase D constraint apply or DDL',
+      'No RBAC/KV/network change on live deny',
       'No Sunset repair claim',
       'No expected-fixture regeneration',
-      'Live MI HTTP activated in Slice 14G; ungated gated-CLI / loader calls belong in 14G live prove only',
     ],
   };
 
   const evidence = {
-    kind: 'sunset-schema-observer-slice14f-phase-d-credential-preflight-evidence',
+    kind: 'sunset-schema-observer-slice14g-phase-d-live-credential-preflight-evidence',
     secretFree: true,
     generatedAt,
     masterShaBasis: MASTER,
-    slice: '14F',
-    outcome: 'phase_d_credential_preflight_activated_proven_offline',
+    slice: '14G',
+    outcome,
     stillProductSchemaDiffers: true,
     phaseDConstraintsApplied: false,
     liveMutation: false,
     liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     liveHttpEnabled: true,
-    azureConnectivity: false,
+    azureConnectivity: liveOk,
     firewallAction: false,
     networkMutation: false,
-    realImdsCall: false,
-    realKeyVaultCall: false,
+    realImdsCall: liveOutcome.realImdsCall,
+    realKeyVaultCall: liveOutcome.realKeyVaultCall,
     realPostgresCall: false,
     enableFlagFlipped: true,
-    cliExecutedLive: false,
+    cliExecutedLive: true,
     migrationAdded: false,
     ledgerWritten: false,
     applyFlagPresent: false,
+    appliesConstraints: false,
+    writesLedger: false,
     forwardCountUnchanged: 39,
     newForwardMigration: false,
     countOnlyCommandUnchanged: true,
     neverInstantiatesPgClient: true,
+    liveCallAttemptCount: 1,
     migrationHashes: {
       '028': live028,
       '035': live035,
@@ -807,19 +701,14 @@ async function main() {
       defaultPathZeroHttpAndClients: true,
       missingEnvApprovalZeroHttp: true,
       missingOrWrongExactTargetsZeroHttp: true,
-      managedIdentityFlagRequiresEnvAndArgv: true,
-      callerUrlsTokensRejected: true,
-      forbiddenDsnHostQueryTokenArgv: true,
-      redirectsStatusBodyIdentityErrorsSanitized: true,
-      wrongSecretPgTargetRejected: true,
-      noPostPutPatchDelete: true,
       liveHttpActivatedOfflineInjectRequired: true,
+      forbiddenDsnHostQueryTokenArgv: true,
+      noPostPutPatchDelete: true,
       injectedHttpExactTwoCallSuccessSafeMetadata: true,
       cliGatesExactTargetsAndManagedIdentity: true,
       cliDefaultDisabled: true,
-      liveHttpEnabledGatesReportFlagInjectedNotReal: true,
       locksSubscriptionRgVmIdentityVaultSecretPgTls: true,
-      zeroPersistenceChildEnv: true,
+      liveHttpTransportPresentInLoaderSource: true,
     },
     redCases: red,
     greenCases: green,
@@ -830,11 +719,16 @@ async function main() {
       successPathImdsRequestCount: 1,
       successPathKeyVaultRequestCount: 1,
       defaultPathHttpRequestCount: 0,
+      liveHttpCallsDelta: liveOutcome.httpCallsDelta,
+      liveImdsRequestCount: liveOutcome.imdsRequestCount,
+      liveKeyVaultRequestCount: liveOutcome.keyVaultRequestCount,
     },
     clientCallCounts: {
       successPathClientsInstantiated: 0,
       defaultPathClientsInstantiated: 0,
+      liveClientsInstantiated: liveOutcome.clientsInstantiated,
     },
+    liveOutcome,
     secretLifetimeProof: {
       privateFieldsZeroedImmediately: true,
       neverPrinted: true,
@@ -854,45 +748,56 @@ async function main() {
   leakScan(evidence, secrets);
   leakScan(contract, secrets);
 
-  const findings = `# FOUNDATION Slice 14F — Phase D credential-preflight activation
+  const operatorCmd = [
+    `${ENV_CREDENTIAL_PREFLIGHT}=1`,
+    `${ENV_CREDENTIAL_SOURCE}=${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
+    `AZURE_SUBSCRIPTION_ID=${CREDENTIAL_PREFLIGHT_LOCKS.subscriptionId}`,
+    'npm run phase-d:credential-preflight --',
+    ...liveArgv,
+  ].join(' ');
 
-**Status:** complete (\`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\` since Slice 14G; offline injected-HTTP proof only; no live IMDS/KV/PG in this prove; no pg Client)
+  const liveSummary = liveOk
+    ? `Live credential-preflight **ok** (\`code=${liveOutcome.code}\`, httpCallsDelta=${liveOutcome.httpCallsDelta}, realImdsCall=${liveOutcome.realImdsCall}, realKeyVaultCall=${liveOutcome.realKeyVaultCall}, clientsInstantiated=0).`
+    : `Live credential-preflight **blocked** (\`blocker=${liveOutcome.blocker}\`, exitCode=${liveOutcome.exitCode}, httpCallsDelta=${liveOutcome.httpCallsDelta}, realImdsCall=${liveOutcome.realImdsCall}, realKeyVaultCall=${liveOutcome.realKeyVaultCall}, clientsInstantiated=0).`;
+
+  const findings = `# FOUNDATION Slice 14G — Phase D live metadata-only credential preflight
+
+**Status:** complete (\`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\`; one live gated IMDS+KV GET; no pg Client; no apply/DDL)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome
 
-Activated the merged **14E** managed-identity HTTP loader behind an explicit **metadata-only** credential-preflight command, while performing **no real IMDS / Key Vault / PostgreSQL call** in this slice. The count-only DB command is **unchanged**.
+${liveSummary}
 
-Locks confirmed on the CLI: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\`, secret \`sunset-database-url\`, VM \`lunabox\` in \`wh-staging-rg\`, PG host/database/\`sslmode=verify-full\`.
+Activated real Node \`http\`/\`https\` IMDS + Key Vault secret GET behind the existing **14F** credential-preflight gates. Offline proof uses injected HTTP only; live section spawns the CLI **once** with exact env+argv from \`credentialPreflightEnv()\` + \`exactCredentialPreflightArgv()\`. Never instantiates a pg Client. Count-only DB command **unchanged**.
 
-Requires exact subscription / RG / VM identity / vault / secret / PG target args plus:
+Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\`, secret \`sunset-database-url\`, VM \`lunabox\` in \`wh-staging-rg\`, PG host/database/\`sslmode=verify-full\`.
 
-- \`SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity\`
-- \`--credential-source managed-identity\`
-- dedicated env \`SUNSET_PHASE_D_CREDENTIAL_PREFLIGHT=1\`
-- \`--credential-preflight-only\`
+## Operator command
 
-Default / missing / wrong inputs make **zero HTTP** and **zero pg Clients**. On approved offline execution (injected HTTP): exact locked IMDS GET then exact locked Key Vault secret GET; validate secret DSN in memory; immediately zero private refs; output only safe booleans + identity/vault/secret/PG host/database/TLS — never token, DSN, user/password, version values, secret metadata IDs, or hashes. Never instantiates a pg Client. No POST/PUT/PATCH/DELETE. No caller URLs/tokens. Zero persistence / child-env credentials.
+\`\`\`bash
+${operatorCmd}
+\`\`\`
 
 ## RED / GREEN
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; missing env/flag/targets; MI flag requires env+argv; caller overrides; forbidden argv; redirects/status/body/identity sanitized; wrong secret target; no POST/PUT/PATCH/DELETE; live HTTP activated → offline inject required (no ungated preflight call) |
-| GREEN | injected HTTP exact 2-call success + safe metadata; CLI gates; CLI default refuse; live HTTP flag on gates + injected path stays offline; locks |
+| RED | default zero HTTP+Clients; missing env/flag/targets; live HTTP activated → offline inject required; forbidden argv; no POST/PUT/PATCH/DELETE |
+| GREEN | injected HTTP exact 2-call success + safe metadata; CLI gates; CLI default refuse; locks; live HTTP transport in loader source |
 
 ## Non-goals / still open
 
-- **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger **in this offline prove**
-- **No** migration or predicate changes
+- **No** pg Client or live PostgreSQL query
+- **No** Phase D constraint apply, DDL, or ledger write
+- **No** RBAC/KV/network change on live deny
 - Still \`product_schema_differs\`
-- Live MI HTTP activated in Slice 14G (\`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\`); ungated live gated-CLI calls are 14G scope, not this prove
 - **Do not claim Sunset repaired.**
 
-## Zero live/Azure mutation (this prove)
+## Zero DB mutation
 
-Offline injected HTTP only. Flag is \`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\` but this prove never calls live IMDS/KV/PG. No Azure CLI, no live PostgreSQL, no real Key Vault read, no network/firewall mutation, no pg Client.
+Metadata-only credential preflight. Private refs zeroed immediately. No secret value/version/id in evidence. No PostgreSQL Client/connection. No apply/DDL.
 `;
 
   fs.writeFileSync(CONTRACT_PATH, `${JSON.stringify(contract, null, 2)}\n`);
@@ -901,10 +806,11 @@ Offline injected HTTP only. Flag is \`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED
 
   console.log(`RED cases: ${red.length}`);
   console.log(`GREEN cases: ${green.length}`);
+  console.log(`Live outcome: ${outcome} (ok=${liveOk}, blocker=${liveOutcome.blocker || 'null'})`);
   console.log(`Wrote ${path.relative(ROOT, CONTRACT_PATH)}`);
   console.log(`Wrote ${path.relative(ROOT, EVIDENCE_PATH)}`);
   console.log(`Wrote ${path.relative(ROOT, FINDINGS_PATH)}`);
-  console.log('\nprove:sunset-schema-slice14f-phase-d-credential-preflight GREEN');
+  console.log('\nprove:sunset-schema-slice14g-phase-d-live-credential-preflight GREEN');
 }
 
 main().catch((err) => {

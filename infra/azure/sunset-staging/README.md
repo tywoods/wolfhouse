@@ -607,3 +607,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14D — Phase D live read-only activation + gated count-only CLI (default-disabled; offline injected-Client proof; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14E — Phase D managed-identity credential loader (live HTTP hard-disabled; offline injected-HTTP proof; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14F — Phase D credential-preflight activation (metadata-only; offline injected-HTTP proof; no pg Client; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14G — Phase D live metadata-only credential preflight (gated real IMDS+KV GET; no pg Client; no live mutation) — 2026-07-19*

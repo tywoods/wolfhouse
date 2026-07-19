@@ -79,6 +79,7 @@ const {
   parseSunsetDatabaseUrlSecretInMemory,
   zeroPrivateCredentialRefs,
   createInjectedManagedIdentityHttp,
+  createLiveManagedIdentityHttpRequest,
   buildOfflineProofSunsetDatabaseUrl,
   getManagedIdentityHttpCounters,
   resetManagedIdentityHttpCounters,
@@ -190,8 +191,8 @@ async function main() {
   if (PHASE_D_LIVE_APPLY_ENABLED !== false) {
     throw new Error('APPLY must remain disabled');
   }
-  if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED !== false) {
-    throw new Error('live MI HTTP must remain hard-disabled');
+  if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED !== true) {
+    throw new Error('live MI HTTP must be activated (Slice 14G)');
   }
 
   const live028 = sha256CanonicalLfV1File(path.join(MIGRATIONS_DIR, '028_tenant_services.sql'));
@@ -227,24 +228,31 @@ async function main() {
     clientsInstantiated: 0,
   });
 
-  // RED: MI flags without injected HTTP — zero Clients
+  // RED: live HTTP activated — offline prove requires inject; never ungated MI/adapter call
+  if (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED !== true) {
+    throw new Error('live MI HTTP flag must be true');
+  }
+  if (typeof createLiveManagedIdentityHttpRequest !== 'function') {
+    throw new Error('createLiveManagedIdentityHttpRequest must be exported');
+  }
   resetManagedIdentityHttpCounters();
   resetPgClientInstantiateCount();
-  const noHttp = await executePhaseDLiveReadonlyPgAdapter({
-    env: miEnv(),
-    argv: adapterArgv(),
-    azureAdapters: createInjectedAzureAdapters({}),
-    dbAdapters: createInjectedDbAdapters({}),
-  });
-  if (noHttp.ok || noHttp.code !== 'http_disabled' || getPgClientInstantiateCount() !== 0) {
-    throw new Error(`MI without inject must http_disabled: ${noHttp.code}`);
+  const defaultOffline = await loadProtectedAdminCredentialsViaManagedIdentity({ env: {}, argv: [] });
+  const defaultAdapterOffline = await executePhaseDLiveReadonlyPgAdapter({ env: {} });
+  if (getManagedIdentityHttpCounters().httpRequestCount !== 0
+    || getPgClientInstantiateCount() !== 0
+    || defaultOffline.ok
+    || defaultAdapterOffline.ok) {
+    throw new Error('default path must remain zero HTTP and zero Clients without inject');
   }
   red.push({
-    name: 'managed_identity_without_inject_http_disabled',
+    name: 'live_http_activated_offline_inject_required',
     ok: true,
-    code: noHttp.code,
-    clientsInstantiated: 0,
-    httpRequestCount: getManagedIdentityHttpCounters().httpRequestCount,
+    liveHttpEnabled: true,
+    createLiveManagedIdentityHttpRequestExported: true,
+    defaultPathHttpRequestCount: 0,
+    defaultPathClientsInstantiated: 0,
+    offlineInjectOnly: true,
   });
 
   // RED: missing/partial credential-source flag
@@ -863,7 +871,7 @@ async function main() {
     liveApplyCapability: false,
     liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
-    liveHttpEnabled: false,
+    liveHttpEnabled: true,
     appliesConstraints: false,
     writesLedger: false,
     mutates: false,
@@ -879,7 +887,7 @@ async function main() {
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14E',
-    purpose: 'In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only; no live IMDS/KV/PG call.',
+    purpose: 'In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true since Slice 14G; this prove never calls live IMDS/KV/PG).',
     targets: { ...TARGETS },
     managedIdentityLocks: {
       imdsHost: MI_LOADER_LOCKS.imdsHost,
@@ -949,7 +957,7 @@ async function main() {
     },
     statementTimeoutMs: STATEMENT_TIMEOUT_MS,
     forbidden: [
-      'live IMDS / Key Vault / PostgreSQL call in this slice',
+      'live IMDS / Key Vault / PostgreSQL call in this offline prove',
       'caller URL / name / token / DSN overrides',
       'token/DSN/credentials in evidence/logs/argv/temp/child env',
       'apply/DDL/ledger',
@@ -957,10 +965,11 @@ async function main() {
       'firewall/network mutation',
     ],
     nonGoals: [
-      'No live secret read',
+      'No live secret read in this offline prove',
       'No Phase D constraint apply',
       'No Sunset repair claim',
       'No expected-fixture regeneration',
+      'Live MI HTTP activated in Slice 14G; ungated loader/adapter calls belong in 14G live prove only',
     ],
   };
 
@@ -976,14 +985,14 @@ async function main() {
     liveMutation: false,
     liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
-    liveHttpEnabled: false,
+    liveHttpEnabled: true,
     azureConnectivity: false,
     firewallAction: false,
     networkMutation: false,
     realImdsCall: false,
     realKeyVaultCall: false,
     realPostgresCall: false,
-    enableFlagFlipped: false,
+    enableFlagFlipped: true,
     cliExecutedLive: false,
     migrationAdded: false,
     ledgerWritten: false,
@@ -1002,7 +1011,7 @@ async function main() {
     authorizedSequence: AUTHORIZED_SEQUENCE.slice(),
     offlineGates: {
       defaultPathZeroHttpAndClients: true,
-      managedIdentityWithoutInjectHttpDisabled: true,
+      liveHttpActivatedOfflineInjectRequired: true,
       managedIdentityFlagRequiresEnvAndArgv: true,
       callerUrlsNamesTokensDsnsRejected: true,
       wrongImdsRejected: true,
@@ -1052,7 +1061,7 @@ async function main() {
 
   const findings = `# FOUNDATION Slice 14E — Phase D managed-identity credential loader
 
-**Status:** complete (live HTTP hard-disabled; offline injected-HTTP proof; no live IMDS/KV/PG)
+**Status:** complete (\`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\` since Slice 14G; offline injected-HTTP proof only; no live IMDS/KV/PG in this prove)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
@@ -1089,20 +1098,20 @@ Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memor
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
+| RED | default zero HTTP+Clients; live HTTP activated → offline inject required (no ungated MI call); flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
 | GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks (wh-staging-identity) |
 
 ## Non-goals / still open
 
-- **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger
+- **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger **in this offline prove**
 - **No** migration or predicate changes
 - Still \`product_schema_differs\`
-- Live MI HTTP enablement remains a later slice
+- Live MI HTTP activated in Slice 14G (\`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\`); ungated live calls are 14G scope, not this prove
 - **Do not claim Sunset repaired.**
 
-## Zero live/Azure mutation
+## Zero live/Azure mutation (this prove)
 
-Offline injected HTTP + fake \`pg\` Client only. \`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=false\`. No Azure CLI, no live PostgreSQL, no real Key Vault read, no network/firewall mutation.
+Offline injected HTTP + fake \`pg\` Client only. Flag is \`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true\` but this prove never calls live IMDS/KV/PG. No Azure CLI, no live PostgreSQL, no real Key Vault read, no network/firewall mutation.
 `;
 
   fs.writeFileSync(FINDINGS_PATH, findings, 'utf8');

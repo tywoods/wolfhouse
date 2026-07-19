@@ -1,8 +1,8 @@
 # FOUNDATION Slice 14E — Phase D managed-identity credential loader
 
-**Status:** complete (live HTTP hard-disabled; offline injected-HTTP proof; no live IMDS/KV/PG)
+**Status:** complete (`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true` since Slice 14G; offline injected-HTTP proof only; no live IMDS/KV/PG in this prove)
 **Master basis:** `6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a`
-**Generated:** 2026-07-19T19:32:56.157Z
+**Generated:** 2026-07-19T19:46:39.280Z
 
 ## Outcome
 
@@ -37,17 +37,17 @@ Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memor
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
+| RED | default zero HTTP+Clients; live HTTP activated → offline inject required (no ungated MI call); flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
 | GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks (wh-staging-identity) |
 
 ## Non-goals / still open
 
-- **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger
+- **No** live secret read, Azure/PG query, firewall/network, DDL/apply/ledger **in this offline prove**
 - **No** migration or predicate changes
 - Still `product_schema_differs`
-- Live MI HTTP enablement remains a later slice
+- Live MI HTTP activated in Slice 14G (`PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true`); ungated live calls are 14G scope, not this prove
 - **Do not claim Sunset repaired.**
 
-## Zero live/Azure mutation
+## Zero live/Azure mutation (this prove)
 
-Offline injected HTTP + fake `pg` Client only. `PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=false`. No Azure CLI, no live PostgreSQL, no real Key Vault read, no network/firewall mutation.
+Offline injected HTTP + fake `pg` Client only. Flag is `PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true` but this prove never calls live IMDS/KV/PG. No Azure CLI, no live PostgreSQL, no real Key Vault read, no network/firewall mutation.

@@ -88,7 +88,7 @@ const LOCKED_13C_SHA = Object.freeze({
 
 const REQUIRED_RED = [
   'default_path_zero_http_and_clients',
-  'managed_identity_without_inject_http_disabled',
+  'live_http_activated_offline_inject_required',
   'managed_identity_flag_requires_env_and_argv',
   'caller_urls_names_tokens_dsns_rejected',
   'wrong_imds_host_audience_status_redirect_json_rejected',
@@ -183,14 +183,15 @@ async function main() {
     && contract.predicatesUnchangedFrom14A.date_window === DATE_WINDOW_PREDICATE
     && contract.predicatesUnchangedFrom14A.price_unit === PRICE_UNIT_PREDICATE);
 
-  pass('connect-activated-apply-disabled-http-disabled',
+  pass('connect-activated-apply-disabled-http-activated',
     PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true
     && PG_FLAG === true
     && PHASE_D_LIVE_APPLY_ENABLED === false
-    && PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === false
-    && /PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED\s*=\s*false/.test(loaderSrc)
-    && evidence.liveHttpEnabled === false
-    && contract.liveHttpEnabled === false);
+    && PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true
+    && /PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED\s*=\s*true/.test(loaderSrc)
+    && evidence.liveHttpEnabled === true
+    && evidence.enableFlagFlipped === true
+    && contract.liveHttpEnabled === true);
 
   pass('locks-exact',
     MI_LOADER_LOCKS.imdsHost === '169.254.169.254'
@@ -244,6 +245,7 @@ async function main() {
   pass('green-cases-present', REQUIRED_GREEN.every((n) => greenNames.includes(n)));
   pass('offline-gates',
     evidence.offlineGates.defaultPathZeroHttpAndClients === true
+    && evidence.offlineGates.liveHttpActivatedOfflineInjectRequired === true
     && evidence.offlineGates.injectedHttpSuccessReachesFakeClientExactSequence === true
     && evidence.offlineGates.secretLifetimeZeroAfterPrivateHandoff === true
     && evidence.offlineGates.protectedAdminEnvModePreserved === true
@@ -410,7 +412,7 @@ async function main() {
     && !/--apply\b/.test(adapterSrc)
     && !/ADD\s+CONSTRAINT\s+tenant_services_date_window/i.test(adapterSrc)
     && !/schema_migration_ledger/.test(adapterSrc)
-    && /PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED\s*=\s*false/.test(loaderSrc)
+    && /PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED\s*=\s*true/.test(loaderSrc)
     && evidence.stillProductSchemaDiffers === true);
 
   pass('npm-commands',

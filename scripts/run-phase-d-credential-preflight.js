@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * run-phase-d-credential-preflight — FOUNDATION Slice 14F
+ * run-phase-d-credential-preflight — FOUNDATION Slice 14F/14G
  *
  * Narrow metadata-only credential-preflight CLI that activates the merged 14E
  * managed-identity HTTP loader. DEFAULT: refused (zero HTTP / zero pg Clients).
@@ -16,8 +16,8 @@
  *     / --managed-identity / --key-vault / --secret-name / --postgres-server
  *     / --database
  *
- * Live IMDS/KV HTTP remains hard-disabled in this slice (offline injected HTTP
- * only). Never instantiates a pg Client. Count-only DB command unchanged.
+ * Slice 14G activates live IMDS/KV HTTP behind these gates. Never instantiates
+ * a pg Client. Count-only DB command unchanged.
  *
  * Safe output only: booleans + identity/vault/secret/PG host/database/TLS.
  *
@@ -90,14 +90,14 @@ async function main() {
       realImdsCall: false,
       realKeyVaultCall: false,
       realPostgresCall: false,
-      note: 'CLI gates failed — zero HTTP / zero pg Clients',
+      note: 'CLI gates failed — zero HTTP / zero Clients',
     }, []);
     console.error(JSON.stringify(safe, null, 2));
     process.exit(2);
   }
 
-  // Gates passed — but live HTTP remains hard-disabled without injected httpRequest.
-  // Operator CLI has no injection; refuse with http_disabled (zero live calls).
+  // Gates passed — live HTTP may run (14G) for exact IMDS GET + KV GET only.
+  // Still never instantiates a pg Client.
   const result = await executeCredentialPreflight({
     env: process.env,
     argv,

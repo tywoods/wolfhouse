@@ -6,7 +6,7 @@
   "liveApplyCapability": false,
   "liveReadonlyConnectEnabled": true,
   "liveQueryExecution": false,
-  "liveHttpEnabled": false,
+  "liveHttpEnabled": true,
   "appliesConstraints": false,
   "writesLedger": false,
   "mutates": false,
@@ -19,10 +19,10 @@
   "managedIdentityCredentialSourceFlagRequired": true,
   "injectedHttpOnly": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:32:56.157Z",
+  "generatedAt": "2026-07-19T19:46:39.280Z",
   "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
   "slice": "14E",
-  "purpose": "In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only; no live IMDS/KV/PG call.",
+  "purpose": "In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only (PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED=true since Slice 14G; this prove never calls live IMDS/KV/PG).",
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -129,7 +129,7 @@
   },
   "statementTimeoutMs": 30000,
   "forbidden": [
-    "live IMDS / Key Vault / PostgreSQL call in this slice",
+    "live IMDS / Key Vault / PostgreSQL call in this offline prove",
     "caller URL / name / token / DSN overrides",
     "token/DSN/credentials in evidence/logs/argv/temp/child env",
     "apply/DDL/ledger",
@@ -137,9 +137,10 @@
     "firewall/network mutation"
   ],
   "nonGoals": [
-    "No live secret read",
+    "No live secret read in this offline prove",
     "No Phase D constraint apply",
     "No Sunset repair claim",
-    "No expected-fixture regeneration"
+    "No expected-fixture regeneration",
+    "Live MI HTTP activated in Slice 14G; ungated loader/adapter calls belong in 14G live prove only"
   ]
 }
