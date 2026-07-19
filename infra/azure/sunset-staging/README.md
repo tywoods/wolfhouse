@@ -287,8 +287,8 @@ Fail-closed convergent provision tooling for the dedicated observer role / DSN s
 - Verify live Azure subscription/RG/Postgres FQDN/KV before any DB/KV action
 - Connect only to locked `sslmode=verify-full` host; require `current_database()=sunset_staging`
 - Enforce `NOBYPASSRLS`; fail closed on memberships/ownership/excess ACLs outside CONNECT-only
-- Convergent bootstrap: absent+absent→create; both valid→no-op; inconsistent→refuse; KV failure rolls back only a newly created role; never rotate existing credentials
-- KV writes via 0600 temp `--file` (never DSN in argv); redact secrets from results/errors/reports
+- Convergent bootstrap: absent+absent→create; both valid→no-op; inconsistent→refuse; KV failure rolls back only a newly created role (REVOKE CONNECT → RESET readonly → DROP ROLE); never rotate existing credentials
+- `CREATE ROLE PASSWORD` uses validated URL-safe SQL literals (not protocol bind params); KV writes via 0600 temp `--file` (never DSN in argv); redact secrets from results/errors/reports
 
 ```bash
 # Dry-run (default) — prints plan; no Azure/Postgres mutation

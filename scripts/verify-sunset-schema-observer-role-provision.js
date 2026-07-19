@@ -26,6 +26,9 @@ const {
   generateRolePassword,
   assertPasswordFormat,
   sqlStringLiteral,
+  buildCreateRoleSql,
+  createRoleSqlPlanTemplate,
+  rollbackNewlyCreatedObserverRole,
   buildObserverDsn,
   assertObserverDsnShape,
   redactSecrets,
@@ -392,10 +395,11 @@ async function main() {
     pass('green-kv-result-redacted', !JSON.stringify(result).includes(dsn));
   }
 
-  // Convergent create path
+  // Convergent create path — SQL literal password (not protocol bind params)
   {
     const password = generateRolePassword();
     const dsn = buildObserverDsn({ password });
+    const expectedLiteral = sqlStringLiteral(password);
     const sqlLog = [];
     const result = await executeConvergentBootstrap({
       targets: TARGETS,
@@ -416,24 +420,57 @@ async function main() {
         return { ok: true };
       },
     });
+    const create = sqlLog.find((s) => /CREATE ROLE/.test(s.sql));
     pass(
       'green-create-bootstrap',
       result.ok
         && result.action === BOOTSTRAP_ACTIONS.CREATE
         && result.counters.roleCreated === 1
         && result.counters.keyVaultSet === 1
-        && sqlLog.some((s) => /CREATE ROLE/.test(s.sql) && /NOBYPASSRLS/.test(s.sql))
+        && create
+        && /NOBYPASSRLS/.test(create.sql)
+        && create.sql.includes(`PASSWORD ${expectedLiteral}`)
         && sqlLog.some((s) => /GRANT CONNECT/.test(s.sql))
         && !JSON.stringify(result).includes(password)
-        && !JSON.stringify(result).includes(dsn),
+        && !JSON.stringify(result).includes(dsn)
+        && !JSON.stringify(result).includes(create.sql),
     );
-    // Parameterized password — not interpolated into SQL string
-    const create = sqlLog.find((s) => /CREATE ROLE/.test(s.sql));
     pass(
-      'green-create-parameterized-password',
+      'green-create-sql-literal-password',
       create
-        && create.params[0] === password
-        && !create.sql.includes(password),
+        && !/\$1\b/.test(create.sql)
+        && create.params.length === 0
+        && create.sql.includes(expectedLiteral)
+        && buildCreateRoleSql(password).ok
+        && buildCreateRoleSql(password).sql === create.sql,
+    );
+  }
+
+  // Invalid / quote-bearing passwords refused before postgresExec
+  {
+    let pgCalls = 0;
+    const badQuote = "bad'quote_password_!!!!!!!!!!!!!!!!!!!!!!!!";
+    const result = await executeConvergentBootstrap({
+      azure: goodAzure(),
+      db: goodDb(),
+      generatePassword: () => badQuote,
+      inspectState: async () => ({ roleExists: false, secretExists: false }),
+      postgresExec: async () => {
+        pgCalls += 1;
+      },
+      keyVaultSecretSetSecure: async () => {},
+    });
+    pass(
+      'red-invalid-password-refused-before-exec',
+      !result.ok
+        && pgCalls === 0
+        && result.counters.postgresExec === 0
+        && result.errors.some((e) => e.code === 'password_format_invalid' || e.code === 'password_unsafe_chars')
+        && !JSON.stringify(result).includes(badQuote),
+    );
+    pass(
+      'red-build-create-role-rejects-invalid',
+      !buildCreateRoleSql(badQuote).ok && buildCreateRoleSql(badQuote).sql == null,
     );
   }
 
@@ -495,9 +532,14 @@ async function main() {
     );
   }
 
-  // KV failure after role create → rollback DROP only that new role
+  // KV failure → ordered REVOKE → RESET → DROP; DROP fails unless prior steps ran
   {
     const sqlLog = [];
+    const sim = {
+      exists: false,
+      hasConnect: false,
+      hasReadonly: false,
+    };
     const result = await executeConvergentBootstrap({
       azure: goodAzure(),
       db: goodDb(),
@@ -507,19 +549,120 @@ async function main() {
         secretExists: false,
       }),
       postgresExec: async (sql) => {
-        sqlLog.push(sql);
+        const s = String(sql);
+        sqlLog.push(s);
+        if (/^CREATE ROLE sunset_schema_observer\b/.test(s)) {
+          sim.exists = true;
+          return;
+        }
+        if (/^GRANT CONNECT ON DATABASE sunset_staging TO sunset_schema_observer/.test(s)) {
+          sim.hasConnect = true;
+          return;
+        }
+        if (/^ALTER ROLE sunset_schema_observer SET default_transaction_read_only = on/.test(s)) {
+          sim.hasReadonly = true;
+          return;
+        }
+        if (/^REVOKE CONNECT ON DATABASE sunset_staging FROM sunset_schema_observer/.test(s)) {
+          if (!sim.exists) throw new Error('revoke on missing role');
+          sim.hasConnect = false;
+          return;
+        }
+        if (/^ALTER ROLE sunset_schema_observer RESET default_transaction_read_only/.test(s)) {
+          if (!sim.exists) throw new Error('reset on missing role');
+          sim.hasReadonly = false;
+          return;
+        }
+        if (/^DROP ROLE sunset_schema_observer\s*;/.test(s)) {
+          // Fail closed unless REVOKE + RESET completed first (simulates PG dependency).
+          if (sim.hasConnect || sim.hasReadonly) {
+            throw Object.assign(
+              new Error('cannot drop role: still has database privileges or settings'),
+              { code: 'dependent_objects' },
+            );
+          }
+          if (!sim.exists) throw new Error('role does not exist');
+          sim.exists = false;
+          return;
+        }
+        if (/DROP ROLE IF EXISTS|DROP OWNED|OTHER_ROLE|wolfhouse|wh-staging/i.test(s)) {
+          throw new Error(`forbidden rollback SQL: ${s.slice(0, 80)}`);
+        }
       },
       keyVaultSecretSetSecure: async () => {
         throw Object.assign(new Error('kv boom'), { code: 'kv_write_failed' });
       },
     });
+    const revokeIdx = sqlLog.findIndex((s) => /^REVOKE CONNECT ON DATABASE sunset_staging FROM sunset_schema_observer/.test(s));
+    const resetIdx = sqlLog.findIndex((s) => /^ALTER ROLE sunset_schema_observer RESET default_transaction_read_only/.test(s));
+    const dropIdx = sqlLog.findIndex((s) => /^DROP ROLE sunset_schema_observer\s*;/.test(s));
     pass(
       'red-kv-failure-rolls-back-new-role',
       !result.ok
         && result.rolledBack === true
         && result.counters.roleDroppedRollback === 1
-        && sqlLog.some((s) => /DROP ROLE IF EXISTS sunset_schema_observer/.test(s))
-        && sqlLog.filter((s) => /CREATE ROLE/.test(s)).length === 1,
+        && sim.exists === false
+        && sim.hasConnect === false
+        && sim.hasReadonly === false
+        && revokeIdx >= 0
+        && resetIdx > revokeIdx
+        && dropIdx > resetIdx
+        && sqlLog.filter((s) => /^CREATE ROLE sunset_schema_observer\b/.test(s)).length === 1
+        && !sqlLog.some((s) => /DROP OWNED|IF EXISTS|wolfhouse|wh-staging|OTHER_ROLE/i.test(s)),
+    );
+    pass(
+      'red-kv-rollback-targets-only-observer',
+      result.rollback
+        && result.rollback.targetedRole === 'sunset_schema_observer'
+        && result.rollback.targetedDatabase === 'sunset_staging'
+        && result.rollback.completed.includes('rollback_revoke_connect')
+        && result.rollback.completed.includes('rollback_reset_readonly')
+        && result.rollback.completed.includes('rollback_drop_new_role'),
+    );
+  }
+
+  // Prove DROP alone is insufficient in the simulated adapter (ordering enforced)
+  {
+    const sim = { exists: true, hasConnect: true, hasReadonly: true };
+    const adapter = async (sql) => {
+      const s = String(sql);
+      if (/^REVOKE CONNECT ON DATABASE sunset_staging FROM sunset_schema_observer/.test(s)) {
+        sim.hasConnect = false;
+        return;
+      }
+      if (/^ALTER ROLE sunset_schema_observer RESET default_transaction_read_only/.test(s)) {
+        sim.hasReadonly = false;
+        return;
+      }
+      if (/^DROP ROLE sunset_schema_observer\s*;/.test(s)) {
+        if (sim.hasConnect || sim.hasReadonly) {
+          throw new Error('cannot drop role: still has database privileges or settings');
+        }
+        sim.exists = false;
+      }
+    };
+    let prematureFailed = false;
+    try {
+      await adapter('DROP ROLE sunset_schema_observer;');
+    } catch (_) {
+      prematureFailed = true;
+    }
+    const ordered = [];
+    const trackingAdapter = async (sql) => {
+      ordered.push(String(sql));
+      return adapter(sql);
+    };
+    const counters = { postgresExec: 0, roleDroppedRollback: 0 };
+    const rb = await rollbackNewlyCreatedObserverRole(trackingAdapter, TARGETS, counters);
+    pass(
+      'green-rollback-order-required',
+      prematureFailed
+        && rb.ok
+        && sim.exists === false
+        && ordered.length === 3
+        && ordered[0].startsWith('REVOKE CONNECT')
+        && ordered[1].startsWith('ALTER ROLE sunset_schema_observer RESET')
+        && ordered[2].startsWith('DROP ROLE sunset_schema_observer'),
     );
   }
 

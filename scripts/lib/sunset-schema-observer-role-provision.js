@@ -311,9 +311,97 @@ function assertPasswordFormat(password) {
   return { ok: true, errors: [] };
 }
 
-/** Safe SQL string literal (doubled quotes). Prefer parameterized adapters when available. */
+/** Safe SQL string literal (doubled single quotes). Used for CREATE ROLE PASSWORD. */
 function sqlStringLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
+}
+
+/**
+ * Build executable CREATE ROLE SQL for the locked observer role.
+ * Password must already pass PASSWORD_FORMAT; identifiers are never caller-controlled.
+ * Callers must never log or return the resulting secret-bearing SQL.
+ */
+function buildCreateRoleSql(password, targets) {
+  const t = targets || TARGETS;
+  const targetGate = validateTargets(t);
+  if (!targetGate.ok) {
+    return { ok: false, errors: targetGate.errors, sql: null };
+  }
+  // Defense in depth: role/database names must remain exact locked constants.
+  if (t.roleName !== TARGETS.roleName || t.database !== TARGETS.database) {
+    return {
+      ok: false,
+      errors: [{ code: 'unlocked_identifier', message: 'role/database identifiers must remain locked constants' }],
+      sql: null,
+    };
+  }
+  const pwGate = assertPasswordFormat(password);
+  if (!pwGate.ok) {
+    return { ok: false, errors: pwGate.errors, sql: null };
+  }
+  const sql = [
+    `CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD ${sqlStringLiteral(password)}`,
+    '  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;',
+  ].join('\n');
+  return { ok: true, errors: [], sql };
+}
+
+/** Dry-run / plan display template — never contains a real password. */
+function createRoleSqlPlanTemplate() {
+  return [
+    `CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD ${REDACTED}`,
+    '  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;',
+  ].join('\n');
+}
+
+/**
+ * Narrow rollback for a role proven created by this execution.
+ * Order: REVOKE CONNECT → RESET default_transaction_read_only → DROP ROLE.
+ * No DROP OWNED. Never targets any other role/database.
+ */
+async function rollbackNewlyCreatedObserverRole(postgresExec, targets, counters) {
+  const t = targets || TARGETS;
+  const steps = [
+    {
+      id: 'rollback_revoke_connect',
+      sql: `REVOKE CONNECT ON DATABASE ${TARGETS.database} FROM ${TARGETS.roleName};`,
+    },
+    {
+      id: 'rollback_reset_readonly',
+      sql: `ALTER ROLE ${TARGETS.roleName} RESET default_transaction_read_only;`,
+    },
+    {
+      id: 'rollback_drop_new_role',
+      sql: `DROP ROLE ${TARGETS.roleName};`,
+    },
+  ];
+  const completed = [];
+  const failures = [];
+  for (const step of steps) {
+    try {
+      if (counters) counters.postgresExec += 1;
+      await postgresExec(step.sql, [], { stepId: step.id, rollback: true });
+      completed.push(step.id);
+      if (step.id === 'rollback_drop_new_role' && counters) {
+        counters.roleDroppedRollback += 1;
+      }
+    } catch (err) {
+      failures.push({
+        code: 'rollback_step_failed',
+        stepId: step.id,
+        message: String(err && err.message ? err.message : err),
+      });
+    }
+  }
+  const dropped = completed.includes('rollback_drop_new_role');
+  return {
+    ok: dropped && failures.length === 0,
+    dropped,
+    completed,
+    failures,
+    targetedRole: TARGETS.roleName,
+    targetedDatabase: TARGETS.database,
+  };
 }
 
 function buildObserverDsn({ roleName, password, host, database, sslmode }) {
@@ -618,11 +706,8 @@ function buildProvisionPlan(targets) {
       kind: 'postgres',
       mutation: true,
       summary: `CREATE ROLE ${t.roleName} LOGIN … NOBYPASSRLS (only when role+secret both absent)`,
-      sqlTemplate: [
-        `CREATE ROLE ${t.roleName} LOGIN PASSWORD $1`,
-        `  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;`,
-      ].join('\n'),
-      parameterized: true,
+      sqlTemplate: createRoleSqlPlanTemplate(),
+      passwordViaSqlLiteral: true,
       neverRotatesExisting: true,
     },
     {
@@ -685,7 +770,9 @@ function buildProvisionPlan(targets) {
       'No GRANT USAGE/SELECT on public relations — would mutate ACL snapshots vs observer contract.',
       'No firewall or network mutation steps.',
       'Never rotate an existing role password implicitly.',
+      'CREATE ROLE PASSWORD uses validated URL-safe literal escaping (utility statements do not take bind params).',
       'KV writes use --file (0600 temp) or protected stdin — never --value with DSN in argv.',
+      'KV failure after create: REVOKE CONNECT → RESET default_transaction_read_only → DROP ROLE (new role only).',
       'Default CLI mode is dry-run; LIVE_APPLY_ENABLED remains false.',
     ],
   };
@@ -716,7 +803,7 @@ function renderDryRunReport(plan) {
   for (const step of plan.steps) {
     lines.push(`- [${step.id}] ${step.summary}`);
     if (step.sqlTemplate) {
-      lines.push(String(step.sqlTemplate).replace(/\$1/g, REDACTED));
+      lines.push(String(step.sqlTemplate));
     }
     if (step.azArgsTemplate) {
       lines.push(`az ${step.azArgsTemplate.map((a) => (a === '$SECRET_FILE' ? '<0600-temp-file>' : a)).join(' ')}`);
@@ -899,27 +986,27 @@ async function executeConvergentBootstrap(options) {
     }
 
     let roleCreatedThisRun = false;
+    let lastCreateSql = null;
     try {
-      // Prefer parameterized password ($1); adapter may accept (sql, params).
-      const createSql = [
-        `CREATE ROLE ${targets.roleName} LOGIN PASSWORD $1`,
-        '  NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS;',
-      ].join('\n');
+      const createBuilt = buildCreateRoleSql(password, targets);
+      if (!createBuilt.ok) return fail(createBuilt.errors);
+      lastCreateSql = createBuilt.sql;
+      secretsHeld.push(lastCreateSql);
       counters.postgresExec += 1;
-      await opts.postgresExec(createSql, [password], { stepId: 'create_role_if_absent' });
+      await opts.postgresExec(lastCreateSql, [], { stepId: 'create_role_if_absent' });
       roleCreatedThisRun = true;
       counters.roleCreated += 1;
 
       counters.postgresExec += 1;
       await opts.postgresExec(
-        `GRANT CONNECT ON DATABASE ${targets.database} TO ${targets.roleName};`,
+        `GRANT CONNECT ON DATABASE ${TARGETS.database} TO ${TARGETS.roleName};`,
         [],
         { stepId: 'grant_connect' },
       );
 
       counters.postgresExec += 1;
       await opts.postgresExec(
-        `ALTER ROLE ${targets.roleName} SET default_transaction_read_only = on;`,
+        `ALTER ROLE ${TARGETS.roleName} SET default_transaction_read_only = on;`,
         [],
         { stepId: 'role_readonly_default' },
       );
@@ -950,25 +1037,28 @@ async function executeConvergentBootstrap(options) {
         throw Object.assign(new Error('key vault adapter required'), { code: 'missing_kv_adapter' });
       }
     } catch (err) {
+      let rollback = null;
       if (roleCreatedThisRun && typeof opts.postgresExec === 'function') {
-        try {
-          counters.postgresExec += 1;
-          await opts.postgresExec(
-            `DROP ROLE IF EXISTS ${targets.roleName};`,
-            [],
-            { stepId: 'rollback_drop_new_role' },
-          );
-          counters.roleDroppedRollback += 1;
-        } catch (dropErr) {
+        rollback = await rollbackNewlyCreatedObserverRole(opts.postgresExec, targets, counters);
+        if (!rollback.ok) {
           return fail(
             [
               { code: 'kv_or_create_failed', message: String(err && err.message ? err.message : err) },
               {
-                code: 'rollback_drop_failed',
-                message: String(dropErr && dropErr.message ? dropErr.message : dropErr),
+                code: 'rollback_incomplete',
+                message: 'rollback did not fully remove newly created observer role',
+                completed: rollback.completed,
+                failures: rollback.failures,
+                targetedRole: rollback.targetedRole,
+                targetedDatabase: rollback.targetedDatabase,
               },
             ],
-            { action: BOOTSTRAP_ACTIONS.CREATE, roleCreatedThisRun: true },
+            {
+              action: BOOTSTRAP_ACTIONS.CREATE,
+              roleCreatedThisRun: true,
+              rolledBack: false,
+              rollback,
+            },
           );
         }
       }
@@ -979,10 +1069,13 @@ async function executeConvergentBootstrap(options) {
         }],
         {
           action: BOOTSTRAP_ACTIONS.CREATE,
-          rolledBack: roleCreatedThisRun,
+          rolledBack: Boolean(rollback && rollback.ok),
           roleCreatedThisRun,
+          rollback,
         },
       );
+    } finally {
+      lastCreateSql = null;
     }
 
     return {
@@ -1119,6 +1212,9 @@ module.exports = {
   generateRolePassword,
   assertPasswordFormat,
   sqlStringLiteral,
+  buildCreateRoleSql,
+  createRoleSqlPlanTemplate,
+  rollbackNewlyCreatedObserverRole,
   buildObserverDsn,
   assertObserverDsnShape,
   redactSecrets,
