@@ -8,6 +8,11 @@
  * atomic). Defaults DISABLED. Never writes schema_migration_ledger for the
  * Phase C sequence steps. Never claims canonical-runner provenance for 035/040/041
  * sequence application. Rejects non-loopback / non-wh_mig_* DSNs before connect.
+ *
+ * Historical post-13C.2 prestate keeps the four approved tenant_services columns
+ * (exact live definitions). Against a migration-derived pre-040 expected (37
+ * forwards through 039) those columns are live_only; after 040 they disappear by
+ * canonical promotion (040 is attnum-preserving no-op when columns already exist).
  */
 
 const fs = require('fs');
@@ -46,20 +51,16 @@ const DEFAULT_PHASE_C_INTEGRATED_ENABLED = false;
 
 const PHASE_ORDER = Object.freeze(['040', '035', '041']);
 
+/** Historical 13C.2 live_only labels — honest pre-040 direction for the four columns. */
 const TENANT_SERVICES_COLUMN_KEYS = Object.freeze([
-  'expected_only|columns|tenant_services.block_rooms_enabled',
-  'expected_only|columns|tenant_services.blocked_room_codes',
-  'expected_only|columns|tenant_services.room_block_booking_ids',
-  'expected_only|columns|tenant_services.weekdays',
-]);
-
-/** Historical 13C.2 live_only labels for the same four column objects. */
-const TENANT_SERVICES_COLUMN_KEYS_HISTORICAL_LIVE_ONLY = Object.freeze([
   'live_only|columns|tenant_services.block_rooms_enabled',
   'live_only|columns|tenant_services.blocked_room_codes',
   'live_only|columns|tenant_services.room_block_booking_ids',
   'live_only|columns|tenant_services.weekdays',
 ]);
+
+/** Alias kept for evidence clarity (same objects / same keys). */
+const TENANT_SERVICES_COLUMN_KEYS_HISTORICAL_LIVE_ONLY = TENANT_SERVICES_COLUMN_KEYS;
 
 const CMT_OWNED_KEYS = Object.freeze([
   'expected_only|acls|relation:customer_message_templates',
@@ -120,11 +121,12 @@ const AFTER_035_KEYS = Object.freeze(
 
 const AFTER_041_KEYS = Object.freeze(PHASE_D_REMAINING_KEYS.slice().sort());
 
-const DROP_FOUR_COLUMNS_SQL = `
-ALTER TABLE tenant_services DROP COLUMN IF EXISTS weekdays;
-ALTER TABLE tenant_services DROP COLUMN IF EXISTS block_rooms_enabled;
-ALTER TABLE tenant_services DROP COLUMN IF EXISTS blocked_room_codes;
-ALTER TABLE tenant_services DROP COLUMN IF EXISTS room_block_booking_ids;
+/** Exact live-approved definitions (DEC-004 / migration 040). */
+const ENSURE_LIVE_FOUR_COLUMNS_SQL = `
+ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS weekdays SMALLINT[] NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS block_rooms_enabled BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS blocked_room_codes TEXT[] NOT NULL DEFAULT '{}';
+ALTER TABLE tenant_services ADD COLUMN IF NOT EXISTS room_block_booking_ids UUID[] NOT NULL DEFAULT '{}';
 `;
 
 const DROP_CMT_SQL = `DROP TABLE IF EXISTS customer_message_templates CASCADE;`;
@@ -190,12 +192,13 @@ async function applyMigrationSqlFile(client, filename) {
 }
 
 /**
- * Build disposable post-13C.2 drift prestate from a fresh 39-forward canonical DB:
- * omit exactly the 29 Phase-C/D substantive objects (4 columns, CMT cluster, six
- * notification/surf-pack objects, two Phase D CHECKs). Does not copy live rows.
+ * Build disposable post-13C.2 drift prestate from a 37-forward (through 039) DB:
+ * KEEP the four approved tenant_services columns (exact live definitions);
+ * omit CMT cluster, six notification/surf-pack objects, and Phase D CHECKs.
+ * Does not copy live rows. Never drops the four columns.
  */
 async function buildPost13c2DriftPrestate(client) {
-  await client.query(DROP_FOUR_COLUMNS_SQL);
+  await client.query(ENSURE_LIVE_FOUR_COLUMNS_SQL);
   await client.query(DROP_CMT_SQL);
   await client.query(DROP_SIX_OBJECTS_SQL);
   await client.query(DROP_PHASE_D_CHECKS_SQL);
@@ -222,9 +225,17 @@ function assertExactKeySet(actualKeys, expectedKeys, label) {
   }
 }
 
-function filterToUniverse(drifts, universe) {
-  const set = new Set(universe);
-  return drifts.map((d) => `${d.kind}|${d.section}|${d.key}`).filter((k) => set.has(k)).sort();
+/**
+ * PG18 exposes NOT NULL as pg_constraint contype 'n'. Nullability is already
+ * compared via columns.nullable; type-'n' rows are catalog shadows of the same
+ * fact and were never part of the historical 29-key product set. Strip from both
+ * sides before compare so full observer key sets match that contract with zero
+ * extras (no allowlist / universe filter).
+ */
+function omitNotNullConstraintShadows(snapshot) {
+  const out = JSON.parse(JSON.stringify(snapshot || {}));
+  out.constraints = (out.constraints || []).filter((c) => c.type !== 'n');
+  return out;
 }
 
 /**
@@ -445,7 +456,7 @@ module.exports = {
   AFTER_040_KEYS,
   AFTER_035_KEYS,
   AFTER_041_KEYS,
-  DROP_FOUR_COLUMNS_SQL,
+  ENSURE_LIVE_FOUR_COLUMNS_SQL,
   DROP_CMT_SQL,
   DROP_SIX_OBJECTS_SQL,
   DROP_PHASE_D_CHECKS_SQL,
@@ -454,6 +465,6 @@ module.exports = {
   applyMigrationSqlFile,
   buildPost13c2DriftPrestate,
   assertExactKeySet,
-  filterToUniverse,
+  omitNotNullConstraintShadows,
   createPhaseCIntegratedSession,
 };

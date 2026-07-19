@@ -5,7 +5,7 @@
   "containsLiveApplyCode": false,
   "blessesLiveAsCanonical": false,
   "liveMutation": false,
-  "generatedAt": "2026-07-19T16:59:25.732Z",
+  "generatedAt": "2026-07-19T18:32:06.892Z",
   "masterShaBasis": "d68d03500f4449185c4247a2ddec126c54c13d9c",
   "normalizationProfile": "azure_flexible_server_v1",
   "previousRemainingAfter13c2": 29,
@@ -15,7 +15,7 @@
     "after040": 25,
     "after035": 8,
     "after041": 2,
-    "note": "Exact disposable observer checkpoints; not assumed endpoints"
+    "note": "Exact full disposable observer checkpoints vs dual migration-derived expected snapshots; zero extras"
   },
   "match": false,
   "code": "product_schema_differs",
@@ -30,10 +30,6 @@
     "expected_only|columns|customer_message_templates.tags",
     "expected_only|columns|customer_message_templates.title",
     "expected_only|columns|customer_message_templates.updated_at",
-    "expected_only|columns|tenant_services.block_rooms_enabled",
-    "expected_only|columns|tenant_services.blocked_room_codes",
-    "expected_only|columns|tenant_services.room_block_booking_ids",
-    "expected_only|columns|tenant_services.weekdays",
     "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
     "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
     "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
@@ -48,7 +44,11 @@
     "expected_only|ownership|relation:customer_message_templates",
     "expected_only|rlsFlags|customer_message_templates",
     "expected_only|tables|customer_message_templates",
-    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+    "live_only|columns|tenant_services.block_rooms_enabled",
+    "live_only|columns|tenant_services.blocked_room_codes",
+    "live_only|columns|tenant_services.room_block_booking_ids",
+    "live_only|columns|tenant_services.weekdays"
   ],
   "after040Keys": [
     "expected_only|acls|relation:customer_message_templates",
@@ -106,5 +106,9 @@
     "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
     "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
     "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "dualExpected": {
+    "pre040": "migration_derived_37_forward_through_039",
+    "post040Current": "committed_expected_product_schema_json"
   }
 }

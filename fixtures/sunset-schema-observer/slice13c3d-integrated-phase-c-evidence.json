@@ -7,7 +7,7 @@
   "azureMutation": false,
   "disposablePostgreSQLOnly": true,
   "disposableBackend": "pglite",
-  "generatedAt": "2026-07-19T16:59:25.732Z",
+  "generatedAt": "2026-07-19T18:32:06.893Z",
   "masterShaBasis": "d68d03500f4449185c4247a2ddec126c54c13d9c",
   "newForwardMigration": false,
   "sequence": [
@@ -28,6 +28,23 @@
   "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
   "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
   "forwardCountUnchanged": 39,
+  "dualExpectedMethod": {
+    "pre040": {
+      "source": "migration_derived_canonical_through_039",
+      "forwardCount": 37,
+      "derivedFromLive": false,
+      "committedToFixture": false
+    },
+    "post040Current": {
+      "source": "committed_expected_product_schema_json",
+      "forwardCount": 39,
+      "byteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+      "replaced": false
+    }
+  },
+  "omitNotNullConstraintShadows": true,
+  "noUniverseFilter": true,
+  "noAllowedExtraRegex": true,
   "fresh39Forward": {
     "ok": true,
     "appliedCount": 39,
@@ -37,6 +54,8 @@
   },
   "integrated": {
     "ok": true,
+    "prestateBaseForwardCount": 37,
+    "prestateKeepsFourLiveColumns": true,
     "prestateKeys": [
       "expected_only|acls|relation:customer_message_templates",
       "expected_only|columns|customer_message_templates.active",
@@ -48,10 +67,6 @@
       "expected_only|columns|customer_message_templates.tags",
       "expected_only|columns|customer_message_templates.title",
       "expected_only|columns|customer_message_templates.updated_at",
-      "expected_only|columns|tenant_services.block_rooms_enabled",
-      "expected_only|columns|tenant_services.blocked_room_codes",
-      "expected_only|columns|tenant_services.room_block_booking_ids",
-      "expected_only|columns|tenant_services.weekdays",
       "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
       "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
       "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
@@ -66,21 +81,28 @@
       "expected_only|ownership|relation:customer_message_templates",
       "expected_only|rlsFlags|customer_message_templates",
       "expected_only|tables|customer_message_templates",
-      "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "live_only|columns|tenant_services.block_rooms_enabled",
+      "live_only|columns|tenant_services.blocked_room_codes",
+      "live_only|columns|tenant_services.room_block_booking_ids",
+      "live_only|columns|tenant_services.weekdays"
     ],
+    "prestateFullObserverExact29": true,
     "checkpoints": {
       "before": 29,
       "after040": 25,
       "after035": 8,
       "after041": 2
     },
+    "fullObserverExactAtEveryCheckpoint": true,
     "finalKeys": [
       "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
       "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
     ],
     "oidStableAcross041NoOp": true,
     "attnumStableAcross040NoOp": true,
-    "cmtAttnumStableAcross035NoOp": true
+    "cmtAttnumStableAcross035NoOp": true,
+    "columnKeyDirection": "live_only_then_resolved_by_canonical_promotion"
   },
   "secondFullSequenceNoOp": {
     "ok": true,
@@ -99,7 +121,8 @@
         "040"
       ],
       "message": "035 preflight: column channel incompatible type (udt=int4, expected text)",
-      "resume035Deterministic": true
+      "resume035Deterministic": true,
+      "fullObserverRemainsAfter040SetBeforeResume": true
     },
     "conflict041After040035": {
       "failedClosed": true,
@@ -110,7 +133,8 @@
       ],
       "partial041RolledBack": true,
       "plantedConflictRemainedUntilRemoved": true,
-      "resume041ConvergedToTwo": true
+      "resume041ConvergedToTwo": true,
+      "fullObserverRemainsAfter035SetBeforeResume": true
     }
   },
   "redFailures": [
@@ -150,11 +174,19 @@
       "ok": true
     },
     {
-      "name": "exact_29_prestate",
+      "name": "migration_derived_pre040_37_forward",
       "ok": true
     },
     {
-      "name": "checkpoints_29_25_8_2",
+      "name": "exact_29_prestate_full_observer",
+      "ok": true
+    },
+    {
+      "name": "checkpoints_29_25_8_2_full_observer",
+      "ok": true
+    },
+    {
+      "name": "040_attnum_preserving_noop",
       "ok": true
     },
     {

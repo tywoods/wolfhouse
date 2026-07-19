@@ -25,6 +25,7 @@ const {
   AFTER_035_KEYS,
   AFTER_041_KEYS,
   PHASE_D_REMAINING_KEYS,
+  TENANT_SERVICES_COLUMN_KEYS,
   MIG_035,
   MIG_040,
   MIG_041,
@@ -116,6 +117,16 @@ function main() {
     && evidence.expectedProductSchemaByteSha256 === EXPECTED_BYTE_SHA
     && mismatchEv.expectedProductSchemaByteSha256 === EXPECTED_BYTE_SHA);
 
+  pass('prestate-column-keys-are-live-only',
+    TENANT_SERVICES_COLUMN_KEYS.every((k) => k.startsWith('live_only|columns|tenant_services.'))
+    && sameKeys(
+      PRESTATE_29_KEYS.filter((k) => k.includes('tenant_services.') && k.includes('columns|')),
+      TENANT_SERVICES_COLUMN_KEYS,
+    )
+    && checkpoints.columnResolutionDirection === 'live_only_disappear_via_canonical_promotion'
+    && /live_only/.test(checkpoints.historicalColumnKeyNote || '')
+    && /canonical promotion|promoted them into the post-040/i.test(checkpoints.historicalColumnKeyNote || ''));
+
   pass('checkpoint-key-sets-exact',
     checkpoints.trajectory === '29 → 25 → 8 → 2'
     && checkpoints.claimsAllThreeAtomicity === false
@@ -127,7 +138,8 @@ function main() {
     && sameKeys(checkpoints.checkpoints.after040.keys, AFTER_040_KEYS)
     && sameKeys(checkpoints.checkpoints.after035.keys, AFTER_035_KEYS)
     && sameKeys(checkpoints.checkpoints.after041.keys, AFTER_041_KEYS)
-    && sameKeys(checkpoints.phaseDRemaining, PHASE_D_REMAINING_KEYS));
+    && sameKeys(checkpoints.phaseDRemaining, PHASE_D_REMAINING_KEYS)
+    && sameKeys(checkpoints.columnKeysResolvedBy040, TENANT_SERVICES_COLUMN_KEYS));
 
   pass('mismatch-trajectory-29-to-2',
     mismatchEv.previousRemainingAfter13c2 === 29
@@ -143,6 +155,41 @@ function main() {
     && mismatchEv.remainingByClassification
     && mismatchEv.remainingByClassification.genuine_database_drift === 2);
 
+  pass('dual-migration-derived-expected-snapshots',
+    evidence.dualExpectedMethod
+    && evidence.dualExpectedMethod.pre040
+    && evidence.dualExpectedMethod.pre040.forwardCount === 37
+    && evidence.dualExpectedMethod.pre040.derivedFromLive === false
+    && evidence.dualExpectedMethod.pre040.committedToFixture === false
+    && /through.?039|37.?forward|pre040/i.test(evidence.dualExpectedMethod.pre040.source || '')
+    && evidence.dualExpectedMethod.post040Current
+    && evidence.dualExpectedMethod.post040Current.replaced === false
+    && evidence.dualExpectedMethod.post040Current.byteSha256 === EXPECTED_BYTE_SHA
+    && /migration.derived.*37|37.?forward|through.?039/i.test(checkpoints.dualExpectedMethod || '')
+    && mismatchEv.dualExpected
+    && mismatchEv.dualExpected.pre040 === 'migration_derived_37_forward_through_039'
+    && /writeTempPre040Manifest|37 forwards|through 039|pre040ExpectedSnap/i.test(proveSrc)
+    && /length !== 37/.test(proveSrc));
+
+  pass('no-universe-filter-or-allowed-extra-regex',
+    evidence.noUniverseFilter === true
+    && evidence.noAllowedExtraRegex === true
+    && evidence.omitNotNullConstraintShadows === true
+    && checkpoints.omitNotNullConstraintShadows === true
+    && !/DROP_FOUR_COLUMNS/.test(orchSrc)
+    && !/DROP_FOUR_COLUMNS/.test(proveSrc)
+    && !/filterToUniverse/.test(orchSrc)
+    && !/filterToUniverse/.test(proveSrc)
+    && !/keysAmongUniverse/.test(proveSrc)
+    && !/among29/.test(proveSrc)
+    && !/allowedExtraRe/.test(proveSrc)
+    && !/_not_null\.n\$/.test(proveSrc)
+    && /omitNotNullConstraintShadows/.test(proveSrc)
+    && /omitNotNullConstraintShadows/.test(orchSrc)
+    && /ENSURE_LIVE_FOUR_COLUMNS/.test(orchSrc)
+    && /measureFull/.test(proveSrc)
+    && /assertExactKeySet\(preKeys, PRESTATE_29_KEYS/.test(proveSrc));
+
   pass('fresh-and-integrated-green',
     evidence.fresh39Forward
     && evidence.fresh39Forward.ok === true
@@ -152,11 +199,16 @@ function main() {
     && evidence.fresh39Forward.productFingerprint === CANON_FP
     && evidence.integrated
     && evidence.integrated.ok === true
+    && evidence.integrated.prestateBaseForwardCount === 37
+    && evidence.integrated.prestateKeepsFourLiveColumns === true
+    && evidence.integrated.prestateFullObserverExact29 === true
+    && evidence.integrated.fullObserverExactAtEveryCheckpoint === true
     && evidence.integrated.checkpoints.before === 29
     && evidence.integrated.checkpoints.after040 === 25
     && evidence.integrated.checkpoints.after035 === 8
     && evidence.integrated.checkpoints.after041 === 2
     && sameKeys(evidence.integrated.finalKeys, AFTER_041_KEYS)
+    && evidence.integrated.columnKeyDirection === 'live_only_then_resolved_by_canonical_promotion'
     && evidence.secondFullSequenceNoOp
     && evidence.secondFullSequenceNoOp.ok === true);
 
@@ -167,12 +219,15 @@ function main() {
     && evidence.failStopResume.preflight035Failure.failedClosed === true
     && sameKeys(evidence.failStopResume.preflight035Failure.completedCheckpointsRemain, ['040'])
     && evidence.failStopResume.preflight035Failure.resume035Deterministic === true
+    && evidence.failStopResume.preflight035Failure.fullObserverRemainsAfter040SetBeforeResume === true
     && evidence.failStopResume.conflict041After040035
     && evidence.failStopResume.conflict041After040035.failedClosed === true
     && sameKeys(evidence.failStopResume.conflict041After040035.completedCheckpointsRemain, ['040', '035'])
     && evidence.failStopResume.conflict041After040035.partial041RolledBack === true
     && evidence.failStopResume.conflict041After040035.resume041ConvergedToTwo === true
-    && evidence.claimsAllThreeAtomicity === false);
+    && evidence.failStopResume.conflict041After040035.fullObserverRemainsAfter035SetBeforeResume === true
+    && evidence.claimsAllThreeAtomicity === false
+    && /resume-pre-035-full|resume-pre-041-full/.test(proveSrc));
 
   const redNames = (evidence.redFailures || []).map((r) => r.name);
   const requiredRed = [
@@ -193,8 +248,10 @@ function main() {
   pass('green-cases',
     evidence.greenCases
     && evidence.greenCases.every((g) => g.ok === true)
-    && evidence.greenCases.some((g) => g.name === 'exact_29_prestate')
-    && evidence.greenCases.some((g) => g.name === 'checkpoints_29_25_8_2')
+    && evidence.greenCases.some((g) => g.name === 'exact_29_prestate_full_observer')
+    && evidence.greenCases.some((g) => g.name === 'checkpoints_29_25_8_2_full_observer')
+    && evidence.greenCases.some((g) => g.name === 'migration_derived_pre040_37_forward')
+    && evidence.greenCases.some((g) => g.name === '040_attnum_preserving_noop')
     && evidence.greenCases.some((g) => g.name === 'final_two_phase_d_checks_only'));
 
   pass('design-safety-flags',
@@ -244,7 +301,9 @@ function main() {
     && /product_schema_differs/.test(findings)
     && /do not claim/i.test(findings)
     && /29\s*→\s*25\s*→\s*8\s*→\s*2/.test(findings)
-    && /zero live mutation/i.test(findings));
+    && /zero live mutation/i.test(findings)
+    && /live_only/i.test(findings)
+    && /canonical promotion/i.test(findings));
 
   pass('master-basis',
     evidence.masterShaBasis === MASTER
