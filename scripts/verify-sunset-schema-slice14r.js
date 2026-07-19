@@ -42,6 +42,9 @@ const {
   exactReconcileDecisionArgv,
   reconcileDecisionEnv,
   decideReconcileStrategy,
+  buildPhaseDriftCoverage,
+  validateOrderedReconciliationPhases,
+  PHASE_SEQUENCE_IDS,
   buildOfflineProofSunsetDatabaseUrl,
   buildLockedArmContainerAppPath,
   buildLockedArmListSecretsPath,
@@ -76,6 +79,8 @@ const REQUIRED_RED = [
   'unsafe_rebuild_recommendation_rejected',
   'secret_leakage_scan',
   'non_read_only_session',
+  'omitted_not_null_or_non_table_section',
+  'unsafe_phase_ordering',
 ];
 
 const REQUIRED_GREEN = [
@@ -86,6 +91,7 @@ const REQUIRED_GREEN = [
   'locks_identity_vault_secret_pg_tls_application_name',
   'global_live_apply_remains_false',
   'decision_criteria_deterministic',
+  'complete_a_to_g_coverage',
 ];
 
 const FAKE_USER = 'verify-slice14r-admin-user';
@@ -224,6 +230,42 @@ async function main() {
       && live.schemaMutation === false
       && live.dataMutation === false
       && live.ledgerWritten === false);
+
+    const phases = (live.decision && live.decision.orderedReconciliationPhases)
+      || recomputed.orderedReconciliationPhases;
+    const phaseValidation = validateOrderedReconciliationPhases(phases, live.groupedDrift);
+    const coverage = buildPhaseDriftCoverage(live.groupedDrift);
+    const phaseIds = (phases || [])
+      .filter((p) => PHASE_SEQUENCE_IDS.includes(p.id))
+      .map((p) => p.id);
+    pass('live-phase-sequence-a-to-g',
+      phaseIds.join('') === PHASE_SEQUENCE_IDS.join('')
+      && phaseValidation.ok === true
+      && phaseValidation.code === 'complete_a_to_g_coverage');
+    pass('live-drift-coverage-exactly-once',
+      coverage.coveredExactlyOnce === true
+      && coverage.expectedOnly === 498
+      && coverage.definitionMismatch === 1
+      && coverage.notNullMismatchCount === 472
+      && coverage.checkConstraintsStatus === 'already_cleared'
+      && coverage.checkMismatchCount === 0);
+    pass('live-completion-blocked-while-not-null',
+      (live.decision && live.decision.reconcileCompletionAllowed === false)
+      && recomputed.reconcileCompletionAllowed === false
+      && coverage.notNullMismatchCount > 0);
+    pass('live-check-already-cleared-no-fictional-work',
+      recomputed.checkConstraintsStatus === 'already_cleared'
+      && !(JSON.stringify(phases || [])).includes('CHECK preflight on live data before apply'));
+    pass('live-counters-preserved',
+      live.httpRequestCount === 4
+      && live.usedLiveHttp === true
+      && live.realImdsCall === true
+      && live.realArmCall === true
+      && live.realKeyVaultCall === true
+      && live.realPostgresCall === true);
+    pass('live-generatedAt-preserved',
+      evidence.generatedAt === '2026-07-19T21:58:38.356Z'
+      && contract.generatedAt === '2026-07-19T21:58:38.356Z');
   } else {
     pass('live-recommendation-recompute-skipped-offline', true);
   }

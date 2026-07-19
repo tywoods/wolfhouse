@@ -63,13 +63,16 @@
     "unsafeRebuildRecommendationRejected": true,
     "secretLeakageScan": true,
     "nonReadOnlySession": true,
+    "omittedNotNullOrNonTableSection": true,
+    "unsafePhaseOrdering": true,
     "injectedHttpEmptyDbRecommendsCleanRebuild": true,
     "injectedHttpNonemptyRecommendsInplace": true,
     "cliGatesExactTargets": true,
     "cliDefaultDisabled": true,
     "locksIdentityVaultSecretPgTlsApplicationName": true,
     "globalLiveApplyRemainsFalse": true,
-    "decisionCriteriaDeterministic": true
+    "decisionCriteriaDeterministic": true,
+    "completeAToGCoverage": true
   },
   "redCases": [
     {
@@ -177,6 +180,18 @@
       "ok": true,
       "code": "session_not_read_only",
       "sameTarget": true
+    },
+    {
+      "name": "omitted_not_null_or_non_table_section",
+      "ok": true,
+      "rejected": true,
+      "code": "omitted_not_null_or_non_table_section"
+    },
+    {
+      "name": "unsafe_phase_ordering",
+      "ok": true,
+      "rejected": true,
+      "code": "unsafe_phase_ordering"
     }
   ],
   "greenCases": [
@@ -219,10 +234,19 @@
       "ok": true,
       "emptyRecommendation": "clean_canonical_rebuild_cutover",
       "nonemptyRecommendation": "in_place_targeted_repair"
+    },
+    {
+      "name": "complete_a_to_g_coverage",
+      "ok": true,
+      "phaseSequence": "A-B-C-D-E-F-G",
+      "coveredExactlyOnce": true,
+      "notNullMismatchCount": 472,
+      "checkConstraintsStatus": "already_cleared",
+      "reconcileCompletionAllowed": false
     }
   ],
-  "redCaseCount": 14,
-  "greenCaseCount": 7,
+  "redCaseCount": 16,
+  "greenCaseCount": 8,
   "liveReconcileDecisionOutcome": {
     "ok": true,
     "code": "reconcile_decision_captured",
@@ -667,73 +691,302 @@
         "dataBearingTableOmittedByCanonical": false,
         "tableSetMismatch": false
       },
+      "reconcileCompletionAllowed": false,
+      "checkConstraintsStatus": "already_cleared",
+      "phaseDriftCoverage": {
+        "expectedOnly": 498,
+        "definitionMismatch": 1,
+        "liveOnly": 0,
+        "totalOwnedScope": 499,
+        "categorizedCount": 499,
+        "constraintPartitionOk": true,
+        "coveredExactlyOnce": true,
+        "checkConstraintsStatus": "already_cleared",
+        "checkMismatchCount": 0,
+        "notNullMismatchCount": 472,
+        "categories": [
+          {
+            "key": "tables",
+            "count": 1,
+            "owner": "B"
+          },
+          {
+            "key": "columns",
+            "count": 9,
+            "owner": "B"
+          },
+          {
+            "key": "constraints.NOT_NULL",
+            "count": 472,
+            "owner": "C"
+          },
+          {
+            "key": "constraints.PRIMARY KEY",
+            "count": 1,
+            "owner": "D"
+          },
+          {
+            "key": "constraints.UNIQUE",
+            "count": 0,
+            "owner": "D"
+          },
+          {
+            "key": "constraints.FOREIGN KEY",
+            "count": 2,
+            "owner": "D"
+          },
+          {
+            "key": "constraints.CHECK",
+            "count": 0,
+            "owner": "already_cleared"
+          },
+          {
+            "key": "constraints.other",
+            "count": 0,
+            "owner": "unowned"
+          },
+          {
+            "key": "indexes",
+            "count": 6,
+            "owner": "D"
+          },
+          {
+            "key": "functions",
+            "count": 1,
+            "owner": "E"
+          },
+          {
+            "key": "triggers",
+            "count": 1,
+            "owner": "E"
+          },
+          {
+            "key": "rlsFlags",
+            "count": 1,
+            "owner": "E"
+          },
+          {
+            "key": "ownership",
+            "count": 2,
+            "owner": "E"
+          },
+          {
+            "key": "acls",
+            "count": 2,
+            "owner": "E"
+          },
+          {
+            "key": "extensions",
+            "count": 1,
+            "owner": "E"
+          }
+        ],
+        "byOwner": {
+          "B": [
+            {
+              "key": "tables",
+              "count": 1,
+              "owner": "B"
+            },
+            {
+              "key": "columns",
+              "count": 9,
+              "owner": "B"
+            }
+          ],
+          "C": [
+            {
+              "key": "constraints.NOT_NULL",
+              "count": 472,
+              "owner": "C"
+            }
+          ],
+          "D": [
+            {
+              "key": "constraints.PRIMARY KEY",
+              "count": 1,
+              "owner": "D"
+            },
+            {
+              "key": "constraints.UNIQUE",
+              "count": 0,
+              "owner": "D"
+            },
+            {
+              "key": "constraints.FOREIGN KEY",
+              "count": 2,
+              "owner": "D"
+            },
+            {
+              "key": "indexes",
+              "count": 6,
+              "owner": "D"
+            }
+          ],
+          "E": [
+            {
+              "key": "functions",
+              "count": 1,
+              "owner": "E"
+            },
+            {
+              "key": "triggers",
+              "count": 1,
+              "owner": "E"
+            },
+            {
+              "key": "rlsFlags",
+              "count": 1,
+              "owner": "E"
+            },
+            {
+              "key": "ownership",
+              "count": 2,
+              "owner": "E"
+            },
+            {
+              "key": "acls",
+              "count": 2,
+              "owner": "E"
+            },
+            {
+              "key": "extensions",
+              "count": 1,
+              "owner": "E"
+            }
+          ]
+        },
+        "unowned": [],
+        "alreadyCleared": [
+          {
+            "key": "constraints.CHECK",
+            "count": 0,
+            "owner": "already_cleared"
+          }
+        ]
+      },
+      "phasePlanValidation": {
+        "ok": true,
+        "code": "complete_a_to_g_coverage"
+      },
       "recommendation": "in_place_targeted_repair",
       "rationale": "Approved tables contain data; in-place targeted repair is required — destructive rebuild forbidden",
       "rebuildAllowed": false,
       "futureRebuildCutoverPlan": null,
+      "dependencyValidationRisk": "high",
       "orderedReconciliationPhases": [
         {
           "id": "A",
-          "title": "Observer Azure normalization validation (no DB mutation)",
+          "title": "Validate observer normalization and exact target authority",
           "risk": "low",
+          "owns": [],
           "actions": [
             "Confirm normalization profile azure_flexible_server_v1 before interpreting drift",
+            "Confirm locked exact target authority (Staff API ↔ KV ↔ PG) before any repair design",
             "Re-run observer after normalization; abort if observation defect persists"
           ],
-          "execute": false
+          "execute": false,
+          "phaseDriftCoverageRef": true
         },
         {
           "id": "B",
-          "title": "Additive tables/columns via canonical forward migrations",
+          "title": "Add missing canonical tables and columns in migration dependency order",
           "risk": "medium",
+          "owns": [
+            "tables",
+            "columns"
+          ],
           "actions": [
-            "Apply only forward migrations owning missing expected tables/columns",
+            "Apply only forward migrations owning missing expected tables/columns in manifest dependency order",
+            "Do not invent columns outside canonical migration ownership",
             "Validate Staff API compatibility after each additive batch"
           ],
-          "execute": false
+          "execute": false,
+          "phaseDriftCoverageRef": true
         },
         {
           "id": "C",
-          "title": "Indexes and non-destructive constraints",
-          "risk": "medium",
-          "actions": [
-            "Create missing indexes from migration ownership map",
-            "Add UNIQUE/FOREIGN KEY only after dependency validation"
+          "title": "NOT NULL preflight and bounded application design",
+          "risk": "high",
+          "owns": [
+            "constraints.NOT_NULL"
           ],
-          "execute": false
+          "actions": [
+            "Preflight COUNT nulls per expected NOT NULL column only (expected NOT_NULL mismatches=472)",
+            "Abort on any null row, count ambiguity, or ownership ambiguity — no DML/backfill",
+            "Use exact canonical migration ownership for each NOT NULL column",
+            "Apply SET NOT NULL only in bounded table batches with explicit locks; verify after each batch"
+          ],
+          "execute": false,
+          "phaseDriftCoverageRef": true
         },
         {
           "id": "D",
-          "title": "CHECK constraints and preflight validation",
-          "risk": "high",
-          "actions": [
-            "Run CHECK preflight on live data before apply",
-            "Abort on any violation; never destructive rewrite"
+          "title": "Indexes then PRIMARY KEY / FOREIGN KEY dependency validation and application",
+          "risk": "medium",
+          "owns": [
+            "indexes",
+            "constraints.PRIMARY KEY",
+            "constraints.UNIQUE",
+            "constraints.FOREIGN KEY"
           ],
-          "execute": false
+          "actions": [
+            "Create missing indexes from canonical migration ownership map before PK/FK apply",
+            "Validate then apply PRIMARY KEY / UNIQUE / FOREIGN KEY only after dependency proof",
+            "No orphan-row repair DML; abort on FK parent/child dependency failure",
+            "CHECK constraints already cleared on live (Phase D CHECK status=already_cleared); no fictional CHECK work"
+          ],
+          "execute": false,
+          "phaseDriftCoverageRef": true
         },
         {
           "id": "E",
-          "title": "Migration ledger bootstrap (if absent)",
+          "title": "Reconcile functions, triggers, RLS, ownership, ACL, and extensions",
           "risk": "medium",
-          "actions": [
-            "Bootstrap schema_migration_ledger from manifest checksums only when design-approved",
-            "Never backfill ledger without operator sign-off"
+          "owns": [
+            "functions",
+            "triggers",
+            "rlsFlags",
+            "ownership",
+            "acls",
+            "extensions"
           ],
-          "execute": false
+          "actions": [
+            "Reconcile remaining canonical functions/triggers/RLS flags with exact definitions",
+            "Reconcile ownership and ACLs to least privilege matching canonical expected schema",
+            "Reconcile extensions to exact canonical set — no extra privileges or opportunistic grants"
+          ],
+          "execute": false,
+          "phaseDriftCoverageRef": true
         },
         {
           "id": "F",
-          "title": "Canonical observer verification",
-          "risk": "high",
+          "title": "Migration-ledger bootstrap only after schema matches",
+          "risk": "medium",
+          "owns": [],
           "actions": [
-            "Observer match required before declaring reconcile complete",
-            "Second run must be no-op"
+            "Bootstrap schema_migration_ledger from manifest checksums only after schema matches expected",
+            "Second apply of ledger bootstrap design must be a no-op",
+            "Never backfill ledger without operator sign-off"
           ],
-          "execute": false
+          "execute": false,
+          "phaseDriftCoverageRef": true
+        },
+        {
+          "id": "G",
+          "title": "Canonical observer zero-drift and idempotent rerun",
+          "risk": "high",
+          "owns": [],
+          "actions": [
+            "Observer must report zero drift before declaring reconcile complete",
+            "Idempotent rerun must remain a no-op",
+            "Do not recommend completion while NOT_NULL count=472 > 0"
+          ],
+          "execute": false,
+          "reconcileCompletionAllowed": false,
+          "phaseDriftCoverageRef": true
         }
-      ],
-      "dependencyValidationRisk": "high"
+      ]
     },
     "recommendation": "in_place_targeted_repair",
     "occupancySummary": {

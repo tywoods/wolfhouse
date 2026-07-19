@@ -52,6 +52,10 @@ const {
   resetReconcileDecisionCounters,
   getReconcileDecisionCounters,
   decideReconcileStrategy,
+  buildPhaseDriftCoverage,
+  validateOrderedReconciliationPhases,
+  buildDefectiveReconciliationPhases,
+  PHASE_SEQUENCE_IDS,
   buildOfflineProofSunsetDatabaseUrl,
   buildLockedArmContainerAppPath,
   buildLockedArmListSecretsPath,
@@ -130,8 +134,13 @@ function pickSafeLiveOutcome(result) {
   if (!result || typeof result !== 'object') return null;
   const occupancy = result.occupancy || null;
   const groupedDrift = result.groupedDrift || null;
-  const decision = result.decision
-    || decideReconcileStrategy(occupancy, groupedDrift, result.sameTarget === true);
+  // Always recompute design-only decision/phases from preserved occupancy+drift
+  // so offline corrections refresh orderedReconciliationPhases without new live calls.
+  const decision = decideReconcileStrategy(
+    occupancy,
+    groupedDrift,
+    result.sameTarget === true,
+  );
   return {
     ok: result.ok === true,
     code: String(result.code || 'reconcile_decision_unknown'),
@@ -440,6 +449,67 @@ async function main() {
   }
   red.push({ name: 'non_read_only_session', ok: true, code: nonRo.code, sameTarget: true });
 
+  const sampleDriftForPhaseRed = {
+    counts: { expected_only: 498, live_only: 0, definition_mismatch: 1 },
+    mismatchSections: {
+      tables: 1,
+      columns: 9,
+      constraints: 475,
+      indexes: 6,
+      functions: 1,
+      triggers: 1,
+      rlsFlags: 1,
+      ownership: 2,
+      acls: 2,
+      extensions: 1,
+    },
+    constraintTypeDrift: {
+      'PRIMARY KEY': 1,
+      UNIQUE: 0,
+      'FOREIGN KEY': 2,
+      CHECK: 0,
+      NOT_NULL: 472,
+      other: 0,
+    },
+    missingCounts: { tables: 1, columns: 9, indexes: 6 },
+    migrationLedgerAbsent: true,
+  };
+  const sampleOccForPhaseRed = {
+    nonemptyApprovedTableCount: 20,
+    totalApprovedRowCount: 2252,
+  };
+  const omittedPlan = buildDefectiveReconciliationPhases(
+    'omitted_not_null_or_non_table_section',
+    sampleOccForPhaseRed,
+    sampleDriftForPhaseRed,
+  );
+  const omittedValidation = validateOrderedReconciliationPhases(omittedPlan, sampleDriftForPhaseRed);
+  if (omittedValidation.ok || omittedValidation.code !== 'omitted_not_null_or_non_table_section') {
+    throw new Error(`omitted NOT_NULL/non-table must RED: ${JSON.stringify(omittedValidation)}`);
+  }
+  red.push({
+    name: 'omitted_not_null_or_non_table_section',
+    ok: true,
+    rejected: true,
+    code: omittedValidation.code,
+  });
+
+  const unsafePlan = buildDefectiveReconciliationPhases(
+    'unsafe_phase_ordering',
+    sampleOccForPhaseRed,
+    sampleDriftForPhaseRed,
+  );
+  const unsafeOrdering = validateOrderedReconciliationPhases(unsafePlan, sampleDriftForPhaseRed);
+  if (unsafeOrdering.ok || unsafeOrdering.code !== 'unsafe_phase_ordering') {
+    throw new Error(`unsafe phase ordering must RED: ${JSON.stringify(unsafeOrdering)}`);
+  }
+  red.push({
+    name: 'unsafe_phase_ordering',
+    ok: true,
+    rejected: true,
+    code: unsafeOrdering.code,
+  });
+
   // --- GREEN ---
   const emptyCounts = Object.fromEntries(approvedTableNames.map((t) => [t, 0]));
   resetReconcileDecisionCounters();
@@ -572,6 +642,71 @@ async function main() {
     ok: true,
     emptyRecommendation: detEmpty.recommendation,
     nonemptyRecommendation: detNonempty.recommendation,
+  });
+
+  const coverageDrift = {
+    counts: { expected_only: 498, live_only: 0, definition_mismatch: 1 },
+    mismatchSections: {
+      tables: 1,
+      columns: 9,
+      constraints: 475,
+      indexes: 6,
+      functions: 1,
+      triggers: 1,
+      rlsFlags: 1,
+      ownership: 2,
+      acls: 2,
+      extensions: 1,
+    },
+    constraintTypeDrift: {
+      'PRIMARY KEY': 1,
+      UNIQUE: 0,
+      'FOREIGN KEY': 2,
+      CHECK: 0,
+      NOT_NULL: 472,
+      other: 0,
+    },
+    missingCounts: { tables: 1, columns: 9, indexes: 6 },
+    migrationLedgerAbsent: true,
+  };
+  const coverageOcc = {
+    perTableRowCounts: { bookings: 1 },
+    nonemptyApprovedTableCount: 1,
+    totalApprovedRowCount: 1,
+    missingApprovedTables: [],
+    enumerationComplete: true,
+    noncanonicalDataBearingObjectExists: false,
+    dataBearingTableOmittedByCanonical: false,
+  };
+  const agDecision = decideReconcileStrategy(coverageOcc, coverageDrift, true);
+  const agPhases = agDecision.orderedReconciliationPhases;
+  const agValidation = validateOrderedReconciliationPhases(agPhases, coverageDrift);
+  const agCoverage = buildPhaseDriftCoverage(coverageDrift);
+  const agIds = (agPhases || []).filter((p) => PHASE_SEQUENCE_IDS.includes(p.id)).map((p) => p.id);
+  if (!agValidation.ok
+    || agValidation.code !== 'complete_a_to_g_coverage'
+    || agIds.join('') !== PHASE_SEQUENCE_IDS.join('')
+    || agCoverage.coveredExactlyOnce !== true
+    || agCoverage.notNullMismatchCount !== 472
+    || agCoverage.checkConstraintsStatus !== 'already_cleared'
+    || agDecision.reconcileCompletionAllowed !== false
+    || agDecision.checkConstraintsStatus !== 'already_cleared') {
+    throw new Error(`complete A–G coverage GREEN failed: ${JSON.stringify({
+      agValidation,
+      agIds,
+      coveredExactlyOnce: agCoverage.coveredExactlyOnce,
+      completion: agDecision.reconcileCompletionAllowed,
+      check: agDecision.checkConstraintsStatus,
+    })}`);
+  }
+  green.push({
+    name: 'complete_a_to_g_coverage',
+    ok: true,
+    phaseSequence: agIds.join('-'),
+    coveredExactlyOnce: true,
+    notNullMismatchCount: 472,
+    checkConstraintsStatus: 'already_cleared',
+    reconcileCompletionAllowed: false,
   });
 
   // --- LIVE or preserve ---
@@ -707,6 +842,11 @@ async function main() {
         'no missing approved tables',
       ],
       neverDestructiveRebuildWhenDataExists: true,
+      orderedReconciliationPhaseSequence: ['A', 'B', 'C', 'D', 'E', 'F', 'G'],
+      notNullOwnedByPhase: 'C',
+      nonTableSectionsOwnedByPhase: 'E',
+      checkConstraintsStatusWhenZero: 'already_cleared',
+      reconcileCompletionForbiddenWhileNotNullGreaterThanZero: true,
     },
     forbidden: [
       'DDL / DML / ledger writes',
@@ -768,6 +908,8 @@ async function main() {
       unsafeRebuildRecommendationRejected: true,
       secretLeakageScan: true,
       nonReadOnlySession: true,
+      omittedNotNullOrNonTableSection: true,
+      unsafePhaseOrdering: true,
       injectedHttpEmptyDbRecommendsCleanRebuild: true,
       injectedHttpNonemptyRecommendsInplace: true,
       cliGatesExactTargets: true,
@@ -775,6 +917,7 @@ async function main() {
       locksIdentityVaultSecretPgTlsApplicationName: true,
       globalLiveApplyRemainsFalse: true,
       decisionCriteriaDeterministic: true,
+      completeAToGCoverage: true,
     },
     redCases: red,
     greenCases: green,
@@ -830,12 +973,19 @@ Sunset staging DB (\`${RECONCILE_LOCKS.database}\` via \`${RECONCILE_LOCKS.conta
 then a **deterministic** recommendation: \`clean_canonical_rebuild_cutover\` vs
 \`in_place_targeted_repair\` / \`controlled_export_import\` (design-only plans; execute none).
 
+In-place plan uses ordered design-only phases **A–G** (\`execute=false\` throughout):
+A normalize/target → B missing tables/columns → C NOT NULL preflight/bounded apply →
+D indexes then PK/FK → E functions/triggers/RLS/ownership/ACL/extensions →
+F ledger bootstrap after schema match → G observer zero-drift + idempotent rerun.
+Live CHECK mismatches are **already_cleared** when count=0; NOT_NULL > 0 blocks completion.
+
 ## Offline gates
 
 - RED: ${red.length} cases (default refuse, gates, wrong target, hidden data, count ambiguity,
-  overflow, unsafe rebuild rejection, secret leakage, non-read-only session)
+  overflow, unsafe rebuild rejection, secret leakage, non-read-only session,
+  omitted NOT_NULL/non-table section, unsafe phase ordering)
 - GREEN: ${green.length} cases (empty→clean rebuild, nonempty→in-place, CLI gates, locks,
-  global apply false, deterministic decision criteria)
+  global apply false, deterministic decision criteria, complete A–G coverage)
 
 ## Live
 
@@ -849,6 +999,7 @@ ledgerWritten / kvMutation = **false**.
 - Do **not** execute rebuild, repair, or ledger writes from this slice.
 - Do **not** run verify with \`--live\` (verify never re-runs live).
 - Do **not** persist DSN, passwords, tokens, or secret versions.
+- Do **not** recommend reconcile completion while NOT_NULL count > 0.
 
 ## Artifacts
 

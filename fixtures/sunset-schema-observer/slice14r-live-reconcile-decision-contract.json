@@ -124,7 +124,9 @@
       "overflow_blocks_rebuild",
       "unsafe_rebuild_recommendation_rejected",
       "secret_leakage_scan",
-      "non_read_only_session"
+      "non_read_only_session",
+      "omitted_not_null_or_non_table_section",
+      "unsafe_phase_ordering"
     ],
     "green": [
       "injected_http_empty_db_recommends_clean_rebuild",
@@ -133,7 +135,8 @@
       "cli_default_disabled",
       "locks_identity_vault_secret_pg_tls_application_name",
       "global_live_apply_remains_false",
-      "decision_criteria_deterministic"
+      "decision_criteria_deterministic",
+      "complete_a_to_g_coverage"
     ]
   },
   "hashes": {
@@ -154,7 +157,20 @@
       "dataBearingTableOmittedByCanonical === false",
       "no missing approved tables"
     ],
-    "neverDestructiveRebuildWhenDataExists": true
+    "neverDestructiveRebuildWhenDataExists": true,
+    "orderedReconciliationPhaseSequence": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E",
+      "F",
+      "G"
+    ],
+    "notNullOwnedByPhase": "C",
+    "nonTableSectionsOwnedByPhase": "E",
+    "checkConstraintsStatusWhenZero": "already_cleared",
+    "reconcileCompletionForbiddenWhileNotNullGreaterThanZero": true
   },
   "forbidden": [
     "DDL / DML / ledger writes",

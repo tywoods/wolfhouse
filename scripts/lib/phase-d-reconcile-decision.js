@@ -704,77 +704,252 @@ function buildFutureRebuildCutoverPlan() {
   };
 }
 
+const PHASE_SEQUENCE_IDS = Object.freeze(['A', 'B', 'C', 'D', 'E', 'F', 'G']);
+
+const NON_TABLE_SECTIONS = Object.freeze([
+  'functions',
+  'triggers',
+  'rlsFlags',
+  'ownership',
+  'acls',
+  'extensions',
+]);
+
+const CONSTRAINT_TYPE_PHASE = Object.freeze({
+  NOT_NULL: 'C',
+  'PRIMARY KEY': 'D',
+  UNIQUE: 'D',
+  'FOREIGN KEY': 'D',
+  CHECK: 'already_cleared',
+  other: 'unowned',
+});
+
+function notNullMismatchCount(drift) {
+  const ctd = (drift && drift.constraintTypeDrift) || {};
+  return Number(ctd.NOT_NULL) || 0;
+}
+
+function checkConstraintMismatchCount(drift) {
+  const ctd = (drift && drift.constraintTypeDrift) || {};
+  return Number(ctd.CHECK) || 0;
+}
+
+/**
+ * Partition observer drift into phase-owned / already_cleared / unowned buckets.
+ * Covers every expected_only + definition_mismatch item exactly once by
+ * section / constraint-type (constraints section is split by type, not double-counted).
+ */
+function buildPhaseDriftCoverage(drift) {
+  const dr = drift || {};
+  const sections = dr.mismatchSections || {};
+  const ctd = dr.constraintTypeDrift || {};
+  const counts = dr.counts || {};
+  const expectedOnly = Number(counts.expected_only) || 0;
+  const definitionMismatch = Number(counts.definition_mismatch) || 0;
+  const liveOnly = Number(counts.live_only) || 0;
+  const totalOwnedScope = expectedOnly + definitionMismatch;
+
+  const categories = [];
+  const pushCat = (key, count, owner) => {
+    categories.push({
+      key,
+      count: Number(count) || 0,
+      owner,
+    });
+  };
+
+  pushCat('tables', sections.tables, 'B');
+  pushCat('columns', sections.columns, 'B');
+  pushCat('constraints.NOT_NULL', ctd.NOT_NULL, 'C');
+  pushCat('constraints.PRIMARY KEY', ctd['PRIMARY KEY'], 'D');
+  pushCat('constraints.UNIQUE', ctd.UNIQUE, 'D');
+  pushCat('constraints.FOREIGN KEY', ctd['FOREIGN KEY'], 'D');
+  const checkCount = Number(ctd.CHECK) || 0;
+  pushCat(
+    'constraints.CHECK',
+    checkCount,
+    checkCount === 0 ? 'already_cleared' : 'unowned',
+  );
+  pushCat('constraints.other', ctd.other, 'unowned');
+  pushCat('indexes', sections.indexes, 'D');
+  for (const section of NON_TABLE_SECTIONS) {
+    pushCat(section, sections[section], 'E');
+  }
+
+  // Any unexpected mismatchSections keys are unowned (constraints already partitioned).
+  const knownSections = new Set([
+    'tables',
+    'columns',
+    'constraints',
+    'indexes',
+    ...NON_TABLE_SECTIONS,
+  ]);
+  for (const [section, count] of Object.entries(sections)) {
+    if (!knownSections.has(section) && Number(count) > 0) {
+      pushCat(`section.${section}`, count, 'unowned');
+    }
+  }
+
+  const constraintTypeSum = ['PRIMARY KEY', 'UNIQUE', 'FOREIGN KEY', 'CHECK', 'NOT_NULL', 'other']
+    .reduce((sum, typ) => sum + (Number(ctd[typ]) || 0), 0);
+  const constraintsSection = Number(sections.constraints) || 0;
+  const constraintPartitionOk = constraintTypeSum === constraintsSection;
+
+  const categorizedCount = categories.reduce((sum, c) => sum + c.count, 0);
+  // constraints section is represented only via constraint-type categories
+  const coveredExactlyOnce = constraintPartitionOk
+    && categorizedCount === totalOwnedScope
+    && liveOnly === 0;
+
+  const byOwner = Object.create(null);
+  const unowned = [];
+  const alreadyCleared = [];
+  for (const cat of categories) {
+    if (cat.owner === 'unowned') {
+      if (cat.count > 0) unowned.push(cat);
+      continue;
+    }
+    if (cat.owner === 'already_cleared') {
+      alreadyCleared.push(cat);
+      continue;
+    }
+    if (!byOwner[cat.owner]) byOwner[cat.owner] = [];
+    byOwner[cat.owner].push(cat);
+  }
+
+  return {
+    expectedOnly,
+    definitionMismatch,
+    liveOnly,
+    totalOwnedScope,
+    categorizedCount,
+    constraintPartitionOk,
+    coveredExactlyOnce,
+    checkConstraintsStatus: checkCount === 0 ? 'already_cleared' : 'unowned_nonzero_check',
+    checkMismatchCount: checkCount,
+    notNullMismatchCount: Number(ctd.NOT_NULL) || 0,
+    categories,
+    byOwner,
+    unowned,
+    alreadyCleared,
+  };
+}
+
+function reconcileCompletionAllowed(drift) {
+  return notNullMismatchCount(drift) === 0;
+}
+
 function buildOrderedReconciliationPhases(occupancy, drift, riskLevel) {
   const occ = occupancy || {};
   const dr = drift || {};
   const risk = riskLevel || 'medium';
+  const notNullCount = notNullMismatchCount(dr);
+  const checkCount = checkConstraintMismatchCount(dr);
+  const coverage = buildPhaseDriftCoverage(dr);
+  const completionAllowed = reconcileCompletionAllowed(dr);
+
   const phases = [
     {
       id: 'A',
-      title: 'Observer Azure normalization validation (no DB mutation)',
+      title: 'Validate observer normalization and exact target authority',
       risk: 'low',
+      owns: [],
       actions: [
         'Confirm normalization profile azure_flexible_server_v1 before interpreting drift',
+        'Confirm locked exact target authority (Staff API ↔ KV ↔ PG) before any repair design',
         'Re-run observer after normalization; abort if observation defect persists',
       ],
       execute: false,
     },
     {
       id: 'B',
-      title: 'Additive tables/columns via canonical forward migrations',
-      risk: dr.missingCounts && dr.missingCounts.tables > 0 ? 'medium' : 'low',
+      title: 'Add missing canonical tables and columns in migration dependency order',
+      risk: (dr.missingCounts && (dr.missingCounts.tables > 0 || dr.missingCounts.columns > 0))
+        ? 'medium'
+        : 'low',
+      owns: ['tables', 'columns'],
       actions: [
-        'Apply only forward migrations owning missing expected tables/columns',
+        'Apply only forward migrations owning missing expected tables/columns in manifest dependency order',
+        'Do not invent columns outside canonical migration ownership',
         'Validate Staff API compatibility after each additive batch',
       ],
       execute: false,
     },
     {
       id: 'C',
-      title: 'Indexes and non-destructive constraints',
-      risk: 'medium',
+      title: 'NOT NULL preflight and bounded application design',
+      risk: notNullCount > 0 ? 'high' : 'low',
+      owns: ['constraints.NOT_NULL'],
       actions: [
-        'Create missing indexes from migration ownership map',
-        'Add UNIQUE/FOREIGN KEY only after dependency validation',
+        `Preflight COUNT nulls per expected NOT NULL column only (expected NOT_NULL mismatches=${notNullCount})`,
+        'Abort on any null row, count ambiguity, or ownership ambiguity — no DML/backfill',
+        'Use exact canonical migration ownership for each NOT NULL column',
+        'Apply SET NOT NULL only in bounded table batches with explicit locks; verify after each batch',
       ],
       execute: false,
     },
     {
       id: 'D',
-      title: 'CHECK constraints and preflight validation',
-      risk: occ.nonemptyApprovedTableCount > 0 ? 'high' : 'medium',
+      title: 'Indexes then PRIMARY KEY / FOREIGN KEY dependency validation and application',
+      risk: 'medium',
+      owns: ['indexes', 'constraints.PRIMARY KEY', 'constraints.UNIQUE', 'constraints.FOREIGN KEY'],
       actions: [
-        'Run CHECK preflight on live data before apply',
-        'Abort on any violation; never destructive rewrite',
+        'Create missing indexes from canonical migration ownership map before PK/FK apply',
+        'Validate then apply PRIMARY KEY / UNIQUE / FOREIGN KEY only after dependency proof',
+        'No orphan-row repair DML; abort on FK parent/child dependency failure',
+        checkCount === 0
+          ? 'CHECK constraints already cleared on live (Phase D CHECK status=already_cleared); no fictional CHECK work'
+          : 'Unexpected nonzero CHECK mismatches remain unclassified for this plan — abort',
       ],
       execute: false,
     },
     {
       id: 'E',
-      title: 'Migration ledger bootstrap (if absent)',
-      risk: dr.migrationLedgerAbsent === true ? 'medium' : 'low',
+      title: 'Reconcile functions, triggers, RLS, ownership, ACL, and extensions',
+      risk: 'medium',
+      owns: NON_TABLE_SECTIONS.slice(),
       actions: [
-        'Bootstrap schema_migration_ledger from manifest checksums only when design-approved',
-        'Never backfill ledger without operator sign-off',
+        'Reconcile remaining canonical functions/triggers/RLS flags with exact definitions',
+        'Reconcile ownership and ACLs to least privilege matching canonical expected schema',
+        'Reconcile extensions to exact canonical set — no extra privileges or opportunistic grants',
       ],
       execute: false,
     },
     {
       id: 'F',
-      title: 'Canonical observer verification',
-      risk,
+      title: 'Migration-ledger bootstrap only after schema matches',
+      risk: dr.migrationLedgerAbsent === true ? 'medium' : 'low',
+      owns: [],
       actions: [
-        'Observer match required before declaring reconcile complete',
-        'Second run must be no-op',
+        'Bootstrap schema_migration_ledger from manifest checksums only after schema matches expected',
+        'Second apply of ledger bootstrap design must be a no-op',
+        'Never backfill ledger without operator sign-off',
       ],
       execute: false,
     },
+    {
+      id: 'G',
+      title: 'Canonical observer zero-drift and idempotent rerun',
+      risk,
+      owns: [],
+      actions: [
+        'Observer must report zero drift before declaring reconcile complete',
+        'Idempotent rerun must remain a no-op',
+        completionAllowed
+          ? 'NOT_NULL count is zero — completion may be considered after zero-drift proof'
+          : `Do not recommend completion while NOT_NULL count=${notNullCount} > 0`,
+      ],
+      execute: false,
+      reconcileCompletionAllowed: completionAllowed,
+    },
   ];
+
   if (occ.noncanonicalDataBearingObjectExists === true) {
     phases.unshift({
       id: 'EXPORT',
       title: 'Controlled export of noncanonical data-bearing objects',
       risk: 'high',
+      owns: [],
       actions: [
         'Export rows from noncanonical tables omitted by canonical rebuild',
         'Map to approved tables or operator-approved archive before any destructive step',
@@ -782,7 +957,172 @@ function buildOrderedReconciliationPhases(occupancy, drift, riskLevel) {
       execute: false,
     });
   }
-  return phases;
+
+  return phases.map((phase) => ({
+    ...phase,
+    phaseDriftCoverageRef: coverage.coveredExactlyOnce,
+  }));
+}
+
+/**
+ * Validate design-only A–G phase plan: ordering, NOT_NULL + non-table ownership,
+ * CHECK already-cleared honesty, and completion gate while NOT_NULL > 0.
+ */
+function validateOrderedReconciliationPhases(phases, drift) {
+  const dr = drift || {};
+  const list = Array.isArray(phases) ? phases : [];
+  const core = list.filter((p) => p && PHASE_SEQUENCE_IDS.includes(p.id));
+  const ids = core.map((p) => p.id);
+  const coverage = buildPhaseDriftCoverage(dr);
+  const notNullCount = notNullMismatchCount(dr);
+  const checkCount = checkConstraintMismatchCount(dr);
+
+  if (ids.join('') !== PHASE_SEQUENCE_IDS.join('')) {
+    return {
+      ok: false,
+      code: 'unsafe_phase_ordering',
+      detail: `expected core sequence ${PHASE_SEQUENCE_IDS.join('-')}, got ${ids.join('-') || '(empty)'}`,
+      coverage,
+    };
+  }
+
+  if (list.some((p) => p && p.execute !== false)) {
+    return {
+      ok: false,
+      code: 'execute_not_false',
+      detail: 'every phase must remain execute=false',
+      coverage,
+    };
+  }
+
+  const byId = Object.create(null);
+  for (const p of core) byId[p.id] = p;
+
+  const phaseCText = `${byId.C.title}\n${(byId.C.actions || []).join('\n')}`;
+  const phaseEText = `${byId.E.title}\n${(byId.E.actions || []).join('\n')}`;
+  const phaseDText = `${byId.D.title}\n${(byId.D.actions || []).join('\n')}`;
+  const phaseGText = `${byId.G.title}\n${(byId.G.actions || []).join('\n')}`;
+
+  if (notNullCount > 0 && !/NOT\s*NULL/i.test(phaseCText)) {
+    return {
+      ok: false,
+      code: 'omitted_not_null_or_non_table_section',
+      detail: 'Phase C must explicitly own NOT NULL when NOT_NULL mismatches exist',
+      coverage,
+    };
+  }
+
+  const nonTableOwned = /function/i.test(phaseEText)
+    && /trigger/i.test(phaseEText)
+    && /\bRLS\b/i.test(phaseEText)
+    && /ownership/i.test(phaseEText)
+    && /\bACL/i.test(phaseEText)
+    && /extension/i.test(phaseEText);
+  if (!nonTableOwned) {
+    return {
+      ok: false,
+      code: 'omitted_not_null_or_non_table_section',
+      detail: 'Phase E must explicitly own functions/triggers/RLS/ownership/ACL/extensions',
+      coverage,
+    };
+  }
+
+  if (checkCount === 0
+    && /missing CHECK|apply CHECK|CHECK preflight on live data before apply/i.test(phaseDText)) {
+    return {
+      ok: false,
+      code: 'fictional_check_work',
+      detail: 'CHECK already cleared on live; plan must not invent missing CHECK work',
+      coverage,
+    };
+  }
+
+  if (notNullCount > 0) {
+    if (byId.G.reconcileCompletionAllowed === true) {
+      return {
+        ok: false,
+        code: 'completion_while_not_null',
+        detail: `reconcileCompletionAllowed must be false while NOT_NULL=${notNullCount}`,
+        coverage,
+      };
+    }
+    if (!/NOT_NULL count/i.test(phaseGText) && !/while NOT_NULL/i.test(phaseGText)) {
+      return {
+        ok: false,
+        code: 'completion_while_not_null',
+        detail: 'Phase G must refuse completion while NOT_NULL count > 0',
+        coverage,
+      };
+    }
+  }
+
+  if (!coverage.coveredExactlyOnce && totalDriftScope(dr) > 0) {
+    return {
+      ok: false,
+      code: 'drift_coverage_incomplete',
+      detail: 'phase drift coverage must classify every expected_only + definition_mismatch exactly once',
+      coverage,
+    };
+  }
+
+  const idx = (id) => ids.indexOf(id);
+  if (!(idx('C') < idx('D') && idx('E') < idx('F') && idx('F') < idx('G') && idx('B') < idx('C'))) {
+    return {
+      ok: false,
+      code: 'unsafe_phase_ordering',
+      detail: 'require B→C→D and E→F→G dependency order',
+      coverage,
+    };
+  }
+
+  return {
+    ok: true,
+    code: 'complete_a_to_g_coverage',
+    detail: 'A–G coverage with NOT_NULL + non-table ownership and CHECK already_cleared',
+    coverage,
+  };
+}
+
+function totalDriftScope(drift) {
+  const counts = (drift && drift.counts) || {};
+  return (Number(counts.expected_only) || 0) + (Number(counts.definition_mismatch) || 0);
+}
+
+/** Deliberately unsafe / incomplete plans for RED proofs (never used as live recommendation). */
+function buildDefectiveReconciliationPhases(kind, occupancy, drift) {
+  const base = buildOrderedReconciliationPhases(occupancy, drift, 'high').filter(
+    (p) => PHASE_SEQUENCE_IDS.includes(p.id),
+  );
+  if (kind === 'omitted_not_null_or_non_table_section') {
+    return base.map((p) => {
+      if (p.id === 'C') {
+        return {
+          ...p,
+          title: 'Skip dominant column nullability mismatches (defective)',
+          owns: [],
+          actions: ['Intentionally omit nullability ownership'],
+          execute: false,
+        };
+      }
+      if (p.id === 'E') {
+        return {
+          ...p,
+          title: 'Skip non-table catalog sections (defective)',
+          owns: [],
+          actions: ['Intentionally omit remaining catalog sections'],
+          execute: false,
+        };
+      }
+      return p;
+    });
+  }
+  if (kind === 'unsafe_phase_ordering') {
+    // Put ledger bootstrap (F) before NOT NULL (C) and swap D before C.
+    const byId = Object.create(null);
+    for (const p of base) byId[p.id] = p;
+    return [byId.A, byId.B, byId.F, byId.D, byId.C, byId.E, byId.G];
+  }
+  return base;
 }
 
 /**
@@ -791,6 +1131,24 @@ function buildOrderedReconciliationPhases(occupancy, drift, riskLevel) {
  * existing tables have row count === 0 (no count ambiguity, no noncanonical data-bearing
  * objects, no missing approved tables). Never recommend destructive rebuild when data exists.
  */
+function attachPhasePlan(decision, occupancy, drift, riskLevel) {
+  const phases = buildOrderedReconciliationPhases(occupancy, drift, riskLevel);
+  const coverage = buildPhaseDriftCoverage(drift);
+  const completionAllowed = reconcileCompletionAllowed(drift);
+  const validation = validateOrderedReconciliationPhases(phases, drift);
+  return {
+    ...decision,
+    orderedReconciliationPhases: phases,
+    phaseDriftCoverage: coverage,
+    reconcileCompletionAllowed: completionAllowed,
+    checkConstraintsStatus: coverage.checkConstraintsStatus,
+    phasePlanValidation: {
+      ok: validation.ok === true,
+      code: validation.code,
+    },
+  };
+}
+
 function decideReconcileStrategy(occupancy, drift, sameTarget) {
   const occ = occupancy || {};
   const dr = drift || {};
@@ -798,6 +1156,10 @@ function decideReconcileStrategy(occupancy, drift, sameTarget) {
     destructiveRebuildForbidden: true,
     executed: false,
     occupancySummary: summarizeOccupancy(occ),
+    reconcileCompletionAllowed: false,
+    checkConstraintsStatus: buildPhaseDriftCoverage(dr).checkConstraintsStatus,
+    phaseDriftCoverage: null,
+    phasePlanValidation: null,
   };
 
   if (sameTarget !== true) {
@@ -871,6 +1233,7 @@ function decideReconcileStrategy(occupancy, drift, sameTarget) {
       futureRebuildCutoverPlan: buildFutureRebuildCutoverPlan(),
       orderedReconciliationPhases: null,
       dependencyValidationRisk: 'none',
+      reconcileCompletionAllowed: false,
     };
   }
 
@@ -887,15 +1250,14 @@ function decideReconcileStrategy(occupancy, drift, sameTarget) {
   }
 
   if (occ.noncanonicalDataBearingObjectExists === true) {
-    return {
+    return attachPhasePlan({
       ...base,
       recommendation: 'controlled_export_import',
       rationale: 'Noncanonical public tables contain rows that would be omitted by canonical rebuild; controlled export/import required',
       rebuildAllowed: false,
       futureRebuildCutoverPlan: null,
-      orderedReconciliationPhases: buildOrderedReconciliationPhases(occ, dr, 'high'),
       dependencyValidationRisk: 'high',
-    };
+    }, occ, dr, 'high');
   }
 
   const depRisk = hasApprovedData ? 'high' : (
@@ -904,7 +1266,7 @@ function decideReconcileStrategy(occupancy, drift, sameTarget) {
       : 'low'
   );
 
-  return {
+  return attachPhasePlan({
     ...base,
     recommendation: 'in_place_targeted_repair',
     rationale: hasApprovedData
@@ -912,9 +1274,8 @@ function decideReconcileStrategy(occupancy, drift, sameTarget) {
       : 'Schema drift present without empty-db rebuild preconditions; in-place targeted repair recommended',
     rebuildAllowed: false,
     futureRebuildCutoverPlan: null,
-    orderedReconciliationPhases: buildOrderedReconciliationPhases(occ, dr, depRisk),
     dependencyValidationRisk: depRisk,
-  };
+  }, occ, dr, depRisk);
 }
 
 function parseConstraintTypeFromKey(key) {
@@ -1865,6 +2226,12 @@ module.exports = {
   captureOccupancy,
   buildFutureRebuildCutoverPlan,
   buildOrderedReconciliationPhases,
+  buildPhaseDriftCoverage,
+  validateOrderedReconciliationPhases,
+  buildDefectiveReconciliationPhases,
+  reconcileCompletionAllowed,
+  PHASE_SEQUENCE_IDS,
+  NON_TABLE_SECTIONS,
   createInjectedReconcileDecisionHttp,
   createLiveReconcileDecisionHttpRequest,
   createScriptedReconcileDecisionFakeClientFactory,
