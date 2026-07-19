@@ -1,0 +1,459 @@
+{
+  "kind": "sunset-schema-observer-slice14q-active-db-target-authority-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T21:48:59.569Z",
+  "masterShaBasis": "85ad38b16146bcc9cbc2abbca8a77fa1471bf3df",
+  "slice": "14Q",
+  "outcome": "phase_d_target_authority_live_preserved",
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "liveAttemptCount": 1,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "authorizedSequence": [
+    "IMDS ARM token (management.azure.com)",
+    "ARM GET container app (active revision + env secretRef)",
+    "ARM POST listSecrets (only when needed; values zeroed)",
+    "IMDS vault token + GET luna-sunset-staging-kv/sunset-database-url",
+    "In-memory semantic DSN/KeyVault-ref authority compare",
+    "TLS verify-full pg session application_name=wh-sunset-target-authority",
+    "BEGIN READ ONLY → inventory → ledger summary → observer → COMMIT"
+  ],
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "targetAuthorityEnvGateRequired": true,
+  "targetAuthorityArgvGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "applicationName": "wh-sunset-target-authority",
+  "authorityLocks": {
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "managedIdentityName": "wh-staging-identity",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-target-authority",
+    "armApiVersion": "2024-03-01",
+    "managementHostname": "management.azure.com"
+  },
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingProveFlagZeroHttp": true,
+    "missingTargetAuthorityEnvZeroHttp": true,
+    "wrongExactTargetsZeroHttp": true,
+    "forbiddenArgvDsnSqlRetryZeroHttp": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "mismatchedAppKvTarget": true,
+    "secretRefAmbiguous": true,
+    "multipleActiveRevisions": true,
+    "missingDbEnv": true,
+    "malformedDsn": true,
+    "secretLeakageScan": true,
+    "nonReadOnlySession": true,
+    "observerShape": true,
+    "injectedHttpSameKeyvaultRefAuthority": true,
+    "injectedHttpValueCompareSameTarget": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "globalLiveApplyRemainsFalse": true,
+    "sparseVsWrongTargetClassification": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_prove_flag_zero_http",
+      "ok": true,
+      "code": "target_authority_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_target_authority_env_zero_http",
+      "ok": true,
+      "code": "target_authority_env_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_exact_targets_zero_http",
+      "ok": true,
+      "rejected": true,
+      "code": "exact_target_mismatch",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "forbidden_argv_dsn_sql_retry_zero_http",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--delete",
+        "--purge",
+        "--retry",
+        "--retries",
+        "--force",
+        "--deploy",
+        "--mutate",
+        "--url",
+        "--body",
+        "--token",
+        "--access-token",
+        "--imds-url",
+        "--arm-url",
+        "--dsn",
+        "--database-url",
+        "--connection-string",
+        "--host",
+        "--user",
+        "--username",
+        "--password",
+        "--file",
+        "--sql",
+        "--execute-count-only",
+        "--apply-phase-d-constraints",
+        "--apply-firewall-rule"
+      ],
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0,
+      "code": "forbidden_argv"
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "mismatched_app_kv_target",
+      "ok": true,
+      "code": "mismatched_app_kv_target",
+      "sameTarget": false,
+      "clientsInstantiated": 0,
+      "driftCode": "wrong_target"
+    },
+    {
+      "name": "secret_ref_ambiguous",
+      "ok": true,
+      "code": "secret_ref_ambiguous",
+      "secretRefAmbiguous": true
+    },
+    {
+      "name": "multiple_active_revisions",
+      "ok": true,
+      "code": "multiple_active_revisions",
+      "activeRevisionCount": 2
+    },
+    {
+      "name": "missing_db_env",
+      "ok": true,
+      "code": "db_env_missing"
+    },
+    {
+      "name": "malformed_dsn",
+      "ok": true,
+      "code": "mismatched_app_kv_target",
+      "sameTargetReason": "malformed_dsn",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "secret_leakage_scan",
+      "ok": true,
+      "secretFree": true
+    },
+    {
+      "name": "non_read_only_session",
+      "ok": true,
+      "code": "session_not_read_only",
+      "sameTarget": true
+    },
+    {
+      "name": "observer_shape",
+      "ok": true,
+      "code": "same_target_authority_observer_drift",
+      "countsKeys": [
+        "expected_only",
+        "live_only",
+        "definition_mismatch"
+      ],
+      "expectedOnly": 2230,
+      "liveOnly": 0,
+      "definitionMismatch": 0
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_same_keyvault_ref_authority",
+      "ok": true,
+      "sameTarget": true,
+      "comparisonMode": "keyvault_url_ref",
+      "clientsInstantiated": 0,
+      "httpRequestCount": 4
+    },
+    {
+      "name": "injected_http_value_compare_same_target",
+      "ok": true,
+      "sameTarget": true,
+      "comparisonMode": "value",
+      "listSecretsUsed": true
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-target-authority",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "containerAppName": "luna-sunset-staging-staff-api",
+      "armApiVersion": "2024-03-01"
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "targetAuthorityLiveEnabled": true
+    },
+    {
+      "name": "sparse_vs_wrong_target_classification",
+      "ok": true,
+      "sparseCode": "genuinely_sparse_active_runtime_db",
+      "wrongTargetCode": "wrong_target",
+      "matchCode": "observer_match"
+    }
+  ],
+  "redCaseCount": 14,
+  "greenCaseCount": 7,
+  "liveTargetAuthorityOutcome": {
+    "ok": true,
+    "code": "same_target_authority_observer_drift",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "blocker": null,
+    "activeRevisionName": "luna-sunset-staging-staff-api--0000266",
+    "activeRevisionCount": 1,
+    "dbEnvName": "WOLFHOUSE_DATABASE_URL",
+    "secretRefName": "sunset-database-url",
+    "secretRefAmbiguous": false,
+    "appSecretKeyVaultUrlMatchesLocked": true,
+    "listSecretsUsed": false,
+    "comparisonMode": "keyvault_url_ref",
+    "hostMatch": true,
+    "portMatch": true,
+    "databaseMatch": true,
+    "usernameEqual": true,
+    "passwordEqual": true,
+    "tlsSemanticsMatch": true,
+    "kvTargetValid": true,
+    "appTargetValid": true,
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "schemaInventory": {
+      "bySchema": {
+        "public": {
+          "index": 239,
+          "table": 50
+        }
+      },
+      "totalObjects": 289,
+      "publicTables": 50,
+      "schemas": [
+        "public"
+      ]
+    },
+    "ledgerSummary": {
+      "present": false,
+      "tableName": "schema_migration_ledger",
+      "rowCount": 0,
+      "statusCategories": {
+        "checksum_match": 0,
+        "checksum_mismatch": 0,
+        "unknown_id": 0
+      },
+      "note": "ledger_table_absent"
+    },
+    "observerOutcome": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 499,
+      "counts": {
+        "expected_only": 498,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "tables": 1,
+        "columns": 9,
+        "constraints": 475,
+        "indexes": 6,
+        "functions": 1,
+        "triggers": 1,
+        "rlsFlags": 1,
+        "ownership": 2,
+        "acls": 2,
+        "extensions": 1
+      },
+      "productFingerprintLive": "d5ec00d7217d34142d48c3125ef6886bbbe185371aeb01457bf1b331ecdd7050",
+      "normalizationError": null,
+      "blocker": "observer_drift",
+      "sessionReadOnly": true
+    },
+    "driftClassification": {
+      "code": "schema_divergence",
+      "reason": "sameTarget with non-sparse tables; expected_only mass is mostly constraints — genuine product-schema divergence on the shared authority",
+      "expectedOnly": 498,
+      "liveOnly": 0,
+      "definitionMismatch": 1,
+      "mismatchCount": 499,
+      "publicTables": 50,
+      "reconciliationPathHint": "targeted_schema_reconcile_on_confirmed_same_target"
+    },
+    "reconciliationPathHint": "targeted_schema_reconcile_on_confirmed_same_target",
+    "httpRequestCount": 4,
+    "imdsRequestCount": 2,
+    "armGetCount": 1,
+    "armPostCount": 0,
+    "listSecretsCount": 0,
+    "keyVaultRequestCount": 1,
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 30,
+    "endCalls": 0,
+    "usedLiveHttp": true,
+    "realImdsCall": true,
+    "realArmCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": false,
+    "applicationName": "wh-sunset-target-authority",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "kvSecretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "errors": []
+  },
+  "sameTarget": true,
+  "activeRevisionName": "luna-sunset-staging-staff-api--0000266",
+  "dbEnvName": "WOLFHOUSE_DATABASE_URL",
+  "secretRefName": "sunset-database-url",
+  "schemaInventory": {
+    "bySchema": {
+      "public": {
+        "index": 239,
+        "table": 50
+      }
+    },
+    "totalObjects": 289,
+    "publicTables": 50,
+    "schemas": [
+      "public"
+    ]
+  },
+  "ledgerSummary": {
+    "present": false,
+    "tableName": "schema_migration_ledger",
+    "rowCount": 0,
+    "statusCategories": {
+      "checksum_match": 0,
+      "checksum_mismatch": 0,
+      "unknown_id": 0
+    },
+    "note": "ledger_table_absent"
+  },
+  "observerOutcome": {
+    "ok": false,
+    "match": false,
+    "code": "observer_drift",
+    "mismatchCount": 499,
+    "counts": {
+      "expected_only": 498,
+      "live_only": 0,
+      "definition_mismatch": 1
+    },
+    "mismatchSections": {
+      "tables": 1,
+      "columns": 9,
+      "constraints": 475,
+      "indexes": 6,
+      "functions": 1,
+      "triggers": 1,
+      "rlsFlags": 1,
+      "ownership": 2,
+      "acls": 2,
+      "extensions": 1
+    },
+    "productFingerprintLive": "d5ec00d7217d34142d48c3125ef6886bbbe185371aeb01457bf1b331ecdd7050",
+    "normalizationError": null,
+    "blocker": "observer_drift",
+    "sessionReadOnly": true
+  },
+  "driftClassification": {
+    "code": "schema_divergence",
+    "reason": "sameTarget with non-sparse tables; expected_only mass is mostly constraints — genuine product-schema divergence on the shared authority",
+    "expectedOnly": 498,
+    "liveOnly": 0,
+    "definitionMismatch": 1,
+    "mismatchCount": 499,
+    "publicTables": 50,
+    "reconciliationPathHint": "targeted_schema_reconcile_on_confirmed_same_target"
+  },
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true,
+    "observerNeverPersistsDsn": true
+  }
+}

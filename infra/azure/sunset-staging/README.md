@@ -665,6 +665,22 @@ npm run phase-d:constraint-apply
 
 Artifacts: `slice14p-apply-phase-d-constraints-contract.json`, `slice14p-apply-phase-d-constraints-evidence.json`, `slice14p-findings.md`.
 
+### Slice 14Q — Active Staff API ↔ Key Vault DB target authority
+
+Offline RED/GREEN gates, then (with `--live` once) one gated read-only proof that the active Sunset-staging Staff API Container App (`luna-sunset-staging-staff-api`) and the Key Vault admin secret (`luna-sunset-staging-kv` / `sunset-database-url`) resolve to the **same exact** PostgreSQL server/database/credential authority. Sequence: IMDS ARM token → ARM GET container app (active revision + DB env `secretRef`) → optional `listSecrets` POST (values zeroed) → IMDS vault token + KV GET → in-memory semantic DSN / Key Vault URL compare → one TLS `verify-full` `BEGIN READ ONLY` session (`application_name=wh-sunset-target-authority`) for schema inventory, ledger summary, and canonical observer compare. Drift is classified (`wrong_target` / `genuinely_sparse_active_runtime_db` / `observation_defect` / `schema_divergence` / `observer_match`) to choose a safe reconciliation path. **Zero mutation:** no DDL/DML/ledger/KV write/Azure/RBAC/network. Verifier does **not** re-run live.
+
+```bash
+# Offline RED/GREEN only (default; preserves historical live evidence when present):
+npm run prove:sunset-schema-slice14q-active-db-target-authority
+npm run verify:sunset-schema-slice14q
+# Live capture (exactly once; do not re-run after historical evidence):
+# node scripts/prove-sunset-schema-slice14q-active-db-target-authority.js --live
+# default refuse (zero ARM / zero KV / zero pg Clients):
+npm run phase-d:active-db-target-authority
+```
+
+Artifacts: `slice14q-active-db-target-authority-contract.json`, `slice14q-active-db-target-authority-evidence.json`, `slice14q-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -740,3 +756,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14N — Lunabox AllowLunaboxEgress firewall rule on luna-sunset-staging-pg-app (standalone Bicep + one gated ARM PUT; zero PostgreSQL) — 2026-07-19*
 *FOUNDATION Slice 14O — Post-firewall Phase D live read-only counts (firewall prestate + credential preflight + one gated count; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14P — Apply Phase D CHECK constraints (offline gates + gated live apply + observer read-only; schema mutation only) — 2026-07-19*
+*FOUNDATION Slice 14Q — Active Staff API ↔ Key Vault DB target authority (read-only proof + drift classification; zero mutation) — 2026-07-19*
