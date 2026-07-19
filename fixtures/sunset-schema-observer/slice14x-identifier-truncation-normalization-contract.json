@@ -1,0 +1,83 @@
+{
+  "kind": "slice14x-identifier-truncation-normalization-contract",
+  "slice": "14X",
+  "masterShaBasis": "a093f0ddbc3ed84bc57c04b5175f7385c9775171",
+  "applicationName": "wh-sunset-identifier-truncation-normalization",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration002Sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+  "baselineMismatchCount": 12,
+  "baselineMismatchSections": {
+    "constraints": 2,
+    "indexes": 5,
+    "functions": 1,
+    "triggers": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "lockedTuple": {
+    "table": "package_price_rules",
+    "name": "package_price_rules_double_supplement_per_person_per_n_not_null",
+    "type": "n",
+    "definition": "NOT NULL double_supplement_per_person_per_night_cents",
+    "column": "double_supplement_per_person_per_night_cents",
+    "migrationId": "002_package_pricing",
+    "migrationSha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+    "nameByteLength": 63,
+    "derivedName": "package_price_rules_double_supplement_per_person_per_n_not_null"
+  },
+  "requiredRed": [
+    "default_path_zero_http_and_clients",
+    "missing_prove_flag_zero_clients",
+    "missing_truncation_env_zero_clients",
+    "wrong_exact_targets_zero_clients",
+    "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+    "non_azure_profile_retains_truncation_constraint",
+    "non_pg15_version_retains_or_rejects",
+    "live_nullable_yes_retains_drift",
+    "live_column_missing_retains_drift",
+    "ambiguous_duplicate_claim_retains_drift",
+    "wrong_definition_retains_drift",
+    "wrong_table_retains_drift",
+    "naive_truncate_near_collision_retains",
+    "untruncated_full_name_retains",
+    "wrong_length_near_collision_retains",
+    "fuzzy_prefix_not_implemented_retains",
+    "migration_hash_change_fails",
+    "fourteen_t_exact_name_rule_unchanged",
+    "fourteen_w_still_retains_truncation"
+  ],
+  "requiredGreen": [
+    "exact_one_locked_tuple_fixture",
+    "migration_hash_and_derived_name_locked",
+    "namedatalen_derivation_matches_locked",
+    "one_truncation_normalizes_when_column_matches",
+    "negative_near_collisions_retain",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "global_live_apply_remains_false",
+    "accounting_baseline_normalized_plus_remaining",
+    "raw_vs_normalized_compare_api",
+    "truncation_default_off_preserves_14w"
+  ],
+  "locks": {
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-identifier-truncation-normalization",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "gates": {
+    "envIdentifierTruncationNormalization": "SUNSET_PHASE_D_IDENTIFIER_TRUNCATION_NORMALIZATION",
+    "cliProve": "--prove-identifier-truncation-normalization",
+    "defaultDisabled": true,
+    "liveApplyRemainsFalse": true
+  },
+  "verifyNeverRerunsLive": true
+}
