@@ -1,0 +1,63 @@
+{
+  "kind": "sunset-schema-observer-slice13a-operator-decision-list",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T14:10:00.440Z",
+  "failClosed": true,
+  "items": [
+    {
+      "id": "DEC-001",
+      "topic": "Azure ownership/ACL/extension definition_mismatches",
+      "recommendation": "Treat as observer normalization / environment identity — do not ALTER OWNER or rewrite ACLs merely to match $db_owner/pg_database_owner. Consider a future observer normalization enhancement (optional, separate slice).",
+      "status": "proposed_non_mutating",
+      "relatedCount": 42
+    },
+    {
+      "id": "DEC-002",
+      "topic": "Proposed location_id / *_loc unique indexes present live but excluded from canonical forward chain",
+      "recommendation": "Decide whether Sunset staging should adopt proposed 023 (promote into forward chain + regenerate canonical fixture) or revert live toward pre-location canonical uniques (data-sensitive).",
+      "status": "needs_operator_decision",
+      "relatedClassifications": [
+        "canonical_manifest_question"
+      ]
+    },
+    {
+      "id": "DEC-003",
+      "topic": "Migration 035_customer_message_templates absent live",
+      "recommendation": "Confirm additive apply is desired in a later repair slice; no seed required for empty table. Not applied in 13A.",
+      "status": "needs_operator_decision",
+      "relatedMigration": "035_customer_message_templates"
+    },
+    {
+      "id": "DEC-004",
+      "topic": "tenant_services live-only columns and missing CHECKs",
+      "recommendation": "Inventory which Sunset admin features depend on live-only columns before any DROP/ADD CONSTRAINT. Likely needs a dedicated repair/design slice.",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-005",
+      "topic": "schema_migration_ledger absent",
+      "recommendation": "Cannot prove applied migration set. Any later repair should introduce ledgered apply discipline; do not invent applied history from live catalog alone.",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-006",
+      "topic": "Ambiguous migration provenance (ALTER-only / weak signatures)",
+      "recommendation": "Fail closed: treat ambiguous migrations as not proven fully_applied until stronger catalog/history evidence exists. Do not auto-repair.",
+      "status": "unresolved_fail_closed",
+      "relatedMigrations": [
+        "018_booking_service_records_nullable_service_date",
+        "019_bookings_language",
+        "020_wolfhouse_room_gender_metadata"
+      ]
+    },
+    {
+      "id": "DEC-007",
+      "topic": "Canonical manifest sha256 ≠ current Git blob (migration_integrity_blocker)",
+      "recommendation": "Do not regenerate or rewrite canonical-manifest.json in Slice 13A. Open a dedicated manifest-integrity repair to re-hash from committed Git blobs (and/or pin eol=lf) after confirming executable SQL is unchanged. Until then, do not claim byte-verified migration provenance or reliable historical apply from the manifest.",
+      "status": "migration_integrity_blocker",
+      "relatedReport": "fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json",
+      "bytesMatchManifest": 2,
+      "bytesMismatchManifest": 34
+    }
+  ]
+}

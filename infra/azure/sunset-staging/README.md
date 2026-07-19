@@ -337,6 +337,27 @@ npm run verify:sunset-schema-observer
 
 ---
 
+## Schema drift classification (FOUNDATION Slice 13A)
+
+**Investigation only** — classifies the 88 canonical/live mismatches and infers structural provenance for all 36 forward migrations. **No repair design, no live mutation, no observer job start.**
+
+Artifacts:
+- `fixtures/sunset-schema-observer/slice13a-mismatch-classification-report.json`
+- `fixtures/sunset-schema-observer/slice13a-migration-provenance-matrix.json`
+- `fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json`
+- `fixtures/sunset-schema-observer/slice13a-findings.md`
+- `fixtures/sunset-schema-observer/slice13a-operator-decision-list.json`
+
+```bash
+npm run build:sunset-schema-slice13a-manifest-hash-report
+npm run build:sunset-schema-slice13a-classification
+npm run verify:sunset-schema-slice13a
+```
+
+**Outcome:** ownership/ACL/extension mismatches are largely Azure environment-identity / observer-normalization differences (do not mutate ownership to match role names). Migration `035_customer_message_templates` is **absent** live and appears safely additive (not applied here). Proposed location_id / `*_loc` index shapes present live remain an operator decision. **migration_integrity_blocker:** manifest sha256 ≠ current Git blob for most forward migrations (CRLF working-tree hashing at Slice 4; executable SQL unchanged) — do not claim byte-verified provenance. `schema_migration_ledger` absent → FOUNDATION still blocked on unresolved DB drift.
+
+---
+
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
 
 Fail-closed convergent provision tooling for the dedicated observer role / DSN secret. **Default is dry-run.** Slice 9 enables live apply for Sunset staging only (`LIVE_APPLY_ENABLED=true`) when `--apply` and env gates are set.
@@ -387,3 +408,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 10 — deploy manual unscheduled `luna-sunset-staging-sch-obs` job (not executed; KV secret ref only) — 2026-07-19*
 *FOUNDATION Slice 11 — execute manual schema-observer job; canonical-vs-live drift unresolved (exit 4 / 88 mismatches); live blessing forbidden; follow-up image repair required — 2026-07-19*
 *FOUNDATION Slice 12 — repair observer job image from canonical master; live observe exit 4; DB drift unresolved; FOUNDATION blocked — 2026-07-19*
+*FOUNDATION Slice 13A — classify 88 mismatches + 36-migration provenance (investigation only; no repair/live mutation) — 2026-07-19*

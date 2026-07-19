@@ -1,0 +1,2765 @@
+{
+  "kind": "sunset-schema-observer-slice13a-mismatch-classification",
+  "label": "investigation only — do not bless live; do not apply repairs from this artifact",
+  "secretFree": true,
+  "containsProductRowValues": false,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "generatedAt": "2026-07-19T14:10:00.440Z",
+  "masterShaBasis": "3c27d4ee3dd9b5678c63037d3ccc524c21907332",
+  "correctionOf": "a322e5dda3ad57e3baf4795720a877b743fdbd53",
+  "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+  "liveEvidence": {
+    "used": true,
+    "pathNote": "gitignored operator-local actual-live-state-evidence.json (label: actual live state — not canonical)",
+    "fingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "sourceLabel": "actual live state — not canonical"
+  },
+  "mismatchCount": 88,
+  "kindTotals": {
+    "expected_only": 31,
+    "live_only": 15,
+    "definition_mismatch": 42
+  },
+  "classificationTotals": {
+    "genuine_database_drift": 29,
+    "observer_normalization_difference": 42,
+    "canonical_manifest_question": 17,
+    "unresolved": 0
+  },
+  "laterRepairShapeTotals": {
+    "additive": 22,
+    "destructive/data-sensitive": 24,
+    "normalization-only": 42
+  },
+  "observerNormalizationDefect": {
+    "identified": true,
+    "summary": "normalizeOwnerName only maps datdba→$db_owner. On Azure Flexible Server, extension/function owners remain azuresu and public schema owner/ACL grantor is azure_pg_admin (canonical local uses pg_database_owner). These compare as definition_mismatch without representing tenant privilege drift.",
+    "doNotMutateOwnershipToMatchRoleNames": true
+  },
+  "classifications": [
+    {
+      "stableKey": "expected_only|tables|customer_message_templates",
+      "kind": "expected_only",
+      "section": "tables",
+      "key": "customer_message_templates",
+      "category": "tables",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "name": "customer_message_templates"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.active",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.active",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "active",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "true"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.body",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.body",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "body",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": null
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.channel",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.channel",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "channel",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'whatsapp'::text"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.client_id",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.client_id",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "client_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": "NO",
+        "default": null
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.created_at",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.created_at",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": "NO",
+        "default": "now()"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.id",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.id",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": "NO",
+        "default": "gen_random_uuid()"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.tags",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.tags",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "tags",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": "NO",
+        "default": "'[]'::jsonb"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.title",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.title",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "title",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": null
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.updated_at",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.updated_at",
+      "category": "columns",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "column": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": "NO",
+        "default": "now()"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_capacity_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_capacity_rules.location_id",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_time_rules.capacity",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.capacity",
+      "category": "columns",
+      "canonicalMigrations": [
+        "001_init",
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "column": "capacity",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": "YES",
+        "default": null
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_time_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.location_id",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|columns|tenant_price_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_price_rules.location_id",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_price_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.block_rooms_enabled",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.block_rooms_enabled",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_services",
+        "column": "block_rooms_enabled",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "false"
+      },
+      "likelyCause": "Live tenant_services has columns (block_rooms_*, weekdays, room_block_booking_ids) absent from canonical expected — likely out-of-band or non-forward DDL on Sunset staging.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Extra columns may be used by Sunset admin UI; removing them would be destructive.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.blocked_room_codes",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.blocked_room_codes",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_services",
+        "column": "blocked_room_codes",
+        "type": "text[]",
+        "udt": "_text",
+        "nullable": "NO",
+        "default": "'{}'::text[]"
+      },
+      "likelyCause": "Live tenant_services has columns (block_rooms_*, weekdays, room_block_booking_ids) absent from canonical expected — likely out-of-band or non-forward DDL on Sunset staging.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Extra columns may be used by Sunset admin UI; removing them would be destructive.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.room_block_booking_ids",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.room_block_booking_ids",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_services",
+        "column": "room_block_booking_ids",
+        "type": "uuid[]",
+        "udt": "_uuid",
+        "nullable": "NO",
+        "default": "'{}'::uuid[]"
+      },
+      "likelyCause": "Live tenant_services has columns (block_rooms_*, weekdays, room_block_booking_ids) absent from canonical expected — likely out-of-band or non-forward DDL on Sunset staging.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Extra columns may be used by Sunset admin UI; removing them would be destructive.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.weekdays",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.weekdays",
+      "category": "columns",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_services",
+        "column": "weekdays",
+        "type": "smallint[]",
+        "udt": "_int2",
+        "nullable": "NO",
+        "default": "'{}'::smallint[]"
+      },
+      "likelyCause": "Live tenant_services has columns (block_rooms_*, weekdays, room_block_booking_ids) absent from canonical expected — likely out-of-band or non-forward DDL on Sunset staging.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Extra columns may be used by Sunset admin UI; removing them would be destructive.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_client_id_fkey",
+        "type": "FOREIGN KEY",
+        "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_pkey",
+        "type": "PRIMARY KEY",
+        "definition": "PRIMARY KEY (id)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_date_window.CHECK",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_services",
+        "name": "tenant_services_date_window",
+        "type": "CHECK",
+        "definition": "CHECK (((end_date IS NULL) OR (start_date IS NULL) OR (end_date >= start_date)))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "CHECK constraints declared in canonical migration 028_tenant_services are absent live (live tenant_services also has extra columns not in canonical).",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Weaker invariant enforcement on tenant_services if CHECKs absent; verify live table definition before any ALTER.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_price_unit.CHECK",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_services",
+        "name": "tenant_services_price_unit",
+        "type": "CHECK",
+        "definition": "CHECK ((price_unit = ANY (ARRAY['per_day'::text, 'per_week'::text, 'per_stay'::text, 'one_off'::text])))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "CHECK constraints declared in canonical migration 028_tenant_services are absent live (live tenant_services also has extra columns not in canonical).",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Weaker invariant enforcement on tenant_services if CHECKs absent; verify live table definition before any ALTER.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "026_tenant_surf_pack_rules"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_updated_by_fkey",
+        "type": "FOREIGN KEY",
+        "definition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+      "kind": "live_only",
+      "section": "constraints",
+      "key": "tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+      "category": "constraints",
+      "canonicalMigrations": [
+        "001_init",
+        "002_package_pricing",
+        "004_payment_schema_phase2",
+        "007_add_addon_orders",
+        "008_add_staff_handoffs",
+        "009_auth_staff_users",
+        "010_booking_service_records",
+        "011_service_payment_linkage",
+        "012_bot_pause_states",
+        "013_guest_message_sends",
+        "016_staff_phone_access",
+        "017_booking_transfers",
+        "021_sunset_admin_business_config",
+        "024_booking_guests",
+        "026_tenant_surf_pack_rules",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "028_tenant_services",
+        "029_booking_service_records_generic_type",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications",
+        "036_sunset_waivers",
+        "037_sunset_group_waivers"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_capacity_check",
+        "type": "CHECK",
+        "definition": "CHECK (((capacity IS NULL) OR ((capacity >= 1) AND (capacity <= 999))))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_client_created",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "032_client_notification_settings"
+      ],
+      "expectedDefinition": {
+        "table": "client_notification_events",
+        "name": "idx_client_notification_events_client_created",
+        "def": "CREATE INDEX idx_client_notification_events_client_created ON public.client_notification_events USING btree (client_slug, created_at DESC)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_conversation",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "032_client_notification_settings"
+      ],
+      "expectedDefinition": {
+        "table": "client_notification_events",
+        "name": "idx_client_notification_events_conversation",
+        "def": "CREATE INDEX idx_client_notification_events_conversation ON public.client_notification_events USING btree (conversation_id, notification_type)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_settings.idx_client_notification_settings_client",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "032_client_notification_settings"
+      ],
+      "expectedDefinition": {
+        "table": "client_notification_settings",
+        "name": "idx_client_notification_settings_client",
+        "def": "CREATE INDEX idx_client_notification_settings_client ON public.client_notification_settings USING btree (client_slug, location_id)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.customer_message_templates_pkey",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_pkey",
+        "def": "CREATE UNIQUE INDEX customer_message_templates_pkey ON public.customer_message_templates USING btree (id)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.idx_customer_message_templates_client_active",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "name": "idx_customer_message_templates_client_active",
+        "def": "CREATE INDEX idx_customer_message_templates_client_active ON public.customer_message_templates USING btree (client_id, active, updated_at DESC)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_date",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date ON public.tenant_lesson_capacity_rules USING btree (client_slug, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_default",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default ON public.tenant_lesson_capacity_rules USING btree (client_slug) WHERE ((scope = 'default'::text) AND (active = true))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_weekday",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday ON public.tenant_lesson_capacity_rules USING btree (client_slug, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "name": "uq_tenant_lesson_time_date",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date ON public.tenant_lesson_time_rules USING btree (client_slug, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "name": "uq_tenant_lesson_time_recurring",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring ON public.tenant_lesson_time_rules USING btree (client_slug, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_price_rules",
+        "name": "uq_tenant_price_rules_active_window",
+        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window ON public.tenant_price_rules USING btree (client_slug, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical expected still has pre-location unique indexes; live replaced them with *_loc variants (proposed 023 pattern). Expected-only index is the superseded pre-location signature.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Index shape drift tied to location_id evolution; dropping/recreating uniques can be data-sensitive.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "026_tenant_surf_pack_rules"
+      ],
+      "expectedDefinition": {
+        "table": "tenant_surf_pack_rules",
+        "name": "idx_tenant_surf_pack_client_loc",
+        "def": "CREATE INDEX idx_tenant_surf_pack_client_loc ON public.tenant_surf_pack_rules USING btree (client_slug, location_id) WHERE (active = true)"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": []
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_date_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_default_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id) WHERE ((scope = 'default'::text) AND (active = true))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "uq_tenant_lesson_capacity_weekday_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "name": "uq_tenant_lesson_time_date_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_lesson_time_rules",
+        "name": "uq_tenant_lesson_time_recurring_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+      "category": "indexes",
+      "canonicalMigrations": [
+        "021_sunset_admin_business_config",
+        "026_tenant_surf_pack_rules",
+        "031_customers",
+        "032_client_notification_settings",
+        "033_tenant_private_lesson_rules",
+        "033_staff_automated_notifications"
+      ],
+      "expectedDefinition": null,
+      "liveDefinition": {
+        "table": "tenant_price_rules",
+        "name": "uq_tenant_price_rules_active_window_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc ON public.tenant_price_rules USING btree (client_slug, location_id, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
+      },
+      "likelyCause": "Live objects match PROPOSED location_id / capacity migrations that are excluded from the canonical forward chain (e.g. 023_sunset_admin_location_id_PROPOSED). Live appears to have applied a non-forward proposed path (or equivalent manual DDL).",
+      "confidence": "high",
+      "semanticSecurityImpact": "Structural divergence: multi-location uniqueness / capacity semantics differ from canonical. May be intentional Sunset staging evolution outside forward chain.",
+      "classification": "canonical_manifest_question",
+      "laterRepairShape": "destructive/data-sensitive",
+      "notes": [
+        "Attributed to proposed-not-executable migration content."
+      ]
+    },
+    {
+      "stableKey": "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "kind": "expected_only",
+      "section": "triggers",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "category": "triggers",
+      "canonicalMigrations": [
+        "026_tenant_surf_pack_rules"
+      ],
+      "expectedDefinition": {
+        "name": "tenant_surf_pack_rules_updated_at",
+        "table": "tenant_surf_pack_rules",
+        "def": "CREATE TRIGGER tenant_surf_pack_rules_updated_at BEFORE UPDATE ON public.tenant_surf_pack_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical forward migrations declare these indexes/triggers/FKs, but they are absent live — partial/absent application of the owning migration(s), or later drop.",
+      "confidence": "medium",
+      "semanticSecurityImpact": "Missing indexes degrade query performance/integrity; missing trigger may skip updated_at maintenance; missing FK weakens referential integrity.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": []
+    },
+    {
+      "stableKey": "expected_only|rlsFlags|customer_message_templates",
+      "kind": "expected_only",
+      "section": "rlsFlags",
+      "key": "customer_message_templates",
+      "category": "rlsFlags",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "table": "customer_message_templates",
+        "enabled": false,
+        "forced": false
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|extension:pgcrypto",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:pgcrypto",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "extension",
+        "name": "pgcrypto",
+        "identity": "pgcrypto",
+        "subkind": "",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "extension",
+        "name": "pgcrypto",
+        "identity": "pgcrypto",
+        "subkind": "",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|extension:plpgsql",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:plpgsql",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "extension",
+        "name": "plpgsql",
+        "identity": "plpgsql",
+        "subkind": "",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "extension",
+        "name": "plpgsql",
+        "identity": "plpgsql",
+        "subkind": "",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.armor(bytea, text[], text[])",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea, text[], text[])",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea, text[], text[])",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea, text[], text[])",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.armor(bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "armor",
+        "identity": "public.armor(bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.crypt(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.crypt(text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "crypt",
+        "identity": "public.crypt(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "crypt",
+        "identity": "public.crypt(text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.dearmor(text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.dearmor(text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "dearmor",
+        "identity": "public.dearmor(text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "dearmor",
+        "identity": "public.dearmor(text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.decrypt_iv(bytea, bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt_iv(bytea, bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "decrypt_iv",
+        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "decrypt_iv",
+        "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.decrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "decrypt",
+        "identity": "public.decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "decrypt",
+        "identity": "public.decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.digest(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.digest(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "digest",
+        "identity": "public.digest(text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.encrypt_iv(bytea, bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt_iv(bytea, bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "encrypt_iv",
+        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "encrypt_iv",
+        "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.encrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "encrypt",
+        "identity": "public.encrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "encrypt",
+        "identity": "public.encrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_random_bytes(integer)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_bytes(integer)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "gen_random_bytes",
+        "identity": "public.gen_random_bytes(integer)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "gen_random_bytes",
+        "identity": "public.gen_random_bytes(integer)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_random_uuid()",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_uuid()",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "gen_random_uuid",
+        "identity": "public.gen_random_uuid()",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "gen_random_uuid",
+        "identity": "public.gen_random_uuid()",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_salt(text, integer)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text, integer)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text, integer)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text, integer)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_salt(text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "gen_salt",
+        "identity": "public.gen_salt(text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.hmac(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.hmac(text, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(text, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(text, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "hmac",
+        "identity": "public.hmac(text, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_armor_headers",
+        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_armor_headers",
+        "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_key_id(bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_key_id(bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_key_id",
+        "identity": "public.pgp_key_id(bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_key_id",
+        "identity": "public.pgp_key_id(bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt_bytea",
+        "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_decrypt",
+        "identity": "public.pgp_pub_decrypt(bytea, bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt_bytea",
+        "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_pub_encrypt",
+        "identity": "public.pgp_pub_encrypt(text, bytea)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt_bytea",
+        "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_decrypt",
+        "identity": "public.pgp_sym_decrypt(bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt_bytea",
+        "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text)",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text)",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": {
+        "kind": "function",
+        "name": "pgp_sym_encrypt",
+        "identity": "public.pgp_sym_encrypt(text, text)",
+        "subkind": "f",
+        "owner": "azuresu"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "expected_only|ownership|relation:customer_message_templates",
+      "kind": "expected_only",
+      "section": "ownership",
+      "key": "relation:customer_message_templates",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "kind": "relation",
+        "name": "customer_message_templates",
+        "identity": "customer_message_templates",
+        "subkind": "r",
+        "owner": "$db_owner"
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|schema:public",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "schema:public",
+      "category": "ownership",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "owner": "pg_database_owner"
+      },
+      "liveDefinition": {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "owner": "azure_pg_admin"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=pg_database_owner liveOwner=azure_pg_admin",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "expected_only|acls|relation:customer_message_templates",
+      "kind": "expected_only",
+      "section": "acls",
+      "key": "relation:customer_message_templates",
+      "category": "acls",
+      "canonicalMigrations": [
+        "035_customer_message_templates"
+      ],
+      "expectedDefinition": {
+        "kind": "relation",
+        "name": "customer_message_templates",
+        "identity": "customer_message_templates",
+        "subkind": "r",
+        "acl": ""
+      },
+      "liveDefinition": null,
+      "likelyCause": "Canonical migration 035_customer_message_templates was not applied on sunset_staging (table and dependents absent). schema_migration_ledger also absent, so applied-set cannot be proven from ledger.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Product feature gap: staff CRM message templates unavailable. Not a privilege escalation. Additive table absence.",
+      "classification": "genuine_database_drift",
+      "laterRepairShape": "additive",
+      "notes": [
+        "Cascade of missing table/columns/indexes/constraints/ownership/acls/rlsFlags row."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|acls|schema:public",
+      "kind": "definition_mismatch",
+      "section": "acls",
+      "key": "schema:public",
+      "category": "acls",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "acl": "=U/pg_database_owner,pg_database_owner=UC/pg_database_owner"
+      },
+      "liveDefinition": {
+        "kind": "schema",
+        "name": "public",
+        "identity": "public",
+        "subkind": "",
+        "acl": "=U/azure_pg_admin,azure_pg_admin=UC/azure_pg_admin"
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=n/a liveOwner=n/a",
+        "expectedAcl==U/pg_database_owner,pg_database_owner=UC/pg_database_owner liveAcl==U/azure_pg_admin,azure_pg_admin=UC/azure_pg_admin",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|extensions|pgcrypto",
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "pgcrypto",
+      "category": "extensions",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "name": "pgcrypto",
+        "version": "1.3",
+        "owner": "$db_owner",
+        "schema": "public",
+        "relocatable": true,
+        "configRelations": "",
+        "configConditions": ""
+      },
+      "liveDefinition": {
+        "name": "pgcrypto",
+        "version": "1.3",
+        "owner": "azuresu",
+        "schema": "public",
+        "relocatable": true,
+        "configRelations": "",
+        "configConditions": ""
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    },
+    {
+      "stableKey": "definition_mismatch|extensions|plpgsql",
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "plpgsql",
+      "category": "extensions",
+      "canonicalMigrations": [
+        "001_init",
+        "027_wolfhouse_staff_whatsapp_numbers",
+        "031_customers"
+      ],
+      "expectedDefinition": {
+        "name": "plpgsql",
+        "version": "1.0",
+        "owner": "$db_owner",
+        "schema": "pg_catalog",
+        "relocatable": false,
+        "configRelations": "",
+        "configConditions": ""
+      },
+      "liveDefinition": {
+        "name": "plpgsql",
+        "version": "1.0",
+        "owner": "azuresu",
+        "schema": "pg_catalog",
+        "relocatable": false,
+        "configRelations": "",
+        "configConditions": ""
+      },
+      "likelyCause": "Azure Database for PostgreSQL Flexible Server environment identities (azuresu / azure_pg_admin) differ from local-canonical normalized owners ($db_owner / pg_database_owner). Observer normalizeOwnerName only rewrites datdba→$db_owner and does not equate azuresu or azure_pg_admin↔pg_database_owner. Extension/function ownership and public schema ACL text therefore compare unequal despite equivalent platform defaults.",
+      "confidence": "high",
+      "semanticSecurityImpact": "Low product-security impact: platform extension/schema ownership, not tenant privilege grants. Do not REASSIGN OWNED / ALTER OWNER merely to match role names.",
+      "classification": "observer_normalization_difference",
+      "laterRepairShape": "normalization-only",
+      "notes": [
+        "expectedOwner=$db_owner liveOwner=azuresu",
+        "Observer normalization defect candidate: Azure platform roles not treated as environment-equivalent."
+      ]
+    }
+  ]
+}
