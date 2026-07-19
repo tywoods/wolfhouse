@@ -2,7 +2,7 @@
 
 **Status:** complete (real adapter implemented; live execution hard-disabled; offline fake-Client proof)
 **Master basis:** `ff136a18c1582e7749220ed00dcb1a7d51c0b999`
-**Generated:** 2026-07-19T19:02:17.059Z
+**Generated:** 2026-07-19T19:05:37.079Z
 
 ## Outcome
 
@@ -15,13 +15,13 @@ Implemented the real PostgreSQL read-only adapter behind the merged Slice **14B*
 5. exact aggregate (count-only)
 6. `COMMIT` (or `ROLLBACK` on failure)
 
-`client.end()` always runs in `finally`. Live execution remains hard-disabled (`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false`). Default and live-disabled paths instantiate **zero** Clients.
+`client.end()` is attempted exactly once in `finally` after connect/query success or failure. Close/end failure is **fail-closed**: otherwise-successful runs become `ok:false` / `code:close_failed` / `closed:false` (count-only data may be preserved; never a successful completed adapter run). If connect/query/commit already failed, the primary code is retained and sanitized `closeFailure=true` / `closeError` metadata is attached. Live execution remains hard-disabled (`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false`). Default and live-disabled paths instantiate **zero** Clients.
 
 ## RED / GREEN
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero Clients; caller DSN/host/query; observer DSN; wrong/reordered/extra SQL; connect/query/commit failures sanitized; close failure sanitized; rollback+close on failure |
+| RED | default zero Clients; caller DSN/host/query; observer DSN; wrong/reordered/extra SQL; connect/query/commit failures sanitized; close failure fail-closed (`close_failed`); query+close failure retains primary query code; rollback+close on failure |
 | GREEN | live-disabled exact target → zero Clients; exact sequence count-only success with fake Client; TLS+timeout in secret-free config view |
 
 ## Non-goals / still open

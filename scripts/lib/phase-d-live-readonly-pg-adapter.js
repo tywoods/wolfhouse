@@ -419,20 +419,52 @@ function instantiatePgClient(clientConfig, deps) {
 
 async function closeClientQuietly(client, secrets) {
   if (!client || typeof client.end !== 'function') {
-    return { closed: false, closeError: null };
+    return { closed: false, closeError: null, attempted: false };
   }
   try {
     await client.end();
-    return { closed: true, closeError: null };
+    return { closed: true, closeError: null, attempted: true };
   } catch (e) {
     return {
       closed: false,
+      attempted: true,
       closeError: redactSecrets(
         String((e && e.message) || e || 'close failed').slice(0, 240),
         secrets || [],
       ),
     };
   }
+}
+
+/**
+ * Apply fail-closed close semantics onto an adapter outcome.
+ * - Primary close failure (otherwise ok): ok:false, code close_failed, closed:false.
+ * - Secondary close failure: retain primary code; set closeFailure=true + closeError.
+ * Never claims a successful completed adapter run when end/close failed.
+ */
+function applyCloseOutcome(outcome, closeMeta) {
+  const next = outcome || {};
+  next.closed = closeMeta && closeMeta.closed === true;
+  if (!(closeMeta && closeMeta.closeError)) {
+    next.closeError = null;
+    return next;
+  }
+
+  const sanitized = closeMeta.closeError;
+  next.closed = false;
+  next.closeError = sanitized;
+
+  if (next.ok === true) {
+    // Preserve count-only data (counts/schema/steps) when the sequence completed,
+    // but never claim a successful completed adapter run.
+    next.ok = false;
+    next.code = 'close_failed';
+    next.message = sanitized;
+  } else {
+    // Do not mask an earlier primary connect/query/commit error.
+    next.closeFailure = true;
+  }
+  return next;
 }
 
 /**
@@ -446,7 +478,8 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
   const options = opts || {};
   const secrets = [];
   let client = null;
-  let closeMeta = { closed: false, closeError: null };
+  let closeMeta = { closed: false, closeError: null, attempted: false };
+  let closeAttempted = false;
   const counters = {
     clientsInstantiated: 0,
     connectCalls: 0,
@@ -642,14 +675,17 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       writesLedger: false,
     };
   } finally {
-    closeMeta = await closeClientQuietly(client, secrets);
-    if (client && typeof client.end === 'function') {
-      counters.endCalls += 1;
+    // Close exactly once after connect success/failure and query success/failure.
+    if (!closeAttempted) {
+      closeAttempted = true;
+      closeMeta = await closeClientQuietly(client, secrets);
+      if (closeMeta.attempted) {
+        counters.endCalls += 1;
+      }
     }
   }
 
-  outcome.closed = closeMeta.closed;
-  outcome.closeError = closeMeta.closeError;
+  outcome = applyCloseOutcome(outcome, closeMeta);
   outcome.counters = {
     ...(outcome.counters || {}),
     endCalls: counters.endCalls,
@@ -847,6 +883,8 @@ module.exports = {
   authorizedQuery,
   runAuthorizedReadOnlySequence,
   instantiatePgClient,
+  closeClientQuietly,
+  applyCloseOutcome,
   executePhaseDLiveReadonlyPgAdapter,
   defaultPhaseDLiveReadonlyPgAdapterPath,
   createScriptedFakePgClient,

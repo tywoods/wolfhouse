@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:02:17.059Z",
+  "generatedAt": "2026-07-19T19:05:37.079Z",
   "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
   "slice": "14C",
   "outcome": "phase_d_live_readonly_pg_adapter_proven_offline_hard_disabled",
@@ -54,7 +54,8 @@
     "connectFailureSanitizedCloseOccurs": true,
     "queryFailureRollbackAndClose": true,
     "commitFailureRollbackAndClose": true,
-    "closeFailureSanitized": true,
+    "closeFailureFailClosed": true,
+    "queryFailurePlusCloseFailurePrimaryRetained": true,
     "credentialsNeverInLogsResultsErrors": true,
     "callerDsnHostQueryRejected": true,
     "observerDsnRejectedBeforeClient": true,
@@ -115,11 +116,22 @@
       "rolledBack": true
     },
     {
-      "name": "close_failure_sanitized",
+      "name": "close_failure_fail_closed",
       "ok": true,
-      "sequenceOk": true,
+      "code": "close_failed",
       "closed": false,
-      "closeErrorPresent": true
+      "countsPreserved": true,
+      "credentialsAbsent": true,
+      "endCalls": 1
+    },
+    {
+      "name": "query_failure_plus_close_failure_primary_retained",
+      "ok": true,
+      "code": "query_failed",
+      "closeFailure": true,
+      "closed": false,
+      "credentialsAbsent": true,
+      "endCalls": 1
     }
   ],
   "greenCases": [

@@ -14,7 +14,7 @@
   "defaultEnabled": false,
   "dualEnableFlagsRequired": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:02:17.059Z",
+  "generatedAt": "2026-07-19T19:05:37.079Z",
   "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
   "slice": "14C",
   "purpose": "Real PostgreSQL read-only adapter behind merged 14B boundary; live execution hard-disabled; offline scripted fake pg Client proof only.",

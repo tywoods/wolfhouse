@@ -459,7 +459,7 @@ async function main() {
     rolledBack: true,
   });
 
-  // --- close failure sanitized ---
+  // --- RED: otherwise-successful sequence + close failure => close_failed ---
   resetPgClientInstantiateCount();
   const FakeCloseFail = createScriptedFakePgClientFactory({
     closeError: Object.assign(
@@ -474,18 +474,73 @@ async function main() {
     Client: FakeCloseFail,
   });
   leakScan(closeFail, secrets);
-  if (!closeFail.ok
+  const closeFailEnds = FakeCloseFail.instances[0].calls.filter((c) => c.method === 'end');
+  if (closeFail.ok !== false
+    || closeFail.code !== 'close_failed'
     || closeFail.closed !== false
     || !closeFail.closeError
-    || String(closeFail.closeError).includes(FAKE_ADMIN_PASSWORD)) {
-    throw new Error(`close failure sanitization failed: ${JSON.stringify(closeFail)}`);
+    || String(closeFail.closeError).includes(FAKE_ADMIN_PASSWORD)
+    || String(closeFail.message || '').includes(FAKE_ADMIN_PASSWORD)
+    || !closeFail.counts
+    || closeFail.counts.total_rows == null
+    || closeFailEnds.length !== 1
+    || closeFail.counters.endCalls !== 1) {
+    throw new Error(`close failure fail-closed failed: ${JSON.stringify(closeFail)}`);
   }
   red.push({
-    name: 'close_failure_sanitized',
+    name: 'close_failure_fail_closed',
     ok: true,
-    sequenceOk: true,
+    code: 'close_failed',
     closed: false,
-    closeErrorPresent: true,
+    countsPreserved: true,
+    credentialsAbsent: true,
+    endCalls: 1,
+  });
+
+  // --- RED: query failure + close failure => retain primary query code ---
+  resetPgClientInstantiateCount();
+  const FakeQueryAndCloseFail = createScriptedFakePgClientFactory({
+    queryErrorAt: {
+      aggregate: Object.assign(
+        new Error(`query boom ${FAKE_ADMIN_PASSWORD}`),
+        { code: 'query_failed' },
+      ),
+    },
+    closeError: Object.assign(
+      new Error(`close boom ${FAKE_ADMIN_PASSWORD}`),
+      { code: 'close_failed' },
+    ),
+  });
+  const queryCloseFail = await executePhaseDLiveReadonlyPgAdapter({
+    env: dualEnv(),
+    azureAdapters: createInjectedAzureAdapters({}),
+    dbAdapters: createInjectedDbAdapters({}),
+    Client: FakeQueryAndCloseFail,
+  });
+  leakScan(queryCloseFail, secrets);
+  const qcfEnds = FakeQueryAndCloseFail.instances[0].calls
+    .filter((c) => c.method === 'end');
+  if (queryCloseFail.ok !== false
+    || queryCloseFail.code !== 'query_failed'
+    || queryCloseFail.closeFailure !== true
+    || queryCloseFail.closed !== false
+    || !queryCloseFail.closeError
+    || String(queryCloseFail.closeError).includes(FAKE_ADMIN_PASSWORD)
+    || String(queryCloseFail.message || '').includes(FAKE_ADMIN_PASSWORD)
+    || qcfEnds.length !== 1
+    || queryCloseFail.counters.endCalls !== 1) {
+    throw new Error(
+      `query+close failure primary retention failed: ${JSON.stringify(queryCloseFail)}`,
+    );
+  }
+  red.push({
+    name: 'query_failure_plus_close_failure_primary_retained',
+    ok: true,
+    code: 'query_failed',
+    closeFailure: true,
+    closed: false,
+    credentialsAbsent: true,
+    endCalls: 1,
   });
 
   // --- TLS / locked config unit checks ---
@@ -655,7 +710,8 @@ async function main() {
       connectFailureSanitizedCloseOccurs: true,
       queryFailureRollbackAndClose: true,
       commitFailureRollbackAndClose: true,
-      closeFailureSanitized: true,
+      closeFailureFailClosed: true,
+      queryFailurePlusCloseFailurePrimaryRetained: true,
       credentialsNeverInLogsResultsErrors: true,
       callerDsnHostQueryRejected: true,
       observerDsnRejectedBeforeClient: true,
@@ -687,13 +743,13 @@ Implemented the real PostgreSQL read-only adapter behind the merged Slice **14B*
 5. exact aggregate (count-only)
 6. \`COMMIT\` (or \`ROLLBACK\` on failure)
 
-\`client.end()\` always runs in \`finally\`. Live execution remains hard-disabled (\`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false\`). Default and live-disabled paths instantiate **zero** Clients.
+\`client.end()\` is attempted exactly once in \`finally\` after connect/query success or failure. Close/end failure is **fail-closed**: otherwise-successful runs become \`ok:false\` / \`code:close_failed\` / \`closed:false\` (count-only data may be preserved; never a successful completed adapter run). If connect/query/commit already failed, the primary code is retained and sanitized \`closeFailure=true\` / \`closeError\` metadata is attached. Live execution remains hard-disabled (\`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false\`). Default and live-disabled paths instantiate **zero** Clients.
 
 ## RED / GREEN
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero Clients; caller DSN/host/query; observer DSN; wrong/reordered/extra SQL; connect/query/commit failures sanitized; close failure sanitized; rollback+close on failure |
+| RED | default zero Clients; caller DSN/host/query; observer DSN; wrong/reordered/extra SQL; connect/query/commit failures sanitized; close failure fail-closed (\`close_failed\`); query+close failure retains primary query code; rollback+close on failure |
 | GREEN | live-disabled exact target → zero Clients; exact sequence count-only success with fake Client; TLS+timeout in secret-free config view |
 
 ## Non-goals / still open

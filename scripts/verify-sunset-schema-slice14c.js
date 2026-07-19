@@ -79,7 +79,8 @@ const REQUIRED_RED = [
   'connect_failure_sanitized_close_occurs',
   'query_failure_rollback_and_close',
   'commit_failure_rollback_and_close',
-  'close_failure_sanitized',
+  'close_failure_fail_closed',
+  'query_failure_plus_close_failure_primary_retained',
 ];
 
 const REQUIRED_GREEN = [
@@ -216,7 +217,8 @@ async function main() {
     && evidence.offlineGates.connectFailureSanitizedCloseOccurs === true
     && evidence.offlineGates.queryFailureRollbackAndClose === true
     && evidence.offlineGates.commitFailureRollbackAndClose === true
-    && evidence.offlineGates.closeFailureSanitized === true
+    && evidence.offlineGates.closeFailureFailClosed === true
+    && evidence.offlineGates.queryFailurePlusCloseFailurePrimaryRetained === true
     && evidence.offlineGates.credentialsNeverInLogsResultsErrors === true);
 
   pass('no-live-mutation-claims',
@@ -305,6 +307,9 @@ async function main() {
     && /unauthorized_sql/.test(libSrc)
     && /createScriptedFakePgClient/.test(libSrc)
     && /live_readonly_connect_disabled/.test(adaptersSrc)
+    && /applyCloseOutcome/.test(libSrc)
+    && /code:\s*'close_failed'/.test(libSrc)
+    && /closeFailure\s*=\s*true/.test(libSrc)
     && evidence.stillProductSchemaDiffers === true);
 
   pass('npm-commands',
@@ -318,6 +323,8 @@ async function main() {
     && /Phase D/.test(findings)
     && /Zero live\/Azure mutation/i.test(findings)
     && /hard-disabled/i.test(findings)
+    && /fail-closed/i.test(findings)
+    && /close_failed/i.test(findings)
     && !/Sunset is repaired/i.test(findings.replace(/Do not claim[\s\S]*?repaired/i, '')));
 
   const artifactText = `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`;
