@@ -71,6 +71,9 @@ const {
   MI_LOADER_LOCKS,
   buildLockedImdsTokenUrl,
   buildLockedKeyVaultSecretUrl,
+  extractImdsClientIdFromUrlOrPath,
+  assertImdsRequestClientIdLocked,
+  assertImdsTokenIdentityIfExposed,
   evaluateCredentialSource,
   loadProtectedAdminCredentialsViaManagedIdentity,
   parseSunsetDatabaseUrlSecretInMemory,
@@ -353,6 +356,145 @@ async function main() {
     missingTokenRejected: missingToken.code === 'imds_token_missing',
   });
 
+  // RED: wrong / omitted IMDS client_id + wrong token identity — reject before Key Vault
+  const WRONG_MI_CLIENT_ID = '0e05fbe3-e8c5-48aa-a914-30aed284e6f7'; // sunset CA MI — not Lunabox
+  const omitClientIdUrl = (
+    `http://${MI_LOADER_LOCKS.imdsHost}${MI_LOADER_LOCKS.imdsPath}`
+    + `?api-version=${MI_LOADER_LOCKS.imdsApiVersion}`
+    + `&resource=${encodeURIComponent(MI_LOADER_LOCKS.vaultResourceAudience)}`
+  );
+  const wrongClientIdUrl = (
+    `http://${MI_LOADER_LOCKS.imdsHost}${MI_LOADER_LOCKS.imdsPath}`
+    + `?api-version=${MI_LOADER_LOCKS.imdsApiVersion}`
+    + `&resource=${encodeURIComponent(MI_LOADER_LOCKS.vaultResourceAudience)}`
+    + `&client_id=${WRONG_MI_CLIENT_ID}`
+  );
+  let omitRejected = false;
+  let omitCode = null;
+  try {
+    assertImdsRequestClientIdLocked(omitClientIdUrl);
+  } catch (e) {
+    omitRejected = e.code === 'imds_client_id_required';
+    omitCode = e.code;
+  }
+  let wrongReqRejected = false;
+  let wrongReqCode = null;
+  try {
+    assertImdsRequestClientIdLocked(wrongClientIdUrl);
+  } catch (e) {
+    wrongReqRejected = e.code === 'imds_client_id_mismatch';
+    wrongReqCode = e.code;
+  }
+  if (!omitRejected || !wrongReqRejected) {
+    throw new Error(`IMDS client_id omit/wrong must reject: ${omitCode}/${wrongReqCode}`);
+  }
+  // Injected router refuses omit/wrong client_id on the request path.
+  const omitPathHttp = createInjectedManagedIdentityHttp({
+    imdsAccessToken: FAKE_IMDS_TOKEN,
+    defaultSecretValue: validSecretValue(),
+  });
+  const omitPathRes = await omitPathHttp({
+    purpose: 'imds_token',
+    hostname: MI_LOADER_LOCKS.imdsHost,
+    method: 'GET',
+    path: `${MI_LOADER_LOCKS.imdsPath}?api-version=${MI_LOADER_LOCKS.imdsApiVersion}`
+      + `&resource=${encodeURIComponent(MI_LOADER_LOCKS.vaultResourceAudience)}`,
+    headers: { Metadata: 'true' },
+  });
+  if (omitPathRes.statusCode !== 400) {
+    throw new Error('injected IMDS without client_id must 400');
+  }
+  const wrongPathRes = await omitPathHttp({
+    purpose: 'imds_token',
+    hostname: MI_LOADER_LOCKS.imdsHost,
+    method: 'GET',
+    path: `${MI_LOADER_LOCKS.imdsPath}?api-version=${MI_LOADER_LOCKS.imdsApiVersion}`
+      + `&resource=${encodeURIComponent(MI_LOADER_LOCKS.vaultResourceAudience)}`
+      + `&client_id=${WRONG_MI_CLIENT_ID}`,
+    headers: { Metadata: 'true' },
+  });
+  if (wrongPathRes.statusCode !== 400) {
+    throw new Error('injected IMDS with wrong client_id must 400');
+  }
+
+  resetManagedIdentityHttpCounters();
+  const wrongTokenIdentity = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: miEnv(),
+    argv: miArgv(),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      imdsResponseClientId: WRONG_MI_CLIENT_ID,
+      defaultSecretValue: validSecretValue(),
+    }),
+  });
+  if (wrongTokenIdentity.ok
+    || wrongTokenIdentity.code !== 'imds_token_identity_mismatch'
+    || getManagedIdentityHttpCounters().keyVaultRequestCount !== 0) {
+    throw new Error(
+      `wrong token client_id must reject before KV: ${wrongTokenIdentity.code}`
+      + ` kv=${getManagedIdentityHttpCounters().keyVaultRequestCount}`,
+    );
+  }
+  resetManagedIdentityHttpCounters();
+  const wrongPrincipal = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: miEnv(),
+    argv: miArgv(),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      imdsResponsePrincipalId: '00000000-0000-0000-0000-000000000000',
+      defaultSecretValue: validSecretValue(),
+    }),
+  });
+  if (wrongPrincipal.ok
+    || wrongPrincipal.code !== 'imds_token_identity_mismatch'
+    || getManagedIdentityHttpCounters().keyVaultRequestCount !== 0) {
+    throw new Error(`wrong token principal must reject before KV: ${wrongPrincipal.code}`);
+  }
+  resetManagedIdentityHttpCounters();
+  const wrongName = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: miEnv(),
+    argv: miArgv(),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      imdsResponseIdentityName: 'luna-sunset-staging-identity',
+      defaultSecretValue: validSecretValue(),
+    }),
+  });
+  if (wrongName.ok
+    || wrongName.code !== 'imds_token_identity_mismatch'
+    || getManagedIdentityHttpCounters().keyVaultRequestCount !== 0) {
+    throw new Error(`wrong token identity name must reject before KV: ${wrongName.code}`);
+  }
+  // Matching exposed identity proceeds; omitted identity fields also allowed.
+  let identityAssertOk = false;
+  try {
+    assertImdsTokenIdentityIfExposed({
+      access_token: 'x',
+      client_id: MI_LOADER_LOCKS.managedIdentityClientId,
+      principal_id: MI_LOADER_LOCKS.managedIdentityPrincipalId,
+      identity: MI_LOADER_LOCKS.managedIdentityName,
+    });
+    assertImdsTokenIdentityIfExposed({ access_token: 'x' });
+    identityAssertOk = true;
+  } catch (_) {
+    identityAssertOk = false;
+  }
+  if (!identityAssertOk) throw new Error('matching/absent token identity must pass');
+  red.push({
+    name: 'wrong_imds_client_id_or_token_identity_rejected_before_kv',
+    ok: true,
+    omitClientIdRejected: omitRejected,
+    wrongRequestClientIdRejected: wrongReqRejected,
+    injectedOmitClientIdRejected: omitPathRes.statusCode === 400,
+    injectedWrongClientIdRejected: wrongPathRes.statusCode === 400,
+    wrongTokenClientIdCode: wrongTokenIdentity.code,
+    wrongTokenPrincipalCode: wrongPrincipal.code,
+    wrongTokenIdentityNameCode: wrongName.code,
+    keyVaultCallsAfterIdentityReject: 0,
+    lockedManagedIdentityName: MI_LOADER_LOCKS.managedIdentityName,
+    lockedManagedIdentityClientId: MI_LOADER_LOCKS.managedIdentityClientId,
+  });
+
   // RED: wrong vault secret / status / redirect / JSON
   const wrongSecretPath = async (req) => {
     if (req.purpose === 'keyvault_secret') {
@@ -631,14 +773,50 @@ async function main() {
   // GREEN: locks documented
   const imdsUrl = buildLockedImdsTokenUrl();
   const kvUrl = buildLockedKeyVaultSecretUrl();
+  const lockedClientIdInUrl = extractImdsClientIdFromUrlOrPath(imdsUrl);
   if (!imdsUrl.includes(MI_LOADER_LOCKS.imdsHost)
     || !imdsUrl.includes(encodeURIComponent(MI_LOADER_LOCKS.vaultResourceAudience))
     || !imdsUrl.includes(MI_LOADER_LOCKS.imdsApiVersion)
+    || lockedClientIdInUrl !== MI_LOADER_LOCKS.managedIdentityClientId
+    || MI_LOADER_LOCKS.managedIdentityName !== 'wh-staging-identity'
+    || MI_LOADER_LOCKS.managedIdentityClientId !== '0dd41fa2-52c8-4e04-bc23-8aa462938c19'
+    || MI_LOADER_LOCKS.managedIdentityPrincipalId !== 'e3136eed-948b-4947-a26e-50a33b45a41a'
     || !kvUrl.startsWith(MI_LOADER_LOCKS.keyVaultHttpsUrl)
     || !kvUrl.includes(MI_LOADER_LOCKS.secretName)
     || !kvUrl.includes(MI_LOADER_LOCKS.keyVaultApiVersion)) {
     throw new Error('lock URL builders drifted');
   }
+  assertImdsRequestClientIdLocked(imdsUrl);
+  // Success with matching exposed token identity + with omitted identity both OK
+  resetManagedIdentityHttpCounters();
+  const matchIdentityLoad = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: miEnv(),
+    argv: miArgv(),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      imdsResponseClientId: MI_LOADER_LOCKS.managedIdentityClientId,
+      imdsResponsePrincipalId: MI_LOADER_LOCKS.managedIdentityPrincipalId,
+      imdsResponseIdentityName: MI_LOADER_LOCKS.managedIdentityName,
+      defaultSecretValue: validSecretValue(),
+    }),
+  });
+  if (!matchIdentityLoad.ok) {
+    throw new Error(`matching token identity must load: ${matchIdentityLoad.code}`);
+  }
+  zeroPrivateCredentialRefs(matchIdentityLoad);
+  const omitIdentityLoad = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: miEnv(),
+    argv: miArgv(),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      imdsOmitClientIdInResponse: true,
+      defaultSecretValue: validSecretValue(),
+    }),
+  });
+  if (!omitIdentityLoad.ok) {
+    throw new Error(`absent token identity fields must load: ${omitIdentityLoad.code}`);
+  }
+  zeroPrivateCredentialRefs(omitIdentityLoad);
   green.push({
     name: 'locks_imds_vault_secret_api_pg_tls',
     ok: true,
@@ -650,11 +828,17 @@ async function main() {
       secretName: MI_LOADER_LOCKS.secretName,
       imdsApiVersion: MI_LOADER_LOCKS.imdsApiVersion,
       keyVaultApiVersion: MI_LOADER_LOCKS.keyVaultApiVersion,
+      managedIdentityName: MI_LOADER_LOCKS.managedIdentityName,
       managedIdentityClientId: MI_LOADER_LOCKS.managedIdentityClientId,
+      managedIdentityPrincipalId: MI_LOADER_LOCKS.managedIdentityPrincipalId,
+      lunaboxVmResourceId: MI_LOADER_LOCKS.lunaboxVmResourceId,
       postgresHost: MI_LOADER_LOCKS.postgresHost,
       database: MI_LOADER_LOCKS.database,
       sslmode: MI_LOADER_LOCKS.sslmode,
     },
+    imdsRequestClientIdEqualsLock: true,
+    matchingTokenIdentityAccepted: true,
+    absentTokenIdentityFieldsAccepted: true,
   });
 
   // Boundary still ready under dual flags with deferred MI
@@ -705,11 +889,16 @@ async function main() {
       secretName: MI_LOADER_LOCKS.secretName,
       imdsApiVersion: MI_LOADER_LOCKS.imdsApiVersion,
       keyVaultApiVersion: MI_LOADER_LOCKS.keyVaultApiVersion,
+      managedIdentityName: MI_LOADER_LOCKS.managedIdentityName,
       managedIdentityClientId: MI_LOADER_LOCKS.managedIdentityClientId,
+      managedIdentityPrincipalId: MI_LOADER_LOCKS.managedIdentityPrincipalId,
+      lunaboxVmResourceId: MI_LOADER_LOCKS.lunaboxVmResourceId,
       postgresHost: MI_LOADER_LOCKS.postgresHost,
       database: MI_LOADER_LOCKS.database,
       sslmode: MI_LOADER_LOCKS.sslmode,
       port: MI_LOADER_LOCKS.port,
+      imdsRequestClientIdRequired: true,
+      imdsTokenIdentityVerifiedIfExposed: true,
     },
     credentialSources: {
       protectedAdminEnv: CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
@@ -817,6 +1006,7 @@ async function main() {
       managedIdentityFlagRequiresEnvAndArgv: true,
       callerUrlsNamesTokensDsnsRejected: true,
       wrongImdsRejected: true,
+      wrongImdsClientIdOrTokenIdentityRejectedBeforeKv: true,
       wrongVaultSecretRejected: true,
       wrongSecretPgTargetRejectedBeforeClient: true,
       tokenDsnPasswordBearingErrorsSanitized: true,
@@ -880,8 +1070,13 @@ Locks:
 | Secret name | \`${MI_LOADER_LOCKS.secretName}\` |
 | IMDS API version | \`${MI_LOADER_LOCKS.imdsApiVersion}\` |
 | Key Vault API version | \`${MI_LOADER_LOCKS.keyVaultApiVersion}\` |
-| MI client id | \`${MI_LOADER_LOCKS.managedIdentityClientId}\` |
+| Lunabox MI name | \`${MI_LOADER_LOCKS.managedIdentityName}\` |
+| Lunabox MI client id | \`${MI_LOADER_LOCKS.managedIdentityClientId}\` |
+| Lunabox MI principal id | \`${MI_LOADER_LOCKS.managedIdentityPrincipalId}\` |
+| Lunabox VM | \`${MI_LOADER_LOCKS.lunaboxVmResourceId}\` |
 | PG host / database / TLS | \`${MI_LOADER_LOCKS.postgresHost}\` / \`${MI_LOADER_LOCKS.database}\` / \`${MI_LOADER_LOCKS.sslmode}\` |
+
+IMDS request \`client_id\` must equal the locked Lunabox \`wh-staging-identity\` client id (never omit / system / default / arbitrary). When the IMDS token JSON exposes identity metadata (\`client_id\` / \`principal_id\` / name), it must match; mismatch is rejected **before** Key Vault.
 
 Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memory; user/password validated against the exact target; passed privately to the existing 14D adapter; then private refs are zeroed. Token / DSN / credentials are never printed, returned, persisted, hashed, evidenced, argv-embedded, temp-filed, or child-process-env'd.
 
@@ -894,8 +1089,8 @@ Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memor
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; password-bearing errors sanitized |
-| GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks |
+| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
+| GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks (wh-staging-identity) |
 
 ## Non-goals / still open
 

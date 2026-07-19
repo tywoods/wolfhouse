@@ -46,8 +46,19 @@ const MI_LOADER_LOCKS = Object.freeze({
   keyVaultHttpsUrl: 'https://luna-sunset-staging-kv.vault.azure.net',
   secretName: 'sunset-database-url',
   keyVaultApiVersion: '7.4',
-  /** User-assigned MI client id for luna-sunset-staging-identity (not a secret). */
-  managedIdentityClientId: '0e05fbe3-e8c5-48aa-a914-30aed284e6f7',
+  /**
+   * Lunabox VM user-assigned identity (live ARM/IMDS read-only inspection).
+   * Not luna-sunset-staging-identity — that is the Sunset Container App MI.
+   * Identity / client / principal ids are not secrets.
+   */
+  managedIdentityName: 'wh-staging-identity',
+  managedIdentityClientId: '0dd41fa2-52c8-4e04-bc23-8aa462938c19',
+  managedIdentityPrincipalId: 'e3136eed-948b-4947-a26e-50a33b45a41a',
+  lunaboxVmResourceId: (
+    '/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9'
+    + '/resourceGroups/wh-staging-rg'
+    + '/providers/Microsoft.Compute/virtualMachines/lunabox'
+  ),
   postgresHost: TARGETS.postgresHost,
   database: TARGETS.database,
   sslmode: TARGETS.sslmode,
@@ -74,6 +85,7 @@ function resetManagedIdentityHttpCounters() {
 }
 
 function buildLockedImdsTokenUrl() {
+  // client_id is mandatory: omitting it would select system/default/arbitrary MI.
   const q = new URLSearchParams({
     'api-version': MI_LOADER_LOCKS.imdsApiVersion,
     resource: MI_LOADER_LOCKS.vaultResourceAudience,
@@ -83,6 +95,94 @@ function buildLockedImdsTokenUrl() {
     `${MI_LOADER_LOCKS.imdsScheme}://${MI_LOADER_LOCKS.imdsHost}`
     + `${MI_LOADER_LOCKS.imdsPath}?${q.toString()}`
   );
+}
+
+/**
+ * Extract client_id from an IMDS token URL or request path+query.
+ * Returns null when absent (must never be accepted for this loader).
+ */
+function extractImdsClientIdFromUrlOrPath(urlOrPath) {
+  const raw = String(urlOrPath || '');
+  let search = '';
+  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(raw)) {
+    try {
+      search = new URL(raw).search;
+    } catch (_) {
+      return null;
+    }
+  } else {
+    const q = raw.indexOf('?');
+    search = q >= 0 ? raw.slice(q) : '';
+  }
+  if (!search) return null;
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  const clientId = params.get('client_id');
+  return clientId == null || clientId === '' ? null : String(clientId);
+}
+
+/**
+ * Fail closed unless IMDS request client_id equals the locked wh-staging-identity.
+ * Rejects omit / empty / system-default / arbitrary client ids.
+ */
+function assertImdsRequestClientIdLocked(urlOrPath) {
+  const clientId = extractImdsClientIdFromUrlOrPath(urlOrPath);
+  if (clientId == null) {
+    throw Object.assign(
+      new Error('IMDS client_id required (locked wh-staging-identity; do not omit)'),
+      { code: 'imds_client_id_required' },
+    );
+  }
+  if (clientId !== MI_LOADER_LOCKS.managedIdentityClientId) {
+    throw Object.assign(
+      new Error('IMDS client_id does not match locked wh-staging-identity'),
+      { code: 'imds_client_id_mismatch' },
+    );
+  }
+  return true;
+}
+
+/**
+ * When IMDS token JSON exposes identity metadata (client_id / clientId /
+ * principal_id / principalId / identity name), require exact lock match.
+ * Absent identity fields are allowed (not all IMDS responses expose them).
+ * Rejects before Key Vault on mismatch.
+ */
+function assertImdsTokenIdentityIfExposed(body) {
+  if (!body || typeof body !== 'object') return true;
+
+  const exposedClientId = body.client_id != null
+    ? String(body.client_id)
+    : (body.clientId != null ? String(body.clientId) : null);
+  if (exposedClientId != null && exposedClientId !== ''
+    && exposedClientId !== MI_LOADER_LOCKS.managedIdentityClientId) {
+    throw Object.assign(
+      new Error('IMDS token identity client_id mismatch (reject before Key Vault)'),
+      { code: 'imds_token_identity_mismatch' },
+    );
+  }
+
+  const exposedPrincipal = body.principal_id != null
+    ? String(body.principal_id)
+    : (body.principalId != null ? String(body.principalId) : null);
+  if (exposedPrincipal != null && exposedPrincipal !== ''
+    && exposedPrincipal !== MI_LOADER_LOCKS.managedIdentityPrincipalId) {
+    throw Object.assign(
+      new Error('IMDS token identity principal_id mismatch (reject before Key Vault)'),
+      { code: 'imds_token_identity_mismatch' },
+    );
+  }
+
+  const exposedName = body.identity != null
+    ? String(body.identity)
+    : (body.managedIdentityName != null ? String(body.managedIdentityName) : null);
+  if (exposedName != null && exposedName !== ''
+    && exposedName !== MI_LOADER_LOCKS.managedIdentityName) {
+    throw Object.assign(
+      new Error('IMDS token identity name mismatch (reject before Key Vault)'),
+      { code: 'imds_token_identity_mismatch' },
+    );
+  }
+  return true;
 }
 
 function buildLockedKeyVaultSecretUrl() {
@@ -440,6 +540,8 @@ async function fetchImdsAccessToken(opts) {
       code: 'imds_api_version_rejected',
     });
   }
+  // Hard require locked user-assigned client_id — never omit / system / default / arbitrary.
+  assertImdsRequestClientIdLocked(url);
 
   imdsRequestCount += 1;
   const res = await invokeInjectedHttp(httpRequest, {
@@ -466,6 +568,8 @@ async function fetchImdsAccessToken(opts) {
       code: 'imds_token_missing',
     });
   }
+  // If token JSON exposes identity metadata, it must match the lock — before Key Vault.
+  assertImdsTokenIdentityIfExposed(body);
   return body.access_token;
 }
 
@@ -705,6 +809,15 @@ function createInjectedManagedIdentityHttp(script) {
       if (!pathFull.startsWith(imdsUrl.pathname)) {
         return { statusCode: 404, body: '{"error":"wrong_imds_path"}' };
       }
+      // Offline router also refuses omit / wrong client_id (mirrors live fail-closed).
+      try {
+        assertImdsRequestClientIdLocked(pathFull);
+      } catch (e) {
+        return {
+          statusCode: 400,
+          body: JSON.stringify({ error: (e && e.code) || 'imds_client_id_rejected' }),
+        };
+      }
       if (s.imdsStatusCode && s.imdsStatusCode !== 200) {
         return {
           statusCode: s.imdsStatusCode,
@@ -721,14 +834,30 @@ function createInjectedManagedIdentityHttp(script) {
         return { statusCode: 200, body: '{"token_type":"Bearer"}' };
       }
       const token = s.imdsAccessToken || 'slice14e-proof-imds-token-never-commit';
+      const tokenBody = {
+        access_token: token,
+        expires_in: 3600,
+        token_type: 'Bearer',
+        resource: MI_LOADER_LOCKS.vaultResourceAudience,
+      };
+      // Default: expose matching client_id (as live IMDS often does). Tests may
+      // omit, override to wrong id, or add principal/name for RED identity proofs.
+      if (s.imdsOmitClientIdInResponse) {
+        // leave client_id absent — allowed when not exposed
+      } else if (Object.prototype.hasOwnProperty.call(s, 'imdsResponseClientId')) {
+        tokenBody.client_id = s.imdsResponseClientId;
+      } else {
+        tokenBody.client_id = MI_LOADER_LOCKS.managedIdentityClientId;
+      }
+      if (Object.prototype.hasOwnProperty.call(s, 'imdsResponsePrincipalId')) {
+        tokenBody.principal_id = s.imdsResponsePrincipalId;
+      }
+      if (Object.prototype.hasOwnProperty.call(s, 'imdsResponseIdentityName')) {
+        tokenBody.identity = s.imdsResponseIdentityName;
+      }
       return {
         statusCode: 200,
-        body: JSON.stringify({
-          access_token: token,
-          expires_in: 3600,
-          token_type: 'Bearer',
-          resource: MI_LOADER_LOCKS.vaultResourceAudience,
-        }),
+        body: JSON.stringify(tokenBody),
       };
     }
 
@@ -794,6 +923,9 @@ module.exports = {
   MI_LOADER_LOCKS,
   buildLockedImdsTokenUrl,
   buildLockedKeyVaultSecretUrl,
+  extractImdsClientIdFromUrlOrPath,
+  assertImdsRequestClientIdLocked,
+  assertImdsTokenIdentityIfExposed,
   evaluateCredentialSource,
   parseArgvCredentialSource,
   parseSunsetDatabaseUrlSecretInMemory,

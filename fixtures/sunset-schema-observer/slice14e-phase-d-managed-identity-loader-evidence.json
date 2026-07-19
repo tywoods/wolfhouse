@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14e-phase-d-managed-identity-loader-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:28:14.006Z",
+  "generatedAt": "2026-07-19T19:32:56.157Z",
   "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
   "slice": "14E",
   "outcome": "phase_d_managed_identity_credential_loader_proven_offline",
@@ -52,6 +52,7 @@
     "managedIdentityFlagRequiresEnvAndArgv": true,
     "callerUrlsNamesTokensDsnsRejected": true,
     "wrongImdsRejected": true,
+    "wrongImdsClientIdOrTokenIdentityRejectedBeforeKv": true,
     "wrongVaultSecretRejected": true,
     "wrongSecretPgTargetRejectedBeforeClient": true,
     "tokenDsnPasswordBearingErrorsSanitized": true,
@@ -95,6 +96,20 @@
       "redirectRejected": true,
       "badJsonRejected": true,
       "missingTokenRejected": true
+    },
+    {
+      "name": "wrong_imds_client_id_or_token_identity_rejected_before_kv",
+      "ok": true,
+      "omitClientIdRejected": true,
+      "wrongRequestClientIdRejected": true,
+      "injectedOmitClientIdRejected": true,
+      "injectedWrongClientIdRejected": true,
+      "wrongTokenClientIdCode": "imds_token_identity_mismatch",
+      "wrongTokenPrincipalCode": "imds_token_identity_mismatch",
+      "wrongTokenIdentityNameCode": "imds_token_identity_mismatch",
+      "keyVaultCallsAfterIdentityReject": 0,
+      "lockedManagedIdentityName": "wh-staging-identity",
+      "lockedManagedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19"
     },
     {
       "name": "wrong_vault_secret_status_redirect_json_rejected",
@@ -176,14 +191,20 @@
         "secretName": "sunset-database-url",
         "imdsApiVersion": "2018-02-01",
         "keyVaultApiVersion": "7.4",
-        "managedIdentityClientId": "0e05fbe3-e8c5-48aa-a914-30aed284e6f7",
+        "managedIdentityName": "wh-staging-identity",
+        "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+        "managedIdentityPrincipalId": "e3136eed-948b-4947-a26e-50a33b45a41a",
+        "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox",
         "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
         "database": "sunset_staging",
         "sslmode": "verify-full"
-      }
+      },
+      "imdsRequestClientIdEqualsLock": true,
+      "matchingTokenIdentityAccepted": true,
+      "absentTokenIdentityFieldsAccepted": true
     }
   ],
-  "redCaseCount": 8,
+  "redCaseCount": 9,
   "greenCaseCount": 5,
   "secretLifetimeProof": {
     "privateFieldsPresentBeforeZero": true,

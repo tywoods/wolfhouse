@@ -19,7 +19,7 @@
   "managedIdentityCredentialSourceFlagRequired": true,
   "injectedHttpOnly": true,
   "injectedFakePgClientOnly": true,
-  "generatedAt": "2026-07-19T19:28:14.006Z",
+  "generatedAt": "2026-07-19T19:32:56.157Z",
   "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
   "slice": "14E",
   "purpose": "In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only; no live IMDS/KV/PG call.",
@@ -41,11 +41,16 @@
     "secretName": "sunset-database-url",
     "imdsApiVersion": "2018-02-01",
     "keyVaultApiVersion": "7.4",
-    "managedIdentityClientId": "0e05fbe3-e8c5-48aa-a914-30aed284e6f7",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "managedIdentityPrincipalId": "e3136eed-948b-4947-a26e-50a33b45a41a",
+    "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox",
     "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
     "database": "sunset_staging",
     "sslmode": "verify-full",
-    "port": 5432
+    "port": 5432,
+    "imdsRequestClientIdRequired": true,
+    "imdsTokenIdentityVerifiedIfExposed": true
   },
   "credentialSources": {
     "protectedAdminEnv": "protected-admin-env",

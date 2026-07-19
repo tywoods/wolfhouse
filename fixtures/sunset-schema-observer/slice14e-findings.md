@@ -2,7 +2,7 @@
 
 **Status:** complete (live HTTP hard-disabled; offline injected-HTTP proof; no live IMDS/KV/PG)
 **Master basis:** `6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a`
-**Generated:** 2026-07-19T19:28:14.006Z
+**Generated:** 2026-07-19T19:32:56.157Z
 
 ## Outcome
 
@@ -18,8 +18,13 @@ Locks:
 | Secret name | `sunset-database-url` |
 | IMDS API version | `2018-02-01` |
 | Key Vault API version | `7.4` |
-| MI client id | `0e05fbe3-e8c5-48aa-a914-30aed284e6f7` |
+| Lunabox MI name | `wh-staging-identity` |
+| Lunabox MI client id | `0dd41fa2-52c8-4e04-bc23-8aa462938c19` |
+| Lunabox MI principal id | `e3136eed-948b-4947-a26e-50a33b45a41a` |
+| Lunabox VM | `/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox` |
 | PG host / database / TLS | `luna-sunset-staging-pg-app.postgres.database.azure.com` / `sunset_staging` / `verify-full` |
+
+IMDS request `client_id` must equal the locked Lunabox `wh-staging-identity` client id (never omit / system / default / arbitrary). When the IMDS token JSON exposes identity metadata (`client_id` / `principal_id` / name), it must match; mismatch is rejected **before** Key Vault.
 
 Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memory; user/password validated against the exact target; passed privately to the existing 14D adapter; then private refs are zeroed. Token / DSN / credentials are never printed, returned, persisted, hashed, evidenced, argv-embedded, temp-filed, or child-process-env'd.
 
@@ -32,8 +37,8 @@ Caller URLs / names / tokens / DSNs are rejected. Secret is parsed only in memor
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; password-bearing errors sanitized |
-| GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks |
+| RED | default zero HTTP+Clients; MI without inject → http_disabled; flag requires env+argv; caller overrides; wrong IMDS/vault/audience/secret/target/JSON/status/redirect before Client; wrong/omitted IMDS client_id or token identity rejected before KV; password-bearing errors sanitized |
+| GREEN | injected HTTP success → fake Client + exact count-only sequence; secret lifetime zero; protected-admin-env preserved; CLI gates; locks (wh-staging-identity) |
 
 ## Non-goals / still open
 

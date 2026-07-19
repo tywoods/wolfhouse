@@ -65,6 +65,9 @@ const {
   zeroPrivateCredentialRefs,
   createInjectedManagedIdentityHttp,
   buildOfflineProofSunsetDatabaseUrl,
+  buildLockedImdsTokenUrl,
+  extractImdsClientIdFromUrlOrPath,
+  assertImdsRequestClientIdLocked,
   getManagedIdentityHttpCounters,
   resetManagedIdentityHttpCounters,
 } = require('./lib/phase-d-managed-identity-credential-loader');
@@ -89,6 +92,7 @@ const REQUIRED_RED = [
   'managed_identity_flag_requires_env_and_argv',
   'caller_urls_names_tokens_dsns_rejected',
   'wrong_imds_host_audience_status_redirect_json_rejected',
+  'wrong_imds_client_id_or_token_identity_rejected_before_kv',
   'wrong_vault_secret_status_redirect_json_rejected',
   'wrong_secret_pg_target_rejected_before_client',
   'token_dsn_password_bearing_errors_sanitized',
@@ -196,11 +200,29 @@ async function main() {
     && MI_LOADER_LOCKS.secretName === 'sunset-database-url'
     && MI_LOADER_LOCKS.imdsApiVersion === '2018-02-01'
     && MI_LOADER_LOCKS.keyVaultApiVersion === '7.4'
-    && MI_LOADER_LOCKS.managedIdentityClientId === '0e05fbe3-e8c5-48aa-a914-30aed284e6f7'
+    && MI_LOADER_LOCKS.managedIdentityName === 'wh-staging-identity'
+    && MI_LOADER_LOCKS.managedIdentityClientId === '0dd41fa2-52c8-4e04-bc23-8aa462938c19'
+    && MI_LOADER_LOCKS.managedIdentityPrincipalId === 'e3136eed-948b-4947-a26e-50a33b45a41a'
+    && MI_LOADER_LOCKS.managedIdentityClientId !== '0e05fbe3-e8c5-48aa-a914-30aed284e6f7'
     && MI_LOADER_LOCKS.postgresHost === TARGETS.postgresHost
     && MI_LOADER_LOCKS.database === TARGETS.database
     && MI_LOADER_LOCKS.sslmode === 'verify-full'
-    && contract.managedIdentityLocks.secretName === 'sunset-database-url');
+    && contract.managedIdentityLocks.secretName === 'sunset-database-url'
+    && contract.managedIdentityLocks.managedIdentityName === 'wh-staging-identity'
+    && contract.managedIdentityLocks.managedIdentityClientId
+      === '0dd41fa2-52c8-4e04-bc23-8aa462938c19'
+    && contract.managedIdentityLocks.imdsRequestClientIdRequired === true
+    && contract.managedIdentityLocks.imdsTokenIdentityVerifiedIfExposed === true
+    && extractImdsClientIdFromUrlOrPath(buildLockedImdsTokenUrl())
+      === MI_LOADER_LOCKS.managedIdentityClientId
+    && (() => {
+      try {
+        assertImdsRequestClientIdLocked(buildLockedImdsTokenUrl());
+        return true;
+      } catch (_) {
+        return false;
+      }
+    })());
 
   pass('credential-source-flags',
     ENV_CREDENTIAL_SOURCE === 'SUNSET_PHASE_D_CREDENTIAL_SOURCE'
@@ -209,6 +231,11 @@ async function main() {
     && CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV === 'protected-admin-env'
     && contract.managedIdentityCredentialSourceFlagRequired === true
     && /credential-source managed-identity/.test(findings)
+    && /wh-staging-identity/.test(findings)
+    && /0dd41fa2-52c8-4e04-bc23-8aa462938c19/.test(findings)
+    && /wh-staging-identity/.test(loaderSrc)
+    && /0dd41fa2-52c8-4e04-bc23-8aa462938c19/.test(loaderSrc)
+    && !/managedIdentityClientId:\s*'0e05fbe3/.test(loaderSrc)
     && cliSrc.includes('credential-source'));
 
   const redNames = (evidence.redCases || []).map((c) => c.name);
@@ -220,6 +247,7 @@ async function main() {
     && evidence.offlineGates.injectedHttpSuccessReachesFakeClientExactSequence === true
     && evidence.offlineGates.secretLifetimeZeroAfterPrivateHandoff === true
     && evidence.offlineGates.protectedAdminEnvModePreserved === true
+    && evidence.offlineGates.wrongImdsClientIdOrTokenIdentityRejectedBeforeKv === true
     && evidence.realImdsCall === false
     && evidence.realKeyVaultCall === false
     && evidence.realPostgresCall === false
@@ -292,6 +320,25 @@ async function main() {
     && !probe.includes(FAKE_USER)
     && !probe.includes(FAKE_TOKEN)
     && !probe.includes(secretValue));
+
+  // Runtime: wrong token identity rejected before Key Vault
+  resetManagedIdentityHttpCounters();
+  const wrongIdentity = await loadProtectedAdminCredentialsViaManagedIdentity({
+    env: {
+      [ENV_CREDENTIAL_SOURCE]: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
+    },
+    argv: [CLI_CREDENTIAL_SOURCE, CREDENTIAL_SOURCE_MANAGED_IDENTITY],
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_TOKEN,
+      imdsResponseClientId: '0e05fbe3-e8c5-48aa-a914-30aed284e6f7',
+      defaultSecretValue: secretValue,
+    }),
+  });
+  pass('runtime-wrong-token-identity-before-kv',
+    wrongIdentity.ok === false
+    && wrongIdentity.code === 'imds_token_identity_mismatch'
+    && getManagedIdentityHttpCounters().keyVaultRequestCount === 0
+    && getManagedIdentityHttpCounters().imdsRequestCount === 1);
 
   // Runtime: secret lifetime zero
   const loaded = await loadProtectedAdminCredentialsViaManagedIdentity({
