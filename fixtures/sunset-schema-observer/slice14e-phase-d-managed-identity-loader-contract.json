@@ -1,0 +1,145 @@
+{
+  "kind": "sunset-schema-observer-slice14e-phase-d-managed-identity-loader-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveQueryExecution": false,
+  "liveHttpEnabled": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "mutates": false,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "injectedHttpOnly": true,
+  "injectedFakePgClientOnly": true,
+  "generatedAt": "2026-07-19T19:32:56.157Z",
+  "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
+  "slice": "14E",
+  "purpose": "In-process Lunabox managed-identity + locked Key Vault sunset-database-url credential loader for the merged count-only CLI; offline injected-HTTP proof only; no live IMDS/KV/PG call.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "managedIdentityLocks": {
+    "imdsHost": "169.254.169.254",
+    "vaultResourceAudience": "https://vault.azure.net",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "keyVaultHttpsUrl": "https://luna-sunset-staging-kv.vault.azure.net",
+    "secretName": "sunset-database-url",
+    "imdsApiVersion": "2018-02-01",
+    "keyVaultApiVersion": "7.4",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "managedIdentityPrincipalId": "e3136eed-948b-4947-a26e-50a33b45a41a",
+    "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "port": 5432,
+    "imdsRequestClientIdRequired": true,
+    "imdsTokenIdentityVerifiedIfExposed": true
+  },
+  "credentialSources": {
+    "protectedAdminEnv": "protected-admin-env",
+    "managedIdentity": "managed-identity",
+    "envFlag": "SUNSET_PHASE_D_CREDENTIAL_SOURCE",
+    "argvFlag": "--credential-source",
+    "keyVaultSecret": "sunset-database-url",
+    "forbidden": [
+      "caller_imds_url",
+      "caller_vault_url",
+      "caller_secret_name",
+      "caller_token",
+      "caller_dsn",
+      "argv_credentials",
+      "observer_dsn",
+      "WOLFHOUSE_DATABASE_URL",
+      "temp_file",
+      "child_process_env_credentials"
+    ]
+  },
+  "commandContract": {
+    "script": "scripts/run-phase-d-live-readonly-count-only.js",
+    "npm": "phase-d:live-readonly-count-only",
+    "managedIdentityRequiredEnv": [
+      "SUNSET_PHASE_D_LIVE_READONLY=1",
+      "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+      "SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1",
+      "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity"
+    ],
+    "managedIdentityRequiredArgv": [
+      "--execute-count-only",
+      "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+      "--resource-group luna-sunset-staging-rg",
+      "--postgres-server luna-sunset-staging-pg-app",
+      "--database sunset_staging",
+      "--credential-source managed-identity"
+    ],
+    "forbiddenArgv": [
+      "--dsn",
+      "--connection-string",
+      "--database-url",
+      "--host",
+      "--port",
+      "--user",
+      "--password",
+      "--username",
+      "--query",
+      "--sql",
+      "--sslmode"
+    ]
+  },
+  "authorizedSequence": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "authorizedSessionSql": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "COMMIT",
+    "ROLLBACK"
+  ],
+  "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+  "outputKeys": [
+    "total_rows",
+    "date_window_violations",
+    "price_unit_violations"
+  ],
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "statementTimeoutMs": 30000,
+  "forbidden": [
+    "live IMDS / Key Vault / PostgreSQL call in this slice",
+    "caller URL / name / token / DSN overrides",
+    "token/DSN/credentials in evidence/logs/argv/temp/child env",
+    "apply/DDL/ledger",
+    "migration / predicate changes",
+    "firewall/network mutation"
+  ],
+  "nonGoals": [
+    "No live secret read",
+    "No Phase D constraint apply",
+    "No Sunset repair claim",
+    "No expected-fixture regeneration"
+  ]
+}

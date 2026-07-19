@@ -16,8 +16,13 @@ const {
   CLI_EXECUTE_COUNT_ONLY,
   CREDENTIAL_USER_ENV,
   CREDENTIAL_PASSWORD_ENV,
+  ENV_CREDENTIAL_SOURCE,
+  CLI_CREDENTIAL_SOURCE,
+  CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+  CREDENTIAL_SOURCE_MANAGED_IDENTITY,
   evaluateDualEnableFlags,
   evaluateExecuteCountOnlyGate,
+  evaluateCredentialSource,
   redactDeep,
   redactSecrets,
   REDACTED,
@@ -52,6 +57,7 @@ const ALLOWED_ARGV_FLAGS = Object.freeze([
   '--resource-group',
   '--postgres-server',
   '--database',
+  CLI_CREDENTIAL_SOURCE,
   '--help',
   '-h',
 ]);
@@ -188,7 +194,9 @@ function evaluateExactTargetCliArgs(argv) {
 
 /**
  * Full CLI gate stack before any Client: dual flags + execute gate + exact
- * target confirmation args + protected admin env presence (values not logged).
+ * target confirmation args + credential source (protected-admin-env or
+ * explicit managed-identity). Protected admin env required only for the
+ * protected-admin-env source.
  */
 function evaluatePhaseDLiveReadonlyCliGates(opts) {
   const options = opts || {};
@@ -198,25 +206,32 @@ function evaluatePhaseDLiveReadonlyCliGates(opts) {
   const dual = evaluateDualEnableFlags(env);
   const exec = evaluateExecuteCountOnlyGate({ env, argv });
   const exact = evaluateExactTargetCliArgs(argv);
+  const sourceGate = evaluateCredentialSource({ env, argv });
 
   const errors = [];
   if (!dual.ok) errors.push(...dual.errors);
   if (!exec.ok) errors.push(...exec.errors);
   if (!exact.ok) errors.push(...exact.errors);
+  if (!sourceGate.ok) errors.push(...sourceGate.errors);
 
   const hasUser = Boolean(String(env[CREDENTIAL_USER_ENV] || '').trim());
   const hasPassword = Boolean(String(env[CREDENTIAL_PASSWORD_ENV] || '').trim());
-  if (!hasUser) {
-    errors.push({
-      code: 'pg_admin_user_required',
-      message: `env ${CREDENTIAL_USER_ENV} is required`,
-    });
-  }
-  if (!hasPassword) {
-    errors.push({
-      code: 'pg_admin_password_required',
-      message: `env ${CREDENTIAL_PASSWORD_ENV} is required`,
-    });
+  const managedIdentity = sourceGate.ok
+    && sourceGate.source === CREDENTIAL_SOURCE_MANAGED_IDENTITY;
+
+  if (!managedIdentity) {
+    if (!hasUser) {
+      errors.push({
+        code: 'pg_admin_user_required',
+        message: `env ${CREDENTIAL_USER_ENV} is required`,
+      });
+    }
+    if (!hasPassword) {
+      errors.push({
+        code: 'pg_admin_password_required',
+        message: `env ${CREDENTIAL_PASSWORD_ENV} is required`,
+      });
+    }
   }
 
   return redactDeep({
@@ -225,7 +240,10 @@ function evaluatePhaseDLiveReadonlyCliGates(opts) {
     dualOk: dual.ok,
     executeOk: exec.ok,
     exactTargetOk: exact.ok,
+    credentialSource: sourceGate.source,
+    credentialSourceOk: sourceGate.ok,
     hasProtectedAdminEnv: hasUser && hasPassword,
+    managedIdentityCredentialSource: managedIdentity,
     confirmed: exact.confirmed,
     liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
@@ -236,18 +254,25 @@ function evaluatePhaseDLiveReadonlyCliGates(opts) {
 
 function renderCliUsage() {
   return [
-    'Phase D live read-only count-only preflight (FOUNDATION Slice 14D)',
+    'Phase D live read-only count-only preflight (FOUNDATION Slice 14D/14E)',
     '',
-    'DEFAULT: refused (zero pg Clients). Requires dual flags + execute gate +',
-    'exact target confirmation + protected admin env. No DSN/host/query args.',
+    'DEFAULT: refused (zero pg Clients / zero HTTP). Requires dual flags +',
+    'execute gate + exact target confirmation + credentials. No DSN/host/query args.',
+    '',
+    'Credential sources:',
+    `  ${CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV} (default) — ${CREDENTIAL_USER_ENV} / ${CREDENTIAL_PASSWORD_ENV}`,
+    `  ${CREDENTIAL_SOURCE_MANAGED_IDENTITY} — requires both:`,
+    `    env ${ENV_CREDENTIAL_SOURCE}=${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
+    `    argv ${CLI_CREDENTIAL_SOURCE} ${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
+    '    (in-process Lunabox MI + Key Vault sunset-database-url; live HTTP hard-disabled in 14E)',
     '',
     'Required env:',
     `  ${ENV_LIVE_READONLY}=1`,
     `  ${ENV_LIVE_PREFLIGHT}=1`,
     `  ${ENV_EXECUTE_COUNT_ONLY}=1`,
     `  ${ENV_SUBSCRIPTION}=${TARGETS.subscriptionId}`,
-    `  ${CREDENTIAL_USER_ENV}=<admin-login>`,
-    `  ${CREDENTIAL_PASSWORD_ENV}=<admin-password>`,
+    `  ${CREDENTIAL_USER_ENV}=<admin-login>   (protected-admin-env mode)`,
+    `  ${CREDENTIAL_PASSWORD_ENV}=<admin-password>   (protected-admin-env mode)`,
     '',
     'Required argv:',
     `  ${CLI_EXECUTE_COUNT_ONLY}`,
@@ -258,7 +283,7 @@ function renderCliUsage() {
     '',
     'Forbidden argv: --dsn --host --query --connection-string --user --password --sql --port',
     '',
-    'Does not load Key Vault. Does not mutate Azure/network/database schema.',
+    'Does not mutate Azure/network/database schema. Slice 14E performs no live IMDS/KV/PG call.',
   ].join('\n');
 }
 
@@ -356,6 +381,10 @@ module.exports = {
   renderFailClosedCliCatch,
   maybeThrowOfflineInjectedTopLevelError,
   ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW,
+  ENV_CREDENTIAL_SOURCE,
+  CLI_CREDENTIAL_SOURCE,
+  CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+  CREDENTIAL_SOURCE_MANAGED_IDENTITY,
   REDACTED,
   TARGETS,
   ENV_LIVE_READONLY,

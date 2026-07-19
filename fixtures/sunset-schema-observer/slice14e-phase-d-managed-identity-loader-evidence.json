@@ -1,0 +1,230 @@
+{
+  "kind": "sunset-schema-observer-slice14e-phase-d-managed-identity-loader-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T19:32:56.157Z",
+  "masterShaBasis": "6e7c7d6f70e11b2ce77d28d367fc669b60eabe3a",
+  "slice": "14E",
+  "outcome": "phase_d_managed_identity_credential_loader_proven_offline",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveQueryExecution": false,
+  "liveHttpEnabled": false,
+  "azureConnectivity": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "realImdsCall": false,
+  "realKeyVaultCall": false,
+  "realPostgresCall": false,
+  "enableFlagFlipped": false,
+  "cliExecutedLive": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "authorizedSequence": [
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "managedIdentityWithoutInjectHttpDisabled": true,
+    "managedIdentityFlagRequiresEnvAndArgv": true,
+    "callerUrlsNamesTokensDsnsRejected": true,
+    "wrongImdsRejected": true,
+    "wrongImdsClientIdOrTokenIdentityRejectedBeforeKv": true,
+    "wrongVaultSecretRejected": true,
+    "wrongSecretPgTargetRejectedBeforeClient": true,
+    "tokenDsnPasswordBearingErrorsSanitized": true,
+    "injectedHttpSuccessReachesFakeClientExactSequence": true,
+    "secretLifetimeZeroAfterPrivateHandoff": true,
+    "protectedAdminEnvModePreserved": true,
+    "cliGatesManagedIdentityAndProtectedAdminEnv": true,
+    "locksImdsVaultSecretApiPgTls": true,
+    "credentialsNeverInLogsResultsErrors": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "managed_identity_credential_source_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "managed_identity_without_inject_http_disabled",
+      "ok": true,
+      "code": "http_disabled",
+      "clientsInstantiated": 0,
+      "httpRequestCount": 0
+    },
+    {
+      "name": "managed_identity_flag_requires_env_and_argv",
+      "ok": true,
+      "partialEnvRejected": true,
+      "partialArgvRejected": true
+    },
+    {
+      "name": "caller_urls_names_tokens_dsns_rejected",
+      "ok": true,
+      "code": "caller_supplied_loader_override_forbidden"
+    },
+    {
+      "name": "wrong_imds_host_audience_status_redirect_json_rejected",
+      "ok": true,
+      "wrongHostRejected": true,
+      "redirectRejected": true,
+      "badJsonRejected": true,
+      "missingTokenRejected": true
+    },
+    {
+      "name": "wrong_imds_client_id_or_token_identity_rejected_before_kv",
+      "ok": true,
+      "omitClientIdRejected": true,
+      "wrongRequestClientIdRejected": true,
+      "injectedOmitClientIdRejected": true,
+      "injectedWrongClientIdRejected": true,
+      "wrongTokenClientIdCode": "imds_token_identity_mismatch",
+      "wrongTokenPrincipalCode": "imds_token_identity_mismatch",
+      "wrongTokenIdentityNameCode": "imds_token_identity_mismatch",
+      "keyVaultCallsAfterIdentityReject": 0,
+      "lockedManagedIdentityName": "wh-staging-identity",
+      "lockedManagedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19"
+    },
+    {
+      "name": "wrong_vault_secret_status_redirect_json_rejected",
+      "ok": true,
+      "wrongSecretRejected": true,
+      "redirectRejected": true,
+      "badJsonRejected": true
+    },
+    {
+      "name": "wrong_secret_pg_target_rejected_before_client",
+      "ok": true,
+      "code": "secret_wrong_postgres_host",
+      "clientsInstantiated": 0,
+      "wrongDatabaseRejected": true,
+      "wrongTlsRejected": true
+    },
+    {
+      "name": "token_dsn_password_bearing_errors_sanitized",
+      "ok": true,
+      "code": "injected_http_failed",
+      "sanitized": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_success_reaches_fake_client_exact_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "aggregate",
+        "COMMIT"
+      ],
+      "counts": {
+        "total_rows": 7,
+        "date_window_violations": 1,
+        "price_unit_violations": 0
+      },
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "imdsRequestCount": 1,
+      "keyVaultRequestCount": 1,
+      "credentialSource": "managed_identity",
+      "closed": true
+    },
+    {
+      "name": "secret_lifetime_zero_after_private_handoff",
+      "ok": true,
+      "lifetimeBeforeZero": {
+        "hadUser": true,
+        "hadPassword": true,
+        "hadConnectConfig": true
+      },
+      "zeroed": true,
+      "publicViewSecretFree": true
+    },
+    {
+      "name": "protected_admin_env_mode_preserved",
+      "ok": true,
+      "credentialSource": "protected_admin_env",
+      "clientsInstantiated": 1
+    },
+    {
+      "name": "cli_gates_managed_identity_and_protected_admin_env",
+      "ok": true,
+      "managedIdentityOk": true,
+      "protectedAdminEnvOk": true
+    },
+    {
+      "name": "locks_imds_vault_secret_api_pg_tls",
+      "ok": true,
+      "locks": {
+        "imdsHost": "169.254.169.254",
+        "vaultResourceAudience": "https://vault.azure.net",
+        "keyVaultName": "luna-sunset-staging-kv",
+        "keyVaultHttpsUrl": "https://luna-sunset-staging-kv.vault.azure.net",
+        "secretName": "sunset-database-url",
+        "imdsApiVersion": "2018-02-01",
+        "keyVaultApiVersion": "7.4",
+        "managedIdentityName": "wh-staging-identity",
+        "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+        "managedIdentityPrincipalId": "e3136eed-948b-4947-a26e-50a33b45a41a",
+        "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox",
+        "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+        "database": "sunset_staging",
+        "sslmode": "verify-full"
+      },
+      "imdsRequestClientIdEqualsLock": true,
+      "matchingTokenIdentityAccepted": true,
+      "absentTokenIdentityFieldsAccepted": true
+    }
+  ],
+  "redCaseCount": 9,
+  "greenCaseCount": 5,
+  "secretLifetimeProof": {
+    "privateFieldsPresentBeforeZero": true,
+    "zeroedAfterHandoff": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true
+  },
+  "httpCallCounts": {
+    "successPathHttpRequestCount": 2,
+    "successPathImdsRequestCount": 1,
+    "successPathKeyVaultRequestCount": 1,
+    "defaultPathHttpRequestCount": 0
+  },
+  "clientCallCounts": {
+    "successPathClientsInstantiated": 1,
+    "defaultPathClientsInstantiated": 0,
+    "wrongTargetClientsInstantiated": 0
+  }
+}

@@ -46,6 +46,13 @@ const {
   assertMigration028ByteIntegrity,
   assertNoLiveApply,
 } = require('./phase-d-check-preflight');
+const {
+  evaluateCredentialSource,
+  CREDENTIAL_SOURCE_MANAGED_IDENTITY,
+  loadProtectedAdminCredentialsViaManagedIdentity,
+  zeroPrivateCredentialRefs,
+  PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED,
+} = require('./phase-d-managed-identity-credential-loader');
 
 /** Same session timeouts as verified observer clientConfigFromDsn. */
 const STATEMENT_TIMEOUT_MS = 30000;
@@ -598,6 +605,8 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
   const creds = resolveProtectedAdminCredentials({
     env: options.env,
     argv: options.argv || ['node', 'phase-d-live-readonly-pg-adapter'],
+    privateCredentials: options.privateCredentials,
+    allowDeferredManagedIdentity: !options.privateCredentials,
   });
   if (!creds.ok) {
     return redactDeep({
@@ -611,12 +620,77 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       liveMutation: false,
     }, []);
   }
-  secrets.push(creds._user, creds._password);
+
+  let privateBag = null;
+  let credentialSource = creds.source;
+  if (creds.deferred || creds.source === 'managed_identity') {
+    const sourceGate = evaluateCredentialSource({
+      env: options.env,
+      argv: options.argv || [],
+    });
+    if (!sourceGate.ok || sourceGate.source !== CREDENTIAL_SOURCE_MANAGED_IDENTITY) {
+      return redactDeep({
+        ok: false,
+        code: 'managed_identity_credential_source_flag_required',
+        errors: sourceGate.errors.length
+          ? sourceGate.errors
+          : [{
+            code: 'managed_identity_credential_source_flag_required',
+            message: 'explicit managed-identity credential-source flag required',
+          }],
+        counters,
+        clientsInstantiated: 0,
+        liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
+        liveQueryExecution: false,
+        liveMutation: false,
+      }, []);
+    }
+
+    if (options.privateCredentials
+      && options.privateCredentials._user
+      && options.privateCredentials._password
+      && options.privateCredentials._connectConfig) {
+      privateBag = options.privateCredentials;
+    } else {
+      const loaded = await loadProtectedAdminCredentialsViaManagedIdentity({
+        env: options.env,
+        argv: options.argv || [],
+        httpRequest: options.httpRequest,
+      });
+      if (!loaded.ok) {
+        zeroPrivateCredentialRefs(loaded);
+        return redactDeep({
+          ok: false,
+          code: loaded.code || 'managed_identity_loader_failed',
+          errors: loaded.errors || [],
+          counters: {
+            ...counters,
+            httpRequestCount: loaded.counters ? loaded.counters.httpRequestCount : 0,
+          },
+          clientsInstantiated: 0,
+          liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
+          liveQueryExecution: false,
+          liveMutation: false,
+          liveHttpEnabled: PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED === true,
+        }, []);
+      }
+      privateBag = loaded;
+    }
+
+    secrets.push(privateBag._user, privateBag._password);
+    credentialSource = 'managed_identity';
+  } else {
+    secrets.push(creds._user, creds._password);
+  }
 
   let clientConfig;
   try {
-    clientConfig = buildLockedPgClientConfig(creds._connectConfig);
+    const connectConfig = privateBag
+      ? privateBag._connectConfig
+      : creds._connectConfig;
+    clientConfig = buildLockedPgClientConfig(connectConfig);
   } catch (e) {
+    if (privateBag) zeroPrivateCredentialRefs(privateBag);
     return redactDeep({
       ok: false,
       code: e.code || 'credential_target_rejected',
@@ -627,6 +701,12 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       liveQueryExecution: false,
       liveMutation: false,
     }, secrets);
+  }
+
+  // Private credential bag consumed into clientConfig — zero refs immediately.
+  if (privateBag) {
+    zeroPrivateCredentialRefs(privateBag);
+    privateBag = null;
   }
 
   // Real require('pg') only when CONNECT_ENABLED and no injection.
@@ -683,6 +763,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       steps: sequence.steps,
       authorizedSequence: AUTHORIZED_SEQUENCE.slice(),
       clientConfig: secretFreeClientConfigView(clientConfig),
+      credentialSource,
       counters: {
         ...counters,
         azureCalls: boundary.counters ? boundary.counters.azureCalls : 0,
