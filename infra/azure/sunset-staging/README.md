@@ -617,6 +617,19 @@ npm run phase-d:live-readonly-count-only
 
 Artifacts: `slice14m-phase-d-live-readonly-counts-contract.json`, `slice14m-phase-d-live-readonly-counts-evidence.json`, `slice14m-findings.md`.
 
+### Slice 14N — Lunabox PostgreSQL firewall rule (AllowLunaboxEgress)
+
+Declares standalone Bicep `lunabox-pg-firewall-rule.bicep` (existing server reference only — **not** wired into `main.bicep`) and applies exactly **one** ARM REST PUT for rule **`AllowLunaboxEgress`** with start=end=**`20.238.124.76`** (Lunabox proven outbound IPv4). Requires dual outbound-IP HTTPS echoes equal to the locked address before any mutation; captures Cost Management Actual+Amortized RG snapshots before/after via managed-identity ARM REST (safe totals/currency/date only; firewall rule has no expected direct charge). Polls only the exact rule GET to terminal state (bounded). Verifies server remains Ready, `publicNetworkAccess` unchanged, existing two CAE/App rules byte-semantically unchanged, plus exact third rule. **No** PostgreSQL client/query, KV/RBAC/identity change, DDL/migration/ledger, delete/broaden/retry, ranges/`0.0.0.0`/Azure-services/IPv6, or full `main.bicep` deploy. Default/wrong env+argv → zero mutation.
+
+```bash
+npm run prove:sunset-schema-slice14n-lunabox-pg-firewall
+npm run verify:sunset-schema-slice14n
+# default refuse (zero ARM mutation):
+npm run phase-d:lunabox-pg-firewall-apply
+```
+
+Artifacts: `slice14n-lunabox-pg-firewall-contract.json`, `slice14n-lunabox-pg-firewall-evidence.json`, `slice14n-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -689,3 +702,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (plan-only; offline injected-HTTP proof; zero live KV mutation) — 2026-07-19*
 *FOUNDATION Slice 14K — Key Vault DSN sslmode=verify-full apply activation (gated CLI; locked live HTTP transport; offline injected proof; zero live IMDS/KV/PG) — 2026-07-19*
 *FOUNDATION Slice 14M — Phase D live read-only counts via managed-identity (offline RED/GREEN + credential preflight + one live count; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14N — Lunabox AllowLunaboxEgress firewall rule on luna-sunset-staging-pg-app (standalone Bicep + one gated ARM PUT; zero PostgreSQL) — 2026-07-19*

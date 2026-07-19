@@ -1,0 +1,92 @@
+{
+  "kind": "sunset-schema-observer-slice14n-lunabox-pg-firewall-contract",
+  "secretFree": true,
+  "slice": "14N",
+  "masterShaBasis": "6da7470029cf747f7326b255ec0651aa975c937c",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": true,
+  "firewallMutation": true,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "postgresClientOpened": false,
+  "postgresQueryExecuted": false,
+  "deleteEnabled": false,
+  "mainBicepDeployed": false,
+  "retries": 0,
+  "putCount": 1,
+  "firewallRuleName": "AllowLunaboxEgress",
+  "startIpAddress": "20.238.124.76",
+  "endIpAddress": "20.238.124.76",
+  "postgresServer": "luna-sunset-staging-pg-app",
+  "existingRulesLocked": [
+    {
+      "name": "AllowSunsetCaeEgress",
+      "startIpAddress": "4.209.106.13",
+      "endIpAddress": "4.209.106.13"
+    },
+    {
+      "name": "AllowSunsetAppEgress",
+      "startIpAddress": "4.208.189.26",
+      "endIpAddress": "4.208.189.26"
+    }
+  ],
+  "outboundIpServices": [
+    {
+      "name": "ipify",
+      "hostname": "api.ipify.org",
+      "path": "/"
+    },
+    {
+      "name": "ifconfig_me",
+      "hostname": "ifconfig.me",
+      "path": "/ip"
+    }
+  ],
+  "expectedOutboundIpv4": "20.238.124.76",
+  "bicepModuleRel": "infra/azure/sunset-staging/lunabox-pg-firewall-rule.bicep",
+  "authorizedAggregateSqlUnchanged": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "nonGoals": [
+    "PostgreSQL client/query",
+    "KV/RBAC/identity change",
+    "DB/DDL/migration/ledger",
+    "full main.bicep deploy",
+    "delete or broaden existing firewall rules",
+    "Azure-services / 0.0.0.0 / IPv6 / ranges",
+    "caller URL/body/token",
+    "PUT retries"
+  ],
+  "redRequired": [
+    "default_path_zero_http",
+    "missing_apply_flag_zero_http",
+    "missing_env_zero_http",
+    "wrong_exact_targets_zero_http",
+    "ip_range_rejected_zero_http",
+    "zero_ip_rejected_zero_http",
+    "forbidden_argv_delete",
+    "forbidden_argv_token",
+    "forbidden_argv_url",
+    "forbidden_argv_body",
+    "forbidden_argv_retry",
+    "forbidden_argv_dsn",
+    "forbidden_argv_allow-azure-services",
+    "outbound_ip_mismatch_zero_put",
+    "sanitized_put_failure",
+    "live_transport_rejects_host_method_body_deviations"
+  ],
+  "greenRequired": [
+    "live_apply_activated_delete_disabled",
+    "exact_gates_pass",
+    "exact_one_put_sequence_injected",
+    "cli_default_disabled",
+    "cli_missing_env_refuses_zero_http",
+    "usage_and_locks",
+    "no_pg_client_hashes_preserved"
+  ]
+}

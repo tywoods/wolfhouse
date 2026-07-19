@@ -1,0 +1,459 @@
+{
+  "kind": "sunset-schema-observer-slice14n-lunabox-pg-firewall-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T21:07:57.711Z",
+  "masterShaBasis": "6da7470029cf747f7326b255ec0651aa975c937c",
+  "slice": "14N",
+  "outcome": "lunabox_pg_firewall_apply_ok",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": true,
+  "firewallAction": true,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "postgresClientOpened": false,
+  "postgresQueryExecuted": false,
+  "realPostgresCall": false,
+  "pgClientInstantiated": 0,
+  "deleteEnabled": false,
+  "mainBicepDeployed": false,
+  "putCount": 1,
+  "armPutCount": 1,
+  "armGetCount": 5,
+  "armDeleteCount": 0,
+  "ruleGetPollCount": 1,
+  "retries": 0,
+  "httpRequestCount": 13,
+  "imdsRequestCount": 1,
+  "costPostCount": 4,
+  "outboundIpGetCount": 2,
+  "usedLiveHttp": true,
+  "realImdsCall": true,
+  "realArmCall": true,
+  "realCostCall": true,
+  "realOutboundIpCall": true,
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroup": "luna-sunset-staging-rg",
+  "postgresServer": "luna-sunset-staging-pg-app",
+  "postgresServerResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+  "firewallRuleName": "AllowLunaboxEgress",
+  "firewallRuleResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app/firewallRules/AllowLunaboxEgress",
+  "startIpAddress": "20.238.124.76",
+  "endIpAddress": "20.238.124.76",
+  "outboundIpv4Service1": "20.238.124.76",
+  "outboundIpv4Service2": "20.238.124.76",
+  "outboundIpv4Matched": true,
+  "serverStateBefore": "Ready",
+  "serverStateAfter": "Ready",
+  "publicNetworkAccessBefore": "Enabled",
+  "publicNetworkAccessAfter": "Enabled",
+  "publicNetworkAccessUnchanged": true,
+  "serverRemainedReady": true,
+  "existingRulesBefore": [
+    {
+      "name": "AllowSunsetCaeEgress",
+      "startIpAddress": "4.209.106.13",
+      "endIpAddress": "4.209.106.13"
+    },
+    {
+      "name": "AllowSunsetAppEgress",
+      "startIpAddress": "4.208.189.26",
+      "endIpAddress": "4.208.189.26"
+    }
+  ],
+  "existingRulesAfter": [
+    {
+      "name": "AllowSunsetCaeEgress",
+      "startIpAddress": "4.209.106.13",
+      "endIpAddress": "4.209.106.13"
+    },
+    {
+      "name": "AllowSunsetAppEgress",
+      "startIpAddress": "4.208.189.26",
+      "endIpAddress": "4.208.189.26"
+    }
+  ],
+  "existingRulesUnchanged": true,
+  "rulesBeforeCount": 3,
+  "rulesAfterCount": 3,
+  "thirdRuleExact": true,
+  "costBefore": {
+    "actual": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-19",
+        "label": "month-to-date"
+      },
+      "amount": 16.2526276666667,
+      "currency": "USD"
+    },
+    "amortized": {
+      "type": "AmortizedCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-19",
+        "label": "month-to-date"
+      },
+      "amount": 16.2526276666667,
+      "currency": "USD"
+    }
+  },
+  "costAfter": {
+    "actual": {
+      "type": "ActualCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-19",
+        "label": "month-to-date"
+      },
+      "amount": 16.2526276666667,
+      "currency": "USD"
+    },
+    "amortized": {
+      "type": "AmortizedCost",
+      "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-19",
+        "label": "month-to-date"
+      },
+      "amount": 16.2526276666667,
+      "currency": "USD"
+    }
+  },
+  "costDelta": {
+    "actualAmountDelta": 0,
+    "amortizedAmountDelta": 0,
+    "currency": "USD",
+    "flagged": false
+  },
+  "costDeltaFlagged": false,
+  "firewallRuleExpectedDirectCharge": false,
+  "bicepModuleRel": "infra/azure/sunset-staging/lunabox-pg-firewall-rule.bicep",
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "offlineGates": {
+    "defaultPathZeroHttp": true,
+    "missingApplyFlagZeroHttp": true,
+    "missingEnvZeroHttp": true,
+    "wrongExactTargetsZeroHttp": true,
+    "ipRangeRejected": true,
+    "zeroIpRejected": true,
+    "forbiddenArgvRejected": true,
+    "outboundIpMismatchZeroPut": true,
+    "sanitizedPutFailure": true,
+    "liveTransportRejectsDeviations": true,
+    "exactOnePutSequenceInjected": true,
+    "cliDefaultDisabled": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected",
+      "httpRequestCount": 0,
+      "putCount": 0
+    },
+    {
+      "name": "missing_apply_flag_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "missing_env_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "wrong_exact_targets_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "ip_range_rejected_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "zero_ip_rejected_zero_http",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_delete",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_token",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_url",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_body",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_retry",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_dsn",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_argv_allow-azure-services",
+      "ok": true,
+      "code": "firewall_apply_gates_rejected"
+    },
+    {
+      "name": "outbound_ip_mismatch_zero_put",
+      "ok": true,
+      "code": "outbound_ip_mismatch",
+      "putCount": 0,
+      "outboundIpv4Matched": false
+    },
+    {
+      "name": "sanitized_put_failure",
+      "ok": true,
+      "code": "firewall_put_rejected"
+    },
+    {
+      "name": "live_transport_rejects_host_method_body_deviations",
+      "ok": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "live_apply_activated_delete_disabled",
+      "ok": true,
+      "liveApplyEnabled": true,
+      "liveHttpEnabled": true,
+      "deleteEnabled": false,
+      "phaseDConstraintApplyDisabled": true
+    },
+    {
+      "name": "exact_gates_pass",
+      "ok": true,
+      "code": "firewall_apply_gates_ok"
+    },
+    {
+      "name": "exact_one_put_sequence_injected",
+      "ok": true,
+      "putCount": 1,
+      "ruleGetPollCount": 2,
+      "httpRequestCount": 14,
+      "thirdRuleExact": true,
+      "existingRulesUnchanged": true,
+      "costDeltaFlagged": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "cli_missing_env_refuses_zero_http",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "usage_and_locks",
+      "ok": true,
+      "firewallRuleName": "AllowLunaboxEgress",
+      "startIpAddress": "20.238.124.76",
+      "endIpAddress": "20.238.124.76",
+      "postgresServer": "luna-sunset-staging-pg-app",
+      "managedIdentityName": "wh-staging-identity",
+      "existingRules": [
+        {
+          "name": "AllowSunsetCaeEgress",
+          "startIpAddress": "4.209.106.13",
+          "endIpAddress": "4.209.106.13"
+        },
+        {
+          "name": "AllowSunsetAppEgress",
+          "startIpAddress": "4.208.189.26",
+          "endIpAddress": "4.208.189.26"
+        }
+      ],
+      "bicepModuleRel": "infra/azure/sunset-staging/lunabox-pg-firewall-rule.bicep"
+    },
+    {
+      "name": "no_pg_client_hashes_preserved",
+      "ok": true,
+      "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+      "dateWindowPredicate": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+      "priceUnitPredicate": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))",
+      "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+      "expectedByteSha": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+      "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+    }
+  ],
+  "liveResult": {
+    "ok": true,
+    "code": "lunabox_pg_firewall_apply_ok",
+    "applyFirewallRule": true,
+    "liveApplyEnabled": true,
+    "liveHttpEnabled": true,
+    "deleteEnabled": false,
+    "liveMutation": true,
+    "usedLiveHttp": true,
+    "realImdsCall": true,
+    "realArmCall": true,
+    "realCostCall": true,
+    "realOutboundIpCall": true,
+    "realPostgresCall": false,
+    "pgClientInstantiated": 0,
+    "httpRequestCount": 13,
+    "imdsRequestCount": 1,
+    "armGetCount": 5,
+    "armPutCount": 1,
+    "armDeleteCount": 0,
+    "costPostCount": 4,
+    "outboundIpGetCount": 2,
+    "putCount": 1,
+    "ruleGetPollCount": 1,
+    "retries": 0,
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "vmResourceGroup": "wh-staging-rg",
+    "vmName": "lunabox",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "postgresServerResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app",
+    "firewallRuleName": "AllowLunaboxEgress",
+    "firewallRuleResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.DBforPostgreSQL/flexibleServers/luna-sunset-staging-pg-app/firewallRules/AllowLunaboxEgress",
+    "startIpAddress": "20.238.124.76",
+    "endIpAddress": "20.238.124.76",
+    "outboundIpv4Service1": "20.238.124.76",
+    "outboundIpv4Service2": "20.238.124.76",
+    "outboundIpv4Matched": true,
+    "serverStateBefore": "Ready",
+    "serverStateAfter": "Ready",
+    "publicNetworkAccessBefore": "Enabled",
+    "publicNetworkAccessAfter": "Enabled",
+    "publicNetworkAccessUnchanged": true,
+    "serverRemainedReady": true,
+    "existingRulesBefore": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26"
+      }
+    ],
+    "existingRulesAfter": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26"
+      }
+    ],
+    "existingRulesUnchanged": true,
+    "rulesBeforeCount": 3,
+    "rulesAfterCount": 3,
+    "thirdRuleExact": true,
+    "costBefore": {
+      "actual": {
+        "type": "ActualCost",
+        "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+        "period": {
+          "from": "2026-07-01",
+          "to": "2026-07-19",
+          "label": "month-to-date"
+        },
+        "amount": 16.2526276666667,
+        "currency": "USD"
+      },
+      "amortized": {
+        "type": "AmortizedCost",
+        "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+        "period": {
+          "from": "2026-07-01",
+          "to": "2026-07-19",
+          "label": "month-to-date"
+        },
+        "amount": 16.2526276666667,
+        "currency": "USD"
+      }
+    },
+    "costAfter": {
+      "actual": {
+        "type": "ActualCost",
+        "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+        "period": {
+          "from": "2026-07-01",
+          "to": "2026-07-19",
+          "label": "month-to-date"
+        },
+        "amount": 16.2526276666667,
+        "currency": "USD"
+      },
+      "amortized": {
+        "type": "AmortizedCost",
+        "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+        "period": {
+          "from": "2026-07-01",
+          "to": "2026-07-19",
+          "label": "month-to-date"
+        },
+        "amount": 16.2526276666667,
+        "currency": "USD"
+      }
+    },
+    "costDelta": {
+      "actualAmountDelta": 0,
+      "amortizedAmountDelta": 0,
+      "currency": "USD",
+      "flagged": false
+    },
+    "costDeltaFlagged": false,
+    "firewallRuleExpectedDirectCharge": false,
+    "bicepModuleRel": "infra/azure/sunset-staging/lunabox-pg-firewall-rule.bicep",
+    "note": "Exactly one AllowLunaboxEgress PUT; no PostgreSQL client; existing two rules unchanged; firewall rule has no expected direct charge",
+    "privateRefsZeroed": true
+  },
+  "privateRefsZeroed": true
+}

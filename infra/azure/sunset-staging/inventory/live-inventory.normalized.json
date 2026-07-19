@@ -161,7 +161,8 @@
       "appDatabase": "sunset_staging",
       "firewallRules": [
         { "name": "AllowSunsetCaeEgress", "startIpAddress": "4.209.106.13", "endIpAddress": "4.209.106.13" },
-        { "name": "AllowSunsetAppEgress", "startIpAddress": "4.208.189.26", "endIpAddress": "4.208.189.26" }
+        { "name": "AllowSunsetAppEgress", "startIpAddress": "4.208.189.26", "endIpAddress": "4.208.189.26" },
+        { "name": "AllowLunaboxEgress", "startIpAddress": "20.238.124.76", "endIpAddress": "20.238.124.76" }
       ]
     },
     "logAnalytics": {
@@ -389,8 +390,8 @@
       "id": "postgres-firewall-rules",
       "resourceKey": "Microsoft.DBforPostgreSQL/flexibleServers::luna-sunset-staging-pg-app",
       "classification": "live_but_unmanaged",
-      "declared": "parameters.example postgresAllowedIpAddresses=[] ; README says add CAE egress post-deploy",
-      "live": "AllowSunsetCaeEgress + AllowSunsetAppEgress present (not named AllowSunsetStagingEgress{i})",
+      "declared": "parameters.example postgresAllowedIpAddresses=[] ; standalone lunabox-pg-firewall-rule.bicep declares AllowLunaboxEgress only",
+      "live": "AllowSunsetCaeEgress + AllowSunsetAppEgress + AllowLunaboxEgress (20.238.124.76) present",
       "resolved": true
     },
     {
