@@ -3,13 +3,14 @@
 /**
  * prove-sunset-schema-slice14m-phase-d-live-readonly-counts — FOUNDATION Slice 14M
  *
- * Offline RED/GREEN (injected HTTP + fake pg Client + connect-error classifier)
- * → one live credential preflight → exactly ONE diagnostic live read-only Phase D
- * count (attempt 2) via the merged 14D/14E managed-identity count-only CLI.
- * Retains first-attempt history (opaque connect_failed at 19c8dd6). Existing CLI
- * gates reused unchanged. No INSERT/UPDATE/DELETE, DDL, constraints, ledger,
- * RBAC, or network mutation. On any IMDS/KV/TLS/firewall/auth/query error: sanitize,
- * record, stop (no broad retry).
+ * Offline RED/GREEN (injected HTTP + fake pg Client + connect-error classifier
+ * with second-stage secret-free message/name predicates) → one live credential
+ * preflight → exactly ONE diagnostic live read-only Phase D count (attempt 3)
+ * via the merged 14D/14E managed-identity count-only CLI.
+ * Retains attempt-1 (opaque connect_failed) and attempt-2 (code-classifier
+ * unknown) history. Existing CLI gates reused unchanged. No INSERT/UPDATE/DELETE,
+ * DDL, constraints, ledger, RBAC, or network mutation. On any IMDS/KV/TLS/
+ * firewall/auth/query error: sanitize, record, stop (no broad retry).
  */
 
 const crypto = require('crypto');
@@ -60,6 +61,8 @@ const {
   classifyConnectError,
   CONNECT_FAILED_SAFE_MESSAGE,
   CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_MESSAGE_SYNTHETIC_CODE,
+  CONNECT_MESSAGE_PROBE_MAX_LEN,
   CONNECT_CATEGORIES,
 } = require('./lib/phase-d-live-readonly-pg-adapter');
 const {
@@ -268,6 +271,7 @@ function buildCountLiveOutcome(parsed, exitCode, meta) {
     attempt: m.attempt || null,
     diagnostic: m.diagnostic === true,
     classifierApplied: m.classifierApplied === true,
+    messageClassifierStage: m.messageClassifierStage === true,
     ok,
     code,
     connectCategory,
@@ -351,8 +355,20 @@ function loadLiveCountAttempt1History() {
   };
 }
 
+/**
+ * Freeze attempt-2 history (code-classifier unknown at 3c1272a). Never re-execute.
+ */
+function loadLiveCountAttempt2History() {
+  if (!fs.existsSync(EVIDENCE_PATH)) return null;
+  const prev = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'));
+  if (prev.liveCountDiagnosticAttempt2 && typeof prev.liveCountDiagnosticAttempt2 === 'object') {
+    return prev.liveCountDiagnosticAttempt2;
+  }
+  return null;
+}
+
 async function main() {
-  console.log('prove:sunset-schema-slice14m-phase-d-live-readonly-counts — offline + credential preflight + one live count\n');
+  console.log('prove:sunset-schema-slice14m-phase-d-live-readonly-counts — offline + credential preflight + one live count (attempt 3)\n');
 
   const manifest = loadManifest(MANIFEST_PATH);
   const integrity = validateManifestIntegrity(manifest);
@@ -613,14 +629,42 @@ async function main() {
   const evilDsn = validSecretValue();
   const evilToken = FAKE_IMDS_TOKEN;
   const evilHost = 'evil-host.example.internal.leaked';
+  const evilIp = '10.66.77.88';
+  const evilCert = 'MIIEvILLeakPemBodyNoKeywordZZ9';
+  const evilSuffix = (
+    ` password=${evilPassword} user=${FAKE_ADMIN_USER} DSN=${evilDsn}`
+    + ` Bearer ${evilToken} host=${evilHost} ip=${evilIp} cert=${evilCert}`
+    + ' detail=secret_row hint=x schema=public table=tenant_services'
+  );
+  const assertClassifierSecretFree = (classified, label) => {
+    if (classified.message !== CONNECT_FAILED_SAFE_MESSAGE) {
+      throw new Error(`classifier message not fixed: ${label} ${JSON.stringify(classified)}`);
+    }
+    const probe = JSON.stringify(classified);
+    if (probe.includes(evilPassword)
+      || probe.includes(FAKE_ADMIN_USER)
+      || probe.includes(evilDsn)
+      || probe.includes(evilToken)
+      || probe.includes(evilHost)
+      || probe.includes(evilIp)
+      || probe.includes(evilCert)
+      || probe.includes('10.0.0.1')
+      || probe.includes('tenant_services')
+      || /postgresql:\/\//i.test(probe)
+      || probe.includes('secret_row')
+      || probe.includes('password authentication')
+      || probe.includes('getaddrinfo')
+      || probe.includes('pg_hba')) {
+      throw new Error(`classifier leaked secret/matched fragment: ${label}`);
+    }
+  };
+
   const secretMsgs = [
     {
       name: 'secret_message_unknown_code',
       err: Object.assign(
         new Error(
-          `password=${evilPassword} user=${FAKE_ADMIN_USER} DSN=${evilDsn} `
-          + `Bearer ${evilToken} host=${evilHost} detail=secret_row hint=x `
-          + `schema=public table=t constraint=c stack=Error\\n  at boom`,
+          `unclassified boom${evilSuffix} stack=Error\\n  at boom`,
         ),
         {
           code: 'EVIL_NOT_ALLOWLISTED',
@@ -640,7 +684,7 @@ async function main() {
     {
       name: 'secret_message_allowlisted_dns',
       err: Object.assign(
-        new Error(`getaddrinfo ENOTFOUND ${evilHost} password=${evilPassword} ${evilDsn}`),
+        new Error(`getaddrinfo ENOTFOUND ${evilHost}${evilSuffix}`),
         { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: evilHost },
       ),
       expectCategory: 'dns',
@@ -648,6 +692,76 @@ async function main() {
     },
   ];
 
+  // Adversarial RED: each second-stage class message also carries secrets;
+  // output must be fixed category + synthetic code + fixed message only.
+  const adversarialMessageCases = [
+    {
+      name: 'msg_tls',
+      needle: 'self-signed certificate in certificate chain; SSL/TLS hostname verification failed',
+      expectCategory: 'tls',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.tls,
+    },
+    {
+      name: 'msg_auth',
+      needle: 'password authentication failed for user "x"; SASL SCRAM-SHA-256',
+      expectCategory: 'auth',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.auth,
+    },
+    {
+      name: 'msg_firewall',
+      needle: 'no pg_hba.conf entry for host; firewall blocked client IP; not allowed to connect',
+      expectCategory: 'firewall',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.firewall,
+    },
+    {
+      name: 'msg_dns',
+      needle: 'getaddrinfo ENOTFOUND name resolution failed',
+      expectCategory: 'dns',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.dns,
+    },
+    {
+      name: 'msg_timeout',
+      needle: 'connection timed out after timeout waiting',
+      expectCategory: 'timeout',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.timeout,
+    },
+    {
+      name: 'msg_database',
+      needle: 'database "sunset_staging" does not exist',
+      expectCategory: 'database',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.database,
+    },
+    {
+      name: 'msg_client_config',
+      needle: 'password must be a string — invalid client config',
+      expectCategory: 'client_config',
+      expectCode: CONNECT_MESSAGE_SYNTHETIC_CODE.client_config,
+      errName: 'TypeError',
+    },
+    {
+      name: 'msg_unknown_with_secrets',
+      needle: 'completely unrelated driver text with no class tokens',
+      expectCategory: 'unknown',
+      expectCode: 'unknown',
+    },
+  ];
+
+  for (const caseSpec of adversarialMessageCases) {
+    secretMsgs.push({
+      name: caseSpec.name,
+      err: Object.assign(
+        new Error(`${caseSpec.needle}${evilSuffix}`),
+        {
+          code: 'NOT_ALLOWLISTED_MSG_STAGE',
+          name: caseSpec.errName || 'Error',
+        },
+      ),
+      expectCategory: caseSpec.expectCategory,
+      expectCode: caseSpec.expectCode,
+    });
+  }
+
+  const adversarialResults = [];
   for (const caseSpec of secretMsgs) {
     const classified = classifyConnectError(caseSpec.err);
     if (classified.category !== caseSpec.expectCategory
@@ -655,17 +769,13 @@ async function main() {
       || classified.message !== CONNECT_FAILED_SAFE_MESSAGE) {
       throw new Error(`classifier RED mismatch: ${caseSpec.name} ${JSON.stringify(classified)}`);
     }
-    const probe = JSON.stringify(classified);
-    if (probe.includes(evilPassword)
-      || probe.includes(FAKE_ADMIN_USER)
-      || probe.includes(evilDsn)
-      || probe.includes(evilToken)
-      || probe.includes(evilHost)
-      || probe.includes('10.0.0.1')
-      || probe.includes('tenant_services')
-      || /postgresql:\/\//i.test(probe)) {
-      throw new Error(`classifier leaked secret material: ${caseSpec.name}`);
-    }
+    assertClassifierSecretFree(classified, caseSpec.name);
+    adversarialResults.push({
+      name: caseSpec.name,
+      category: classified.category,
+      code: classified.code,
+      message: classified.message,
+    });
   }
 
   // Adapter-level RED: connect catch never surfaces driver message / secrets
@@ -708,14 +818,16 @@ async function main() {
       code: 'ENOTFOUND',
       message: CONNECT_FAILED_SAFE_MESSAGE,
     },
+    adversarialMessageClassifications: adversarialResults.filter((r) => r.name.startsWith('msg_')),
     adapterTls: {
       category: secretConnect.connectCategory,
       code: secretConnect.code,
       message: secretConnect.message,
     },
+    messageProbeMaxLen: CONNECT_MESSAGE_PROBE_MAX_LEN,
   });
 
-  // GREEN: connect classifier mappings for each class
+  // GREEN: connect classifier mappings for each class + code-first precedence
   const greenMappings = [
     { code: 'ENOTFOUND', category: 'dns' },
     { code: 'EAI_AGAIN', category: 'dns' },
@@ -763,24 +875,112 @@ async function main() {
       throw new Error(`allowlist drift on ${driverCode}`);
     }
   }
-  if (!CONNECT_CATEGORIES.includes('unknown') || CONNECT_CATEGORIES.length < 10) {
+
+  // GREEN: second-stage message classes (unknown code) → synthetic codes
+  const messageGreen = [
+    { needle: 'certificate verify failed / SSL issuer', category: 'tls', code: CONNECT_MESSAGE_SYNTHETIC_CODE.tls },
+    { needle: 'password authentication failed SASL', category: 'auth', code: CONNECT_MESSAGE_SYNTHETIC_CODE.auth },
+    { needle: 'pg_hba.conf rejects client IP', category: 'firewall', code: CONNECT_MESSAGE_SYNTHETIC_CODE.firewall },
+    { needle: 'getaddrinfo failed during name resolution', category: 'dns', code: CONNECT_MESSAGE_SYNTHETIC_CODE.dns },
+    { needle: 'operation timed out', category: 'timeout', code: CONNECT_MESSAGE_SYNTHETIC_CODE.timeout },
+    { needle: 'database "x" does not exist', category: 'database', code: CONNECT_MESSAGE_SYNTHETIC_CODE.database },
+    {
+      needle: 'password must be a string',
+      category: 'client_config',
+      code: CONNECT_MESSAGE_SYNTHETIC_CODE.client_config,
+      errName: 'TypeError',
+    },
+  ];
+  const messageMappingResults = [];
+  for (const m of messageGreen) {
+    const classified = classifyConnectError(Object.assign(
+      new Error(`${m.needle}${evilSuffix}`),
+      { code: 'ZZZ_UNKNOWN', name: m.errName || 'Error' },
+    ));
+    if (classified.category !== m.category
+      || classified.code !== m.code
+      || classified.message !== CONNECT_FAILED_SAFE_MESSAGE) {
+      throw new Error(`GREEN message mapping failed: ${m.category} ${JSON.stringify(classified)}`);
+    }
+    assertClassifierSecretFree(classified, `green_msg_${m.category}`);
+    messageMappingResults.push({
+      category: classified.category,
+      code: classified.code,
+      message: classified.message,
+    });
+  }
+
+  // GREEN: code-first precedence — allowlisted code wins over contradictory message tokens
+  const precedence = classifyConnectError(Object.assign(
+    new Error(
+      `password authentication failed SASL SCRAM certificate SSL TLS self-signed`
+      + ` pg_hba firewall client IP getaddrinfo name resolution timed out`
+      + ` database does not exist password must be a string${evilSuffix}`,
+    ),
+    { code: 'ENOTFOUND', name: 'TypeError' },
+  ));
+  if (precedence.category !== 'dns'
+    || precedence.code !== 'ENOTFOUND'
+    || precedence.message !== CONNECT_FAILED_SAFE_MESSAGE) {
+    throw new Error(`code-first precedence failed: ${JSON.stringify(precedence)}`);
+  }
+  assertClassifierSecretFree(precedence, 'code_first_precedence');
+
+  // client_config before auth: "password must be a string" must not become auth
+  const cfgBeforeAuth = classifyConnectError(Object.assign(
+    new Error(`password must be a string${evilSuffix}`),
+    { code: 'NOPE', name: 'TypeError' },
+  ));
+  if (cfgBeforeAuth.category !== 'client_config'
+    || cfgBeforeAuth.code !== CONNECT_MESSAGE_SYNTHETIC_CODE.client_config) {
+    throw new Error(`client_config precedence failed: ${JSON.stringify(cfgBeforeAuth)}`);
+  }
+
+  if (!CONNECT_CATEGORIES.includes('firewall')
+    || !CONNECT_CATEGORIES.includes('client_config')
+    || !CONNECT_CATEGORIES.includes('unknown')
+    || CONNECT_CATEGORIES.length < 12) {
     throw new Error('CONNECT_CATEGORIES incomplete');
+  }
+  if (CONNECT_MESSAGE_PROBE_MAX_LEN < 64 || CONNECT_MESSAGE_PROBE_MAX_LEN > 4096) {
+    throw new Error('CONNECT_MESSAGE_PROBE_MAX_LEN out of expected bounds');
   }
   green.push({
     name: 'connect_classifier_category_mappings',
     ok: true,
     mappings: mappingResults,
+    messageMappings: messageMappingResults,
+    codeFirstPrecedence: {
+      category: precedence.category,
+      code: precedence.code,
+      message: precedence.message,
+    },
+    clientConfigBeforeAuth: {
+      category: cfgBeforeAuth.category,
+      code: cfgBeforeAuth.code,
+      message: cfgBeforeAuth.message,
+    },
     unknown: { category: 'unknown', code: 'unknown', message: CONNECT_FAILED_SAFE_MESSAGE },
     allowlistEntryCount: Object.keys(CONNECT_DRIVER_CODE_CATEGORY).length,
+    syntheticCodes: { ...CONNECT_MESSAGE_SYNTHETIC_CODE },
     categories: CONNECT_CATEGORIES.slice(),
   });
 
-  // Retain first-attempt history (do not re-run attempt 1)
+  // Retain attempt-1 and attempt-2 history (do not re-run)
   const liveCountAttempt1 = loadLiveCountAttempt1History();
   if (!liveCountAttempt1
     || liveCountAttempt1.code !== 'connect_failed'
     || liveCountAttempt1.attempt !== 1) {
     throw new Error('first-attempt history missing or unexpected (need opaque connect_failed attempt 1)');
+  }
+  const liveCountAttempt2 = loadLiveCountAttempt2History();
+  if (!liveCountAttempt2
+    || liveCountAttempt2.attempt !== 2
+    || liveCountAttempt2.code !== 'unknown'
+    || liveCountAttempt2.connectCategory !== 'unknown'
+    || liveCountAttempt2.diagnostic !== true
+    || liveCountAttempt2.classifierApplied !== true) {
+    throw new Error('attempt-2 history missing or unexpected (need code-classifier unknown)');
   }
 
   // LIVE 1: credential preflight (required before diagnostic count)
@@ -813,8 +1013,8 @@ async function main() {
       `Credential preflight blocked (${credentialPreflightOutcome.blocker}) — skipping diagnostic live count.\n`,
     );
   } else {
-    // LIVE 2: exactly one diagnostic count-only spawn (attempt 2; no further retry)
-    console.log('Live section 2/2: diagnostic attempt 2 — one gated managed-identity count-only CLI spawn…\n');
+    // LIVE 2: exactly one diagnostic count-only spawn (attempt 3; no further retry)
+    console.log('Live section 2/2: diagnostic attempt 3 — one gated managed-identity count-only CLI spawn…\n');
     countAttempted = true;
     const liveCountEnv = miEnv();
     const liveCountArgv = miArgv();
@@ -831,9 +1031,10 @@ async function main() {
     const countParsed = parseLastJsonObject(countCombined);
     if (countParsed) leakScan(countParsed, secrets);
     countOutcome = buildCountLiveOutcome(countParsed, liveCountCli.status, {
-      attempt: 2,
+      attempt: 3,
       diagnostic: true,
       classifierApplied: true,
+      messageClassifierStage: true,
     });
     leakScan(countOutcome, secrets);
   }
@@ -874,12 +1075,14 @@ async function main() {
     credentialPreflightRequiredBeforeLiveCount: true,
     offlineInjectedHttpAndFakeClientProof: true,
     connectErrorClassifierRequired: true,
+    connectMessageClassifierRequired: true,
     diagnosticAttempt2Authorized: true,
+    diagnosticAttempt3Authorized: true,
     existingCliGatesUnchanged: true,
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14M',
-    purpose: 'Diagnostic attempt 2: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (incl. secret-free connect classifier) and live credential preflight; retain attempt-1 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.',
+    purpose: 'Diagnostic attempt 3: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (code allowlist + second-stage secret-free message/name classifier) and live credential preflight; retain attempt-1 and attempt-2 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.',
     targets: { ...TARGETS },
     managedIdentityLocks: {
       imdsHost: MI_LOADER_LOCKS.imdsHost,
@@ -933,8 +1136,22 @@ async function main() {
       allowlistedDriverCodes: Object.keys(CONNECT_DRIVER_CODE_CATEGORY).slice(),
       connectionClassPattern: '^08[0-9A-Z]{3}$',
       unknownCode: 'unknown',
+      messageProbeMaxLen: CONNECT_MESSAGE_PROBE_MAX_LEN,
+      messageSyntheticCodes: { ...CONNECT_MESSAGE_SYNTHETIC_CODE },
+      messageStageCategories: [
+        'client_config',
+        'auth',
+        'database',
+        'firewall',
+        'tls',
+        'dns',
+        'timeout',
+        'unknown',
+      ],
+      codeFirstPrecedence: true,
       neverOutput: [
         'raw driver message',
+        'matched message fragment',
         'hostname fragments from error',
         'detail/hint/schema/table/constraint',
         'stack',
@@ -959,6 +1176,7 @@ async function main() {
       'broad retry on live failure',
       'second live count in verify',
       're-run of live attempt 1',
+      're-run of live attempt 2',
       'raw connect driver message in evidence',
     ],
     nonGoals: [
@@ -992,9 +1210,11 @@ async function main() {
     newForwardMigration: false,
     existingCliGatesUnchanged: true,
     connectErrorClassifierApplied: true,
+    connectMessageClassifierApplied: true,
     diagnosticAttempt2Authorized: true,
-    credentialPreflightAttemptCount: 2,
-    liveCountAttemptCount: countAttempted ? 2 : 1,
+    diagnosticAttempt3Authorized: true,
+    credentialPreflightAttemptCount: 3,
+    liveCountAttemptCount: countAttempted ? 3 : 2,
     migrationHashes: {
       '028': live028,
       '035': live035,
@@ -1053,6 +1273,10 @@ async function main() {
       liveCountAttempt1ConnectCalls: liveCountAttempt1.connectCalls,
       liveCountAttempt1QueryCalls: liveCountAttempt1.queryCalls,
       liveCountAttempt1EndCalls: liveCountAttempt1.endCalls,
+      liveCountAttempt2ClientsInstantiated: liveCountAttempt2.clientsInstantiated,
+      liveCountAttempt2ConnectCalls: liveCountAttempt2.connectCalls,
+      liveCountAttempt2QueryCalls: liveCountAttempt2.queryCalls,
+      liveCountAttempt2EndCalls: liveCountAttempt2.endCalls,
     },
     safeCounts: countOk && countOutcome && countOutcome.counts
       ? {
@@ -1063,7 +1287,8 @@ async function main() {
       : null,
     credentialPreflightOutcome,
     liveCountAttempt1,
-    liveCountDiagnosticAttempt2: countOutcome,
+    liveCountDiagnosticAttempt2: liveCountAttempt2,
+    liveCountDiagnosticAttempt3: countOutcome,
     liveCountOutcome: countOutcome,
     secretHandlingProof: {
       privateFieldsZeroedImmediately: true,
@@ -1074,6 +1299,7 @@ async function main() {
       neverInTempFile: true,
       neverInChildProcessEnv: true,
       connectClassifierNeverOutputsRawMessage: true,
+      connectMessageClassifierNeverOutputsMatchedFragment: true,
     },
   };
 
@@ -1087,38 +1313,41 @@ async function main() {
     `${ENV_CREDENTIAL_SOURCE}=${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
     `AZURE_SUBSCRIPTION_ID=${TARGETS.subscriptionId}`,
     'npm run phase-d:live-readonly-count-only --',
-    ...miArgv(),
+    CLI_EXECUTE_COUNT_ONLY,
+    `--subscription ${TARGETS.subscriptionId}`,
+    `--resource-group ${TARGETS.resourceGroup}`,
+    `--postgres-server ${TARGETS.postgresServer}`,
+    `--database ${TARGETS.database}`,
+    `${CLI_CREDENTIAL_SOURCE} ${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
   ].join(' ');
 
-  const preflightSummary = preflightOk
-    ? `Credential preflight **ok** (httpCallsDelta=${credentialPreflightOutcome.httpCallsDelta}, realImdsCall=${credentialPreflightOutcome.realImdsCall}, realKeyVaultCall=${credentialPreflightOutcome.realKeyVaultCall}).`
-    : `Credential preflight **blocked** (\`blocker=${credentialPreflightOutcome.blocker}\`, exitCode=${credentialPreflightOutcome.exitCode}).`;
-
   const attempt1Summary = `Attempt 1 (retained, pre-classifier): **blocked** (\`blocker=${liveCountAttempt1.blocker}\`, code=\`${liveCountAttempt1.code}\`, clientsInstantiated=${liveCountAttempt1.clientsInstantiated}, connectCalls=${liveCountAttempt1.connectCalls}, queryCalls=${liveCountAttempt1.queryCalls}, endCalls=${liveCountAttempt1.endCalls}).`;
-
-  const countSummary = !countAttempted
-    ? 'Diagnostic attempt 2 **not attempted** (stopped after credential-preflight failure).'
-    : (countOk
-      ? `Diagnostic attempt 2 **ok** (total_rows=${countOutcome.counts.total_rows}, date_window_violations=${countOutcome.counts.date_window_violations}, price_unit_violations=${countOutcome.counts.price_unit_violations}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}, httpRequestCount=${countOutcome.httpRequestCount}, steps=${JSON.stringify(countOutcome.steps)}).`
-      : `Diagnostic attempt 2 **blocked** (\`category=${countOutcome.connectCategory || 'n/a'}\`, \`code=${countOutcome.code}\`, \`blocker=${countOutcome.blocker}\`, exitCode=${countOutcome.exitCode}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}).`);
+  const attempt2Summary = `Attempt 2 (retained, code-classifier): **blocked** (\`category=${liveCountAttempt2.connectCategory}\`, \`code=${liveCountAttempt2.code}\`, clientsInstantiated=${liveCountAttempt2.clientsInstantiated}, connectCalls=${liveCountAttempt2.connectCalls}, queryCalls=${liveCountAttempt2.queryCalls}, endCalls=${liveCountAttempt2.endCalls}).`;
+  const attempt3Summary = !countAttempted
+    ? 'Diagnostic attempt 3 **not attempted** (stopped after credential-preflight failure).'
+    : countOk
+      ? `Diagnostic attempt 3 **ok** (total_rows=${countOutcome.counts.total_rows}, date_window_violations=${countOutcome.counts.date_window_violations}, price_unit_violations=${countOutcome.counts.price_unit_violations}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}, httpRequestCount=${countOutcome.httpRequestCount}, steps=${JSON.stringify(countOutcome.steps)}).`
+      : `Diagnostic attempt 3 **blocked** (\`category=${countOutcome.connectCategory || 'n/a'}\`, \`code=${countOutcome.code}\`, \`blocker=${countOutcome.blocker}\`, exitCode=${countOutcome.exitCode}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}).`;
 
   const findings = `# FOUNDATION Slice 14M — Phase D live read-only counts (managed-identity)
 
-**Status:** complete (offline RED/GREEN + connect classifier + live credential preflight + diagnostic attempt 2; zero mutation)
+**Status:** complete (offline RED/GREEN + code+message connect classifier + live credential preflight + diagnostic attempt 3; zero mutation)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome
 
-${preflightSummary}
+Credential preflight **${preflightOk ? 'ok' : 'blocked'}** (httpCallsDelta=${credentialPreflightOutcome.httpCallsDelta}, realImdsCall=${credentialPreflightOutcome.realImdsCall}, realKeyVaultCall=${credentialPreflightOutcome.realKeyVaultCall}).
 
 ${attempt1Summary}
 
-${countSummary}
+${attempt2Summary}
+
+${attempt3Summary}
 
 Outcome code: \`${outcome}\`.
 
-Correction: connect catch now applies a strict secret-free allowlist classifier (normalized category + safe driver code only; fixed message \`connect failed\`; never raw message/host/detail/hint/stack/syscall/credentials/DSN/token/cert). Offline RED proves secret-bearing messages and unknown codes sanitize; GREEN proves each class mapping. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 2) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
+Correction: when driver/SQLSTATE code classification is \`unknown\`, a second-stage secret-free classifier inspects capped \`message\`+\`error.name\` against anchored/fixed predicates and emits only a fixed category + fixed synthetic \`MSG_*\` code + fixed message \`connect failed\` (never raw text or matched fragments). Offline adversarial RED proves secret-bearing messages sanitize; GREEN proves each message class and code-first precedence. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 3) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
 
 Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, \`application_name=wh-sunset-phase-d-preflight\`.
 
@@ -1132,8 +1361,8 @@ ${operatorCmd}
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown sanitize |
-| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier category mappings |
+| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown + adversarial message-class sanitize |
+| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier code+message mappings + code-first precedence |
 
 ## Non-goals / still open
 
@@ -1155,6 +1384,7 @@ Read-only \`BEGIN READ ONLY\` aggregate counts only. Private refs zeroed. No sec
   console.log(`GREEN cases: ${green.length}`);
   console.log(`Outcome: ${outcome}`);
   console.log(`Attempt 1 retained: code=${liveCountAttempt1.code} blocker=${liveCountAttempt1.blocker}`);
+  console.log(`Attempt 2 retained: category=${liveCountAttempt2.connectCategory} code=${liveCountAttempt2.code}`);
   if (countOk && countOutcome && countOutcome.counts) {
     console.log(`Safe counts: ${JSON.stringify(countOutcome.counts)}`);
     console.log(
@@ -1164,7 +1394,7 @@ Read-only \`BEGIN READ ONLY\` aggregate counts only. Private refs zeroed. No sec
     console.log(`Blocker: ${credentialPreflightOutcome.blocker}`);
   } else if (countOutcome) {
     console.log(
-      `Diagnostic attempt 2 blocker: category=${countOutcome.connectCategory} code=${countOutcome.code}`,
+      `Diagnostic attempt 3 blocker: category=${countOutcome.connectCategory} code=${countOutcome.code}`,
     );
   }
   console.log(`Wrote ${path.relative(ROOT, CONTRACT_PATH)}`);

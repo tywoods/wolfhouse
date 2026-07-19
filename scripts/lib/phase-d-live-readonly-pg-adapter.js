@@ -101,7 +101,7 @@ const CONNECT_FAILED_SAFE_MESSAGE = 'connect failed';
 
 /**
  * Strict allowlist: original driver/Postgres code → normalized category.
- * Unknown codes collapse to category/code `unknown` (never pass through).
+ * Unknown codes fall through to second-stage message/name predicates.
  */
 const CONNECT_DRIVER_CODE_CATEGORY = Object.freeze({
   ENOTFOUND: 'dns',
@@ -134,6 +134,97 @@ const CONNECT_DRIVER_CODE_CATEGORY = Object.freeze({
   '3D000': 'database',
 });
 
+/**
+ * Second-stage only: fixed synthetic codes when driver/SQLSTATE code is unknown.
+ * Never derived from matched message fragments.
+ */
+const CONNECT_MESSAGE_SYNTHETIC_CODE = Object.freeze({
+  client_config: 'MSG_CLIENT_CONFIG',
+  auth: 'MSG_AUTH',
+  database: 'MSG_DATABASE',
+  firewall: 'MSG_FIREWALL',
+  tls: 'MSG_TLS',
+  dns: 'MSG_DNS',
+  timeout: 'MSG_TIMEOUT',
+  unknown: 'unknown',
+});
+
+/** Cap probe text so secrets/PEMs cannot be retained at length. */
+const CONNECT_MESSAGE_PROBE_MAX_LEN = 512;
+
+/**
+ * Ordered message/name predicates (most specific first to avoid false positives).
+ * Each entry: fixed category + anchored/fixed regexes over a capped lowercase probe.
+ * Probe is built from err.message + err.name only; never returns matched text.
+ */
+const CONNECT_MESSAGE_PREDICATES = Object.freeze([
+  // client_config before auth: "password must be a string" must not become auth
+  Object.freeze({
+    category: 'client_config',
+    patterns: Object.freeze([
+      /password must be a string/,
+      /invalid client config/,
+      /\btype ?error\b/,
+    ]),
+    names: Object.freeze(['TypeError']),
+  }),
+  Object.freeze({
+    category: 'auth',
+    patterns: Object.freeze([
+      /password authentication/,
+      /\bsasl\b/,
+      /\bscram(?:-[a-z0-9-]+)?\b/,
+    ]),
+    names: Object.freeze([]),
+  }),
+  Object.freeze({
+    category: 'database',
+    patterns: Object.freeze([
+      /database .* does not exist/,
+      /database does not exist/,
+    ]),
+    names: Object.freeze([]),
+  }),
+  Object.freeze({
+    category: 'firewall',
+    patterns: Object.freeze([
+      /pg_hba(?:\.conf)?/,
+      /\bfirewall\b/,
+      /client (?:ip|address)/,
+      /not allowed to connect/,
+    ]),
+    names: Object.freeze([]),
+  }),
+  Object.freeze({
+    category: 'tls',
+    patterns: Object.freeze([
+      /\bself[- ]signed\b/,
+      /\bcertificate\b/,
+      /\bissuer\b/,
+      /hostname verification/,
+      /\bssl\b/,
+      /\btls\b/,
+    ]),
+    names: Object.freeze([]),
+  }),
+  Object.freeze({
+    category: 'dns',
+    patterns: Object.freeze([
+      /\bgetaddrinfo\b/,
+      /name resolution/,
+    ]),
+    names: Object.freeze([]),
+  }),
+  Object.freeze({
+    category: 'timeout',
+    patterns: Object.freeze([
+      /timed out/,
+      /\btimeout\b/,
+    ]),
+    names: Object.freeze([]),
+  }),
+]);
+
 const CONNECT_CATEGORIES = Object.freeze([
   'dns',
   'timeout',
@@ -144,8 +235,71 @@ const CONNECT_CATEGORIES = Object.freeze([
   'auth',
   'database',
   'connection',
+  'firewall',
+  'client_config',
   'unknown',
 ]);
+
+function safeConnectResult(category, code) {
+  return Object.freeze({
+    category,
+    code,
+    message: CONNECT_FAILED_SAFE_MESSAGE,
+  });
+}
+
+/**
+ * Second-stage: classify from capped message + error.name only.
+ * Used only when code-stage returned unknown. Never returns raw text.
+ * Copies probe then discards source refs immediately.
+ */
+function classifyConnectErrorFromMessage(err) {
+  let msg = '';
+  let name = '';
+  try {
+    if (err && err.message != null) {
+      msg = String(err.message).slice(0, CONNECT_MESSAGE_PROBE_MAX_LEN);
+    }
+    if (err && err.name != null) {
+      name = String(err.name).slice(0, 64);
+    }
+  } catch (_e) {
+    msg = '';
+    name = '';
+  }
+  // Discard refs to caller error fields after copying capped probe.
+  err = null;
+
+  const nameExact = name;
+  const probe = `${msg}\n${name}`.toLowerCase();
+  msg = '';
+  name = '';
+
+  for (let i = 0; i < CONNECT_MESSAGE_PREDICATES.length; i += 1) {
+    const pred = CONNECT_MESSAGE_PREDICATES[i];
+    let hit = false;
+    for (let n = 0; n < pred.names.length; n += 1) {
+      if (nameExact === pred.names[n]) {
+        hit = true;
+        break;
+      }
+    }
+    if (!hit) {
+      for (let p = 0; p < pred.patterns.length; p += 1) {
+        if (pred.patterns[p].test(probe)) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (hit) {
+      const category = pred.category;
+      return safeConnectResult(category, CONNECT_MESSAGE_SYNTHETIC_CODE[category]);
+    }
+  }
+
+  return safeConnectResult('unknown', CONNECT_MESSAGE_SYNTHETIC_CODE.unknown);
+}
 
 /**
  * Classify a pg Client.connect() failure into a secret-free
@@ -153,6 +307,7 @@ const CONNECT_CATEGORIES = Object.freeze([
  * fragments, detail/hint/schema/table/constraint, stack, syscall/address/port,
  * credentials, DSN, token, or cert content.
  *
+ * Stage 1 (code-first):
  * - DNS: ENOTFOUND / EAI_AGAIN
  * - timeout: ETIMEDOUT
  * - refused: ECONNREFUSED
@@ -162,18 +317,16 @@ const CONNECT_CATEGORIES = Object.freeze([
  * - auth: 28P01 / 28000
  * - database: 3D000
  * - connection: PostgreSQL class 08xxx (code preserved when well-formed)
- * - unknown: everything else (code forced to `unknown`)
+ *
+ * Stage 2 (only when stage 1 is unknown): anchored message/name predicates →
+ * fixed category + fixed synthetic MSG_* code (never raw/matched text).
  */
 function classifyConnectError(err) {
   const raw = err && err.code != null ? String(err.code).trim() : '';
 
   // PostgreSQL connection_exception class (08xxx) — preserve well-formed code only.
   if (/^08[0-9A-Z]{3}$/i.test(raw)) {
-    return Object.freeze({
-      category: 'connection',
-      code: raw.toUpperCase(),
-      message: CONNECT_FAILED_SAFE_MESSAGE,
-    });
+    return safeConnectResult('connection', raw.toUpperCase());
   }
 
   if (raw) {
@@ -182,20 +335,13 @@ function classifyConnectError(err) {
     for (let i = 0; i < keys.length; i += 1) {
       const key = keys[i];
       if (key === raw || key.toUpperCase() === upper) {
-        return Object.freeze({
-          category: CONNECT_DRIVER_CODE_CATEGORY[key],
-          code: key,
-          message: CONNECT_FAILED_SAFE_MESSAGE,
-        });
+        return safeConnectResult(CONNECT_DRIVER_CODE_CATEGORY[key], key);
       }
     }
   }
 
-  return Object.freeze({
-    category: 'unknown',
-    code: 'unknown',
-    message: CONNECT_FAILED_SAFE_MESSAGE,
-  });
+  // Second stage: message/name predicates when code is missing or not allowlisted.
+  return classifyConnectErrorFromMessage(err);
 }
 
 /**
@@ -1141,8 +1287,12 @@ module.exports = {
   AUTHORIZED_SEQUENCE_ON_FAILURE,
   CONNECT_FAILED_SAFE_MESSAGE,
   CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_MESSAGE_SYNTHETIC_CODE,
+  CONNECT_MESSAGE_PROBE_MAX_LEN,
+  CONNECT_MESSAGE_PREDICATES,
   CONNECT_CATEGORIES,
   classifyConnectError,
+  classifyConnectErrorFromMessage,
   buildVerifiedTlsSslConfig,
   buildLockedPgClientConfig,
   secretFreeClientConfigView,

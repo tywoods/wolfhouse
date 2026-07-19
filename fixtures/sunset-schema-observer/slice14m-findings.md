@@ -1,8 +1,8 @@
 # FOUNDATION Slice 14M — Phase D live read-only counts (managed-identity)
 
-**Status:** complete (offline RED/GREEN + connect classifier + live credential preflight + diagnostic attempt 2; zero mutation)
+**Status:** complete (offline RED/GREEN + code+message connect classifier + live credential preflight + diagnostic attempt 3; zero mutation)
 **Master basis:** `45203b370997917fc8c3a39cf87948f46d9e5b5a`
-**Generated:** 2026-07-19T20:49:31.126Z
+**Generated:** 2026-07-19T20:55:45.068Z
 
 ## Outcome
 
@@ -10,11 +10,13 @@ Credential preflight **ok** (httpCallsDelta=2, realImdsCall=true, realKeyVaultCa
 
 Attempt 1 (retained, pre-classifier): **blocked** (`blocker=connect_failed`, code=`connect_failed`, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
 
-Diagnostic attempt 2 **blocked** (`category=unknown`, `code=unknown`, `blocker=unknown`, exitCode=2, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
+Attempt 2 (retained, code-classifier): **blocked** (`category=unknown`, `code=unknown`, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
+
+Diagnostic attempt 3 **blocked** (`category=timeout`, `code=MSG_TIMEOUT`, `blocker=timeout`, exitCode=2, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
 
 Outcome code: `phase_d_live_readonly_counts_blocked`.
 
-Correction: connect catch now applies a strict secret-free allowlist classifier (normalized category + safe driver code only; fixed message `connect failed`; never raw message/host/detail/hint/stack/syscall/credentials/DSN/token/cert). Offline RED proves secret-bearing messages and unknown codes sanitize; GREEN proves each class mapping. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 2) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
+Correction: when driver/SQLSTATE code classification is `unknown`, a second-stage secret-free classifier inspects capped `message`+`error.name` against anchored/fixed predicates and emits only a fixed category + fixed synthetic `MSG_*` code + fixed message `connect failed` (never raw text or matched fragments). Offline adversarial RED proves secret-bearing messages sanitize; GREEN proves each message class and code-first precedence. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 3) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
 
 Locks: Lunabox MI **`wh-staging-identity`**, vault `luna-sunset-staging-kv` / `sunset-database-url`, PG `luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging`, TLS `sslmode=verify-full`, `application_name=wh-sunset-phase-d-preflight`.
 
@@ -28,8 +30,8 @@ SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_LI
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown sanitize |
-| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier category mappings |
+| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown + adversarial message-class sanitize |
+| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier code+message mappings + code-first precedence |
 
 ## Non-goals / still open
 

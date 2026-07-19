@@ -20,12 +20,14 @@
   "credentialPreflightRequiredBeforeLiveCount": true,
   "offlineInjectedHttpAndFakeClientProof": true,
   "connectErrorClassifierRequired": true,
+  "connectMessageClassifierRequired": true,
   "diagnosticAttempt2Authorized": true,
+  "diagnosticAttempt3Authorized": true,
   "existingCliGatesUnchanged": true,
-  "generatedAt": "2026-07-19T20:49:31.126Z",
+  "generatedAt": "2026-07-19T20:55:45.068Z",
   "masterShaBasis": "45203b370997917fc8c3a39cf87948f46d9e5b5a",
   "slice": "14M",
-  "purpose": "Diagnostic attempt 2: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (incl. secret-free connect classifier) and live credential preflight; retain attempt-1 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.",
+  "purpose": "Diagnostic attempt 3: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (code allowlist + second-stage secret-free message/name classifier) and live credential preflight; retain attempt-1 and attempt-2 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.",
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -139,6 +141,8 @@
       "auth",
       "database",
       "connection",
+      "firewall",
+      "client_config",
       "unknown"
     ],
     "allowlistedDriverCodes": [
@@ -170,8 +174,31 @@
     ],
     "connectionClassPattern": "^08[0-9A-Z]{3}$",
     "unknownCode": "unknown",
+    "messageProbeMaxLen": 512,
+    "messageSyntheticCodes": {
+      "client_config": "MSG_CLIENT_CONFIG",
+      "auth": "MSG_AUTH",
+      "database": "MSG_DATABASE",
+      "firewall": "MSG_FIREWALL",
+      "tls": "MSG_TLS",
+      "dns": "MSG_DNS",
+      "timeout": "MSG_TIMEOUT",
+      "unknown": "unknown"
+    },
+    "messageStageCategories": [
+      "client_config",
+      "auth",
+      "database",
+      "firewall",
+      "tls",
+      "dns",
+      "timeout",
+      "unknown"
+    ],
+    "codeFirstPrecedence": true,
     "neverOutput": [
       "raw driver message",
+      "matched message fragment",
       "hostname fragments from error",
       "detail/hint/schema/table/constraint",
       "stack",
@@ -196,6 +223,7 @@
     "broad retry on live failure",
     "second live count in verify",
     "re-run of live attempt 1",
+    "re-run of live attempt 2",
     "raw connect driver message in evidence"
   ],
   "nonGoals": [

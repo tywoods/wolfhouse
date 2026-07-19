@@ -54,6 +54,8 @@ const {
   classifyConnectError,
   CONNECT_FAILED_SAFE_MESSAGE,
   CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_MESSAGE_SYNTHETIC_CODE,
+  CONNECT_MESSAGE_PROBE_MAX_LEN,
   CONNECT_CATEGORIES,
 } = require('./lib/phase-d-live-readonly-pg-adapter');
 const {
@@ -233,6 +235,7 @@ async function main() {
   const liveCount = evidence.liveCountOutcome;
   const attempt1 = evidence.liveCountAttempt1;
   const attempt2 = evidence.liveCountDiagnosticAttempt2;
+  const attempt3 = evidence.liveCountDiagnosticAttempt3;
   pass('offline-gates',
     evidence.offlineGates.defaultPathZeroHttpAndClients === true
     && evidence.offlineGates.injectedHttpSuccessExactCountSequence === true
@@ -244,13 +247,17 @@ async function main() {
     && evidence.stillProductSchemaDiffers === true
     && evidence.existingCliGatesUnchanged === true
     && evidence.connectErrorClassifierApplied === true
+    && evidence.connectMessageClassifierApplied === true
     && evidence.diagnosticAttempt2Authorized === true
+    && evidence.diagnosticAttempt3Authorized === true
     && contract.connectErrorClassifierRequired === true
-    && contract.diagnosticAttempt2Authorized === true);
+    && contract.connectMessageClassifierRequired === true
+    && contract.diagnosticAttempt2Authorized === true
+    && contract.diagnosticAttempt3Authorized === true);
 
   pass('live-evidence-recorded',
-    evidence.credentialPreflightAttemptCount === 2
-    && evidence.liveCountAttemptCount === 2
+    evidence.credentialPreflightAttemptCount === 3
+    && evidence.liveCountAttemptCount === 3
     && typeof evidence.outcome === 'string'
     && evidence.outcome.startsWith('phase_d_live_readonly_counts_')
     && preflight.liveMutation === false
@@ -266,6 +273,13 @@ async function main() {
     && attempt2.attempt === 2
     && attempt2.diagnostic === true
     && attempt2.classifierApplied === true
+    && attempt2.code === 'unknown'
+    && attempt2.connectCategory === 'unknown'
+    && attempt3
+    && attempt3.attempt === 3
+    && attempt3.diagnostic === true
+    && attempt3.classifierApplied === true
+    && attempt3.messageClassifierStage === true
     && liveCount
     && liveCount.liveMutation === false
     && typeof liveCount.code === 'string'
@@ -297,15 +311,23 @@ async function main() {
   pass('attempt-history-retained',
     evidence.liveCountAttempt1.code === 'connect_failed'
     && evidence.liveCountDiagnosticAttempt2
+    && evidence.liveCountDiagnosticAttempt3
     && evidence.liveCountOutcome
     && evidence.liveCountDiagnosticAttempt2.attempt === 2
-    && evidence.liveCountOutcome.attempt === 2
-    && evidence.liveCountDiagnosticAttempt2.code === evidence.liveCountOutcome.code
-    && evidence.liveCountDiagnosticAttempt2.blocker === evidence.liveCountOutcome.blocker
+    && evidence.liveCountDiagnosticAttempt2.code === 'unknown'
+    && evidence.liveCountDiagnosticAttempt2.connectCategory === 'unknown'
+    && evidence.liveCountDiagnosticAttempt3.attempt === 3
+    && evidence.liveCountOutcome.attempt === 3
+    && evidence.liveCountDiagnosticAttempt3.code === evidence.liveCountOutcome.code
+    && evidence.liveCountDiagnosticAttempt3.blocker === evidence.liveCountOutcome.blocker
     && evidence.clientCallCounts.liveCountAttempt1ClientsInstantiated === 1
     && evidence.clientCallCounts.liveCountAttempt1ConnectCalls === 1
     && evidence.clientCallCounts.liveCountAttempt1QueryCalls === 0
-    && evidence.clientCallCounts.liveCountAttempt1EndCalls === 1);
+    && evidence.clientCallCounts.liveCountAttempt1EndCalls === 1
+    && evidence.clientCallCounts.liveCountAttempt2ClientsInstantiated === 1
+    && evidence.clientCallCounts.liveCountAttempt2ConnectCalls === 1
+    && evidence.clientCallCounts.liveCountAttempt2QueryCalls === 0
+    && evidence.clientCallCounts.liveCountAttempt2EndCalls === 1);
 
   pass('call-counts-evidence',
     evidence.redCaseCount === REQUIRED_RED.length
@@ -385,8 +407,12 @@ async function main() {
 
   // Offline connect classifier — never re-run live
   const evil = 'verify-slice14m-classifier-secret-never-commit';
+  const evilDsn = 'postgresql://u:p@h/db';
+  const evilCert = 'MIIEverifyPemBody';
+  const evilIp = '203.0.113.77';
+  const secretTail = ` password=${evil} DSN=${evilDsn} Bearer tokencert=${evilCert} host=leaked.host ip=${evilIp}`;
   const clsUnknown = classifyConnectError(Object.assign(
-    new Error(`password=${evil} postgresql://u:p@h/db`),
+    new Error(`unclassified boom${secretTail}`),
     { code: 'NOT_ALLOWLISTED', detail: 'x', hostname: 'leaked.host' },
   ));
   const clsDns = classifyConnectError(Object.assign(
@@ -394,7 +420,42 @@ async function main() {
     { code: 'ENOTFOUND' },
   ));
   const clsConn = classifyConnectError({ code: '08006' });
-  const clsProbe = JSON.stringify([clsUnknown, clsDns, clsConn]);
+  const clsMsgTls = classifyConnectError(Object.assign(
+    new Error(`self-signed certificate SSL/TLS hostname verification${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgAuth = classifyConnectError(Object.assign(
+    new Error(`password authentication failed SASL SCRAM${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgFw = classifyConnectError(Object.assign(
+    new Error(`no pg_hba.conf entry; firewall; client IP not allowed to connect${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgDns = classifyConnectError(Object.assign(
+    new Error(`getaddrinfo name resolution failed${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgTimeout = classifyConnectError(Object.assign(
+    new Error(`connection timed out${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgDb = classifyConnectError(Object.assign(
+    new Error(`database "x" does not exist${secretTail}`),
+    { code: 'ZZ_UNKNOWN' },
+  ));
+  const clsMsgCfg = classifyConnectError(Object.assign(
+    new Error(`password must be a string${secretTail}`),
+    { code: 'ZZ_UNKNOWN', name: 'TypeError' },
+  ));
+  const clsPrecedence = classifyConnectError(Object.assign(
+    new Error(`password authentication certificate pg_hba timed out${secretTail}`),
+    { code: 'ENOTFOUND' },
+  ));
+  const clsProbe = JSON.stringify([
+    clsUnknown, clsDns, clsConn, clsMsgTls, clsMsgAuth, clsMsgFw, clsMsgDns,
+    clsMsgTimeout, clsMsgDb, clsMsgCfg, clsPrecedence,
+  ]);
   pass('runtime-connect-classifier',
     clsUnknown.category === 'unknown'
     && clsUnknown.code === 'unknown'
@@ -403,13 +464,38 @@ async function main() {
     && clsDns.code === 'ENOTFOUND'
     && clsConn.category === 'connection'
     && clsConn.code === '08006'
+    && clsMsgTls.category === 'tls'
+    && clsMsgTls.code === CONNECT_MESSAGE_SYNTHETIC_CODE.tls
+    && clsMsgAuth.category === 'auth'
+    && clsMsgAuth.code === CONNECT_MESSAGE_SYNTHETIC_CODE.auth
+    && clsMsgFw.category === 'firewall'
+    && clsMsgFw.code === CONNECT_MESSAGE_SYNTHETIC_CODE.firewall
+    && clsMsgDns.category === 'dns'
+    && clsMsgDns.code === CONNECT_MESSAGE_SYNTHETIC_CODE.dns
+    && clsMsgTimeout.category === 'timeout'
+    && clsMsgTimeout.code === CONNECT_MESSAGE_SYNTHETIC_CODE.timeout
+    && clsMsgDb.category === 'database'
+    && clsMsgDb.code === CONNECT_MESSAGE_SYNTHETIC_CODE.database
+    && clsMsgCfg.category === 'client_config'
+    && clsMsgCfg.code === CONNECT_MESSAGE_SYNTHETIC_CODE.client_config
+    && clsPrecedence.category === 'dns'
+    && clsPrecedence.code === 'ENOTFOUND'
     && !clsProbe.includes(evil)
     && !clsProbe.includes('leaked.host')
+    && !clsProbe.includes(evilIp)
+    && !clsProbe.includes(evilCert)
     && !/postgresql:\/\//i.test(clsProbe)
+    && !clsProbe.includes('password authentication')
+    && !clsProbe.includes('getaddrinfo')
     && Object.keys(CONNECT_DRIVER_CODE_CATEGORY).length >= 15
     && CONNECT_CATEGORIES.includes('tls')
     && CONNECT_CATEGORIES.includes('auth')
-    && contract.connectErrorClassifier.safeMessage === CONNECT_FAILED_SAFE_MESSAGE);
+    && CONNECT_CATEGORIES.includes('firewall')
+    && CONNECT_CATEGORIES.includes('client_config')
+    && CONNECT_MESSAGE_PROBE_MAX_LEN === 512
+    && contract.connectErrorClassifier.safeMessage === CONNECT_FAILED_SAFE_MESSAGE
+    && contract.connectErrorClassifier.codeFirstPrecedence === true
+    && contract.connectErrorClassifier.messageSyntheticCodes.tls === 'MSG_TLS');
 
   pass('source-forbids-live-mutation',
     !/\baz\s+keyvault\b/i.test(proveSrc)
@@ -458,12 +544,16 @@ async function main() {
 
   pass('prove-one-diagnostic-live-count-max',
     /Live section 2\/2/.test(proveSrc)
-    && /diagnostic attempt 2/.test(proveSrc)
+    && /diagnostic attempt 3/.test(proveSrc)
     && /loadLiveCountAttempt1History/.test(proveSrc)
+    && /loadLiveCountAttempt2History/.test(proveSrc)
     && /countAttempted = true/.test(proveSrc)
-    && /credentialPreflightAttemptCount: 2/.test(proveSrc)
+    && /credentialPreflightAttemptCount: 3/.test(proveSrc)
     && /liveCountAttempt1/.test(proveSrc)
     && /liveCountDiagnosticAttempt2/.test(proveSrc)
+    && /liveCountDiagnosticAttempt3/.test(proveSrc)
+    && /messageClassifierStage: true/.test(proveSrc)
+    && /CONNECT_MESSAGE_SYNTHETIC_CODE/.test(proveSrc)
     && (proveSrc.match(/spawnSync\(/g) || []).length === 3);
 
   if (failed > 0) {
