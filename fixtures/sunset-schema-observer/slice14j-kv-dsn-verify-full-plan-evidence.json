@@ -1,0 +1,277 @@
+{
+  "kind": "sunset-schema-observer-slice14j-kv-dsn-verify-full-plan-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T20:18:01.125Z",
+  "masterShaBasis": "ec6a5e9589026db1675a82f4d0b05ddc4a62320e",
+  "slice": "14J",
+  "liveMutateEnabled": false,
+  "liveRollbackEnabled": false,
+  "liveMutation": false,
+  "azureConnectivity": false,
+  "keyVaultLiveRead": false,
+  "keyVaultLiveWrite": false,
+  "realImdsCall": false,
+  "realKeyVaultCall": false,
+  "realPostgresCall": false,
+  "pgClientInstantiated": 0,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "networkMutation": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "ddlApplied": false,
+  "stillProductSchemaDiffers": true,
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "redCaseCount": 14,
+  "greenCaseCount": 7,
+  "redCases": [
+    {
+      "name": "default_path_zero_kv_writes",
+      "ok": true,
+      "code": "dsn_plan_gates_rejected",
+      "kvWriteCount": 0,
+      "httpRequestCount": 0,
+      "cliExitCode": 2
+    },
+    {
+      "name": "missing_env_zero_writes",
+      "ok": true,
+      "kvWriteCount": 0
+    },
+    {
+      "name": "missing_plan_only_flag_zero_writes",
+      "ok": true,
+      "kvWriteCount": 0
+    },
+    {
+      "name": "wrong_exact_targets_zero_writes",
+      "ok": true,
+      "kvWriteCount": 0
+    },
+    {
+      "name": "forbidden_value_dsn_token_version_file_argv",
+      "ok": true,
+      "kvWriteCount": 0
+    },
+    {
+      "name": "host_tags_delete_retries_arbitrary_version_rejected",
+      "ok": true
+    },
+    {
+      "name": "adapter_without_inject_zero_writes",
+      "ok": true,
+      "code": "offline_inject_required",
+      "kvWriteCount": 0,
+      "httpRequestCount": 0
+    },
+    {
+      "name": "already_verify_full_zero_puts",
+      "ok": true,
+      "code": "secret_already_verify_full",
+      "keyVaultPutCount": 0,
+      "httpRequestCount": 2
+    },
+    {
+      "name": "put_failure_retains_prior_version_safe_id",
+      "ok": true,
+      "code": "kv_put_rejected",
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "keyVaultPutCount": 1
+    },
+    {
+      "name": "rollback_without_approval_zero_writes",
+      "ok": true,
+      "code": "rollback_approval_required",
+      "kvWriteCount": 0
+    },
+    {
+      "name": "unsupported_attributes_zero_writes",
+      "ok": true,
+      "code": "unsupported_secret_metadata",
+      "keyVaultPutCount": 0
+    },
+    {
+      "name": "metadata_mismatch_rejected",
+      "ok": true,
+      "code": "metadata_mismatch",
+      "keyVaultPutCount": 1
+    },
+    {
+      "name": "nonadjacent_stale_version_zero_writes",
+      "ok": true,
+      "code": "nonadjacent_version_rejected",
+      "kvWriteCount": 0,
+      "keyVaultListCount": 1
+    },
+    {
+      "name": "list_pagination_rejected_zero_writes",
+      "ok": true,
+      "code": "versions_pagination_rejected",
+      "kvWriteCount": 0
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "exact_locked_mutation_and_rollback_plans",
+      "ok": true,
+      "putCount": 1,
+      "targetSslmode": "verify-full"
+    },
+    {
+      "name": "cli_plan_only_safe_ids",
+      "ok": true,
+      "cliExitCode": 0,
+      "code": "dsn_verify_full_plan_only_ok"
+    },
+    {
+      "name": "cli_rollback_plan_only_safe_prior_version_id",
+      "ok": true,
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    },
+    {
+      "name": "fake_http_imds_get_put_verify_success",
+      "ok": true,
+      "httpRequestCount": 4,
+      "imdsRequestCount": 1,
+      "keyVaultGetCount": 2,
+      "keyVaultPutCount": 1,
+      "putCount": 1,
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "newSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "callMethods": [
+        "imds_token:GET",
+        "keyvault_secret_get:GET",
+        "keyvault_secret_put:PUT",
+        "keyvault_secret_verify_get:GET"
+      ]
+    },
+    {
+      "name": "metadata_preservation_verified",
+      "ok": true,
+      "metadataPreserved": true,
+      "putHasContentType": true,
+      "putHasTags": true,
+      "putAttributeKeys": [
+        "enabled",
+        "exp",
+        "nbf"
+      ]
+    },
+    {
+      "name": "exact_rollback_sequence_call_counts",
+      "ok": true,
+      "httpRequestCount": 6,
+      "imdsRequestCount": 1,
+      "keyVaultGetCount": 3,
+      "keyVaultListCount": 1,
+      "keyVaultPutCount": 1,
+      "putCount": 1,
+      "adjacencyProven": true,
+      "currentSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "currentVersionCreated": 1700002000,
+      "priorVersionCreated": 1700001000,
+      "callMethods": [
+        "imds_token:GET",
+        "keyvault_secret_get:GET",
+        "keyvault_secret_versions_list:GET",
+        "keyvault_secret_version_get:GET",
+        "keyvault_secret_put:PUT",
+        "keyvault_secret_verify_get:GET"
+      ]
+    },
+    {
+      "name": "live_disabled_hashes_preserved_no_pg_client",
+      "ok": true,
+      "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+      "expectedByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+      "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+    }
+  ],
+  "successCallCounts": {
+    "httpRequestCount": 4,
+    "imdsRequestCount": 1,
+    "keyVaultGetCount": 2,
+    "keyVaultPutCount": 1,
+    "putCount": 1
+  },
+  "rollbackSuccessCallCounts": {
+    "httpRequestCount": 6,
+    "imdsRequestCount": 1,
+    "keyVaultGetCount": 3,
+    "keyVaultListCount": 1,
+    "keyVaultPutCount": 1,
+    "putCount": 1
+  },
+  "locks": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "port": 5432,
+    "targetSslmode": "verify-full"
+  },
+  "mutationContract": {
+    "operation": "setSecretNewVersion",
+    "field": "sslmode",
+    "to": "verify-full",
+    "retainExact": [
+      "host",
+      "port",
+      "database",
+      "username",
+      "password",
+      "contentType",
+      "tags",
+      "attributes.enabled",
+      "attributes.nbf",
+      "attributes.exp"
+    ],
+    "preserveUserMetadata": true,
+    "systemGeneratedMayDiffer": [
+      "id",
+      "attributes.created",
+      "attributes.updated"
+    ],
+    "putCount": 1,
+    "retries": 0,
+    "httpSequence": [
+      "IMDS GET",
+      "Key Vault secret GET",
+      "Key Vault secret PUT",
+      "Key Vault secret verification GET"
+    ]
+  },
+  "rollbackContract": {
+    "operation": "restoreImmediatelyPreviousSecretVersion",
+    "restoreScope": "immediately_previous_version_only",
+    "requiresSeparateExplicitApproval": true,
+    "adjacencyProofRequired": true,
+    "adjacencyRule": "versions[0]===current && versions[1]===prior && created[0]>created[1]",
+    "paginationForbidden": true,
+    "preserveUserMetadata": true,
+    "putCount": 1,
+    "retries": 0,
+    "defaultZeroWrites": true,
+    "httpSequence": [
+      "IMDS GET",
+      "Key Vault secret GET current",
+      "Key Vault secret versions LIST",
+      "Key Vault secret version GET prior",
+      "Key Vault secret PUT",
+      "Key Vault secret verification GET"
+    ]
+  },
+  "fakePriorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+  "fakeNewSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "fakePriorVersionCreated": 1700001000,
+  "fakeCurrentVersionCreated": 1700002000
+}
