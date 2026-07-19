@@ -1,0 +1,51 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "slice": "14N",
+    "purpose": "Locked parameters for standalone Lunabox egress firewall rule on existing luna-sunset-staging-pg-app. Applied via gated ARM REST PUT of this single rule only — never full main.bicep.",
+    "liveApplyMethod": "arm-rest-put-firewall-rule",
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServerName": "luna-sunset-staging-pg-app",
+    "firewallRuleName": "AllowLunaboxEgress",
+    "startIpAddress": "20.238.124.76",
+    "endIpAddress": "20.238.124.76",
+    "existingRulesUnchanged": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26"
+      }
+    ],
+    "forbidden": [
+      "IP ranges (start!=end)",
+      "0.0.0.0",
+      "AllowAllAzureIps / Azure-services rule",
+      "IPv6",
+      "delete",
+      "broadening existing rules",
+      "full main.bicep deploy",
+      "PostgreSQL client/query"
+    ]
+  },
+  "parameters": {
+    "postgresServerName": {
+      "value": "luna-sunset-staging-pg-app"
+    },
+    "firewallRuleName": {
+      "value": "AllowLunaboxEgress"
+    },
+    "startIpAddress": {
+      "value": "20.238.124.76"
+    },
+    "endIpAddress": {
+      "value": "20.238.124.76"
+    }
+  }
+}

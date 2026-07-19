@@ -40,7 +40,7 @@ Recurring increase from this slice: **$0** (no Azure mutations).
 | bicep-default-deploy-flags | materially_drifted | `deployContainerApps/deployStaffApi=false` | staff API live and serving |
 | managed-certificate | live_but_unmanaged | Phase H / not in Bicep | managed cert for `sunset-staging.lunafrontdesk.com` |
 | hold-expiry-job | live_but_unmanaged | not in Bicep | job `luna-sunset-staging-hold-expiry` cron `15 * * * *` |
-| postgres-firewall-rules | live_but_unmanaged | example `postgresAllowedIpAddresses=[]` | two egress allow rules present |
+| postgres-firewall-rules | live_but_unmanaged | example `postgresAllowedIpAddresses=[]`; standalone `lunabox-pg-firewall-rule.bicep` declares AllowLunaboxEgress | three egress allow rules present (CAE + App + Lunabox) |
 | kv-secret-names | secret_manual_dependency | README secret names; values not in Bicep | 5 secret **names** only |
 | app-inline-bot-token-secret | secret_manual_dependency | KV-backed secrets only | `luna-bot-internal-token` has no Key Vault URL |
 | kv-operator-officer-role | secret_manual_dependency | identity = Secrets User only | human **Secrets Officer** also present |
