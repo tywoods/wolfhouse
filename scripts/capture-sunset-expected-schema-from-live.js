@@ -1,8 +1,14 @@
 'use strict';
 
 /**
- * Capture Sunset staging expected-product-schema.json from the live read-only
- * observer catalog (secret-safe staff-api path). Does not mutate the database.
+ * Evidence-only live catalog snapshot collector (FOUNDATION Slice 11 correction).
+ *
+ * Writes ONLY under gitignored tmp/foundation-slice11/ as
+ *   actual-live-state-evidence.json
+ * labeled "actual live state — not canonical".
+ *
+ * NEVER overwrites fixtures/sunset-schema-observer/expected-product-schema.json.
+ * Live state must not bless, refresh, or replace the canonical expected contract.
  */
 
 const fs = require('fs');
@@ -26,8 +32,27 @@ const {
 const { loadManifest, MANIFEST_PATH } = require('./lib/migration-integrity');
 
 const ROOT = path.join(__dirname, '..');
-const OUT = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'expected-product-schema.json');
+const CANONICAL_FIXTURE = path.join(
+  ROOT,
+  'fixtures',
+  'sunset-schema-observer',
+  'expected-product-schema.json',
+);
+const OUT_DIR = path.join(ROOT, 'tmp', 'foundation-slice11');
+const OUT = path.join(OUT_DIR, 'actual-live-state-evidence.json');
 const OBSERVER_SECRET = 'sunset-schema-observer-database-url';
+
+function refuseCanonicalOverwrite() {
+  // Hard guard: this module must never resolve an output path under fixtures/.
+  const forbidden = path.normalize(CANONICAL_FIXTURE);
+  const outNorm = path.normalize(OUT);
+  if (outNorm === forbidden || outNorm.includes(`${path.sep}fixtures${path.sep}sunset-schema-observer${path.sep}expected-product-schema.json`)) {
+    throw Object.assign(new Error('refused_canonical_fixture_overwrite'), { code: 'refused_canonical_fixture_overwrite' });
+  }
+  if (/[\\/]fixtures[\\/]/.test(outNorm) && /expected-product-schema\.json$/.test(outNorm)) {
+    throw Object.assign(new Error('refused_canonical_fixture_overwrite'), { code: 'refused_canonical_fixture_overwrite' });
+  }
+}
 
 function buildCaptureWorker() {
   return `
@@ -86,8 +111,10 @@ function kvGet(name,token){
     const productFingerprint=fingerprintProductSchema(product.snapshot);
     emit({
       ok:true,
-      contract:{
-        kind:'sunset-expected-product-schema',
+      label:'actual live state — not canonical',
+      notCanonical:true,
+      observation:{
+        kind:'sunset-schema-observer-actual-live-state',
         scope:CONTRACT_SCOPE,
         includedSections:INCLUDED_SECTIONS.slice(),
         excludedSections:EXCLUDED_SECTIONS.slice(),
@@ -95,7 +122,7 @@ function kvGet(name,token){
         aclCoverage:ACL_COVERAGE.slice(),
         extensionCoverage:EXTENSION_COVERAGE.slice(),
         generatedAt:new Date().toISOString(),
-        source:'live-sunset-staging-observer-catalog',
+        source:'live-observation-only',
         forwardCount:forward.length,
         manifestHash,
         productFingerprint,
@@ -108,13 +135,13 @@ function kvGet(name,token){
 }
 
 function main() {
-  // Prefer local manifest hash for the committed fixture; worker also computes from image.
+  refuseCanonicalOverwrite();
   const localManifest = loadManifest(MANIFEST_PATH);
   const { manifestHash: localHash, forward } = hashCanonicalManifest(localManifest);
 
-  console.log('Capturing live product schema via secret-safe staff-api path…');
+  console.log('Capturing actual live state evidence (not canonical)…');
   const result = runStagedWorkerSource(buildCaptureWorker());
-  if (!result || result.ok !== true || !result.contract) {
+  if (!result || result.ok !== true || !result.observation) {
     console.error(JSON.stringify({ ok: false, error: 'capture_failed', detail: result && result.error }, null, 2));
     process.exit(2);
   }
@@ -122,32 +149,57 @@ function main() {
     console.error(JSON.stringify({ ok: false, error: 'temp_worker_cleanup_failed' }));
     process.exit(2);
   }
-  const contract = result.contract;
-  if (contract.manifestHash !== localHash) {
-    console.error(JSON.stringify({
-      ok: false,
-      error: 'manifest_hash_mismatch',
-      image: contract.manifestHash,
-      local: localHash,
-    }));
+  const observation = result.observation;
+  if (observation.manifestHash !== localHash) {
+    console.error(JSON.stringify({ ok: false, error: 'manifest_hash_mismatch' }));
     process.exit(2);
   }
-  if (Number(contract.forwardCount) !== forward.length) {
+  if (Number(observation.forwardCount) !== forward.length) {
     console.error(JSON.stringify({ ok: false, error: 'forward_count_mismatch' }));
     process.exit(2);
   }
-  if (!contract.productFingerprint || !contract.snapshot) {
-    console.error(JSON.stringify({ ok: false, error: 'incomplete_contract' }));
+
+  refuseCanonicalOverwrite();
+  fs.mkdirSync(OUT_DIR, { recursive: true });
+  const evidence = {
+    kind: 'sunset-schema-observer-actual-live-state-evidence',
+    label: 'actual live state — not canonical',
+    notCanonical: true,
+    mustNotOverwriteExpectedFixture: true,
+    generatedAt: new Date().toISOString(),
+    productFingerprint: observation.productFingerprint,
+    forwardCount: observation.forwardCount,
+    manifestHash: observation.manifestHash,
+    snapshot: observation.snapshot,
+  };
+  fs.writeFileSync(OUT, `${JSON.stringify(evidence, null, 2)}\n`, { mode: 0o600 });
+  try { fs.chmodSync(OUT, 0o600); } catch (_) { /* windows */ }
+
+  // Prove we did not touch the canonical fixture path in this process.
+  const canonicalStill = fs.existsSync(CANONICAL_FIXTURE)
+    ? JSON.parse(fs.readFileSync(CANONICAL_FIXTURE, 'utf8'))
+    : null;
+  if (canonicalStill && canonicalStill.source === 'live-sunset-staging-observer-catalog') {
+    console.error(JSON.stringify({ ok: false, error: 'canonical_fixture_was_live_derived' }));
     process.exit(2);
   }
-  fs.writeFileSync(OUT, `${JSON.stringify(contract, null, 2)}\n`);
+
   console.log(JSON.stringify({
     ok: true,
     path: path.relative(ROOT, OUT).replace(/\\/g, '/'),
-    productFingerprint: contract.productFingerprint,
-    forwardCount: contract.forwardCount,
-    source: contract.source,
+    label: evidence.label,
+    productFingerprint: evidence.productFingerprint,
+    overwroteCanonicalFixture: false,
   }, null, 2));
 }
 
-main();
+module.exports = {
+  CANONICAL_FIXTURE,
+  OUT,
+  refuseCanonicalOverwrite,
+  buildCaptureWorker,
+};
+
+if (require.main === module) {
+  main();
+}

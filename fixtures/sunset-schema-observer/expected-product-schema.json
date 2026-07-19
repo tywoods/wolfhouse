@@ -47,11 +47,14 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T09:13:02.535Z",
-  "source": "live-sunset-staging-observer-catalog",
+  "generatedAt": "2026-07-18T11:00:28.607Z",
   "forwardCount": 36,
   "manifestHash": "c2a935588bc9ace536d1e76ddd9026b6c92c8aaac80aa78a9d701cf4ec3bc430",
-  "productFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+  "productFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "excludes": [
+    "schema_migration_ledger"
+  ],
+  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded. Ownership/ACL cover schema, relations, functions, types; extensions include owner/schema/relocatable/config identity.",
   "snapshot": {
     "tables": [
       "add_on_items",
@@ -69,6 +72,7 @@
       "client_notification_settings",
       "clients",
       "conversations",
+      "customer_message_templates",
       "customers",
       "guest_message_events",
       "guest_message_sends",
@@ -2268,6 +2272,78 @@
       },
       {
         "table": "conversations",
+        "column": "updated_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": "NO",
+        "default": "now()"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "active",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "true"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "body",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": null
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "channel",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'whatsapp'::text"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "client_id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": "NO",
+        "default": null
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "created_at",
+        "type": "timestamp with time zone",
+        "udt": "timestamptz",
+        "nullable": "NO",
+        "default": "now()"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "id",
+        "type": "uuid",
+        "udt": "uuid",
+        "nullable": "NO",
+        "default": "gen_random_uuid()"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "tags",
+        "type": "jsonb",
+        "udt": "jsonb",
+        "nullable": "NO",
+        "default": "'[]'::jsonb"
+      },
+      {
+        "table": "customer_message_templates",
+        "column": "title",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": null
+      },
+      {
+        "table": "customer_message_templates",
         "column": "updated_at",
         "type": "timestamp with time zone",
         "udt": "timestamptz",
@@ -4980,14 +5056,6 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "column": "location_id",
-        "type": "text",
-        "udt": "text",
-        "nullable": "NO",
-        "default": "'sunset-somo'::text"
-      },
-      {
-        "table": "tenant_lesson_capacity_rules",
         "column": "scope",
         "type": "text",
         "udt": "text",
@@ -5044,14 +5112,6 @@
       },
       {
         "table": "tenant_lesson_time_rules",
-        "column": "capacity",
-        "type": "integer",
-        "udt": "int4",
-        "nullable": "YES",
-        "default": null
-      },
-      {
-        "table": "tenant_lesson_time_rules",
         "column": "client_slug",
         "type": "text",
         "udt": "text",
@@ -5105,14 +5165,6 @@
         "udt": "text",
         "nullable": "NO",
         "default": null
-      },
-      {
-        "table": "tenant_lesson_time_rules",
-        "column": "location_id",
-        "type": "text",
-        "udt": "text",
-        "nullable": "NO",
-        "default": "'sunset-somo'::text"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -5260,14 +5312,6 @@
       },
       {
         "table": "tenant_price_rules",
-        "column": "location_id",
-        "type": "text",
-        "udt": "text",
-        "nullable": "NO",
-        "default": "'sunset-somo'::text"
-      },
-      {
-        "table": "tenant_price_rules",
         "column": "tenant_id",
         "type": "text",
         "udt": "text",
@@ -5388,22 +5432,6 @@
       },
       {
         "table": "tenant_services",
-        "column": "block_rooms_enabled",
-        "type": "boolean",
-        "udt": "bool",
-        "nullable": "NO",
-        "default": "false"
-      },
-      {
-        "table": "tenant_services",
-        "column": "blocked_room_codes",
-        "type": "text[]",
-        "udt": "_text",
-        "nullable": "NO",
-        "default": "'{}'::text[]"
-      },
-      {
-        "table": "tenant_services",
         "column": "category",
         "type": "text",
         "udt": "text",
@@ -5500,14 +5528,6 @@
       },
       {
         "table": "tenant_services",
-        "column": "room_block_booking_ids",
-        "type": "uuid[]",
-        "udt": "_uuid",
-        "nullable": "NO",
-        "default": "'{}'::uuid[]"
-      },
-      {
-        "table": "tenant_services",
         "column": "schedule_slots",
         "type": "jsonb",
         "udt": "jsonb",
@@ -5553,14 +5573,6 @@
         "udt": "uuid",
         "nullable": "YES",
         "default": null
-      },
-      {
-        "table": "tenant_services",
-        "column": "weekdays",
-        "type": "smallint[]",
-        "udt": "_int2",
-        "nullable": "NO",
-        "default": "'{}'::smallint[]"
       },
       {
         "table": "tenant_surf_pack_rules",
@@ -6879,6 +6891,18 @@
         "definition": "PRIMARY KEY (id)"
       },
       {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_client_id_fkey",
+        "type": "FOREIGN KEY",
+        "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_pkey",
+        "type": "PRIMARY KEY",
+        "definition": "PRIMARY KEY (id)"
+      },
+      {
         "table": "customers",
         "name": "customers_client_id_fkey",
         "type": "FOREIGN KEY",
@@ -7504,12 +7528,6 @@
       },
       {
         "table": "tenant_lesson_time_rules",
-        "name": "tenant_lesson_time_rules_capacity_check",
-        "type": "CHECK",
-        "definition": "CHECK (((capacity IS NULL) OR ((capacity >= 1) AND (capacity <= 999))))"
-      },
-      {
-        "table": "tenant_lesson_time_rules",
         "name": "tenant_lesson_time_rules_effective_window",
         "type": "CHECK",
         "definition": "CHECK (((effective_to IS NULL) OR (effective_from IS NULL) OR (effective_to >= effective_from)))"
@@ -7588,6 +7606,12 @@
       },
       {
         "table": "tenant_services",
+        "name": "tenant_services_date_window",
+        "type": "CHECK",
+        "definition": "CHECK (((end_date IS NULL) OR (start_date IS NULL) OR (end_date >= start_date)))"
+      },
+      {
+        "table": "tenant_services",
         "name": "tenant_services_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
@@ -7599,10 +7623,22 @@
         "definition": "CHECK ((price_cents >= 0))"
       },
       {
+        "table": "tenant_services",
+        "name": "tenant_services_price_unit",
+        "type": "CHECK",
+        "definition": "CHECK ((price_unit = ANY (ARRAY['per_day'::text, 'per_week'::text, 'per_stay'::text, 'one_off'::text])))"
+      },
+      {
         "table": "tenant_surf_pack_rules",
         "name": "tenant_surf_pack_rules_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_updated_by_fkey",
+        "type": "FOREIGN KEY",
+        "definition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
       },
       {
         "table": "transfer_requests",
@@ -8109,6 +8145,16 @@
       },
       {
         "table": "client_notification_events",
+        "name": "idx_client_notification_events_client_created",
+        "def": "CREATE INDEX idx_client_notification_events_client_created ON public.client_notification_events USING btree (client_slug, created_at DESC)"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "idx_client_notification_events_conversation",
+        "def": "CREATE INDEX idx_client_notification_events_conversation ON public.client_notification_events USING btree (conversation_id, notification_type)"
+      },
+      {
+        "table": "client_notification_events",
         "name": "uq_client_notification_events_dedupe",
         "def": "CREATE UNIQUE INDEX uq_client_notification_events_dedupe ON public.client_notification_events USING btree (client_slug, COALESCE(location_id, ''::text), conversation_id, notification_type, handoff_event_key, recipient_phone)"
       },
@@ -8116,6 +8162,11 @@
         "table": "client_notification_settings",
         "name": "client_notification_settings_pkey",
         "def": "CREATE UNIQUE INDEX client_notification_settings_pkey ON public.client_notification_settings USING btree (id)"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "idx_client_notification_settings_client",
+        "def": "CREATE INDEX idx_client_notification_settings_client ON public.client_notification_settings USING btree (client_slug, location_id)"
       },
       {
         "table": "client_notification_settings",
@@ -8151,6 +8202,16 @@
         "table": "conversations",
         "name": "idx_conversations_client_status",
         "def": "CREATE INDEX idx_conversations_client_status ON public.conversations USING btree (client_id, status)"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_pkey",
+        "def": "CREATE UNIQUE INDEX customer_message_templates_pkey ON public.customer_message_templates USING btree (id)"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "idx_customer_message_templates_client_active",
+        "def": "CREATE INDEX idx_customer_message_templates_client_active ON public.customer_message_templates USING btree (client_id, active, updated_at DESC)"
       },
       {
         "table": "customers",
@@ -8719,18 +8780,18 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_date_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_date",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date ON public.tenant_lesson_capacity_rules USING btree (client_slug, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_default_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id) WHERE ((scope = 'default'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_default",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default ON public.tenant_lesson_capacity_rules USING btree (client_slug) WHERE ((scope = 'default'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_weekday_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_weekday",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday ON public.tenant_lesson_capacity_rules USING btree (client_slug, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -8754,13 +8815,13 @@
       },
       {
         "table": "tenant_lesson_time_rules",
-        "name": "uq_tenant_lesson_time_date_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
+        "name": "uq_tenant_lesson_time_date",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date ON public.tenant_lesson_time_rules USING btree (client_slug, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
       },
       {
         "table": "tenant_lesson_time_rules",
-        "name": "uq_tenant_lesson_time_recurring_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
+        "name": "uq_tenant_lesson_time_recurring",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring ON public.tenant_lesson_time_rules USING btree (client_slug, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
       },
       {
         "table": "tenant_price_rules",
@@ -8784,8 +8845,8 @@
       },
       {
         "table": "tenant_price_rules",
-        "name": "uq_tenant_price_rules_active_window_loc",
-        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc ON public.tenant_price_rules USING btree (client_slug, location_id, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
+        "name": "uq_tenant_price_rules_active_window",
+        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window ON public.tenant_price_rules USING btree (client_slug, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
       },
       {
         "table": "tenant_private_lesson_rules",
@@ -8816,6 +8877,11 @@
         "table": "tenant_surf_pack_rules",
         "name": "idx_tenant_surf_pack_client_active",
         "def": "CREATE INDEX idx_tenant_surf_pack_client_active ON public.tenant_surf_pack_rules USING btree (client_slug, active)"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "idx_tenant_surf_pack_client_loc",
+        "def": "CREATE INDEX idx_tenant_surf_pack_client_loc ON public.tenant_surf_pack_rules USING btree (client_slug, location_id) WHERE (active = true)"
       },
       {
         "table": "tenant_surf_pack_rules",
@@ -9941,6 +10007,11 @@
         "def": "CREATE TRIGGER tenant_private_lesson_rules_updated_at BEFORE UPDATE ON public.tenant_private_lesson_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
       },
       {
+        "name": "tenant_surf_pack_rules_updated_at",
+        "table": "tenant_surf_pack_rules",
+        "def": "CREATE TRIGGER tenant_surf_pack_rules_updated_at BEFORE UPDATE ON public.tenant_surf_pack_rules FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
+      },
+      {
         "name": "transfer_requests_updated_at",
         "table": "transfer_requests",
         "def": "CREATE TRIGGER transfer_requests_updated_at BEFORE UPDATE ON public.transfer_requests FOR EACH ROW EXECUTE FUNCTION set_updated_at()"
@@ -10029,6 +10100,11 @@
       },
       {
         "table": "conversations",
+        "enabled": false,
+        "forced": false
+      },
+      {
+        "table": "customer_message_templates",
         "enabled": false,
         "forced": false
       },
@@ -10215,28 +10291,28 @@
         "name": "pgcrypto",
         "identity": "pgcrypto",
         "subkind": "",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "extension",
         "name": "plpgsql",
         "identity": "plpgsql",
         "subkind": "",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "armor",
         "identity": "public.armor(bytea, text[], text[])",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "armor",
         "identity": "public.armor(bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
@@ -10250,98 +10326,98 @@
         "name": "crypt",
         "identity": "public.crypt(text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "dearmor",
         "identity": "public.dearmor(text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "decrypt_iv",
         "identity": "public.decrypt_iv(bytea, bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "decrypt",
         "identity": "public.decrypt(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "digest",
         "identity": "public.digest(bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "digest",
         "identity": "public.digest(text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "encrypt_iv",
         "identity": "public.encrypt_iv(bytea, bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "encrypt",
         "identity": "public.encrypt(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "gen_random_bytes",
         "identity": "public.gen_random_bytes(integer)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "gen_random_uuid",
         "identity": "public.gen_random_uuid()",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "gen_salt",
         "identity": "public.gen_salt(text, integer)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "gen_salt",
         "identity": "public.gen_salt(text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "hmac",
         "identity": "public.hmac(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "hmac",
         "identity": "public.hmac(text, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
@@ -10362,140 +10438,140 @@
         "name": "pgp_armor_headers",
         "identity": "public.pgp_armor_headers(text, OUT key text, OUT value text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_key_id",
         "identity": "public.pgp_key_id(bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt_bytea",
         "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt_bytea",
         "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt_bytea",
         "identity": "public.pgp_pub_decrypt_bytea(bytea, bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt",
         "identity": "public.pgp_pub_decrypt(bytea, bytea, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt",
         "identity": "public.pgp_pub_decrypt(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_decrypt",
         "identity": "public.pgp_pub_decrypt(bytea, bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_encrypt_bytea",
         "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_encrypt_bytea",
         "identity": "public.pgp_pub_encrypt_bytea(bytea, bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_encrypt",
         "identity": "public.pgp_pub_encrypt(text, bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_pub_encrypt",
         "identity": "public.pgp_pub_encrypt(text, bytea)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_decrypt_bytea",
         "identity": "public.pgp_sym_decrypt_bytea(bytea, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_decrypt_bytea",
         "identity": "public.pgp_sym_decrypt_bytea(bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_decrypt",
         "identity": "public.pgp_sym_decrypt(bytea, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_decrypt",
         "identity": "public.pgp_sym_decrypt(bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_encrypt_bytea",
         "identity": "public.pgp_sym_encrypt_bytea(bytea, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_encrypt_bytea",
         "identity": "public.pgp_sym_encrypt_bytea(bytea, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_encrypt",
         "identity": "public.pgp_sym_encrypt(text, text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
         "name": "pgp_sym_encrypt",
         "identity": "public.pgp_sym_encrypt(text, text)",
         "subkind": "f",
-        "owner": "azuresu"
+        "owner": "$db_owner"
       },
       {
         "kind": "function",
@@ -10613,6 +10689,13 @@
         "kind": "relation",
         "name": "conversations",
         "identity": "conversations",
+        "subkind": "r",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "relation",
+        "name": "customer_message_templates",
+        "identity": "customer_message_templates",
         "subkind": "r",
         "owner": "$db_owner"
       },
@@ -10866,7 +10949,7 @@
         "name": "public",
         "identity": "public",
         "subkind": "",
-        "owner": "azure_pg_admin"
+        "owner": "pg_database_owner"
       },
       {
         "kind": "type",
@@ -11376,6 +11459,13 @@
       },
       {
         "kind": "relation",
+        "name": "customer_message_templates",
+        "identity": "customer_message_templates",
+        "subkind": "r",
+        "acl": ""
+      },
+      {
+        "kind": "relation",
         "name": "customers",
         "identity": "customers",
         "subkind": "r",
@@ -11624,7 +11714,7 @@
         "name": "public",
         "identity": "public",
         "subkind": "",
-        "acl": "=U/azure_pg_admin,azure_pg_admin=UC/azure_pg_admin"
+        "acl": "=U/pg_database_owner,pg_database_owner=UC/pg_database_owner"
       },
       {
         "kind": "type",
@@ -11743,7 +11833,7 @@
       {
         "name": "pgcrypto",
         "version": "1.3",
-        "owner": "azuresu",
+        "owner": "$db_owner",
         "schema": "public",
         "relocatable": true,
         "configRelations": "",
@@ -11752,7 +11842,7 @@
       {
         "name": "plpgsql",
         "version": "1.0",
-        "owner": "azuresu",
+        "owner": "$db_owner",
         "schema": "pg_catalog",
         "relocatable": false,
         "configRelations": "",

@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * In-job Slice 11 proofs: read-only GREEN/RED, synthetic drift, recovery.
+ * In-job Slice 11 proofs: read-only GREEN/RED, synthetic drift vs CANONICAL fixture, recovery.
  * Uses SUNSET_SCHEMA_OBSERVER_DATABASE_URL secretRef. No live schema mutation.
+ * Synthetic mismatch compares against fixtures/.../expected-product-schema.json (canonical only).
  */
 
 const fs = require('fs');

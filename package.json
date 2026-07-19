@@ -294,6 +294,7 @@
     "prepare:sunset-schema-observer-job-slice10-params": "node scripts/prepare-sunset-schema-observer-job-slice10-params.js",
     "finish:sunset-schema-observer-slice11": "node scripts/finish-sunset-schema-observer-slice11.js",
     "dump:sunset-live-schema-contract": "node scripts/dump-sunset-live-schema-contract.js",
+    "compare:sunset-canonical-vs-live-evidence": "node scripts/compare-sunset-canonical-vs-live-evidence.js",
     "verify:per-guest-booking-payments": "node scripts/verify-per-guest-booking-payments.js",
     "verify:luna-perguest-soul-contract": "node scripts/verify-luna-perguest-soul-contract.js",
     "verify:portal-locale-isolation": "node scripts/verify-portal-locale-isolation.js",

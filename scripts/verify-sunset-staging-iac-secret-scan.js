@@ -49,6 +49,7 @@ const DISCOVERY_PATHSPECS = [
   'scripts/prove-sunset-schema-observer-slice11-injob.js',
   'scripts/finish-sunset-schema-observer-slice11.js',
   'scripts/capture-sunset-expected-schema-from-live.js',
+  'scripts/compare-sunset-canonical-vs-live-evidence.js',
   'scripts/run-sunset-schema-observer-slice11.js',
   'scripts/lib/sunset-schema-observer-slice11-proof.js',
   'fixtures/sunset-schema-observer/slice11-job-execution-evidence.json',

@@ -536,6 +536,78 @@ async function main() {
     }
   }
 
+  // Slice 11 correction: canonical fixture integrity (no live blessing)
+  {
+    const CONTRACT = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'expected-product-schema.json');
+    const CAPTURE = path.join(ROOT, 'scripts', 'capture-sunset-expected-schema-from-live.js');
+    const COMPARE = path.join(ROOT, 'scripts', 'compare-sunset-canonical-vs-live-evidence.js');
+    const README = path.join(ROOT, 'infra', 'azure', 'sunset-staging', 'README.md');
+    const GEN = path.join(ROOT, 'scripts', 'generate-sunset-expected-schema-contract.js');
+    const contract = JSON.parse(fs.readFileSync(CONTRACT, 'utf8'));
+    const captureSrc = fs.readFileSync(CAPTURE, 'utf8');
+    const readme = fs.readFileSync(README, 'utf8');
+    const genSrc = fs.readFileSync(GEN, 'utf8');
+
+    pass(
+      'slice11-canonical-fixture-not-live-derived',
+      !contract.source
+        || (contract.source !== 'live-sunset-staging-observer-catalog'
+          && contract.source !== 'live-observation-only'),
+    );
+    pass(
+      'slice11-canonical-includes-customer-message-templates',
+      (contract.snapshot.tables || []).includes('customer_message_templates'),
+    );
+    pass(
+      'slice11-canonical-forward-36-with-cmt-migration',
+      Number(contract.forwardCount) === 36
+        && fs.existsSync(path.join(ROOT, 'database', 'migrations', '035_customer_message_templates.sql')),
+    );
+    pass(
+      'slice11-capture-writes-tmp-only',
+      /actual-live-state-evidence\.json/.test(captureSrc)
+        && /refuseCanonicalOverwrite/.test(captureSrc)
+        && /not canonical/i.test(captureSrc)
+        && !/writeFileSync\([^)]*expected-product-schema\.json/.test(captureSrc),
+    );
+    pass(
+      'slice11-live-capture-cannot-write-canonical-fixture',
+      /refused_canonical_fixture_overwrite/.test(captureSrc)
+        && /mustNotOverwriteExpectedFixture/.test(captureSrc)
+        && /tmp.*foundation-slice11/.test(captureSrc),
+    );
+    pass(
+      'slice11-docs-forbid-blessing-live-drift',
+      /failure requiring investigation/i.test(readme)
+        && /observations only/i.test(readme)
+        && /Canonical expected state/i.test(readme)
+        && !/Expected contract may be refreshed from the live/i.test(readme),
+    );
+    pass(
+      'slice11-generator-is-migration-derived',
+      /canonical 36-migration|disposable local PostgreSQL|runCanonicalMigrations/i.test(genSrc)
+        && /expected-product-schema\.json/.test(genSrc),
+    );
+    pass(
+      'slice11-compare-evidence-script-exists',
+      fs.existsSync(COMPARE),
+    );
+    pass(
+      'slice11-live-derived-cannot-false-green',
+      contract.productFingerprint
+        === 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52'
+        && contract.productFingerprint
+          !== 'fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd',
+    );
+    pass(
+      'slice11-cmt-cannot-vanish-while-migration-canonical',
+      (contract.snapshot.tables || []).includes('customer_message_templates')
+        && /035_customer_message_templates/.test(
+          fs.readFileSync(path.join(ROOT, 'database', 'migrations', 'canonical-manifest.json'), 'utf8'),
+        ),
+    );
+  }
+
   {
     const { forward, manifestHash } = hashCanonicalManifest(loadManifest(MANIFEST_PATH));
     pass('green-manifest-hash-stable-shape', /^[a-f0-9]{64}$/.test(manifestHash));

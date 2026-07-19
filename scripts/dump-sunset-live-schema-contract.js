@@ -1,8 +1,12 @@
 'use strict';
 
 /**
- * In-container dump of live product-schema contract (job env DSN secretRef).
+ * In-container dump of ACTUAL LIVE product-schema observation (job env DSN secretRef).
  * Emits secret-free chunked WH_LIVE_CONTRACT markers (Log Analytics line-size safe).
+ *
+ * Observation only — not canonical. Must never be written over
+ * fixtures/sunset-schema-observer/expected-product-schema.json.
+ * Canonical expected state comes only from the reviewed migration chain/manifest.
  */
 
 const {
@@ -67,7 +71,9 @@ async function main() {
         aclCoverage: ACL_COVERAGE.slice(),
         extensionCoverage: EXTENSION_COVERAGE.slice(),
         generatedAt: new Date().toISOString(),
-        source: 'live-sunset-staging-observer-catalog',
+        source: 'live-observation-only',
+        label: 'actual live state — not canonical',
+        notCanonical: true,
         forwardCount: forward.length,
         manifestHash,
         productFingerprint,

@@ -1,8 +1,10 @@
 {
   "kind": "sunset-schema-observer-job-slice11-evidence",
-  "generatedAt": "2026-07-19T09:20:37.547Z",
+  "generatedAt": "2026-07-19T11:35:00.000Z",
   "masterShaAtStart": "a5a57b3920b0a71f71e35786b8784de1ae25b69b",
-  "outcome": "Executed manual schema-observer job; live-catalog contract match; read-only + safe drift + recovery proved",
+  "correctionOf": "18c48e60ea8a9c2c9d65cb93f315bab60c313891",
+  "outcome": "CORRECTED: Slice 11 did not achieve canonical match. Prior match=true was invalid (live-derived expected fixture). Canonical-vs-live drift remains an unresolved blocker.",
+  "passed": false,
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -17,27 +19,80 @@
     "required": true,
     "priorImageLackedObserverScript": true,
     "priorFailedExecution": "luna-sunset-staging-sch-obs-ealngjc",
-    "liveContractRefreshRequired": true,
-    "liveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
-    "staffApiRedeployed": false
+    "jobImageChanged": true,
+    "staffApiAppImageUnchanged": true,
+    "staffApiRedeployed": false,
+    "note": "Job image updated for observer scripts/fixtures; Staff API container app still on older tag. No additional image rebuild in this correction.",
+    "moduleParamsResolveToCurrentJobImage": true,
+    "standaloneWhatIfZeroDiff": true
   },
-  "baselineExecution": {
+  "canonicalContract": {
+    "path": "fixtures/sunset-schema-observer/expected-product-schema.json",
+    "source": "migration-derived (restored from master a5a57b3)",
+    "productFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "forwardCount": 36,
+    "includes_customer_message_templates": true
+  },
+  "actualLiveObservation": {
+    "label": "actual live state — not canonical",
+    "productFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "evidencePath": "tmp/foundation-slice11/actual-live-state-evidence.json (gitignored)",
+    "mustNotOverwriteExpectedFixture": true
+  },
+  "invalidPriorBaseline": {
     "name": "luna-sunset-staging-sch-obs-vumqr2h",
     "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs/executions/luna-sunset-staging-sch-obs-vumqr2h",
     "status": "Succeeded",
     "startTime": "2026-07-19T09:15:55+00:00",
     "endTime": "2026-07-19T09:16:18+00:00",
-    "durationSeconds": 23,
-    "exitCodeInferred": 0,
-    "observerOk": true,
-    "match": true,
-    "productFingerprintExpected": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
-    "productFingerprintLive": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
-    "mismatchCount": 0,
-    "secretLeakInLogs": false
+    "claimedMatch": true,
+    "claimedMismatchCount": 0,
+    "invalidBecause": "Expected fixture inside the job image was a live-catalog snapshot (circular). match=true was not a canonical match.",
+    "productFingerprintExpectedWasLiveDerived": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd"
+  },
+  "canonicalObserverResult": {
+    "method": "Local compareSnapshots(canonical fixture, prior secret-safe live observation) + historical job execution luna-sunset-staging-sch-obs-525dnap which ran observe against migration-derived fixture baked into image a5a57b3 (pre live-refresh)",
+    "historicalExecutionName": "luna-sunset-staging-sch-obs-525dnap",
+    "historicalStatus": "Failed",
+    "match": false,
+    "exitCode": 4,
+    "code": "product_schema_differs",
+    "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "mismatchCount": 88,
+    "counts": {
+      "expected_only": 31,
+      "live_only": 15,
+      "definition_mismatch": 42
+    },
+    "noAdditionalJobStartInCorrection": true,
+    "reasonNoNewStart": "Current job image still embeds the live-derived fixture; starting default observe would false-green. Canonical compare used restored fixture + saved live observation evidence."
+  },
+  "mismatchSummary": {
+    "missingExpectedObjects": 2,
+    "unexpectedLiveObjects": 0,
+    "columnsDefaultsNullability": 17,
+    "enums": 0,
+    "indexesConstraints": 24,
+    "functionsDefinitionsSecurityVolatility": 0,
+    "rlsAndPolicies": 1,
+    "ownership": 40,
+    "acls": 2,
+    "extensions": 2,
+    "reportPath": "tmp/foundation-slice11/canonical-vs-live-mismatch-report.json (gitignored)"
+  },
+  "customer_message_templates": {
+    "canonicalMigration": "database/migrations/035_customer_message_templates.sql",
+    "canonicalManifestEntry": "035_customer_message_templates",
+    "presentInCanonicalExpected": true,
+    "presentLive": false,
+    "schema_migration_ledger_present_live": false,
+    "recordedAsAppliedInSunset": "unknown — schema_migration_ledger table is absent on sunset_staging",
+    "interpretation": "Not a canonical-generator defect (generator/fixture correctly include CMT from migration 035). Live table absent and migration ledger absent → migration-ledger inconsistency / Sunset not applied via ledgered canonical runner (or ledger never introduced). Cannot prove later unauthorized DROP without a ledger. Unresolved blocker; not repaired in this PR."
   },
   "readOnlyProof": {
     "path": "temporary injob override (secretRef); schedule unchanged",
+    "stillValid": true,
     "green": {
       "host": "luna-sunset-staging-pg-app.postgres.database.azure.com",
       "database": "sunset_staging",
@@ -50,53 +105,56 @@
       "insertDenied": true,
       "updateDenied": true,
       "createTableDenied": true,
-      "createRoleDenied": true,
-      "details": {
-        "insert": "permission denied for table bookings",
-        "update": "permission denied for table bookings",
-        "createTable": "permission denied for schema public",
-        "createRole": "permission denied to create role"
-      }
+      "createRoleDenied": true
     },
     "productRowsRead": false
   },
   "safeDriftProof": {
     "method": "isolated_injob_observer_with_temp_synthetic_contract",
     "executionName": "luna-sunset-staging-sch-obs-ntxnx2l",
-    "distinctFromBaselineObserve": true,
-    "liveSchemaMutated": false,
+    "note": "Historical run used image that contained live-derived fixture as base; synthetic enum row still proved non-zero drift exit 4 without live mutation. After correction, scripts compare against canonical fixture path only.",
     "exitStatus": 4,
     "mismatchCount": 1,
-    "counts": {
-      "expected_only": 1,
-      "live_only": 0,
-      "definition_mismatch": 0
-    },
-    "driftLabel": "slice11_synthetic_enum_mismatch_label",
-    "hasMarker": true
+    "liveSchemaMutated": false,
+    "canonicalFixtureMutated": false
   },
   "recoveryProof": {
-    "path": "same injob observer + canonical live contract",
-    "exitStatus": 0,
-    "match": true,
-    "mismatchCount": 0,
-    "jobRemainsManualUnscheduled": true
+    "invalidated": true,
+    "reason": "Prior recovery-to-match used live-derived expected fixture; not a recovery to canonical match.",
+    "executionName": "luna-sunset-staging-sch-obs-ntxnx2l"
+  },
+  "unresolvedBlocker": {
+    "code": "canonical_live_schema_drift",
+    "mismatchCount": 88,
+    "requiresInvestigationNotFixtureRefresh": true,
+    "databaseRepairOutOfScopeForThisPr": true
   },
   "finalJobState": {
     "name": "luna-sunset-staging-sch-obs",
     "triggerType": "Manual",
     "hasSchedule": false,
     "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final",
-    "command": [
-      "node"
-    ],
-    "args": [
-      "scripts/observe-sunset-schema-drift.js"
-    ],
-    "executionCount": 8,
-    "secretNames": [
-      "sunset-schema-observer-database-url"
-    ]
+    "command": ["node", "scripts/observe-sunset-schema-drift.js"],
+    "secretNames": ["sunset-schema-observer-database-url"]
+  },
+  "standaloneModuleWhatIf": {
+    "create": 0,
+    "delete": 0,
+    "modify": 0,
+    "jobChangeType": "NoChange",
+    "staffApiImageParam": "current job image (not Staff API app image)"
+  },
+  "cost": {
+    "before": 15.6024442580645,
+    "after": 15.7391187741935,
+    "delta": 0.13667451612900017,
+    "currency": "USD",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-19",
+      "label": "month-to-date"
+    },
+    "note": "Cost figures retained from original Slice 11 window; not re-queried in correction."
   },
   "nonMutations": {
     "jobScheduled": false,
@@ -108,24 +166,8 @@
     "lunaWhatsApp": false,
     "wolfhouse": false,
     "production": false,
-    "jobImageUpdatedForObserverOnly": true,
-    "secretValuesExposed": false
-  },
-  "cost": {
-    "before": 15.6024442580645,
-    "after": 15.7391187741935,
-    "delta": 0.13667451612900017,
-    "currency": "USD",
-    "period": {
-      "from": "2026-07-01",
-      "to": "2026-07-19",
-      "label": "month-to-date"
-    }
-  },
-  "standaloneModuleWhatIf": {
-    "create": 0,
-    "delete": 0,
-    "modify": 0,
-    "jobChangeType": "NoChange"
+    "imageRebuiltInCorrection": false,
+    "secretValuesExposed": false,
+    "canonicalFixtureBlessedFromLive": false
   }
 }
