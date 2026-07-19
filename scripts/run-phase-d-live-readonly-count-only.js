@@ -114,6 +114,7 @@ async function main() {
   const safe = redactDeep({
     ok: result.ok,
     code: result.code,
+    connectCategory: result.connectCategory || undefined,
     counts: result.counts || null,
     steps: result.steps || [],
     outputKeys: result.outputKeys || null,
@@ -140,7 +141,9 @@ async function main() {
     appliesConstraints: false,
     writesLedger: false,
     errors: result.errors || undefined,
-    message: result.message || undefined,
+    message: result.connectCategory
+      ? 'connect failed'
+      : (result.message || undefined),
   }, secrets);
 
   if (result.ok) {

@@ -19,11 +19,13 @@
   "managedIdentityCredentialSourceFlagRequired": true,
   "credentialPreflightRequiredBeforeLiveCount": true,
   "offlineInjectedHttpAndFakeClientProof": true,
+  "connectErrorClassifierRequired": true,
+  "diagnosticAttempt2Authorized": true,
   "existingCliGatesUnchanged": true,
-  "generatedAt": "2026-07-19T20:42:29.132Z",
+  "generatedAt": "2026-07-19T20:49:31.126Z",
   "masterShaBasis": "45203b370997917fc8c3a39cf87948f46d9e5b5a",
   "slice": "14M",
-  "purpose": "Exactly one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN and live credential preflight; sslmode=verify-full; safe counts/counters only; no mutation.",
+  "purpose": "Diagnostic attempt 2: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (incl. secret-free connect classifier) and live credential preflight; retain attempt-1 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.",
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -125,6 +127,61 @@
     "aggregate",
     "COMMIT"
   ],
+  "connectErrorClassifier": {
+    "safeMessage": "connect failed",
+    "categories": [
+      "dns",
+      "timeout",
+      "refused",
+      "unreachable",
+      "reset",
+      "tls",
+      "auth",
+      "database",
+      "connection",
+      "unknown"
+    ],
+    "allowlistedDriverCodes": [
+      "28000",
+      "ENOTFOUND",
+      "EAI_AGAIN",
+      "ETIMEDOUT",
+      "ECONNREFUSED",
+      "ENETUNREACH",
+      "EHOSTUNREACH",
+      "ECONNRESET",
+      "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+      "UNABLE_TO_GET_ISSUER_CERT",
+      "UNABLE_TO_GET_ISSUER_CERT_LOCALLY",
+      "UNABLE_TO_GET_CRL",
+      "CERT_SIGNATURE_FAILURE",
+      "CERT_NOT_YET_VALID",
+      "CERT_HAS_EXPIRED",
+      "CERT_REVOKED",
+      "CERT_UNTRUSTED",
+      "CERT_REJECTED",
+      "DEPTH_ZERO_SELF_SIGNED_CERT",
+      "SELF_SIGNED_CERT_IN_CHAIN",
+      "ERR_TLS_CERT_ALTNAME_INVALID",
+      "ERR_TLS_CERTIFICATE_VERIFY_FAILED",
+      "HOSTNAME_MISMATCH",
+      "28P01",
+      "3D000"
+    ],
+    "connectionClassPattern": "^08[0-9A-Z]{3}$",
+    "unknownCode": "unknown",
+    "neverOutput": [
+      "raw driver message",
+      "hostname fragments from error",
+      "detail/hint/schema/table/constraint",
+      "stack",
+      "syscall/address/port",
+      "credentials",
+      "DSN",
+      "token",
+      "cert content"
+    ]
+  },
   "predicatesUnchangedFrom14A": {
     "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
     "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
@@ -137,7 +194,9 @@
     "migration / predicate changes",
     "DSN / token / username / password / secret version in evidence",
     "broad retry on live failure",
-    "second live count in verify"
+    "second live count in verify",
+    "re-run of live attempt 1",
+    "raw connect driver message in evidence"
   ],
   "nonGoals": [
     "No Phase D constraint apply",

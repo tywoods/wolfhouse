@@ -1,18 +1,20 @@
 # FOUNDATION Slice 14M — Phase D live read-only counts (managed-identity)
 
-**Status:** complete (offline RED/GREEN + live credential preflight + one live count attempt; zero mutation)
+**Status:** complete (offline RED/GREEN + connect classifier + live credential preflight + diagnostic attempt 2; zero mutation)
 **Master basis:** `45203b370997917fc8c3a39cf87948f46d9e5b5a`
-**Generated:** 2026-07-19T20:42:29.132Z
+**Generated:** 2026-07-19T20:49:31.126Z
 
 ## Outcome
 
 Credential preflight **ok** (httpCallsDelta=2, realImdsCall=true, realKeyVaultCall=true).
 
-Live count **blocked** (`blocker=connect_failed`, exitCode=2, clientsInstantiated=1).
+Attempt 1 (retained, pre-classifier): **blocked** (`blocker=connect_failed`, code=`connect_failed`, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
+
+Diagnostic attempt 2 **blocked** (`category=unknown`, `code=unknown`, `blocker=unknown`, exitCode=2, clientsInstantiated=1, connectCalls=1, queryCalls=0, endCalls=1).
 
 Outcome code: `phase_d_live_readonly_counts_blocked`.
 
-Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Offline proof uses injected HTTP + fake `pg` Client only. Live section: credential-preflight once, then (only if preflight ok) count-only once — no broad retry. Safe counts/target identifiers/call counters only.
+Correction: connect catch now applies a strict secret-free allowlist classifier (normalized category + safe driver code only; fixed message `connect failed`; never raw message/host/detail/hint/stack/syscall/credentials/DSN/token/cert). Offline RED proves secret-bearing messages and unknown codes sanitize; GREEN proves each class mapping. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 2) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
 
 Locks: Lunabox MI **`wh-staging-identity`**, vault `luna-sunset-staging-kv` / `sunset-database-url`, PG `luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging`, TLS `sslmode=verify-full`, `application_name=wh-sunset-phase-d-preflight`.
 
@@ -26,8 +28,8 @@ SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_LI
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv |
-| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled |
+| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown sanitize |
+| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier category mappings |
 
 ## Non-goals / still open
 

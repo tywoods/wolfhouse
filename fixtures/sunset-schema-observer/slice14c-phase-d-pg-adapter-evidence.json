@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:13:59.164Z",
+  "generatedAt": "2026-07-19T20:49:07.867Z",
   "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
   "slice": "14C",
   "outcome": "phase_d_live_readonly_pg_adapter_proven_offline_activated_gated",
@@ -100,7 +100,7 @@
     {
       "name": "connect_failure_sanitized_close_occurs",
       "ok": true,
-      "code": "connect_failed",
+      "code": "ECONNREFUSED",
       "closed": true,
       "endCalled": true
     },

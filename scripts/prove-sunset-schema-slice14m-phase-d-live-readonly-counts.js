@@ -3,11 +3,13 @@
 /**
  * prove-sunset-schema-slice14m-phase-d-live-readonly-counts — FOUNDATION Slice 14M
  *
- * Offline RED/GREEN (injected HTTP + fake pg Client) → one live credential
- * preflight → exactly ONE live read-only Phase D count via the merged 14D/14E
- * managed-identity count-only CLI. Existing CLI gates reused unchanged.
- * No INSERT/UPDATE/DELETE, DDL, constraints, ledger, RBAC, or network mutation.
- * On any IMDS/KV/TLS/firewall/auth/query error: sanitize, record, stop (no retry).
+ * Offline RED/GREEN (injected HTTP + fake pg Client + connect-error classifier)
+ * → one live credential preflight → exactly ONE diagnostic live read-only Phase D
+ * count (attempt 2) via the merged 14D/14E managed-identity count-only CLI.
+ * Retains first-attempt history (opaque connect_failed at 19c8dd6). Existing CLI
+ * gates reused unchanged. No INSERT/UPDATE/DELETE, DDL, constraints, ledger,
+ * RBAC, or network mutation. On any IMDS/KV/TLS/firewall/auth/query error: sanitize,
+ * record, stop (no broad retry).
  */
 
 const crypto = require('crypto');
@@ -55,6 +57,10 @@ const {
   createScriptedFakePgClientFactory,
   getPgClientInstantiateCount,
   resetPgClientInstantiateCount,
+  classifyConnectError,
+  CONNECT_FAILED_SAFE_MESSAGE,
+  CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_CATEGORIES,
 } = require('./lib/phase-d-live-readonly-pg-adapter');
 const {
   evaluatePhaseDLiveReadonlyCliGates,
@@ -223,8 +229,9 @@ function buildPreflightLiveOutcome(parsed, exitCode) {
   };
 }
 
-function buildCountLiveOutcome(parsed, exitCode) {
+function buildCountLiveOutcome(parsed, exitCode, meta) {
   const p = parsed || {};
+  const m = meta || {};
   const ok = p.ok === true;
   const errors = sanitizeErrors(p.errors);
   if (!parsed) {
@@ -233,16 +240,38 @@ function buildCountLiveOutcome(parsed, exitCode) {
       message: 'count-only CLI stdout/stderr did not contain parseable JSON',
     });
   }
-  const blocker = ok ? null : String(p.code || (errors[0] && errors[0].code) || 'count_failed');
+  const connectCategory = p.connectCategory
+    ? String(p.connectCategory).slice(0, 32)
+    : null;
+  const code = String(p.code || (ok ? 'phase_d_live_readonly_pg_sequence_ok' : 'count_failed'));
+  // Prefer normalized category as blocker when connect classified; else code.
+  const blocker = ok
+    ? null
+    : String(connectCategory || code || (errors[0] && errors[0].code) || 'count_failed');
   const counters = (p.counters && typeof p.counters === 'object') ? p.counters : {};
   const counts = (p.counts && typeof p.counts === 'object') ? {
     total_rows: Number(p.counts.total_rows),
     date_window_violations: Number(p.counts.date_window_violations),
     price_unit_violations: Number(p.counts.price_unit_violations),
   } : null;
+  // Connect failures: never retain driver message — fixed safe text only.
+  let message = null;
+  if (!ok && connectCategory) {
+    message = CONNECT_FAILED_SAFE_MESSAGE;
+  } else if (typeof p.message === 'string') {
+    message = String(p.message)
+      .replace(/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/gi, 'postgresql://[REDACTED]:')
+      .replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, 'Bearer [REDACTED]')
+      .slice(0, 240);
+  }
   return {
+    attempt: m.attempt || null,
+    diagnostic: m.diagnostic === true,
+    classifierApplied: m.classifierApplied === true,
     ok,
-    code: String(p.code || (ok ? 'phase_d_live_readonly_pg_sequence_ok' : blocker)),
+    code,
+    connectCategory,
+    message,
     exitCode: Number.isFinite(exitCode) ? exitCode : null,
     counts: counts && Number.isFinite(counts.total_rows) ? counts : null,
     steps: Array.isArray(p.steps) ? p.steps.slice() : [],
@@ -269,6 +298,56 @@ function buildCountLiveOutcome(parsed, exitCode) {
     liveMutation: false,
     errors,
     blocker,
+  };
+}
+
+/**
+ * Freeze first-attempt history from prior evidence (opaque connect_failed before
+ * classifier). Never re-execute attempt 1.
+ */
+function loadLiveCountAttempt1History() {
+  if (!fs.existsSync(EVIDENCE_PATH)) return null;
+  const prev = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'));
+  if (prev.liveCountAttempt1 && typeof prev.liveCountAttempt1 === 'object') {
+    return prev.liveCountAttempt1;
+  }
+  const o = prev.liveCountOutcome;
+  if (!o || typeof o !== 'object') return null;
+  return {
+    attempt: 1,
+    diagnostic: false,
+    classifierApplied: false,
+    ok: o.ok === true,
+    code: String(o.code || 'connect_failed'),
+    connectCategory: o.connectCategory || null,
+    message: null,
+    exitCode: Number.isFinite(o.exitCode) ? o.exitCode : null,
+    counts: o.counts || null,
+    steps: Array.isArray(o.steps) ? o.steps.slice() : [],
+    credentialSource: o.credentialSource || null,
+    managedIdentityName: o.managedIdentityName || 'wh-staging-identity',
+    keyVaultName: o.keyVaultName || 'luna-sunset-staging-kv',
+    secretName: o.secretName || 'sunset-database-url',
+    postgresHost: o.postgresHost || TARGETS.postgresHost,
+    database: o.database || TARGETS.database,
+    sslmode: o.sslmode || TARGETS.sslmode,
+    applicationName: o.applicationName || TARGETS.applicationName,
+    clientsInstantiated: Number(o.clientsInstantiated) || 0,
+    connectCalls: Number(o.connectCalls) || 0,
+    queryCalls: Number(o.queryCalls) || 0,
+    endCalls: Number(o.endCalls) || 0,
+    httpRequestCount: Number(o.httpRequestCount) || 0,
+    imdsRequestCount: Number(o.imdsRequestCount) || 0,
+    keyVaultRequestCount: Number(o.keyVaultRequestCount) || 0,
+    closed: o.closed === true,
+    liveQueryExecution: o.liveQueryExecution === true,
+    realImdsCall: o.realImdsCall === true,
+    realKeyVaultCall: o.realKeyVaultCall === true,
+    realPostgresCall: o.realPostgresCall === true,
+    liveMutation: false,
+    errors: Array.isArray(o.errors) ? o.errors : [],
+    blocker: o.blocker || String(o.code || 'connect_failed'),
+    note: 'First live count retained from pre-classifier evidence; opaque connect_failed',
   };
 }
 
@@ -529,7 +608,182 @@ async function main() {
     liveApplyEnabled: false,
   });
 
-  // LIVE 1: credential preflight (required before count)
+  // RED: connect classifier — malicious secret-bearing messages sanitize to fixed only
+  const evilPassword = FAKE_ADMIN_PASSWORD;
+  const evilDsn = validSecretValue();
+  const evilToken = FAKE_IMDS_TOKEN;
+  const evilHost = 'evil-host.example.internal.leaked';
+  const secretMsgs = [
+    {
+      name: 'secret_message_unknown_code',
+      err: Object.assign(
+        new Error(
+          `password=${evilPassword} user=${FAKE_ADMIN_USER} DSN=${evilDsn} `
+          + `Bearer ${evilToken} host=${evilHost} detail=secret_row hint=x `
+          + `schema=public table=t constraint=c stack=Error\\n  at boom`,
+        ),
+        {
+          code: 'EVIL_NOT_ALLOWLISTED',
+          detail: 'row secret',
+          hint: 'hint secret',
+          schema: 'public',
+          table: 'tenant_services',
+          constraint: 'x',
+          syscall: 'connect',
+          address: '10.0.0.1',
+          port: 5432,
+        },
+      ),
+      expectCategory: 'unknown',
+      expectCode: 'unknown',
+    },
+    {
+      name: 'secret_message_allowlisted_dns',
+      err: Object.assign(
+        new Error(`getaddrinfo ENOTFOUND ${evilHost} password=${evilPassword} ${evilDsn}`),
+        { code: 'ENOTFOUND', syscall: 'getaddrinfo', hostname: evilHost },
+      ),
+      expectCategory: 'dns',
+      expectCode: 'ENOTFOUND',
+    },
+  ];
+
+  for (const caseSpec of secretMsgs) {
+    const classified = classifyConnectError(caseSpec.err);
+    if (classified.category !== caseSpec.expectCategory
+      || classified.code !== caseSpec.expectCode
+      || classified.message !== CONNECT_FAILED_SAFE_MESSAGE) {
+      throw new Error(`classifier RED mismatch: ${caseSpec.name} ${JSON.stringify(classified)}`);
+    }
+    const probe = JSON.stringify(classified);
+    if (probe.includes(evilPassword)
+      || probe.includes(FAKE_ADMIN_USER)
+      || probe.includes(evilDsn)
+      || probe.includes(evilToken)
+      || probe.includes(evilHost)
+      || probe.includes('10.0.0.1')
+      || probe.includes('tenant_services')
+      || /postgresql:\/\//i.test(probe)) {
+      throw new Error(`classifier leaked secret material: ${caseSpec.name}`);
+    }
+  }
+
+  // Adapter-level RED: connect catch never surfaces driver message / secrets
+  resetManagedIdentityHttpCounters();
+  resetPgClientInstantiateCount();
+  const FakeSecretConnect = createScriptedFakePgClientFactory({
+    connectError: Object.assign(
+      new Error(`TLS fail password=${evilPassword} ${evilDsn} host=${evilHost}`),
+      { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' },
+    ),
+  });
+  const secretConnect = await executePhaseDLiveReadonlyPgAdapter({
+    env: miEnv(),
+    argv: adapterArgv(),
+    azureAdapters: createInjectedAzureAdapters({}),
+    dbAdapters: createInjectedDbAdapters({}),
+    httpRequest: createInjectedManagedIdentityHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      defaultSecretValue: validSecretValue(),
+    }),
+    Client: FakeSecretConnect,
+  });
+  leakScan(secretConnect, secrets);
+  if (secretConnect.ok !== false
+    || secretConnect.code !== 'UNABLE_TO_VERIFY_LEAF_SIGNATURE'
+    || secretConnect.connectCategory !== 'tls'
+    || secretConnect.message !== CONNECT_FAILED_SAFE_MESSAGE) {
+    throw new Error(`adapter connect classifier RED failed: ${JSON.stringify(secretConnect)}`);
+  }
+  red.push({
+    name: 'connect_classifier_secret_messages_sanitize',
+    ok: true,
+    classifiedUnknown: {
+      category: 'unknown',
+      code: 'unknown',
+      message: CONNECT_FAILED_SAFE_MESSAGE,
+    },
+    classifiedDnsWithSecrets: {
+      category: 'dns',
+      code: 'ENOTFOUND',
+      message: CONNECT_FAILED_SAFE_MESSAGE,
+    },
+    adapterTls: {
+      category: secretConnect.connectCategory,
+      code: secretConnect.code,
+      message: secretConnect.message,
+    },
+  });
+
+  // GREEN: connect classifier mappings for each class
+  const greenMappings = [
+    { code: 'ENOTFOUND', category: 'dns' },
+    { code: 'EAI_AGAIN', category: 'dns' },
+    { code: 'ETIMEDOUT', category: 'timeout' },
+    { code: 'ECONNREFUSED', category: 'refused' },
+    { code: 'ENETUNREACH', category: 'unreachable' },
+    { code: 'EHOSTUNREACH', category: 'unreachable' },
+    { code: 'ECONNRESET', category: 'reset' },
+    { code: 'UNABLE_TO_VERIFY_LEAF_SIGNATURE', category: 'tls' },
+    { code: 'CERT_HAS_EXPIRED', category: 'tls' },
+    { code: 'ERR_TLS_CERT_ALTNAME_INVALID', category: 'tls' },
+    { code: 'DEPTH_ZERO_SELF_SIGNED_CERT', category: 'tls' },
+    { code: '28P01', category: 'auth' },
+    { code: '28000', category: 'auth' },
+    { code: '3D000', category: 'database' },
+    { code: '08006', category: 'connection' },
+    { code: '08001', category: 'connection' },
+    { code: '08P01', category: 'connection' },
+  ];
+  const mappingResults = [];
+  for (const m of greenMappings) {
+    const classified = classifyConnectError(
+      Object.assign(new Error(`should-not-appear password=${evilPassword}`), { code: m.code }),
+    );
+    if (classified.category !== m.category
+      || classified.code !== m.code
+      || classified.message !== CONNECT_FAILED_SAFE_MESSAGE
+      || JSON.stringify(classified).includes(evilPassword)) {
+      throw new Error(`GREEN mapping failed for ${m.code}: ${JSON.stringify(classified)}`);
+    }
+    mappingResults.push({
+      driverCode: m.code,
+      category: classified.category,
+      code: classified.code,
+      message: classified.message,
+    });
+  }
+  const unk = classifyConnectError(Object.assign(new Error('x'), { code: 'SOMETHING_ELSE' }));
+  if (unk.category !== 'unknown' || unk.code !== 'unknown') {
+    throw new Error(`unknown mapping failed: ${JSON.stringify(unk)}`);
+  }
+  for (const [driverCode, category] of Object.entries(CONNECT_DRIVER_CODE_CATEGORY)) {
+    const c = classifyConnectError({ code: driverCode });
+    if (c.category !== category || c.code !== driverCode) {
+      throw new Error(`allowlist drift on ${driverCode}`);
+    }
+  }
+  if (!CONNECT_CATEGORIES.includes('unknown') || CONNECT_CATEGORIES.length < 10) {
+    throw new Error('CONNECT_CATEGORIES incomplete');
+  }
+  green.push({
+    name: 'connect_classifier_category_mappings',
+    ok: true,
+    mappings: mappingResults,
+    unknown: { category: 'unknown', code: 'unknown', message: CONNECT_FAILED_SAFE_MESSAGE },
+    allowlistEntryCount: Object.keys(CONNECT_DRIVER_CODE_CATEGORY).length,
+    categories: CONNECT_CATEGORIES.slice(),
+  });
+
+  // Retain first-attempt history (do not re-run attempt 1)
+  const liveCountAttempt1 = loadLiveCountAttempt1History();
+  if (!liveCountAttempt1
+    || liveCountAttempt1.code !== 'connect_failed'
+    || liveCountAttempt1.attempt !== 1) {
+    throw new Error('first-attempt history missing or unexpected (need opaque connect_failed attempt 1)');
+  }
+
+  // LIVE 1: credential preflight (required before diagnostic count)
   console.log('Live section 1/2: one gated credential-preflight CLI spawn…\n');
   const livePreflightEnv = credentialPreflightEnv();
   const livePreflightArgv = exactCredentialPreflightArgv();
@@ -556,11 +810,11 @@ async function main() {
 
   if (credentialPreflightOutcome.ok !== true) {
     console.log(
-      `Credential preflight blocked (${credentialPreflightOutcome.blocker}) — skipping live count.\n`,
+      `Credential preflight blocked (${credentialPreflightOutcome.blocker}) — skipping diagnostic live count.\n`,
     );
   } else {
-    // LIVE 2: exactly one count-only spawn (no retry)
-    console.log('Live section 2/2: one gated managed-identity count-only CLI spawn…\n');
+    // LIVE 2: exactly one diagnostic count-only spawn (attempt 2; no further retry)
+    console.log('Live section 2/2: diagnostic attempt 2 — one gated managed-identity count-only CLI spawn…\n');
     countAttempted = true;
     const liveCountEnv = miEnv();
     const liveCountArgv = miArgv();
@@ -576,7 +830,11 @@ async function main() {
     leakScan(countCombined, secrets);
     const countParsed = parseLastJsonObject(countCombined);
     if (countParsed) leakScan(countParsed, secrets);
-    countOutcome = buildCountLiveOutcome(countParsed, liveCountCli.status);
+    countOutcome = buildCountLiveOutcome(countParsed, liveCountCli.status, {
+      attempt: 2,
+      diagnostic: true,
+      classifierApplied: true,
+    });
     leakScan(countOutcome, secrets);
   }
 
@@ -615,11 +873,13 @@ async function main() {
     managedIdentityCredentialSourceFlagRequired: true,
     credentialPreflightRequiredBeforeLiveCount: true,
     offlineInjectedHttpAndFakeClientProof: true,
+    connectErrorClassifierRequired: true,
+    diagnosticAttempt2Authorized: true,
     existingCliGatesUnchanged: true,
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14M',
-    purpose: 'Exactly one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN and live credential preflight; sslmode=verify-full; safe counts/counters only; no mutation.',
+    purpose: 'Diagnostic attempt 2: one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN (incl. secret-free connect classifier) and live credential preflight; retain attempt-1 history; sslmode=verify-full; safe category/code or counts only; no mutation; verify never re-runs live.',
     targets: { ...TARGETS },
     managedIdentityLocks: {
       imdsHost: MI_LOADER_LOCKS.imdsHost,
@@ -667,6 +927,24 @@ async function main() {
       'one pg Client (TLS verify-full, application_name wh-sunset-phase-d-preflight)',
       ...AUTHORIZED_SEQUENCE,
     ],
+    connectErrorClassifier: {
+      safeMessage: CONNECT_FAILED_SAFE_MESSAGE,
+      categories: CONNECT_CATEGORIES.slice(),
+      allowlistedDriverCodes: Object.keys(CONNECT_DRIVER_CODE_CATEGORY).slice(),
+      connectionClassPattern: '^08[0-9A-Z]{3}$',
+      unknownCode: 'unknown',
+      neverOutput: [
+        'raw driver message',
+        'hostname fragments from error',
+        'detail/hint/schema/table/constraint',
+        'stack',
+        'syscall/address/port',
+        'credentials',
+        'DSN',
+        'token',
+        'cert content',
+      ],
+    },
     predicatesUnchangedFrom14A: {
       date_window: DATE_WINDOW_PREDICATE,
       price_unit: PRICE_UNIT_PREDICATE,
@@ -680,6 +958,8 @@ async function main() {
       'DSN / token / username / password / secret version in evidence',
       'broad retry on live failure',
       'second live count in verify',
+      're-run of live attempt 1',
+      'raw connect driver message in evidence',
     ],
     nonGoals: [
       'No Phase D constraint apply',
@@ -711,8 +991,10 @@ async function main() {
     forwardCountUnchanged: 39,
     newForwardMigration: false,
     existingCliGatesUnchanged: true,
-    credentialPreflightAttemptCount: 1,
-    liveCountAttemptCount: countAttempted ? 1 : 0,
+    connectErrorClassifierApplied: true,
+    diagnosticAttempt2Authorized: true,
+    credentialPreflightAttemptCount: 2,
+    liveCountAttemptCount: countAttempted ? 2 : 1,
     migrationHashes: {
       '028': live028,
       '035': live035,
@@ -733,11 +1015,13 @@ async function main() {
       missingExecuteGateZeroClients: true,
       wrongOrForbiddenCliArgsZeroClients: true,
       managedIdentityRequiresEnvAndArgv: true,
+      connectClassifierSecretMessagesSanitize: true,
       injectedHttpSuccessExactCountSequence: true,
       cliGatesManagedIdentityExactTargets: true,
       countOnlyCliDefaultDisabled: true,
       locksIdentityVaultSecretPgTlsApplicationName: true,
       applyDisabledConnectAndHttpEnabled: true,
+      connectClassifierCategoryMappings: true,
     },
     redCases: red,
     greenCases: green,
@@ -765,6 +1049,10 @@ async function main() {
       liveCountQueryCalls: countOutcome ? countOutcome.queryCalls : 0,
       liveCountEndCalls: countOutcome ? countOutcome.endCalls : 0,
       liveCountSessions: countOutcome && countOutcome.connectCalls > 0 ? 1 : 0,
+      liveCountAttempt1ClientsInstantiated: liveCountAttempt1.clientsInstantiated,
+      liveCountAttempt1ConnectCalls: liveCountAttempt1.connectCalls,
+      liveCountAttempt1QueryCalls: liveCountAttempt1.queryCalls,
+      liveCountAttempt1EndCalls: liveCountAttempt1.endCalls,
     },
     safeCounts: countOk && countOutcome && countOutcome.counts
       ? {
@@ -774,8 +1062,10 @@ async function main() {
       }
       : null,
     credentialPreflightOutcome,
+    liveCountAttempt1,
+    liveCountDiagnosticAttempt2: countOutcome,
     liveCountOutcome: countOutcome,
-    secretLifetimeProof: {
+    secretHandlingProof: {
       privateFieldsZeroedImmediately: true,
       neverPrinted: true,
       neverPersisted: true,
@@ -783,6 +1073,7 @@ async function main() {
       neverInArgv: true,
       neverInTempFile: true,
       neverInChildProcessEnv: true,
+      connectClassifierNeverOutputsRawMessage: true,
     },
   };
 
@@ -803,15 +1094,17 @@ async function main() {
     ? `Credential preflight **ok** (httpCallsDelta=${credentialPreflightOutcome.httpCallsDelta}, realImdsCall=${credentialPreflightOutcome.realImdsCall}, realKeyVaultCall=${credentialPreflightOutcome.realKeyVaultCall}).`
     : `Credential preflight **blocked** (\`blocker=${credentialPreflightOutcome.blocker}\`, exitCode=${credentialPreflightOutcome.exitCode}).`;
 
+  const attempt1Summary = `Attempt 1 (retained, pre-classifier): **blocked** (\`blocker=${liveCountAttempt1.blocker}\`, code=\`${liveCountAttempt1.code}\`, clientsInstantiated=${liveCountAttempt1.clientsInstantiated}, connectCalls=${liveCountAttempt1.connectCalls}, queryCalls=${liveCountAttempt1.queryCalls}, endCalls=${liveCountAttempt1.endCalls}).`;
+
   const countSummary = !countAttempted
-    ? 'Live count **not attempted** (stopped after credential-preflight failure).'
+    ? 'Diagnostic attempt 2 **not attempted** (stopped after credential-preflight failure).'
     : (countOk
-      ? `Live count **ok** (total_rows=${countOutcome.counts.total_rows}, date_window_violations=${countOutcome.counts.date_window_violations}, price_unit_violations=${countOutcome.counts.price_unit_violations}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}, httpRequestCount=${countOutcome.httpRequestCount}).`
-      : `Live count **blocked** (\`blocker=${countOutcome.blocker}\`, exitCode=${countOutcome.exitCode}, clientsInstantiated=${countOutcome.clientsInstantiated}).`);
+      ? `Diagnostic attempt 2 **ok** (total_rows=${countOutcome.counts.total_rows}, date_window_violations=${countOutcome.counts.date_window_violations}, price_unit_violations=${countOutcome.counts.price_unit_violations}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}, httpRequestCount=${countOutcome.httpRequestCount}, steps=${JSON.stringify(countOutcome.steps)}).`
+      : `Diagnostic attempt 2 **blocked** (\`category=${countOutcome.connectCategory || 'n/a'}\`, \`code=${countOutcome.code}\`, \`blocker=${countOutcome.blocker}\`, exitCode=${countOutcome.exitCode}, clientsInstantiated=${countOutcome.clientsInstantiated}, connectCalls=${countOutcome.connectCalls}, queryCalls=${countOutcome.queryCalls}, endCalls=${countOutcome.endCalls}).`);
 
   const findings = `# FOUNDATION Slice 14M — Phase D live read-only counts (managed-identity)
 
-**Status:** complete (offline RED/GREEN + live credential preflight + one live count attempt; zero mutation)
+**Status:** complete (offline RED/GREEN + connect classifier + live credential preflight + diagnostic attempt 2; zero mutation)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
@@ -819,11 +1112,13 @@ async function main() {
 
 ${preflightSummary}
 
+${attempt1Summary}
+
 ${countSummary}
 
 Outcome code: \`${outcome}\`.
 
-Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Offline proof uses injected HTTP + fake \`pg\` Client only. Live section: credential-preflight once, then (only if preflight ok) count-only once — no broad retry. Safe counts/target identifiers/call counters only.
+Correction: connect catch now applies a strict secret-free allowlist classifier (normalized category + safe driver code only; fixed message \`connect failed\`; never raw message/host/detail/hint/stack/syscall/credentials/DSN/token/cert). Offline RED proves secret-bearing messages and unknown codes sanitize; GREEN proves each class mapping. Reused existing **14D/14E** count-only CLI and **14F/14G** credential-preflight CLI gates unchanged. Live: credential-preflight once, then (only if preflight ok) exactly one diagnostic count (attempt 2) — no broad retry. Verify never re-runs live. Safe counts/category/code/counters only.
 
 Locks: Lunabox MI **\`wh-staging-identity\`**, vault \`luna-sunset-staging-kv\` / \`sunset-database-url\`, PG \`luna-sunset-staging-pg-app.postgres.database.azure.com:5432/sunset_staging\`, TLS \`sslmode=verify-full\`, \`application_name=wh-sunset-phase-d-preflight\`.
 
@@ -837,8 +1132,8 @@ ${operatorCmd}
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv |
-| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled |
+| RED | default zero HTTP+Clients; missing execute gate; wrong/forbidden argv; MI requires env+argv; connect classifier secret/unknown sanitize |
+| GREEN | injected HTTP → fake Client exact sequence + call counters; CLI gates; CLI default refuse; locks; APPLY disabled; connect classifier category mappings |
 
 ## Non-goals / still open
 
@@ -859,6 +1154,7 @@ Read-only \`BEGIN READ ONLY\` aggregate counts only. Private refs zeroed. No sec
   console.log(`RED cases: ${red.length}`);
   console.log(`GREEN cases: ${green.length}`);
   console.log(`Outcome: ${outcome}`);
+  console.log(`Attempt 1 retained: code=${liveCountAttempt1.code} blocker=${liveCountAttempt1.blocker}`);
   if (countOk && countOutcome && countOutcome.counts) {
     console.log(`Safe counts: ${JSON.stringify(countOutcome.counts)}`);
     console.log(
@@ -867,7 +1163,9 @@ Read-only \`BEGIN READ ONLY\` aggregate counts only. Private refs zeroed. No sec
   } else if (!preflightOk) {
     console.log(`Blocker: ${credentialPreflightOutcome.blocker}`);
   } else if (countOutcome) {
-    console.log(`Blocker: ${countOutcome.blocker}`);
+    console.log(
+      `Diagnostic attempt 2 blocker: category=${countOutcome.connectCategory} code=${countOutcome.code}`,
+    );
   }
   console.log(`Wrote ${path.relative(ROOT, CONTRACT_PATH)}`);
   console.log(`Wrote ${path.relative(ROOT, EVIDENCE_PATH)}`);

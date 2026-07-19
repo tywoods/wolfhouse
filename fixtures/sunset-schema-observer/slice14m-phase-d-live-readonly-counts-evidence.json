@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14m-phase-d-live-readonly-counts-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T20:42:29.132Z",
+  "generatedAt": "2026-07-19T20:49:31.126Z",
   "masterShaBasis": "45203b370997917fc8c3a39cf87948f46d9e5b5a",
   "slice": "14M",
   "outcome": "phase_d_live_readonly_counts_blocked",
@@ -21,8 +21,10 @@
   "forwardCountUnchanged": 39,
   "newForwardMigration": false,
   "existingCliGatesUnchanged": true,
-  "credentialPreflightAttemptCount": 1,
-  "liveCountAttemptCount": 1,
+  "connectErrorClassifierApplied": true,
+  "diagnosticAttempt2Authorized": true,
+  "credentialPreflightAttemptCount": 2,
+  "liveCountAttemptCount": 2,
   "migrationHashes": {
     "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
     "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
@@ -54,11 +56,13 @@
     "missingExecuteGateZeroClients": true,
     "wrongOrForbiddenCliArgsZeroClients": true,
     "managedIdentityRequiresEnvAndArgv": true,
+    "connectClassifierSecretMessagesSanitize": true,
     "injectedHttpSuccessExactCountSequence": true,
     "cliGatesManagedIdentityExactTargets": true,
     "countOnlyCliDefaultDisabled": true,
     "locksIdentityVaultSecretPgTlsApplicationName": true,
-    "applyDisabledConnectAndHttpEnabled": true
+    "applyDisabledConnectAndHttpEnabled": true,
+    "connectClassifierCategoryMappings": true
   },
   "redCases": [
     {
@@ -97,6 +101,25 @@
       "name": "managed_identity_requires_env_and_argv",
       "ok": true,
       "rejected": true
+    },
+    {
+      "name": "connect_classifier_secret_messages_sanitize",
+      "ok": true,
+      "classifiedUnknown": {
+        "category": "unknown",
+        "code": "unknown",
+        "message": "connect failed"
+      },
+      "classifiedDnsWithSecrets": {
+        "category": "dns",
+        "code": "ENOTFOUND",
+        "message": "connect failed"
+      },
+      "adapterTls": {
+        "category": "tls",
+        "code": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+        "message": "connect failed"
+      }
     }
   ],
   "greenCases": [
@@ -156,10 +179,136 @@
       "liveReadonlyConnectEnabled": true,
       "liveHttpEnabled": true,
       "liveApplyEnabled": false
+    },
+    {
+      "name": "connect_classifier_category_mappings",
+      "ok": true,
+      "mappings": [
+        {
+          "driverCode": "ENOTFOUND",
+          "category": "dns",
+          "code": "ENOTFOUND",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "EAI_AGAIN",
+          "category": "dns",
+          "code": "EAI_AGAIN",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ETIMEDOUT",
+          "category": "timeout",
+          "code": "ETIMEDOUT",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ECONNREFUSED",
+          "category": "refused",
+          "code": "ECONNREFUSED",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ENETUNREACH",
+          "category": "unreachable",
+          "code": "ENETUNREACH",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "EHOSTUNREACH",
+          "category": "unreachable",
+          "code": "EHOSTUNREACH",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ECONNRESET",
+          "category": "reset",
+          "code": "ECONNRESET",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+          "category": "tls",
+          "code": "UNABLE_TO_VERIFY_LEAF_SIGNATURE",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "CERT_HAS_EXPIRED",
+          "category": "tls",
+          "code": "CERT_HAS_EXPIRED",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "ERR_TLS_CERT_ALTNAME_INVALID",
+          "category": "tls",
+          "code": "ERR_TLS_CERT_ALTNAME_INVALID",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "DEPTH_ZERO_SELF_SIGNED_CERT",
+          "category": "tls",
+          "code": "DEPTH_ZERO_SELF_SIGNED_CERT",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "28P01",
+          "category": "auth",
+          "code": "28P01",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "28000",
+          "category": "auth",
+          "code": "28000",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "3D000",
+          "category": "database",
+          "code": "3D000",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08006",
+          "category": "connection",
+          "code": "08006",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08001",
+          "category": "connection",
+          "code": "08001",
+          "message": "connect failed"
+        },
+        {
+          "driverCode": "08P01",
+          "category": "connection",
+          "code": "08P01",
+          "message": "connect failed"
+        }
+      ],
+      "unknown": {
+        "category": "unknown",
+        "code": "unknown",
+        "message": "connect failed"
+      },
+      "allowlistEntryCount": 25,
+      "categories": [
+        "dns",
+        "timeout",
+        "refused",
+        "unreachable",
+        "reset",
+        "tls",
+        "auth",
+        "database",
+        "connection",
+        "unknown"
+      ]
     }
   ],
-  "redCaseCount": 4,
-  "greenCaseCount": 5,
+  "redCaseCount": 5,
+  "greenCaseCount": 6,
   "httpCallCounts": {
     "successPathHttpRequestCount": 2,
     "successPathImdsRequestCount": 1,
@@ -181,7 +330,11 @@
     "liveCountConnectCalls": 1,
     "liveCountQueryCalls": 0,
     "liveCountEndCalls": 1,
-    "liveCountSessions": 1
+    "liveCountSessions": 1,
+    "liveCountAttempt1ClientsInstantiated": 1,
+    "liveCountAttempt1ConnectCalls": 1,
+    "liveCountAttempt1QueryCalls": 0,
+    "liveCountAttempt1EndCalls": 1
   },
   "safeCounts": null,
   "credentialPreflightOutcome": {
@@ -206,9 +359,14 @@
     "errors": [],
     "blocker": null
   },
-  "liveCountOutcome": {
+  "liveCountAttempt1": {
+    "attempt": 1,
+    "diagnostic": false,
+    "classifierApplied": false,
     "ok": false,
     "code": "connect_failed",
+    "connectCategory": null,
+    "message": null,
     "exitCode": 2,
     "counts": null,
     "steps": [],
@@ -234,15 +392,87 @@
     "realPostgresCall": true,
     "liveMutation": false,
     "errors": [],
-    "blocker": "connect_failed"
+    "blocker": "connect_failed",
+    "note": "First live count retained from pre-classifier evidence; opaque connect_failed"
   },
-  "secretLifetimeProof": {
+  "liveCountDiagnosticAttempt2": {
+    "attempt": 2,
+    "diagnostic": true,
+    "classifierApplied": true,
+    "ok": false,
+    "code": "unknown",
+    "connectCategory": "unknown",
+    "message": "connect failed",
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "unknown"
+  },
+  "liveCountOutcome": {
+    "attempt": 2,
+    "diagnostic": true,
+    "classifierApplied": true,
+    "ok": false,
+    "code": "unknown",
+    "connectCategory": "unknown",
+    "message": "connect failed",
+    "exitCode": 2,
+    "counts": null,
+    "steps": [],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 0,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": false,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": "unknown"
+  },
+  "secretHandlingProof": {
     "privateFieldsZeroedImmediately": true,
     "neverPrinted": true,
     "neverPersisted": true,
     "neverHashedIntoEvidence": true,
     "neverInArgv": true,
     "neverInTempFile": true,
-    "neverInChildProcessEnv": true
+    "neverInChildProcessEnv": true,
+    "connectClassifierNeverOutputsRawMessage": true
   }
 }

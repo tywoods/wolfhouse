@@ -94,6 +94,111 @@ function resetPgClientInstantiateCount() {
 }
 
 /**
+ * Fixed connect-failure message — never echo driver text (may embed host,
+ * DSN fragments, cert PEMs, credentials, detail/hint, stack, syscall, etc.).
+ */
+const CONNECT_FAILED_SAFE_MESSAGE = 'connect failed';
+
+/**
+ * Strict allowlist: original driver/Postgres code → normalized category.
+ * Unknown codes collapse to category/code `unknown` (never pass through).
+ */
+const CONNECT_DRIVER_CODE_CATEGORY = Object.freeze({
+  ENOTFOUND: 'dns',
+  EAI_AGAIN: 'dns',
+  ETIMEDOUT: 'timeout',
+  ECONNREFUSED: 'refused',
+  ENETUNREACH: 'unreachable',
+  EHOSTUNREACH: 'unreachable',
+  ECONNRESET: 'reset',
+  // TLS certificate / hostname verification (Node OpenSSL / tls)
+  UNABLE_TO_VERIFY_LEAF_SIGNATURE: 'tls',
+  UNABLE_TO_GET_ISSUER_CERT: 'tls',
+  UNABLE_TO_GET_ISSUER_CERT_LOCALLY: 'tls',
+  UNABLE_TO_GET_CRL: 'tls',
+  CERT_SIGNATURE_FAILURE: 'tls',
+  CERT_NOT_YET_VALID: 'tls',
+  CERT_HAS_EXPIRED: 'tls',
+  CERT_REVOKED: 'tls',
+  CERT_UNTRUSTED: 'tls',
+  CERT_REJECTED: 'tls',
+  DEPTH_ZERO_SELF_SIGNED_CERT: 'tls',
+  SELF_SIGNED_CERT_IN_CHAIN: 'tls',
+  ERR_TLS_CERT_ALTNAME_INVALID: 'tls',
+  ERR_TLS_CERTIFICATE_VERIFY_FAILED: 'tls',
+  HOSTNAME_MISMATCH: 'tls',
+  // PostgreSQL auth / authorization
+  '28P01': 'auth',
+  '28000': 'auth',
+  // PostgreSQL invalid catalog (database)
+  '3D000': 'database',
+});
+
+const CONNECT_CATEGORIES = Object.freeze([
+  'dns',
+  'timeout',
+  'refused',
+  'unreachable',
+  'reset',
+  'tls',
+  'auth',
+  'database',
+  'connection',
+  'unknown',
+]);
+
+/**
+ * Classify a pg Client.connect() failure into a secret-free
+ * { category, code, message } triple. Never returns raw message, hostname
+ * fragments, detail/hint/schema/table/constraint, stack, syscall/address/port,
+ * credentials, DSN, token, or cert content.
+ *
+ * - DNS: ENOTFOUND / EAI_AGAIN
+ * - timeout: ETIMEDOUT
+ * - refused: ECONNREFUSED
+ * - unreachable: ENETUNREACH / EHOSTUNREACH
+ * - reset: ECONNRESET
+ * - tls: allowlisted certificate / hostname codes
+ * - auth: 28P01 / 28000
+ * - database: 3D000
+ * - connection: PostgreSQL class 08xxx (code preserved when well-formed)
+ * - unknown: everything else (code forced to `unknown`)
+ */
+function classifyConnectError(err) {
+  const raw = err && err.code != null ? String(err.code).trim() : '';
+
+  // PostgreSQL connection_exception class (08xxx) — preserve well-formed code only.
+  if (/^08[0-9A-Z]{3}$/i.test(raw)) {
+    return Object.freeze({
+      category: 'connection',
+      code: raw.toUpperCase(),
+      message: CONNECT_FAILED_SAFE_MESSAGE,
+    });
+  }
+
+  if (raw) {
+    const upper = raw.toUpperCase();
+    const keys = Object.keys(CONNECT_DRIVER_CODE_CATEGORY);
+    for (let i = 0; i < keys.length; i += 1) {
+      const key = keys[i];
+      if (key === raw || key.toUpperCase() === upper) {
+        return Object.freeze({
+          category: CONNECT_DRIVER_CODE_CATEGORY[key],
+          code: key,
+          message: CONNECT_FAILED_SAFE_MESSAGE,
+        });
+      }
+    }
+  }
+
+  return Object.freeze({
+    category: 'unknown',
+    code: 'unknown',
+    message: CONNECT_FAILED_SAFE_MESSAGE,
+  });
+}
+
+/**
  * Verified TLS for Azure Flexible Server FQDN — same contract as
  * sunset-schema-observer clientConfigFromDsn (rejectUnauthorized + servername).
  * System CA trust (ca-certificates) is relied on by rejectUnauthorized:true.
@@ -745,11 +850,12 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       counters.connectCalls += 1;
       await client.connect();
     } catch (e) {
-      const msg = redactSecrets(
-        String((e && e.message) || e || 'connect failed').slice(0, 240),
-        secrets,
-      );
-      throw Object.assign(new Error(msg), { code: 'connect_failed' });
+      // Strict allowlist classifier — never echo driver message / host / secrets.
+      const classified = classifyConnectError(e);
+      throw Object.assign(new Error(classified.message), {
+        code: classified.code,
+        connectCategory: classified.category,
+      });
     }
 
     let sequence;
@@ -797,13 +903,21 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
     };
   } catch (e) {
     const code = (e && e.code) || (e && e.result && e.result.code) || 'query_failed';
+    const connectCategory = e && e.connectCategory
+      ? String(e.connectCategory)
+      : undefined;
     const result = e && e.result ? e.result : null;
     const failSteps = result && Array.isArray(result.steps) ? result.steps : [];
     counters.queryCalls = failSteps.length;
+    // Connect failures: fixed safe message only (classifier already applied).
+    const safeMessage = connectCategory
+      ? CONNECT_FAILED_SAFE_MESSAGE
+      : redactSecrets(String((e && e.message) || 'adapter failed'), secrets);
     outcome = {
       ok: false,
       code,
-      message: redactSecrets(String((e && e.message) || 'adapter failed'), secrets),
+      connectCategory: connectCategory || undefined,
+      message: safeMessage,
       steps: failSteps,
       rolledBack: result ? result.rolledBack : false,
       counters: {
@@ -1025,6 +1139,10 @@ module.exports = {
   CONNECTION_TIMEOUT_MS,
   AUTHORIZED_SEQUENCE,
   AUTHORIZED_SEQUENCE_ON_FAILURE,
+  CONNECT_FAILED_SAFE_MESSAGE,
+  CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_CATEGORIES,
+  classifyConnectError,
   buildVerifiedTlsSslConfig,
   buildLockedPgClientConfig,
   secretFreeClientConfigView,

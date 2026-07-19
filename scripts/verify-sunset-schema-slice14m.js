@@ -51,6 +51,10 @@ const {
   createScriptedFakePgClientFactory,
   getPgClientInstantiateCount,
   resetPgClientInstantiateCount,
+  classifyConnectError,
+  CONNECT_FAILED_SAFE_MESSAGE,
+  CONNECT_DRIVER_CODE_CATEGORY,
+  CONNECT_CATEGORIES,
 } = require('./lib/phase-d-live-readonly-pg-adapter');
 const {
   evaluatePhaseDLiveReadonlyCliGates,
@@ -83,6 +87,7 @@ const REQUIRED_RED = [
   'missing_execute_gate_zero_clients',
   'wrong_or_forbidden_cli_args_zero_clients',
   'managed_identity_requires_env_and_argv',
+  'connect_classifier_secret_messages_sanitize',
 ];
 
 const REQUIRED_GREEN = [
@@ -91,6 +96,7 @@ const REQUIRED_GREEN = [
   'count_only_cli_default_disabled',
   'locks_identity_vault_secret_pg_tls_application_name',
   'apply_disabled_connect_and_http_enabled',
+  'connect_classifier_category_mappings',
 ];
 
 const FAKE_USER = 'verify-slice14m-admin-user';
@@ -225,27 +231,45 @@ async function main() {
 
   const preflight = evidence.credentialPreflightOutcome || {};
   const liveCount = evidence.liveCountOutcome;
+  const attempt1 = evidence.liveCountAttempt1;
+  const attempt2 = evidence.liveCountDiagnosticAttempt2;
   pass('offline-gates',
     evidence.offlineGates.defaultPathZeroHttpAndClients === true
     && evidence.offlineGates.injectedHttpSuccessExactCountSequence === true
     && evidence.offlineGates.countOnlyCliDefaultDisabled === true
     && evidence.offlineGates.applyDisabledConnectAndHttpEnabled === true
+    && evidence.offlineGates.connectClassifierSecretMessagesSanitize === true
+    && evidence.offlineGates.connectClassifierCategoryMappings === true
     && evidence.liveMutation === false
     && evidence.stillProductSchemaDiffers === true
-    && evidence.existingCliGatesUnchanged === true);
+    && evidence.existingCliGatesUnchanged === true
+    && evidence.connectErrorClassifierApplied === true
+    && evidence.diagnosticAttempt2Authorized === true
+    && contract.connectErrorClassifierRequired === true
+    && contract.diagnosticAttempt2Authorized === true);
 
   pass('live-evidence-recorded',
-    evidence.credentialPreflightAttemptCount === 1
-    && (evidence.liveCountAttemptCount === 0 || evidence.liveCountAttemptCount === 1)
+    evidence.credentialPreflightAttemptCount === 2
+    && evidence.liveCountAttemptCount === 2
     && typeof evidence.outcome === 'string'
     && evidence.outcome.startsWith('phase_d_live_readonly_counts_')
     && preflight.liveMutation === false
     && preflight.realPostgresCall === false
     && Number.isFinite(preflight.exitCode)
-    && (liveCount == null
-      || (liveCount.liveMutation === false
-        && typeof liveCount.code === 'string'
-        && Number.isFinite(liveCount.exitCode))));
+    && attempt1
+    && attempt1.attempt === 1
+    && attempt1.diagnostic === false
+    && attempt1.classifierApplied === false
+    && attempt1.code === 'connect_failed'
+    && attempt1.blocker === 'connect_failed'
+    && attempt2
+    && attempt2.attempt === 2
+    && attempt2.diagnostic === true
+    && attempt2.classifierApplied === true
+    && liveCount
+    && liveCount.liveMutation === false
+    && typeof liveCount.code === 'string'
+    && Number.isFinite(liveCount.exitCode));
 
   pass('live-outcome-consistency',
     (evidence.outcome === 'phase_d_live_readonly_counts_ok'
@@ -259,14 +283,29 @@ async function main() {
       && Number.isFinite(evidence.safeCounts.price_unit_violations))
     || (evidence.outcome === 'phase_d_live_readonly_counts_blocked_at_credential_preflight'
       && preflight.ok === false
-      && evidence.liveCountAttemptCount === 0
       && evidence.safeCounts === null)
     || (evidence.outcome === 'phase_d_live_readonly_counts_blocked'
       && preflight.ok === true
       && liveCount
       && liveCount.ok === false
       && liveCount.blocker != null
-      && evidence.safeCounts === null));
+      && evidence.safeCounts === null
+      && (liveCount.connectCategory == null
+        || (CONNECT_CATEGORIES.includes(liveCount.connectCategory)
+          && liveCount.message === CONNECT_FAILED_SAFE_MESSAGE))));
+
+  pass('attempt-history-retained',
+    evidence.liveCountAttempt1.code === 'connect_failed'
+    && evidence.liveCountDiagnosticAttempt2
+    && evidence.liveCountOutcome
+    && evidence.liveCountDiagnosticAttempt2.attempt === 2
+    && evidence.liveCountOutcome.attempt === 2
+    && evidence.liveCountDiagnosticAttempt2.code === evidence.liveCountOutcome.code
+    && evidence.liveCountDiagnosticAttempt2.blocker === evidence.liveCountOutcome.blocker
+    && evidence.clientCallCounts.liveCountAttempt1ClientsInstantiated === 1
+    && evidence.clientCallCounts.liveCountAttempt1ConnectCalls === 1
+    && evidence.clientCallCounts.liveCountAttempt1QueryCalls === 0
+    && evidence.clientCallCounts.liveCountAttempt1EndCalls === 1);
 
   pass('call-counts-evidence',
     evidence.redCaseCount === REQUIRED_RED.length
@@ -344,6 +383,34 @@ async function main() {
     && ENV_CREDENTIAL_SOURCE === 'SUNSET_PHASE_D_CREDENTIAL_SOURCE'
     && CLI_CREDENTIAL_SOURCE === '--credential-source');
 
+  // Offline connect classifier — never re-run live
+  const evil = 'verify-slice14m-classifier-secret-never-commit';
+  const clsUnknown = classifyConnectError(Object.assign(
+    new Error(`password=${evil} postgresql://u:p@h/db`),
+    { code: 'NOT_ALLOWLISTED', detail: 'x', hostname: 'leaked.host' },
+  ));
+  const clsDns = classifyConnectError(Object.assign(
+    new Error(`ENOTFOUND leaked.host password=${evil}`),
+    { code: 'ENOTFOUND' },
+  ));
+  const clsConn = classifyConnectError({ code: '08006' });
+  const clsProbe = JSON.stringify([clsUnknown, clsDns, clsConn]);
+  pass('runtime-connect-classifier',
+    clsUnknown.category === 'unknown'
+    && clsUnknown.code === 'unknown'
+    && clsUnknown.message === CONNECT_FAILED_SAFE_MESSAGE
+    && clsDns.category === 'dns'
+    && clsDns.code === 'ENOTFOUND'
+    && clsConn.category === 'connection'
+    && clsConn.code === '08006'
+    && !clsProbe.includes(evil)
+    && !clsProbe.includes('leaked.host')
+    && !/postgresql:\/\//i.test(clsProbe)
+    && Object.keys(CONNECT_DRIVER_CODE_CATEGORY).length >= 15
+    && CONNECT_CATEGORIES.includes('tls')
+    && CONNECT_CATEGORIES.includes('auth')
+    && contract.connectErrorClassifier.safeMessage === CONNECT_FAILED_SAFE_MESSAGE);
+
   pass('source-forbids-live-mutation',
     !/\baz\s+keyvault\b/i.test(proveSrc)
     && !/\baz\s+postgres\b/i.test(proveSrc)
@@ -389,10 +456,14 @@ async function main() {
     && /createScriptedFakePgClientFactory/.test(verifySrc)
     && /Does NOT re-run live/.test(verifySrc));
 
-  pass('prove-one-live-count-max',
+  pass('prove-one-diagnostic-live-count-max',
     /Live section 2\/2/.test(proveSrc)
+    && /diagnostic attempt 2/.test(proveSrc)
+    && /loadLiveCountAttempt1History/.test(proveSrc)
     && /countAttempted = true/.test(proveSrc)
-    && /credentialPreflightAttemptCount: 1/.test(proveSrc)
+    && /credentialPreflightAttemptCount: 2/.test(proveSrc)
+    && /liveCountAttempt1/.test(proveSrc)
+    && /liveCountDiagnosticAttempt2/.test(proveSrc)
     && (proveSrc.match(/spawnSync\(/g) || []).length === 3);
 
   if (failed > 0) {

@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14d-phase-d-readonly-activation-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:19:08.766Z",
+  "generatedAt": "2026-07-19T20:49:08.019Z",
   "masterShaBasis": "6edd63762ea5a28cec764428c176da2118032729",
   "slice": "14D",
   "outcome": "phase_d_live_readonly_activation_proven_offline",
@@ -101,7 +101,7 @@
     {
       "name": "connect_failure_sanitized_close",
       "ok": true,
-      "code": "connect_failed"
+      "code": "ECONNREFUSED"
     },
     {
       "name": "query_failure_rollback_and_close",
