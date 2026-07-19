@@ -230,7 +230,8 @@ function main() {
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && contract.phaseStatus.B === 'complete_location_model_promotion'
     && (contract.phaseStatus.C === 'pending'
-      || contract.phaseStatus.C === 'partial_tenant_services_columns_complete')
+      || contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
+      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete')
     && contract.slice13c2PhaseB
     && contract.slice13c2PhaseB.migrationId === MIG_039_ID
     && contract.liveApplyCapability === false

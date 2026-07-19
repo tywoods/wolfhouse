@@ -1,0 +1,63 @@
+{
+  "kind": "sunset-schema-observer-slice13c3b-mismatch-25-to-8-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "liveMutation": false,
+  "generatedAt": "2026-07-19T16:17:30.491Z",
+  "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "previousRemainingAfter13c3a": 25,
+  "resolvedMigration035OwnedKeys": 17,
+  "remainingGenuineDriftKeys": 8,
+  "trajectory": "25 → 8",
+  "trajectoryFrom25Exact": {
+    "before": 25,
+    "resolved": 17,
+    "after": 8,
+    "note": "Exact post-13C.3a remaining (25), not assumed endpoint"
+  },
+  "match": false,
+  "code": "product_schema_differs",
+  "migration035OwnedKeysResolved": [
+    "expected_only|acls|relation:customer_message_templates",
+    "expected_only|columns|customer_message_templates.active",
+    "expected_only|columns|customer_message_templates.body",
+    "expected_only|columns|customer_message_templates.channel",
+    "expected_only|columns|customer_message_templates.client_id",
+    "expected_only|columns|customer_message_templates.created_at",
+    "expected_only|columns|customer_message_templates.id",
+    "expected_only|columns|customer_message_templates.tags",
+    "expected_only|columns|customer_message_templates.title",
+    "expected_only|columns|customer_message_templates.updated_at",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+    "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+    "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+    "expected_only|ownership|relation:customer_message_templates",
+    "expected_only|rlsFlags|customer_message_templates",
+    "expected_only|tables|customer_message_templates"
+  ],
+  "remainingKeys": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ],
+  "remainingByClassification": {
+    "genuine_database_drift": 8
+  },
+  "mustRemainKeysPresent": true,
+  "noNotificationSurfPackOrPhaseDResolution": true,
+  "fingerprints": {
+    "canonicalUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "manifestHashUnchanged": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+    "liveRawCommitted": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd"
+  },
+  "expectedProductSchemaByteSha256": "d6d700c8795ac4e7f4c576fccddff79281d5bdd35d3a527f25837da1065cc43c"
+}
