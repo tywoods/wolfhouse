@@ -379,14 +379,35 @@ npm run verify:sunset-schema-slice13b
 
 ### Slice 13C.1 — Phase A identity normalization (implemented)
 
-Observer profile `azure_flexible_server_v1` normalizes Azure Flexible Server identity presentation only. Offline/committed evidence proves **88 → 46** mismatches (42 ownership/ACL/extension presentation keys cleared; 46 substantive remain). Canonical fixture unchanged. Live DB still does not match canonical.
+Observer profile `azure_flexible_server_v1` normalizes Azure Flexible Server identity presentation only. Offline/committed evidence proves **88 → 46** mismatches (42 ownership/ACL/extension presentation keys cleared; 46 substantive remain). Live DB still does not match canonical.
 
 ```bash
 npm run build:sunset-schema-slice13c1-normalization-evidence
 npm run verify:sunset-schema-slice13c1
 ```
 
-Artifacts: `fixtures/sunset-schema-observer/slice13c1-azure-identity-normalization-evidence.json`, `slice13c1-findings.md`. Phase A marked complete on the Slice 13C rehearsal contract; Phases B–E remain pending. **No observer job start in this slice.**
+Artifacts: `fixtures/sunset-schema-observer/slice13c1-azure-identity-normalization-evidence.json`, `slice13c1-findings.md`. Phase A marked complete on the Slice 13C rehearsal contract. **No observer job start in this slice.**
+
+### Slice 13C.2 — Phase B location-aware admin model promotion (implemented)
+
+Promoted approved location-aware admin-rule model into one new canonical forward migration `039_sunset_admin_location_aware_rules.sql` (DEC-002). Disposable dual-path proof only. Offline mismatch trajectory **46 → 29** (17 Phase B keys resolved; 29 genuine drift remain). Still `product_schema_differs`. **Do not claim** Sunset is repaired. Historical PROPOSED 023/024/025 remain non-executable. **No live apply / observer job / image deploy.**
+
+| Item | Value |
+|------|-------|
+| Forward count | 36 → 37 |
+| Prior fingerprint | `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52` |
+| New fingerprint | `553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1` |
+| Migration hash (`canonical_lf_v1`) | `b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3` |
+| Manifest hash | `7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0` |
+
+Index/CHECK promotion is catalog fail-closed (exact targets preserved; incompatible definitions raise — no silent drop/replace).
+
+```bash
+npm run prove:sunset-schema-slice13c2-location-promotion
+npm run verify:sunset-schema-slice13c2
+```
+
+Artifacts: `slice13c2-location-promotion-evidence.json`, `slice13c2-mismatch-46-to-29-evidence.json`, `slice13c2-findings.md`.
 
 ---
 
@@ -444,3 +465,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13A.1 — canonical_lf_v1 migration checksums (EOL-invariant; DEC-007 resolved) — 2026-07-19*
 *FOUNDATION Slice 13B — approved-direction reconciliation design (design only; no repair/live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.1 — azure_flexible_server_v1 observer identity normalization (88→46; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.2 — promote location-aware admin model via 039 (46→29; disposable proof only; no live mutation) — 2026-07-19*

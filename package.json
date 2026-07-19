@@ -290,6 +290,8 @@
     "verify:sunset-schema-slice13a": "node scripts/verify-sunset-schema-slice13a.js",
     "verify:sunset-schema-slice13b": "node scripts/verify-sunset-schema-slice13b.js",
     "verify:sunset-schema-slice13c1": "node scripts/verify-sunset-schema-slice13c1.js",
+    "verify:sunset-schema-slice13c2": "node scripts/verify-sunset-schema-slice13c2.js",
+    "prove:sunset-schema-slice13c2-location-promotion": "node scripts/prove-sunset-schema-slice13c2-location-promotion.js",
     "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",
     "build:sunset-schema-slice13a-manifest-hash-report": "node scripts/build-sunset-schema-slice13a-manifest-hash-report.js",
     "build:sunset-schema-slice13b-design": "node scripts/build-sunset-schema-slice13b-design.js",

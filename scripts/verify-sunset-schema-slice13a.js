@@ -67,6 +67,10 @@ function gitBlobSha(rel) {
 
 function isResolved13a1(decisions, provenance, byteReport, expected) {
   const dec007 = (decisions.items || []).find((d) => d.id === 'DEC-007');
+  // Slice 13C.2 regenerates expected fingerprint; 13A historical lock remains CANON_FP via
+  // previousProductFingerprint / classification report, not the live expected tip.
+  const expectedHolds13aFingerprint = expected.productFingerprint === CANON_FP
+    || expected.previousProductFingerprint === CANON_FP;
   return Boolean(
     dec007
     && dec007.status === 'resolved_by_slice_13a1'
@@ -77,7 +81,7 @@ function isResolved13a1(decisions, provenance, byteReport, expected) {
     && byteReport.migration_integrity_blocker
     && byteReport.migration_integrity_blocker.present === false
     && expected.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1
-    && expected.productFingerprint === CANON_FP,
+    && expectedHolds13aFingerprint,
   );
 }
 
@@ -101,8 +105,13 @@ function main() {
   const verifySrc = fs.readFileSync(VERIFY_PATH, 'utf8');
   const resolved13a1 = isResolved13a1(decisions, provenance, byteReport, expected);
 
-  pass('no-live-derived-expected-fixture', expected.productFingerprint === CANON_FP
+  pass('no-live-derived-expected-fixture',
+    (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
     && (!expected.source || expected.source !== 'live-sunset-staging-observer-catalog')
+    && !/\b(from live|live-derived|live-sunset-staging-observer-catalog)\b/i.test(
+      String(expected.source || ''),
+    )
+    && /not derived from live/i.test(String(expected.slice13c2Note || 'not derived from live'))
     && report.canonicalExpectedFingerprint === CANON_FP
     && report.actualLiveFingerprint === LIVE_FP
     && mismatch.canonicalExpectedFingerprint === CANON_FP);
@@ -151,7 +160,10 @@ function main() {
 
   const manifest = loadManifest(MANIFEST_PATH);
   const forward = forwardEntries(manifest);
-  pass('forward-manifest-36', forward.length === 36);
+  // Slice 13A provenance remains the 36-forward investigation record; live tip may be 37+ (13C.2).
+  pass('forward-manifest-at-least-36', forward.length >= 36
+    && provenance.canonicalForwardCount === 36
+    && migs.every((m) => forward.some((e) => e.id === m.id)));
   pass(
     'manifest-checksum-mode-when-resolved',
     !resolved13a1 || manifest.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1,
