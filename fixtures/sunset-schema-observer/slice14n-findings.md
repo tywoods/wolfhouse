@@ -20,11 +20,15 @@ Live verification:
 | ARM GET count | 5 |
 | ARM DELETE count | 0 |
 | Retries | 0 |
+| networkMutation | **true** (firewall ARM only) |
+| applyFlagPresent | **true** |
+| Rules before→after count | **2→3** |
 | Server Ready before→after | `Ready` → `Ready` |
 | publicNetworkAccess unchanged | `Enabled` (unchanged=true) |
 | Existing two rules unchanged | true |
 | Third rule exact | true |
 | PostgreSQL client/query | **none** |
+| KV/RBAC/identity mutation | **false** |
 
 ### Rules before
 
@@ -71,7 +75,7 @@ SUNSET_PHASE_D_LUNABOX_PG_FIREWALL_APPLY=1 AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-4
 | Class | Cases |
 |-------|-------|
 | RED | default/missing/wrong gates; ranges; 0.0.0.0; forbidden argv; outbound IP mismatch zero PUT; sanitized PUT failure; live transport rejects deviations |
-| GREEN | apply activated/delete disabled; exact gates; injected one-PUT sequence; CLI default refuse; locks; hashes preserved; no pg Client |
+| GREEN | apply activated/delete disabled; exact gates; injected one-PUT sequence; offline mode zero HTTP; CLI default refuse; locks; hashes preserved; no pg Client |
 
 ## Non-goals / still open
 
@@ -83,4 +87,4 @@ SUNSET_PHASE_D_LUNABOX_PG_FIREWALL_APPLY=1 AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-4
 
 ## Zero DB mutation
 
-No PostgreSQL client. No SQL. Firewall ARM rule only. Private refs zeroed. No token/DSN in evidence.
+No PostgreSQL client. No SQL. Firewall ARM rule only (`networkMutation=true`). Private refs zeroed. No token/DSN in evidence.

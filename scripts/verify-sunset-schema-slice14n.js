@@ -80,6 +80,7 @@ const REQUIRED_GREEN = [
   'live_apply_activated_delete_disabled',
   'exact_gates_pass',
   'exact_one_put_sequence_injected',
+  'offline_mode_zero_http',
   'cli_default_disabled',
   'cli_missing_env_refuses_zero_http',
   'usage_and_locks',
@@ -174,6 +175,60 @@ async function main() {
     && evidence.armPutCount === 1
     && evidence.armDeleteCount === 0
     && evidence.retries === 0);
+  pass('firewall-action-true', evidence.firewallAction === true
+    && contract.firewallMutation === true);
+  pass('live-mutation-true', evidence.liveMutation === true
+    && contract.liveMutation === true);
+  pass('network-mutation-true', evidence.networkMutation === true
+    && contract.networkMutation === true);
+  pass('non-network-mutations-false', evidence.kvMutation === false
+    && evidence.rbacMutation === false
+    && evidence.identityMutation === false
+    && contract.kvMutation === false
+    && contract.rbacMutation === false
+    && contract.identityMutation === false
+    && evidence.postgresClientOpened === false
+    && evidence.postgresQueryExecuted === false);
+  pass('apply-flag-present', evidence.applyFlagPresent === true);
+  pass('rules-before-after-2-to-3', evidence.rulesBeforeCount === 2
+    && evidence.rulesAfterCount === 3
+    && Array.isArray(evidence.existingRulesBefore)
+    && evidence.existingRulesBefore.length === 2
+    && Array.isArray(evidence.existingRulesAfter)
+    && evidence.existingRulesAfter.length === 3
+    && evidence.existingRulesBefore.length === evidence.rulesBeforeCount
+    && evidence.existingRulesAfter.length === evidence.rulesAfterCount);
+  pass('existing-arrays-count-consistency', (() => {
+    const before = evidence.existingRulesBefore;
+    const after = evidence.existingRulesAfter;
+    const locked = [
+      { name: 'AllowSunsetCaeEgress', startIpAddress: '4.209.106.13', endIpAddress: '4.209.106.13' },
+      { name: 'AllowSunsetAppEgress', startIpAddress: '4.208.189.26', endIpAddress: '4.208.189.26' },
+    ];
+    const third = {
+      name: 'AllowLunaboxEgress',
+      startIpAddress: '20.238.124.76',
+      endIpAddress: '20.238.124.76',
+    };
+    const beforeOk = JSON.stringify(before) === JSON.stringify(locked);
+    const afterOk = JSON.stringify(after) === JSON.stringify(locked.concat([third]));
+    const liveOk = evidence.liveResult
+      && evidence.liveResult.rulesBeforeCount === 2
+      && evidence.liveResult.rulesAfterCount === 3
+      && JSON.stringify(evidence.liveResult.existingRulesAfter) === JSON.stringify(after);
+    return beforeOk && afterOk && liveOk;
+  })());
+  pass('exactly-one-historical-live-put', evidence.usedLiveHttp === true
+    && evidence.realArmCall === true
+    && evidence.putCount === 1
+    && evidence.armPutCount === 1
+    && evidence.liveResult
+    && evidence.liveResult.putCount === 1
+    && evidence.liveResult.armPutCount === 1
+    && evidence.liveResult.networkMutation === true
+    && (evidence.redCases || []).every((r) => r.name !== 'historical_live_put_duplicate'));
+  pass('generated-at-preserved-historical', evidence.generatedAt === '2026-07-19T21:07:57.711Z'
+    && /2026-07-19T21:07:57\.711Z/.test(findings));
   pass('third-rule-exact', evidence.thirdRuleExact === true
     && evidence.firewallRuleName === 'AllowLunaboxEgress'
     && evidence.startIpAddress === '20.238.124.76'
@@ -223,11 +278,15 @@ async function main() {
     && libSrc.includes('20.238.124.76'),
   ));
   pass('verifier-does-not-live-mutate', !verifySrc.includes('executeLunaboxPgFirewallApply({')
-    || /httpRequest:\s*inject|createInjectedFirewallHttp/.test(verifySrc));
+    || /httpRequest:\s*inject|createInjectedFirewallHttp|offline:\s*true|forbidLiveHttp:\s*true/.test(verifySrc));
+  pass('prove-default-offline-no-live', /offlineOnly|SUNSET_SLICE14N_PROOF_OFFLINE|--live/.test(proveSrc)
+    && /skipped live ARM\/HTTP|zero additional live calls/.test(proveSrc)
+    && !/console\.log\('live: outbound IP/.test(proveSrc.split('if (offlineOnly)')[0]));
   pass('prove-mentions-zero-pg', /zero PostgreSQL|No PostgreSQL/i.test(proveSrc)
     && /zero PostgreSQL/i.test(findings));
   pass('safe-output-keys-locked', SAFE_OUTPUT_KEYS.includes('putCount')
     && SAFE_OUTPUT_KEYS.includes('costBefore')
+    && SAFE_OUTPUT_KEYS.includes('networkMutation')
     && !SAFE_OUTPUT_KEYS.includes('token'));
   pass('forbidden-argv-locked', FORBIDDEN_ARGV_FLAGS.includes('--delete')
     && FORBIDDEN_ARGV_FLAGS.includes('--retry')
@@ -236,7 +295,7 @@ async function main() {
   // Offline re-check: default refuse + injected GREEN (no live)
   resetFirewallApplyCounters();
   {
-    const r = await executeLunaboxPgFirewallApply({ env: {}, argv: [] });
+    const r = await executeLunaboxPgFirewallApply({ env: {}, argv: [], offline: true, forbidLiveHttp: true });
     pass('offline-default-refuse', r.ok === false && getFirewallApplyCounters().httpRequestCount === 0);
   }
   {
@@ -258,8 +317,27 @@ async function main() {
       argv: exactFirewallApplyArgv(),
       httpRequest: inject,
       pollDelayMs: 0,
+      offline: true,
+      forbidLiveHttp: true,
     });
-    pass('offline-injected-one-put', r.ok === true && r.putCount === 1 && r.thirdRuleExact === true);
+    pass('offline-injected-one-put', r.ok === true && r.putCount === 1 && r.thirdRuleExact === true
+      && r.rulesBeforeCount === 2 && r.rulesAfterCount === 3
+      && r.networkMutation === true && r.firewallAction === true
+      && r.usedLiveHttp === false
+      && getFirewallApplyCounters().httpRequestCount > 0);
+  }
+  {
+    resetFirewallApplyCounters();
+    const r = await executeLunaboxPgFirewallApply({
+      env: firewallApplyEnv(),
+      argv: exactFirewallApplyArgv(),
+      offline: true,
+      forbidLiveHttp: true,
+    });
+    pass('offline-forbid-live-http', r.ok === false
+      && r.code === 'http_transport_unavailable'
+      && getFirewallApplyCounters().httpRequestCount === 0
+      && r.networkMutation === false);
   }
   {
     const cli = spawnSync(process.execPath, [cliPath], {
@@ -270,6 +348,8 @@ async function main() {
     pass('offline-cli-default', cli.status !== 0);
   }
   pass('live-transport-present', typeof createLiveFirewallHttpRequest() === 'function');
+  pass('prove-offline-argv-gate', proveSrc.includes("process.argv.includes('--live')")
+    && proveSrc.includes('offlineOnly'));
 
   // Evidence must record live PUT happened once — verifier must not re-PUT
   pass('evidence-live-put-recorded', evidence.usedLiveHttp === true

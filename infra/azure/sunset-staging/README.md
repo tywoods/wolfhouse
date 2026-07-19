@@ -622,8 +622,11 @@ Artifacts: `slice14m-phase-d-live-readonly-counts-contract.json`, `slice14m-phas
 Declares standalone Bicep `lunabox-pg-firewall-rule.bicep` (existing server reference only — **not** wired into `main.bicep`) and applies exactly **one** ARM REST PUT for rule **`AllowLunaboxEgress`** with start=end=**`20.238.124.76`** (Lunabox proven outbound IPv4). Requires dual outbound-IP HTTPS echoes equal to the locked address before any mutation; captures Cost Management Actual+Amortized RG snapshots before/after via managed-identity ARM REST (safe totals/currency/date only; firewall rule has no expected direct charge). Polls only the exact rule GET to terminal state (bounded). Verifies server remains Ready, `publicNetworkAccess` unchanged, existing two CAE/App rules byte-semantically unchanged, plus exact third rule. **No** PostgreSQL client/query, KV/RBAC/identity change, DDL/migration/ledger, delete/broaden/retry, ranges/`0.0.0.0`/Azure-services/IPv6, or full `main.bicep` deploy. Default/wrong env+argv → zero mutation.
 
 ```bash
+# Offline RED/GREEN only (default; zero live HTTP/mutation):
 npm run prove:sunset-schema-slice14n-lunabox-pg-firewall
 npm run verify:sunset-schema-slice14n
+# Live ARM PUT requires explicit --live (do not re-run after historical capture):
+# node scripts/prove-sunset-schema-slice14n-lunabox-pg-firewall.js --live
 # default refuse (zero ARM mutation):
 npm run phase-d:lunabox-pg-firewall-apply
 ```

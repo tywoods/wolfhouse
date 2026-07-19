@@ -9,13 +9,13 @@
   "phaseDConstraintsApplied": false,
   "liveMutation": true,
   "firewallAction": true,
-  "networkMutation": false,
+  "networkMutation": true,
   "kvMutation": false,
   "rbacMutation": false,
   "identityMutation": false,
   "migrationAdded": false,
   "ledgerWritten": false,
-  "applyFlagPresent": false,
+  "applyFlagPresent": true,
   "appliesConstraints": false,
   "writesLedger": false,
   "forwardCountUnchanged": 39,
@@ -80,10 +80,15 @@
       "name": "AllowSunsetAppEgress",
       "startIpAddress": "4.208.189.26",
       "endIpAddress": "4.208.189.26"
+    },
+    {
+      "name": "AllowLunaboxEgress",
+      "startIpAddress": "20.238.124.76",
+      "endIpAddress": "20.238.124.76"
     }
   ],
   "existingRulesUnchanged": true,
-  "rulesBeforeCount": 3,
+  "rulesBeforeCount": 2,
   "rulesAfterCount": 3,
   "thirdRuleExact": true,
   "costBefore": {
@@ -166,7 +171,8 @@
     "sanitizedPutFailure": true,
     "liveTransportRejectsDeviations": true,
     "exactOnePutSequenceInjected": true,
-    "cliDefaultDisabled": true
+    "cliDefaultDisabled": true,
+    "offlineModeZeroHttp": true
   },
   "redCases": [
     {
@@ -275,7 +281,17 @@
       "httpRequestCount": 14,
       "thirdRuleExact": true,
       "existingRulesUnchanged": true,
-      "costDeltaFlagged": true
+      "costDeltaFlagged": true,
+      "rulesBeforeCount": 2,
+      "rulesAfterCount": 3,
+      "networkMutation": true
+    },
+    {
+      "name": "offline_mode_zero_http",
+      "ok": true,
+      "code": "http_transport_unavailable",
+      "httpRequestCount": 0,
+      "networkMutation": false
     },
     {
       "name": "cli_default_disabled",
@@ -389,10 +405,15 @@
         "name": "AllowSunsetAppEgress",
         "startIpAddress": "4.208.189.26",
         "endIpAddress": "4.208.189.26"
+      },
+      {
+        "name": "AllowLunaboxEgress",
+        "startIpAddress": "20.238.124.76",
+        "endIpAddress": "20.238.124.76"
       }
     ],
     "existingRulesUnchanged": true,
-    "rulesBeforeCount": 3,
+    "rulesBeforeCount": 2,
     "rulesAfterCount": 3,
     "thirdRuleExact": true,
     "costBefore": {
@@ -453,7 +474,9 @@
     "firewallRuleExpectedDirectCharge": false,
     "bicepModuleRel": "infra/azure/sunset-staging/lunabox-pg-firewall-rule.bicep",
     "note": "Exactly one AllowLunaboxEgress PUT; no PostgreSQL client; existing two rules unchanged; firewall rule has no expected direct charge",
-    "privateRefsZeroed": true
+    "privateRefsZeroed": true,
+    "networkMutation": true,
+    "firewallAction": true
   },
   "privateRefsZeroed": true
 }

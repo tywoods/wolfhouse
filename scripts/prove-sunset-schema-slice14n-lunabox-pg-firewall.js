@@ -107,11 +107,23 @@ function assertSafeOutputShape(result) {
 }
 
 async function main() {
-  console.log('prove:sunset-schema-slice14n-lunabox-pg-firewall — offline then live\n');
+  const wantLive = process.argv.includes('--live');
+  const offlineOnly = !wantLive
+    || process.argv.includes('--offline')
+    || process.env.SUNSET_SLICE14N_PROOF_OFFLINE === '1';
+  console.log(offlineOnly
+    ? 'prove:sunset-schema-slice14n-lunabox-pg-firewall — offline only (no live HTTP/mutation)\n'
+    : 'prove:sunset-schema-slice14n-lunabox-pg-firewall — offline then live\n');
 
   const red = [];
   const green = [];
-  const generatedAt = new Date().toISOString();
+  // Preserve committed live timestamp unless a new live capture runs.
+  const priorEvidence = fs.existsSync(EVIDENCE_PATH)
+    ? JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'))
+    : null;
+  const generatedAt = (!offlineOnly && wantLive)
+    ? new Date().toISOString()
+    : (priorEvidence && priorEvidence.generatedAt) || new Date().toISOString();
 
   const manifest = loadManifest(MANIFEST_PATH);
   const integrity = validateManifestIntegrity(manifest);
@@ -395,6 +407,7 @@ async function main() {
       argv: exactFirewallApplyArgv(),
       httpRequest: inject,
       pollDelayMs: 0,
+      offline: true,
     });
     assertSafeOutputShape(r);
     leakScan(r, [FAKE_IMDS_TOKEN]);
@@ -407,6 +420,17 @@ async function main() {
     if (r.existingRulesUnchanged !== true || r.serverRemainedReady !== true) {
       throw new Error('postconditions failed on inject');
     }
+    if (r.rulesBeforeCount !== 2 || r.rulesAfterCount !== 3
+      || !Array.isArray(r.existingRulesBefore) || r.existingRulesBefore.length !== 2
+      || !Array.isArray(r.existingRulesAfter) || r.existingRulesAfter.length !== 3) {
+      throw new Error(`injected rule snapshot 2→3 failed: before=${r.rulesBeforeCount} after=${r.rulesAfterCount}`);
+    }
+    if (r.networkMutation !== true || r.firewallAction !== true || r.liveMutation !== true) {
+      throw new Error('injected success must report network/firewall/live mutation true');
+    }
+    if (r.usedLiveHttp !== false) {
+      throw new Error('injected path must not claim live HTTP');
+    }
     green.push({
       name: 'exact_one_put_sequence_injected',
       ok: true,
@@ -415,7 +439,33 @@ async function main() {
       httpRequestCount: r.httpRequestCount,
       thirdRuleExact: true,
       existingRulesUnchanged: true,
+      rulesBeforeCount: r.rulesBeforeCount,
+      rulesAfterCount: r.rulesAfterCount,
+      networkMutation: true,
       costDeltaFlagged: r.costDeltaFlagged === false,
+    });
+  }
+
+  {
+    // Offline mode must refuse live transport even when gates are exact.
+    resetFirewallApplyCounters();
+    const r = await executeLunaboxPgFirewallApply({
+      env: firewallApplyEnv(),
+      argv: exactFirewallApplyArgv(),
+      offline: true,
+      forbidLiveHttp: true,
+    });
+    if (r.ok || r.code !== 'http_transport_unavailable'
+      || getFirewallApplyCounters().httpRequestCount !== 0
+      || r.networkMutation !== false) {
+      throw new Error('offline forbidLiveHttp must refuse with zero HTTP and networkMutation=false');
+    }
+    green.push({
+      name: 'offline_mode_zero_http',
+      ok: true,
+      code: r.code,
+      httpRequestCount: 0,
+      networkMutation: false,
     });
   }
 
@@ -470,7 +520,25 @@ async function main() {
     });
   }
 
-  // --- LIVE (exactly one PUT) ---
+  // --- LIVE (exactly one PUT) — requires explicit --live; offline never reaches here ---
+  if (offlineOnly) {
+    console.log('offline mode: skipped live ARM/HTTP/cost/outbound-IP section; zero additional live calls');
+    console.log('offline mode: not rewriting evidence/contract/findings (preserve committed live capture)');
+    if (!priorEvidence || priorEvidence.putCount !== 1 || priorEvidence.usedLiveHttp !== true) {
+      throw new Error('offline mode requires committed historical live evidence with exactly one PUT');
+    }
+    if (priorEvidence.networkMutation !== true
+      || priorEvidence.firewallAction !== true
+      || priorEvidence.liveMutation !== true
+      || priorEvidence.applyFlagPresent !== true
+      || priorEvidence.rulesBeforeCount !== 2
+      || priorEvidence.rulesAfterCount !== 3) {
+      throw new Error('committed evidence truth fields incomplete — correct artifacts before offline prove');
+    }
+    console.log('\nSlice 14N offline proof GREEN — historical live PUT preserved; zero additional live calls.');
+    return;
+  }
+
   console.log('live: outbound IP + inspect + cost + one firewall PUT…');
   resetFirewallApplyCounters();
   const live = await executeLunaboxPgFirewallApply({
@@ -499,6 +567,16 @@ async function main() {
     || live.outboundIpv4Service2 !== FIREWALL_LOCKS.expectedOutboundIpv4) {
     throw new Error('live outbound IP mismatch');
   }
+  if (live.networkMutation !== true || live.firewallAction !== true || live.liveMutation !== true) {
+    throw new Error('live success must report network/firewall/live mutation true');
+  }
+  if (live.rulesBeforeCount !== 2 || live.rulesAfterCount !== 3
+    || live.existingRulesBefore.length !== 2
+    || live.existingRulesAfter.length !== 3) {
+    throw new Error('live rule snapshots must be exactly 2→3');
+  }
+
+  const applyFlagPresent = exactFirewallApplyArgv().includes(CLI_APPLY_FIREWALL_RULE);
 
   const contract = {
     kind: 'sunset-schema-observer-slice14n-lunabox-pg-firewall-contract',
@@ -509,7 +587,7 @@ async function main() {
     phaseDConstraintsApplied: false,
     liveMutation: true,
     firewallMutation: true,
-    networkMutation: false,
+    networkMutation: true,
     kvMutation: false,
     rbacMutation: false,
     identityMutation: false,
@@ -559,15 +637,15 @@ async function main() {
     outcome: live.ok ? 'lunabox_pg_firewall_apply_ok' : live.code,
     stillProductSchemaDiffers: true,
     phaseDConstraintsApplied: false,
-    liveMutation: true,
-    firewallAction: true,
-    networkMutation: false,
+    liveMutation: live.liveMutation === true,
+    firewallAction: live.firewallAction === true,
+    networkMutation: live.networkMutation === true,
     kvMutation: false,
     rbacMutation: false,
     identityMutation: false,
     migrationAdded: false,
     ledgerWritten: false,
-    applyFlagPresent: false,
+    applyFlagPresent: applyFlagPresent === true,
     appliesConstraints: false,
     writesLedger: false,
     forwardCountUnchanged: 39,
@@ -640,6 +718,7 @@ async function main() {
       sanitizedPutFailure: true,
       liveTransportRejectsDeviations: true,
       exactOnePutSequenceInjected: true,
+      offlineModeZeroHttp: true,
       cliDefaultDisabled: true,
     },
     redCases: red,
@@ -673,11 +752,15 @@ Live verification:
 | ARM GET count | ${live.armGetCount} |
 | ARM DELETE count | 0 |
 | Retries | 0 |
+| networkMutation | **true** (firewall ARM only) |
+| applyFlagPresent | **true** |
+| Rules before→after count | **${live.rulesBeforeCount}→${live.rulesAfterCount}** |
 | Server Ready before→after | \`${live.serverStateBefore}\` → \`${live.serverStateAfter}\` |
 | publicNetworkAccess unchanged | \`${live.publicNetworkAccessBefore}\` (unchanged=${live.publicNetworkAccessUnchanged}) |
 | Existing two rules unchanged | ${live.existingRulesUnchanged === true} |
 | Third rule exact | ${live.thirdRuleExact === true} |
 | PostgreSQL client/query | **none** |
+| KV/RBAC/identity mutation | **false** |
 
 ### Rules before
 
@@ -686,7 +769,6 @@ ${(live.existingRulesBefore || []).map((r) => `- \`${r.name}\` ${r.startIpAddres
 ### Rules after
 
 ${(live.existingRulesAfter || []).map((r) => `- \`${r.name}\` ${r.startIpAddress}–${r.endIpAddress}`).join('\n')}
-- \`${live.firewallRuleName}\` ${live.startIpAddress}–${live.endIpAddress}
 
 ### Cost (safe totals only)
 
@@ -722,7 +804,7 @@ SUNSET_PHASE_D_LUNABOX_PG_FIREWALL_APPLY=1 AZURE_SUBSCRIPTION_ID=${FIREWALL_LOCK
 | Class | Cases |
 |-------|-------|
 | RED | default/missing/wrong gates; ranges; 0.0.0.0; forbidden argv; outbound IP mismatch zero PUT; sanitized PUT failure; live transport rejects deviations |
-| GREEN | apply activated/delete disabled; exact gates; injected one-PUT sequence; CLI default refuse; locks; hashes preserved; no pg Client |
+| GREEN | apply activated/delete disabled; exact gates; injected one-PUT sequence; offline mode zero HTTP; CLI default refuse; locks; hashes preserved; no pg Client |
 
 ## Non-goals / still open
 
@@ -734,7 +816,7 @@ SUNSET_PHASE_D_LUNABOX_PG_FIREWALL_APPLY=1 AZURE_SUBSCRIPTION_ID=${FIREWALL_LOCK
 
 ## Zero DB mutation
 
-No PostgreSQL client. No SQL. Firewall ARM rule only. Private refs zeroed. No token/DSN in evidence.
+No PostgreSQL client. No SQL. Firewall ARM rule only (\`networkMutation=true\`). Private refs zeroed. No token/DSN in evidence.
 `;
 
   fs.writeFileSync(CONTRACT_PATH, `${JSON.stringify(contract, null, 2)}\n`);

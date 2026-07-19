@@ -153,6 +153,8 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
   'liveHttpEnabled',
   'deleteEnabled',
   'liveMutation',
+  'networkMutation',
+  'firewallAction',
   'usedLiveHttp',
   'realImdsCall',
   'realArmCall',
@@ -391,6 +393,44 @@ function extractExistingLockedRules(ruleList) {
     found.push(got);
   }
   return { ok: true, rules: found, all: list };
+}
+
+/**
+ * Derive before/after rule snapshots + counts from locked existing rules and the
+ * exact third rule — never from Azure's full `all` list length (which can already
+ * include AllowLunaboxEgress on idempotent re-PUT and inflate before count).
+ */
+function buildExistingRuleSnapshots(beforeExtract, afterExtract, thirdAfter) {
+  const existingRulesBefore = (beforeExtract && Array.isArray(beforeExtract.rules))
+    ? beforeExtract.rules.map((r) => ({
+      name: r.name,
+      startIpAddress: r.startIpAddress,
+      endIpAddress: r.endIpAddress,
+    }))
+    : [];
+  const lockedAfter = (afterExtract && Array.isArray(afterExtract.rules))
+    ? afterExtract.rules.map((r) => ({
+      name: r.name,
+      startIpAddress: r.startIpAddress,
+      endIpAddress: r.endIpAddress,
+    }))
+    : [];
+  const third = thirdAfter
+    ? {
+      name: thirdAfter.name,
+      startIpAddress: thirdAfter.startIpAddress,
+      endIpAddress: thirdAfter.endIpAddress,
+    }
+    : null;
+  const existingRulesAfter = third
+    ? lockedAfter.concat([third])
+    : lockedAfter.slice();
+  return {
+    existingRulesBefore,
+    existingRulesAfter,
+    rulesBeforeCount: existingRulesBefore.length,
+    rulesAfterCount: existingRulesAfter.length,
+  };
 }
 
 function parseCostRow(body) {
@@ -913,6 +953,12 @@ function createLiveFirewallHttpRequest() {
 
 function resolveFirewallHttpRequest(opts) {
   const options = opts || {};
+  if (options.offline === true || options.forbidLiveHttp === true) {
+    if (typeof options.httpRequest === 'function') {
+      return { httpRequest: options.httpRequest, usedLiveHttp: false };
+    }
+    return { httpRequest: null, usedLiveHttp: false };
+  }
   if (typeof options.httpRequest === 'function') {
     return { httpRequest: options.httpRequest, usedLiveHttp: false };
   }
@@ -1122,6 +1168,8 @@ async function executeLunaboxPgFirewallApply(opts) {
       liveHttpEnabled: PHASE_D_LUNABOX_PG_FIREWALL_LIVE_HTTP_ENABLED === true,
       deleteEnabled: false,
       liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
       usedLiveHttp: false,
       realImdsCall: false,
       realArmCall: false,
@@ -1154,6 +1202,8 @@ async function executeLunaboxPgFirewallApply(opts) {
       code: 'http_transport_unavailable',
       applyFirewallRule: true,
       liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
       usedLiveHttp: false,
       message: 'http transport unavailable — zero mutation',
       privateRefsZeroed: true,
@@ -1170,6 +1220,8 @@ async function executeLunaboxPgFirewallApply(opts) {
   const fail = (code, message, extra) => {
     privateBag._token = null;
     const counters = getFirewallApplyCounters();
+    const didPut = (counters.armPutCount > countersBefore.armPutCount)
+      || (counters.putCount > countersBefore.putCount);
     return pickSafeFirewallOutput({
       ok: false,
       code,
@@ -1177,7 +1229,9 @@ async function executeLunaboxPgFirewallApply(opts) {
       liveApplyEnabled: true,
       liveHttpEnabled: true,
       deleteEnabled: false,
-      liveMutation: counters.armPutCount > countersBefore.armPutCount,
+      liveMutation: didPut,
+      networkMutation: didPut,
+      firewallAction: didPut,
       usedLiveHttp,
       realImdsCall: usedLiveHttp && (counters.imdsRequestCount > countersBefore.imdsRequestCount),
       realArmCall: usedLiveHttp && (
@@ -1291,7 +1345,7 @@ async function executeLunaboxPgFirewallApply(opts) {
         serverStateBefore: stateBefore,
         publicNetworkAccessBefore: pnaBefore,
         existingRulesBefore: beforeExtract.rules || [],
-        rulesBeforeCount: (beforeExtract.all || []).length,
+        rulesBeforeCount: (beforeExtract.rules || []).length,
       });
     }
     const thirdBefore = (beforeExtract.all || []).find(
@@ -1307,7 +1361,7 @@ async function executeLunaboxPgFirewallApply(opts) {
         serverStateBefore: stateBefore,
         publicNetworkAccessBefore: pnaBefore,
         existingRulesBefore: beforeExtract.rules,
-        rulesBeforeCount: beforeExtract.all.length,
+        rulesBeforeCount: beforeExtract.rules.length,
       });
     }
     for (const r of beforeExtract.all || []) {
@@ -1335,7 +1389,7 @@ async function executeLunaboxPgFirewallApply(opts) {
           serverStateBefore: stateBefore,
           publicNetworkAccessBefore: pnaBefore,
           existingRulesBefore: beforeExtract.rules,
-          rulesBeforeCount: beforeExtract.all.length,
+          rulesBeforeCount: beforeExtract.rules.length,
         });
       }
       const ip = String(ipRes.body || '').trim();
@@ -1357,8 +1411,10 @@ async function executeLunaboxPgFirewallApply(opts) {
         serverStateBefore: stateBefore,
         publicNetworkAccessBefore: pnaBefore,
         existingRulesBefore: beforeExtract.rules,
-        rulesBeforeCount: beforeExtract.all.length,
+        rulesBeforeCount: beforeExtract.rules.length,
         liveMutation: false,
+        networkMutation: false,
+        firewallAction: false,
       });
     }
 
@@ -1435,7 +1491,7 @@ async function executeLunaboxPgFirewallApply(opts) {
         serverStateBefore: stateBefore,
         publicNetworkAccessBefore: pnaBefore,
         existingRulesBefore: beforeExtract.rules,
-        rulesBeforeCount: beforeExtract.all.length,
+        rulesBeforeCount: beforeExtract.rules.length,
       });
     }
 
@@ -1524,6 +1580,8 @@ async function executeLunaboxPgFirewallApply(opts) {
       return fail('existing_rules_changed', 'existing firewall rules changed after apply', {
         existingRulesBefore: beforeExtract.rules,
         existingRulesAfter: afterExtract.rules || [],
+        rulesBeforeCount: beforeExtract.rules.length,
+        rulesAfterCount: (afterExtract.rules || []).length,
       });
     }
     const thirdAfter = (afterExtract.all || []).find(
@@ -1540,8 +1598,13 @@ async function executeLunaboxPgFirewallApply(opts) {
     if (!thirdExact) {
       return fail('third_rule_missing_or_wrong', 'AllowLunaboxEgress missing or not exact after apply');
     }
+    const ruleSnapshots = buildExistingRuleSnapshots(beforeExtract, afterExtract, thirdAfter);
     if ((afterExtract.all || []).length !== FIREWALL_LOCKS.existingRules.length + 1) {
       return fail('unrelated_rule_change', 'unexpected firewall rule count after apply — refuse unrelated change');
+    }
+    if (ruleSnapshots.rulesBeforeCount !== FIREWALL_LOCKS.existingRules.length
+      || ruleSnapshots.rulesAfterCount !== FIREWALL_LOCKS.existingRules.length + 1) {
+      return fail('rule_snapshot_count_mismatch', 'before/after rule snapshot counts must be 2→3');
     }
     if (stateAfter !== 'Ready' || pnaAfter !== pnaBefore) {
       return fail('server_postcondition_failed', 'server Ready/publicNetworkAccess postcondition failed', {
@@ -1597,6 +1660,8 @@ async function executeLunaboxPgFirewallApply(opts) {
       liveHttpEnabled: true,
       deleteEnabled: false,
       liveMutation: true,
+      networkMutation: true,
+      firewallAction: true,
       usedLiveHttp,
       realImdsCall: usedLiveHttp,
       realArmCall: usedLiveHttp,
@@ -1636,11 +1701,11 @@ async function executeLunaboxPgFirewallApply(opts) {
       publicNetworkAccessAfter: pnaAfter,
       publicNetworkAccessUnchanged: pnaBefore === pnaAfter,
       serverRemainedReady: stateAfter === 'Ready',
-      existingRulesBefore: beforeExtract.rules,
-      existingRulesAfter: afterExtract.rules,
+      existingRulesBefore: ruleSnapshots.existingRulesBefore,
+      existingRulesAfter: ruleSnapshots.existingRulesAfter,
       existingRulesUnchanged: true,
-      rulesBeforeCount: beforeExtract.all.length,
-      rulesAfterCount: afterExtract.all.length,
+      rulesBeforeCount: ruleSnapshots.rulesBeforeCount,
+      rulesAfterCount: ruleSnapshots.rulesAfterCount,
       thirdRuleExact: true,
       costBefore,
       costAfter,
@@ -1726,5 +1791,6 @@ module.exports = {
   normalizeFirewallRule,
   rulesByteSemanticEqual,
   extractExistingLockedRules,
+  buildExistingRuleSnapshots,
   computeCostDelta,
 };
