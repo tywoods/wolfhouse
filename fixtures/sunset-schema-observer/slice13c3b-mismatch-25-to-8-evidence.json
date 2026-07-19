@@ -5,7 +5,7 @@
   "containsLiveApplyCode": false,
   "blessesLiveAsCanonical": false,
   "liveMutation": false,
-  "generatedAt": "2026-07-19T16:17:30.491Z",
+  "generatedAt": "2026-07-19T16:26:10.991Z",
   "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
   "normalizationProfile": "azure_flexible_server_v1",
   "previousRemainingAfter13c3a": 25,

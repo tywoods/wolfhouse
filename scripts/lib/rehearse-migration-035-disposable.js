@@ -104,12 +104,172 @@ const EXPECTED_COLUMNS = Object.freeze([
   },
 ]);
 
+/**
+ * Exact expected ownership/ACL presentation for customer_message_templates.
+ * Owner token is the established connected-database-owner/ → $db_owner mapping only.
+ * ACL empty string = no explicit relation ACL entries (CREATE TABLE default).
+ */
+const EXPECTED_OWNER_PRESENTATION = '$db_owner';
+const EXPECTED_ACL_PRESENTATION = '';
+
 function normDefault(expr) {
   if (expr == null || expr === '') return null;
   return String(expr)
     .toLowerCase()
     .replace(/::[a-z_][a-z0-9_]*/gi, '')
     .replace(/\s+/g, '');
+}
+
+/** Normalize only the connected database owner role token → $db_owner. */
+function normalizeConnectedDbOwnerToken(roleName, dbOwner) {
+  const r = String(roleName || '');
+  if (dbOwner && r === dbOwner) return '$db_owner';
+  return r;
+}
+
+function normalizeAclPresentation(aclText, dbOwner) {
+  const parts = String(aclText || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean)
+    .map((raw) => {
+      const m = raw.match(/^([^=]*)=([^/]*)\/(.+)$/);
+      if (!m) return raw;
+      const grantee = normalizeConnectedDbOwnerToken(m[1], dbOwner);
+      const grantor = normalizeConnectedDbOwnerToken(m[3], dbOwner);
+      return `${grantee}=${m[2]}/${grantor}`;
+    })
+    .sort();
+  return parts.join(',');
+}
+
+function parseAclPrivilegeEntries(aclText) {
+  const parts = String(aclText || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const entries = [];
+  for (const raw of parts) {
+    const m = raw.match(/^([^=]*)=([^/]*)\/(.+)$/);
+    if (!m) {
+      return { ok: false, code: 'acl_parse_failed', message: `unparseable ACL entry: ${raw}` };
+    }
+    entries.push({
+      raw,
+      grantee: m[1], // empty string = PUBLIC
+      privs: m[2],
+      grantor: m[3],
+      isPublic: m[1] === '',
+      hasGrantOption: String(m[2]).includes('*'),
+    });
+  }
+  return { ok: true, entries };
+}
+
+/**
+ * Semantic ACL compare: exact expected presentation vs live (after $db_owner-only normalize).
+ * Fail closed on extra grantee, extra privilege, missing privilege, PUBLIC broadening, grant option.
+ * When expected is empty, prefer PUBLIC / grant-option reasons before owner-default materialization.
+ */
+function assertAclPresentationCompatible(liveAclNorm, expectedAclNorm) {
+  const live = parseAclPrivilegeEntries(liveAclNorm);
+  const exp = parseAclPrivilegeEntries(expectedAclNorm);
+  if (!live.ok) {
+    throw Object.assign(new Error(`035 preflight: ${live.message}`), { code: 'incompatible_acl' });
+  }
+  if (!exp.ok) {
+    throw Object.assign(new Error(`035 preflight: ${exp.message}`), { code: 'incompatible_acl' });
+  }
+
+  const liveByG = new Map(live.entries.map((e) => [e.grantee, e]));
+  const expByG = new Map(exp.entries.map((e) => [e.grantee, e]));
+
+  // Prefer specific fail-closed reasons when expected ACL is empty (CREATE TABLE default).
+  if (exp.entries.length === 0 && live.entries.length > 0) {
+    const publicLive = live.entries.find((e) => e.isPublic);
+    if (publicLive) {
+      throw Object.assign(
+        new Error(`035 preflight: incompatible ACL PUBLIC broadening (${publicLive.privs})`),
+        { code: 'incompatible_acl', reason: 'public_broadening' },
+      );
+    }
+    const grantOptLive = live.entries.find((e) => e.hasGrantOption);
+    if (grantOptLive) {
+      const label = grantOptLive.grantee || '(empty)';
+      throw Object.assign(
+        new Error(`035 preflight: incompatible ACL grant option for ${label}`),
+        { code: 'incompatible_acl', reason: 'grant_option' },
+      );
+    }
+    const first = live.entries[0];
+    const label = first.grantee === EXPECTED_OWNER_PRESENTATION
+      ? first.grantee
+      : (first.grantee || '(empty)');
+    throw Object.assign(
+      new Error(`035 preflight: incompatible ACL extra grantee ${label} (${first.privs})`),
+      { code: 'incompatible_acl', reason: 'extra_grantee' },
+    );
+  }
+
+  for (const [grantee, liveE] of liveByG) {
+    const label = liveE.isPublic ? 'PUBLIC' : grantee || '(empty)';
+    const expE = expByG.get(grantee);
+    if (!expE) {
+      if (liveE.isPublic) {
+        throw Object.assign(
+          new Error(`035 preflight: incompatible ACL PUBLIC broadening (${liveE.privs})`),
+          { code: 'incompatible_acl', reason: 'public_broadening' },
+        );
+      }
+      throw Object.assign(
+        new Error(`035 preflight: incompatible ACL extra grantee ${label} (${liveE.privs})`),
+        { code: 'incompatible_acl', reason: 'extra_grantee' },
+      );
+    }
+    if (liveE.hasGrantOption && !expE.hasGrantOption) {
+      throw Object.assign(
+        new Error(`035 preflight: incompatible ACL grant option for ${label}`),
+        { code: 'incompatible_acl', reason: 'grant_option' },
+      );
+    }
+    const livePrivChars = [...new Set(String(liveE.privs).replace(/\*/g, '').split(''))].sort();
+    const expPrivChars = [...new Set(String(expE.privs).replace(/\*/g, '').split(''))].sort();
+    for (const ch of livePrivChars) {
+      if (!expPrivChars.includes(ch)) {
+        throw Object.assign(
+          new Error(`035 preflight: incompatible ACL extra privilege '${ch}' for ${label}`),
+          { code: 'incompatible_acl', reason: 'extra_privilege' },
+        );
+      }
+    }
+    for (const ch of expPrivChars) {
+      if (!livePrivChars.includes(ch)) {
+        throw Object.assign(
+          new Error(`035 preflight: incompatible ACL missing privilege '${ch}' for ${label}`),
+          { code: 'incompatible_acl', reason: 'missing_privilege' },
+        );
+      }
+    }
+  }
+
+  for (const [grantee, expE] of expByG) {
+    if (!liveByG.has(grantee)) {
+      const label = expE.isPublic ? 'PUBLIC' : grantee || '(empty)';
+      throw Object.assign(
+        new Error(`035 preflight: incompatible ACL missing privilege for grantee ${label}`),
+        { code: 'incompatible_acl', reason: 'missing_privilege' },
+      );
+    }
+  }
+
+  if (liveAclNorm !== expectedAclNorm) {
+    throw Object.assign(
+      new Error(
+        `035 preflight: incompatible ACL presentation (got=${liveAclNorm || "''"}, expected=${expectedAclNorm || "''"})`,
+      ),
+      { code: 'incompatible_acl', reason: 'presentation_mismatch' },
+    );
+  }
 }
 
 function migration035Path() {
@@ -242,6 +402,68 @@ async function loadPkFkIndexRls(client) {
   };
 }
 
+async function loadOwnerAclCatalog(client) {
+  const res = await client.query(
+    `
+    SELECT
+      pg_get_userbyid(c.relowner) AS owner,
+      COALESCE(
+        (
+          SELECT string_agg(aclitem::text, ',' ORDER BY aclitem::text)
+          FROM unnest(COALESCE(c.relacl, ARRAY[]::aclitem[])) AS aclitem
+        ),
+        ''
+      ) AS acl,
+      (
+        SELECT r.rolname
+        FROM pg_database d
+        JOIN pg_roles r ON r.oid = d.datdba
+        WHERE d.datname = current_database()
+      ) AS db_owner
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relname = $1
+      AND c.relkind = 'r'
+    `,
+    [TABLE],
+  );
+  if (!res.rows[0]) {
+    throw Object.assign(new Error('035 preflight: ownership/ACL catalog row missing'), {
+      code: 'incompatible_ownership',
+    });
+  }
+  return res.rows[0];
+}
+
+function assertOwnerAclCompatible(catalogRow) {
+  const dbOwner = String(catalogRow.db_owner || '');
+  const ownerNorm = normalizeConnectedDbOwnerToken(catalogRow.owner, dbOwner);
+  if (ownerNorm !== EXPECTED_OWNER_PRESENTATION) {
+    throw Object.assign(
+      new Error(
+        `035 preflight: incompatible ownership (got=${catalogRow.owner}, normalized=${ownerNorm}, expected=${EXPECTED_OWNER_PRESENTATION})`,
+      ),
+      { code: 'incompatible_ownership', owner: catalogRow.owner, ownerNorm },
+    );
+  }
+  const aclNorm = normalizeAclPresentation(catalogRow.acl, dbOwner);
+  assertAclPresentationCompatible(aclNorm, EXPECTED_ACL_PRESENTATION);
+  return {
+    ownerRaw: catalogRow.owner,
+    ownerNormalized: ownerNorm,
+    aclRaw: catalogRow.acl || '',
+    aclNormalized: aclNorm,
+    dbOwner,
+  };
+}
+
+/**
+ * Column compatibility — order matches migration 040: type → nullability →
+ * attgenerated → attidentity → default. PostgreSQL stores generation expressions
+ * in pg_attrdef (and forbids DEFAULT on generated columns), so generated must be
+ * checked before default or the wrong guard fires.
+ */
 function assertColumnCompatible(row, expected) {
   if (row.udt_name !== expected.udt) {
     throw Object.assign(
@@ -259,16 +481,6 @@ function assertColumnCompatible(row, expected) {
       { code: 'incompatible_column_nullability', column: expected.name },
     );
   }
-  const gotDef = normDefault(row.col_default);
-  const expDef = expected.defaultNorm == null ? null : normDefault(expected.defaultNorm);
-  if (gotDef !== expDef) {
-    throw Object.assign(
-      new Error(
-        `035 preflight: column ${expected.name} incompatible default (got=${gotDef}, expected=${expDef})`,
-      ),
-      { code: 'incompatible_column_default', column: expected.name },
-    );
-  }
   const gen = String(row.attgenerated || '');
   if (gen && gen !== '' && gen !== ' ') {
     throw Object.assign(
@@ -283,12 +495,22 @@ function assertColumnCompatible(row, expected) {
       { code: 'incompatible_column_identity', column: expected.name },
     );
   }
+  const gotDef = normDefault(row.col_default);
+  const expDef = expected.defaultNorm == null ? null : normDefault(expected.defaultNorm);
+  if (gotDef !== expDef) {
+    throw Object.assign(
+      new Error(
+        `035 preflight: column ${expected.name} incompatible default (got=${gotDef}, expected=${expDef})`,
+      ),
+      { code: 'incompatible_column_default', column: expected.name },
+    );
+  }
 }
 
 /**
  * Catalog semantic preflight when customer_message_templates already exists.
  * Absent table → ok (CREATE path). Exact compatible → ok (IF NOT EXISTS no-op).
- * Incompatible type/default/nullability/generated/PK/FK/index/RLS → fail closed.
+ * Incompatible type/default/nullability/generated/PK/FK/index/RLS/owner/ACL → fail closed.
  */
 async function preflightCustomerMessageTemplatesCompat(client) {
   const exists = await client.query(`SELECT to_regclass('public.customer_message_templates') AS reg`);
@@ -386,7 +608,14 @@ async function preflightCustomerMessageTemplatesCompat(client) {
     );
   }
 
-  return { present: true, compatible: true, action: 'preserve_noop' };
+  const ownerAcl = assertOwnerAclCompatible(await loadOwnerAclCatalog(client));
+
+  return {
+    present: true,
+    compatible: true,
+    action: 'preserve_noop',
+    ownershipAcl: ownerAcl,
+  };
 }
 
 /**
@@ -471,6 +700,8 @@ module.exports = {
   TABLE,
   EXPECTED_SHA256,
   EXPECTED_COLUMNS,
+  EXPECTED_OWNER_PRESENTATION,
+  EXPECTED_ACL_PRESENTATION,
   REHEARSAL_LIVE_APPLY_ENABLED,
   DEFAULT_DISPOSABLE_REHEARSAL_ENABLED,
   COMPATIBLE_CMT_DDL,
@@ -480,4 +711,10 @@ module.exports = {
   preflightCustomerMessageTemplatesCompat,
   rehearseMigration035Disposable,
   normDefault,
+  normalizeConnectedDbOwnerToken,
+  normalizeAclPresentation,
+  parseAclPrivilegeEntries,
+  assertAclPresentationCompatible,
+  assertOwnerAclCompatible,
+  loadOwnerAclCatalog,
 };

@@ -160,7 +160,7 @@ function main() {
 
   pass('catalog-preflight-not-035-rewrite',
     !/pg_attribute|attgenerated|preflight/i.test(migSql)
-    && /pg_attribute|attgenerated|catalog/i.test(String(evidence.harness.catalogPreflight || ''))
+    && /pg_attribute|attgenerated|catalog|relowner|relacl/i.test(String(evidence.harness.catalogPreflight || ''))
     && Buffer.compare(migBuf, fs.readFileSync(migPath)) === 0);
 
   pass('path-a-absent-cluster',
@@ -175,7 +175,9 @@ function main() {
     evidence.pathB
     && evidence.pathB.ok === true
     && evidence.pathB.exactCompatiblePreseed === true
+    && evidence.pathB.exactExpectedOwnerAclPreseed === true
     && evidence.pathB.preserveNoOp === true
+    && evidence.pathB.ownerAclPreserved === true
     && evidence.pathB.attnumStable === true
     && evidence.pathB.secondApplyNoOp === true);
 
@@ -185,6 +187,11 @@ function main() {
     'incompatible_column_default',
     'incompatible_column_nullability',
     'incompatible_generated_column',
+    'incompatible_ownership',
+    'incompatible_acl_escalation',
+    'incompatible_acl_public_broadening',
+    'incompatible_acl_grant_option',
+    'incompatible_acl_missing_privilege',
     'incompatible_pk',
     'incompatible_fk',
     'incompatible_index',
@@ -197,11 +204,67 @@ function main() {
     && evidence.redFailures.every((r) => r.failedClosed === true)
     && requiredRed.every((n) => redNames.includes(n)));
 
+  {
+    const genRed = (evidence.redFailures || []).find((r) => r.name === 'incompatible_generated_column');
+    const assertFnSrc = harnessSrc.slice(harnessSrc.indexOf('function assertColumnCompatible'));
+    const genGuardIdx = assertFnSrc.indexOf('is a generated column');
+    const defGuardIdx = assertFnSrc.indexOf('incompatible default');
+    pass('red-generated-hits-attgenerated',
+      Boolean(genRed)
+      && genRed.failedClosed === true
+      && /is a generated column/i.test(String(genRed.message || ''))
+      && !/incompatible default/i.test(String(genRed.message || ''))
+      && /GENERATED ALWAYS AS \('x'::text\) STORED/i.test(proveSrc)
+      && /attgenerated before default|attgenerated\+attidentity\+default/i.test(
+        String(evidence.harness.catalogPreflight || ''),
+      )
+      && genGuardIdx >= 0
+      && defGuardIdx >= 0
+      && genGuardIdx < defGuardIdx);
+  }
+
+  {
+    const ownRed = (evidence.redFailures || []).find((r) => r.name === 'incompatible_ownership');
+    const aclEsc = (evidence.redFailures || []).find((r) => r.name === 'incompatible_acl_escalation');
+    const aclPub = (evidence.redFailures || []).find((r) => r.name === 'incompatible_acl_public_broadening');
+    const aclGo = (evidence.redFailures || []).find((r) => r.name === 'incompatible_acl_grant_option');
+    const aclMiss = (evidence.redFailures || []).find((r) => r.name === 'incompatible_acl_missing_privilege');
+    pass('red-owner-acl-fail-closed',
+      Boolean(ownRed) && /incompatible ownership/i.test(String(ownRed.message || ''))
+      && Boolean(aclEsc) && /incompatible ACL|extra grantee|extra privilege/i.test(String(aclEsc.message || ''))
+      && Boolean(aclPub) && /PUBLIC broadening/i.test(String(aclPub.message || ''))
+      && Boolean(aclGo) && /grant option/i.test(String(aclGo.message || ''))
+      && Boolean(aclMiss) && /missing privilege/i.test(String(aclMiss.message || ''))
+      && aclMiss.offlineSemantic === true);
+  }
+
+  pass('owner-acl-catalog-contract',
+    evidence.harness
+    && evidence.harness.ownershipAclContract
+    && evidence.harness.ownershipAclContract.expectedOwnerPresentation === '$db_owner'
+    && evidence.harness.ownershipAclContract.expectedAclPresentation === ''
+    && evidence.harness.ownershipAclContract.mutatesOwnershipOrGrants === false
+    && /loadOwnerAclCatalog|assertOwnerAclCompatible|relowner/i.test(harnessSrc)
+    && /EXPECTED_OWNER_PRESENTATION\s*=\s*'\$db_owner'/.test(harnessSrc)
+    && /EXPECTED_ACL_PRESENTATION\s*=\s*''/.test(harnessSrc)
+    && /normalizeConnectedDbOwnerToken/.test(harnessSrc)
+    && !/ALTER TABLE customer_message_templates OWNER TO/i.test(harnessSrc)
+    && !/GRANT .+ ON customer_message_templates/i.test(harnessSrc));
+
+  pass('owned-key-structural-proofs-complete',
+    evidence.ownedKeyStructuralProofs
+    && CMT_OWNED_KEYS.every((k) => typeof evidence.ownedKeyStructuralProofs[k] === 'string'
+      && evidence.ownedKeyStructuralProofs[k].length > 0)
+    && Object.keys(evidence.ownedKeyStructuralProofs).length === 17
+    && /ownership|relowner/i.test(evidence.ownedKeyStructuralProofs['expected_only|ownership|relation:customer_message_templates'])
+    && /acl|relacl/i.test(evidence.ownedKeyStructuralProofs['expected_only|acls|relation:customer_message_templates']));
+
   pass('green-dsn-and-disabled-gates',
     evidence.greenCases
     && evidence.greenCases.every((g) => g.ok === true)
     && evidence.greenCases.some((g) => g.name === 'non_disposable_dsn_rejected')
-    && evidence.greenCases.some((g) => g.name === 'harness_disabled_by_default'));
+    && evidence.greenCases.some((g) => g.name === 'harness_disabled_by_default')
+    && evidence.greenCases.some((g) => g.name === 'exact_compatible_owner_acl_preserved'));
 
   pass('mismatch-trajectory-25-to-8',
     mismatchEv.previousRemainingAfter13c3a === 25
@@ -265,7 +328,10 @@ function main() {
     && /924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565/.test(findings)
     && /zero live mutation/i.test(findings)
     && /do not claim/i.test(findings)
-    && /byte-identical/i.test(findings));
+    && /byte-identical/i.test(findings)
+    && /\$db_owner/.test(findings)
+    && /attgenerated/i.test(findings)
+    && /ownership|ACL/i.test(findings));
 
   console.log(`\n── verify:sunset-schema-slice13c3b ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);
   process.exit(failed ? 1 : 0);

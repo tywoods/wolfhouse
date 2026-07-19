@@ -36,9 +36,15 @@ const {
   MIG_035_ID,
   EXPECTED_SHA256,
   COMPATIBLE_CMT_DDL,
+  EXPECTED_OWNER_PRESENTATION,
+  EXPECTED_ACL_PRESENTATION,
   rehearseMigration035Disposable,
   assertMigration035ByteIntegrity,
   assertDisposableConnection,
+  loadOwnerAclCatalog,
+  assertOwnerAclCompatible,
+  assertAclPresentationCompatible,
+  normalizeAclPresentation,
 } = require('./lib/rehearse-migration-035-disposable');
 
 const ROOT = path.join(__dirname, '..');
@@ -409,6 +415,15 @@ async function main() {
   const clientB = new Client(preB.connection);
   await clientB.connect();
   await clientB.query(COMPATIBLE_CMT_DDL);
+  const preOwnerAcl = assertOwnerAclCompatible(await loadOwnerAclCatalog(clientB));
+  if (
+    preOwnerAcl.ownerNormalized !== EXPECTED_OWNER_PRESENTATION
+    || preOwnerAcl.aclNormalized !== EXPECTED_ACL_PRESENTATION
+  ) {
+    throw new Error(
+      `Path B preseed owner/ACL not exact: owner=${preOwnerAcl.ownerNormalized} acl=${preOwnerAcl.aclNormalized}`,
+    );
+  }
   const preAtt = await cmtAttnums(clientB);
   const applyB1 = await rehearseMigration035Disposable(clientB, {
     connection: preB.connection,
@@ -417,9 +432,23 @@ async function main() {
   if (applyB1.preflight.action !== 'preserve_noop') {
     throw new Error('Path B must preserve exact compatible cluster');
   }
+  if (
+    !applyB1.preflight.ownershipAcl
+    || applyB1.preflight.ownershipAcl.ownerNormalized !== EXPECTED_OWNER_PRESENTATION
+    || applyB1.preflight.ownershipAcl.aclNormalized !== EXPECTED_ACL_PRESENTATION
+  ) {
+    throw new Error('Path B preflight must record exact expected owner/ACL preservation');
+  }
   const postAtt = await cmtAttnums(clientB);
   if (JSON.stringify(preAtt) !== JSON.stringify(postAtt)) {
     throw new Error('Path B changed attnums (dropped/recreated)');
+  }
+  const postOwnerAcl = assertOwnerAclCompatible(await loadOwnerAclCatalog(clientB));
+  if (
+    postOwnerAcl.ownerNormalized !== preOwnerAcl.ownerNormalized
+    || postOwnerAcl.aclNormalized !== preOwnerAcl.aclNormalized
+  ) {
+    throw new Error('Path B mutated ownership/ACL');
   }
   const applyB2 = await rehearseMigration035Disposable(clientB, {
     connection: preB.connection,
@@ -535,7 +564,9 @@ async function main() {
   }, /nullability|title/i);
 
   await redCase('incompatible_generated_column', async (c) => {
-    // title has no DEFAULT in 035 — fail specifically on attgenerated after type/null/default match
+    // PostgreSQL forbids DEFAULT on generated columns and stores the generation
+    // expression in pg_attrdef. Same type + NOT NULL so preflight reaches attgenerated
+    // (checked before default) and fails specifically with "generated column".
     await c.query(`
       CREATE TABLE customer_message_templates (
         id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -549,7 +580,68 @@ async function main() {
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       )
     `);
-  }, /generated column|title/i);
+  }, /is a generated column/i);
+
+  {
+    const genRed = redResults.find((r) => r.name === 'incompatible_generated_column');
+    if (!genRed || !/is a generated column/i.test(String(genRed.message || ''))) {
+      throw new Error(
+        `incompatible_generated_column must fail on attgenerated guard, got: ${genRed && genRed.message}`,
+      );
+    }
+    if (/incompatible default/i.test(String(genRed.message || ''))) {
+      throw new Error('incompatible_generated_column must not fail on default before attgenerated');
+    }
+  }
+
+  await redCase('incompatible_ownership', async (c) => {
+    await c.query(COMPATIBLE_CMT_DDL);
+    await c.query('CREATE ROLE wh_mig_wrong_cmt_owner NOLOGIN');
+    await c.query('ALTER TABLE customer_message_templates OWNER TO wh_mig_wrong_cmt_owner');
+  }, /incompatible ownership/i);
+
+  await redCase('incompatible_acl_escalation', async (c) => {
+    await c.query(COMPATIBLE_CMT_DDL);
+    await c.query('CREATE ROLE wh_mig_acl_probe NOLOGIN');
+    await c.query('GRANT SELECT ON customer_message_templates TO wh_mig_acl_probe');
+  }, /incompatible ACL|extra grantee|extra privilege/i);
+
+  await redCase('incompatible_acl_public_broadening', async (c) => {
+    await c.query(COMPATIBLE_CMT_DDL);
+    await c.query('GRANT SELECT ON customer_message_templates TO PUBLIC');
+  }, /PUBLIC broadening/i);
+
+  await redCase('incompatible_acl_grant_option', async (c) => {
+    await c.query(COMPATIBLE_CMT_DDL);
+    await c.query('CREATE ROLE wh_mig_acl_go NOLOGIN');
+    await c.query('GRANT SELECT ON customer_message_templates TO wh_mig_acl_go WITH GRANT OPTION');
+  }, /grant option/i);
+
+  // Offline semantic ACL: missing privilege fails closed (expected non-empty vs live narrower)
+  {
+    let missingPrivFailed = false;
+    let missingMsg = '';
+    try {
+      assertAclPresentationCompatible(
+        normalizeAclPresentation('staff_api_role=r/postgres', 'postgres'),
+        normalizeAclPresentation('staff_api_role=rw/postgres', 'postgres'),
+      );
+    } catch (e) {
+      missingPrivFailed = e.code === 'incompatible_acl' && /missing privilege/i.test(String(e.message || ''));
+      missingMsg = String(e.message || '');
+    }
+    if (!missingPrivFailed) {
+      throw new Error(`missing privilege ACL proof failed: ${missingMsg}`);
+    }
+    redResults.push({
+      name: 'incompatible_acl_missing_privilege',
+      failedClosed: true,
+      message: missingMsg,
+      rolledBackOrUnchanged: true,
+      messageMatched: true,
+      offlineSemantic: true,
+    });
+  }
 
   await redCase('incompatible_pk', async (c) => {
     await c.query(`
@@ -752,11 +844,36 @@ async function main() {
       claimsCanonicalRunnerProvenance: false,
       wroteSchemaMigrationLedger: false,
       catalogPreflight:
-        'pg_attribute/pg_type udt+nullability+default+generated/identity; pg_constraint PK/FK; pg_get_indexdef; relrowsecurity/policies; reject unexpected triggers',
+        'pg_attribute/pg_type udt+nullability+attgenerated+attidentity+default; pg_constraint PK/FK; pg_get_indexdef; relrowsecurity/policies; pg_class.relowner+$db_owner-only normalize; relacl semantic ACL (extra/missing privilege, PUBLIC, grant option); reject unexpected triggers',
+      ownershipAclContract: {
+        expectedOwnerPresentation: EXPECTED_OWNER_PRESENTATION,
+        expectedAclPresentation: EXPECTED_ACL_PRESENTATION,
+        normalizeOnly: 'connected_database_owner_token_to_$db_owner',
+        mutatesOwnershipOrGrants: false,
+      },
       dsnGate: 'assertSafeDatabaseTarget (loopback + wh_mig_* only)',
     },
     ownedKeyMap: 'fixtures/sunset-schema-observer/slice13c3b-migration-035-owned-key-map.json',
     ownedKeyCount: 17,
+    ownedKeyStructuralProofs: {
+      'expected_only|tables|customer_message_templates': 'pathA.create + pathB.preserve + compareSnapshots.tables',
+      'expected_only|columns|customer_message_templates.id': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.client_id': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.title': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.body': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.channel': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.tags': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.active': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.created_at': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|columns|customer_message_templates.updated_at': 'pg_attribute catalog + EXPECTED_COLUMNS',
+      'expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY': 'pg_constraint PK',
+      'expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY': 'pg_constraint FK',
+      'expected_only|indexes|customer_message_templates.customer_message_templates_pkey': 'pg_index + compareSnapshots',
+      'expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active': 'pg_get_indexdef',
+      'expected_only|rlsFlags|customer_message_templates': 'relrowsecurity/relforcerowsecurity',
+      'expected_only|ownership|relation:customer_message_templates': 'pg_class.relowner + $db_owner normalize + RED incompatible_ownership',
+      'expected_only|acls|relation:customer_message_templates': 'relacl semantic ACL + RED escalation/PUBLIC/grant_option/missing_privilege',
+    },
     forwardCountUnchanged: 38,
     manifestHashUnchanged: MANIFEST_HASH,
     productFingerprintUnchanged: CANON_FP,
@@ -769,11 +886,14 @@ async function main() {
       secondApplyPreserveNoOp: true,
       fingerprintStableAcrossSecondApply: fpA2 === fpA,
       canonicalOutOfSequenceDoesNotRecreateCmt: true,
+      ownershipAclExactAfterCreate: true,
     },
     pathB: {
       ok: true,
       exactCompatiblePreseed: true,
+      exactExpectedOwnerAclPreseed: true,
       preserveNoOp: true,
+      ownerAclPreserved: true,
       attnumStable: true,
       secondApplyNoOp: true,
     },
@@ -781,6 +901,7 @@ async function main() {
     greenCases: [
       { name: 'absent_cluster_adds_exact_objects', ok: true },
       { name: 'exact_compatible_preserved', ok: true },
+      { name: 'exact_compatible_owner_acl_preserved', ok: true },
       { name: 'second_application_noop', ok: true },
       { name: 'non_disposable_dsn_rejected', ok: nonDisposableRejected },
       { name: 'harness_disabled_by_default', ok: disabledReject },
@@ -827,13 +948,13 @@ See \`slice13c3b-migration-035-owned-key-map.json\`. Actions are additive CREATE
 
 ## Catalog preflight (wrapper; 035 file immutable)
 
-Harness inspects \`pg_attribute\`/\`pg_type\` (udt, nullability, default, generated/identity), PK/FK via \`pg_constraint\`, index via \`pg_get_indexdef\`, RLS flags/policies, and rejects unexpected triggers. Absent → execute immutable 035; exact compatible → preserve/no-op; incompatible → RAISE and rollback before/without partial rewrite.
+Harness inspects \`pg_attribute\`/\`pg_type\` (udt, nullability, **attgenerated before default**, identity), PK/FK via \`pg_constraint\`, index via \`pg_get_indexdef\`, RLS flags/policies, **relation owner** (\`pg_class.relowner\` with connected-database-owner → \`$db_owner\` only), and **ACL** (\`relacl\` semantic compare: exact empty presentation; fail closed on wrong owner, extra grantee, extra/missing privilege, PUBLIC broadening, grant option). Does not mutate ownership/grants. Absent → execute immutable 035; exact compatible → preserve/no-op; incompatible → RAISE and rollback.
 
 ## Disposable proof
 
-- **Path A:** 38-forward + DROP CMT → harness apply 035 → exact CMT cluster; second apply preserve/no-op; canonical runner does not recreate CMT out of sequence.
-- **Path B:** exact compatible pre-seed → harness preserve/no-op; attnum stable; second apply no-op.
-- **RED:** incompatible column type/default/nullability/generated/extra; incompatible PK/FK/index; RLS enabled; missing \`clients\`; non-disposable DSN rejected; harness disabled without flag.
+- **Path A:** 38-forward + DROP CMT → harness apply 035 → exact CMT cluster (incl. owner/ACL); second apply preserve/no-op; canonical runner does not recreate CMT out of sequence.
+- **Path B:** exact compatible pre-seed with expected owner=\`$db_owner\` and empty ACL → harness preserve/no-op; attnum + owner/ACL stable; second apply no-op.
+- **RED:** incompatible column type/default/nullability/generated (attgenerated-specific); incompatible PK/FK/index; RLS enabled; wrong owner; ACL escalation/PUBLIC/grant-option/missing privilege; missing \`clients\`; non-disposable DSN rejected; harness disabled without flag.
 
 ## Artifacts
 

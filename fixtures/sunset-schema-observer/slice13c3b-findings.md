@@ -27,13 +27,13 @@ See `slice13c3b-migration-035-owned-key-map.json`. Actions are additive CREATE /
 
 ## Catalog preflight (wrapper; 035 file immutable)
 
-Harness inspects `pg_attribute`/`pg_type` (udt, nullability, default, generated/identity), PK/FK via `pg_constraint`, index via `pg_get_indexdef`, RLS flags/policies, and rejects unexpected triggers. Absent → execute immutable 035; exact compatible → preserve/no-op; incompatible → RAISE and rollback before/without partial rewrite.
+Harness inspects `pg_attribute`/`pg_type` (udt, nullability, **attgenerated before default**, identity), PK/FK via `pg_constraint`, index via `pg_get_indexdef`, RLS flags/policies, **relation owner** (`pg_class.relowner` with connected-database-owner → `$db_owner` only), and **ACL** (`relacl` semantic compare: exact empty presentation; fail closed on wrong owner, extra grantee, extra/missing privilege, PUBLIC broadening, grant option). Does not mutate ownership/grants. Absent → execute immutable 035; exact compatible → preserve/no-op; incompatible → RAISE and rollback.
 
 ## Disposable proof
 
-- **Path A:** 38-forward + DROP CMT → harness apply 035 → exact CMT cluster; second apply preserve/no-op; canonical runner does not recreate CMT out of sequence.
-- **Path B:** exact compatible pre-seed → harness preserve/no-op; attnum stable; second apply no-op.
-- **RED:** incompatible column type/default/nullability/generated/extra; incompatible PK/FK/index; RLS enabled; missing `clients`; non-disposable DSN rejected; harness disabled without flag.
+- **Path A:** 38-forward + DROP CMT → harness apply 035 → exact CMT cluster (incl. owner/ACL); second apply preserve/no-op; canonical runner does not recreate CMT out of sequence.
+- **Path B:** exact compatible pre-seed with expected owner=`$db_owner` and empty ACL → harness preserve/no-op; attnum + owner/ACL stable; second apply no-op.
+- **RED:** incompatible column type/default/nullability/generated (attgenerated-specific); incompatible PK/FK/index; RLS enabled; wrong owner; ACL escalation/PUBLIC/grant-option/missing privilege; missing `clients`; non-disposable DSN rejected; harness disabled without flag.
 
 ## Artifacts
 

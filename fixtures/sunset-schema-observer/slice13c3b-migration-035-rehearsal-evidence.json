@@ -7,7 +7,7 @@
   "azureMutation": false,
   "disposablePostgreSQLOnly": true,
   "disposableBackend": "pglite",
-  "generatedAt": "2026-07-19T16:17:30.491Z",
+  "generatedAt": "2026-07-19T16:26:10.991Z",
   "masterShaBasis": "b3b2cede917f588d3a7d6e322b28a7f377b8cd96",
   "migration": {
     "id": "035_customer_message_templates",
@@ -23,11 +23,36 @@
     "liveApplyEnabled": false,
     "claimsCanonicalRunnerProvenance": false,
     "wroteSchemaMigrationLedger": false,
-    "catalogPreflight": "pg_attribute/pg_type udt+nullability+default+generated/identity; pg_constraint PK/FK; pg_get_indexdef; relrowsecurity/policies; reject unexpected triggers",
+    "catalogPreflight": "pg_attribute/pg_type udt+nullability+attgenerated+attidentity+default; pg_constraint PK/FK; pg_get_indexdef; relrowsecurity/policies; pg_class.relowner+$db_owner-only normalize; relacl semantic ACL (extra/missing privilege, PUBLIC, grant option); reject unexpected triggers",
+    "ownershipAclContract": {
+      "expectedOwnerPresentation": "$db_owner",
+      "expectedAclPresentation": "",
+      "normalizeOnly": "connected_database_owner_token_to_$db_owner",
+      "mutatesOwnershipOrGrants": false
+    },
     "dsnGate": "assertSafeDatabaseTarget (loopback + wh_mig_* only)"
   },
   "ownedKeyMap": "fixtures/sunset-schema-observer/slice13c3b-migration-035-owned-key-map.json",
   "ownedKeyCount": 17,
+  "ownedKeyStructuralProofs": {
+    "expected_only|tables|customer_message_templates": "pathA.create + pathB.preserve + compareSnapshots.tables",
+    "expected_only|columns|customer_message_templates.id": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.client_id": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.title": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.body": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.channel": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.tags": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.active": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.created_at": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|columns|customer_message_templates.updated_at": "pg_attribute catalog + EXPECTED_COLUMNS",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY": "pg_constraint PK",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY": "pg_constraint FK",
+    "expected_only|indexes|customer_message_templates.customer_message_templates_pkey": "pg_index + compareSnapshots",
+    "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active": "pg_get_indexdef",
+    "expected_only|rlsFlags|customer_message_templates": "relrowsecurity/relforcerowsecurity",
+    "expected_only|ownership|relation:customer_message_templates": "pg_class.relowner + $db_owner normalize + RED incompatible_ownership",
+    "expected_only|acls|relation:customer_message_templates": "relacl semantic ACL + RED escalation/PUBLIC/grant_option/missing_privilege"
+  },
   "forwardCountUnchanged": 38,
   "manifestHashUnchanged": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
   "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
@@ -39,12 +64,15 @@
     "cmtClusterMatchesExpected": true,
     "secondApplyPreserveNoOp": true,
     "fingerprintStableAcrossSecondApply": true,
-    "canonicalOutOfSequenceDoesNotRecreateCmt": true
+    "canonicalOutOfSequenceDoesNotRecreateCmt": true,
+    "ownershipAclExactAfterCreate": true
   },
   "pathB": {
     "ok": true,
     "exactCompatiblePreseed": true,
+    "exactExpectedOwnerAclPreseed": true,
     "preserveNoOp": true,
+    "ownerAclPreserved": true,
     "attnumStable": true,
     "secondApplyNoOp": true
   },
@@ -73,9 +101,45 @@
     {
       "name": "incompatible_generated_column",
       "failedClosed": true,
-      "message": "035 preflight: column title incompatible default (got='x', expected=null)",
+      "message": "035 preflight: column title is a generated column",
       "rolledBackOrUnchanged": true,
       "messageMatched": true
+    },
+    {
+      "name": "incompatible_ownership",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ownership (got=wh_mig_wrong_cmt_owner, normalized=wh_mig_wrong_cmt_owner, expected=$db_owner)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_escalation",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL extra grantee $db_owner (arwdDxtm)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_public_broadening",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL PUBLIC broadening (r)",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_grant_option",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL grant option for wh_mig_acl_go",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true
+    },
+    {
+      "name": "incompatible_acl_missing_privilege",
+      "failedClosed": true,
+      "message": "035 preflight: incompatible ACL missing privilege 'w' for staff_api_role",
+      "rolledBackOrUnchanged": true,
+      "messageMatched": true,
+      "offlineSemantic": true
     },
     {
       "name": "incompatible_pk",
@@ -120,6 +184,10 @@
     },
     {
       "name": "exact_compatible_preserved",
+      "ok": true
+    },
+    {
+      "name": "exact_compatible_owner_acl_preserved",
       "ok": true
     },
     {
