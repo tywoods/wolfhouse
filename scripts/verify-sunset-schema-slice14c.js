@@ -2,7 +2,7 @@
 
 /**
  * verify:sunset-schema-slice14c — FOUNDATION Slice 14C RED→GREEN
- * Phase D live read-only PostgreSQL adapter (hard-disabled; offline fake Client).
+ * Phase D live read-only PostgreSQL adapter (activated gated; offline fake Client).
  * Offline gates + evidence. No Azure / live mutation.
  */
 
@@ -25,6 +25,8 @@ const {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
+  ENV_EXECUTE_COUNT_ONLY,
+  CLI_EXECUTE_COUNT_ONLY,
   CREDENTIAL_USER_ENV,
   CREDENTIAL_PASSWORD_ENV,
   AUTHORIZED_AGGREGATE_SQL,
@@ -84,7 +86,7 @@ const REQUIRED_RED = [
 ];
 
 const REQUIRED_GREEN = [
-  'live_disabled_exact_target_zero_clients',
+  'execute_gate_missing_exact_target_zero_clients',
   'exact_sequence_count_only_success',
 ];
 
@@ -168,13 +170,14 @@ async function main() {
     && contract.predicatesUnchangedFrom14A.date_window === DATE_WINDOW_PREDICATE
     && contract.predicatesUnchangedFrom14A.price_unit === PRICE_UNIT_PREDICATE);
 
-  pass('hard-disabled-flags',
-    PHASE_D_LIVE_READONLY_CONNECT_ENABLED === false
-    && PG_FLAG === false
+  pass('activated-connect-apply-still-disabled',
+    PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true
+    && PG_FLAG === true
     && PHASE_D_LIVE_APPLY_ENABLED === false
-    && /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*false/.test(boundarySrc)
-    && !/PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*true/.test(boundarySrc)
-    && !/PHASE_D_LIVE_APPLY_ENABLED\s*=\s*true/.test(libSrc));
+    && /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*true/.test(boundarySrc)
+    && !/PHASE_D_LIVE_APPLY_ENABLED\s*=\s*true/.test(libSrc)
+    && /ENV_EXECUTE_COUNT_ONLY/.test(boundarySrc)
+    && /CLI_EXECUTE_COUNT_ONLY/.test(boundarySrc));
 
   pass('authorized-sequence-locked',
     JSON.stringify(AUTHORIZED_SEQUENCE) === JSON.stringify([
@@ -211,6 +214,7 @@ async function main() {
   pass('green-cases-present', REQUIRED_GREEN.every((n) => greenNames.includes(n)));
   pass('offline-gates',
     evidence.offlineGates.defaultPathZeroClients === true
+    && evidence.offlineGates.executeGateMissingExactTargetZeroClients === true
     && evidence.offlineGates.liveDisabledExactTargetZeroClients === true
     && evidence.offlineGates.exactSequenceCountOnlySuccess === true
     && evidence.offlineGates.wrongReorderedExtraSqlRejected === true
@@ -224,11 +228,11 @@ async function main() {
   pass('no-live-mutation-claims',
     evidence.liveMutation === false
     && evidence.liveQueryExecution === false
-    && evidence.liveReadonlyConnectEnabled === false
+    && evidence.liveReadonlyConnectEnabled === true
     && evidence.azureConnectivity === false
     && evidence.firewallAction === false
     && evidence.credentialLoading === false
-    && evidence.enableFlagFlipped === false
+    && evidence.enableFlagFlipped === true
     && evidence.migrationAdded === false
     && evidence.ledgerWritten === false
     && evidence.stillProductSchemaDiffers === true
@@ -257,9 +261,9 @@ async function main() {
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
   });
-  pass('runtime-live-disabled-zero-clients',
+  pass('runtime-execute-gate-missing-zero-clients',
     disabled.ok === true
-    && disabled.code === 'target_accepted_pg_adapter_hard_disabled'
+    && disabled.code === 'target_accepted_execute_count_only_required'
     && disabled.clientsInstantiated === 0
     && getPgClientInstantiateCount() === 0);
 
@@ -271,10 +275,11 @@ async function main() {
       [ENV_LIVE_READONLY]: '1',
       [ENV_LIVE_PREFLIGHT]: '1',
       [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
+      [ENV_EXECUTE_COUNT_ONLY]: '1',
       [CREDENTIAL_USER_ENV]: FAKE_USER,
       [CREDENTIAL_PASSWORD_ENV]: FAKE_PASSWORD,
     },
-    argv: ['node', 'verify'],
+    argv: ['node', 'verify', CLI_EXECUTE_COUNT_ONLY],
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: Fake,
@@ -297,7 +302,8 @@ async function main() {
   pass('live-adapter-factory-hard-disabled', liveFactoryDisabled);
 
   pass('source-forbids-live-mutation-paths',
-    /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*false/.test(boundarySrc)
+    /PHASE_D_LIVE_READONLY_CONNECT_ENABLED\s*=\s*true/.test(boundarySrc)
+    && /evaluateExecuteCountOnlyGate/.test(boundarySrc)
     && !/\baz\s+postgres\b/i.test(proveSrc)
     && !/\baz\s+network\b/i.test(proveSrc)
     && !/--apply\b/.test(libSrc)
@@ -322,7 +328,7 @@ async function main() {
     /Do not claim/i.test(findings)
     && /Phase D/.test(findings)
     && /Zero live\/Azure mutation/i.test(findings)
-    && /hard-disabled/i.test(findings)
+    && /execute-count-only/i.test(findings)
     && /fail-closed/i.test(findings)
     && /close_failed/i.test(findings)
     && !/Sunset is repaired/i.test(findings.replace(/Do not claim[\s\S]*?repaired/i, '')));

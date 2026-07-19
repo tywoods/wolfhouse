@@ -1,20 +1,20 @@
 {
   "kind": "sunset-schema-observer-slice14c-phase-d-pg-adapter-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:05:37.079Z",
+  "generatedAt": "2026-07-19T19:13:59.164Z",
   "masterShaBasis": "ff136a18c1582e7749220ed00dcb1a7d51c0b999",
   "slice": "14C",
-  "outcome": "phase_d_live_readonly_pg_adapter_proven_offline_hard_disabled",
+  "outcome": "phase_d_live_readonly_pg_adapter_proven_offline_activated_gated",
   "stillProductSchemaDiffers": true,
   "phaseDConstraintsApplied": false,
   "liveMutation": false,
-  "liveReadonlyConnectEnabled": false,
+  "liveReadonlyConnectEnabled": true,
   "liveQueryExecution": false,
   "azureConnectivity": false,
   "firewallAction": false,
   "networkMutation": false,
   "credentialLoading": false,
-  "enableFlagFlipped": false,
+  "enableFlagFlipped": true,
   "migrationAdded": false,
   "ledgerWritten": false,
   "applyFlagPresent": false,
@@ -32,6 +32,7 @@
   "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
   "defaultDisabled": true,
   "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
   "authorizedSequence": [
     "BEGIN READ ONLY",
     "SHOW transaction_read_only",
@@ -48,6 +49,7 @@
   },
   "offlineGates": {
     "defaultPathZeroClients": true,
+    "executeGateMissingExactTargetZeroClients": true,
     "liveDisabledExactTargetZeroClients": true,
     "exactSequenceCountOnlySuccess": true,
     "wrongReorderedExtraSqlRejected": true,
@@ -136,9 +138,9 @@
   ],
   "greenCases": [
     {
-      "name": "live_disabled_exact_target_zero_clients",
+      "name": "execute_gate_missing_exact_target_zero_clients",
       "ok": true,
-      "code": "target_accepted_pg_adapter_hard_disabled",
+      "code": "target_accepted_execute_count_only_required",
       "clientsInstantiated": 0
     },
     {
@@ -162,5 +164,5 @@
       "queryCount": 6
     }
   ],
-  "note": "Slice 14C proves the real pg read-only adapter behind the 14B boundary with a scripted fake Client only. Live execution remains hard-disabled. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+  "note": "Slice 14C proves the real pg read-only adapter behind the 14B boundary with a scripted fake Client only. CONNECT_ENABLED is activated in Slice 14D behind the execute-count-only gate; this proof never runs live. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
 }

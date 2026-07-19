@@ -1,14 +1,14 @@
 {
   "kind": "sunset-schema-observer-slice14b-phase-d-live-readonly-boundary-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T18:56:23.173Z",
+  "generatedAt": "2026-07-19T19:13:56.392Z",
   "masterShaBasis": "8905be445fcce5d23e813f66d339c48580c5ecd9",
   "slice": "14B",
-  "outcome": "phase_d_live_readonly_boundary_proven_offline_hard_disabled",
+  "outcome": "phase_d_live_readonly_boundary_proven_offline_activated_gated",
   "stillProductSchemaDiffers": true,
   "phaseDConstraintsApplied": false,
   "liveMutation": false,
-  "liveReadonlyConnectEnabled": false,
+  "liveReadonlyConnectEnabled": true,
   "liveQueryExecution": false,
   "azureConnectivity": false,
   "firewallAction": false,
@@ -250,9 +250,9 @@
       "accepted": true,
       "connectCalls": 0,
       "queryCalls": 0,
-      "liveReadonlyConnectEnabled": false,
+      "liveReadonlyConnectEnabled": true,
       "credentialSource": "protected_admin_env",
-      "code": "target_accepted_connect_hard_disabled"
+      "code": "target_accepted_live_readonly_ready"
     }
   ],
   "queryAuthorization": {
@@ -286,5 +286,5 @@
     "applicationName": "wh-sunset-phase-d-preflight",
     "port": 5432
   },
-  "note": "Slice 14B proves the hard-disabled live read-only boundary only. Protected admin env credentials (not CONNECT-only observer DSN). No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+  "note": "Slice 14B proves the live read-only boundary gates (exact target + dual flags + protected admin env). CONNECT_ENABLED activated in 14D; boundary itself still makes zero connect/query calls. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
 }

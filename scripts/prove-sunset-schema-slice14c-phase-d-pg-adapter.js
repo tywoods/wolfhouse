@@ -28,6 +28,8 @@ const {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
+  ENV_EXECUTE_COUNT_ONLY,
+  CLI_EXECUTE_COUNT_ONLY,
   CREDENTIAL_USER_ENV,
   CREDENTIAL_PASSWORD_ENV,
   OBSERVER_DSN_ENV,
@@ -108,6 +110,18 @@ function dualEnv(extra) {
   };
 }
 
+/** Dual flags + execute-count-only env (Slice 14D gate). */
+function execEnv(extra) {
+  return dualEnv({
+    [ENV_EXECUTE_COUNT_ONLY]: '1',
+    ...(extra || {}),
+  });
+}
+
+function execArgv() {
+  return ['node', 'prove', CLI_EXECUTE_COUNT_ONLY];
+}
+
 function leakScan(value, secrets) {
   const text = typeof value === 'string' ? value : JSON.stringify(value);
   for (const s of secrets) {
@@ -147,8 +161,8 @@ async function main() {
   if (AUTHORIZED_AGGREGATE_SQL !== AGG_14A) {
     throw new Error('14A aggregate SQL drift vs boundary');
   }
-  if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== false || PG_FLAG !== false) {
-    throw new Error('live readonly connect must remain hard-disabled');
+  if (PHASE_D_LIVE_READONLY_CONNECT_ENABLED !== true || PG_FLAG !== true) {
+    throw new Error('live readonly connect must be activated (Slice 14D)');
   }
   if (PHASE_D_LIVE_APPLY_ENABLED !== false) {
     throw new Error('live apply must remain hard-disabled');
@@ -184,7 +198,7 @@ async function main() {
     clientsInstantiated: getPgClientInstantiateCount(),
   });
 
-  // --- RED: live-disabled exact target — zero Clients ---
+  // --- GREEN: exact target without execute-count-only — zero Clients ---
   resetPgClientInstantiateCount();
   const disabled = await executePhaseDLiveReadonlyPgAdapter({
     env: dualEnv(),
@@ -193,13 +207,13 @@ async function main() {
     dbAdapters: createInjectedDbAdapters({}, createCallRecorder()),
   });
   if (!disabled.ok
-    || disabled.code !== 'target_accepted_pg_adapter_hard_disabled'
+    || disabled.code !== 'target_accepted_execute_count_only_required'
     || disabled.clientsInstantiated !== 0
     || getPgClientInstantiateCount() !== 0) {
-    throw new Error(`live-disabled path must accept target with zero Clients: ${disabled.code}`);
+    throw new Error(`missing execute gate must accept target with zero Clients: ${disabled.code}`);
   }
   green.push({
-    name: 'live_disabled_exact_target_zero_clients',
+    name: 'execute_gate_missing_exact_target_zero_clients',
     ok: true,
     code: disabled.code,
     clientsInstantiated: 0,
@@ -208,7 +222,8 @@ async function main() {
   // --- RED: caller DSN / host / query ---
   resetPgClientInstantiateCount();
   const callerDsn = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     dsn: FAKE_OBSERVER_DSN,
     Client: createScriptedFakePgClientFactory(),
   });
@@ -225,7 +240,8 @@ async function main() {
 
   resetPgClientInstantiateCount();
   const callerHost = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     host: 'evil.example.com',
     Client: createScriptedFakePgClientFactory(),
   });
@@ -272,8 +288,8 @@ async function main() {
     },
   });
   const okRun = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
-    argv: ['node', 'prove'],
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}, createCallRecorder()),
     dbAdapters: createInjectedDbAdapters({}, createCallRecorder()),
     Client: FakeOk,
@@ -378,7 +394,8 @@ async function main() {
     ),
   });
   const connectFail = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: FakeConnectFail,
@@ -409,7 +426,8 @@ async function main() {
     },
   });
   const queryFail = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: FakeQueryFail,
@@ -440,7 +458,8 @@ async function main() {
     ),
   });
   const commitFail = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: FakeCommitFail,
@@ -468,7 +487,8 @@ async function main() {
     ),
   });
   const closeFail = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: FakeCloseFail,
@@ -512,7 +532,8 @@ async function main() {
     ),
   });
   const queryCloseFail = await executePhaseDLiveReadonlyPgAdapter({
-    env: dualEnv(),
+    env: execEnv(),
+    argv: execArgv(),
     azureAdapters: createInjectedAzureAdapters({}),
     dbAdapters: createInjectedDbAdapters({}),
     Client: FakeQueryAndCloseFail,
@@ -607,7 +628,7 @@ async function main() {
     containsRepairSql: false,
     containsLiveApplyCode: false,
     liveApplyCapability: false,
-    liveReadonlyConnectEnabled: false,
+    liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     appliesConstraints: false,
     writesLedger: false,
@@ -616,11 +637,12 @@ async function main() {
     networkMutation: false,
     defaultEnabled: false,
     dualEnableFlagsRequired: true,
+    executeCountOnlyGateRequired: true,
     injectedFakePgClientOnly: true,
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14C',
-    purpose: 'Real PostgreSQL read-only adapter behind merged 14B boundary; live execution hard-disabled; offline scripted fake pg Client proof only.',
+    purpose: 'Real PostgreSQL read-only adapter behind merged 14B boundary; CONNECT_ENABLED activated in 14D behind execute-count-only gate; this proof uses offline scripted fake pg Client only (no live query).',
     targets: { ...TARGETS },
     credentialSources: {
       approvedUserEnv: CREDENTIAL_USER_ENV,
@@ -677,17 +699,17 @@ async function main() {
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14C',
-    outcome: 'phase_d_live_readonly_pg_adapter_proven_offline_hard_disabled',
+    outcome: 'phase_d_live_readonly_pg_adapter_proven_offline_activated_gated',
     stillProductSchemaDiffers: true,
     phaseDConstraintsApplied: false,
     liveMutation: false,
-    liveReadonlyConnectEnabled: false,
+    liveReadonlyConnectEnabled: true,
     liveQueryExecution: false,
     azureConnectivity: false,
     firewallAction: false,
     networkMutation: false,
     credentialLoading: false,
-    enableFlagFlipped: false,
+    enableFlagFlipped: true,
     migrationAdded: false,
     ledgerWritten: false,
     applyFlagPresent: false,
@@ -700,10 +722,12 @@ async function main() {
     migration028Sha256CanonicalLfV1: EXPECTED_028_SHA256,
     defaultDisabled: true,
     dualEnableFlagsRequired: true,
+    executeCountOnlyGateRequired: true,
     authorizedSequence: AUTHORIZED_SEQUENCE.slice(),
     tls: contract.tls,
     offlineGates: {
       defaultPathZeroClients: true,
+      executeGateMissingExactTargetZeroClients: true,
       liveDisabledExactTargetZeroClients: true,
       exactSequenceCountOnlySuccess: true,
       wrongReorderedExtraSqlRejected: true,
@@ -720,7 +744,7 @@ async function main() {
     },
     redCases: red,
     greenCases: green,
-    note: 'Slice 14C proves the real pg read-only adapter behind the 14B boundary with a scripted fake Client only. Live execution remains hard-disabled. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
+    note: 'Slice 14C proves the real pg read-only adapter behind the 14B boundary with a scripted fake Client only. CONNECT_ENABLED is activated in Slice 14D behind the execute-count-only gate; this proof never runs live. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
   };
 
   leakScan(evidence, secrets);
@@ -728,13 +752,13 @@ async function main() {
 
   const findings = `# FOUNDATION Slice 14C — Phase D live read-only PostgreSQL adapter
 
-**Status:** complete (real adapter implemented; live execution hard-disabled; offline fake-Client proof)
+**Status:** complete (real adapter; CONNECT_ENABLED activated in 14D behind execute-count-only; offline fake-Client proof)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome
 
-Implemented the real PostgreSQL read-only adapter behind the merged Slice **14B** boundary. The adapter creates a \`pg\` Client **only after** all 14B gates pass, builds config exclusively from locked TARGETS + protected admin env (\`SUNSET_STAGING_PG_ADMIN_USER\` / \`SUNSET_STAGING_PG_ADMIN_PASSWORD\`), reuses verified TLS (\`rejectUnauthorized: true\` + \`servername\` = locked FQDN) and \`statement_timeout=${STATEMENT_TIMEOUT_MS}\`, and executes only the exact authorized 14A sequence:
+Implemented the real PostgreSQL read-only adapter behind the merged Slice **14B** boundary. The adapter creates a \`pg\` Client **only after** all 14B gates pass **and** the Slice **14D** explicit count-only execution gate (\`SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1\` + \`--execute-count-only\`), builds config exclusively from locked TARGETS + protected admin env (\`SUNSET_STAGING_PG_ADMIN_USER\` / \`SUNSET_STAGING_PG_ADMIN_PASSWORD\`), reuses verified TLS (\`rejectUnauthorized: true\` + \`servername\` = locked FQDN) and \`statement_timeout=${STATEMENT_TIMEOUT_MS}\`, and executes only the exact authorized 14A sequence:
 
 1. \`BEGIN READ ONLY\`
 2. \`SHOW transaction_read_only\`
@@ -743,18 +767,18 @@ Implemented the real PostgreSQL read-only adapter behind the merged Slice **14B*
 5. exact aggregate (count-only)
 6. \`COMMIT\` (or \`ROLLBACK\` on failure)
 
-\`client.end()\` is attempted exactly once in \`finally\` after connect/query success or failure. Close/end failure is **fail-closed**: otherwise-successful runs become \`ok:false\` / \`code:close_failed\` / \`closed:false\` (count-only data may be preserved; never a successful completed adapter run). If connect/query/commit already failed, the primary code is retained and sanitized \`closeFailure=true\` / \`closeError\` metadata is attached. Live execution remains hard-disabled (\`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=false\`). Default and live-disabled paths instantiate **zero** Clients.
+\`client.end()\` is attempted exactly once in \`finally\` after connect/query success or failure. Close/end failure is **fail-closed**: otherwise-successful runs become \`ok:false\` / \`code:close_failed\` / \`closed:false\` (count-only data may be preserved; never a successful completed adapter run). If connect/query/commit already failed, the primary code is retained and sanitized \`closeFailure=true\` / \`closeError\` metadata is attached. \`PHASE_D_LIVE_READONLY_CONNECT_ENABLED=true\` (Slice 14D); default and missing-execute-gate paths instantiate **zero** Clients. This proof never opens live Azure/PostgreSQL.
 
 ## RED / GREEN
 
 | Class | Cases |
 |-------|-------|
 | RED | default zero Clients; caller DSN/host/query; observer DSN; wrong/reordered/extra SQL; connect/query/commit failures sanitized; close failure fail-closed (\`close_failed\`); query+close failure retains primary query code; rollback+close on failure |
-| GREEN | live-disabled exact target → zero Clients; exact sequence count-only success with fake Client; TLS+timeout in secret-free config view |
+| GREEN | missing execute-count-only gate → zero Clients; exact sequence count-only success with fake Client; TLS+timeout in secret-free config view |
 
 ## Non-goals / still open
 
-- **No** live/Azure query, firewall/network, credential loading, enable-flag flip
+- **No** live/Azure query in this proof, firewall/network, Key Vault credential loading
 - **No** DDL/apply/ledger, migration, or 14A/14B target/predicate changes
 - Still \`product_schema_differs\`
 - Phase D CHECK ADD remains a later slice
