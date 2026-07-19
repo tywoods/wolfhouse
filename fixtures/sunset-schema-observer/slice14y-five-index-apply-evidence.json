@@ -1,0 +1,836 @@
+{
+  "kind": "sunset-schema-observer-slice14y-five-index-apply-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T23:27:48.215Z",
+  "masterShaBasis": "ea1e6971a19f57da0ded41eb0d1d28aa165786be",
+  "slice": "14Y",
+  "outcome": "phase_d_five_index_apply_ok_observer_reduced",
+  "stillProductSchemaDiffers": true,
+  "claimsZeroDrift": false,
+  "claimsFullRepair": false,
+  "liveMutation": true,
+  "schemaMutation": true,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "applyFlagPresent": true,
+  "appliesIndexes": true,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "liveApplyAttemptCount": 1,
+  "applicationName": "wh-sunset-five-index-apply",
+  "observerApplicationName": "wh-sunset-schema-observer",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "baselineMismatchCount": 11,
+  "baselineMismatchSections": {
+    "constraints": 1,
+    "indexes": 5,
+    "functions": 1,
+    "triggers": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "expectedReduction": 5,
+  "expectedRemainingMismatchCount": 6,
+  "expectedRemainingKeys": [
+    "function:public.fips_mode()",
+    "function:public.fips_mode()",
+    "pgcrypto",
+    "public.fips_mode()",
+    "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+    "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+  ],
+  "fiveIndexSpecs": [
+    {
+      "indexName": "idx_tenant_surf_pack_client_loc",
+      "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "table": "tenant_surf_pack_rules",
+      "ownerMigration": "026_tenant_surf_pack_rules",
+      "ownerMigrationSha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+      "createSqlSha256": "b832bfd1db8a4ecd8f1195facf0e0c6c2653626c8a7b3009bcdc206da07af671",
+      "approvedRowCount": 36
+    },
+    {
+      "indexName": "idx_client_notification_events_client_created",
+      "key": "client_notification_events.idx_client_notification_events_client_created",
+      "table": "client_notification_events",
+      "ownerMigration": "032_client_notification_settings",
+      "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+      "createSqlSha256": "779136efe4d82cea17b808ab92cdcc76fc64923138ff129b34a05da05e6a6387",
+      "approvedRowCount": 0
+    },
+    {
+      "indexName": "idx_client_notification_events_conversation",
+      "key": "client_notification_events.idx_client_notification_events_conversation",
+      "table": "client_notification_events",
+      "ownerMigration": "032_client_notification_settings",
+      "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+      "createSqlSha256": "99670a6b79936008d803055e54bceb2d3821b817adb9ae2b7d25007d13cd264b",
+      "approvedRowCount": 0
+    },
+    {
+      "indexName": "idx_client_notification_settings_client",
+      "key": "client_notification_settings.idx_client_notification_settings_client",
+      "table": "client_notification_settings",
+      "ownerMigration": "032_client_notification_settings",
+      "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+      "createSqlSha256": "d68979a53470a6f3a283d64939f80e4bbd508f55b7890c51403e9188fef6c1a8",
+      "approvedRowCount": 0
+    },
+    {
+      "indexName": "idx_customer_message_templates_client_active",
+      "key": "customer_message_templates.idx_customer_message_templates_client_active",
+      "table": "customer_message_templates",
+      "ownerMigration": "035_customer_message_templates",
+      "ownerMigrationSha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+      "createSqlSha256": "8f0c7d88b3b55dfb1396dd1a7146d8d0a5cc9fc95e07c80f08067d7df735e134",
+      "approvedRowCount": 0
+    }
+  ],
+  "createStatementsSha256": {
+    "idx_tenant_surf_pack_client_loc": "b832bfd1db8a4ecd8f1195facf0e0c6c2653626c8a7b3009bcdc206da07af671",
+    "idx_client_notification_events_client_created": "779136efe4d82cea17b808ab92cdcc76fc64923138ff129b34a05da05e6a6387",
+    "idx_client_notification_events_conversation": "99670a6b79936008d803055e54bceb2d3821b817adb9ae2b7d25007d13cd264b",
+    "idx_client_notification_settings_client": "d68979a53470a6f3a283d64939f80e4bbd508f55b7890c51403e9188fef6c1a8",
+    "idx_customer_message_templates_client_active": "8f0c7d88b3b55dfb1396dd1a7146d8d0a5cc9fc95e07c80f08067d7df735e134"
+  },
+  "ownerMigrationSha256": {
+    "026_tenant_surf_pack_rules": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+    "032_client_notification_settings": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+    "035_customer_message_templates": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565"
+  },
+  "authorizedSequence": [
+    "BEGIN",
+    "SET LOCAL lock_timeout",
+    "SET LOCAL statement_timeout",
+    "SET LOCAL idle_in_transaction_session_timeout",
+    "pg_advisory_xact_lock",
+    "catalog_table_tenant_surf_pack_rules",
+    "catalog_columns_tenant_surf_pack_rules",
+    "row_count_before_tenant_surf_pack_rules",
+    "catalog_table_client_notification_events",
+    "catalog_columns_client_notification_events",
+    "row_count_before_client_notification_events",
+    "catalog_table_client_notification_settings",
+    "catalog_columns_client_notification_settings",
+    "row_count_before_client_notification_settings",
+    "catalog_table_customer_message_templates",
+    "catalog_columns_customer_message_templates",
+    "row_count_before_customer_message_templates",
+    "assert_index_absent_idx_tenant_surf_pack_client_loc",
+    "assert_no_semantic_duplicate_idx_tenant_surf_pack_client_loc",
+    "assert_no_incompatible_name_idx_tenant_surf_pack_client_loc",
+    "assert_index_absent_idx_client_notification_events_client_created",
+    "assert_no_semantic_duplicate_idx_client_notification_events_client_created",
+    "assert_no_incompatible_name_idx_client_notification_events_client_created",
+    "assert_index_absent_idx_client_notification_events_conversation",
+    "assert_no_semantic_duplicate_idx_client_notification_events_conversation",
+    "assert_no_incompatible_name_idx_client_notification_events_conversation",
+    "assert_index_absent_idx_client_notification_settings_client",
+    "assert_no_semantic_duplicate_idx_client_notification_settings_client",
+    "assert_no_incompatible_name_idx_client_notification_settings_client",
+    "assert_index_absent_idx_customer_message_templates_client_active",
+    "assert_no_semantic_duplicate_idx_customer_message_templates_client_active",
+    "assert_no_incompatible_name_idx_customer_message_templates_client_active",
+    "CREATE INDEX idx_tenant_surf_pack_client_loc",
+    "CREATE INDEX idx_client_notification_events_client_created",
+    "CREATE INDEX idx_client_notification_events_conversation",
+    "CREATE INDEX idx_client_notification_settings_client",
+    "CREATE INDEX idx_customer_message_templates_client_active",
+    "verify_indexes",
+    "row_count_after_tenant_surf_pack_rules",
+    "row_count_after_client_notification_events",
+    "row_count_after_client_notification_settings",
+    "row_count_after_customer_message_templates",
+    "COMMIT"
+  ],
+  "successPathQueryCount": 43,
+  "approvedRowCounts": {
+    "tenant_surf_pack_rules": 36,
+    "client_notification_events": 0,
+    "client_notification_settings": 0,
+    "customer_message_templates": 0
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "fiveIndexApplyEnvGateRequired": true,
+  "fiveIndexApplyArgvGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineGates": {
+    "baselineDriftMismatch": true,
+    "createOrOwnerHashDriftFails": true,
+    "duplicateSemanticIndexRefuse": true,
+    "incompatibleSameNameObjectRefuse": true,
+    "missingColumnRefuse": true,
+    "extraUnauthorizedSqlRefuse": true,
+    "partialFailureRollbackNoRetry": true,
+    "wrongOrderRefuse": true,
+    "timeoutAdvisoryFailureRollback": true,
+    "defaultPathZeroHttpAndClients": true,
+    "missingApplyFlagOrEnv": true,
+    "wrongOrForbiddenArgv": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "globalLiveApplyRemainsFalse": true,
+    "injectedHttpSuccessExact43StepSequence": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "createStatementsByteLocked": true,
+    "fiveSpecsMapToOwnersHashesDefs": true,
+    "rowCountBoundsLocked": true
+  },
+  "redCases": [
+    {
+      "name": "baseline_drift_mismatch",
+      "ok": true,
+      "code": "baseline_drift_mismatch",
+      "zeroMutation": true
+    },
+    {
+      "name": "create_or_owner_hash_drift_fails",
+      "ok": true,
+      "code": "owner_migration_checksum_mismatch"
+    },
+    {
+      "name": "duplicate_semantic_index_refuse",
+      "ok": true,
+      "code": "semantic_duplicate_index",
+      "rolledBack": true,
+      "noCommit": true,
+      "noCreateIndex": true
+    },
+    {
+      "name": "incompatible_same_name_object_refuse",
+      "ok": true,
+      "code": "incompatible_same_name_object",
+      "rolledBack": true,
+      "noCommit": true
+    },
+    {
+      "name": "missing_column_refuse",
+      "ok": true,
+      "code": "column_missing",
+      "rolledBack": true,
+      "noCommit": true
+    },
+    {
+      "name": "extra_unauthorized_sql_refuse",
+      "ok": true,
+      "rejectedStatements": [
+        "DROP TABLE",
+        "DELETE FROM",
+        "INSERT INTO",
+        "ALTER TABLE",
+        "CREATE INDEX",
+        "SELECT 1"
+      ]
+    },
+    {
+      "name": "partial_failure_rollback_no_retry",
+      "ok": true,
+      "code": "query_failed",
+      "rolledBack": true,
+      "noCommit": true,
+      "createAttempts": 0,
+      "noRetry": true
+    },
+    {
+      "name": "wrong_order_refuse",
+      "ok": true,
+      "code": "unauthorized_sql",
+      "rolledBack": false,
+      "noCommit": true
+    },
+    {
+      "name": "timeout_advisory_failure_rollback",
+      "ok": true,
+      "code": "lock_timeout",
+      "rolledBack": true,
+      "noCommit": true
+    },
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_apply_flag_or_env",
+      "ok": true,
+      "flagCode": "five_index_apply_flag_required",
+      "envCode": "five_index_apply_env_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_or_forbidden_argv",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--execute-count-only",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--ledger",
+        "--repair",
+        "--dml",
+        "--concurrently",
+        "--alter",
+        "--truncate"
+      ],
+      "code": "forbidden_argv",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "fiveIndexApplyLiveEnabled": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_http_success_exact_43_step_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "row_count_before_tenant_surf_pack_rules",
+        "catalog_table_client_notification_events",
+        "catalog_columns_client_notification_events",
+        "row_count_before_client_notification_events",
+        "catalog_table_client_notification_settings",
+        "catalog_columns_client_notification_settings",
+        "row_count_before_client_notification_settings",
+        "catalog_table_customer_message_templates",
+        "catalog_columns_customer_message_templates",
+        "row_count_before_customer_message_templates",
+        "assert_index_absent_idx_tenant_surf_pack_client_loc",
+        "assert_no_semantic_duplicate_idx_tenant_surf_pack_client_loc",
+        "assert_no_incompatible_name_idx_tenant_surf_pack_client_loc",
+        "assert_index_absent_idx_client_notification_events_client_created",
+        "assert_no_semantic_duplicate_idx_client_notification_events_client_created",
+        "assert_no_incompatible_name_idx_client_notification_events_client_created",
+        "assert_index_absent_idx_client_notification_events_conversation",
+        "assert_no_semantic_duplicate_idx_client_notification_events_conversation",
+        "assert_no_incompatible_name_idx_client_notification_events_conversation",
+        "assert_index_absent_idx_client_notification_settings_client",
+        "assert_no_semantic_duplicate_idx_client_notification_settings_client",
+        "assert_no_incompatible_name_idx_client_notification_settings_client",
+        "assert_index_absent_idx_customer_message_templates_client_active",
+        "assert_no_semantic_duplicate_idx_customer_message_templates_client_active",
+        "assert_no_incompatible_name_idx_customer_message_templates_client_active",
+        "CREATE INDEX idx_tenant_surf_pack_client_loc",
+        "CREATE INDEX idx_client_notification_events_client_created",
+        "CREATE INDEX idx_client_notification_events_conversation",
+        "CREATE INDEX idx_client_notification_settings_client",
+        "CREATE INDEX idx_customer_message_templates_client_active",
+        "verify_indexes",
+        "row_count_after_tenant_surf_pack_rules",
+        "row_count_after_client_notification_events",
+        "row_count_after_client_notification_settings",
+        "row_count_after_customer_message_templates",
+        "COMMIT"
+      ],
+      "queryCalls": 43,
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "rowCountsAfter": {
+        "tenant_surf_pack_rules": 36,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0
+      }
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true,
+      "applyFiveIndexes": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-five-index-apply",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging"
+    },
+    {
+      "name": "create_statements_byte_locked",
+      "ok": true,
+      "createStatementsSha256": {
+        "idx_tenant_surf_pack_client_loc": "b832bfd1db8a4ecd8f1195facf0e0c6c2653626c8a7b3009bcdc206da07af671",
+        "idx_client_notification_events_client_created": "779136efe4d82cea17b808ab92cdcc76fc64923138ff129b34a05da05e6a6387",
+        "idx_client_notification_events_conversation": "99670a6b79936008d803055e54bceb2d3821b817adb9ae2b7d25007d13cd264b",
+        "idx_client_notification_settings_client": "d68979a53470a6f3a283d64939f80e4bbd508f55b7890c51403e9188fef6c1a8",
+        "idx_customer_message_templates_client_active": "8f0c7d88b3b55dfb1396dd1a7146d8d0a5cc9fc95e07c80f08067d7df735e134"
+      },
+      "ownerMigrationSha256": {
+        "026_tenant_surf_pack_rules": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+        "032_client_notification_settings": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+        "035_customer_message_templates": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565"
+      }
+    },
+    {
+      "name": "five_specs_map_to_owners_hashes_defs",
+      "ok": true,
+      "specs": [
+        {
+          "indexName": "idx_tenant_surf_pack_client_loc",
+          "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+          "ownerMigration": "026_tenant_surf_pack_rules",
+          "ownerMigrationSha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+          "createSqlSha256": "b832bfd1db8a4ecd8f1195facf0e0c6c2653626c8a7b3009bcdc206da07af671",
+          "expectedIndexdef": "CREATE INDEX idx_tenant_surf_pack_client_loc ON public.tenant_surf_pack_rules USING btree (client_slug, location_id) WHERE (active = true)"
+        },
+        {
+          "indexName": "idx_client_notification_events_client_created",
+          "key": "client_notification_events.idx_client_notification_events_client_created",
+          "ownerMigration": "032_client_notification_settings",
+          "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "createSqlSha256": "779136efe4d82cea17b808ab92cdcc76fc64923138ff129b34a05da05e6a6387",
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_events_client_created ON public.client_notification_events USING btree (client_slug, created_at DESC)"
+        },
+        {
+          "indexName": "idx_client_notification_events_conversation",
+          "key": "client_notification_events.idx_client_notification_events_conversation",
+          "ownerMigration": "032_client_notification_settings",
+          "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "createSqlSha256": "99670a6b79936008d803055e54bceb2d3821b817adb9ae2b7d25007d13cd264b",
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_events_conversation ON public.client_notification_events USING btree (conversation_id, notification_type)"
+        },
+        {
+          "indexName": "idx_client_notification_settings_client",
+          "key": "client_notification_settings.idx_client_notification_settings_client",
+          "ownerMigration": "032_client_notification_settings",
+          "ownerMigrationSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "createSqlSha256": "d68979a53470a6f3a283d64939f80e4bbd508f55b7890c51403e9188fef6c1a8",
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_settings_client ON public.client_notification_settings USING btree (client_slug, location_id)"
+        },
+        {
+          "indexName": "idx_customer_message_templates_client_active",
+          "key": "customer_message_templates.idx_customer_message_templates_client_active",
+          "ownerMigration": "035_customer_message_templates",
+          "ownerMigrationSha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+          "createSqlSha256": "8f0c7d88b3b55dfb1396dd1a7146d8d0a5cc9fc95e07c80f08067d7df735e134",
+          "expectedIndexdef": "CREATE INDEX idx_customer_message_templates_client_active ON public.customer_message_templates USING btree (client_id, active, updated_at DESC)"
+        }
+      ]
+    },
+    {
+      "name": "row_count_bounds_locked",
+      "ok": true,
+      "approvedRowCounts": {
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0,
+        "tenant_surf_pack_rules": 36
+      }
+    }
+  ],
+  "liveOutcome": {
+    "ok": true,
+    "code": "phase_d_five_index_apply_ok_observer_reduced",
+    "sameTarget": true,
+    "sessionReadOnly": true,
+    "observerBefore": {
+      "mismatchCount": 11,
+      "mismatchSections": {
+        "constraints": 1,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "client_notification_events.idx_client_notification_events_client_created",
+        "client_notification_events.idx_client_notification_events_conversation",
+        "client_notification_settings.idx_client_notification_settings_client",
+        "customer_message_templates.idx_customer_message_templates_client_active",
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "applicationName": "wh-sunset-schema-observer"
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 11,
+      "mismatchSections": {
+        "constraints": 1,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 11,
+      "expectedMismatchSections": {
+        "constraints": 1,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "liveApplyOutcome": {
+      "attempt": 1,
+      "ok": true,
+      "code": "phase_d_five_index_apply_ok",
+      "exitCode": 0,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "row_count_before_tenant_surf_pack_rules",
+        "catalog_table_client_notification_events",
+        "catalog_columns_client_notification_events",
+        "row_count_before_client_notification_events",
+        "catalog_table_client_notification_settings",
+        "catalog_columns_client_notification_settings",
+        "row_count_before_client_notification_settings",
+        "catalog_table_customer_message_templates",
+        "catalog_columns_customer_message_templates",
+        "row_count_before_customer_message_templates",
+        "assert_index_absent_idx_tenant_surf_pack_client_loc",
+        "assert_no_semantic_duplicate_idx_tenant_surf_pack_client_loc",
+        "assert_no_incompatible_name_idx_tenant_surf_pack_client_loc",
+        "assert_index_absent_idx_client_notification_events_client_created",
+        "assert_no_semantic_duplicate_idx_client_notification_events_client_created",
+        "assert_no_incompatible_name_idx_client_notification_events_client_created",
+        "assert_index_absent_idx_client_notification_events_conversation",
+        "assert_no_semantic_duplicate_idx_client_notification_events_conversation",
+        "assert_no_incompatible_name_idx_client_notification_events_conversation",
+        "assert_index_absent_idx_client_notification_settings_client",
+        "assert_no_semantic_duplicate_idx_client_notification_settings_client",
+        "assert_no_incompatible_name_idx_client_notification_settings_client",
+        "assert_index_absent_idx_customer_message_templates_client_active",
+        "assert_no_semantic_duplicate_idx_customer_message_templates_client_active",
+        "assert_no_incompatible_name_idx_customer_message_templates_client_active",
+        "CREATE INDEX idx_tenant_surf_pack_client_loc",
+        "CREATE INDEX idx_client_notification_events_client_created",
+        "CREATE INDEX idx_client_notification_events_conversation",
+        "CREATE INDEX idx_client_notification_settings_client",
+        "CREATE INDEX idx_customer_message_templates_client_active",
+        "verify_indexes",
+        "row_count_after_tenant_surf_pack_rules",
+        "row_count_after_client_notification_events",
+        "row_count_after_client_notification_settings",
+        "row_count_after_customer_message_templates",
+        "COMMIT"
+      ],
+      "authorizedSequence": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "row_count_before_tenant_surf_pack_rules",
+        "catalog_table_client_notification_events",
+        "catalog_columns_client_notification_events",
+        "row_count_before_client_notification_events",
+        "catalog_table_client_notification_settings",
+        "catalog_columns_client_notification_settings",
+        "row_count_before_client_notification_settings",
+        "catalog_table_customer_message_templates",
+        "catalog_columns_customer_message_templates",
+        "row_count_before_customer_message_templates",
+        "assert_index_absent_idx_tenant_surf_pack_client_loc",
+        "assert_no_semantic_duplicate_idx_tenant_surf_pack_client_loc",
+        "assert_no_incompatible_name_idx_tenant_surf_pack_client_loc",
+        "assert_index_absent_idx_client_notification_events_client_created",
+        "assert_no_semantic_duplicate_idx_client_notification_events_client_created",
+        "assert_no_incompatible_name_idx_client_notification_events_client_created",
+        "assert_index_absent_idx_client_notification_events_conversation",
+        "assert_no_semantic_duplicate_idx_client_notification_events_conversation",
+        "assert_no_incompatible_name_idx_client_notification_events_conversation",
+        "assert_index_absent_idx_client_notification_settings_client",
+        "assert_no_semantic_duplicate_idx_client_notification_settings_client",
+        "assert_no_incompatible_name_idx_client_notification_settings_client",
+        "assert_index_absent_idx_customer_message_templates_client_active",
+        "assert_no_semantic_duplicate_idx_customer_message_templates_client_active",
+        "assert_no_incompatible_name_idx_customer_message_templates_client_active",
+        "CREATE INDEX idx_tenant_surf_pack_client_loc",
+        "CREATE INDEX idx_client_notification_events_client_created",
+        "CREATE INDEX idx_client_notification_events_conversation",
+        "CREATE INDEX idx_client_notification_settings_client",
+        "CREATE INDEX idx_customer_message_templates_client_active",
+        "verify_indexes",
+        "row_count_after_tenant_surf_pack_rules",
+        "row_count_after_client_notification_events",
+        "row_count_after_client_notification_settings",
+        "row_count_after_customer_message_templates",
+        "COMMIT"
+      ],
+      "beforeIndexes": [
+        {
+          "name": "idx_tenant_surf_pack_client_loc",
+          "present": false
+        },
+        {
+          "name": "idx_client_notification_events_client_created",
+          "present": false
+        },
+        {
+          "name": "idx_client_notification_events_conversation",
+          "present": false
+        },
+        {
+          "name": "idx_client_notification_settings_client",
+          "present": false
+        },
+        {
+          "name": "idx_customer_message_templates_client_active",
+          "present": false
+        }
+      ],
+      "afterIndexes": [
+        {
+          "name": "idx_client_notification_events_client_created",
+          "indisvalid": true,
+          "indisready": true
+        },
+        {
+          "name": "idx_client_notification_events_conversation",
+          "indisvalid": true,
+          "indisready": true
+        },
+        {
+          "name": "idx_client_notification_settings_client",
+          "indisvalid": true,
+          "indisready": true
+        },
+        {
+          "name": "idx_customer_message_templates_client_active",
+          "indisvalid": true,
+          "indisready": true
+        },
+        {
+          "name": "idx_tenant_surf_pack_client_loc",
+          "indisvalid": true,
+          "indisready": true
+        }
+      ],
+      "indexVerification": [
+        {
+          "name": "idx_client_notification_events_client_created",
+          "indisvalid": true,
+          "indisready": true,
+          "indexdefMatch": true,
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_events_client_created ON public.client_notification_events USING btree (client_slug, created_at DESC)"
+        },
+        {
+          "name": "idx_client_notification_events_conversation",
+          "indisvalid": true,
+          "indisready": true,
+          "indexdefMatch": true,
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_events_conversation ON public.client_notification_events USING btree (conversation_id, notification_type)"
+        },
+        {
+          "name": "idx_client_notification_settings_client",
+          "indisvalid": true,
+          "indisready": true,
+          "indexdefMatch": true,
+          "expectedIndexdef": "CREATE INDEX idx_client_notification_settings_client ON public.client_notification_settings USING btree (client_slug, location_id)"
+        },
+        {
+          "name": "idx_customer_message_templates_client_active",
+          "indisvalid": true,
+          "indisready": true,
+          "indexdefMatch": true,
+          "expectedIndexdef": "CREATE INDEX idx_customer_message_templates_client_active ON public.customer_message_templates USING btree (client_id, active, updated_at DESC)"
+        },
+        {
+          "name": "idx_tenant_surf_pack_client_loc",
+          "indisvalid": true,
+          "indisready": true,
+          "indexdefMatch": true,
+          "expectedIndexdef": "CREATE INDEX idx_tenant_surf_pack_client_loc ON public.tenant_surf_pack_rules USING btree (client_slug, location_id) WHERE (active = true)"
+        }
+      ],
+      "rowCountsBefore": {
+        "tenant_surf_pack_rules": 36,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0
+      },
+      "rowCountsAfter": {
+        "tenant_surf_pack_rules": 36,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0
+      },
+      "createStatementsSha256": {
+        "idx_tenant_surf_pack_client_loc": "b832bfd1db8a4ecd8f1195facf0e0c6c2653626c8a7b3009bcdc206da07af671",
+        "idx_client_notification_events_client_created": "779136efe4d82cea17b808ab92cdcc76fc64923138ff129b34a05da05e6a6387",
+        "idx_client_notification_events_conversation": "99670a6b79936008d803055e54bceb2d3821b817adb9ae2b7d25007d13cd264b",
+        "idx_client_notification_settings_client": "d68979a53470a6f3a283d64939f80e4bbd508f55b7890c51403e9188fef6c1a8",
+        "idx_customer_message_templates_client_active": "8f0c7d88b3b55dfb1396dd1a7146d8d0a5cc9fc95e07c80f08067d7df735e134"
+      },
+      "committed": true,
+      "rolledBack": false,
+      "credentialSource": "managed-identity",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "sslmode": "verify-full",
+      "applicationName": "wh-sunset-five-index-apply",
+      "clientsInstantiated": 1,
+      "connectCalls": 1,
+      "queryCalls": 43,
+      "endCalls": 1,
+      "httpRequestCount": 2,
+      "imdsRequestCount": 1,
+      "keyVaultRequestCount": 1,
+      "closed": true,
+      "liveMutation": true,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "errors": [],
+      "blocker": null
+    },
+    "observerAfter": {
+      "mismatchCount": 6,
+      "mismatchSections": {
+        "constraints": 1,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "applicationName": "wh-sunset-schema-observer"
+    },
+    "mismatchCountBefore": 11,
+    "mismatchCountAfter": 6,
+    "expectedReduction": 5,
+    "reducedByExactlyFive": true,
+    "fiveIndexKeysAbsentFromRemaining": true,
+    "remainingKeys": [
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+    ],
+    "expectedRemainingKeys": [
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+    ],
+    "rowPreservation": {
+      "before": {
+        "tenant_surf_pack_rules": 36,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0
+      },
+      "after": {
+        "tenant_surf_pack_rules": 36,
+        "client_notification_events": 0,
+        "client_notification_settings": 0,
+        "customer_message_templates": 0
+      },
+      "preserved": true
+    },
+    "preflight": {
+      "targetAuthoritySameTarget": true,
+      "baselineOk": true
+    },
+    "schemaMutation": true,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "liveMutation": true,
+    "liveApplyAttemptCount": 1,
+    "claimsZeroDrift": false,
+    "claimsFullRepair": false,
+    "stillProductSchemaDiffers": true,
+    "applicationNameApply": "wh-sunset-five-index-apply",
+    "applicationNameObserver": "wh-sunset-schema-observer",
+    "blocker": null
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}
