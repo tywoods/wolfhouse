@@ -121,6 +121,19 @@ async function main() {
     clientsInstantiated: result.clientsInstantiated,
     counters: result.counters,
     credentialSource: gates.credentialSource,
+    managedIdentityName: gates.credentialSource === 'managed-identity'
+      ? 'wh-staging-identity'
+      : undefined,
+    keyVaultName: gates.credentialSource === 'managed-identity'
+      ? 'luna-sunset-staging-kv'
+      : undefined,
+    secretName: gates.credentialSource === 'managed-identity'
+      ? 'sunset-database-url'
+      : undefined,
+    postgresHost: TARGETS.postgresHost,
+    database: TARGETS.database,
+    sslmode: TARGETS.sslmode,
+    applicationName: TARGETS.applicationName,
     liveReadonlyConnectEnabled: result.liveReadonlyConnectEnabled,
     liveQueryExecution: result.liveQueryExecution === true,
     liveMutation: false,

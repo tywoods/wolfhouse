@@ -52,6 +52,7 @@ const {
   loadProtectedAdminCredentialsViaManagedIdentity,
   zeroPrivateCredentialRefs,
   PHASE_D_MANAGED_IDENTITY_LIVE_HTTP_ENABLED,
+  getManagedIdentityHttpCounters,
 } = require('./phase-d-managed-identity-credential-loader');
 
 /** Same session timeouts as verified observer clientConfigFromDsn. */
@@ -623,6 +624,11 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
 
   let privateBag = null;
   let credentialSource = creds.source;
+  let managedIdentityHttpDelta = {
+    httpRequestCount: 0,
+    imdsRequestCount: 0,
+    keyVaultRequestCount: 0,
+  };
   if (creds.deferred || creds.source === 'managed_identity') {
     const sourceGate = evaluateCredentialSource({
       env: options.env,
@@ -652,11 +658,18 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       && options.privateCredentials._connectConfig) {
       privateBag = options.privateCredentials;
     } else {
+      const httpBefore = getManagedIdentityHttpCounters();
       const loaded = await loadProtectedAdminCredentialsViaManagedIdentity({
         env: options.env,
         argv: options.argv || [],
         httpRequest: options.httpRequest,
       });
+      const httpAfter = getManagedIdentityHttpCounters();
+      managedIdentityHttpDelta = {
+        httpRequestCount: httpAfter.httpRequestCount - httpBefore.httpRequestCount,
+        imdsRequestCount: httpAfter.imdsRequestCount - httpBefore.imdsRequestCount,
+        keyVaultRequestCount: httpAfter.keyVaultRequestCount - httpBefore.keyVaultRequestCount,
+      };
       if (!loaded.ok) {
         zeroPrivateCredentialRefs(loaded);
         return redactDeep({
@@ -665,7 +678,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
           errors: loaded.errors || [],
           counters: {
             ...counters,
-            httpRequestCount: loaded.counters ? loaded.counters.httpRequestCount : 0,
+            ...managedIdentityHttpDelta,
           },
           clientsInstantiated: 0,
           liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED === true,
@@ -754,6 +767,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       });
     }
 
+    counters.queryCalls = Array.isArray(sequence.steps) ? sequence.steps.length : 0;
     outcome = {
       ok: true,
       accepted: true,
@@ -766,6 +780,7 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
       credentialSource,
       counters: {
         ...counters,
+        ...managedIdentityHttpDelta,
         azureCalls: boundary.counters ? boundary.counters.azureCalls : 0,
         connectInfoCalls: boundary.counters ? boundary.counters.connectInfoCalls : 0,
       },
@@ -783,14 +798,17 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
   } catch (e) {
     const code = (e && e.code) || (e && e.result && e.result.code) || 'query_failed';
     const result = e && e.result ? e.result : null;
+    const failSteps = result && Array.isArray(result.steps) ? result.steps : [];
+    counters.queryCalls = failSteps.length;
     outcome = {
       ok: false,
       code,
       message: redactSecrets(String((e && e.message) || 'adapter failed'), secrets),
-      steps: result ? result.steps : [],
+      steps: failSteps,
       rolledBack: result ? result.rolledBack : false,
       counters: {
         ...counters,
+        ...managedIdentityHttpDelta,
         azureCalls: boundary.counters ? boundary.counters.azureCalls : 0,
         connectInfoCalls: boundary.counters ? boundary.counters.connectInfoCalls : 0,
       },
@@ -817,8 +835,10 @@ async function executePhaseDLiveReadonlyPgAdapter(opts) {
   outcome = applyCloseOutcome(outcome, closeMeta);
   outcome.counters = {
     ...(outcome.counters || {}),
+    ...managedIdentityHttpDelta,
     endCalls: counters.endCalls,
     connectCalls: counters.connectCalls,
+    queryCalls: counters.queryCalls,
     clientsInstantiated: counters.clientsInstantiated,
   };
   return redactDeep(outcome, secrets);

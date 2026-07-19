@@ -1,0 +1,147 @@
+{
+  "kind": "sunset-schema-observer-slice14m-phase-d-live-readonly-counts-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveQueryExecution": true,
+  "liveHttpEnabled": true,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "mutates": false,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "exactTargetCliConfirmationRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "credentialPreflightRequiredBeforeLiveCount": true,
+  "offlineInjectedHttpAndFakeClientProof": true,
+  "existingCliGatesUnchanged": true,
+  "generatedAt": "2026-07-19T20:42:29.132Z",
+  "masterShaBasis": "45203b370997917fc8c3a39cf87948f46d9e5b5a",
+  "slice": "14M",
+  "purpose": "Exactly one live read-only Phase D count via merged 14D/14E managed-identity path after offline RED/GREEN and live credential preflight; sslmode=verify-full; safe counts/counters only; no mutation.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
+  },
+  "managedIdentityLocks": {
+    "imdsHost": "169.254.169.254",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "port": 5432,
+    "applicationName": "wh-sunset-phase-d-preflight"
+  },
+  "commandContract": {
+    "credentialPreflight": {
+      "script": "scripts/run-phase-d-credential-preflight.js",
+      "npm": "phase-d:credential-preflight"
+    },
+    "countOnly": {
+      "script": "scripts/run-phase-d-live-readonly-count-only.js",
+      "npm": "phase-d:live-readonly-count-only",
+      "requiredEnv": [
+        "SUNSET_PHASE_D_LIVE_READONLY=1",
+        "SUNSET_PHASE_D_LIVE_PREFLIGHT=1",
+        "SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1",
+        "SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity",
+        "AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+      ],
+      "requiredArgv": [
+        "--execute-count-only",
+        "--credential-source managed-identity",
+        "--subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "--resource-group luna-sunset-staging-rg",
+        "--postgres-server luna-sunset-staging-pg-app",
+        "--database sunset_staging"
+      ],
+      "forbiddenArgv": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode"
+      ]
+    },
+    "credentialPreflightSafeOutputKeys": [
+      "ok",
+      "code",
+      "credentialSource",
+      "managedIdentityName",
+      "keyVaultName",
+      "secretName",
+      "postgresHost",
+      "database",
+      "sslmode",
+      "secretTargetValid",
+      "hasUser",
+      "hasPassword",
+      "httpRequestCount",
+      "imdsRequestCount",
+      "keyVaultRequestCount",
+      "httpCallsDelta",
+      "clientsInstantiated",
+      "liveHttpEnabled",
+      "liveMutation",
+      "appliesConstraints",
+      "writesLedger",
+      "realImdsCall",
+      "realKeyVaultCall",
+      "realPostgresCall",
+      "errors",
+      "message",
+      "note"
+    ]
+  },
+  "authorizedSequence": [
+    "IMDS GET",
+    "Key Vault secret GET",
+    "in-memory exact target validation",
+    "one pg Client (TLS verify-full, application_name wh-sunset-phase-d-preflight)",
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "forbidden": [
+    "INSERT/UPDATE/DELETE",
+    "DDL / ADD CONSTRAINT",
+    "ledger write",
+    "RBAC / network / firewall mutation",
+    "migration / predicate changes",
+    "DSN / token / username / password / secret version in evidence",
+    "broad retry on live failure",
+    "second live count in verify"
+  ],
+  "nonGoals": [
+    "No Phase D constraint apply",
+    "No Sunset repair claim",
+    "No expected-fixture regeneration"
+  ]
+}

@@ -591,6 +591,32 @@ npm run phase-d:kv-dsn-verify-full-plan
 
 Artifacts: `slice14j-kv-dsn-verify-full-apply-plan.json`, `slice14j-kv-dsn-verify-full-plan-contract.json`, `slice14j-kv-dsn-verify-full-plan-evidence.json`, `slice14j-findings.md`.
 
+### Slice 14K — Key Vault DSN sslmode=verify-full apply activation (implemented; offline proof)
+
+Activates the merged Slice **14J** metadata-preserving sslmode-only Key Vault mutation adapter behind a dedicated exact operator command. Real Node `http`/`https` transport is restricted to locked IMDS GET, exact current-secret GET, exactly one same-secret PUT, and exact verification GET. Live path requires `SUNSET_PHASE_D_KV_DSN_VERIFY_FULL_APPLY=1` + exact `AZURE_SUBSCRIPTION_ID` + `--apply-verify-full` + exact targets. Default/wrong gates → **zero HTTP / zero writes**. Rollback remains separately hard-disabled. This slice does **not** execute live IMDS/Key Vault/PostgreSQL in its prove. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14k-kv-dsn-verify-full-activation
+npm run verify:sunset-schema-slice14k
+# default refuse (zero HTTP / zero writes):
+npm run phase-d:kv-dsn-verify-full-apply
+```
+
+Artifacts: `slice14k-kv-dsn-verify-full-activation-contract.json`, `slice14k-kv-dsn-verify-full-activation-evidence.json`, `slice14k-findings.md`.
+
+### Slice 14M — Phase D live read-only counts (managed-identity)
+
+Exactly **one** live read-only Phase D count via the merged **14D/14E** managed-identity count-only CLI, after offline RED/GREEN and one live credential-preflight. Requires dual flags + execute-count-only + managed-identity credential-source + exact targets. Sequence: locked `wh-staging-identity` IMDS GET → `luna-sunset-staging-kv`/`sunset-database-url` GET → in-memory exact target validation → one `pg` Client to locked host/database with TLS `verify-full` and `application_name=wh-sunset-phase-d-preflight` → `BEGIN READ ONLY` → exact 14A aggregate → `COMMIT`/`ROLLBACK`. Output: safe counts/target identifiers/call counters only. On IMDS/KV/TLS/firewall/auth/query error: sanitize and stop (no broad retry). **No** INSERT/UPDATE/DELETE, DDL, constraints, ledger, RBAC, or network mutation. Verifier does **not** re-run live. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14m-phase-d-live-readonly-counts
+npm run verify:sunset-schema-slice14m
+# default refuse (zero Clients):
+npm run phase-d:live-readonly-count-only
+```
+
+Artifacts: `slice14m-phase-d-live-readonly-counts-contract.json`, `slice14m-phase-d-live-readonly-counts-evidence.json`, `slice14m-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -662,3 +688,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14H — Key Vault Secrets User RBAC apply-plan for Lunabox wh-staging-identity (plan-only; offline prove; zero Azure mutation) — 2026-07-19*
 *FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (plan-only; offline injected-HTTP proof; zero live KV mutation) — 2026-07-19*
 *FOUNDATION Slice 14K — Key Vault DSN sslmode=verify-full apply activation (gated CLI; locked live HTTP transport; offline injected proof; zero live IMDS/KV/PG) — 2026-07-19*
+*FOUNDATION Slice 14M — Phase D live read-only counts via managed-identity (offline RED/GREEN + credential preflight + one live count; zero mutation) — 2026-07-19*
