@@ -22,6 +22,8 @@ const DISCOVERY_PATHSPECS = [
   'infra/azure/sunset-staging/main.bicep',
   'infra/azure/sunset-staging/parameters.example.json',
   'infra/azure/sunset-staging/acr-pull-role.bicep',
+  'infra/azure/sunset-staging/wh-staging-identity-kv-secrets-user-role.bicep',
+  'infra/azure/sunset-staging/wh-staging-identity-kv-secrets-user-role.parameters.json',
   'infra/azure/sunset-staging/schema-observer-job.bicep',
   'scripts/lib/sunset-staging-iac-drift.js',
   'scripts/lib/sunset-schema-observer.js',
