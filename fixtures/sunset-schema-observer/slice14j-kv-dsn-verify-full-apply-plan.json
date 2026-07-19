@@ -1,0 +1,98 @@
+{
+  "kind": "sunset-phase-d-kv-dsn-verify-full-apply-plan",
+  "slice": "14J",
+  "secretFree": true,
+  "liveMutateEnabled": false,
+  "liveRollbackEnabled": false,
+  "liveMutation": false,
+  "mutation": {
+    "kind": "sunset-phase-d-kv-dsn-verify-full-mutation-plan",
+    "slice": "14J",
+    "secretFree": true,
+    "liveMutateEnabled": false,
+    "liveMutation": false,
+    "operation": "setSecretNewVersion",
+    "httpSequence": [
+      "IMDS GET",
+      "Key Vault secret GET",
+      "Key Vault secret PUT",
+      "Key Vault secret verification GET"
+    ],
+    "putCount": 1,
+    "retries": 0,
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "database": "sunset_staging",
+    "port": 5432,
+    "mutation": {
+      "field": "sslmode",
+      "from": "tls_deficient_any_non_verify_full",
+      "to": "verify-full",
+      "retainExact": [
+        "host",
+        "port",
+        "database",
+        "username",
+        "password"
+      ],
+      "forbidden": [
+        "host_change",
+        "port_change",
+        "database_change",
+        "username_change",
+        "password_change",
+        "extra_query_param_change",
+        "tags_mutation",
+        "contentType_mutation",
+        "delete",
+        "purge",
+        "disable",
+        "retry",
+        "pg_client"
+      ]
+    },
+    "notes": [
+      "Normalize only sslmode → verify-full on existing sunset-database-url",
+      "Same exact host/port/database/username/password retained in memory only",
+      "One PUT new secret version; prior version ID retained for rollback",
+      "Slice 14J is plan + offline proof only — zero live KV read/write"
+    ]
+  },
+  "rollback": {
+    "kind": "sunset-phase-d-kv-dsn-verify-full-rollback-plan",
+    "slice": "14J",
+    "secretFree": true,
+    "liveRollbackEnabled": false,
+    "liveMutation": false,
+    "operation": "restoreImmediatelyPreviousSecretVersion",
+    "restoreScope": "immediately_previous_version_only",
+    "requiresSeparateExplicitApproval": true,
+    "putCount": 1,
+    "retries": 0,
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "notes": [
+      "Rollback restores only the immediately previous version after separate approval",
+      "Default / wrong prior-version / wrong gates → zero writes",
+      "Never delete/purge/disable; never arbitrary version restore",
+      "Slice 14J does not execute live rollback"
+    ],
+    "priorSecretVersionId": null,
+    "rollbackPriorVersionId": null
+  },
+  "notes": [
+    "Plan + offline injected-HTTP proof only — zero live KV read/write",
+    "Future live adapter: IMDS GET → KV GET → sslmode-only normalize → one PUT → verify GET",
+    "Rollback: restore only immediately previous version after separate approval"
+  ]
+}

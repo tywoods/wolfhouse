@@ -565,6 +565,32 @@ npm run phase-d:kv-secrets-user-rbac-plan
 
 Artifacts: `slice14h-kv-secrets-user-rbac-apply-plan.json`, `slice14h-kv-secrets-user-rbac-plan-contract.json`, `slice14h-kv-secrets-user-rbac-plan-evidence.json`, `slice14h-findings.md`.
 
+### Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (implemented; plan-only)
+
+Defines and offline-proves a locked, recoverable operator plan to normalize **only** the existing Key Vault secret `luna-sunset-staging-kv` / `sunset-database-url` from a TLS-deficient PostgreSQL DSN to the same exact host, port, database, username and password with `sslmode=verify-full` — **without** reading or mutating the live secret in this slice.
+
+| Lock | Value |
+|------|-------|
+| Vault / secret | `luna-sunset-staging-kv` / `sunset-database-url` |
+| Identity | `wh-staging-identity` / `0dd41fa2-52c8-4e04-bc23-8aa462938c19` |
+| PG host / port / database | `luna-sunset-staging-pg-app.postgres.database.azure.com` / `5432` / `sunset_staging` |
+| Mutation | `sslmode` query param only → `verify-full` |
+| PUT | exactly one new secret version (no retries) |
+| Rollback | immediately previous version only, after separate explicit approval |
+
+Future live adapter (offline-proven with injected HTTP): IMDS GET → KV GET → parse+require exact host/port/database → retain user/password in memory → modify only `sslmode` → PUT one new version → verification GET → zero private refs. Prior-version safe ID retained for rollback. Rejects arbitrary value/DSN/url/token/version/file/secret names, host/db/user/password changes, delete/purge/disable, tags/contentType mutations, extra query changes, retries, and any pg Client.
+
+Default-disabled operator CLI (`scripts/run-phase-d-kv-dsn-verify-full-plan.js` / `npm run phase-d:kv-dsn-verify-full-plan`) requires `SUNSET_PHASE_D_KV_DSN_VERIFY_FULL_PLAN=1` + `--plan-only` + exact `--subscription` / `--resource-group` / `--key-vault` / `--secret-name` / `--managed-identity` / `--postgres-server` / `--database`. Rollback plan: `SUNSET_PHASE_D_KV_DSN_VERIFY_FULL_ROLLBACK=1` + `--rollback-plan-only` + `--prior-version-id`. Default/wrong args → **zero KV writes**. Live mutate / rollback hard-disabled. Fake HTTP RED/GREEN success call counts: httpRequestCount=4, imds=1, keyVaultGet=2, keyVaultPut=1. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14j-kv-dsn-verify-full-plan
+npm run verify:sunset-schema-slice14j
+# default refuse (zero KV writes):
+npm run phase-d:kv-dsn-verify-full-plan
+```
+
+Artifacts: `slice14j-kv-dsn-verify-full-apply-plan.json`, `slice14j-kv-dsn-verify-full-plan-contract.json`, `slice14j-kv-dsn-verify-full-plan-evidence.json`, `slice14j-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -634,3 +660,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14F — Phase D credential-preflight activation (metadata-only; offline injected-HTTP proof; no pg Client; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14G — Phase D live metadata-only credential preflight (gated real IMDS+KV GET; no pg Client; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14H — Key Vault Secrets User RBAC apply-plan for Lunabox wh-staging-identity (plan-only; offline prove; zero Azure mutation) — 2026-07-19*
+*FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (plan-only; offline injected-HTTP proof; zero live KV mutation) — 2026-07-19*
