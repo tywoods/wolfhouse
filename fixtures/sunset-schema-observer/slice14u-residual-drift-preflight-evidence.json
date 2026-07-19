@@ -1,0 +1,1279 @@
+{
+  "kind": "slice14u-residual-drift-preflight-evidence",
+  "slice": "14U",
+  "masterShaBasis": "e0db8af748a7d3cc93cb84fc6b09c199dc4fb5e8",
+  "generatedAt": "2026-07-19T22:40:00.120Z",
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "doNotClaimDatabaseMatchesCanonical": true,
+  "residualInventoryIs35Only": true,
+  "doNotCarryForward448AsResidualInventory": true,
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration035Sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+  "migration028Sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "lockedMigrationShas": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "applicationName": "wh-sunset-residual-drift-preflight",
+  "baselineMismatchCount": 35,
+  "baselineMismatchSections": {
+    "constraints": 25,
+    "indexes": 5,
+    "functions": 1,
+    "triggers": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "offline": {
+    "red": [
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true,
+        "code": "live_readonly_flag_required"
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true,
+        "code": "residual_drift_preflight_flag_required"
+      },
+      {
+        "name": "missing_residual_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "baseline_drift_mismatch_stops",
+        "ok": true
+      },
+      {
+        "name": "nullable_mismatch_with_nonzero_nulls_red",
+        "ok": true,
+        "detail": {
+          "blockedKeys": 25
+        }
+      },
+      {
+        "name": "duplicate_orphan_violation_red",
+        "ok": true
+      },
+      {
+        "name": "unsupported_definition_red",
+        "ok": true,
+        "detail": {
+          "badReason": "unsupported_constraint_type",
+          "badNnReason": "unsupported_definition_shape",
+          "badNnCategory": "unsupported"
+        }
+      },
+      {
+        "name": "missing_owner_red",
+        "ok": true,
+        "detail": {
+          "unowned": 35
+        }
+      },
+      {
+        "name": "incomplete_coverage_red",
+        "ok": true
+      },
+      {
+        "name": "unsafe_ordering_red",
+        "ok": true,
+        "detail": {
+          "orderedOk": true,
+          "shuffledViolates": true,
+          "fakeUnsafeDetected": true,
+          "batchIds": [
+            "batch_01_indexes_additive",
+            "batch_02_not_null_safe",
+            "batch_06_functions_triggers_additive",
+            "batch_07_ownership_acls",
+            "batch_08_extensions"
+          ]
+        }
+      }
+    ],
+    "green": [
+      {
+        "name": "baseline_exactly_35_sections_ok",
+        "ok": true
+      },
+      {
+        "name": "classify_constraint_categories",
+        "ok": true
+      },
+      {
+        "name": "not_null_sql_aggregate_shape",
+        "ok": true
+      },
+      {
+        "name": "pk_fk_unique_check_sql_shapes",
+        "ok": true
+      },
+      {
+        "name": "index_support_proof_shape",
+        "ok": true
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      },
+      {
+        "name": "coverage_complete_35_once",
+        "ok": true
+      },
+      {
+        "name": "mutation_batches_execute_false_ordered",
+        "ok": true,
+        "detail": {
+          "batchIds": [
+            "batch_01_indexes_additive",
+            "batch_02_not_null_safe",
+            "batch_06_functions_triggers_additive",
+            "batch_07_ownership_acls",
+            "batch_08_extensions"
+          ]
+        }
+      },
+      {
+        "name": "injected_authority_preflight_path_secret_free",
+        "ok": true
+      }
+    ],
+    "redCount": 12,
+    "greenCount": 12,
+    "syntheticResidualCount": 35
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "residual_drift_preflight_ok",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "blocker": null,
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "observerAfter": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 35,
+      "counts": {
+        "expected_only": 34,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "notNullArtifactsNormalized": 448
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 35,
+      "mismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 35,
+      "expectedMismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "inventory": {
+      "count": 35,
+      "items": [
+        {
+          "key": "client_notification_events.idx_client_notification_events_client_created",
+          "section": "indexes",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_index",
+          "ownerMigrationId": "032_client_notification_settings",
+          "sha256CanonicalLfV1": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "missingOwner": false,
+          "dependencyOrderRank": 1
+        },
+        {
+          "key": "client_notification_events.idx_client_notification_events_conversation",
+          "section": "indexes",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_index",
+          "ownerMigrationId": "032_client_notification_settings",
+          "sha256CanonicalLfV1": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "missingOwner": false,
+          "dependencyOrderRank": 1
+        },
+        {
+          "key": "client_notification_settings.idx_client_notification_settings_client",
+          "section": "indexes",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_index",
+          "ownerMigrationId": "032_client_notification_settings",
+          "sha256CanonicalLfV1": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "missingOwner": false,
+          "dependencyOrderRank": 1
+        },
+        {
+          "key": "customer_message_templates.idx_customer_message_templates_client_active",
+          "section": "indexes",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_index",
+          "ownerMigrationId": "035_customer_message_templates",
+          "sha256CanonicalLfV1": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+          "missingOwner": false,
+          "dependencyOrderRank": 1
+        },
+        {
+          "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+          "section": "indexes",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_index",
+          "ownerMigrationId": "026_tenant_surf_pack_rules",
+          "sha256CanonicalLfV1": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+          "missingOwner": false,
+          "dependencyOrderRank": 1
+        },
+        {
+          "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "FOREIGN KEY",
+          "liveMismatchType": null,
+          "constraintCategory": "FOREIGN_KEY",
+          "contype": "FOREIGN KEY",
+          "constraintReason": null,
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "026_tenant_surf_pack_rules",
+          "sha256CanonicalLfV1": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+          "missingOwner": false,
+          "dependencyOrderRank": 4
+        },
+        {
+          "key": "public.fips_mode()",
+          "section": "functions",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "normalization_only",
+          "nonTableReason": "pgcrypto_fips_mode_azure_presentation",
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 6
+        },
+        {
+          "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+          "section": "triggers",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "exact_additive_canonical_apply",
+          "nonTableReason": "missing_expected_object",
+          "ownerMigrationId": "026_tenant_surf_pack_rules",
+          "sha256CanonicalLfV1": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+          "missingOwner": false,
+          "dependencyOrderRank": 6
+        },
+        {
+          "key": "function:public.fips_mode()",
+          "section": "acls",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "normalization_only",
+          "nonTableReason": "pgcrypto_fips_mode_privilege_presentation",
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 7
+        },
+        {
+          "key": "function:public.fips_mode()",
+          "section": "ownership",
+          "kind": "expected_only",
+          "expectedMismatchType": "missing_on_live",
+          "liveMismatchType": null,
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "normalization_only",
+          "nonTableReason": "pgcrypto_fips_mode_privilege_presentation",
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 7
+        },
+        {
+          "key": "beds.beds_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "booking_beds.booking_beds_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "bookings.bookings_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_created_at_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_currency_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_is_active_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_name_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_settings_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_slug_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_timezone_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "clients.hostels_updated_at_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "conversations.conversations_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "guests.guests_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "manual_entries.manual_entries_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "messages.messages_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "002_package_pricing",
+          "sha256CanonicalLfV1": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "packages.packages_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "payment_events.payment_events_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "payments.payments_amount_cents_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "payments.payments_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "payments.payments_kind_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "rooms.rooms_hostel_id_not_null.n",
+          "section": "constraints",
+          "kind": "expected_only",
+          "expectedMismatchType": "n",
+          "liveMismatchType": null,
+          "constraintCategory": "unsupported",
+          "contype": "n",
+          "constraintReason": "name_shape_mismatch",
+          "nonTableOutcomeClass": null,
+          "nonTableReason": null,
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        },
+        {
+          "key": "pgcrypto",
+          "section": "extensions",
+          "kind": "definition_mismatch",
+          "expectedMismatchType": "definition_mismatch",
+          "liveMismatchType": "definition_differs",
+          "constraintCategory": null,
+          "contype": null,
+          "constraintReason": null,
+          "nonTableOutcomeClass": "extension_policy",
+          "nonTableReason": "pgcrypto_definition_mismatch_extension_policy",
+          "ownerMigrationId": "001_init",
+          "sha256CanonicalLfV1": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+          "missingOwner": false,
+          "dependencyOrderRank": 9
+        }
+      ]
+    },
+    "preflightResults": [
+      {
+        "key": "client_notification_events.idx_client_notification_events_client_created",
+        "section": "indexes",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "index_preflight_ok",
+        "table_total": 0,
+        "execute": false
+      },
+      {
+        "key": "client_notification_events.idx_client_notification_events_conversation",
+        "section": "indexes",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "index_preflight_ok",
+        "table_total": 0,
+        "execute": false
+      },
+      {
+        "key": "client_notification_settings.idx_client_notification_settings_client",
+        "section": "indexes",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "index_preflight_ok",
+        "table_total": 0,
+        "execute": false
+      },
+      {
+        "key": "customer_message_templates.idx_customer_message_templates_client_active",
+        "section": "indexes",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "index_preflight_ok",
+        "table_total": 0,
+        "execute": false
+      },
+      {
+        "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "section": "indexes",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "index_preflight_ok",
+        "table_total": 36,
+        "execute": false
+      },
+      {
+        "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "FOREIGN_KEY",
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "fk_preflight_ok",
+        "orphan_count": 0,
+        "execute": false
+      },
+      {
+        "key": "public.fips_mode()",
+        "section": "functions",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "normalization_only",
+        "code": "pgcrypto_fips_mode_azure_presentation",
+        "execute": false
+      },
+      {
+        "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "section": "triggers",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "exact_additive_canonical_apply",
+        "code": "missing_expected_object",
+        "execute": false
+      },
+      {
+        "key": "function:public.fips_mode()",
+        "section": "acls",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "normalization_only",
+        "code": "pgcrypto_fips_mode_privilege_presentation",
+        "execute": false
+      },
+      {
+        "key": "function:public.fips_mode()",
+        "section": "ownership",
+        "kind": "expected_only",
+        "category": null,
+        "outcomeClass": "normalization_only",
+        "code": "pgcrypto_fips_mode_privilege_presentation",
+        "execute": false
+      },
+      {
+        "key": "beds.beds_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "booking_beds.booking_beds_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "bookings.bookings_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_created_at_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_currency_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_is_active_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_name_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_settings_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_slug_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_timezone_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "clients.hostels_updated_at_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "conversations.conversations_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "guests.guests_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "manual_entries.manual_entries_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "messages.messages_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "packages.packages_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "payment_events.payment_events_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "payments.payments_amount_cents_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "payments.payments_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "payments.payments_kind_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "rooms.rooms_hostel_id_not_null.n",
+        "section": "constraints",
+        "kind": "expected_only",
+        "category": "unsupported",
+        "outcomeClass": "blocker",
+        "code": "unsupported_constraint",
+        "execute": false
+      },
+      {
+        "key": "pgcrypto",
+        "section": "extensions",
+        "kind": "definition_mismatch",
+        "category": null,
+        "outcomeClass": "extension_policy",
+        "code": "pgcrypto_definition_mismatch_extension_policy",
+        "execute": false
+      }
+    ],
+    "mutationBatches": {
+      "ok": true,
+      "execute": false,
+      "code": "mutation_batches_planned",
+      "batches": [
+        {
+          "id": "batch_01_indexes_additive",
+          "outcome": "exact_additive_canonical_apply",
+          "keys": [
+            "indexes::client_notification_events.idx_client_notification_events_client_created",
+            "indexes::client_notification_events.idx_client_notification_events_conversation",
+            "indexes::client_notification_settings.idx_client_notification_settings_client",
+            "indexes::customer_message_templates.idx_customer_message_templates_client_active",
+            "indexes::tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc"
+          ],
+          "execute": false,
+          "stopCriteria": "stop if supporting columns missing or duplicate semantic index present",
+          "rollbackCriteria": "DROP INDEX IF EXISTS for created indexes only; never DROP live-owned indexes"
+        },
+        {
+          "id": "batch_04_fk_safe",
+          "outcome": "exact_additive_canonical_apply",
+          "keys": [
+            "constraints::tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+          ],
+          "execute": false,
+          "stopCriteria": "stop if orphan_count !== 0",
+          "rollbackCriteria": "ALTER TABLE DROP CONSTRAINT for applied FKs only"
+        },
+        {
+          "id": "batch_06_functions_triggers_additive",
+          "outcome": "exact_additive_canonical_apply",
+          "keys": [
+            "triggers::tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+          ],
+          "execute": false,
+          "stopCriteria": "stop on create failure or unexpected live definition",
+          "rollbackCriteria": "DROP FUNCTION/TRIGGER for applied objects only"
+        },
+        {
+          "id": "batch_06b_normalization_only",
+          "outcome": "normalization_only",
+          "keys": [
+            "functions::public.fips_mode()",
+            "acls::function:public.fips_mode()",
+            "ownership::function:public.fips_mode()"
+          ],
+          "execute": false,
+          "stopCriteria": "stop — do not CREATE/ALTER; observer/fixture normalization only",
+          "rollbackCriteria": "n/a — no apply"
+        },
+        {
+          "id": "batch_08_extensions",
+          "outcome": "extension_policy",
+          "keys": [
+            "extensions::pgcrypto"
+          ],
+          "execute": false,
+          "stopCriteria": "stop — extension create/alter requires explicit extension policy approval",
+          "rollbackCriteria": "n/a without policy"
+        },
+        {
+          "id": "batch_08b_unsupported_definitions",
+          "outcome": "blocker",
+          "keys": [
+            "constraints::beds.beds_hostel_id_not_null.n",
+            "constraints::booking_beds.booking_beds_hostel_id_not_null.n",
+            "constraints::bookings.bookings_hostel_id_not_null.n",
+            "constraints::clients.hostels_created_at_not_null.n",
+            "constraints::clients.hostels_currency_not_null.n",
+            "constraints::clients.hostels_id_not_null.n",
+            "constraints::clients.hostels_is_active_not_null.n",
+            "constraints::clients.hostels_name_not_null.n",
+            "constraints::clients.hostels_settings_not_null.n",
+            "constraints::clients.hostels_slug_not_null.n",
+            "constraints::clients.hostels_timezone_not_null.n",
+            "constraints::clients.hostels_updated_at_not_null.n",
+            "constraints::conversations.conversations_hostel_id_not_null.n",
+            "constraints::guests.guests_hostel_id_not_null.n",
+            "constraints::manual_entries.manual_entries_hostel_id_not_null.n",
+            "constraints::messages.messages_hostel_id_not_null.n",
+            "constraints::operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+            "constraints::package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+            "constraints::packages.packages_hostel_id_not_null.n",
+            "constraints::payment_events.payment_events_hostel_id_not_null.n",
+            "constraints::payments.payments_amount_cents_not_null.n",
+            "constraints::payments.payments_hostel_id_not_null.n",
+            "constraints::payments.payments_kind_not_null.n",
+            "constraints::rooms.rooms_hostel_id_not_null.n"
+          ],
+          "execute": false,
+          "stopCriteria": "stop — unsupported/name-mismatched constraint definitions are not additive-safe",
+          "rollbackCriteria": "n/a — no apply"
+        }
+      ],
+      "coverage": {
+        "inventoryCount": 35,
+        "batchKeyCount": 35,
+        "missingKeys": [],
+        "extraKeys": [],
+        "duplicateKeys": []
+      }
+    },
+    "coverage": {
+      "ok": true,
+      "code": "coverage_complete",
+      "inventoryCount": 35,
+      "preflightCount": 35,
+      "missingKeys": [],
+      "extraKeys": [],
+      "duplicateKeys": [],
+      "unownedKeys": []
+    },
+    "productFingerprintLive": "b46a9b52b90122de8999e5e901340e979dec437a49b21aa4598fea646396d1eb",
+    "applicationName": "wh-sunset-residual-drift-preflight",
+    "httpRequestCount": 6,
+    "imdsRequestCount": 3,
+    "keyVaultRequestCount": 2,
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 36,
+    "endCalls": 1,
+    "usedLiveHttp": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": true,
+    "execute": false,
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "errors": []
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}

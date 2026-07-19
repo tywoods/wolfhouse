@@ -1,0 +1,65 @@
+{
+  "kind": "slice14u-residual-drift-preflight-contract",
+  "slice": "14U",
+  "masterShaBasis": "e0db8af748a7d3cc93cb84fc6b09c199dc4fb5e8",
+  "applicationName": "wh-sunset-residual-drift-preflight",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration035Sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+  "migration028Sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "baselineMismatchCount": 35,
+  "baselineMismatchSections": {
+    "constraints": 25,
+    "indexes": 5,
+    "functions": 1,
+    "triggers": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "requiredRed": [
+    "default_path_zero_http_and_clients",
+    "missing_prove_flag_zero_clients",
+    "missing_residual_env_zero_clients",
+    "wrong_exact_targets_zero_clients",
+    "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+    "baseline_drift_mismatch_stops",
+    "nullable_mismatch_with_nonzero_nulls_red",
+    "duplicate_orphan_violation_red",
+    "unsupported_definition_red",
+    "missing_owner_red",
+    "incomplete_coverage_red",
+    "unsafe_ordering_red"
+  ],
+  "requiredGreen": [
+    "baseline_exactly_35_sections_ok",
+    "classify_constraint_categories",
+    "not_null_sql_aggregate_shape",
+    "pk_fk_unique_check_sql_shapes",
+    "index_support_proof_shape",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "global_live_apply_remains_false",
+    "coverage_complete_35_once",
+    "mutation_batches_execute_false_ordered",
+    "injected_authority_preflight_path_secret_free"
+  ],
+  "locks": {
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-residual-drift-preflight",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "gates": {
+    "envResidualDriftPreflight": "SUNSET_PHASE_D_RESIDUAL_DRIFT_PREFLIGHT",
+    "cliProve": "--prove-residual-drift-preflight",
+    "defaultDisabled": true,
+    "liveApplyRemainsFalse": true
+  },
+  "verifyNeverRerunsLive": true
+}
