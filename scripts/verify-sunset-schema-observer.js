@@ -486,10 +486,34 @@ async function main() {
           && !/secret show[\s\S]*luna-bot/i.test(src),
       );
       pass(
+        'slice10-preparer-no-keyvault-secret-show',
+        !/['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]show['"]/.test(src)
+          && !/\bsecret['\s,]+show\b/.test(src)
+          && !/secrets\/get/i.test(src)
+          && !/Get Secret/i.test(src),
+      );
+      const observerCheck = (src.match(
+        /Metadata-only listing[\s\S]*?(?=const image =)/,
+      ) || [''])[0];
+      pass(
         'slice10-preparer-observer-secret-metadata-only',
-        /\{name:name,enabled:attributes\.enabled\}/.test(src)
-          && /observerSecretValueRetrieved:\s*false/.test(src)
-          && !/\.value/.test(src.split('secretMeta')[1] || ''),
+        Boolean(observerCheck)
+          && /['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]list['"]/.test(observerCheck)
+          && /\[\?name=='\$\{OBSERVER_SECRET\}'\]\.\{name:name, enabled:attributes\.enabled\}/.test(observerCheck)
+          && /observer_secret_missing/.test(observerCheck)
+          && /observer_secret_disabled/.test(observerCheck)
+          && /observer_secret_ambiguous/.test(observerCheck)
+          && /observer_secret_metadata_malformed/.test(observerCheck)
+          && /observerSecretValueRetrieved:\s*false/.test(src),
+      );
+      pass(
+        'slice10-preparer-no-secret-value-fields',
+        Boolean(observerCheck)
+          && !/['"]keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]show['"]/.test(observerCheck)
+          && !/\bsecret['\s,]+show\b/.test(observerCheck)
+          && !/\bvalue\s*:/.test(observerCheck)
+          && !/attributes\.value/.test(observerCheck)
+          && !/['"]value['"]/.test(observerCheck),
       );
     }
     if (fs.existsSync(EVIDENCE)) {

@@ -44,6 +44,8 @@
     "forbidsBotTokenRetrieval": true,
     "forbidsWhatsAppOrInboxRetrieval": true,
     "forbidsDeployShaForceRevision": true,
+    "observerSecretCheck": "az keyvault secret list (exact-name metadata filter; name + attributes.enabled only)",
+    "forbidsKeyVaultSecretShow": true,
     "observerSecretValueRetrieved": false
   },
   "preDeployWhatIf": {
@@ -115,10 +117,11 @@
     "production": false
   },
   "correctionRereadOnlyVerify": {
-    "generatedAt": "2026-07-19T08:30:00.000Z",
+    "generatedAt": "2026-07-19T08:35:00.000Z",
     "deploymentCreatePerformed": false,
     "jobStartOrSchedulePerformed": false,
     "secretValuesRetrieved": false,
+    "observerSecretCheck": "az keyvault secret list --query exact-name metadata (name + attributes.enabled)",
     "job": {
       "name": "luna-sunset-staging-sch-obs",
       "exists": true,

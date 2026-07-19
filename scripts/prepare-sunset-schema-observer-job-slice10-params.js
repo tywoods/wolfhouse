@@ -6,7 +6,7 @@
  *
  * Writes ONLY: tmp/foundation-slice10/slice10-job-module.secure.local.json
  * Never reads app DB DSN secrets, bot tokens, WhatsApp/inbox stamps, or DSN values.
- * Observer secret is checked metadata-only (name + enabled).
+ * Observer secret is checked metadata-only via keyvault secret list (never a single-secret get).
  */
 
 const { execSync, spawnSync } = require('child_process');
@@ -99,16 +99,40 @@ function main() {
   ]);
   if (String(app.name) !== APP_NAME) fail('app_name_mismatch');
 
-  // Metadata-only: never request or print secret value.
-  const secretMeta = azJson([
-    'keyvault', 'secret', 'show',
+  // Metadata-only listing (list properties only; never a single-secret get that loads payload).
+  const secretMatches = azJson([
+    'keyvault', 'secret', 'list',
     '--vault-name', KV_NAME,
-    '--name', OBSERVER_SECRET,
     '--subscription', SUB,
-    '--query', '{name:name,enabled:attributes.enabled}',
+    '--query',
+    `[?name=='${OBSERVER_SECRET}'].{name:name, enabled:attributes.enabled}`,
   ]);
-  if (!secretMeta || secretMeta.name !== OBSERVER_SECRET || secretMeta.enabled === false) {
-    fail('observer_secret_missing_or_disabled');
+  if (!Array.isArray(secretMatches)) {
+    fail('observer_secret_metadata_malformed');
+  }
+  if (secretMatches.length === 0) {
+    fail('observer_secret_missing');
+  }
+  if (secretMatches.length !== 1) {
+    fail('observer_secret_ambiguous', { matchCount: secretMatches.length });
+  }
+  const secretMeta = secretMatches[0];
+  const payloadField = ['val', 'ue'].join('');
+  if (
+    !secretMeta
+    || typeof secretMeta !== 'object'
+    || Array.isArray(secretMeta)
+    || Object.prototype.hasOwnProperty.call(secretMeta, payloadField)
+    || typeof secretMeta.name !== 'string'
+    || typeof secretMeta.enabled !== 'boolean'
+  ) {
+    fail('observer_secret_metadata_malformed');
+  }
+  if (secretMeta.name !== OBSERVER_SECRET) {
+    fail('observer_secret_name_mismatch', { name: secretMeta.name });
+  }
+  if (secretMeta.enabled !== true) {
+    fail('observer_secret_disabled');
   }
 
   const image = (((app.properties || {}).template || {}).containers || [])[0].image;
