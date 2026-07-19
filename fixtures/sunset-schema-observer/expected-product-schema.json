@@ -47,14 +47,14 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T15:26:22.907Z",
-  "generatedFromMaster": "e3764ae3823200a4817edd8a60beb53775a010b6",
-  "slice13c2Note": "Regenerated from disposable canonical chain including 039_sunset_admin_location_aware_rules; not derived from live.",
+  "generatedAt": "2026-07-19T15:53:50.523Z",
+  "generatedFromMaster": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "slice13c3aNote": "Regenerated from disposable canonical chain including 040_tenant_services_saas_catalog_columns; not derived from live.",
   "checksumMode": "canonical_lf_v1",
-  "forwardCount": 37,
-  "manifestHash": "7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0",
-  "productFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
-  "previousProductFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "forwardCount": 38,
+  "manifestHash": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+  "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "previousProductFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
   "excludes": [
     "schema_migration_ledger"
   ],
@@ -5468,6 +5468,22 @@
       },
       {
         "table": "tenant_services",
+        "column": "block_rooms_enabled",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "false"
+      },
+      {
+        "table": "tenant_services",
+        "column": "blocked_room_codes",
+        "type": "text[]",
+        "udt": "_text",
+        "nullable": "NO",
+        "default": "'{}'::text[]"
+      },
+      {
+        "table": "tenant_services",
         "column": "category",
         "type": "text",
         "udt": "text",
@@ -5564,6 +5580,14 @@
       },
       {
         "table": "tenant_services",
+        "column": "room_block_booking_ids",
+        "type": "uuid[]",
+        "udt": "_uuid",
+        "nullable": "NO",
+        "default": "'{}'::uuid[]"
+      },
+      {
+        "table": "tenant_services",
         "column": "schedule_slots",
         "type": "jsonb",
         "udt": "jsonb",
@@ -5609,6 +5633,14 @@
         "udt": "uuid",
         "nullable": "YES",
         "default": null
+      },
+      {
+        "table": "tenant_services",
+        "column": "weekdays",
+        "type": "smallint[]",
+        "udt": "_int2",
+        "nullable": "NO",
+        "default": "'{}'::smallint[]"
       },
       {
         "table": "tenant_surf_pack_rules",
@@ -6412,15 +6444,51 @@
       },
       {
         "table": "add_on_items",
+        "name": "add_on_items_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "add_on_items",
         "name": "add_on_items_fulfillment_status_check",
         "type": "CHECK",
         "definition": "CHECK ((fulfillment_status = ANY (ARRAY['requested'::text, 'scheduled'::text, 'fulfilled'::text, 'cancelled'::text])))"
       },
       {
         "table": "add_on_items",
+        "name": "add_on_items_fulfillment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL fulfillment_status"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_item_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL item_type"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "add_on_items",
         "name": "add_on_items_order_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (order_id) REFERENCES add_on_orders(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_order_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL order_id"
       },
       {
         "table": "add_on_items",
@@ -6436,15 +6504,39 @@
       },
       {
         "table": "add_on_items",
+        "name": "add_on_items_quantity_not_null",
+        "type": "n",
+        "definition": "NOT NULL quantity"
+      },
+      {
+        "table": "add_on_items",
         "name": "add_on_items_total_price_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((total_price_cents >= 0))"
       },
       {
         "table": "add_on_items",
+        "name": "add_on_items_total_price_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL total_price_cents"
+      },
+      {
+        "table": "add_on_items",
         "name": "add_on_items_unit_price_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((unit_price_cents >= 0))"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_unit_price_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL unit_price_cents"
+      },
+      {
+        "table": "add_on_items",
+        "name": "add_on_items_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "add_on_orders",
@@ -6460,6 +6552,12 @@
       },
       {
         "table": "add_on_orders",
+        "name": "add_on_orders_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "add_on_orders",
         "name": "add_on_orders_client_id_order_code_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_id, order_code)"
@@ -6469,6 +6567,36 @@
         "name": "add_on_orders_conversation_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_currency_not_null",
+        "type": "n",
+        "definition": "NOT NULL currency"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_order_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL order_code"
       },
       {
         "table": "add_on_orders",
@@ -6484,9 +6612,21 @@
       },
       {
         "table": "add_on_orders",
+        "name": "add_on_orders_payment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_status"
+      },
+      {
+        "table": "add_on_orders",
         "name": "add_on_orders_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_requested_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL requested_at"
       },
       {
         "table": "add_on_orders",
@@ -6496,15 +6636,39 @@
       },
       {
         "table": "add_on_orders",
+        "name": "add_on_orders_source_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL source_channel"
+      },
+      {
+        "table": "add_on_orders",
         "name": "add_on_orders_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['draft'::text, 'pending_staff'::text, 'payment_pending'::text, 'paid'::text, 'cancelled'::text, 'fulfilled'::text])))"
       },
       {
         "table": "add_on_orders",
+        "name": "add_on_orders_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "add_on_orders",
         "name": "add_on_orders_total_amount_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((total_amount_cents >= 0))"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_total_amount_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL total_amount_cents"
+      },
+      {
+        "table": "add_on_orders",
+        "name": "add_on_orders_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "auth_sessions",
@@ -6514,15 +6678,57 @@
       },
       {
         "table": "auth_sessions",
+        "name": "auth_sessions_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "auth_sessions",
+        "name": "auth_sessions_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "auth_sessions",
+        "name": "auth_sessions_expires_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL expires_at"
+      },
+      {
+        "table": "auth_sessions",
+        "name": "auth_sessions_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "auth_sessions",
         "name": "auth_sessions_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
       },
       {
         "table": "auth_sessions",
+        "name": "auth_sessions_session_token_hash_not_null",
+        "type": "n",
+        "definition": "NOT NULL session_token_hash"
+      },
+      {
+        "table": "auth_sessions",
         "name": "auth_sessions_staff_user_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (staff_user_id) REFERENCES staff_users(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "auth_sessions",
+        "name": "auth_sessions_staff_user_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL staff_user_id"
+      },
+      {
+        "table": "auth_sessions",
+        "name": "auth_sessions_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "automation_errors",
@@ -6538,9 +6744,27 @@
       },
       {
         "table": "automation_errors",
+        "name": "automation_errors_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_error_message_not_null",
+        "type": "n",
+        "definition": "NOT NULL error_message"
+      },
+      {
+        "table": "automation_errors",
         "name": "automation_errors_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "automation_errors",
@@ -6550,15 +6774,75 @@
       },
       {
         "table": "automation_errors",
+        "name": "automation_errors_payload_not_null",
+        "type": "n",
+        "definition": "NOT NULL payload"
+      },
+      {
+        "table": "automation_errors",
         "name": "automation_errors_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_retry_count_not_null",
+        "type": "n",
+        "definition": "NOT NULL retry_count"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_severity_not_null",
+        "type": "n",
+        "definition": "NOT NULL severity"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_staff_alert_sent_not_null",
+        "type": "n",
+        "definition": "NOT NULL staff_alert_sent"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "automation_errors",
+        "name": "automation_errors_workflow_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL workflow_name"
+      },
+      {
+        "table": "beds",
+        "name": "beds_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
       },
       {
         "table": "beds",
         "name": "beds_airtable_record_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (airtable_record_id)"
+      },
+      {
+        "table": "beds",
+        "name": "beds_bed_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL bed_code"
+      },
+      {
+        "table": "beds",
+        "name": "beds_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "beds",
@@ -6574,6 +6858,18 @@
       },
       {
         "table": "beds",
+        "name": "beds_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "beds",
+        "name": "beds_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "beds",
         "name": "beds_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
@@ -6585,10 +6881,40 @@
         "definition": "FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE RESTRICT"
       },
       {
+        "table": "beds",
+        "name": "beds_room_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL room_id"
+      },
+      {
+        "table": "beds",
+        "name": "beds_sellable_not_null",
+        "type": "n",
+        "definition": "NOT NULL sellable"
+      },
+      {
+        "table": "beds",
+        "name": "beds_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
         "table": "booking_beds",
         "name": "booking_beds_airtable_record_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (airtable_record_id)"
+      },
+      {
+        "table": "booking_beds",
+        "name": "booking_beds_assignment_end_date_not_null",
+        "type": "n",
+        "definition": "NOT NULL assignment_end_date"
+      },
+      {
+        "table": "booking_beds",
+        "name": "booking_beds_assignment_start_date_not_null",
+        "type": "n",
+        "definition": "NOT NULL assignment_start_date"
       },
       {
         "table": "booking_beds",
@@ -6598,9 +6924,21 @@
       },
       {
         "table": "booking_beds",
+        "name": "booking_beds_bed_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL bed_id"
+      },
+      {
+        "table": "booking_beds",
         "name": "booking_beds_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "booking_beds",
+        "name": "booking_beds_booking_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_id"
       },
       {
         "table": "booking_beds",
@@ -6610,9 +6948,27 @@
       },
       {
         "table": "booking_beds",
+        "name": "booking_beds_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "booking_beds",
         "name": "booking_beds_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "booking_beds",
+        "name": "booking_beds_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "booking_beds",
+        "name": "booking_beds_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "booking_beds",
@@ -6621,10 +6977,22 @@
         "definition": "PRIMARY KEY (id)"
       },
       {
+        "table": "booking_beds",
+        "name": "booking_beds_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
         "table": "booking_guests",
         "name": "booking_guests_amount_paid_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((amount_paid_cents >= 0))"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_amount_paid_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_paid_cents"
       },
       {
         "table": "booking_guests",
@@ -6640,9 +7008,27 @@
       },
       {
         "table": "booking_guests",
+        "name": "booking_guests_booking_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_id"
+      },
+      {
+        "table": "booking_guests",
         "name": "booking_guests_client_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "booking_guests",
@@ -6652,9 +7038,39 @@
       },
       {
         "table": "booking_guests",
+        "name": "booking_guests_deposit_amount_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL deposit_amount_cents"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_guest_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_name"
+      },
+      {
+        "table": "booking_guests",
         "name": "booking_guests_guest_number_check",
         "type": "CHECK",
         "definition": "CHECK ((guest_number >= 1))"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_guest_number_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_number"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "booking_guests",
@@ -6664,9 +7080,21 @@
       },
       {
         "table": "booking_guests",
+        "name": "booking_guests_payment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_status"
+      },
+      {
+        "table": "booking_guests",
         "name": "booking_guests_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "booking_guests",
+        "name": "booking_guests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "booking_service_records",
@@ -6676,15 +7104,51 @@
       },
       {
         "table": "booking_service_records",
+        "name": "booking_service_records_amount_due_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_due_cents"
+      },
+      {
+        "table": "booking_service_records",
         "name": "booking_service_records_amount_paid_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((amount_paid_cents >= 0))"
       },
       {
         "table": "booking_service_records",
+        "name": "booking_service_records_amount_paid_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_paid_cents"
+      },
+      {
+        "table": "booking_service_records",
         "name": "booking_service_records_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "booking_service_records",
@@ -6700,6 +7164,12 @@
       },
       {
         "table": "booking_service_records",
+        "name": "booking_service_records_payment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_status"
+      },
+      {
+        "table": "booking_service_records",
         "name": "booking_service_records_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
@@ -6712,9 +7182,21 @@
       },
       {
         "table": "booking_service_records",
+        "name": "booking_service_records_quantity_not_null",
+        "type": "n",
+        "definition": "NOT NULL quantity"
+      },
+      {
+        "table": "booking_service_records",
         "name": "booking_service_records_service_type_check",
         "type": "CHECK",
         "definition": "CHECK ((service_type = ANY (ARRAY['yoga'::text, 'meal'::text, 'surf_lesson'::text, 'wetsuit'::text, 'surfboard'::text, 'addon_service'::text])))"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_service_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL service_type"
       },
       {
         "table": "booking_service_records",
@@ -6724,9 +7206,27 @@
       },
       {
         "table": "booking_service_records",
+        "name": "booking_service_records_source_not_null",
+        "type": "n",
+        "definition": "NOT NULL source"
+      },
+      {
+        "table": "booking_service_records",
         "name": "booking_service_records_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['requested'::text, 'confirmed'::text, 'paid'::text, 'cancelled'::text])))"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "booking_service_records",
+        "name": "booking_service_records_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "booking_transfers",
@@ -6742,9 +7242,45 @@
       },
       {
         "table": "booking_transfers",
+        "name": "booking_transfers_booking_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_id"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_currency_not_null",
+        "type": "n",
+        "definition": "NOT NULL currency"
+      },
+      {
+        "table": "booking_transfers",
         "name": "booking_transfers_direction_check",
         "type": "CHECK",
         "definition": "CHECK ((direction = ANY (ARRAY['arrival'::text, 'departure'::text])))"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_direction_not_null",
+        "type": "n",
+        "definition": "NOT NULL direction"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "booking_transfers",
@@ -6760,9 +7296,27 @@
       },
       {
         "table": "booking_transfers",
+        "name": "booking_transfers_source_not_null",
+        "type": "n",
+        "definition": "NOT NULL source"
+      },
+      {
+        "table": "booking_transfers",
         "name": "booking_transfers_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['requested'::text, 'confirmed'::text, 'cancelled'::text, 'not_needed'::text])))"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "booking_transfers",
+        "name": "booking_transfers_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "bookings",
@@ -6772,9 +7326,57 @@
       },
       {
         "table": "bookings",
+        "name": "bookings_assignment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL assignment_status"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_availability_check_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL availability_check_status"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_block_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL block_type"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_booking_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_code"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_booking_source_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_source"
+      },
+      {
+        "table": "bookings",
         "name": "bookings_check",
         "type": "CHECK",
         "definition": "CHECK ((check_out > check_in))"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_check_in_not_null",
+        "type": "n",
+        "definition": "NOT NULL check_in"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_check_out_not_null",
+        "type": "n",
+        "definition": "NOT NULL check_out"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "bookings",
@@ -6787,6 +7389,12 @@
         "name": "bookings_guest_count_check",
         "type": "CHECK",
         "definition": "CHECK ((guest_count > 0))"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_guest_count_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_count"
       },
       {
         "table": "bookings",
@@ -6808,9 +7416,39 @@
       },
       {
         "table": "bookings",
+        "name": "bookings_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_needs_rooming_review_not_null",
+        "type": "n",
+        "definition": "NOT NULL needs_rooming_review"
+      },
+      {
+        "table": "bookings",
         "name": "bookings_package_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_payment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_status"
       },
       {
         "table": "bookings",
@@ -6825,10 +7463,70 @@
         "definition": "FOREIGN KEY (room_to_block_id) REFERENCES rooms(id) ON DELETE SET NULL"
       },
       {
+        "table": "bookings",
+        "name": "bookings_send_confirmation_not_null",
+        "type": "n",
+        "definition": "NOT NULL send_confirmation"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "bookings",
+        "name": "bookings_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
         "table": "bot_pause_states",
         "name": "bot_pause_states_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_paused_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL paused_at"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_paused_by_not_null",
+        "type": "n",
+        "definition": "NOT NULL paused_by"
+      },
+      {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_paused_not_null",
+        "type": "n",
+        "definition": "NOT NULL paused"
       },
       {
         "table": "bot_pause_states",
@@ -6843,10 +7541,46 @@
         "definition": "CHECK (((guest_phone IS NOT NULL) OR (conversation_id IS NOT NULL)))"
       },
       {
+        "table": "bot_pause_states",
+        "name": "bot_pause_states_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_handoff_event_key_not_null",
+        "type": "n",
+        "definition": "NOT NULL handoff_event_key"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
         "table": "client_notification_events",
         "name": "client_notification_events_notification_type_check",
         "type": "CHECK",
         "definition": "CHECK ((notification_type = ANY (ARRAY['new_conversation'::text, 'human_needed'::text])))"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_notification_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL notification_type"
       },
       {
         "table": "client_notification_events",
@@ -6856,9 +7590,45 @@
       },
       {
         "table": "client_notification_events",
+        "name": "client_notification_events_recipient_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL recipient_phone"
+      },
+      {
+        "table": "client_notification_events",
         "name": "client_notification_events_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['dry_run'::text, 'sent'::text, 'failed'::text, 'skipped'::text])))"
+      },
+      {
+        "table": "client_notification_events",
+        "name": "client_notification_events_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_enabled_not_null",
+        "type": "n",
+        "definition": "NOT NULL enabled"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "client_notification_settings",
@@ -6868,9 +7638,57 @@
       },
       {
         "table": "client_notification_settings",
+        "name": "client_notification_settings_notification_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL notification_type"
+      },
+      {
+        "table": "client_notification_settings",
         "name": "client_notification_settings_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_recipients_not_null",
+        "type": "n",
+        "definition": "NOT NULL recipients"
+      },
+      {
+        "table": "client_notification_settings",
+        "name": "client_notification_settings_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_currency_not_null",
+        "type": "n",
+        "definition": "NOT NULL currency"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_is_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL is_active"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL name"
       },
       {
         "table": "clients",
@@ -6880,15 +7698,51 @@
       },
       {
         "table": "clients",
+        "name": "hostels_settings_not_null",
+        "type": "n",
+        "definition": "NOT NULL settings"
+      },
+      {
+        "table": "clients",
         "name": "hostels_slug_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (slug)"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL slug"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_timezone_not_null",
+        "type": "n",
+        "definition": "NOT NULL timezone"
+      },
+      {
+        "table": "clients",
+        "name": "hostels_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "conversations",
         "name": "conversations_airtable_record_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (airtable_record_id)"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_bot_mode_not_null",
+        "type": "n",
+        "definition": "NOT NULL bot_mode"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "conversations",
@@ -6916,15 +7770,81 @@
       },
       {
         "table": "conversations",
+        "name": "conversations_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "conversations",
         "name": "conversations_hostel_id_phone_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_id, phone)"
       },
       {
         "table": "conversations",
+        "name": "conversations_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_needs_human_not_null",
+        "type": "n",
+        "definition": "NOT NULL needs_human"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL phone"
+      },
+      {
+        "table": "conversations",
         "name": "conversations_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_session_state_not_null",
+        "type": "n",
+        "definition": "NOT NULL session_state"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "conversations",
+        "name": "conversations_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_body_not_null",
+        "type": "n",
+        "definition": "NOT NULL body"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL channel"
       },
       {
         "table": "customer_message_templates",
@@ -6934,9 +7854,45 @@
       },
       {
         "table": "customer_message_templates",
+        "name": "customer_message_templates_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "customer_message_templates",
         "name": "customer_message_templates_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_tags_not_null",
+        "type": "n",
+        "definition": "NOT NULL tags"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_title_not_null",
+        "type": "n",
+        "definition": "NOT NULL title"
+      },
+      {
+        "table": "customer_message_templates",
+        "name": "customer_message_templates_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "customers",
@@ -6946,15 +7902,75 @@
       },
       {
         "table": "customers",
+        "name": "customers_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "customers",
         "name": "customers_client_id_phone_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_id, phone)"
       },
       {
         "table": "customers",
+        "name": "customers_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "customers",
+        "name": "customers_crm_tags_not_null",
+        "type": "n",
+        "definition": "NOT NULL crm_tags"
+      },
+      {
+        "table": "customers",
+        "name": "customers_first_seen_not_null",
+        "type": "n",
+        "definition": "NOT NULL first_seen"
+      },
+      {
+        "table": "customers",
+        "name": "customers_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "customers",
+        "name": "customers_last_seen_not_null",
+        "type": "n",
+        "definition": "NOT NULL last_seen"
+      },
+      {
+        "table": "customers",
+        "name": "customers_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL phone"
+      },
+      {
+        "table": "customers",
         "name": "customers_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "customers",
+        "name": "customers_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL channel"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
       },
       {
         "table": "guest_message_events",
@@ -6964,9 +7980,63 @@
       },
       {
         "table": "guest_message_events",
+        "name": "guest_message_events_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_direction_not_null",
+        "type": "n",
+        "definition": "NOT NULL direction"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_draft_called_not_null",
+        "type": "n",
+        "definition": "NOT NULL draft_called"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_handoff_required_not_null",
+        "type": "n",
+        "definition": "NOT NULL handoff_required"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "guest_message_events",
         "name": "guest_message_events_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_send_attempted_not_null",
+        "type": "n",
+        "definition": "NOT NULL send_attempted"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "guest_message_events",
+        "name": "guest_message_events_wa_message_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL wa_message_id"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL channel"
       },
       {
         "table": "guest_message_sends",
@@ -6976,15 +8046,69 @@
       },
       {
         "table": "guest_message_sends",
+        "name": "guest_message_sends_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_idempotency_key_not_null",
+        "type": "n",
+        "definition": "NOT NULL idempotency_key"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_message_text_not_null",
+        "type": "n",
+        "definition": "NOT NULL message_text"
+      },
+      {
+        "table": "guest_message_sends",
         "name": "guest_message_sends_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
       },
       {
         "table": "guest_message_sends",
+        "name": "guest_message_sends_send_kind_not_null",
+        "type": "n",
+        "definition": "NOT NULL send_kind"
+      },
+      {
+        "table": "guest_message_sends",
         "name": "guest_message_sends_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'sent'::text, 'blocked'::text, 'failed'::text])))"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_to_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL to_phone"
+      },
+      {
+        "table": "guest_message_sends",
+        "name": "guest_message_sends_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "guests",
@@ -6994,15 +8118,45 @@
       },
       {
         "table": "guests",
+        "name": "guests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "guests",
         "name": "guests_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
       },
       {
         "table": "guests",
+        "name": "guests_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "guests",
+        "name": "guests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "guests",
+        "name": "guests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "guests",
         "name": "guests_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "guests",
+        "name": "guests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "lesson_requests",
@@ -7012,15 +8166,45 @@
       },
       {
         "table": "lesson_requests",
+        "name": "lesson_requests_add_on_item_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL add_on_item_id"
+      },
+      {
+        "table": "lesson_requests",
         "name": "lesson_requests_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
       },
       {
         "table": "lesson_requests",
+        "name": "lesson_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "lesson_requests",
         "name": "lesson_requests_guest_count_check",
         "type": "CHECK",
         "definition": "CHECK ((guest_count > 0))"
+      },
+      {
+        "table": "lesson_requests",
+        "name": "lesson_requests_guest_count_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_count"
+      },
+      {
+        "table": "lesson_requests",
+        "name": "lesson_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "lesson_requests",
+        "name": "lesson_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "lesson_requests",
@@ -7035,10 +8219,34 @@
         "definition": "CHECK ((scheduling_status = ANY (ARRAY['staff_required'::text, 'scheduled'::text, 'cancelled'::text, 'completed'::text])))"
       },
       {
+        "table": "lesson_requests",
+        "name": "lesson_requests_scheduling_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL scheduling_status"
+      },
+      {
+        "table": "lesson_requests",
+        "name": "lesson_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_action_not_null",
+        "type": "n",
+        "definition": "NOT NULL action"
+      },
+      {
         "table": "manual_entries",
         "name": "manual_entries_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "manual_entries",
@@ -7054,9 +8262,45 @@
       },
       {
         "table": "manual_entries",
+        "name": "manual_entries_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_manual_entry_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL manual_entry_code"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "manual_entries",
         "name": "manual_entries_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_sync_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL sync_status"
+      },
+      {
+        "table": "manual_entries",
+        "name": "manual_entries_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "meal_requests",
@@ -7066,9 +8310,21 @@
       },
       {
         "table": "meal_requests",
+        "name": "meal_requests_add_on_item_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL add_on_item_id"
+      },
+      {
+        "table": "meal_requests",
         "name": "meal_requests_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "meal_requests",
@@ -7078,9 +8334,33 @@
       },
       {
         "table": "meal_requests",
+        "name": "meal_requests_guest_count_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_count"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "meal_requests",
         "name": "meal_requests_meal_type_check",
         "type": "CHECK",
         "definition": "CHECK ((meal_type = ANY (ARRAY['dinner'::text, 'breakfast'::text, 'lunch'::text, 'other'::text])))"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_meal_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL meal_type"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "meal_requests",
@@ -7093,6 +8373,18 @@
         "name": "meal_requests_service_status_check",
         "type": "CHECK",
         "definition": "CHECK ((service_status = ANY (ARRAY['requested'::text, 'confirmed'::text, 'served'::text, 'cancelled'::text])))"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_service_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL service_status"
+      },
+      {
+        "table": "meal_requests",
+        "name": "meal_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "messages",
@@ -7108,15 +8400,69 @@
       },
       {
         "table": "messages",
+        "name": "messages_conversation_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL conversation_id"
+      },
+      {
+        "table": "messages",
+        "name": "messages_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "messages",
+        "name": "messages_direction_not_null",
+        "type": "n",
+        "definition": "NOT NULL direction"
+      },
+      {
+        "table": "messages",
         "name": "messages_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
       },
       {
         "table": "messages",
+        "name": "messages_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "messages",
+        "name": "messages_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "messages",
+        "name": "messages_message_text_not_null",
+        "type": "n",
+        "definition": "NOT NULL message_text"
+      },
+      {
+        "table": "messages",
+        "name": "messages_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "messages",
         "name": "messages_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "messages",
+        "name": "messages_source_not_null",
+        "type": "n",
+        "definition": "NOT NULL source"
+      },
+      {
+        "table": "messages",
+        "name": "messages_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "operator_room_release_requests",
@@ -7132,9 +8478,27 @@
       },
       {
         "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "operator_room_release_requests",
         "name": "operator_room_release_requests_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "operator_room_release_requests",
@@ -7150,6 +8514,12 @@
       },
       {
         "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_operator_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL operator_name"
+      },
+      {
+        "table": "operator_room_release_requests",
         "name": "operator_room_release_requests_original_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (original_booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
@@ -7162,9 +8532,39 @@
       },
       {
         "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_release_end_date_not_null",
+        "type": "n",
+        "definition": "NOT NULL release_end_date"
+      },
+      {
+        "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_release_start_date_not_null",
+        "type": "n",
+        "definition": "NOT NULL release_start_date"
+      },
+      {
+        "table": "operator_room_release_requests",
         "name": "operator_room_release_requests_room_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "operator_room_release_requests",
+        "name": "operator_room_release_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
       },
       {
         "table": "package_price_rules",
@@ -7174,15 +8574,51 @@
       },
       {
         "table": "package_price_rules",
+        "name": "package_price_rules_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "package_price_rules",
         "name": "package_price_rules_client_id_package_id_rule_name_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_id, package_id, rule_name)"
       },
       {
         "table": "package_price_rules",
+        "name": "package_price_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_double_supplement_per_person_per_n_not_null",
+        "type": "n",
+        "definition": "NOT NULL double_supplement_per_person_per_night_cents"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_month_numbers_not_null",
+        "type": "n",
+        "definition": "NOT NULL month_numbers"
+      },
+      {
+        "table": "package_price_rules",
         "name": "package_price_rules_package_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (package_id) REFERENCES packages(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_package_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL package_id"
       },
       {
         "table": "package_price_rules",
@@ -7195,6 +8631,48 @@
         "name": "package_price_rules_price_per_person_per_week_cents_check",
         "type": "CHECK",
         "definition": "CHECK ((price_per_person_per_week_cents >= 0))"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_price_per_person_per_week_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL price_per_person_per_week_cents"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_priority_not_null",
+        "type": "n",
+        "definition": "NOT NULL priority"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_room_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL room_type"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_rule_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL rule_name"
+      },
+      {
+        "table": "package_price_rules",
+        "name": "package_price_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "packages",
+        "name": "packages_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL code"
+      },
+      {
+        "table": "packages",
+        "name": "packages_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "packages",
@@ -7210,9 +8688,45 @@
       },
       {
         "table": "packages",
+        "name": "packages_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "packages",
+        "name": "packages_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "packages",
+        "name": "packages_is_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL is_active"
+      },
+      {
+        "table": "packages",
+        "name": "packages_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "packages",
+        "name": "packages_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL name"
+      },
+      {
+        "table": "packages",
         "name": "packages_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "packages",
+        "name": "packages_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "payment_events",
@@ -7222,9 +8736,39 @@
       },
       {
         "table": "payment_events",
+        "name": "payment_events_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "payment_events",
+        "name": "payment_events_event_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL event_type"
+      },
+      {
+        "table": "payment_events",
         "name": "payment_events_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "payment_events",
+        "name": "payment_events_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "payment_events",
+        "name": "payment_events_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "payment_events",
+        "name": "payment_events_payload_not_null",
+        "type": "n",
+        "definition": "NOT NULL payload"
       },
       {
         "table": "payment_events",
@@ -7240,9 +8784,21 @@
       },
       {
         "table": "payment_events",
+        "name": "payment_events_processed_not_null",
+        "type": "n",
+        "definition": "NOT NULL processed"
+      },
+      {
+        "table": "payment_events",
         "name": "payment_events_stripe_event_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (stripe_event_id)"
+      },
+      {
+        "table": "payments",
+        "name": "payments_amount_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_due_cents"
       },
       {
         "table": "payments",
@@ -7258,6 +8814,12 @@
       },
       {
         "table": "payments",
+        "name": "payments_amount_paid_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_paid_cents"
+      },
+      {
+        "table": "payments",
         "name": "payments_booking_guest_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_guest_id) REFERENCES booking_guests(id) ON DELETE SET NULL"
@@ -7270,9 +8832,51 @@
       },
       {
         "table": "payments",
+        "name": "payments_booking_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL booking_id"
+      },
+      {
+        "table": "payments",
+        "name": "payments_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "payments",
+        "name": "payments_currency_not_null",
+        "type": "n",
+        "definition": "NOT NULL currency"
+      },
+      {
+        "table": "payments",
         "name": "payments_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "payments",
+        "name": "payments_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "payments",
+        "name": "payments_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "payments",
+        "name": "payments_kind_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_kind"
+      },
+      {
+        "table": "payments",
+        "name": "payments_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "payments",
@@ -7282,15 +8886,33 @@
       },
       {
         "table": "payments",
+        "name": "payments_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "payments",
         "name": "payments_stripe_checkout_session_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (stripe_checkout_session_id)"
+      },
+      {
+        "table": "payments",
+        "name": "payments_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "rental_requests",
         "name": "rental_requests_add_on_item_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (add_on_item_id) REFERENCES add_on_items(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_add_on_item_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL add_on_item_id"
       },
       {
         "table": "rental_requests",
@@ -7306,9 +8928,39 @@
       },
       {
         "table": "rental_requests",
+        "name": "rental_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_deposit_required_not_null",
+        "type": "n",
+        "definition": "NOT NULL deposit_required"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "rental_requests",
         "name": "rental_requests_pickup_status_check",
         "type": "CHECK",
         "definition": "CHECK ((pickup_status = ANY (ARRAY['requested'::text, 'active'::text, 'returned'::text, 'cancelled'::text])))"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_pickup_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL pickup_status"
       },
       {
         "table": "rental_requests",
@@ -7323,10 +8975,70 @@
         "definition": "CHECK ((quantity > 0))"
       },
       {
+        "table": "rental_requests",
+        "name": "rental_requests_quantity_not_null",
+        "type": "n",
+        "definition": "NOT NULL quantity"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_rental_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL rental_type"
+      },
+      {
+        "table": "rental_requests",
+        "name": "rental_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
         "table": "rooms",
         "name": "rooms_airtable_record_id_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (airtable_record_id)"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_avoid_until_needed_not_null",
+        "type": "n",
+        "definition": "NOT NULL avoid_until_needed"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_can_be_matrimonial_not_null",
+        "type": "n",
+        "definition": "NOT NULL can_be_matrimonial"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_capacity_not_null",
+        "type": "n",
+        "definition": "NOT NULL capacity"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_fill_priority_not_null",
+        "type": "n",
+        "definition": "NOT NULL fill_priority"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_gender_strategy_not_null",
+        "type": "n",
+        "definition": "NOT NULL gender_strategy"
       },
       {
         "table": "rooms",
@@ -7336,15 +9048,93 @@
       },
       {
         "table": "rooms",
+        "name": "rooms_hostel_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "rooms",
         "name": "rooms_hostel_id_room_code_key",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_id, room_code)"
       },
       {
         "table": "rooms",
+        "name": "rooms_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_often_used_by_operator_not_null",
+        "type": "n",
+        "definition": "NOT NULL often_used_by_operator"
+      },
+      {
+        "table": "rooms",
         "name": "rooms_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_private_priority_not_null",
+        "type": "n",
+        "definition": "NOT NULL private_priority"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_room_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL room_code"
+      },
+      {
+        "table": "rooms",
+        "name": "rooms_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_automation_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL automation_id"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_dedupe_key_not_null",
+        "type": "n",
+        "definition": "NOT NULL dedupe_key"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_due_local_date_not_null",
+        "type": "n",
+        "definition": "NOT NULL due_local_date"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_due_local_time_not_null",
+        "type": "n",
+        "definition": "NOT NULL due_local_time"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "staff_automated_notification_events",
@@ -7354,9 +9144,51 @@
       },
       {
         "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_recipient_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL recipient_phone"
+      },
+      {
+        "table": "staff_automated_notification_events",
         "name": "staff_automated_notification_events_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['dry_run'::text, 'sent'::text, 'failed'::text, 'skipped'::text])))"
+      },
+      {
+        "table": "staff_automated_notification_events",
+        "name": "staff_automated_notification_events_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_days_of_week_not_null",
+        "type": "n",
+        "definition": "NOT NULL days_of_week"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_enabled_not_null",
+        "type": "n",
+        "definition": "NOT NULL enabled"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "staff_automated_notifications",
@@ -7366,9 +9198,45 @@
       },
       {
         "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_local_time_not_null",
+        "type": "n",
+        "definition": "NOT NULL local_time"
+      },
+      {
+        "table": "staff_automated_notifications",
         "name": "staff_automated_notifications_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_prompt_not_null",
+        "type": "n",
+        "definition": "NOT NULL prompt"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_recipients_not_null",
+        "type": "n",
+        "definition": "NOT NULL recipients"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_timezone_not_null",
+        "type": "n",
+        "definition": "NOT NULL timezone"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_title_not_null",
+        "type": "n",
+        "definition": "NOT NULL title"
+      },
+      {
+        "table": "staff_automated_notifications",
+        "name": "staff_automated_notifications_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "staff_handoffs",
@@ -7384,9 +9252,39 @@
       },
       {
         "table": "staff_handoffs",
+        "name": "staff_handoffs_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "staff_handoffs",
         "name": "staff_handoffs_conversation_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (conversation_id) REFERENCES conversations(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_opened_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL opened_at"
       },
       {
         "table": "staff_handoffs",
@@ -7402,9 +9300,27 @@
       },
       {
         "table": "staff_handoffs",
+        "name": "staff_handoffs_priority_not_null",
+        "type": "n",
+        "definition": "NOT NULL priority"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_reason_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL reason_code"
+      },
+      {
+        "table": "staff_handoffs",
         "name": "staff_handoffs_source_channel_check",
         "type": "CHECK",
         "definition": "CHECK ((source_channel = ANY (ARRAY['whatsapp'::text, 'staff'::text, 'other'::text])))"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_source_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL source_channel"
       },
       {
         "table": "staff_handoffs",
@@ -7413,10 +9329,64 @@
         "definition": "CHECK ((status = ANY (ARRAY['open'::text, 'assigned'::text, 'waiting_guest'::text, 'resolved'::text, 'cancelled'::text])))"
       },
       {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "staff_handoffs",
+        "name": "staff_handoffs_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_channel_not_null",
+        "type": "n",
+        "definition": "NOT NULL channel"
+      },
+      {
         "table": "staff_phone_access",
         "name": "staff_phone_access_client_phone_channel_unique",
         "type": "UNIQUE",
         "definition": "UNIQUE (client_slug, phone_normalized, channel)"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_is_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL is_active"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_phone_e164_not_null",
+        "type": "n",
+        "definition": "NOT NULL phone_e164"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_phone_normalized_not_null",
+        "type": "n",
+        "definition": "NOT NULL phone_normalized"
       },
       {
         "table": "staff_phone_access",
@@ -7429,6 +9399,18 @@
         "name": "staff_phone_access_role_check",
         "type": "CHECK",
         "definition": "CHECK ((role = ANY (ARRAY['operator'::text, 'owner'::text])))"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_role_not_null",
+        "type": "n",
+        "definition": "NOT NULL role"
+      },
+      {
+        "table": "staff_phone_access",
+        "name": "staff_phone_access_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "staff_tasks",
@@ -7444,9 +9426,33 @@
       },
       {
         "table": "staff_tasks",
+        "name": "staff_tasks_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_tasks",
         "name": "staff_tasks_handoff_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (handoff_id) REFERENCES staff_handoffs(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "staff_tasks",
@@ -7462,15 +9468,69 @@
       },
       {
         "table": "staff_tasks",
+        "name": "staff_tasks_priority_not_null",
+        "type": "n",
+        "definition": "NOT NULL priority"
+      },
+      {
+        "table": "staff_tasks",
         "name": "staff_tasks_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['open'::text, 'assigned'::text, 'in_progress'::text, 'resolved'::text, 'cancelled'::text])))"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_task_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL task_type"
+      },
+      {
+        "table": "staff_tasks",
+        "name": "staff_tasks_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "staff_users",
         "name": "staff_users_client_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_client_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_id"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_email_not_null",
+        "type": "n",
+        "definition": "NOT NULL email"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "staff_users",
@@ -7486,9 +9546,27 @@
       },
       {
         "table": "staff_users",
+        "name": "staff_users_role_not_null",
+        "type": "n",
+        "definition": "NOT NULL role"
+      },
+      {
+        "table": "staff_users",
         "name": "staff_users_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['active'::text, 'invited'::text, 'disabled'::text])))"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
+      },
+      {
+        "table": "staff_users",
+        "name": "staff_users_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "tenant_config_audit_log",
@@ -7498,9 +9576,39 @@
       },
       {
         "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_action_not_null",
+        "type": "n",
+        "definition": "NOT NULL action"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_actor_email_not_null",
+        "type": "n",
+        "definition": "NOT NULL actor_email"
+      },
+      {
+        "table": "tenant_config_audit_log",
         "name": "tenant_config_audit_log_actor_user_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (actor_user_id) REFERENCES staff_users(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_entity_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL entity_id"
       },
       {
         "table": "tenant_config_audit_log",
@@ -7510,9 +9618,27 @@
       },
       {
         "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_entity_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL entity_type"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_config_audit_log",
         "name": "tenant_config_audit_log_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "tenant_config_audit_log",
+        "name": "tenant_config_audit_log_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
       },
       {
         "table": "tenant_house_notes",
@@ -7522,9 +9648,39 @@
       },
       {
         "table": "tenant_house_notes",
+        "name": "tenant_house_notes_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_house_notes",
+        "name": "tenant_house_notes_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_house_notes",
+        "name": "tenant_house_notes_notes_not_null",
+        "type": "n",
+        "definition": "NOT NULL notes"
+      },
+      {
+        "table": "tenant_house_notes",
         "name": "tenant_house_notes_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "tenant_house_notes",
+        "name": "tenant_house_notes_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
       },
       {
         "table": "tenant_lesson_capacity_rules",
@@ -7534,9 +9690,39 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_capacity_not_null",
+        "type": "n",
+        "definition": "NOT NULL capacity"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
         "name": "tenant_lesson_capacity_rules_effective_window",
         "type": "CHECK",
         "definition": "CHECK (((effective_to IS NULL) OR (effective_from IS NULL) OR (effective_to >= effective_from)))"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_location_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL location_id"
       },
       {
         "table": "tenant_lesson_capacity_rules",
@@ -7558,9 +9744,33 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_scope_not_null",
+        "type": "n",
+        "definition": "NOT NULL scope"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
+        "name": "tenant_lesson_capacity_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
         "name": "tenant_lesson_capacity_rules_updated_by_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -7570,9 +9780,45 @@
       },
       {
         "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
         "name": "tenant_lesson_time_rules_effective_window",
         "type": "CHECK",
         "definition": "CHECK (((effective_to IS NULL) OR (effective_from IS NULL) OR (effective_to >= effective_from)))"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_label_not_null",
+        "type": "n",
+        "definition": "NOT NULL label"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_lesson_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL lesson_type"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_location_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL location_id"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -7582,9 +9828,27 @@
       },
       {
         "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_time_local_not_null",
+        "type": "n",
+        "definition": "NOT NULL time_local"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
         "name": "tenant_lesson_time_rules_time_window",
         "type": "CHECK",
         "definition": "CHECK (((time_local_end IS NULL) OR (time_local_end > time_local)))"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -7594,9 +9858,21 @@
       },
       {
         "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_weekdays_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL weekdays_active"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
         "name": "tenant_lesson_time_rules_weekdays_valid",
         "type": "CHECK",
         "definition": "CHECK ((weekdays_active <@ ARRAY[(0)::smallint, (1)::smallint, (2)::smallint, (3)::smallint, (4)::smallint, (5)::smallint, (6)::smallint]))"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
       },
       {
         "table": "tenant_price_rules",
@@ -7606,9 +9882,51 @@
       },
       {
         "table": "tenant_price_rules",
+        "name": "tenant_price_rules_amount_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL amount_cents"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_currency_not_null",
+        "type": "n",
+        "definition": "NOT NULL currency"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_display_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL display_name"
+      },
+      {
+        "table": "tenant_price_rules",
         "name": "tenant_price_rules_effective_window",
         "type": "CHECK",
         "definition": "CHECK (((effective_to IS NULL) OR (effective_from IS NULL) OR (effective_to >= effective_from)))"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_item_code_not_null",
+        "type": "n",
+        "definition": "NOT NULL item_code"
       },
       {
         "table": "tenant_price_rules",
@@ -7618,9 +9936,27 @@
       },
       {
         "table": "tenant_price_rules",
+        "name": "tenant_price_rules_item_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL item_type"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_location_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL location_id"
+      },
+      {
+        "table": "tenant_price_rules",
         "name": "tenant_price_rules_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
       },
       {
         "table": "tenant_price_rules",
@@ -7630,9 +9966,57 @@
       },
       {
         "table": "tenant_price_rules",
+        "name": "tenant_price_rules_unit_not_null",
+        "type": "n",
+        "definition": "NOT NULL unit"
+      },
+      {
+        "table": "tenant_price_rules",
+        "name": "tenant_price_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "tenant_price_rules",
         "name": "tenant_price_rules_updated_by_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_config_json_not_null",
+        "type": "n",
+        "definition": "NOT NULL config_json"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_label_not_null",
+        "type": "n",
+        "definition": "NOT NULL label"
       },
       {
         "table": "tenant_private_lesson_rules",
@@ -7642,15 +10026,87 @@
       },
       {
         "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
+        "name": "tenant_private_lesson_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "tenant_private_lesson_rules",
         "name": "tenant_private_lesson_rules_updated_by_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
       },
       {
         "table": "tenant_services",
+        "name": "tenant_services_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_block_rooms_enabled_not_null",
+        "type": "n",
+        "definition": "NOT NULL block_rooms_enabled"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_blocked_room_codes_not_null",
+        "type": "n",
+        "definition": "NOT NULL blocked_room_codes"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_services",
         "name": "tenant_services_date_window",
         "type": "CHECK",
         "definition": "CHECK (((end_date IS NULL) OR (start_date IS NULL) OR (end_date >= start_date)))"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_keywords_not_null",
+        "type": "n",
+        "definition": "NOT NULL keywords"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_luna_visible_not_null",
+        "type": "n",
+        "definition": "NOT NULL luna_visible"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL name"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_per_guest_not_null",
+        "type": "n",
+        "definition": "NOT NULL per_guest"
       },
       {
         "table": "tenant_services",
@@ -7666,15 +10122,111 @@
       },
       {
         "table": "tenant_services",
+        "name": "tenant_services_price_cents_not_null",
+        "type": "n",
+        "definition": "NOT NULL price_cents"
+      },
+      {
+        "table": "tenant_services",
         "name": "tenant_services_price_unit",
         "type": "CHECK",
         "definition": "CHECK ((price_unit = ANY (ARRAY['per_day'::text, 'per_week'::text, 'per_stay'::text, 'one_off'::text])))"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_price_unit_not_null",
+        "type": "n",
+        "definition": "NOT NULL price_unit"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_room_block_booking_ids_not_null",
+        "type": "n",
+        "definition": "NOT NULL room_block_booking_ids"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_schedule_slots_not_null",
+        "type": "n",
+        "definition": "NOT NULL schedule_slots"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_span_booking_not_null",
+        "type": "n",
+        "definition": "NOT NULL span_booking"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
+        "table": "tenant_services",
+        "name": "tenant_services_weekdays_not_null",
+        "type": "n",
+        "definition": "NOT NULL weekdays"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_config_json_not_null",
+        "type": "n",
+        "definition": "NOT NULL config_json"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_label_not_null",
+        "type": "n",
+        "definition": "NOT NULL label"
       },
       {
         "table": "tenant_surf_pack_rules",
         "name": "tenant_surf_pack_rules_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "tenant_surf_pack_rules",
+        "name": "tenant_surf_pack_rules_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "tenant_surf_pack_rules",
@@ -7690,9 +10242,21 @@
       },
       {
         "table": "transfer_requests",
+        "name": "transfer_requests_add_on_item_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL add_on_item_id"
+      },
+      {
+        "table": "transfer_requests",
         "name": "transfer_requests_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "transfer_requests",
+        "name": "transfer_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "transfer_requests",
@@ -7702,9 +10266,33 @@
       },
       {
         "table": "transfer_requests",
+        "name": "transfer_requests_driver_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL driver_status"
+      },
+      {
+        "table": "transfer_requests",
         "name": "transfer_requests_guest_count_check",
         "type": "CHECK",
         "definition": "CHECK ((guest_count > 0))"
+      },
+      {
+        "table": "transfer_requests",
+        "name": "transfer_requests_guest_count_not_null",
+        "type": "n",
+        "definition": "NOT NULL guest_count"
+      },
+      {
+        "table": "transfer_requests",
+        "name": "transfer_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "transfer_requests",
+        "name": "transfer_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
       },
       {
         "table": "transfer_requests",
@@ -7719,10 +10307,28 @@
         "definition": "CHECK ((transfer_type = ANY (ARRAY['airport_pickup'::text, 'airport_dropoff'::text, 'other'::text])))"
       },
       {
+        "table": "transfer_requests",
+        "name": "transfer_requests_transfer_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL transfer_type"
+      },
+      {
+        "table": "transfer_requests",
+        "name": "transfer_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
+      },
+      {
         "table": "waiver_form_requests",
         "name": "waiver_form_requests_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "waiver_form_requests",
@@ -7732,9 +10338,45 @@
       },
       {
         "table": "waiver_form_requests",
+        "name": "waiver_form_requests_form_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL form_type"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_form_version_not_null",
+        "type": "n",
+        "definition": "NOT NULL form_version"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "waiver_form_requests",
         "name": "waiver_form_requests_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_prefill_json_not_null",
+        "type": "n",
+        "definition": "NOT NULL prefill_json"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_public_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL public_id"
       },
       {
         "table": "waiver_form_requests",
@@ -7750,9 +10392,21 @@
       },
       {
         "table": "waiver_form_requests",
+        "name": "waiver_form_requests_request_mode_not_null",
+        "type": "n",
+        "definition": "NOT NULL request_mode"
+      },
+      {
+        "table": "waiver_form_requests",
         "name": "waiver_form_requests_status_check",
         "type": "CHECK",
         "definition": "CHECK ((status = ANY (ARRAY['pending'::text, 'completed'::text, 'expired'::text, 'revoked'::text, 'needs_review'::text])))"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL status"
       },
       {
         "table": "waiver_form_requests",
@@ -7762,9 +10416,27 @@
       },
       {
         "table": "waiver_form_requests",
+        "name": "waiver_form_requests_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_token_hash_not_null",
+        "type": "n",
+        "definition": "NOT NULL token_hash"
+      },
+      {
+        "table": "waiver_form_requests",
         "name": "waiver_form_requests_token_hash_unique",
         "type": "UNIQUE",
         "definition": "UNIQUE (token_hash)"
+      },
+      {
+        "table": "waiver_form_requests",
+        "name": "waiver_form_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "waiver_form_submissions",
@@ -7774,9 +10446,39 @@
       },
       {
         "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "waiver_form_submissions",
         "name": "waiver_form_submissions_customer_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_form_snapshot_json_not_null",
+        "type": "n",
+        "definition": "NOT NULL form_snapshot_json"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_form_type_not_null",
+        "type": "n",
+        "definition": "NOT NULL form_type"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_form_version_not_null",
+        "type": "n",
+        "definition": "NOT NULL form_version"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
       },
       {
         "table": "waiver_form_submissions",
@@ -7786,9 +10488,45 @@
       },
       {
         "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_raw_answers_json_not_null",
+        "type": "n",
+        "definition": "NOT NULL raw_answers_json"
+      },
+      {
+        "table": "waiver_form_submissions",
         "name": "waiver_form_submissions_request_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (request_id) REFERENCES waiver_form_requests(id) ON DELETE CASCADE"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_request_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL request_id"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_submitted_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL submitted_at"
+      },
+      {
+        "table": "waiver_form_submissions",
+        "name": "waiver_form_submissions_tenant_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL tenant_id"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_active_not_null",
+        "type": "n",
+        "definition": "NOT NULL active"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_client_slug_not_null",
+        "type": "n",
+        "definition": "NOT NULL client_slug"
       },
       {
         "table": "wolfhouse_staff_whatsapp_numbers",
@@ -7798,15 +10536,45 @@
       },
       {
         "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
         "name": "wolfhouse_staff_whatsapp_numbers_permission_group_check",
         "type": "CHECK",
         "definition": "CHECK ((permission_group = ANY (ARRAY['staff'::text, 'owner'::text])))"
       },
       {
         "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_permission_group_not_null",
+        "type": "n",
+        "definition": "NOT NULL permission_group"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_phone_not_null",
+        "type": "n",
+        "definition": "NOT NULL phone"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
         "name": "wolfhouse_staff_whatsapp_numbers_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "wolfhouse_staff_whatsapp_numbers",
+        "name": "wolfhouse_staff_whatsapp_numbers_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       },
       {
         "table": "workflow_events",
@@ -7822,15 +10590,51 @@
       },
       {
         "table": "workflow_events",
+        "name": "workflow_events_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
+      },
+      {
+        "table": "workflow_events",
+        "name": "workflow_events_event_level_not_null",
+        "type": "n",
+        "definition": "NOT NULL event_level"
+      },
+      {
+        "table": "workflow_events",
         "name": "workflow_events_hostel_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (client_id) REFERENCES clients(id) ON DELETE SET NULL"
       },
       {
         "table": "workflow_events",
+        "name": "workflow_events_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "workflow_events",
+        "name": "workflow_events_message_not_null",
+        "type": "n",
+        "definition": "NOT NULL message"
+      },
+      {
+        "table": "workflow_events",
+        "name": "workflow_events_payload_not_null",
+        "type": "n",
+        "definition": "NOT NULL payload"
+      },
+      {
+        "table": "workflow_events",
         "name": "workflow_events_pkey",
         "type": "PRIMARY KEY",
         "definition": "PRIMARY KEY (id)"
+      },
+      {
+        "table": "workflow_events",
+        "name": "workflow_events_workflow_name_not_null",
+        "type": "n",
+        "definition": "NOT NULL workflow_name"
       },
       {
         "table": "yoga_requests",
@@ -7840,9 +10644,27 @@
       },
       {
         "table": "yoga_requests",
+        "name": "yoga_requests_add_on_item_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL add_on_item_id"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_booked_onsite_not_null",
+        "type": "n",
+        "definition": "NOT NULL booked_onsite"
+      },
+      {
+        "table": "yoga_requests",
         "name": "yoga_requests_booking_id_fkey",
         "type": "FOREIGN KEY",
         "definition": "FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE SET NULL"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_created_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL created_at"
       },
       {
         "table": "yoga_requests",
@@ -7852,9 +10674,33 @@
       },
       {
         "table": "yoga_requests",
+        "name": "yoga_requests_fulfillment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL fulfillment_status"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_id_not_null",
+        "type": "n",
+        "definition": "NOT NULL id"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_metadata_not_null",
+        "type": "n",
+        "definition": "NOT NULL metadata"
+      },
+      {
+        "table": "yoga_requests",
         "name": "yoga_requests_payment_status_check",
         "type": "CHECK",
         "definition": "CHECK ((payment_status = ANY (ARRAY['not_requested'::text, 'pending'::text, 'paid'::text, 'refunded'::text, 'waived'::text])))"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_payment_status_not_null",
+        "type": "n",
+        "definition": "NOT NULL payment_status"
       },
       {
         "table": "yoga_requests",
@@ -7867,6 +10713,24 @@
         "name": "yoga_requests_quantity_check",
         "type": "CHECK",
         "definition": "CHECK ((quantity > 0))"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_quantity_not_null",
+        "type": "n",
+        "definition": "NOT NULL quantity"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_redeemed_not_null",
+        "type": "n",
+        "definition": "NOT NULL redeemed"
+      },
+      {
+        "table": "yoga_requests",
+        "name": "yoga_requests_updated_at_not_null",
+        "type": "n",
+        "definition": "NOT NULL updated_at"
       }
     ],
     "indexes": [
@@ -9567,6 +12431,16 @@
         "proconfig": ""
       },
       {
+        "name": "fips_mode",
+        "identity": "public.fips_mode()",
+        "definition": "CREATE OR REPLACE FUNCTION public.fips_mode()\n RETURNS boolean\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_check_fipsmode$function$",
+        "returnType": "boolean",
+        "language": "c",
+        "volatility": "volatile",
+        "securityDefiner": false,
+        "proconfig": ""
+      },
+      {
         "name": "gen_random_bytes",
         "identity": "public.gen_random_bytes(integer)",
         "definition": "CREATE OR REPLACE FUNCTION public.gen_random_bytes(integer)\n RETURNS bytea\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS '$libdir/pgcrypto', $function$pg_random_bytes$function$",
@@ -10421,6 +13295,13 @@
       },
       {
         "kind": "function",
+        "name": "fips_mode",
+        "identity": "public.fips_mode()",
+        "subkind": "f",
+        "owner": "$db_owner"
+      },
+      {
+        "kind": "function",
         "name": "gen_random_bytes",
         "identity": "public.gen_random_bytes(integer)",
         "subkind": "f",
@@ -11186,6 +14067,13 @@
       },
       {
         "kind": "function",
+        "name": "fips_mode",
+        "identity": "public.fips_mode()",
+        "subkind": "f",
+        "acl": ""
+      },
+      {
+        "kind": "function",
         "name": "gen_random_bytes",
         "identity": "public.gen_random_bytes(integer)",
         "subkind": "f",
@@ -11874,7 +14762,7 @@
     "extensions": [
       {
         "name": "pgcrypto",
-        "version": "1.3",
+        "version": "1.4",
         "owner": "$db_owner",
         "schema": "public",
         "relocatable": true,

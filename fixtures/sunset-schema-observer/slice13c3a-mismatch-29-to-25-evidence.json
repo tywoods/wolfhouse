@@ -1,0 +1,60 @@
+{
+  "kind": "sunset-schema-observer-slice13c3a-mismatch-29-to-25-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "liveMutation": false,
+  "generatedAt": "2026-07-19T15:54:19.106Z",
+  "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "previousRemainingAfter13c2": 29,
+  "resolvedPhaseCTenantServicesColumnKeys": 4,
+  "remainingGenuineDriftKeys": 25,
+  "trajectory": "29 → 25",
+  "match": false,
+  "code": "product_schema_differs",
+  "phaseCTenantServicesColumnKeysResolved": [
+    "live_only|columns|tenant_services.block_rooms_enabled",
+    "live_only|columns|tenant_services.blocked_room_codes",
+    "live_only|columns|tenant_services.room_block_booking_ids",
+    "live_only|columns|tenant_services.weekdays"
+  ],
+  "remainingKeys": [
+    "expected_only|acls|relation:customer_message_templates",
+    "expected_only|columns|customer_message_templates.active",
+    "expected_only|columns|customer_message_templates.body",
+    "expected_only|columns|customer_message_templates.channel",
+    "expected_only|columns|customer_message_templates.client_id",
+    "expected_only|columns|customer_message_templates.created_at",
+    "expected_only|columns|customer_message_templates.id",
+    "expected_only|columns|customer_message_templates.tags",
+    "expected_only|columns|customer_message_templates.title",
+    "expected_only|columns|customer_message_templates.updated_at",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+    "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|ownership|relation:customer_message_templates",
+    "expected_only|rlsFlags|customer_message_templates",
+    "expected_only|tables|customer_message_templates",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ],
+  "remainingByClassification": {
+    "genuine_database_drift": 25
+  },
+  "noOtherPhaseCAccidentalResolution": true,
+  "fingerprints": {
+    "previousCanonical": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+    "newCanonical": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "liveRawCommitted": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd"
+  },
+  "rawDriftCountWithoutClaimingLiveDump": 67
+}

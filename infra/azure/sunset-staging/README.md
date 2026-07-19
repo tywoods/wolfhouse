@@ -409,6 +409,17 @@ npm run verify:sunset-schema-slice13c2
 
 Artifacts: `slice13c2-location-promotion-evidence.json`, `slice13c2-mismatch-46-to-29-evidence.json`, `slice13c2-findings.md`.
 
+### Slice 13C.3a — Phase C tenant_services column promotion (implemented)
+
+Promoted four approved `tenant_services` live-only SaaS catalog columns into one new canonical forward migration `040_tenant_services_saas_catalog_columns.sql` (DEC-004 Phase C). Disposable dual-path proof only. Offline mismatch trajectory **29 → 25** (4 Phase C column keys resolved; 25 genuine drift remain). Still `product_schema_differs`. Phase D CHECKs, CMT 035, notification indexes, and surf-pack reconciliation remain pending. **No live apply / observer job / image deploy.**
+
+```bash
+npm run prove:sunset-schema-slice13c3a-tenant-services-promotion
+npm run verify:sunset-schema-slice13c3a
+```
+
+Artifacts: `slice13c3a-tenant-services-promotion-evidence.json`, `slice13c3a-mismatch-29-to-25-evidence.json`, `slice13c3a-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
