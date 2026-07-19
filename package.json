@@ -295,6 +295,8 @@
     "verify:sunset-schema-slice13c3a": "node scripts/verify-sunset-schema-slice13c3a.js",
     "prove:sunset-schema-slice13c3b-migration-035-rehearsal": "node scripts/prove-sunset-schema-slice13c3b-migration-035-rehearsal.js",
     "verify:sunset-schema-slice13c3b": "node scripts/verify-sunset-schema-slice13c3b.js",
+    "prove:sunset-schema-slice13c3c-notification-surfpack": "node scripts/prove-sunset-schema-slice13c3c-notification-surfpack.js",
+    "verify:sunset-schema-slice13c3c": "node scripts/verify-sunset-schema-slice13c3c.js",
     "prove:sunset-schema-slice13c2-location-promotion": "node scripts/prove-sunset-schema-slice13c2-location-promotion.js",
     "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",
     "build:sunset-schema-slice13a-manifest-hash-report": "node scripts/build-sunset-schema-slice13a-manifest-hash-report.js",

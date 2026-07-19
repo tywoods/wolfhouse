@@ -1,0 +1,63 @@
+{
+  "kind": "sunset-schema-observer-slice13c3c-mismatch-8-to-2-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "liveMutation": false,
+  "generatedAt": "2026-07-19T16:50:11.950Z",
+  "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "previousRemainingAfter13c3b": 8,
+  "resolvedPhaseCNotificationSurfPackKeys": 6,
+  "remainingGenuineDriftKeys": 2,
+  "trajectory": "8 → 2",
+  "trajectoryFrom8Exact": {
+    "before": 8,
+    "resolved": 6,
+    "after": 2,
+    "note": "Exact post-13C.3b remaining (8), not assumed endpoint"
+  },
+  "match": false,
+  "code": "product_schema_differs",
+  "phaseCNotificationSurfPackKeysResolved": [
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ],
+  "remainingKeys": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+  ],
+  "remainingByClassification": {
+    "genuine_database_drift": 2
+  },
+  "mustRemainKeysPresent": true,
+  "noPhaseDCheckResolution": true,
+  "pathBDisposable": {
+    "prestateKeysAmongEight": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+      "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    ],
+    "after041KeysAmongEight": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    ]
+  },
+  "fingerprints": {
+    "canonicalUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "manifestHashBefore": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+    "manifestHashAfter": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+    "liveRawCommitted": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd"
+  },
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5"
+}

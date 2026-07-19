@@ -1,0 +1,310 @@
+{
+  "kind": "sunset-schema-observer-slice13c3c-notification-surfpack-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "disposableBackend": "pglite",
+  "generatedAt": "2026-07-19T16:50:11.953Z",
+  "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
+  "migration": {
+    "id": "041_notification_surfpack_convergence",
+    "filename": "041_notification_surfpack_convergence.sql",
+    "sha256CanonicalLfV1": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
+    "order": 39
+  },
+  "sixKeyMap": "fixtures/sunset-schema-observer/slice13c3c-six-key-map.json",
+  "objectsConverged": [
+    "idx_client_notification_events_client_created",
+    "idx_client_notification_events_conversation",
+    "idx_client_notification_settings_client",
+    "idx_tenant_surf_pack_client_loc",
+    "tenant_surf_pack_rules_updated_by_fkey",
+    "tenant_surf_pack_rules_updated_at"
+  ],
+  "objectsExcluded": [
+    "tenant_services_date_window CHECK",
+    "tenant_services_price_unit CHECK",
+    "customer_message_templates / 035",
+    "tenant_services columns",
+    "schema_migration_ledger bootstrap",
+    "ownership / ACL mutation"
+  ],
+  "forwardCount": {
+    "before": 38,
+    "after": 39
+  },
+  "manifestHash": {
+    "before": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
+    "after": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e"
+  },
+  "productFingerprint": {
+    "before": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "after": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "unchanged": true
+  },
+  "pathA": {
+    "ok": true,
+    "appliedCount": 39,
+    "secondApplyNoOp": true,
+    "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "observerSelfMatch": true,
+    "sixObjectsPresent": true,
+    "oidStableAcross041": true,
+    "phaseDChecksUnchanged": true,
+    "oids": {
+      "constraint:tenant_surf_pack_rules_updated_by_fkey": "18173",
+      "index:idx_client_notification_events_client_created": "18341",
+      "index:idx_client_notification_events_conversation": "18342",
+      "index:idx_client_notification_settings_client": "18320",
+      "index:idx_tenant_surf_pack_client_loc": "18179",
+      "trigger:tenant_surf_pack_rules_updated_at": "18180"
+    }
+  },
+  "pathB": {
+    "ok": true,
+    "pre041Applied": 38,
+    "prestateDroppedSixPlusPhaseDChecks": true,
+    "prestateEightKeys": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+      "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    ],
+    "after041RemainingAmongEight": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    ],
+    "second041Idempotent": true,
+    "oidStable": true,
+    "oids": {
+      "constraint:tenant_surf_pack_rules_updated_by_fkey": "18595",
+      "index:idx_client_notification_events_client_created": "18591",
+      "index:idx_client_notification_events_conversation": "18592",
+      "index:idx_client_notification_settings_client": "18593",
+      "index:idx_tenant_surf_pack_client_loc": "18594",
+      "trigger:tenant_surf_pack_rules_updated_at": "18600"
+    },
+    "pathBFingerprintAfterSecond041": "bce9bb8f120575a5463196e4d0ae4aab78e735e9feee8a7396167a3d579c51ce"
+  },
+  "catalogValidation": {
+    "approach": "pg_catalog index (schema/table/unique/am/ordered keys/predicate/INCLUDE/constraint-owned); FK (src+tgt cols/actions/match/validated/deferrability); trigger (relation/tgtype timing+events+row/enabled/fn identity+definition/args); prerequisite public.set_updated_at() exact catalog contract (return=trigger language=plpgsql prosecdef=false/INVOKER provolatile=v/VOLATILE empty proconfig proisstrict=false proleakproof=false proparallel=u/UNSAFE + prosrc body); function never mutated; incompatible RAISE else CREATE; exact → no-op",
+    "locks": "brief ShareLock/AccessExclusive on CREATE INDEX / ADD CONSTRAINT / CREATE TRIGGER",
+    "compatibility": "absent create; exact compatible preserve/no-op/OID-stable; conflict fail-closed rollback",
+    "setUpdatedAtContract": {
+      "identity": "public.set_updated_at()",
+      "returnType": "trigger",
+      "language": "plpgsql",
+      "prosecdef": false,
+      "security": "INVOKER",
+      "provolatile": "v",
+      "volatility": "VOLATILE",
+      "proconfig": "",
+      "proisstrict": false,
+      "proleakproof": false,
+      "proparallel": "u",
+      "parallel": "UNSAFE",
+      "mutateFunction": false
+    },
+    "leakproofRedProbe": {
+      "name": "wrong_set_updated_at_leakproof",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "skipped": false,
+      "message": "041: incompatible public.set_updated_at() leakproof (proleakproof=t expected false); refuse trigger convergence"
+    }
+  },
+  "redFailures": [
+    {
+      "name": "wrong_index_table",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible target index idx_client_notification_settings_client (table=public.client_notification_events unique=f am=btree keys={client_slug,created_at} pred= include=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_index_order",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible target index idx_client_notification_events_client_created (table=public.client_notification_events unique=f am=btree keys={created_atdesc,client_slug} pred= include=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_index_predicate",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible target index idx_tenant_surf_pack_client_loc (table=public.tenant_surf_pack_rules unique=f am=btree keys={client_slug,location_id} pred=active=false include=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_index_unique",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible target index idx_client_notification_events_conversation (table=public.client_notification_events unique=t am=btree keys={conversation_id,notification_type} pred= include=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_index_include",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible target index idx_client_notification_settings_client (table=public.client_notification_settings unique=f am=btree keys={client_slug} pred= include=t); refuse drop/replace"
+    },
+    {
+      "name": "constraint_owned_index",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: target index name idx_client_notification_settings_client is occupied by a constraint-owned index"
+    },
+    {
+      "name": "missing_fk_prerequisite_staff_users",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041_notification_surfpack_convergence: staff_users missing (FK target; apply 009 first)"
+    },
+    {
+      "name": "wrong_fk_target",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible FK tenant_surf_pack_rules_updated_by_fkey (table=tenant_surf_pack_rules type=f src={updated_by} tgt=clients.{id} upd=a del=n match=s validated=t deferrable=f deferred=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_fk_action",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible FK tenant_surf_pack_rules_updated_by_fkey (table=tenant_surf_pack_rules type=f src={updated_by} tgt=staff_users.{id} upd=a del=c match=s validated=t deferrable=f deferred=f); refuse drop/replace"
+    },
+    {
+      "name": "wrong_fk_deferrability",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible FK tenant_surf_pack_rules_updated_by_fkey (table=tenant_surf_pack_rules type=f src={updated_by} tgt=staff_users.{id} upd=a del=n match=s validated=t deferrable=t deferred=t); refuse drop/replace"
+    },
+    {
+      "name": "incompatible_trigger_function",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible trigger tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at (enabled=O tgtype=19 fn=public.wh041_wrong_updated_at() nargs=0); refuse drop/replace"
+    },
+    {
+      "name": "wrong_trigger_timing",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible trigger tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at (enabled=O tgtype=17 fn=public.set_updated_at() nargs=0); refuse drop/replace"
+    },
+    {
+      "name": "wrong_trigger_events",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible trigger tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at (enabled=O tgtype=23 fn=public.set_updated_at() nargs=0); refuse drop/replace"
+    },
+    {
+      "name": "wrong_trigger_enabled",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible trigger tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at (enabled=D tgtype=19 fn=public.set_updated_at() nargs=0); refuse drop/replace"
+    },
+    {
+      "name": "wrong_trigger_args",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() definition; refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_security_definer",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() security (prosecdef=t expected false/INVOKER); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_stable",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() volatility (provolatile=s expected v/VOLATILE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_immutable",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() volatility (provolatile=i expected v/VOLATILE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_proconfig",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() proconfig (search_path=public expected empty); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_strict",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() strictness (proisstrict=t expected false); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_parallel_safe",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() parallel (proparallel=s expected u/UNSAFE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_leakproof",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "skipped": false,
+      "message": "041: incompatible public.set_updated_at() leakproof (proleakproof=t expected false); refuse trigger convergence"
+    },
+    {
+      "name": "partial_conflict_rolls_back_earlier_creates",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible FK tenant_surf_pack_rules_updated_by_fkey (table=tenant_surf_pack_rules type=f src={updated_by} tgt=clients.{id} upd=a del=n match=s validated=t deferrable=f deferred=f); refuse drop/replace"
+    },
+    {
+      "name": "missing_parent_notification_tables",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041_notification_surfpack_convergence: notification tables missing (apply 032 first)"
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "path_a_fresh_39_self_match_oid_stable",
+      "ok": true,
+      "detail": "39-forward + second 041 OID-stable; observer self-match; fingerprint unchanged"
+    },
+    {
+      "name": "path_b_8_to_2_and_oid_stable",
+      "ok": true,
+      "detail": "remaining=expected_only|constraints|tenant_services.tenant_services_date_window.CHECK,expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    },
+    {
+      "name": "exact_set_updated_at_canonical_preserves",
+      "ok": true,
+      "detail": "SECURITY INVOKER/prosecdef=false VOLATILE/provolatile=v empty proconfig non-strict non-leakproof PARALLEL UNSAFE; second 041 no-op"
+    },
+    {
+      "name": "non_disposable_dsn_rejected",
+      "ok": true
+    },
+    {
+      "name": "product_fingerprint_unchanged",
+      "ok": true,
+      "detail": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+    }
+  ],
+  "mismatchTrajectory": "8 → 2",
+  "remainingClassifications": {
+    "genuine_database_drift": 2
+  },
+  "offlinePriorRemainingKeys": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ]
+}

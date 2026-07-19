@@ -66,7 +66,7 @@ pass(
 );
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 38,
+  forwardEntries(manifest).length === 39,
   `forward=${forwardEntries(manifest).length}`,
 );
 pass(
@@ -359,13 +359,13 @@ pass(
   const nul = checksumMigrationBytes(Buffer.from('CREATE TABLE t;\n\0', 'utf8'), CHECKSUM_MODE_CANONICAL_LF_V1);
   pass('red-binary-nul-rejected', !nul.ok && nul.code === 'unsupported_binary_content');
 
-  // All 38 forward byte-verifiable under canonical_lf_v1
+  // All 39 forward byte-verifiable under canonical_lf_v1
   let forwardVerified = 0;
   for (const e of sample) {
     const live = checksumMigrationFile(path.join(MIGRATIONS_DIR, e.filename), CHECKSUM_MODE_CANONICAL_LF_V1);
     if (live.ok && live.sha256 === e.sha256) forwardVerified += 1;
   }
-  pass('green-all-38-forward-canonical-lf-v1', forwardVerified === 38, `verified=${forwardVerified}`);
+  pass('green-all-39-forward-canonical-lf-v1', forwardVerified === 39, `verified=${forwardVerified}`);
 
   // Previously CRLF Git files normalize identically (named in transition report)
   pass('green-transition-report-present', fs.existsSync(TRANSITION));

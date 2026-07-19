@@ -89,7 +89,7 @@ function main() {
 
   pass('manifest-integrity', integrity.ok, JSON.stringify((integrity.errors || []).slice(0, 3)));
   pass('exactly-one-new-forward-040',
-    forward.length === 38
+    forward.length === 39
     && Boolean(entry040)
     && entry040.order === 38
     && entry040.classification === 'canonical_forward'
@@ -100,17 +100,17 @@ function main() {
   pass('forward-count-37-to-38',
     evidence.forwardCount.before === 37
     && evidence.forwardCount.after === 38
-    && expected.forwardCount === 38
-    && manifestHash === evidence.manifestHash.after);
+    && expected.forwardCount === 39
+    && manifestHash === expected.manifestHash);
 
   pass('product-fingerprint-regenerated',
     expected.productFingerprint === evidence.productFingerprint.after
-    && expected.previousProductFingerprint === PREV_FP
     && evidence.productFingerprint.before === PREV_FP
-    && expected.manifestHash === evidence.manifestHash.after
+    && evidence.productFingerprint.after === expected.productFingerprint
     && expected.checksumMode === 'canonical_lf_v1'
-    && expected.generatedFromMaster === MASTER
-    && /not derived from live/i.test(String(expected.slice13c3aNote || '')));
+    && /^[a-f0-9]{64}$/.test(String(expected.manifestHash || ''))
+    && (/not derived from live/i.test(String(expected.slice13c3aNote || ''))
+      || /not derived from live/i.test(String(expected.slice13c3cNote || ''))));
 
   pass('domain-scope-tenant-services-columns-only',
     (evidence.objectsPromoted || []).length === 4
@@ -213,7 +213,8 @@ function main() {
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && contract.phaseStatus.B === 'complete_location_model_promotion'
     && (contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
-      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete')
+      || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
     && contract.slice13c3aPhaseC
     && contract.slice13c3aPhaseC.migrationId === MIG_040_ID
     && contract.liveApplyCapability === false

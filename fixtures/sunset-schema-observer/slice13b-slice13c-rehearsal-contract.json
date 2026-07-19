@@ -65,7 +65,7 @@
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
     "B": "complete_location_model_promotion",
-    "C": "partial_cmt_035_rehearsal_complete",
+    "C": "complete_notification_surfpack_convergence",
     "D": "pending",
     "E": "pending",
     "F": "pending"
@@ -92,5 +92,17 @@
     "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3b-mismatch-25-to-8-evidence.json",
     "keyMap": "fixtures/sunset-schema-observer/slice13c3b-migration-035-owned-key-map.json",
     "note": "Phase C CMT via existing 035 rehearsed on disposable PostgreSQL only (25→8). Notification/surf-pack and Phase D CHECKs remain. No live apply. No new forward migration."
+  },
+  "slice13c3cPhaseC": {
+    "status": "complete_notification_surfpack_convergence",
+    "completedAt": "2026-07-19T16:50:11.954Z",
+    "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
+    "migrationId": "041_notification_surfpack_convergence",
+    "migrationFilename": "041_notification_surfpack_convergence.sql",
+    "sha256CanonicalLfV1": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
+    "evidence": "fixtures/sunset-schema-observer/slice13c3c-notification-surfpack-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3c-mismatch-8-to-2-evidence.json",
+    "keyMap": "fixtures/sunset-schema-observer/slice13c3c-six-key-map.json",
+    "note": "Phase C notification/surf-pack six keys converged via 041 (8→2). Phase D CHECKs remain. Product fingerprint unchanged. No live apply."
   }
 }

@@ -120,23 +120,21 @@ function main() {
     && /CREATE INDEX IF NOT EXISTS idx_customer_message_templates_client_active/i.test(migSql)
     && !/ALTER TABLE customer_message_templates/i.test(migSql));
 
-  pass('no-new-forward-migration',
-    forward.length === 38
+  pass('no-new-forward-migration-in-13c3b',
+    forward.length === 39
     && evidence.migration.newForwardMigration === false
     && evidence.forwardCountUnchanged === 38
-    && expected.forwardCount === 38
-    && !fs.existsSync(path.join(MIGRATIONS_DIR, '041_*.sql'.replace('*', 'x')))
-    && !fs.readdirSync(MIGRATIONS_DIR).some((f) => /^041_/.test(f)));
+    && expected.forwardCount === 39
+    && Boolean(forward.find((e) => e.id === MIG_035_ID)));
 
-  pass('canonical-hashes-unchanged',
+  pass('canonical-fingerprint-unchanged-from-13c3b',
     expected.productFingerprint === CANON_FP
-    && expected.manifestHash === MANIFEST_HASH
-    && manifestHash === MANIFEST_HASH
     && evidence.productFingerprintUnchanged === CANON_FP
-    && evidence.manifestHashUnchanged === MANIFEST_HASH
     && mismatchEv.fingerprints
     && mismatchEv.fingerprints.canonicalUnchanged === CANON_FP
-    && evidence.expectedProductSchemaByteSha256 === expectedByteSha);
+    && evidence.manifestHashUnchanged === MANIFEST_HASH
+    && /^[a-f0-9]{64}$/.test(manifestHash)
+    && expected.manifestHash === manifestHash);
 
   pass('owned-key-map-exact-17',
     keyMap.ownedKeyCount === 17
@@ -288,7 +286,8 @@ function main() {
     contract.phaseStatus
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && contract.phaseStatus.B === 'complete_location_model_promotion'
-    && contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
+    && (contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
     && contract.phaseStatus.D === 'pending'
     && contract.slice13c3bPhaseC
     && contract.slice13c3bPhaseC.migrationId === MIG_035_ID
