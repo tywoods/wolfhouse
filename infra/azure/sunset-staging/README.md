@@ -397,7 +397,10 @@ Promoted approved location-aware admin-rule model into one new canonical forward
 | Forward count | 36 → 37 |
 | Prior fingerprint | `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52` |
 | New fingerprint | `553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1` |
-| Migration hash (`canonical_lf_v1`) | `d170d7baead7442439a372e36127013516271a8fba983c93ea6a2cdd10450713` |
+| Migration hash (`canonical_lf_v1`) | `b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3` |
+| Manifest hash | `7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0` |
+
+Index/CHECK promotion is catalog fail-closed (exact targets preserved; incompatible definitions raise — no silent drop/replace).
 
 ```bash
 npm run prove:sunset-schema-slice13c2-location-promotion

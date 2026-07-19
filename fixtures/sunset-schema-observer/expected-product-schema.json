@@ -47,12 +47,12 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T15:10:20.581Z",
+  "generatedAt": "2026-07-19T15:26:22.907Z",
   "generatedFromMaster": "e3764ae3823200a4817edd8a60beb53775a010b6",
   "slice13c2Note": "Regenerated from disposable canonical chain including 039_sunset_admin_location_aware_rules; not derived from live.",
   "checksumMode": "canonical_lf_v1",
   "forwardCount": 37,
-  "manifestHash": "ad8fda75699c6f26bcbb69c10d85d8ea362cd7240212bee13178635b48a71b1e",
+  "manifestHash": "7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0",
   "productFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
   "previousProductFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "excludes": [

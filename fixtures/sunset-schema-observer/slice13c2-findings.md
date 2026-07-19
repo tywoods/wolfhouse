@@ -2,7 +2,7 @@
 
 **Master basis:** `e3764ae3823200a4817edd8a60beb53775a010b6`
 **New forward migration:** `039_sunset_admin_location_aware_rules.sql`
-**canonical_lf_v1 hash:** `d170d7baead7442439a372e36127013516271a8fba983c93ea6a2cdd10450713`
+**canonical_lf_v1 hash:** `b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3`
 
 ## Verdict
 
@@ -19,6 +19,10 @@ Promoted the approved Sunset location-aware admin-rule model into **one** review
 | Observer outcome | still `match=false` / `product_schema_differs` |
 
 **Do not claim** Sunset is repaired. Phases C–E (tenant_services / CMT / CHECKs / ledger) remain pending. Zero live/Azure mutation in this slice.
+
+## Catalog fail-closed (PR correction)
+
+Index/CHECK promotion inspects `pg_class` / `pg_index` / `pg_am` / `pg_constraint` (schema/table, unique, access method, ordered key expressions, normalized predicate, INCLUDE absence, constraint-ownership). Superseded indexes: absent OK; exact old def may DROP; else RAISE. Target `*_loc`: absent CREATE; exact approved preserve/no-op; incompatible RAISE (never silent drop/replace). Capacity CHECK: absent add; exact preserve; incompatible RAISE.
 
 ## Objects promoted
 

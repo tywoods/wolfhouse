@@ -333,7 +333,66 @@ async function main() {
   await clientB.connect();
   await applySqlFile(clientB, '023_sunset_admin_location_id_PROPOSED.sql');
   await applySqlFile(clientB, '025_sunset_lesson_time_capacity_PROPOSED.sql');
+
+  const preOid = await clientB.query(`
+    SELECT c.relname AS name, c.oid::bigint AS oid
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind = 'i'
+      AND c.relname IN (
+        'uq_tenant_price_rules_active_window_loc',
+        'uq_tenant_lesson_capacity_default_loc',
+        'uq_tenant_lesson_capacity_weekday_loc',
+        'uq_tenant_lesson_capacity_date_loc',
+        'uq_tenant_lesson_time_recurring_loc',
+        'uq_tenant_lesson_time_date_loc'
+      )
+    ORDER BY 1
+  `);
+  const preCheck = await clientB.query(`
+    SELECT c.oid::bigint AS oid
+    FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = 'public'
+      AND c.conname = 'tenant_lesson_time_rules_capacity_check'
+  `);
+  if (preOid.rowCount !== 6) throw new Error(`Path B expected 6 loc indexes before 039, got ${preOid.rowCount}`);
+  if (preCheck.rowCount !== 1) throw new Error('Path B missing capacity CHECK before 039');
+
   await applySqlFile(clientB, MIG_039);
+  const postOid = await clientB.query(`
+    SELECT c.relname AS name, c.oid::bigint AS oid
+    FROM pg_class c
+    JOIN pg_namespace n ON n.oid = c.relnamespace
+    WHERE n.nspname = 'public'
+      AND c.relkind = 'i'
+      AND c.relname IN (
+        'uq_tenant_price_rules_active_window_loc',
+        'uq_tenant_lesson_capacity_default_loc',
+        'uq_tenant_lesson_capacity_weekday_loc',
+        'uq_tenant_lesson_capacity_date_loc',
+        'uq_tenant_lesson_time_recurring_loc',
+        'uq_tenant_lesson_time_date_loc'
+      )
+    ORDER BY 1
+  `);
+  const postCheck = await clientB.query(`
+    SELECT c.oid::bigint AS oid
+    FROM pg_constraint c
+    JOIN pg_namespace n ON n.oid = c.connamespace
+    WHERE n.nspname = 'public'
+      AND c.conname = 'tenant_lesson_time_rules_capacity_check'
+  `);
+  for (let i = 0; i < 6; i += 1) {
+    if (preOid.rows[i].name !== postOid.rows[i].name || Number(preOid.rows[i].oid) !== Number(postOid.rows[i].oid)) {
+      throw new Error(`Path B dropped/recreated exact loc index ${preOid.rows[i].name}`);
+    }
+  }
+  if (Number(preCheck.rows[0].oid) !== Number(postCheck.rows[0].oid)) {
+    throw new Error('Path B recreated exact capacity CHECK');
+  }
+
   const fpB1 = fingerprintProductSchema((await introspectProductSchema(clientB)).snapshot);
   await applySqlFile(clientB, MIG_039);
   const fpB2 = fingerprintProductSchema((await introspectProductSchema(clientB)).snapshot);
@@ -345,6 +404,10 @@ async function main() {
   if (fpB1 !== fpA) throw new Error(`Path B fp ${fpB1} != Path A ${fpA}`);
   if (fpB2 !== fpB1) throw new Error('Path B second apply changed fingerprint');
   if (convColB.rowCount > 0) throw new Error('Path B created conversations.location_id');
+  const EXPECTED_FP = '553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1';
+  if (fpA !== EXPECTED_FP) {
+    throw new Error(`Product fingerprint changed to ${fpA}; expected ${EXPECTED_FP} (fail-closed guards must not alter product schema)`);
+  }
 
   // ---- RED cases ----
   const connRed = { ...admin, database: DB_RED };
@@ -376,6 +439,11 @@ async function main() {
     if (!failed) throw new Error(`RED case ${name} did not fail closed`);
   }
 
+  async function ensureLocationId(c, table) {
+    await c.query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS location_id TEXT`);
+    await c.query(`UPDATE ${table} SET location_id = 'sunset-somo' WHERE location_id IS NULL`);
+  }
+
   await redCase('incompatible_location_id_type', async (c) => {
     await c.query('ALTER TABLE tenant_price_rules ADD COLUMN location_id INTEGER');
   });
@@ -389,7 +457,6 @@ async function main() {
   });
 
   await redCase('duplicate_rows_block_location_unique_index', async (c) => {
-    // Drop pre-location unique so colliding rows can exist; 039 must fail when creating *_loc.
     await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
     await c.query(`
       INSERT INTO tenant_price_rules (
@@ -401,7 +468,6 @@ async function main() {
   });
 
   await redCase('incompatible_existing_unique_constraint_name', async (c) => {
-    // Table UNIQUE constraint occupies the target loc index name; DROP INDEX cannot clear it.
     await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
     await c.query(`
       ALTER TABLE tenant_price_rules
@@ -418,6 +484,138 @@ async function main() {
         FOREIGN KEY (location_id) REFERENCES public._slice13c2_bogus_locations(id)
     `);
   });
+
+  await redCase('incompatible_ordinary_target_loc_index', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_price_rules');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_price_rules (client_slug, location_id)
+        WHERE active = true
+    `);
+  });
+
+  await redCase('incompatible_ordinary_superseded_index', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window
+        ON tenant_price_rules (client_slug)
+        WHERE active = true
+    `);
+  });
+
+  await redCase('target_index_on_wrong_table', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_lesson_capacity_rules');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_lesson_capacity_rules (client_slug, location_id)
+        WHERE scope = 'default' AND active = true
+    `);
+  });
+
+  await redCase('target_index_wrong_column_order', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_price_rules');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_price_rules (
+          location_id,
+          client_slug,
+          item_type,
+          item_code,
+          unit,
+          COALESCE(effective_from, DATE '1970-01-01')
+        )
+        WHERE active = true
+    `);
+  });
+
+  await redCase('target_index_wrong_predicate', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_price_rules');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_price_rules (
+          client_slug,
+          location_id,
+          item_type,
+          item_code,
+          unit,
+          COALESCE(effective_from, DATE '1970-01-01')
+        )
+        WHERE active = false
+    `);
+  });
+
+  await redCase('non_unique_target_index', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_price_rules');
+    await c.query(`
+      CREATE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_price_rules (
+          client_slug,
+          location_id,
+          item_type,
+          item_code,
+          unit,
+          COALESCE(effective_from, DATE '1970-01-01')
+        )
+        WHERE active = true
+    `);
+  });
+
+  await redCase('unexpected_include_on_target_index', async (c) => {
+    await c.query('DROP INDEX IF EXISTS public.uq_tenant_price_rules_active_window');
+    await ensureLocationId(c, 'tenant_price_rules');
+    await c.query(`
+      CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc
+        ON tenant_price_rules (
+          client_slug,
+          location_id,
+          item_type,
+          item_code,
+          unit,
+          COALESCE(effective_from, DATE '1970-01-01')
+        )
+        INCLUDE (display_name)
+        WHERE active = true
+    `);
+  });
+
+  await redCase('incompatible_capacity_check_same_name', async (c) => {
+    await c.query('ALTER TABLE tenant_lesson_time_rules ADD COLUMN IF NOT EXISTS capacity INTEGER');
+    await c.query(`
+      ALTER TABLE tenant_lesson_time_rules
+        ADD CONSTRAINT tenant_lesson_time_rules_capacity_check
+        CHECK (capacity IS NULL OR capacity = 0)
+    `);
+  });
+
+  // ---- GREEN: exact targets preserved (already proven via Path B OID stability) ----
+  const greenResults = [
+    {
+      name: 'exact_existing_target_indexes_unchanged',
+      ok: true,
+      detail: 'Path B OID-stable across 039 for all six *_loc indexes',
+    },
+    {
+      name: 'exact_existing_capacity_check_unchanged',
+      ok: true,
+      detail: 'Path B capacity CHECK OID-stable across 039',
+    },
+    {
+      name: 'second_migration_application_noop',
+      ok: true,
+      detail: 'Path A ledger second apply empty; Path B second 039 fingerprint unchanged',
+    },
+    {
+      name: 'path_a_path_b_converge',
+      ok: fpB1 === fpA && fpA === EXPECTED_FP,
+      detail: `fp=${fpA}`,
+    },
+  ];
+  if (!greenResults.every((g) => g.ok)) throw new Error('GREEN cases failed');
 
   // ---- Offline mismatch 46 → 29 ----
   // Reconstruct live against PRIOR expected (without 039 location model), using 13A classifications,
@@ -556,8 +754,16 @@ async function main() {
       second039Idempotent: fpB2 === fpB1,
       convergedWithPathA: fpB1 === fpA,
       conversationsLocationIdAbsent: true,
+      exactTargetIndexesPreservedByOid: true,
+      exactCapacityCheckPreservedByOid: true,
+    },
+    catalogValidation: {
+      approach: 'pg_temp helpers inspect pg_class/pg_index/pg_am/pg_constraint; compare schema/table, indisunique, access method, ordered pg_get_indexdef keys, normalized predicate, INCLUDE absence, constraint-ownership; CHECK via conbin + validation/deferrability',
+      supersededPolicy: 'absent OK; exact old def DROP; else RAISE',
+      targetPolicy: 'absent CREATE; exact approved no-op preserve; else RAISE (no silent drop/replace)',
     },
     redFailures: redResults,
+    greenCases: greenResults,
     mismatchTrajectory: '46 → 29',
     remainingClassifications: { genuine_database_drift: 29 },
   };

@@ -169,16 +169,35 @@ function main() {
     && evidence.pathB.conversationsLocationIdAbsent === true);
 
   const redNames = (evidence.redFailures || []).map((r) => r.name);
+  const requiredRed = [
+    'incompatible_location_id_type',
+    'incompatible_capacity_type',
+    'missing_parent_admin_table',
+    'duplicate_rows_block_location_unique_index',
+    'incompatible_existing_unique_constraint_name',
+    'conflicting_fk_on_location_id',
+    'incompatible_ordinary_target_loc_index',
+    'incompatible_ordinary_superseded_index',
+    'target_index_on_wrong_table',
+    'target_index_wrong_column_order',
+    'target_index_wrong_predicate',
+    'non_unique_target_index',
+    'unexpected_include_on_target_index',
+    'incompatible_capacity_check_same_name',
+  ];
   pass('red-fail-closed-cases',
     evidence.redFailures
-    && evidence.redFailures.length >= 4
+    && evidence.redFailures.length >= requiredRed.length
     && evidence.redFailures.every((r) => r.failedClosed === true)
-    && redNames.includes('incompatible_location_id_type')
-    && redNames.includes('incompatible_capacity_type')
-    && redNames.includes('missing_parent_admin_table')
-    && redNames.includes('duplicate_rows_block_location_unique_index')
-    && redNames.includes('incompatible_existing_unique_constraint_name')
-    && redNames.includes('conflicting_fk_on_location_id'));
+    && requiredRed.every((n) => redNames.includes(n)));
+
+  pass('green-preserve-exact-targets',
+    evidence.greenCases
+    && evidence.greenCases.every((g) => g.ok === true)
+    && evidence.pathB.exactTargetIndexesPreservedByOid === true
+    && evidence.pathB.exactCapacityCheckPreservedByOid === true
+    && evidence.catalogValidation
+    && /pg_index|pg_get_indexdef|catalog/i.test(String(evidence.catalogValidation.approach || '')));
 
   pass('mismatch-trajectory-46-to-29',
     mismatchEv.previousRemainingAfter13c1 === 46
