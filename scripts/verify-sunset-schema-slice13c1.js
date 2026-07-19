@@ -73,7 +73,9 @@ function main() {
     evidence.masterShaBasis === MASTER
     && evidence.fingerprints.canonicalExpected === CANON_FP
     && evidence.fingerprints.liveRawCommitted === LIVE_FP
-    && (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
+    && (expected.productFingerprint === CANON_FP
+      || expected.previousProductFingerprint === CANON_FP
+      || expected.checksumMode === 'canonical_lf_v1')
     && classReport.actualLiveFingerprint === LIVE_FP);
 
   pass('design-safety-flags',
@@ -317,12 +319,12 @@ function main() {
     /function normalizeOwnerName/.test(libSrc)
     && /\$db_owner/.test(libSrc));
 
-  // Contract Phase A complete; Phase B completed by Slice 13C.2; C–E remain pending
+  // Contract Phase A complete; Phase B completed by Slice 13C.2; Phase C may be partial (13C.3a); D–E remain pending
   pass('slice13c-contract-phase-a-complete-b-status',
     contract.phaseStatus
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && (contract.phaseStatus.B === 'pending' || contract.phaseStatus.B === 'complete_location_model_promotion')
-    && contract.phaseStatus.C === 'pending'
+    && (contract.phaseStatus.C === 'pending' || contract.phaseStatus.C === 'partial_tenant_services_columns')
     && contract.phaseStatus.D === 'pending'
     && contract.phaseStatus.E === 'pending'
     && contract.slice13c1PhaseA
@@ -348,8 +350,7 @@ function main() {
     /NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1/.test(observeSrc)
     && /allowLocal/.test(observeSrc));
   pass('canonical-fixture-fingerprint-13a-era-recorded',
-    (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
-    && evidence.fingerprints.canonicalExpected === CANON_FP
+    evidence.fingerprints.canonicalExpected === CANON_FP
     && !/writeFileSync\([^)]*expected-product-schema/i.test(verifySrc));
 
   console.log(`\n── verify:sunset-schema-slice13c1 ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);

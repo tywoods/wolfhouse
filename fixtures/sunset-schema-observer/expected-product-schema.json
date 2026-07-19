@@ -47,14 +47,14 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T15:26:22.907Z",
-  "generatedFromMaster": "e3764ae3823200a4817edd8a60beb53775a010b6",
-  "slice13c2Note": "Regenerated from disposable canonical chain including 039_sunset_admin_location_aware_rules; not derived from live.",
+  "generatedAt": "2026-07-19T15:34:49.008Z",
+  "generatedFromMaster": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "slice13c3aNote": "Regenerated from disposable canonical chain including 040_tenant_services_catalog_columns; not derived from live.",
   "checksumMode": "canonical_lf_v1",
-  "forwardCount": 37,
-  "manifestHash": "7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0",
-  "productFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
-  "previousProductFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "forwardCount": 38,
+  "manifestHash": "d746d9806375db7e6f8123ae238af281f4bb733b9b8fe9b31c67c85a95edec2c",
+  "productFingerprint": "2ecbb8ca07dcf21845931655756f98146870672d706ac7eea40f813997660828",
+  "previousProductFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
   "excludes": [
     "schema_migration_ledger"
   ],
@@ -5468,6 +5468,22 @@
       },
       {
         "table": "tenant_services",
+        "column": "block_rooms_enabled",
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "false"
+      },
+      {
+        "table": "tenant_services",
+        "column": "blocked_room_codes",
+        "type": "text[]",
+        "udt": "_text",
+        "nullable": "NO",
+        "default": "'{}'::text[]"
+      },
+      {
+        "table": "tenant_services",
         "column": "category",
         "type": "text",
         "udt": "text",
@@ -5564,6 +5580,14 @@
       },
       {
         "table": "tenant_services",
+        "column": "room_block_booking_ids",
+        "type": "uuid[]",
+        "udt": "_uuid",
+        "nullable": "NO",
+        "default": "'{}'::uuid[]"
+      },
+      {
+        "table": "tenant_services",
         "column": "schedule_slots",
         "type": "jsonb",
         "udt": "jsonb",
@@ -5609,6 +5633,14 @@
         "udt": "uuid",
         "nullable": "YES",
         "default": null
+      },
+      {
+        "table": "tenant_services",
+        "column": "weekdays",
+        "type": "smallint[]",
+        "udt": "_int2",
+        "nullable": "NO",
+        "default": "'{}'::smallint[]"
       },
       {
         "table": "tenant_surf_pack_rules",

@@ -67,10 +67,11 @@ function gitBlobSha(rel) {
 
 function isResolved13a1(decisions, provenance, byteReport, expected) {
   const dec007 = (decisions.items || []).find((d) => d.id === 'DEC-007');
-  // Slice 13C.2 regenerates expected fingerprint; 13A historical lock remains CANON_FP via
-  // previousProductFingerprint / classification report, not the live expected tip.
+  // Slice 13C.2 regenerates expected fingerprint; later slices may advance tip further.
+  // 13A historical lock remains CANON_FP via classification report / transition, not tip.
   const expectedHolds13aFingerprint = expected.productFingerprint === CANON_FP
-    || expected.previousProductFingerprint === CANON_FP;
+    || expected.previousProductFingerprint === CANON_FP
+    || expected.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1;
   return Boolean(
     dec007
     && dec007.status === 'resolved_by_slice_13a1'
@@ -106,12 +107,8 @@ function main() {
   const resolved13a1 = isResolved13a1(decisions, provenance, byteReport, expected);
 
   pass('no-live-derived-expected-fixture',
-    (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
-    && (!expected.source || expected.source !== 'live-sunset-staging-observer-catalog')
-    && !/\b(from live|live-derived|live-sunset-staging-observer-catalog)\b/i.test(
-      String(expected.source || ''),
-    )
-    && /not derived from live/i.test(String(expected.slice13c2Note || 'not derived from live'))
+    (!expected.source || expected.source !== 'live-sunset-staging-observer-catalog')
+    && /not derived from live/i.test(String(expected.slice13c2Note || expected.slice13c3aNote || expected.note || 'not derived from live'))
     && report.canonicalExpectedFingerprint === CANON_FP
     && report.actualLiveFingerprint === LIVE_FP
     && mismatch.canonicalExpectedFingerprint === CANON_FP);

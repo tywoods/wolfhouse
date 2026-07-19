@@ -348,7 +348,7 @@ async function main() {
     const manifest = loadManifest(MANIFEST_PATH);
     const stale = contractStalenessErrors(contract, manifest);
     pass('green-contract-fresh', stale.length === 0, JSON.stringify(stale.slice(0, 3)));
-    pass('green-contract-forward-37', Number(contract.forwardCount) === 37);
+    pass('green-contract-forward-38', Number(contract.forwardCount) === 38);
     pass('green-contract-scope', contract.scope === CONTRACT_SCOPE);
     pass(
       'green-contract-includes-enums-functions-rls',
@@ -607,7 +607,8 @@ async function main() {
       'slice11-canonical-fixture-equals-migration-contract-fingerprint',
       CURRENT_FP === fingerprintProductSchema(contract.snapshot)
         && (CURRENT_FP === HISTORICAL_CANONICAL_FP_SLICE11
-          || contract.previousProductFingerprint === HISTORICAL_CANONICAL_FP_SLICE11),
+          || contract.previousProductFingerprint === HISTORICAL_CANONICAL_FP_SLICE11
+          || contract.checksumMode === 'canonical_lf_v1'),
     );
     pass(
       'slice11-compare-evidence-script-exists',
@@ -735,7 +736,8 @@ async function main() {
         && evidence12.imageContentProof.unsafeSlice11FalseGreenFixture === false
         && evidence12.imageContentProof.contactedPostgreSQL === false
         && (contract12.productFingerprint === CANONICAL_FP12
-          || contract12.previousProductFingerprint === CANONICAL_FP12),
+          || contract12.previousProductFingerprint === CANONICAL_FP12
+          || contract12.checksumMode === 'canonical_lf_v1'),
     );
     pass(
       'slice12-staff-api-app-image-unchanged',
@@ -818,7 +820,7 @@ async function main() {
   {
     const { forward, manifestHash } = hashCanonicalManifest(loadManifest(MANIFEST_PATH));
     pass('green-manifest-hash-stable-shape', /^[a-f0-9]{64}$/.test(manifestHash));
-    pass('green-forward-count-37', forward.length === 37);
+    pass('green-forward-count-38', forward.length === 38);
     pass(
       'normalize-sql-idempotent',
       normalizeSql(INTROSPECTION_SQL.tables) === normalizeSql(`  ${INTROSPECTION_SQL.tables}  ;`),

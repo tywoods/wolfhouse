@@ -409,6 +409,22 @@ npm run verify:sunset-schema-slice13c2
 
 Artifacts: `slice13c2-location-promotion-evidence.json`, `slice13c2-mismatch-46-to-29-evidence.json`, `slice13c2-findings.md`.
 
+### Slice 13C.3a — Phase C partial tenant_services columns (implemented)
+
+Promoted only the four approved live `tenant_services` columns via `040_tenant_services_catalog_columns.sql` (DEC-004 column portion). Disposable proof only. Offline mismatch trajectory **29 → 25**. Phase D CHECKs and remaining Phase C domains (035/CMT/notification/surf-pack) deferred. **No live apply.**
+
+| Item | Value |
+|------|-------|
+| Forward count | 37 → 38 |
+| Prior fingerprint | `553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1` |
+| New fingerprint | `2ecbb8ca07dcf21845931655756f98146870672d706ac7eea40f813997660828` |
+| Migration hash (`canonical_lf_v1`) | `2f1a24bed1eabf281bda2cb7f89f6184c602513c4a7ce68634eccc39c4323c48` |
+
+```bash
+npm run prove:sunset-schema-slice13c3a-tenant-services-columns
+npm run verify:sunset-schema-slice13c3a
+```
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -466,3 +482,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13B — approved-direction reconciliation design (design only; no repair/live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.1 — azure_flexible_server_v1 observer identity normalization (88→46; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.2 — promote location-aware admin model via 039 (46→29; disposable proof only; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.3a — promote tenant_services catalog columns via 040 (29→25; disposable proof only; no live mutation) — 2026-07-19*

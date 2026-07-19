@@ -1,0 +1,109 @@
+{
+  "kind": "sunset-schema-observer-slice13c3a-tenant-services-columns-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "generatedAt": "2026-07-19T15:35:00.416Z",
+  "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "migration": {
+    "id": "040_tenant_services_catalog_columns",
+    "filename": "040_tenant_services_catalog_columns.sql",
+    "sha256CanonicalLfV1": "2f1a24bed1eabf281bda2cb7f89f6184c602513c4a7ce68634eccc39c4323c48",
+    "order": 38
+  },
+  "columnsPromoted": [
+    "weekdays",
+    "block_rooms_enabled",
+    "blocked_room_codes",
+    "room_block_booking_ids"
+  ],
+  "objectsExcluded": [
+    "tenant_services_date_window",
+    "tenant_services_price_unit",
+    "035_customer_message_templates",
+    "customer_message_templates",
+    "notification indexes",
+    "surf-pack FK/index/trigger",
+    "schema_migration_ledger bootstrap"
+  ],
+  "forwardCount": {
+    "before": 37,
+    "after": 38
+  },
+  "manifestHash": {
+    "after": "d746d9806375db7e6f8123ae238af281f4bb733b9b8fe9b31c67c85a95edec2c"
+  },
+  "productFingerprint": {
+    "before": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+    "after": "2ecbb8ca07dcf21845931655756f98146870672d706ac7eea40f813997660828"
+  },
+  "pathA": {
+    "ok": true,
+    "appliedCount": 38,
+    "secondApplyNoOp": true,
+    "productFingerprint": "2ecbb8ca07dcf21845931655756f98146870672d706ac7eea40f813997660828",
+    "observerSelfMatch": true,
+    "phaseDChecksFrom028PresentOnFreshCanonical": true
+  },
+  "pathB": {
+    "ok": true,
+    "pre040Applied": 37,
+    "staffLikeColumnsPrePresent": true,
+    "after040Fingerprint": "2ecbb8ca07dcf21845931655756f98146870672d706ac7eea40f813997660828",
+    "second040Idempotent": true,
+    "convergedWithPathA": true,
+    "exactColumnsPreservedByAttnum": true
+  },
+  "catalogValidation": {
+    "approach": "pg_attribute/pg_attrdef/pg_type: udt, nullability, normalized default, identity, generated",
+    "policy": "absent ADD; exact preserve; incompatible RAISE"
+  },
+  "redFailures": [
+    {
+      "name": "incompatible_weekdays_type",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.weekdays type (udt=_text expected _int2)"
+    },
+    {
+      "name": "incompatible_block_rooms_nullability",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.block_rooms_enabled nullability (got YES expected NO)"
+    },
+    {
+      "name": "incompatible_blocked_room_codes_default",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.blocked_room_codes default (got array['x'] expected '{}'[])"
+    },
+    {
+      "name": "incompatible_room_block_generated",
+      "failedClosed": true,
+      "message": "040: tenant_services.room_block_booking_ids has unexpected generated state s"
+    },
+    {
+      "name": "missing_parent_tenant_services",
+      "failedClosed": true,
+      "message": "040_tenant_services_catalog_columns: tenant_services missing (apply 028 first)"
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "exact_existing_columns_preserved",
+      "ok": true
+    },
+    {
+      "name": "second_application_noop",
+      "ok": true
+    },
+    {
+      "name": "path_a_path_b_converge",
+      "ok": true
+    }
+  ],
+  "mismatchTrajectory": "29 → 25",
+  "remainingClassifications": {
+    "genuine_database_drift": 25
+  }
+}

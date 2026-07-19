@@ -1,0 +1,102 @@
+{
+  "kind": "sunset-schema-observer-slice13c3a-tenant-services-column-matrix",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "dec004": "approved_direction_promote_columns_then_constraints",
+  "phaseCScopeThisSlice": "tenant_services live-only columns only (not 035/CMT/notification/surf-pack)",
+  "phaseDDeferred": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+  ],
+  "columns": [
+    {
+      "name": "weekdays",
+      "liveCatalogDefinition": {
+        "type": "smallint[]",
+        "udt": "_int2",
+        "nullable": "NO",
+        "default": "'{}'::smallint[]"
+      },
+      "staffApiReadWriteOwner": "scripts/lib/tenant-services-writes.js (ensureServicesTable + validate/write paths)",
+      "intendedSaasMeaning": "Optional weekday schedule for catalog services (0=Sun..6=Sat); empty = unrestricted by this field",
+      "typeDefaultNullability": "SMALLINT[] NOT NULL DEFAULT '{}'",
+      "currentCodeRequiresIt": true,
+      "decision": "promote",
+      "evidence": [
+        "live_only Phase C key in slice13b-mismatch-to-phase-map.json",
+        "DEC-004 retainLiveColumns",
+        "ensureServicesTable ADD COLUMN weekdays SMALLINT[] NOT NULL DEFAULT '{}'"
+      ]
+    },
+    {
+      "name": "block_rooms_enabled",
+      "liveCatalogDefinition": {
+        "type": "boolean",
+        "udt": "bool",
+        "nullable": "NO",
+        "default": "false"
+      },
+      "staffApiReadWriteOwner": "scripts/lib/tenant-service-room-blocks.js + tenant-services-writes.js",
+      "intendedSaasMeaning": "Enable whole-room inventory blocks for the service date window",
+      "typeDefaultNullability": "BOOLEAN NOT NULL DEFAULT false",
+      "currentCodeRequiresIt": true,
+      "decision": "promote",
+      "evidence": [
+        "Phase C resolution additive_promote_live_tenant_services_columns",
+        "ensureServiceBlockColumns ADD COLUMN block_rooms_enabled BOOLEAN NOT NULL DEFAULT false"
+      ]
+    },
+    {
+      "name": "blocked_room_codes",
+      "liveCatalogDefinition": {
+        "type": "text[]",
+        "udt": "_text",
+        "nullable": "NO",
+        "default": "'{}'::text[]"
+      },
+      "staffApiReadWriteOwner": "scripts/lib/tenant-service-room-blocks.js + tenant-services-writes.js",
+      "intendedSaasMeaning": "Room codes to hold when block_rooms_enabled is true",
+      "typeDefaultNullability": "TEXT[] NOT NULL DEFAULT '{}'",
+      "currentCodeRequiresIt": true,
+      "decision": "promote",
+      "evidence": [
+        "DEC-004 retainLiveColumns",
+        "ensureServiceBlockColumns ADD COLUMN blocked_room_codes TEXT[] NOT NULL DEFAULT '{}'"
+      ]
+    },
+    {
+      "name": "room_block_booking_ids",
+      "liveCatalogDefinition": {
+        "type": "uuid[]",
+        "udt": "_uuid",
+        "nullable": "NO",
+        "default": "'{}'::uuid[]"
+      },
+      "staffApiReadWriteOwner": "scripts/lib/tenant-service-room-blocks.js (sync writes; not guest-facing form field)",
+      "intendedSaasMeaning": "Booking IDs created to hold whole-room blocks during sync",
+      "typeDefaultNullability": "UUID[] NOT NULL DEFAULT '{}'",
+      "currentCodeRequiresIt": true,
+      "decision": "promote",
+      "evidence": [
+        "DEC-004 retainLiveColumns",
+        "ensureServiceBlockColumns ADD COLUMN room_block_booking_ids UUID[] NOT NULL DEFAULT '{}'",
+        "sync mutates room_block_booking_ids in DB"
+      ]
+    }
+  ],
+  "rejectedOrDeferred": [
+    {
+      "name": "tenant_services_date_window",
+      "decision": "defer_phase_d",
+      "evidence": "DEC-004 restoreMissingChecks after violation-count preflight"
+    },
+    {
+      "name": "tenant_services_price_unit",
+      "decision": "defer_phase_d",
+      "evidence": "DEC-004 restoreMissingChecks after violation-count preflight"
+    }
+  ]
+}

@@ -62,10 +62,20 @@
     "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c2-mismatch-46-to-29-evidence.json",
     "note": "Phase B location-aware admin model promoted into one canonical forward migration and proven on disposable PostgreSQL (46→29). Still product_schema_differs; do not claim Sunset repaired. No live apply."
   },
+  "slice13c3aPhaseCpartial": {
+    "status": "partial_tenant_services_columns",
+    "completedAt": "2026-07-19T15:40:00.000Z",
+    "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+    "migrationId": "040_tenant_services_catalog_columns",
+    "migrationFilename": "040_tenant_services_catalog_columns.sql",
+    "evidence": "fixtures/sunset-schema-observer/slice13c3a-tenant-services-columns-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3a-mismatch-29-to-25-evidence.json",
+    "note": "Phase C partial: only approved tenant_services live-only columns promoted (29→25). 035/CMT/notification/surf-pack and Phase D CHECKs remain pending. No live apply."
+  },
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
     "B": "complete_location_model_promotion",
-    "C": "pending",
+    "C": "partial_tenant_services_columns",
     "D": "pending",
     "E": "pending",
     "F": "pending"
