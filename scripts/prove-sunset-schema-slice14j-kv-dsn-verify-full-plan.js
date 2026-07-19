@@ -308,13 +308,13 @@ async function main() {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED host_tags_delete_retries_arbitrary_version_rejected`);
   }
 
-  // ── RED: adapter without inject → zero writes ──────────────────────────
+  // ── RED: adapter without httpRequest → zero writes ─────────────────────
   {
     resetDsnPlanCounters();
     const result = await executeDsnNormalizeAdapter({});
     const counters = getDsnPlanCounters();
     const ok = result.ok === false
-      && result.code === 'offline_inject_required'
+      && result.code === 'http_request_required'
       && counters.kvWriteCount === 0
       && counters.httpRequestCount === 0
       && counters.pgClientInstantiated === 0;
@@ -828,7 +828,7 @@ async function main() {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  GREEN exact_rollback_sequence_call_counts`);
   }
 
-  // ── GREEN: live mutate/rollback hard-disabled + hashes preserved ───────
+  // ── GREEN: live HTTP capability on; rollback hard-disabled; hashes ok ──
   {
     const expectedBytes = fs.readFileSync(EXPECTED_PATH);
     const expectedHash = crypto.createHash('sha256').update(expectedBytes).digest('hex');
@@ -845,9 +845,9 @@ async function main() {
       path.join(ROOT, 'scripts', 'lib', 'phase-d-kv-dsn-verify-full-plan.js'),
       'utf8',
     );
-    const ok = PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === false
+    const ok = PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED === true
       && PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED === false
-      && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED\s*=\s*false/.test(libSrc)
+      && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_MUTATE_ENABLED\s*=\s*true/.test(libSrc)
       && /PHASE_D_KV_DSN_VERIFY_FULL_LIVE_ROLLBACK_ENABLED\s*=\s*false/.test(libSrc)
       && !/\brequire\(['"]pg['"]\)/.test(libSrc)
       && !/new\s+Client\b/.test(libSrc)
@@ -868,6 +868,7 @@ async function main() {
     greenCases.push({
       name: 'live_disabled_hashes_preserved_no_pg_client',
       ok,
+      note: 'LIVE_MUTATE capability true (14K); plan still offline; rollback false; no pg Client',
       manifestHash,
       expectedByteSha256: expectedHash,
       productFingerprint: expected.productFingerprint,
@@ -906,9 +907,9 @@ async function main() {
     kind: 'sunset-schema-observer-slice14j-kv-dsn-verify-full-plan-contract',
     secretFree: true,
     containsRepairSql: false,
-    containsLiveApplyCode: false,
-    liveMutateCapability: false,
-    liveMutateEnabled: false,
+    containsLiveApplyCode: true,
+    liveMutateCapability: true,
+    liveMutateEnabled: true,
     liveRollbackEnabled: false,
     liveMutation: false,
     mutates: false,
@@ -1064,7 +1065,7 @@ async function main() {
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14J',
-    liveMutateEnabled: false,
+    liveMutateEnabled: true,
     liveRollbackEnabled: false,
     liveMutation: false,
     azureConnectivity: false,
@@ -1118,13 +1119,13 @@ async function main() {
 
   const findings = `# FOUNDATION Slice 14J — Key Vault DSN sslmode=verify-full normalize plan (offline)
 
-**Status:** complete (plan + offline injected-HTTP proof; live mutate/rollback hard-disabled; zero live KV read/write)
+**Status:** complete (plan + offline injected-HTTP proof; live HTTP capability activated in 14K gated apply; rollback hard-disabled; plan CLI zero live KV read/write)
 **Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome
 
-Built and offline-proven a locked, recoverable operator plan to normalize **only** the existing Key Vault secret \`luna-sunset-staging-kv/sunset-database-url\` from a TLS-deficient PostgreSQL DSN to the same exact host, port, database, username and password with \`sslmode=verify-full\` — **without** reading or mutating the live secret in this slice.
+Built and offline-proven a locked, recoverable operator plan to normalize **only** the existing Key Vault secret \`luna-sunset-staging-kv/sunset-database-url\` from a TLS-deficient PostgreSQL DSN to the same exact host, port, database, username and password with \`sslmode=verify-full\` — **without** reading or mutating the live secret via the plan CLI.
 
 | Lock | Value |
 |------|-------|
@@ -1177,7 +1178,7 @@ npm run phase-d:kv-dsn-verify-full-plan -- \\
 
 ## Zero live mutation
 
-Plan-only offline emission + injected-HTTP proof. Default/wrong args → zero KV writes. Live mutate and live rollback flags remain \`false\`.
+Plan-only offline emission + injected-HTTP proof. Default/wrong args → zero KV writes. Live HTTP capability is activated for the gated Slice 14K apply CLI; rollback remains \`false\`. Plan CLI never mutates live KV.
 `;
 
   fs.writeFileSync(APPLY_PLAN_PATH, `${JSON.stringify(applyPlan, null, 2)}\n`);

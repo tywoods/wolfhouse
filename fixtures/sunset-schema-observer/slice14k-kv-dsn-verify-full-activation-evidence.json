@@ -1,0 +1,182 @@
+{
+  "kind": "sunset-schema-observer-slice14k-kv-dsn-verify-full-activation-evidence",
+  "secretFree": true,
+  "slice": "14K",
+  "generatedAt": "2026-07-19T20:26:45.146Z",
+  "masterShaBasis": "4cfb610e069bb382f83160064963fd86572ffecb",
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "liveMutateEnabled": true,
+  "liveHttpEnabled": true,
+  "liveRollbackEnabled": false,
+  "liveMutation": false,
+  "realImdsCall": false,
+  "realKeyVaultCall": false,
+  "realPostgresCall": false,
+  "offlineInjectedHttpProof": true,
+  "zeroLiveMutation": true,
+  "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+  "authorizedSequence": [
+    "IMDS GET",
+    "Key Vault secret GET",
+    "Key Vault secret PUT",
+    "Key Vault secret verification GET"
+  ],
+  "successCallCounts": {
+    "httpRequestCount": 4,
+    "imdsRequestCount": 1,
+    "keyVaultGetCount": 2,
+    "keyVaultPutCount": 1,
+    "putCount": 1
+  },
+  "red": [
+    {
+      "name": "default_path_zero_http_writes",
+      "ok": true,
+      "httpRequestCount": 0,
+      "kvWriteCount": 0
+    },
+    {
+      "name": "missing_env_zero_http",
+      "ok": true,
+      "code": "dsn_apply_gates_rejected"
+    },
+    {
+      "name": "missing_apply_flag_zero_http",
+      "ok": true,
+      "code": "dsn_apply_gates_rejected"
+    },
+    {
+      "name": "wrong_exact_targets_zero_http",
+      "ok": true,
+      "code": "dsn_apply_gates_rejected"
+    },
+    {
+      "name": "forbidden_value_dsn_url_token_file_argv",
+      "ok": true
+    },
+    {
+      "name": "adapter_without_http_zero_writes",
+      "ok": true,
+      "code": "http_request_required"
+    },
+    {
+      "name": "sanitized_transport_failure",
+      "ok": true,
+      "code": "imds_http_rejected",
+      "kvPutCount": 0
+    },
+    {
+      "name": "sanitized_put_failure_retains_prior_version_id",
+      "ok": true,
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"
+    },
+    {
+      "name": "sanitized_verify_failure",
+      "ok": true,
+      "code": "kv_verify_get_rejected"
+    },
+    {
+      "name": "rollback_hard_disabled_zero_writes",
+      "ok": true,
+      "code": "live_rollback_disabled"
+    },
+    {
+      "name": "live_transport_rejects_host_method_body_deviations",
+      "ok": true
+    }
+  ],
+  "green": [
+    {
+      "name": "live_http_activated_rollback_disabled",
+      "ok": true,
+      "liveMutateEnabled": true,
+      "liveHttpEnabled": true,
+      "liveRollbackEnabled": false
+    },
+    {
+      "name": "exact_gates_pass",
+      "ok": true,
+      "code": "dsn_apply_gates_ok"
+    },
+    {
+      "name": "exact_one_put_sequence_injected",
+      "ok": true,
+      "httpRequestCount": 4,
+      "imdsRequestCount": 1,
+      "keyVaultGetCount": 2,
+      "keyVaultPutCount": 1,
+      "putCount": 1,
+      "metadataPreserved": true,
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "newSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+    },
+    {
+      "name": "live_http_transport_present",
+      "ok": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "cli_missing_env_refuses_zero_http",
+      "ok": true,
+      "exitCode": 2,
+      "code": "dsn_apply_gates_rejected"
+    },
+    {
+      "name": "usage_and_locks",
+      "ok": true,
+      "locks": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "luna-sunset-staging-rg",
+        "vmResourceGroup": "wh-staging-rg",
+        "vmName": "lunabox",
+        "managedIdentityName": "wh-staging-identity",
+        "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+        "keyVaultName": "luna-sunset-staging-kv",
+        "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+        "secretName": "sunset-database-url",
+        "postgresServer": "luna-sunset-staging-pg-app",
+        "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+        "database": "sunset_staging",
+        "port": 5432,
+        "targetSslmode": "verify-full",
+        "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox"
+      }
+    },
+    {
+      "name": "no_pg_client_hashes_preserved",
+      "ok": true,
+      "pgClientInstantiated": 0,
+      "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+      "expectedByteSha": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+      "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+    }
+  ],
+  "locks": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "vmResourceGroup": "wh-staging-rg",
+    "vmName": "lunabox",
+    "managedIdentityName": "wh-staging-identity",
+    "managedIdentityClientId": "0dd41fa2-52c8-4e04-bc23-8aa462938c19",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "keyVaultResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.KeyVault/vaults/luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "port": 5432,
+    "targetSslmode": "verify-full",
+    "lunaboxVmResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Compute/virtualMachines/lunabox"
+  },
+  "predicatesUnchangedFrom14A": {
+    "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+  },
+  "authorizedAggregateSqlUnchanged": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services"
+}
