@@ -1,0 +1,131 @@
+{
+  "kind": "sunset-schema-observer-job-slice11-evidence",
+  "generatedAt": "2026-07-19T09:20:37.547Z",
+  "masterShaAtStart": "a5a57b3920b0a71f71e35786b8784de1ae25b69b",
+  "outcome": "Executed manual schema-observer job; live-catalog contract match; read-only + safe drift + recovery proved",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "jobName": "luna-sunset-staging-sch-obs",
+    "database": "sunset_staging",
+    "role": "sunset_schema_observer",
+    "secretName": "sunset-schema-observer-database-url",
+    "jobImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final",
+    "staffApiImageUnchanged": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6"
+  },
+  "imageCorrection": {
+    "required": true,
+    "priorImageLackedObserverScript": true,
+    "priorFailedExecution": "luna-sunset-staging-sch-obs-ealngjc",
+    "liveContractRefreshRequired": true,
+    "liveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "staffApiRedeployed": false
+  },
+  "baselineExecution": {
+    "name": "luna-sunset-staging-sch-obs-vumqr2h",
+    "id": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/jobs/luna-sunset-staging-sch-obs/executions/luna-sunset-staging-sch-obs-vumqr2h",
+    "status": "Succeeded",
+    "startTime": "2026-07-19T09:15:55+00:00",
+    "endTime": "2026-07-19T09:16:18+00:00",
+    "durationSeconds": 23,
+    "exitCodeInferred": 0,
+    "observerOk": true,
+    "match": true,
+    "productFingerprintExpected": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "productFingerprintLive": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "mismatchCount": 0,
+    "secretLeakInLogs": false
+  },
+  "readOnlyProof": {
+    "path": "temporary injob override (secretRef); schedule unchanged",
+    "green": {
+      "host": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "current_user": "sunset_schema_observer",
+      "transaction_read_only": "on",
+      "catalogQuerySucceeded": true,
+      "authorityContract": true
+    },
+    "red": {
+      "insertDenied": true,
+      "updateDenied": true,
+      "createTableDenied": true,
+      "createRoleDenied": true,
+      "details": {
+        "insert": "permission denied for table bookings",
+        "update": "permission denied for table bookings",
+        "createTable": "permission denied for schema public",
+        "createRole": "permission denied to create role"
+      }
+    },
+    "productRowsRead": false
+  },
+  "safeDriftProof": {
+    "method": "isolated_injob_observer_with_temp_synthetic_contract",
+    "executionName": "luna-sunset-staging-sch-obs-ntxnx2l",
+    "distinctFromBaselineObserve": true,
+    "liveSchemaMutated": false,
+    "exitStatus": 4,
+    "mismatchCount": 1,
+    "counts": {
+      "expected_only": 1,
+      "live_only": 0,
+      "definition_mismatch": 0
+    },
+    "driftLabel": "slice11_synthetic_enum_mismatch_label",
+    "hasMarker": true
+  },
+  "recoveryProof": {
+    "path": "same injob observer + canonical live contract",
+    "exitStatus": 0,
+    "match": true,
+    "mismatchCount": 0,
+    "jobRemainsManualUnscheduled": true
+  },
+  "finalJobState": {
+    "name": "luna-sunset-staging-sch-obs",
+    "triggerType": "Manual",
+    "hasSchedule": false,
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final",
+    "command": [
+      "node"
+    ],
+    "args": [
+      "scripts/observe-sunset-schema-drift.js"
+    ],
+    "executionCount": 8,
+    "secretNames": [
+      "sunset-schema-observer-database-url"
+    ]
+  },
+  "nonMutations": {
+    "jobScheduled": false,
+    "schemaChanged": false,
+    "businessDataChanged": false,
+    "roleOrCredentialRotated": false,
+    "firewallNetwork": false,
+    "staffApiRedeployed": false,
+    "lunaWhatsApp": false,
+    "wolfhouse": false,
+    "production": false,
+    "jobImageUpdatedForObserverOnly": true,
+    "secretValuesExposed": false
+  },
+  "cost": {
+    "before": 15.6024442580645,
+    "after": 15.7391187741935,
+    "delta": 0.13667451612900017,
+    "currency": "USD",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-19",
+      "label": "month-to-date"
+    }
+  },
+  "standaloneModuleWhatIf": {
+    "create": 0,
+    "delete": 0,
+    "modify": 0,
+    "jobChangeType": "NoChange"
+  }
+}

@@ -33,7 +33,7 @@
 | `STAFF_ACTIONS_ENABLED` | `true` (hardcoded; matches live) |
 | Image | `whstagingacr.azurecr.io/luna-sunset-staff-api:<staffApiImageTag>` — **tag required via parameters** |
 | Deploy flags | `deployContainerApps=true`, `deployStaffApi=true` (represent existing live app) |
-| Schema observer job | Live: `luna-sunset-staging-sch-obs` Manual/unscheduled (Slice 10). Source default remains `deploySchemaObserverJob=false` |
+| Schema observer job | Live: `luna-sunset-staging-sch-obs` Manual/unscheduled; Slice 11 executed (not scheduled) |
 | Owner tag | `tywoods` (parameter; omitted on staff-api tags to match live) |
 
 ### Still unmanaged / manual (not claimed by Bicep)
@@ -289,6 +289,24 @@ node scripts/prepare-sunset-schema-observer-job-slice10-params.js
 
 ---
 
+## Schema observer execution (FOUNDATION Slice 11)
+
+Manual job `luna-sunset-staging-sch-obs` was executed (not scheduled). Evidence: `fixtures/sunset-schema-observer/slice11-job-execution-evidence.json`.
+
+- Baseline run uses `node scripts/observe-sunset-schema-drift.js` with KV secretRef DSN only.
+- Expected contract may be refreshed from the live read-only observer catalog via chunked dump (`scripts/dump-sunset-live-schema-contract.js`) when the migration-derived fixture diverges; this does **not** mutate the database.
+- Safe drift + read-only proofs use a temporary injob override (`scripts/prove-sunset-schema-observer-slice11-injob.js`) that cannot persist schedule/config; synthetic enum mismatch only.
+- Staff API app image is intentionally left unchanged when only the job image is corrected for observer scripts/fixtures.
+
+```bash
+# secret-free module params (metadata only), then operator-approved what-if:
+node scripts/prepare-sunset-schema-observer-job-slice10-params.js
+# az deployment group what-if --template-file infra/azure/sunset-staging/schema-observer-job.bicep \
+#   --parameters @tmp/foundation-slice10/slice10-job-module.secure.local.json
+```
+
+---
+
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
 
 Fail-closed convergent provision tooling for the dedicated observer role / DSN secret. **Default is dry-run.** Slice 9 enables live apply for Sunset staging only (`LIVE_APPLY_ENABLED=true`) when `--apply` and env gates are set.
@@ -337,3 +355,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 8 — convergent/safe provisioner hardenings — 2026-07-18*
 *FOUNDATION Slice 9 — live Sunset staging role+KV provision (approved; no job/firewall/schema/data) — 2026-07-19*
 *FOUNDATION Slice 10 — deploy manual unscheduled `luna-sunset-staging-sch-obs` job (not executed; KV secret ref only) — 2026-07-19*
+*FOUNDATION Slice 11 — execute manual schema-observer job; live-catalog contract match; read-only + safe drift + recovery — 2026-07-19*
