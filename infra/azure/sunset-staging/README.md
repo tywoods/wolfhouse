@@ -649,6 +649,22 @@ npm run phase-d:live-readonly-count-only
 
 Artifacts: `slice14o-post-firewall-phase-d-counts-contract.json`, `slice14o-post-firewall-phase-d-counts-evidence.json`, `slice14o-findings.md`.
 
+### Slice 14P — Apply Phase D CHECK constraints
+
+Offline RED/GREEN gates, then (with `--live` once) post-firewall prestate → credential preflight → exactly **one** gated managed-identity transaction applying the two missing canonical migration-028 CHECK constraints on `public.tenant_services`: **`tenant_services_date_window`** and **`tenant_services_price_unit`**. Statements are byte-locked to 028; zero-count aggregate preflight must pass before `ADD CONSTRAINT`. Sequence: advisory lock → catalog checks → aggregate (all zeros) → two `ADD CONSTRAINT` → catalog verify → `COMMIT`. Then canonical observer read-only compare against `expected-product-schema.json` (`azure_flexible_server_v1` normalization). **No** DML, ledger write, migration file change, or Azure/RBAC/network/KV mutation beyond the existing MI credential GET. Verifier does **not** re-run live apply or observer.
+
+```bash
+# Offline RED/GREEN only (default; preserves historical live evidence when present):
+npm run prove:sunset-schema-slice14p-apply-phase-d-constraints
+npm run verify:sunset-schema-slice14p
+# Live capture (exactly once; do not re-run after historical evidence):
+# node scripts/prove-sunset-schema-slice14p-apply-phase-d-constraints.js --live
+# default refuse (zero pg Clients):
+npm run phase-d:constraint-apply
+```
+
+Artifacts: `slice14p-apply-phase-d-constraints-contract.json`, `slice14p-apply-phase-d-constraints-evidence.json`, `slice14p-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -723,3 +739,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14M — Phase D live read-only counts via managed-identity (offline RED/GREEN + credential preflight + one live count; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14N — Lunabox AllowLunaboxEgress firewall rule on luna-sunset-staging-pg-app (standalone Bicep + one gated ARM PUT; zero PostgreSQL) — 2026-07-19*
 *FOUNDATION Slice 14O — Post-firewall Phase D live read-only counts (firewall prestate + credential preflight + one gated count; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14P — Apply Phase D CHECK constraints (offline gates + gated live apply + observer read-only; schema mutation only) — 2026-07-19*
