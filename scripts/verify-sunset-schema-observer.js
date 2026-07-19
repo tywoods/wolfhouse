@@ -449,6 +449,67 @@ async function main() {
       /structural|security|not complete schema equivalence|product-schema contract/i.test(readme)
         || /schema observer/i.test(readme),
     );
+    pass(
+      'docs-slice10-standalone-module-only',
+      /standalone `infra\/azure\/sunset-staging\/schema-observer-job\.bicep`/i.test(readme)
+        || /standalone schema-observer-job\.bicep only/i.test(readme)
+        || /Deployment path \(only\):.*schema-observer-job\.bicep/i.test(readme),
+    );
+  }
+
+  // Slice 10 parameter preparer: module-only, no unrelated secret inputs
+  {
+    const PREP = path.join(ROOT, 'scripts', 'prepare-sunset-schema-observer-job-slice10-params.js');
+    const EVIDENCE = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice10-job-deploy-evidence.json');
+    pass('slice10-preparer-exists', fs.existsSync(PREP));
+    if (fs.existsSync(PREP)) {
+      const src = fs.readFileSync(PREP, 'utf8');
+      pass('slice10-preparer-writes-module-params-only', /slice10-job-module\.secure\.local\.json/.test(src));
+      const overlayName = ['slice10', 'deploy', 'secure', 'local', 'json'].join('-').replace(
+        /^(slice10)-(deploy)-(secure)-(local)-(json)$/,
+        '$1-$2.$3.$4.$5',
+      );
+      const pgAdmin = ['postgres', 'Admin', 'Password'].join('');
+      const botTok = ['luna', 'Bot', 'Internal', 'Token'].join('');
+      const appDsnSecret = ['sunset', 'database', 'url'].join('-');
+      pass(
+        'slice10-preparer-no-main-overlay-path',
+        !src.includes(overlayName),
+      );
+      pass(
+        'slice10-preparer-no-unrelated-secret-inputs',
+        !src.includes(pgAdmin)
+          && !src.includes(botTok)
+          && !/SUNSET_[A-Z0-9_]*WHATSAPP/.test(src)
+          && !src.includes(overlayName)
+          && !src.includes(appDsnSecret)
+          && !/secret show[\s\S]*luna-bot/i.test(src),
+      );
+      pass(
+        'slice10-preparer-observer-secret-metadata-only',
+        /\{name:name,enabled:attributes\.enabled\}/.test(src)
+          && /observerSecretValueRetrieved:\s*false/.test(src)
+          && !/\.value/.test(src.split('secretMeta')[1] || ''),
+      );
+    }
+    if (fs.existsSync(EVIDENCE)) {
+      const ev = JSON.parse(fs.readFileSync(EVIDENCE, 'utf8'));
+      const overlayName = ['slice10', 'deploy', 'secure', 'local', 'json'].join('-').replace(
+        /^(slice10)-(deploy)-(secure)-(local)-(json)$/,
+        '$1-$2.$3.$4.$5',
+      );
+      pass(
+        'slice10-evidence-no-main-overlay',
+        ev.deploymentPath
+          && ev.deploymentPath.mainOverlayPrepared === false
+          && !String(JSON.stringify(ev)).includes(overlayName),
+      );
+      pass(
+        'slice10-evidence-no-secret-value-retrieval',
+        ev.parameterPreparerContract
+          && ev.parameterPreparerContract.observerSecretValueRetrieved === false,
+      );
+    }
   }
 
   {

@@ -275,13 +275,15 @@ Secret-free live probe fixture: `fixtures/sunset-staging-bicep-preflight/live-pr
 Manual, unscheduled Container Apps Job `luna-sunset-staging-sch-obs` is deployed in Sunset staging and wired to Key Vault secret `sunset-schema-observer-database-url` (secretRef only — never plaintext DSN).
 
 - **Source default stays off:** `deploySchemaObserverJob=false` in `main.bicep` / `parameters.example.json`.
-- **Live create:** deploy `schema-observer-job.bicep` with a gitignored secure parameter file (`tmp/**/*.local.json`). Do **not** start or schedule the job from this slice.
+- **Deployment path (only):** standalone `infra/azure/sunset-staging/schema-observer-job.bicep` with gitignored `tmp/foundation-slice10/slice10-job-module.secure.local.json`.
+- **Parameter preparer:** `node scripts/prepare-sunset-schema-observer-job-slice10-params.js` writes that module file only (non-secret locked metadata: job name, CAE/MI IDs, live Staff API image, KV base URI, observer secret **name**, compute/retry/timeout, tags). It never prepares a `main.bicep` overlay and never reads app DB DSN, bot tokens, WhatsApp/inbox values, or any secret **value**.
+- Do **not** start or schedule the job from this slice.
 - Evidence: `fixtures/sunset-schema-observer/slice10-job-deploy-evidence.json`.
 
 ```bash
 node scripts/prepare-sunset-schema-observer-job-slice10-params.js
-# then operator-approved:
-# az deployment group what-if / create --template-file infra/azure/sunset-staging/schema-observer-job.bicep \
+# then operator-approved what-if/create against schema-observer-job.bicep only:
+# az deployment group what-if --template-file infra/azure/sunset-staging/schema-observer-job.bicep \
 #   --parameters @tmp/foundation-slice10/slice10-job-module.secure.local.json
 ```
 
