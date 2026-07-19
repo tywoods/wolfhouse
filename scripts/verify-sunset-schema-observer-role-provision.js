@@ -121,7 +121,7 @@ async function main() {
 
   pass('cli-exists', fs.existsSync(CLI));
   pass('lib-exists', fs.existsSync(LIB));
-  pass('live-apply-disabled', LIVE_APPLY_ENABLED === false);
+  pass('live-apply-enabled', LIVE_APPLY_ENABLED === true);
   pass('locked-subscription', TARGETS.subscriptionId === '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9');
   pass('locked-rg', TARGETS.resourceGroup === 'luna-sunset-staging-rg');
   pass('locked-pg', TARGETS.postgresServer === 'luna-sunset-staging-pg-app');
@@ -757,11 +757,11 @@ async function main() {
     pass('green-argv-file-ok', good.ok);
   }
 
-  // CLI runProvision still refuses live apply
+  // CLI runProvision refuses without admin env even when live flag is on
   {
     const result = await runProvision({
       applyRequested: true,
-      env: applyEnv(),
+      env: applyEnv(), // missing PG admin
       targets: TARGETS,
       azure: goodAzure(),
       db: goodDb(),
@@ -771,12 +771,45 @@ async function main() {
       },
     });
     pass(
-      'red-cli-apply-refused-live-disabled',
+      'red-cli-apply-refused-missing-pg-admin',
       result.refused === true
         && !result.ok
-        && result.errors.some((e) => e.code === 'live_apply_disabled')
+        && result.errors.some((e) => e.code === 'pg_admin_user_required' || e.code === 'pg_admin_password_required')
         && result.counters.postgresExec === 0,
     );
+  }
+
+  {
+    const result = await runProvision({
+      applyRequested: true,
+      env: {
+        ...applyEnv(),
+        SUNSET_STAGING_PG_ADMIN_USER: 'sunsetadmin',
+        SUNSET_STAGING_PG_ADMIN_PASSWORD: 'unit-test-not-real',
+      },
+      targets: TARGETS,
+      __testAllowApply: true,
+      azure: goodAzure(),
+      db: goodDb(),
+      inspectState: async () => ({
+        roleExists: false,
+        secretExists: false,
+      }),
+      postgresExec: async () => {},
+      keyVaultSecretSetSecure: async () => {},
+      generatePassword: () => generateRolePassword(),
+    });
+    // With __testAllowApply + admin env, injected create path may run — ensure gate alone is green.
+    void result;
+    const gate = evaluateApplyGate({
+      applyRequested: true,
+      env: {
+        ...applyEnv(),
+        SUNSET_STAGING_PG_ADMIN_USER: 'sunsetadmin',
+        SUNSET_STAGING_PG_ADMIN_PASSWORD: 'unit-test-not-real',
+      },
+    });
+    pass('green-apply-gate-with-admin-env', gate.ok && gate.liveApplyEnabled === true);
   }
 
   // Plan / dry-run / firewall
@@ -811,9 +844,10 @@ async function main() {
   {
     const readme = fs.readFileSync(README, 'utf8');
     pass(
-      'docs-slice8-hardening',
-      /Slice 8|NOBYPASSRLS|convergent|LIVE_APPLY_ENABLED/i.test(readme)
-        && /provision-sunset-schema-observer-role/i.test(readme),
+      'docs-slice9-live-apply',
+      /Slice 9/i.test(readme)
+        && /provision-sunset-schema-observer-role/i.test(readme)
+        && /LIVE_APPLY_ENABLED/i.test(readme),
     );
   }
   {
@@ -836,6 +870,390 @@ async function main() {
     const pw = generateRolePassword();
     const nested = redactDeep({ err: new Error(`x ${pw}`), nest: { dsn: buildObserverDsn({ password: pw }) } }, [pw, buildObserverDsn({ password: pw })]);
     pass('green-redact-deep', !JSON.stringify(nested).includes(pw));
+  }
+
+  // ── Partial-bootstrap failure boundary (transactional worker + adapter) ──
+  {
+    const {
+      bootstrapCreateTransactional,
+      createSimulatedBootstrapClient,
+      handleBootstrapCreateResult,
+    } = require('./lib/sunset-schema-observer-role-bootstrap-pg');
+    const pw = generateRolePassword();
+
+    // CREATE succeeds, GRANT fails → ROLLBACK → role absent
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'create',
+      });
+      pass(
+        'red-bootstrap-fail-after-create-rolled-back',
+        result.ok === false
+          && result.transactional === true
+          && result.createSucceeded === true
+          && result.grantSucceeded === false
+          && result.rolledBack === true
+          && result.roleRemains === false
+          && result.hasConnect === false
+          && result.hasReadonlySetting === false
+          && !JSON.stringify(result).includes(pw)
+          && !/PASSWORD\s+'/i.test(JSON.stringify(result)),
+      );
+    }
+
+    // CREATE+GRANT succeed, ALTER fails → ROLLBACK → role absent
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'grant',
+      });
+      pass(
+        'red-bootstrap-fail-after-grant-rolled-back',
+        result.ok === false
+          && result.createSucceeded === true
+          && result.grantSucceeded === true
+          && result.alterSucceeded === false
+          && result.rolledBack === true
+          && result.roleRemains === false
+          && result.hasConnect === false
+          && result.hasReadonlySetting === false
+          && !JSON.stringify(result).includes(pw),
+      );
+    }
+
+    // Green transactional commit
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, { password: pw });
+      pass(
+        'green-bootstrap-transactional-commit',
+        result.ok === true
+          && result.committed === true
+          && result.createSucceeded === true
+          && result.grantSucceeded === true
+          && result.alterSucceeded === true
+          && client.state.roles.has(TARGETS.roleName)
+          && !JSON.stringify(result).includes(pw),
+      );
+    }
+
+    // Non-transactional dirty progress → adapter runs ordered rollback; no KV secret write
+    {
+      const sim = createSimulatedBootstrapClient();
+      // Seed a leftover role as if CREATE committed outside a transaction.
+      await sim.query('BEGIN');
+      await sim.query(`CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD 'x' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
+      await sim.query(`GRANT CONNECT ON DATABASE ${TARGETS.database} TO ${TARGETS.roleName}`);
+      await sim.query('COMMIT');
+
+      const dirty = {
+        ok: false,
+        transactional: false,
+        createSucceeded: true,
+        grantSucceeded: false,
+        alterSucceeded: false,
+        committed: false,
+        rolledBack: false,
+        roleRemains: true,
+        hasConnect: true,
+        hasReadonlySetting: false,
+        failedStep: 'grant',
+        error: 'injected_non_transactional_grant_fail',
+      };
+      const kvSetCalls = [];
+      const sqlLog = [];
+      let threw = null;
+      try {
+        await handleBootstrapCreateResult(dirty, {
+          targets: TARGETS,
+          kvSetCalls,
+          postgresExec: async (sql) => {
+            sqlLog.push(String(sql));
+            return sim.query(sql);
+          },
+        });
+      } catch (err) {
+        threw = err;
+      }
+      pass(
+        'red-adapter-partial-create-runs-narrow-rollback',
+        threw
+          && threw.createSucceeded === true
+          && sim.state.roles.has(TARGETS.roleName) === false
+          && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+          && sqlLog.some((s) => /^ALTER ROLE .+ RESET default_transaction_read_only/.test(s))
+          && sqlLog.some((s) => /^DROP ROLE /.test(s))
+          && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+          && kvSetCalls.length === 0
+          && !String(threw.message || '').includes(pw),
+      );
+    }
+
+    // Fail-after-create through convergent bootstrap: no observer secret write
+    {
+      const kvWrites = [];
+      const result = await executeConvergentBootstrap({
+        azure: goodAzure(),
+        db: goodDb(),
+        generatePassword: () => pw,
+        inspectState: async () => ({ roleExists: false, secretExists: false }),
+        postgresExec: async (_sql, _params, meta) => {
+          if (meta && meta.stepId === 'create_role_if_absent') {
+            const r = {
+              ok: false,
+              transactional: true,
+              createSucceeded: true,
+              grantSucceeded: false,
+              committed: false,
+              rolledBack: true,
+              roleRemains: false,
+              hasConnect: false,
+              hasReadonlySetting: false,
+              failedStep: 'grant',
+              error: 'injected_fail_after_create',
+            };
+            await handleBootstrapCreateResult(r, {
+              targets: TARGETS,
+              kvSetCalls: kvWrites,
+            });
+          }
+          return { ok: true };
+        },
+        keyVaultSecretSetSecure: async () => {
+          kvWrites.push('observer-secret');
+        },
+      });
+      pass(
+        'red-partial-bootstrap-no-observer-secret-write',
+        result.ok === false
+          && kvWrites.length === 0
+          && result.counters.roleCreated === 0
+          && result.counters.keyVaultSet === 0
+          && !JSON.stringify(result).includes(pw)
+          && !/PASSWORD\s+'/i.test(JSON.stringify(result)),
+      );
+    }
+
+    // ALTER-fail case through handleBootstrapCreateResult after transactional proof
+    {
+      const client = createSimulatedBootstrapClient();
+      const partial = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'grant',
+      });
+      const kvSetCalls = [];
+      let threw = null;
+      try {
+        await handleBootstrapCreateResult(partial, {
+          targets: TARGETS,
+          kvSetCalls,
+          postgresExec: async (sql) => client.query(sql),
+        });
+      } catch (err) {
+        threw = err;
+      }
+      pass(
+        'red-bootstrap-alter-fail-no-secret-role-absent',
+        threw
+          && partial.roleRemains === false
+          && client.state.roles.has(TARGETS.roleName) === false
+          && kvSetCalls.length === 0
+          && !String(threw && threw.message).includes(pw),
+      );
+    }
+
+    // ── Post-COMMIT temp-secret cleanup boundary ──
+    {
+      const {
+        resolveCommittedBootstrapCleanupBoundary,
+      } = require('./lib/sunset-schema-observer-role-bootstrap-pg');
+      const { createLivePostgresExec } = require('./lib/sunset-schema-observer-role-live-adapters');
+      const createSql = buildCreateRoleSql(pw).sql;
+
+      async function seedCommittedRole(sim) {
+        await sim.query('BEGIN');
+        await sim.query(
+          `CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD 'x' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`,
+        );
+        await sim.query(`GRANT CONNECT ON DATABASE ${TARGETS.database} TO ${TARGETS.roleName}`);
+        await sim.query(
+          `ALTER ROLE ${TARGETS.roleName} SET default_transaction_read_only = on`,
+        );
+        await sim.query('COMMIT');
+      }
+
+      const committedWorker = {
+        ok: true,
+        committed: true,
+        transactional: true,
+        createSucceeded: true,
+        grantSucceeded: true,
+        alterSucceeded: true,
+        roleRemains: true,
+        hasConnect: true,
+        hasReadonlySetting: true,
+      };
+
+      // A. Worker commits, then worker-secret cleanup fails
+      {
+        const sim = createSimulatedBootstrapClient();
+        await seedCommittedRole(sim);
+        const kvSetCalls = [];
+        const sqlLog = [];
+        let threw = null;
+        const exec = createLivePostgresExec({
+          setTempBootstrapPassword: async () => {},
+          deleteTempBootstrapPassword: () => ({ ok: true }),
+          runContainerWorker: (op) => {
+            if (op === 'bootstrap_create') {
+              return {
+                ...committedWorker,
+                tempWorkerSecretCleanup: {
+                  ok: false,
+                  stillActive: true,
+                  code: 'temp_worker_secret_still_active',
+                  secretName: 'sunset-schema-observer-worker-temp-test',
+                },
+              };
+            }
+            throw new Error(`unexpected worker op ${op}`);
+          },
+          postgresExecForRollback: async (sql) => {
+            sqlLog.push(String(sql));
+            if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+            return sim.query(sql);
+          },
+          kvSetCalls,
+        });
+        try {
+          await exec(createSql, [], { stepId: 'create_role_if_absent' });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-worker-secret-cleanup-fails-rolls-back',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === true
+            && threw.tempBootstrapSecretCleanupFailed === false
+            && threw.rolledBack === true
+            && threw.secretWritten === false
+            && sim.state.roles.has(TARGETS.roleName) === false
+            && kvSetCalls.length === 0
+            && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+            && sqlLog.some((s) => /^ALTER ROLE .+ RESET default_transaction_read_only/.test(s))
+            && sqlLog.some((s) => /^DROP ROLE /.test(s))
+            && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+            && !String(threw.message || '').includes(pw)
+            && !/PASSWORD\s+'/i.test(JSON.stringify(threw)),
+        );
+      }
+
+      // B. Worker commits, worker cleanup ok, bootstrap-password cleanup fails
+      {
+        const sim = createSimulatedBootstrapClient();
+        await seedCommittedRole(sim);
+        const kvSetCalls = [];
+        const sqlLog = [];
+        let threw = null;
+        const exec = createLivePostgresExec({
+          setTempBootstrapPassword: async () => {},
+          deleteTempBootstrapPassword: () => {
+            throw Object.assign(new Error('temp_bootstrap_secret_still_active'), {
+              code: 'temp_bootstrap_secret_still_active',
+            });
+          },
+          runContainerWorker: (op) => {
+            if (op === 'bootstrap_create') {
+              return {
+                ...committedWorker,
+                tempWorkerSecretCleanup: { ok: true, stillActive: false, secretName: 'w' },
+              };
+            }
+            throw new Error(`unexpected worker op ${op}`);
+          },
+          postgresExecForRollback: async (sql) => {
+            sqlLog.push(String(sql));
+            if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+            return sim.query(sql);
+          },
+          kvSetCalls,
+        });
+        try {
+          await exec(createSql, [], { stepId: 'create_role_if_absent' });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-bootstrap-secret-cleanup-fails-rolls-back',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === false
+            && threw.tempBootstrapSecretCleanupFailed === true
+            && threw.rolledBack === true
+            && threw.secretWritten === false
+            && sim.state.roles.has(TARGETS.roleName) === false
+            && kvSetCalls.length === 0
+            && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+            && sqlLog.some((s) => /^DROP ROLE /.test(s))
+            && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+            && !String(threw.message || '').includes(pw),
+        );
+      }
+
+      // Rollback failure after committed-bootstrap cleanup failure
+      {
+        const kvSetCalls = [];
+        let threw = null;
+        try {
+          await resolveCommittedBootstrapCleanupBoundary({
+            workerResult: { ok: true, committed: true },
+            workerSecretCleanup: {
+              ok: false,
+              stillActive: true,
+              code: 'temp_worker_secret_still_active',
+              secretName: 'sunset-schema-observer-worker-temp-test',
+            },
+            bootstrapSecretCleanup: { ok: true, stillActive: false },
+            kvSetCalls,
+            postgresExec: async (sql) => {
+              if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+              if (/^DROP ROLE/.test(String(sql))) {
+                throw Object.assign(new Error('cannot drop role: still has database privileges or settings'), {
+                  code: 'dependent_objects',
+                });
+              }
+              // REVOKE/RESET succeed but DROP fails → incomplete
+            },
+            inspectRoleState: async () => ({
+              roleRemains: true,
+              hasConnect: false,
+              hasReadonlySetting: false,
+            }),
+          });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-cleanup-fail-rollback-incomplete',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === true
+            && threw.rollbackIncomplete === true
+            && threw.rolledBack === false
+            && threw.secretWritten === false
+            && threw.roleState
+            && threw.roleState.roleRemains === true
+            && threw.code === 'bootstrap_committed_temp_secret_cleanup_rollback_incomplete'
+            && kvSetCalls.length === 0
+            && !String(threw.message || '').includes(pw)
+            && !/DROP OWNED/i.test(JSON.stringify(threw)),
+        );
+      }
+    }
   }
 
   console.log(`\n── verify:sunset-schema-observer-role-provision ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);

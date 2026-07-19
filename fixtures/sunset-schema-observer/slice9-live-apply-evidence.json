@@ -1,0 +1,111 @@
+{
+  "kind": "sunset-schema-observer-role-slice9-evidence",
+  "generatedAt": "2026-07-19T07:38:27.445Z",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "keyVault": "luna-sunset-staging-kv",
+    "roleName": "sunset_schema_observer",
+    "secretName": "sunset-schema-observer-database-url"
+  },
+  "preflight": {
+    "roleExists": false,
+    "secretExists": false,
+    "roleValid": false,
+    "secretValid": false,
+    "decision": "create",
+    "decisionOk": true,
+    "memberships": [],
+    "ownedObjectCount": 0,
+    "grants": []
+  },
+  "firstApply": {
+    "ok": true,
+    "action": "create",
+    "counters": {
+      "azureVerify": 1,
+      "dbVerify": 1,
+      "inspect": 1,
+      "postgresExec": 3,
+      "keyVaultSet": 1,
+      "passwordGenerated": 1,
+      "roleCreated": 1,
+      "roleDroppedRollback": 0
+    }
+  },
+  "secondApply": {
+    "ok": true,
+    "action": "verify_noop",
+    "counters": {
+      "azureVerify": 1,
+      "dbVerify": 1,
+      "inspect": 1,
+      "postgresExec": 0,
+      "keyVaultSet": 0,
+      "passwordGenerated": 0,
+      "roleCreated": 0,
+      "roleDroppedRollback": 0
+    }
+  },
+  "postState": {
+    "roleExists": true,
+    "secretExists": true,
+    "roleValid": true,
+    "secretValid": true,
+    "attributes": {
+      "rolcanlogin": true,
+      "rolsuper": false,
+      "rolcreatedb": false,
+      "rolcreaterole": false,
+      "rolinherit": false,
+      "rolreplication": false,
+      "rolbypassrls": false,
+      "default_transaction_read_only": "on"
+    },
+    "memberships": [],
+    "ownedObjectCount": 0,
+    "grants": [
+      {
+        "privilege": "CONNECT",
+        "objectType": "DATABASE",
+        "objectName": "sunset_staging"
+      }
+    ],
+    "roleSettings": {
+      "default_transaction_read_only": "on"
+    },
+    "authorityOk": true,
+    "authorityErrors": [],
+    "secretTargets": {
+      "host": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "role": "sunset_schema_observer",
+      "sslmode": "verify-full",
+      "valueExposed": false
+    }
+  },
+  "nonMutations": {
+    "firewall": false,
+    "network": false,
+    "schemaData": false,
+    "containerAppsJob": false,
+    "wolfhouse": false,
+    "production": false
+  },
+  "cost": {
+    "type": "ActualCost",
+    "scope": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg",
+    "period": {
+      "from": "2026-07-01",
+      "to": "2026-07-19",
+      "label": "month-to-date"
+    },
+    "currency": "USD",
+    "before": 15.5154559139785,
+    "after": 15.6024442580645,
+    "delta": 0.08698834408600048
+  }
+}
