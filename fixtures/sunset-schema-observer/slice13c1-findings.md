@@ -1,7 +1,7 @@
 # FOUNDATION Slice 13C.1 — Azure Flexible Server identity normalization (DEC-001)
 
-**Master basis:** `896b8220dd8586ce8ca6a416eeeefcb819c2a9b5`  
-**Canonical fingerprint (unchanged):** `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52`  
+**Master basis:** `896b8220dd8586ce8ca6a416eeeefcb819c2a9b5`
+**Canonical fingerprint (unchanged):** `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52`
 **Live fingerprint (unchanged):** `fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd`
 
 ## Verdict
@@ -19,8 +19,8 @@ After this slice the product schema still **differs** (`product_schema_differs`,
 
 ## Profile mappings (exact allowlist)
 
-1. `azuresu` → `$db_owner` for **extension** and **function** owners only.  
-2. `azure_pg_admin` ↔ `pg_database_owner` for **`public` schema owner** and **`public` schema ACL** role tokens (privilege letters unchanged).  
+1. `azuresu` → `$db_owner` for **extension** and **function** owners only.
+2. `azure_pg_admin` ↔ `pg_database_owner` for **`public` schema owner** and **`public` schema ACL** role tokens (privilege letters unchanged).
 3. Existing connected-database-owner → `$db_owner` rewrite preserved; not expanded to arbitrary roles.
 
 Fail closed on unknown profile, non-Azure target, custom/app roles, wrong object class, extra ACL grantees/privileges, grant-option / PUBLIC broadenings.
