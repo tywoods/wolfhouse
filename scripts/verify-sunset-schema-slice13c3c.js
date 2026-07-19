@@ -139,10 +139,50 @@ function main() {
     /wh041_ensure_target_index/.test(migSql)
     && /wh041_ensure_fk/.test(migSql)
     && /wh041_ensure_trigger/.test(migSql)
+    && /wh041_assert_set_updated_at_compatible/.test(migSql)
     && /pg_get_indexdef/.test(migSql)
     && /refuse drop\/replace/i.test(migSql)
+    && /prosecdef/.test(migSql)
+    && /provolatile/.test(migSql)
+    && /proconfig/.test(migSql)
+    && /proisstrict/.test(migSql)
+    && /proleakproof/.test(migSql)
+    && /proparallel/.test(migSql)
     && evidence.catalogValidation
-    && /pg_catalog/i.test(String(evidence.catalogValidation.approach || '')));
+    && /pg_catalog/i.test(String(evidence.catalogValidation.approach || ''))
+    && evidence.catalogValidation.setUpdatedAtContract
+    && evidence.catalogValidation.setUpdatedAtContract.prosecdef === false
+    && evidence.catalogValidation.setUpdatedAtContract.provolatile === 'v'
+    && evidence.catalogValidation.setUpdatedAtContract.proconfig === ''
+    && evidence.catalogValidation.setUpdatedAtContract.proisstrict === false
+    && evidence.catalogValidation.setUpdatedAtContract.proleakproof === false
+    && evidence.catalogValidation.setUpdatedAtContract.proparallel === 'u'
+    && evidence.catalogValidation.setUpdatedAtContract.mutateFunction === false);
+
+  const triggerKey = (keyMap.keys || []).find(
+    (e) => e.stableKey === 'expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at',
+  );
+  const fnContract = triggerKey && triggerKey.catalogContract && triggerKey.catalogContract.functionCatalogContract;
+  pass('set-updated-at-function-catalog-contract',
+    Boolean(fnContract)
+    && fnContract.identity === 'public.set_updated_at()'
+    && fnContract.returnType === 'trigger'
+    && fnContract.language === 'plpgsql'
+    && fnContract.prosecdef === false
+    && fnContract.security === 'INVOKER'
+    && fnContract.provolatile === 'v'
+    && fnContract.volatility === 'VOLATILE'
+    && fnContract.proconfig === ''
+    && fnContract.proisstrict === false
+    && fnContract.proleakproof === false
+    && fnContract.proparallel === 'u'
+    && fnContract.parallel === 'UNSAFE'
+    && fnContract.mutateFunction === false
+    && /prosecdef=false/i.test(findings)
+    && /INVOKER/i.test(findings)
+    && /provolatile=v/i.test(findings)
+    && /VOLATILE/i.test(findings)
+    && /never mutated/i.test(findings));
 
   pass('path-a-fresh-canonical',
     evidence.pathA
@@ -184,21 +224,40 @@ function main() {
     'wrong_trigger_events',
     'wrong_trigger_enabled',
     'wrong_trigger_args',
+    'wrong_set_updated_at_security_definer',
+    'wrong_set_updated_at_stable',
+    'wrong_set_updated_at_immutable',
+    'wrong_set_updated_at_proconfig',
+    'wrong_set_updated_at_strict',
+    'wrong_set_updated_at_parallel_safe',
     'partial_conflict_rolls_back_earlier_creates',
     'missing_parent_notification_tables',
   ];
+  const leakproofProbe = evidence.catalogValidation && evidence.catalogValidation.leakproofRedProbe;
+  const leakproofOk = Boolean(leakproofProbe)
+    && (
+      (leakproofProbe.skipped === true && Boolean(leakproofProbe.skipReason))
+      || (
+        leakproofProbe.skipped === false
+        && leakproofProbe.failedClosed === true
+        && leakproofProbe.hitIntendedGuard === true
+        && redNames.includes('wrong_set_updated_at_leakproof')
+      )
+    );
   pass('red-fail-closed-cases',
     evidence.redFailures
     && evidence.redFailures.length >= requiredRed.length
     && evidence.redFailures.every((r) => r.failedClosed === true)
     && evidence.redFailures.every((r) => r.hitIntendedGuard === true)
-    && requiredRed.every((n) => redNames.includes(n)));
+    && requiredRed.every((n) => redNames.includes(n))
+    && leakproofOk);
 
   pass('green-preserve-and-non-disposable',
     evidence.greenCases
     && evidence.greenCases.every((g) => g.ok === true)
     && evidence.greenCases.some((g) => g.name === 'non_disposable_dsn_rejected')
-    && evidence.greenCases.some((g) => g.name === 'product_fingerprint_unchanged'));
+    && evidence.greenCases.some((g) => g.name === 'product_fingerprint_unchanged')
+    && evidence.greenCases.some((g) => g.name === 'exact_set_updated_at_canonical_preserves'));
 
   pass('mismatch-trajectory-8-to-2',
     mismatchEv.previousRemainingAfter13c3b === 8

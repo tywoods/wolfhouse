@@ -7,12 +7,12 @@
   "azureMutation": false,
   "disposablePostgreSQLOnly": true,
   "disposableBackend": "pglite",
-  "generatedAt": "2026-07-19T16:41:19.973Z",
+  "generatedAt": "2026-07-19T16:50:11.953Z",
   "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
   "migration": {
     "id": "041_notification_surfpack_convergence",
     "filename": "041_notification_surfpack_convergence.sql",
-    "sha256CanonicalLfV1": "e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9",
+    "sha256CanonicalLfV1": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
     "order": 39
   },
   "sixKeyMap": "fixtures/sunset-schema-observer/slice13c3c-six-key-map.json",
@@ -38,7 +38,7 @@
   },
   "manifestHash": {
     "before": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb",
-    "after": "be9bd14c8f50ebf9036f5578dedb80f3ea2048ff7565aeb6aba3c201300aeaed"
+    "after": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e"
   },
   "productFingerprint": {
     "before": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
@@ -94,9 +94,31 @@
     "pathBFingerprintAfterSecond041": "bce9bb8f120575a5463196e4d0ae4aab78e735e9feee8a7396167a3d579c51ce"
   },
   "catalogValidation": {
-    "approach": "pg_catalog index (schema/table/unique/am/ordered keys/predicate/INCLUDE/constraint-owned); FK (src+tgt cols/actions/match/validated/deferrability); trigger (relation/tgtype timing+events+row/enabled/fn identity+definition/args); prerequisite tables/columns/function; incompatible RAISE else CREATE; exact → no-op",
+    "approach": "pg_catalog index (schema/table/unique/am/ordered keys/predicate/INCLUDE/constraint-owned); FK (src+tgt cols/actions/match/validated/deferrability); trigger (relation/tgtype timing+events+row/enabled/fn identity+definition/args); prerequisite public.set_updated_at() exact catalog contract (return=trigger language=plpgsql prosecdef=false/INVOKER provolatile=v/VOLATILE empty proconfig proisstrict=false proleakproof=false proparallel=u/UNSAFE + prosrc body); function never mutated; incompatible RAISE else CREATE; exact → no-op",
     "locks": "brief ShareLock/AccessExclusive on CREATE INDEX / ADD CONSTRAINT / CREATE TRIGGER",
-    "compatibility": "absent create; exact compatible preserve/no-op/OID-stable; conflict fail-closed rollback"
+    "compatibility": "absent create; exact compatible preserve/no-op/OID-stable; conflict fail-closed rollback",
+    "setUpdatedAtContract": {
+      "identity": "public.set_updated_at()",
+      "returnType": "trigger",
+      "language": "plpgsql",
+      "prosecdef": false,
+      "security": "INVOKER",
+      "provolatile": "v",
+      "volatility": "VOLATILE",
+      "proconfig": "",
+      "proisstrict": false,
+      "proleakproof": false,
+      "proparallel": "u",
+      "parallel": "UNSAFE",
+      "mutateFunction": false
+    },
+    "leakproofRedProbe": {
+      "name": "wrong_set_updated_at_leakproof",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "skipped": false,
+      "message": "041: incompatible public.set_updated_at() leakproof (proleakproof=t expected false); refuse trigger convergence"
+    }
   },
   "redFailures": [
     {
@@ -190,6 +212,49 @@
       "message": "041: incompatible public.set_updated_at() definition; refuse trigger convergence"
     },
     {
+      "name": "wrong_set_updated_at_security_definer",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() security (prosecdef=t expected false/INVOKER); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_stable",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() volatility (provolatile=s expected v/VOLATILE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_immutable",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() volatility (provolatile=i expected v/VOLATILE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_proconfig",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() proconfig (search_path=public expected empty); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_strict",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() strictness (proisstrict=t expected false); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_parallel_safe",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "message": "041: incompatible public.set_updated_at() parallel (proparallel=s expected u/UNSAFE); refuse trigger convergence"
+    },
+    {
+      "name": "wrong_set_updated_at_leakproof",
+      "failedClosed": true,
+      "hitIntendedGuard": true,
+      "skipped": false,
+      "message": "041: incompatible public.set_updated_at() leakproof (proleakproof=t expected false); refuse trigger convergence"
+    },
+    {
       "name": "partial_conflict_rolls_back_earlier_creates",
       "failedClosed": true,
       "hitIntendedGuard": true,
@@ -212,6 +277,11 @@
       "name": "path_b_8_to_2_and_oid_stable",
       "ok": true,
       "detail": "remaining=expected_only|constraints|tenant_services.tenant_services_date_window.CHECK,expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    },
+    {
+      "name": "exact_set_updated_at_canonical_preserves",
+      "ok": true,
+      "detail": "SECURITY INVOKER/prosecdef=false VOLATILE/provolatile=v empty proconfig non-strict non-leakproof PARALLEL UNSAFE; second 041 no-op"
     },
     {
       "name": "non_disposable_dsn_rejected",

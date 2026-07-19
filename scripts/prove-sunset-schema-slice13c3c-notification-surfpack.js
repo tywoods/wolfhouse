@@ -184,6 +184,22 @@ const KEY_MAP = [
       functionIdentity: 'public.set_updated_at()',
       nargs: 0,
       tgtype: 19,
+      functionCatalogContract: {
+        identity: 'public.set_updated_at()',
+        returnType: 'trigger',
+        language: 'plpgsql',
+        prosecdef: false,
+        security: 'INVOKER',
+        provolatile: 'v',
+        volatility: 'VOLATILE',
+        proconfig: '',
+        proisstrict: false,
+        proleakproof: false,
+        proparallel: 'u',
+        parallel: 'UNSAFE',
+        bodySource: '001_init.sql / expected-product-schema',
+        mutateFunction: false,
+      },
     },
     convergenceAction: 'ensure_trigger_fail_closed',
   },
@@ -464,6 +480,40 @@ async function main() {
   for (const k of Object.keys(oidsA1)) {
     if (oidsA1[k] !== oidsA2[k]) throw new Error(`Path A OID changed for ${k}: ${oidsA1[k]} → ${oidsA2[k]}`);
   }
+
+  const fnAttrsA = await clientA.query(`
+    SELECT
+      p.prorettype::regtype::text AS rettype,
+      l.lanname,
+      p.prosecdef,
+      p.provolatile,
+      p.proisstrict,
+      p.proleakproof,
+      p.proparallel::text AS proparallel,
+      COALESCE((
+        SELECT string_agg(cfg, ',' ORDER BY cfg)
+        FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) AS cfg
+      ), '') AS proconfig
+    FROM pg_proc p
+    JOIN pg_namespace n ON n.oid = p.pronamespace
+    JOIN pg_language l ON l.oid = p.prolang
+    WHERE n.nspname = 'public'
+      AND p.proname = 'set_updated_at'
+      AND pg_get_function_identity_arguments(p.oid) = ''
+  `);
+  const fnA = fnAttrsA.rows[0];
+  if (!fnA
+    || fnA.rettype !== 'trigger'
+    || fnA.lanname !== 'plpgsql'
+    || fnA.prosecdef !== false
+    || fnA.provolatile !== 'v'
+    || fnA.proisstrict !== false
+    || fnA.proleakproof !== false
+    || fnA.proparallel !== 'u'
+    || fnA.proconfig !== '') {
+    throw new Error(`Path A set_updated_at attrs not canonical: ${JSON.stringify(fnA)}`);
+  }
+  const exactCanonicalFnPreserves = true;
 
   const productA = await introspectProductSchema(clientA);
   if ((productA.snapshot.tables || []).includes(LEDGER_TABLE)) {
@@ -803,6 +853,95 @@ async function main() {
     `);
   }, /incompatible public\.set_updated_at\(\) definition|incompatible trigger/i);
 
+  await redCase('wrong_set_updated_at_security_definer', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() SECURITY DEFINER');
+  }, /incompatible public\.set_updated_at\(\) security \(prosecdef=/i);
+
+  await redCase('wrong_set_updated_at_stable', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() STABLE');
+  }, /incompatible public\.set_updated_at\(\) volatility \(provolatile=/i);
+
+  await redCase('wrong_set_updated_at_immutable', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() IMMUTABLE');
+  }, /incompatible public\.set_updated_at\(\) volatility \(provolatile=/i);
+
+  await redCase('wrong_set_updated_at_proconfig', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() SET search_path = public');
+  }, /incompatible public\.set_updated_at\(\) proconfig/i);
+
+  await redCase('wrong_set_updated_at_strict', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() STRICT');
+  }, /incompatible public\.set_updated_at\(\) strictness \(proisstrict=/i);
+
+  await redCase('wrong_set_updated_at_parallel_safe', async (c) => {
+    await c.query('ALTER FUNCTION public.set_updated_at() PARALLEL SAFE');
+  }, /incompatible public\.set_updated_at\(\) parallel \(proparallel=/i);
+
+  // LEAKPROOF requires superuser; only prove when disposable role can set it honestly.
+  let leakproofRed = null;
+  {
+    let redAdmin = adminB;
+    let redCleanup = () => {};
+    if (disposableBackend === 'pglite') {
+      const harnessRed = await startDisposablePostgresHarness();
+      redAdmin = harnessRed.admin;
+      redCleanup = harnessRed.cleanup;
+      await waitForPg(redAdmin, 60);
+      await createDb(redAdmin, DB_RED);
+    } else {
+      await resetDb(adminB, DB_RED);
+    }
+    const connRedLocal = { ...redAdmin, database: DB_RED };
+    const base = await runCanonicalMigrations({
+      connection: connRedLocal,
+      manifestPath: tempManifestPath,
+    });
+    if (!base.ok) throw new Error('RED base failed for leakproof probe');
+    const c = new Client(connRedLocal);
+    await c.connect();
+    try {
+      await c.query(DROP_SIX_OBJECTS_SQL);
+      try {
+        await c.query('ALTER FUNCTION public.set_updated_at() LEAKPROOF');
+      } catch (e) {
+        leakproofRed = {
+          name: 'wrong_set_updated_at_leakproof',
+          failedClosed: false,
+          hitIntendedGuard: false,
+          skipped: true,
+          skipReason: `disposable role cannot set LEAKPROOF: ${String(e.message || e).slice(0, 200)}`,
+          message: '',
+        };
+      }
+      if (!leakproofRed) {
+        let failed = false;
+        let message = '';
+        try {
+          await applySqlFile(c, MIG_041);
+        } catch (e) {
+          failed = true;
+          message = String(e.message || e).slice(0, 800);
+        }
+        const hitGuard = /incompatible public\.set_updated_at\(\) leakproof \(proleakproof=/i.test(message);
+        leakproofRed = {
+          name: 'wrong_set_updated_at_leakproof',
+          failedClosed: failed,
+          hitIntendedGuard: hitGuard,
+          skipped: false,
+          message,
+        };
+        if (!failed) throw new Error('RED case wrong_set_updated_at_leakproof did not fail closed');
+        if (!hitGuard) {
+          throw new Error(`RED case wrong_set_updated_at_leakproof wrong guard reason: ${message}`);
+        }
+      }
+    } finally {
+      await c.end();
+      redCleanup();
+    }
+    if (!leakproofRed.skipped) redResults.push(leakproofRed);
+  }
+
   await redCase('partial_conflict_rolls_back_earlier_creates', async (c) => {
     // Plant incompatible FK so 041 creates the four indexes first, then fails on FK and rolls back.
     await c.query(`
@@ -827,6 +966,11 @@ async function main() {
       name: 'path_b_8_to_2_and_oid_stable',
       ok: postEight.length === 2 && Object.keys(oidsB1).every((k) => oidsB1[k] === oidsB2[k]),
       detail: `remaining=${postEight.join(',')}`,
+    },
+    {
+      name: 'exact_set_updated_at_canonical_preserves',
+      ok: exactCanonicalFnPreserves === true,
+      detail: 'SECURITY INVOKER/prosecdef=false VOLATILE/provolatile=v empty proconfig non-strict non-leakproof PARALLEL UNSAFE; second 041 no-op',
     },
     {
       name: 'non_disposable_dsn_rejected',
@@ -978,9 +1122,28 @@ async function main() {
         'pg_catalog index (schema/table/unique/am/ordered keys/predicate/INCLUDE/constraint-owned); '
         + 'FK (src+tgt cols/actions/match/validated/deferrability); '
         + 'trigger (relation/tgtype timing+events+row/enabled/fn identity+definition/args); '
-        + 'prerequisite tables/columns/function; incompatible RAISE else CREATE; exact → no-op',
+        + 'prerequisite public.set_updated_at() exact catalog contract '
+        + '(return=trigger language=plpgsql prosecdef=false/INVOKER provolatile=v/VOLATILE '
+        + 'empty proconfig proisstrict=false proleakproof=false proparallel=u/UNSAFE + prosrc body); '
+        + 'function never mutated; incompatible RAISE else CREATE; exact → no-op',
       locks: 'brief ShareLock/AccessExclusive on CREATE INDEX / ADD CONSTRAINT / CREATE TRIGGER',
       compatibility: 'absent create; exact compatible preserve/no-op/OID-stable; conflict fail-closed rollback',
+      setUpdatedAtContract: {
+        identity: 'public.set_updated_at()',
+        returnType: 'trigger',
+        language: 'plpgsql',
+        prosecdef: false,
+        security: 'INVOKER',
+        provolatile: 'v',
+        volatility: 'VOLATILE',
+        proconfig: '',
+        proisstrict: false,
+        proleakproof: false,
+        proparallel: 'u',
+        parallel: 'UNSAFE',
+        mutateFunction: false,
+      },
+      leakproofRedProbe: leakproofRed,
     },
     redFailures: redResults,
     greenCases: greenResults,
@@ -1021,13 +1184,14 @@ See \`slice13c3c-six-key-map.json\`. Historical owners: 032 (three notification 
 Indexes: schema/table/unique/access method/ordered keys-expressions/predicate/INCLUDE/constraint ownership.
 FK: source+target columns/actions/match/validation/deferrability.
 Trigger: relation/timing/events/row-vs-statement/enabled/function identity+definition/args.
+Prerequisite \`public.set_updated_at()\`: return=trigger, language=plpgsql, SECURITY INVOKER (\`prosecdef=false\`), VOLATILE (\`provolatile=v\`), empty \`proconfig\`, non-STRICT, non-LEAKPROOF, PARALLEL UNSAFE (\`proparallel=u\`), plus exact \`prosrc\` body from 001 / expected-product-schema. Function is never mutated; drift fails closed and rolls back.
 Prerequisites validated; exact objects preserve/no-op; absent creates; conflict RAISE + rollback.
 
 ## Disposable proof
 
-- **Path A:** 39-forward self-match; second 041 no-op/OID-stable; fingerprint unchanged.
+- **Path A:** 39-forward self-match; second 041 no-op/OID-stable; fingerprint unchanged; exact canonical \`set_updated_at\` preserves.
 - **Path B:** strip six objects + Phase D CHECKs → exactly 8 keys; 041 resolves six → 2; second 041 no-op/OID-stable.
-- **RED:** wrong index table/order/predicate/unique/INCLUDE/constraint-owned; missing FK prerequisite; wrong FK target/action/deferrability; incompatible trigger function/timing/events/enabled/args; partial conflict rolls back earlier creates; missing notification tables; non-disposable DSN rejected.
+- **RED:** wrong index table/order/predicate/unique/INCLUDE/constraint-owned; missing FK prerequisite; wrong FK target/action/deferrability; incompatible trigger function/timing/events/enabled/args; \`set_updated_at\` SECURITY DEFINER / STABLE / IMMUTABLE / nonempty proconfig / STRICT / PARALLEL SAFE (leakproof when disposable role permits); partial conflict rolls back earlier creates; missing notification tables; non-disposable DSN rejected.
 
 ## Artifacts
 

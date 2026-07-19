@@ -424,7 +424,7 @@
     {
       "id": "041_notification_surfpack_convergence",
       "filename": "041_notification_surfpack_convergence.sql",
-      "sha256": "e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9",
+      "sha256": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
       "order": 39,
       "classification": "canonical_forward",
       "inForwardChain": true,

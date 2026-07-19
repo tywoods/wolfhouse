@@ -450,12 +450,25 @@ AS $f$
 DECLARE
   r record;
 BEGIN
+  -- Exact canonical execution attributes for public.set_updated_at() as created by
+  -- 001_init.sql / expected-product-schema: SECURITY INVOKER, VOLATILE, empty
+  -- proconfig, non-STRICT, non-LEAKPROOF, PARALLEL UNSAFE, plpgsql trigger body.
+  -- Fail closed; never CREATE OR REPLACE / ALTER the function.
   SELECT
     p.proname,
     n.nspname,
     p.prorettype::regtype::text AS rettype,
     l.lanname,
-    p.prosrc
+    p.prosrc,
+    p.prosecdef,
+    p.provolatile,
+    p.proisstrict,
+    p.proleakproof,
+    p.proparallel,
+    COALESCE((
+      SELECT string_agg(cfg, ',' ORDER BY cfg)
+      FROM unnest(COALESCE(p.proconfig, ARRAY[]::text[])) AS cfg
+    ), '') AS proconfig
   INTO r
   FROM pg_proc p
   JOIN pg_namespace n ON n.oid = p.pronamespace
@@ -474,6 +487,42 @@ BEGIN
 
   IF r.lanname <> 'plpgsql' THEN
     RAISE EXCEPTION '041: public.set_updated_at() language % (expected plpgsql)', r.lanname;
+  END IF;
+
+  IF r.prosecdef IS DISTINCT FROM false THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() security (prosecdef=% expected false/INVOKER); refuse trigger convergence',
+      r.prosecdef;
+  END IF;
+
+  IF r.provolatile IS DISTINCT FROM 'v' THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() volatility (provolatile=% expected v/VOLATILE); refuse trigger convergence',
+      r.provolatile;
+  END IF;
+
+  IF r.proconfig IS DISTINCT FROM '' THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() proconfig (% expected empty); refuse trigger convergence',
+      r.proconfig;
+  END IF;
+
+  IF r.proisstrict IS DISTINCT FROM false THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() strictness (proisstrict=% expected false); refuse trigger convergence',
+      r.proisstrict;
+  END IF;
+
+  IF r.proleakproof IS DISTINCT FROM false THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() leakproof (proleakproof=% expected false); refuse trigger convergence',
+      r.proleakproof;
+  END IF;
+
+  IF r.proparallel IS DISTINCT FROM 'u' THEN
+    RAISE EXCEPTION
+      '041: incompatible public.set_updated_at() parallel (proparallel=% expected u/UNSAFE); refuse trigger convergence',
+      r.proparallel;
   END IF;
 
   IF pg_temp.wh041_norm_funcdef(r.prosrc)

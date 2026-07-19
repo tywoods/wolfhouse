@@ -4,7 +4,7 @@
   "containsRepairSql": false,
   "containsLiveApplyCode": false,
   "liveMutation": false,
-  "generatedAt": "2026-07-19T16:41:19.967Z",
+  "generatedAt": "2026-07-19T16:50:11.947Z",
   "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
   "migrationId": "041_notification_surfpack_convergence",
   "migrationFilename": "041_notification_surfpack_convergence.sql",
@@ -133,7 +133,23 @@
         "enabled": "O",
         "functionIdentity": "public.set_updated_at()",
         "nargs": 0,
-        "tgtype": 19
+        "tgtype": 19,
+        "functionCatalogContract": {
+          "identity": "public.set_updated_at()",
+          "returnType": "trigger",
+          "language": "plpgsql",
+          "prosecdef": false,
+          "security": "INVOKER",
+          "provolatile": "v",
+          "volatility": "VOLATILE",
+          "proconfig": "",
+          "proisstrict": false,
+          "proleakproof": false,
+          "proparallel": "u",
+          "parallel": "UNSAFE",
+          "bodySource": "001_init.sql / expected-product-schema",
+          "mutateFunction": false
+        }
       },
       "convergenceAction": "ensure_trigger_fail_closed"
     }

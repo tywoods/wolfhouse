@@ -438,8 +438,8 @@ Promoted fail-closed additive convergence for the six remaining Phase C notifica
 | Measure | Value |
 |---------|------:|
 | Forward count | **38 → 39** |
-| Migration hash (`canonical_lf_v1`) | `e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9` |
-| Manifest hash | `be9bd14c8f50ebf9036f5578dedb80f3ea2048ff7565aeb6aba3c201300aeaed` |
+| Migration hash (`canonical_lf_v1`) | `3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09` |
+| Manifest hash | `99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e` |
 | Product fingerprint | unchanged `120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18` |
 
 ```bash

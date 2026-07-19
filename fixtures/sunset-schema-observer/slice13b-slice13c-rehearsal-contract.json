@@ -95,11 +95,11 @@
   },
   "slice13c3cPhaseC": {
     "status": "complete_notification_surfpack_convergence",
-    "completedAt": "2026-07-19T16:41:19.974Z",
+    "completedAt": "2026-07-19T16:50:11.954Z",
     "masterShaBasis": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
     "migrationId": "041_notification_surfpack_convergence",
     "migrationFilename": "041_notification_surfpack_convergence.sql",
-    "sha256CanonicalLfV1": "e4548b42493e49cafe600cdc8a097efa2aa981ed18080040d264411cfe9ff9b9",
+    "sha256CanonicalLfV1": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
     "evidence": "fixtures/sunset-schema-observer/slice13c3c-notification-surfpack-evidence.json",
     "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3c-mismatch-8-to-2-evidence.json",
     "keyMap": "fixtures/sunset-schema-observer/slice13c3c-six-key-map.json",

@@ -47,12 +47,12 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-19T16:40:09.154Z",
+  "generatedAt": "2026-07-19T16:48:31.258Z",
   "generatedFromMaster": "a90e91812eadcb0ad799fbddfc4333ba5821a9df",
   "slice13c3cNote": "Regenerated from disposable canonical chain including 041_notification_surfpack_convergence; product fingerprint unchanged (six objects already canonical); not derived from live.",
   "checksumMode": "canonical_lf_v1",
   "forwardCount": 39,
-  "manifestHash": "be9bd14c8f50ebf9036f5578dedb80f3ea2048ff7565aeb6aba3c201300aeaed",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
   "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
   "previousProductFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
   "excludes": [
