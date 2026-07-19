@@ -1064,6 +1064,196 @@ async function main() {
           && !String(threw && threw.message).includes(pw),
       );
     }
+
+    // ── Post-COMMIT temp-secret cleanup boundary ──
+    {
+      const {
+        resolveCommittedBootstrapCleanupBoundary,
+      } = require('./lib/sunset-schema-observer-role-bootstrap-pg');
+      const { createLivePostgresExec } = require('./lib/sunset-schema-observer-role-live-adapters');
+      const createSql = buildCreateRoleSql(pw).sql;
+
+      async function seedCommittedRole(sim) {
+        await sim.query('BEGIN');
+        await sim.query(
+          `CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD 'x' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`,
+        );
+        await sim.query(`GRANT CONNECT ON DATABASE ${TARGETS.database} TO ${TARGETS.roleName}`);
+        await sim.query(
+          `ALTER ROLE ${TARGETS.roleName} SET default_transaction_read_only = on`,
+        );
+        await sim.query('COMMIT');
+      }
+
+      const committedWorker = {
+        ok: true,
+        committed: true,
+        transactional: true,
+        createSucceeded: true,
+        grantSucceeded: true,
+        alterSucceeded: true,
+        roleRemains: true,
+        hasConnect: true,
+        hasReadonlySetting: true,
+      };
+
+      // A. Worker commits, then worker-secret cleanup fails
+      {
+        const sim = createSimulatedBootstrapClient();
+        await seedCommittedRole(sim);
+        const kvSetCalls = [];
+        const sqlLog = [];
+        let threw = null;
+        const exec = createLivePostgresExec({
+          setTempBootstrapPassword: async () => {},
+          deleteTempBootstrapPassword: () => ({ ok: true }),
+          runContainerWorker: (op) => {
+            if (op === 'bootstrap_create') {
+              return {
+                ...committedWorker,
+                tempWorkerSecretCleanup: {
+                  ok: false,
+                  stillActive: true,
+                  code: 'temp_worker_secret_still_active',
+                  secretName: 'sunset-schema-observer-worker-temp-test',
+                },
+              };
+            }
+            throw new Error(`unexpected worker op ${op}`);
+          },
+          postgresExecForRollback: async (sql) => {
+            sqlLog.push(String(sql));
+            if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+            return sim.query(sql);
+          },
+          kvSetCalls,
+        });
+        try {
+          await exec(createSql, [], { stepId: 'create_role_if_absent' });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-worker-secret-cleanup-fails-rolls-back',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === true
+            && threw.tempBootstrapSecretCleanupFailed === false
+            && threw.rolledBack === true
+            && threw.secretWritten === false
+            && sim.state.roles.has(TARGETS.roleName) === false
+            && kvSetCalls.length === 0
+            && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+            && sqlLog.some((s) => /^ALTER ROLE .+ RESET default_transaction_read_only/.test(s))
+            && sqlLog.some((s) => /^DROP ROLE /.test(s))
+            && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+            && !String(threw.message || '').includes(pw)
+            && !/PASSWORD\s+'/i.test(JSON.stringify(threw)),
+        );
+      }
+
+      // B. Worker commits, worker cleanup ok, bootstrap-password cleanup fails
+      {
+        const sim = createSimulatedBootstrapClient();
+        await seedCommittedRole(sim);
+        const kvSetCalls = [];
+        const sqlLog = [];
+        let threw = null;
+        const exec = createLivePostgresExec({
+          setTempBootstrapPassword: async () => {},
+          deleteTempBootstrapPassword: () => {
+            throw Object.assign(new Error('temp_bootstrap_secret_still_active'), {
+              code: 'temp_bootstrap_secret_still_active',
+            });
+          },
+          runContainerWorker: (op) => {
+            if (op === 'bootstrap_create') {
+              return {
+                ...committedWorker,
+                tempWorkerSecretCleanup: { ok: true, stillActive: false, secretName: 'w' },
+              };
+            }
+            throw new Error(`unexpected worker op ${op}`);
+          },
+          postgresExecForRollback: async (sql) => {
+            sqlLog.push(String(sql));
+            if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+            return sim.query(sql);
+          },
+          kvSetCalls,
+        });
+        try {
+          await exec(createSql, [], { stepId: 'create_role_if_absent' });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-bootstrap-secret-cleanup-fails-rolls-back',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === false
+            && threw.tempBootstrapSecretCleanupFailed === true
+            && threw.rolledBack === true
+            && threw.secretWritten === false
+            && sim.state.roles.has(TARGETS.roleName) === false
+            && kvSetCalls.length === 0
+            && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+            && sqlLog.some((s) => /^DROP ROLE /.test(s))
+            && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+            && !String(threw.message || '').includes(pw),
+        );
+      }
+
+      // Rollback failure after committed-bootstrap cleanup failure
+      {
+        const kvSetCalls = [];
+        let threw = null;
+        try {
+          await resolveCommittedBootstrapCleanupBoundary({
+            workerResult: { ok: true, committed: true },
+            workerSecretCleanup: {
+              ok: false,
+              stillActive: true,
+              code: 'temp_worker_secret_still_active',
+              secretName: 'sunset-schema-observer-worker-temp-test',
+            },
+            bootstrapSecretCleanup: { ok: true, stillActive: false },
+            kvSetCalls,
+            postgresExec: async (sql) => {
+              if (/DROP OWNED/i.test(sql)) throw new Error('forbidden DROP OWNED');
+              if (/^DROP ROLE/.test(String(sql))) {
+                throw Object.assign(new Error('cannot drop role: still has database privileges or settings'), {
+                  code: 'dependent_objects',
+                });
+              }
+              // REVOKE/RESET succeed but DROP fails → incomplete
+            },
+            inspectRoleState: async () => ({
+              roleRemains: true,
+              hasConnect: false,
+              hasReadonlySetting: false,
+            }),
+          });
+        } catch (err) {
+          threw = err;
+        }
+        pass(
+          'red-post-commit-cleanup-fail-rollback-incomplete',
+          threw
+            && threw.bootstrapCommitted === true
+            && threw.tempWorkerSecretCleanupFailed === true
+            && threw.rollbackIncomplete === true
+            && threw.rolledBack === false
+            && threw.secretWritten === false
+            && threw.roleState
+            && threw.roleState.roleRemains === true
+            && threw.code === 'bootstrap_committed_temp_secret_cleanup_rollback_incomplete'
+            && kvSetCalls.length === 0
+            && !String(threw.message || '').includes(pw)
+            && !/DROP OWNED/i.test(JSON.stringify(threw)),
+        );
+      }
+    }
   }
 
   console.log(`\n── verify:sunset-schema-observer-role-provision ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);

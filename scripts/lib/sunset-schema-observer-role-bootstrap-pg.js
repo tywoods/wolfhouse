@@ -15,6 +15,8 @@ const {
   rollbackNewlyCreatedObserverRole,
 } = require('./sunset-schema-observer-role-provision');
 
+const TEMP_BOOTSTRAP_NAME_HINT = 'sunset-schema-observer-bootstrap-temp';
+
 function sqlStringLiteral(value) {
   return `'${String(value).replace(/'/g, "''")}'`;
 }
@@ -318,11 +320,136 @@ async function handleBootstrapCreateResult(result, deps) {
   throw err;
 }
 
+/**
+ * Post-COMMIT temp-secret cleanup boundary.
+ *
+ * If PostgreSQL committed the observer role but worker-secret and/or
+ * bootstrap-password cleanup left an active temp secret, do not write the final
+ * observer secret — run ordered REVOKE→RESET→DROP and fail closed with a
+ * secret-free report. Never DROP OWNED.
+ *
+ * @returns {{ ok: true, bootstrapCommitted: true }} on clean success
+ * @throws on cleanup failure (after attempted narrow rollback) or incomplete rollback
+ */
+async function resolveCommittedBootstrapCleanupBoundary(options) {
+  const opts = options || {};
+  const workerResult = opts.workerResult || {};
+  const workerSecretCleanup = opts.workerSecretCleanup || { ok: true, stillActive: false };
+  const bootstrapSecretCleanup = opts.bootstrapSecretCleanup || { ok: true, stillActive: false };
+  const runExec = opts.postgresExec;
+  const rollbackFn = opts.rollbackNewlyCreatedObserverRole || rollbackNewlyCreatedObserverRole;
+  const targets = opts.targets || TARGETS;
+  const counters = opts.counters || null;
+  const kvSetCalls = opts.kvSetCalls || null;
+  const inspectRoleState = typeof opts.inspectRoleState === 'function'
+    ? opts.inspectRoleState
+    : null;
+
+  const bootstrapCommitted = workerResult.ok === true && workerResult.committed === true;
+  const workerCleanupFailed = workerSecretCleanup.ok === false;
+  const bootstrapCleanupFailed = bootstrapSecretCleanup.ok === false;
+
+  if (!bootstrapCommitted) {
+    throw Object.assign(new Error('resolveCommittedBootstrapCleanupBoundary requires committed worker result'), {
+      code: 'bootstrap_not_committed',
+    });
+  }
+
+  if (!workerCleanupFailed && !bootstrapCleanupFailed) {
+    return {
+      ok: true,
+      bootstrapCommitted: true,
+      secretWritten: false,
+      tempWorkerSecretCleanupFailed: false,
+      tempBootstrapSecretCleanupFailed: false,
+    };
+  }
+
+  if (kvSetCalls && kvSetCalls.length) {
+    throw Object.assign(new Error('observer secret must not be written after temp-secret cleanup failure'), {
+      code: 'secret_written_after_cleanup_failure',
+      bootstrapCommitted: true,
+    });
+  }
+
+  if (typeof runExec !== 'function') {
+    throw Object.assign(
+      new Error('committed bootstrap with temp-secret cleanup failure requires postgresExec for rollback'),
+      {
+        code: 'bootstrap_committed_cleanup_no_rollback_adapter',
+        bootstrapCommitted: true,
+        tempWorkerSecretCleanupFailed: workerCleanupFailed,
+        tempBootstrapSecretCleanupFailed: bootstrapCleanupFailed,
+      },
+    );
+  }
+
+  const rollback = await rollbackFn(runExec, targets, counters);
+  const rolledBack = Boolean(rollback && rollback.ok);
+  let roleState = {
+    roleRemains: !rolledBack,
+    targetedRole: targets.roleName,
+    targetedDatabase: targets.database,
+    completed: (rollback && rollback.completed) || [],
+    failures: (rollback && rollback.failures) || [],
+  };
+  if (inspectRoleState) {
+    const live = await inspectRoleState();
+    roleState = {
+      ...roleState,
+      roleRemains: Boolean(live && live.roleRemains),
+      hasConnect: live && live.hasConnect,
+      hasReadonlySetting: live && live.hasReadonlySetting,
+    };
+  }
+
+  const err = Object.assign(
+    new Error(redactSecrets(
+      'bootstrap_committed_temp_secret_cleanup_failed'
+      + (workerCleanupFailed ? ' worker_secret_cleanup_failed' : '')
+      + (bootstrapCleanupFailed ? ' bootstrap_secret_cleanup_failed' : '')
+      + (rolledBack ? ' rollback_ok' : ' rollback_incomplete'),
+      [],
+    )),
+    {
+      code: rolledBack
+        ? 'bootstrap_committed_temp_secret_cleanup_failed'
+        : 'bootstrap_committed_temp_secret_cleanup_rollback_incomplete',
+      bootstrapCommitted: true,
+      tempWorkerSecretCleanupFailed: workerCleanupFailed,
+      tempBootstrapSecretCleanupFailed: bootstrapCleanupFailed,
+      workerSecretName: workerCleanupFailed
+        ? String(workerSecretCleanup.secretName || '').slice(0, 120)
+        : null,
+      bootstrapSecretName: bootstrapCleanupFailed
+        ? String(bootstrapSecretCleanup.secretName || TEMP_BOOTSTRAP_NAME_HINT)
+        : null,
+      rolledBack,
+      rollbackIncomplete: !rolledBack,
+      rollback: rollback
+        ? {
+          ok: Boolean(rollback.ok),
+          dropped: Boolean(rollback.dropped),
+          completed: rollback.completed || [],
+          failures: rollback.failures || [],
+          targetedRole: rollback.targetedRole || targets.roleName,
+          targetedDatabase: rollback.targetedDatabase || targets.database,
+        }
+        : null,
+      roleState,
+      secretWritten: false,
+    },
+  );
+  // Never attach password / DSN / SQL bodies.
+  throw err;
+}
+
 module.exports = {
   bootstrapCreateTransactional,
   proveRoleAbsent,
   createSimulatedBootstrapClient,
   handleBootstrapCreateResult,
+  resolveCommittedBootstrapCleanupBoundary,
   buildCreateRoleSqlText,
   sqlStringLiteral,
 };

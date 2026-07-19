@@ -432,18 +432,22 @@ function runContainerWorker(op, envExtra) {
     );
   }
   const parsed = JSON.parse(mixed.slice(begin + 'WH_OBS_BEGIN'.length, end));
-  if (cleanupError) {
-    throw Object.assign(
-      new Error(redactSecrets(
-        `temp_worker_secret_cleanup_failed after_worker name=${secretName}`,
-        [],
-      )),
-      {
-        code: 'temp_worker_secret_still_active',
-        secretName,
-        workerResultOk: parsed && parsed.ok !== false,
-      },
-    );
+  // Preserve complete secret-free worker progress even when temp worker-secret cleanup fails.
+  // Callers must treat tempWorkerSecretCleanup.ok===false as failure (and roll back if committed).
+  const tempWorkerSecretCleanup = cleanupError
+    ? {
+      ok: false,
+      stillActive: true,
+      code: cleanupError.code || 'temp_worker_secret_still_active',
+      secretName,
+    }
+    : {
+      ok: true,
+      stillActive: false,
+      secretName,
+    };
+  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+    parsed.tempWorkerSecretCleanup = tempWorkerSecretCleanup;
   }
   return parsed;
 }

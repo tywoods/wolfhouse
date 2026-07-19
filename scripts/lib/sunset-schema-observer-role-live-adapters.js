@@ -29,6 +29,7 @@ const {
 } = require('./sunset-schema-observer-role-container-pg');
 const {
   handleBootstrapCreateResult,
+  resolveCommittedBootstrapCleanupBoundary,
 } = require('./sunset-schema-observer-role-bootstrap-pg');
 
 /** Process-local proof that container reached sunset_staging (avoids extra execs). */
@@ -334,6 +335,28 @@ function createLivePostgresExec(deps) {
   const runWorker = d.runContainerWorker || runContainerWorker;
   const rollbackFn = d.rollbackNewlyCreatedObserverRole || rollbackNewlyCreatedObserverRole;
   const handleResult = d.handleBootstrapCreateResult || handleBootstrapCreateResult;
+  const resolveCleanup = d.resolveCommittedBootstrapCleanupBoundary || resolveCommittedBootstrapCleanupBoundary;
+  const deleteBootstrap = d.deleteTempBootstrapPassword || deleteTempBootstrapPassword;
+  const setBootstrap = d.setTempBootstrapPassword || setTempBootstrapPassword;
+  const kvSetCalls = d.kvSetCalls || null;
+
+  function rollbackExec(rbSql) {
+    if (/PASSWORD/i.test(String(rbSql))) {
+      throw Object.assign(new Error('password sql forbidden via rollback exec'), {
+        code: 'password_sql_forbidden',
+      });
+    }
+    if (/DROP OWNED/i.test(String(rbSql))) {
+      throw Object.assign(new Error('DROP OWNED forbidden'), { code: 'forbidden_broad_cleanup' });
+    }
+    const rb = runWorker('exec', { WH_OBS_SQL: rbSql });
+    if (!rb || rb.ok === false) {
+      throw Object.assign(new Error((rb && rb.error) || 'rollback exec failed'), {
+        code: 'pg_exec_failed',
+      });
+    }
+    return { ok: true };
+  }
 
   return async function postgresExec(sql, _params, meta) {
     const stepId = meta && meta.stepId;
@@ -342,54 +365,106 @@ function createLivePostgresExec(deps) {
       if (!password) {
         throw Object.assign(new Error('create_role sql missing password literal'), { code: 'missing_password' });
       }
-      let cleanupError = null;
-      try {
-        await setTempBootstrapPassword(password);
-        const r = runWorker('bootstrap_create');
-        // Transactional success path
-        if (r && r.ok === true && r.committed === true) {
-          bootstrapCreateFlushed = true;
-          return { ok: true, stepId, bundled: true, transactional: true };
+
+      await setBootstrap(password);
+      const r = runWorker('bootstrap_create');
+      const workerSecretCleanup = (r && r.tempWorkerSecretCleanup)
+        || { ok: true, stillActive: false };
+
+      // Preserve whether bootstrap_create committed before bootstrap-password cleanup.
+      const bootstrapCommitted = Boolean(r && r.ok === true && r.committed === true);
+      const workerProgress = r && typeof r === 'object'
+        ? {
+          ok: r.ok === true,
+          committed: r.committed === true,
+          transactional: Boolean(r.transactional),
+          createSucceeded: Boolean(r.createSucceeded),
+          grantSucceeded: Boolean(r.grantSucceeded),
+          alterSucceeded: Boolean(r.alterSucceeded),
+          rolledBack: Boolean(r.rolledBack),
+          roleRemains: r.roleRemains,
+          hasConnect: r.hasConnect,
+          hasReadonlySetting: r.hasReadonlySetting,
+          failedStep: r.failedStep || null,
+          error: r.error ? redactSecrets(String(r.error), [password]) : null,
         }
-        // Partial / failed bootstrap — rollback if role remains; never write observer secret here.
+        : null;
+
+      let bootstrapSecretCleanup = { ok: true, stillActive: false, secretName: TEMP_BOOTSTRAP_SECRET };
+      try {
+        deleteBootstrap();
+      } catch (err) {
+        bootstrapSecretCleanup = {
+          ok: false,
+          stillActive: true,
+          code: err && err.code ? err.code : 'temp_bootstrap_secret_still_active',
+          secretName: TEMP_BOOTSTRAP_SECRET,
+        };
+      }
+
+      if (bootstrapCommitted) {
+        // Committed PG progress must not be lost to cleanup failures: roll back instead
+        // of returning success (and never write the final observer secret here).
+        if (workerSecretCleanup.ok === false || bootstrapSecretCleanup.ok === false) {
+          await resolveCleanup({
+            workerResult: { ok: true, committed: true },
+            workerSecretCleanup,
+            bootstrapSecretCleanup,
+            postgresExec: typeof d.postgresExecForRollback === 'function'
+              ? d.postgresExecForRollback
+              : rollbackExec,
+            rollbackNewlyCreatedObserverRole: rollbackFn,
+            targets: TARGETS,
+            kvSetCalls,
+            inspectRoleState: d.inspectRoleState,
+          });
+          // resolveCleanup throws
+        }
+        bootstrapCreateFlushed = true;
+        return {
+          ok: true,
+          stepId,
+          bundled: true,
+          transactional: true,
+          bootstrapCommitted: true,
+          workerProgress,
+        };
+      }
+
+      // Non-committed / partial bootstrap path.
+      try {
         await handleResult(r, {
           targets: TARGETS,
           rollbackNewlyCreatedObserverRole: rollbackFn,
-          postgresExec: async (rbSql) => {
-            if (/PASSWORD/i.test(String(rbSql))) {
-              throw Object.assign(new Error('password sql forbidden via rollback exec'), {
-                code: 'password_sql_forbidden',
-              });
-            }
-            const rb = runWorker('exec', { WH_OBS_SQL: rbSql });
-            if (!rb || rb.ok === false) {
-              throw Object.assign(new Error((rb && rb.error) || 'rollback exec failed'), {
-                code: 'pg_exec_failed',
-              });
-            }
-            return { ok: true };
-          },
-          kvSetCalls: [],
+          postgresExec: typeof d.postgresExecForRollback === 'function'
+            ? d.postgresExecForRollback
+            : rollbackExec,
+          kvSetCalls: kvSetCalls || [],
         });
-        // handleResult throws on failure; unreachable
-        return { ok: false, stepId };
-      } finally {
-        try {
-          deleteTempBootstrapPassword();
-        } catch (err) {
-          cleanupError = err;
-        }
-        if (cleanupError) {
-          // Surface after try body; do not claim success with active temp secret.
+      } catch (partialErr) {
+        if (bootstrapSecretCleanup.ok === false || workerSecretCleanup.ok === false) {
           throw Object.assign(
             new Error(redactSecrets(
-              `temp_bootstrap_secret_cleanup_failed name=${TEMP_BOOTSTRAP_SECRET}`,
+              `${String(partialErr && partialErr.message ? partialErr.message : partialErr)}`
+              + '; temp_secret_cleanup_also_failed',
               [password],
             )),
-            { code: 'temp_bootstrap_secret_still_active' },
+            {
+              code: partialErr && partialErr.code ? partialErr.code : 'bootstrap_create_failed_clean',
+              createSucceeded: Boolean(partialErr && partialErr.createSucceeded),
+              roleRemains: Boolean(partialErr && partialErr.roleRemains),
+              rolledBack: Boolean(partialErr && partialErr.rolledBack),
+              bootstrapCommitted: false,
+              tempWorkerSecretCleanupFailed: workerSecretCleanup.ok === false,
+              tempBootstrapSecretCleanupFailed: bootstrapSecretCleanup.ok === false,
+              workerProgress,
+            },
           );
         }
+        throw partialErr;
       }
+      // handleResult throws on failure; unreachable success
+      return { ok: false, stepId };
     }
     if (stepId === 'grant_connect' || stepId === 'role_readonly_default') {
       if (bootstrapCreateFlushed) {
