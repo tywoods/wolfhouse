@@ -70,6 +70,17 @@
     "E": "pending",
     "F": "pending"
   },
+  "slice14aPhaseDPreflight": {
+    "status": "complete_aggregate_preflight_disposable_proof",
+    "masterShaBasis": "935d278b01c49344ed6e6ef729ac36de5b7d5400",
+    "migrationId": "028_tenant_services",
+    "migrationFilename": "028_tenant_services.sql",
+    "newForwardMigration": false,
+    "appliesConstraints": false,
+    "evidence": "fixtures/sunset-schema-observer/slice14a-phase-d-preflight-evidence.json",
+    "contract": "fixtures/sunset-schema-observer/slice14a-phase-d-preflight-contract.json",
+    "note": "Phase D aggregate preflight only (counts). ADD CONSTRAINT remains a later slice. phaseStatus.D stays pending. No live apply."
+  },
   "slice13c3aPhaseC": {
     "status": "complete_tenant_services_column_promotion",
     "completedAt": "2026-07-19T15:54:19.107Z",

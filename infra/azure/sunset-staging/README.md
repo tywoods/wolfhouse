@@ -470,6 +470,17 @@ npm run verify:sunset-schema-slice13c3d
 
 Artifacts: `slice13c3d-integrated-phase-c-evidence.json`, `slice13c3d-mismatch-29-to-2-evidence.json`, `slice13c3d-checkpoint-key-sets.json`, `slice13c3d-findings.md`.
 
+### Slice 14A — Phase D CHECK aggregate preflight (implemented)
+
+Source-only, default-disabled, read-only aggregate preflight for the two Phase D constraints already owned by immutable migration `028` (`tenant_services_date_window`, `tenant_services_price_unit`). Returns **only** total row count + violation counts — never row values, identifiers, guest data, or arbitrary SQL. Predicates locked to 028; table/column types validated before counting. Disposable PostgreSQL proof only (non-loopback rejected). **No** live/Azure connectivity, firewall action, mutation, migration, ledger, apply flag, or `ADD CONSTRAINT`. Still `product_schema_differs`. Migrations / manifest / expected fixture / product fingerprint / 13C hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14a-phase-d-preflight
+npm run verify:sunset-schema-slice14a
+```
+
+Artifacts: `slice14a-phase-d-preflight-contract.json`, `slice14a-phase-d-preflight-evidence.json`, `slice14a-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -531,3 +542,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13C.3b — rehearse existing migration 035 CMT (25→8; disposable proof only; no live mutation; no new forward migration) — 2026-07-19*
 *FOUNDATION Slice 13C.3c — converge notification/surf-pack via 041 (8→2; disposable proof only; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.3d — integrated Phase C disposable proof 040→035→041 (29→2; no new forward migration; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14A — Phase D CHECK aggregate preflight (source-only; disposable proof; no constraint apply; no live mutation) — 2026-07-19*

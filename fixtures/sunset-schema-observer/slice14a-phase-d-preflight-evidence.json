@@ -1,0 +1,136 @@
+{
+  "kind": "sunset-schema-observer-slice14a-phase-d-preflight-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T18:42:41.357Z",
+  "masterShaBasis": "935d278b01c49344ed6e6ef729ac36de5b7d5400",
+  "slice": "14A",
+  "outcome": "phase_d_aggregate_preflight_proven_disposable_only",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "azureConnectivity": false,
+  "firewallAction": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "liveApplyEnabled": false,
+  "offlineGates": {
+    "defaultDisabledRejected": true,
+    "unauthorizedSqlRejected": true,
+    "nonLoopbackRejected": true,
+    "azureTargetFailClosed": true
+  },
+  "disposableProofCases": [
+    {
+      "name": "zero_violations",
+      "ok": true,
+      "counts": {
+        "total_rows": 4,
+        "date_window_violations": 0,
+        "price_unit_violations": 0
+      },
+      "readOnly": true
+    },
+    {
+      "name": "date_window_violation_class",
+      "ok": true,
+      "counts": {
+        "total_rows": 2,
+        "date_window_violations": 1,
+        "price_unit_violations": 0
+      }
+    },
+    {
+      "name": "price_unit_violation_class",
+      "ok": true,
+      "counts": {
+        "total_rows": 2,
+        "date_window_violations": 0,
+        "price_unit_violations": 1
+      }
+    },
+    {
+      "name": "null_semantics",
+      "ok": true,
+      "dateWindowNullPasses": true,
+      "priceUnitNullCheckPasses": true,
+      "schemaGateRejectsNullablePriceUnit": true,
+      "nullabilityCode": "column_nullability_mismatch",
+      "nullDateCounts": {
+        "total_rows": 4,
+        "date_window_violations": 0,
+        "price_unit_violations": 0
+      },
+      "nullPriceUnitAggregateCounts": {
+        "total_rows": 5,
+        "date_window_violations": 0,
+        "price_unit_violations": 0
+      }
+    },
+    {
+      "name": "mixed_rows",
+      "ok": true,
+      "counts": {
+        "total_rows": 5,
+        "date_window_violations": 2,
+        "price_unit_violations": 2
+      }
+    },
+    {
+      "name": "wrong_schema_type_fail_closed",
+      "ok": true,
+      "missingTable": true,
+      "columnTypeMismatch": true,
+      "errorSanitized": true
+    },
+    {
+      "name": "read_only_transaction_session",
+      "ok": true,
+      "preflightReadOnly": true,
+      "writeRejectedInReadOnlyTxn": true
+    },
+    {
+      "name": "exact_aggregate_query_authorization",
+      "ok": true,
+      "lockedSqlAuthorized": true,
+      "arbitrarySqlRejected": true,
+      "optionsSqlRejected": true,
+      "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services"
+    },
+    {
+      "name": "no_data_leakage",
+      "ok": true,
+      "outputKeysOnly": true,
+      "evidenceScanClean": true,
+      "errorSanitizerStripsLiterals": true
+    }
+  ],
+  "aggregateContract": {
+    "outputKeys": [
+      "total_rows",
+      "date_window_violations",
+      "price_unit_violations"
+    ],
+    "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+    "dateWindowPredicate": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+    "priceUnitPredicate": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))",
+    "returnsRowValues": false,
+    "returnsIdentifiers": false,
+    "returnsGuestData": false,
+    "acceptsArbitrarySql": false
+  },
+  "note": "Slice 14A proves aggregate preflight only. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+}
