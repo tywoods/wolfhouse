@@ -5,9 +5,10 @@
  * (allowed firewall egress). Password never appears in az/container argv —
  * CREATE uses a temporary Key Vault secret read via managed identity.
  *
- * Worker source is staged to a temporary Key Vault secret (0600 --file), then a
- * short bootstrap command fetches it via MI. This avoids containerapp exec
- * command-length limits on Windows.
+ * Fixed role-provision worker source is staged to a temporary Key Vault secret
+ * (0600 --file), then a short bootstrap command fetches it via MI. This avoids
+ * containerapp exec command-length limits on Windows. Callers may only invoke
+ * the typed WH_OBS_OP operations — there is no API that accepts arbitrary JS.
  */
 
 const { spawnSync } = require('child_process');
@@ -76,7 +77,39 @@ function azJson(args, opts) {
     if (opts && opts.allowEmpty) return null;
     throw Object.assign(new Error('az returned no JSON'), { code: 'az_no_json' });
   }
-  return JSON.parse(s.slice(i));
+  const slice = s.slice(i);
+  const open = slice[0];
+  const close = open === '[' ? ']' : '}';
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  let end = -1;
+  for (let p = 0; p < slice.length; p += 1) {
+    const ch = slice[p];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (ch === '\\\\') esc = true;
+      else if (ch === '"') inStr = false;
+      continue;
+    }
+    if (ch === '"') {
+      inStr = true;
+      continue;
+    }
+    if (ch === open) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) {
+        end = p + 1;
+        break;
+      }
+    }
+  }
+  if (end < 0) {
+    if (opts && opts.allowEmpty) return null;
+    throw Object.assign(new Error('az returned incomplete JSON'), { code: 'az_bad_json' });
+  }
+  return JSON.parse(slice.slice(0, end));
 }
 
 const CONTAINER_WORKER = `
