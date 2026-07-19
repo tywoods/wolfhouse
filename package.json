@@ -307,6 +307,8 @@
     "verify:sunset-schema-slice14c": "node scripts/verify-sunset-schema-slice14c.js",
     "prove:sunset-schema-slice14d-phase-d-readonly-activation": "node scripts/prove-sunset-schema-slice14d-phase-d-readonly-activation.js",
     "verify:sunset-schema-slice14d": "node scripts/verify-sunset-schema-slice14d.js",
+    "prove:sunset-schema-slice14e-phase-d-managed-identity-loader": "node scripts/prove-sunset-schema-slice14e-phase-d-managed-identity-loader.js",
+    "verify:sunset-schema-slice14e": "node scripts/verify-sunset-schema-slice14e.js",
     "phase-d:live-readonly-count-only": "node scripts/run-phase-d-live-readonly-count-only.js",
     "prove:sunset-schema-slice13c2-location-promotion": "node scripts/prove-sunset-schema-slice13c2-location-promotion.js",
     "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",

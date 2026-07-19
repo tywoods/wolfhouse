@@ -1,37 +1,33 @@
 'use strict';
 
 /**
- * run-phase-d-live-readonly-count-only — FOUNDATION Slice 14D
+ * run-phase-d-live-readonly-count-only — FOUNDATION Slice 14D/14E
  *
  * Narrow operator CLI for the activated Phase D live read-only count-only
- * preflight. DEFAULT: refused (zero pg Clients).
+ * preflight. DEFAULT: refused (zero pg Clients / zero HTTP).
  *
  * Requires:
  *   SUNSET_PHASE_D_LIVE_READONLY=1
  *   SUNSET_PHASE_D_LIVE_PREFLIGHT=1
  *   SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1
  *   AZURE_SUBSCRIPTION_ID=<exact Sunset staging subscription>
- *   SUNSET_STAGING_PG_ADMIN_USER / SUNSET_STAGING_PG_ADMIN_PASSWORD
  *   --execute-count-only
  *   --subscription --resource-group --postgres-server --database (exact locks)
  *
+ * Credential sources:
+ *   protected-admin-env (default): SUNSET_STAGING_PG_ADMIN_USER / PASSWORD
+ *   managed-identity (Slice 14E): requires BOTH
+ *     SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity
+ *     --credential-source managed-identity
+ *     Live IMDS/KV HTTP remains hard-disabled in 14E (offline injected HTTP only).
+ *
  * Forbidden: --dsn --host --query --connection-string --user --password --sql
  *
- * Does not load Key Vault. Does not mutate Azure/network/schema.
- * Wire real pg Client only after every gate passes.
+ * Does not mutate Azure/network/schema. Wire real pg Client only after every
+ * gate passes.
  *
  * Usage (default refuse):
  *   node scripts/run-phase-d-live-readonly-count-only.js
- *
- * Live path (operator only; this slice does not execute it):
- *   SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 \
- *   SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY=1 \
- *   AZURE_SUBSCRIPTION_ID=... SUNSET_STAGING_PG_ADMIN_USER=... \
- *   SUNSET_STAGING_PG_ADMIN_PASSWORD=... \
- *     node scripts/run-phase-d-live-readonly-count-only.js \
- *       --execute-count-only \
- *       --subscription ... --resource-group ... \
- *       --postgres-server ... --database ...
  */
 
 const {
@@ -49,6 +45,9 @@ const {
   TARGETS,
 } = require('./lib/phase-d-live-readonly-pg-adapter');
 const { redactDeep } = require('./lib/phase-d-live-readonly-boundary');
+const {
+  zeroPrivateCredentialRefs,
+} = require('./lib/phase-d-managed-identity-credential-loader');
 
 async function main() {
   const argv = process.argv.slice(2);
@@ -75,7 +74,7 @@ async function main() {
       clientsInstantiated: 0,
       liveQueryExecution: false,
       liveMutation: false,
-      note: 'Default path refused — zero pg Clients',
+      note: 'Default path refused — zero pg Clients / zero HTTP',
     }, secrets), null, 2));
     process.exit(2);
   }
@@ -102,11 +101,15 @@ async function main() {
 
   // All gates passed — wire real pg Client via activated 14C adapter.
   // No Client injection; no DSN/host/query options.
+  // Managed-identity path uses in-process loader (live HTTP hard-disabled in 14E).
   const result = await executePhaseDLiveReadonlyPgAdapter({
     env: process.env,
     argv: ['node', 'run-phase-d-live-readonly-count-only', ...argv],
     targets: TARGETS,
   });
+
+  // Never leave private credential bags on the result object.
+  zeroPrivateCredentialRefs(result);
 
   const safe = redactDeep({
     ok: result.ok,
@@ -117,6 +120,7 @@ async function main() {
     closed: result.closed,
     clientsInstantiated: result.clientsInstantiated,
     counters: result.counters,
+    credentialSource: gates.credentialSource,
     liveReadonlyConnectEnabled: result.liveReadonlyConnectEnabled,
     liveQueryExecution: result.liveQueryExecution === true,
     liveMutation: false,

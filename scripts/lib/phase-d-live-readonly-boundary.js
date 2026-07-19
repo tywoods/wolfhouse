@@ -12,11 +12,12 @@
  * itself and never adds apply/DDL/ledger capability.
  *
  * Locks: subscription, resource group, server FQDN, database, TLS verify-full,
- * application_name, BEGIN READ ONLY. Credentials only from protected admin env
- * (SUNSET_STAGING_PG_ADMIN_USER / SUNSET_STAGING_PG_ADMIN_PASSWORD), populated
- * by the existing locked loader from Key Vault sunset-database-url — never argv,
- * observer DSN, WOLFHOUSE_DATABASE_URL, caller-supplied DSN, file path, output,
- * or evidence.
+ * application_name, BEGIN READ ONLY. Credentials from protected admin env
+ * (SUNSET_STAGING_PG_ADMIN_USER / SUNSET_STAGING_PG_ADMIN_PASSWORD) or — with
+ * an explicit managed-identity credential-source flag — from the Slice 14E
+ * in-process MI + Key Vault sunset-database-url loader. Never argv, observer
+ * DSN, WOLFHOUSE_DATABASE_URL, caller-supplied DSN, file path, output, or
+ * evidence.
  */
 
 const {
@@ -70,11 +71,17 @@ const ENV_EXECUTE_COUNT_ONLY = 'SUNSET_PHASE_D_LIVE_EXECUTE_COUNT_ONLY';
 const CLI_EXECUTE_COUNT_ONLY = '--execute-count-only';
 
 /**
- * Protected admin credential env only (same contract as Slice 9 provisioner /
- * load-sunset-staging-pg-admin-env.js). Never observer DSN / file / argv.
+ * Protected admin credential env (same contract as Slice 9 provisioner /
+ * load-sunset-staging-pg-admin-env.js). Slice 14E adds an alternate
+ * managed-identity source behind an explicit credential-source flag.
+ * Never observer DSN / file / argv.
  */
 const CREDENTIAL_USER_ENV = ENV_PG_ADMIN_USER;
 const CREDENTIAL_PASSWORD_ENV = ENV_PG_ADMIN_PASSWORD;
+const ENV_CREDENTIAL_SOURCE = 'SUNSET_PHASE_D_CREDENTIAL_SOURCE';
+const CLI_CREDENTIAL_SOURCE = '--credential-source';
+const CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV = 'protected-admin-env';
+const CREDENTIAL_SOURCE_MANAGED_IDENTITY = 'managed-identity';
 const FORBIDDEN_DSN_ENVS = Object.freeze([
   OBSERVER_DSN_ENV,
   'WOLFHOUSE_DATABASE_URL',
@@ -372,11 +379,98 @@ function secretFreeConnectInfo(connectConfig) {
   };
 }
 
+function parseArgvCredentialSourceValue(argv) {
+  const args = Array.isArray(argv) ? argv.map(String) : [];
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+    if (a === CLI_CREDENTIAL_SOURCE) {
+      return i + 1 < args.length ? String(args[i + 1]) : '';
+    }
+    if (a.startsWith(`${CLI_CREDENTIAL_SOURCE}=`)) {
+      return a.slice(CLI_CREDENTIAL_SOURCE.length + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve credential source mode.
+ * managed-identity requires BOTH env and argv exactly equal to managed-identity.
+ * Missing both → protected-admin-env (legacy 14D path).
+ */
+function evaluateCredentialSource(opts) {
+  const options = opts || {};
+  const env = options.env || {};
+  const argv = options.argv || [];
+  const envRaw = String(env[ENV_CREDENTIAL_SOURCE] || '').trim();
+  const argvRaw = parseArgvCredentialSourceValue(argv);
+  const errors = [];
+
+  if (!envRaw && (argvRaw == null || argvRaw === '')) {
+    return {
+      ok: true,
+      source: CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+      explicit: false,
+      errors: [],
+    };
+  }
+
+  if (envRaw === CREDENTIAL_SOURCE_MANAGED_IDENTITY
+    && argvRaw === CREDENTIAL_SOURCE_MANAGED_IDENTITY) {
+    return {
+      ok: true,
+      source: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
+      explicit: true,
+      errors: [],
+    };
+  }
+
+  if (envRaw === CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV
+    && (argvRaw == null || argvRaw === '' || argvRaw === CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV)) {
+    return {
+      ok: true,
+      source: CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+      explicit: true,
+      errors: [],
+    };
+  }
+
+  if (argvRaw === CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV
+    && (!envRaw || envRaw === CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV)) {
+    return {
+      ok: true,
+      source: CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+      explicit: true,
+      errors: [],
+    };
+  }
+
+  if (envRaw === CREDENTIAL_SOURCE_MANAGED_IDENTITY
+    || argvRaw === CREDENTIAL_SOURCE_MANAGED_IDENTITY) {
+    errors.push({
+      code: 'managed_identity_credential_source_flag_required',
+      message: `managed-identity requires both env ${ENV_CREDENTIAL_SOURCE}=${CREDENTIAL_SOURCE_MANAGED_IDENTITY} and ${CLI_CREDENTIAL_SOURCE} ${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
+    });
+    return { ok: false, source: null, explicit: true, errors };
+  }
+
+  errors.push({
+    code: 'unknown_credential_source',
+    message: `credential source must be ${CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV} or ${CREDENTIAL_SOURCE_MANAGED_IDENTITY}`,
+  });
+  return { ok: false, source: null, explicit: true, errors };
+}
+
 /**
  * Resolve protected admin credentials only.
  * Never accepts caller-supplied DSN, argv credential, observer DSN,
  * WOLFHOUSE_DATABASE_URL, or arbitrary file path.
  * Never returns username/password in the public result — private fields only.
+ *
+ * Slice 14E: when credential source is managed-identity, accepts private
+ * in-process credentials from the MI loader (`options.privateCredentials`)
+ * or returns deferred=true so the adapter can load them. Never reads caller
+ * token/DSN overrides.
  */
 function resolveProtectedAdminCredentials(opts) {
   const options = opts || {};
@@ -430,6 +524,68 @@ function resolveProtectedAdminCredentials(opts) {
       message: 'arbitrary credential file paths are forbidden',
     });
     return { ok: false, errors, source: null };
+  }
+
+  const sourceGate = evaluateCredentialSource({ env, argv });
+  if (!sourceGate.ok) {
+    return { ok: false, errors: sourceGate.errors, source: null };
+  }
+
+  // Slice 14E managed-identity path: private in-process creds or deferred load.
+  if (sourceGate.source === CREDENTIAL_SOURCE_MANAGED_IDENTITY) {
+    const priv = options.privateCredentials;
+    if (priv && priv._user && priv._password && priv._connectConfig) {
+      const gate = assertLockedConnectConfig(priv._connectConfig);
+      if (!gate.ok) {
+        return { ok: false, errors: gate.errors, source: 'managed_identity' };
+      }
+      const argvCheck = assertNoSecretInArgv(argv, [priv._user, priv._password]);
+      if (!argvCheck.ok) {
+        return {
+          ok: false,
+          errors: [{
+            code: 'credential_from_argv_forbidden',
+            message: 'credentials must not appear in argv',
+          }],
+          source: CREDENTIAL_SOURCE_MANAGED_IDENTITY,
+        };
+      }
+      return {
+        ok: true,
+        errors: [],
+        source: 'managed_identity',
+        deferred: false,
+        connectInfo: secretFreeConnectInfo(priv._connectConfig),
+        _connectConfig: priv._connectConfig,
+        _user: priv._user,
+        _password: priv._password,
+      };
+    }
+    if (options.allowDeferredManagedIdentity === true) {
+      return {
+        ok: true,
+        errors: [],
+        source: 'managed_identity',
+        deferred: true,
+        connectInfo: {
+          host: TARGETS.postgresHost,
+          port: TARGETS.port,
+          database: TARGETS.database,
+          sslmode: TARGETS.sslmode,
+          application_name: TARGETS.applicationName,
+          hasUser: false,
+          hasPassword: false,
+        },
+        _connectConfig: null,
+        _user: null,
+        _password: null,
+      };
+    }
+    errors.push({
+      code: 'managed_identity_credentials_required',
+      message: 'managed-identity credentials must be loaded in-process before connect',
+    });
+    return { ok: false, errors, source: 'managed_identity' };
   }
 
   const user = String(env[CREDENTIAL_USER_ENV] || '').trim();
@@ -755,6 +911,10 @@ async function evaluateLiveReadonlyBoundary(opts) {
     connectConfig: options.connectConfig,
     credentialFilePath: options.credentialFilePath,
     readFileSync: options.readFileSync,
+    privateCredentials: options.privateCredentials,
+    allowDeferredManagedIdentity: options.privateCredentials
+      ? false
+      : true,
   });
   const secrets = [creds._user, creds._password].filter(Boolean);
   if (!creds.ok) {
@@ -770,18 +930,20 @@ async function evaluateLiveReadonlyBoundary(opts) {
     }, secrets);
   }
 
-  const configGate = assertLockedConnectConfig(creds._connectConfig);
-  if (!configGate.ok) {
-    return redactDeep({
-      ok: false,
-      accepted: false,
-      code: 'credential_target_rejected',
-      errors: configGate.errors,
-      counters,
-      liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
-      liveQueryExecution: false,
-      liveMutation: false,
-    }, secrets);
+  if (!creds.deferred) {
+    const configGate = assertLockedConnectConfig(creds._connectConfig);
+    if (!configGate.ok) {
+      return redactDeep({
+        ok: false,
+        accepted: false,
+        code: 'credential_target_rejected',
+        errors: configGate.errors,
+        counters,
+        liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
+        liveQueryExecution: false,
+        liveMutation: false,
+      }, secrets);
+    }
   }
 
   // Azure identity verify (read-only) — before any connect.
@@ -915,6 +1077,10 @@ module.exports = {
   CLI_EXECUTE_COUNT_ONLY,
   CREDENTIAL_USER_ENV,
   CREDENTIAL_PASSWORD_ENV,
+  ENV_CREDENTIAL_SOURCE,
+  CLI_CREDENTIAL_SOURCE,
+  CREDENTIAL_SOURCE_PROTECTED_ADMIN_ENV,
+  CREDENTIAL_SOURCE_MANAGED_IDENTITY,
   FORBIDDEN_DSN_ENVS,
   OBSERVER_DSN_ENV,
   FORBIDDEN_NETWORK_MUTATION_MARKERS,
@@ -930,6 +1096,7 @@ module.exports = {
   validateTargets,
   evaluateDualEnableFlags,
   evaluateExecuteCountOnlyGate,
+  evaluateCredentialSource,
   resolveProtectedAdminCredentials,
   resolveApprovedCredentials,
   buildLockedAdminConnectConfig,
