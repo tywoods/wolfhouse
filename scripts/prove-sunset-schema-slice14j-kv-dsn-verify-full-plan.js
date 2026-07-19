@@ -51,6 +51,10 @@ const {
   executeDsnNormalizeAdapter,
   executeDsnRollbackAdapter,
   createInjectedDsnNormalizeHttp,
+  captureSecretUserMetadata,
+  assertPreservedMetadataEqual,
+  assertImmediatelyPreviousAdjacency,
+  rejectVersionsListPagination,
   buildOfflineProofTlsDeficientSunsetDatabaseUrl,
   buildOfflineProofVerifyFullSunsetDatabaseUrl,
   exactDsnPlanArgv,
@@ -87,6 +91,12 @@ const FAKE_PASSWORD = 'slice14j-proof-password-never-commit';
 const FAKE_IMDS_TOKEN = 'slice14j-proof-imds-token-never-commit';
 const FAKE_PRIOR_VERSION = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const FAKE_NEW_VERSION = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+const FAKE_STALE_VERSION = 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+const FAKE_PRIOR_CREATED = 1700001000;
+const FAKE_CURRENT_CREATED = 1700002000;
+const FAKE_CONTENT_TYPE = 'text/plain';
+const FAKE_TAGS = Object.freeze({ env: 'proof', purpose: 'slice14j' });
+const FAKE_ATTRS = Object.freeze({ enabled: true, nbf: 1700000000, exp: 1800000000 });
 
 function runCli(env, argv) {
   return spawnSync(process.execPath, [CLI_PATH, ...argv], {
@@ -111,6 +121,9 @@ function assertNoSecretLeak(text) {
   const s = String(text || '');
   if (s.includes(FAKE_PASSWORD) || s.includes(FAKE_IMDS_TOKEN)
     || s.includes(FAKE_USER + ':')
+    || s.includes(FAKE_CONTENT_TYPE)
+    || s.includes('purpose":"slice14j')
+    || s.includes('"env":"proof"')
     || /postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(s)) {
     throw new Error('secret leaked into proof artifact');
   }
@@ -397,6 +410,138 @@ async function main() {
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED rollback_without_approval_zero_writes`);
   }
 
+  // ── RED: unsupported metadata attributes → zero PUTs ───────────────────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      secretValue: deficientDsn,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      newSecretVersionId: FAKE_NEW_VERSION,
+      getExtraTopLevel: { customField: 'nope' },
+    });
+    const result = await executeDsnNormalizeAdapter({ httpRequest: http });
+    const counters = getDsnPlanCounters();
+    const ok = result.ok === false
+      && result.code === 'unsupported_secret_metadata'
+      && counters.keyVaultPutCount === 0
+      && counters.kvWriteCount === 0;
+    assertNoSecretLeak(JSON.stringify(result));
+    redCases.push({
+      name: 'unsupported_attributes_zero_writes',
+      ok,
+      code: result.code,
+      keyVaultPutCount: counters.keyVaultPutCount,
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED unsupported_attributes_zero_writes`);
+  }
+
+  // ── RED: metadata mismatch on verify GET ───────────────────────────────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      secretValue: deficientDsn,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      newSecretVersionId: FAKE_NEW_VERSION,
+      normalizedSecretValue: verifyFullDsn,
+      secretContentType: FAKE_CONTENT_TYPE,
+      secretTags: { ...FAKE_TAGS },
+      secretAttributes: { ...FAKE_ATTRS },
+      verifyMetadataMismatch: true,
+    });
+    const result = await executeDsnNormalizeAdapter({ httpRequest: http });
+    const counters = getDsnPlanCounters();
+    const ok = result.ok === false
+      && result.code === 'metadata_mismatch'
+      && counters.keyVaultPutCount === 1
+      && result.privateRefsZeroed === true;
+    assertNoSecretLeak(JSON.stringify(result));
+    redCases.push({
+      name: 'metadata_mismatch_rejected',
+      ok,
+      code: result.code,
+      keyVaultPutCount: counters.keyVaultPutCount,
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED metadata_mismatch_rejected`);
+  }
+
+  // ── RED: nonadjacent / stale prior version → zero writes ───────────────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      mode: 'rollback',
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      currentSecretValue: verifyFullDsn,
+      priorSecretValue: deficientDsn,
+      currentSecretVersionId: FAKE_NEW_VERSION,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      staleSecretVersionId: FAKE_STALE_VERSION,
+      currentVersionCreated: FAKE_CURRENT_CREATED,
+      priorVersionCreated: FAKE_PRIOR_CREATED,
+      nonadjacentList: true,
+    });
+    const result = await executeDsnRollbackAdapter({
+      httpRequest: http,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      approved: true,
+    });
+    const counters = getDsnPlanCounters();
+    const ok = result.ok === false
+      && result.code === 'nonadjacent_version_rejected'
+      && counters.kvWriteCount === 0
+      && counters.keyVaultPutCount === 0
+      && counters.keyVaultListCount === 1;
+    assertNoSecretLeak(JSON.stringify(result));
+    redCases.push({
+      name: 'nonadjacent_stale_version_zero_writes',
+      ok,
+      code: result.code,
+      kvWriteCount: counters.kvWriteCount,
+      keyVaultListCount: counters.keyVaultListCount,
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED nonadjacent_stale_version_zero_writes`);
+  }
+
+  // ── RED: versions list pagination → zero writes ────────────────────────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      mode: 'rollback',
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      currentSecretValue: verifyFullDsn,
+      priorSecretValue: deficientDsn,
+      currentSecretVersionId: FAKE_NEW_VERSION,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      currentVersionCreated: FAKE_CURRENT_CREATED,
+      priorVersionCreated: FAKE_PRIOR_CREATED,
+      versionsNextLink: 'https://example.invalid/next',
+    });
+    const result = await executeDsnRollbackAdapter({
+      httpRequest: http,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      approved: true,
+    });
+    const counters = getDsnPlanCounters();
+    const pageUnit = rejectVersionsListPagination(
+      { value: [], nextLink: 'https://example.invalid/next' },
+      '/secrets/sunset-database-url/versions?api-version=7.4',
+    );
+    const ok = result.ok === false
+      && result.code === 'versions_pagination_rejected'
+      && pageUnit.ok === false
+      && counters.kvWriteCount === 0
+      && counters.keyVaultPutCount === 0;
+    assertNoSecretLeak(JSON.stringify(result));
+    redCases.push({
+      name: 'list_pagination_rejected_zero_writes',
+      ok,
+      code: result.code,
+      kvWriteCount: counters.kvWriteCount,
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  RED list_pagination_rejected_zero_writes`);
+  }
+
   // ── GREEN: exact locked mutation + rollback plans ──────────────────────
   {
     const plan = buildLockedMutationPlan();
@@ -406,11 +551,18 @@ async function main() {
       && plan.keyVaultName === 'luna-sunset-staging-kv'
       && plan.postgresHost === 'luna-sunset-staging-pg-app.postgres.database.azure.com'
       && plan.mutation.to === 'verify-full'
+      && plan.mutation.preserveUserMetadata === true
+      && plan.mutation.retainExact.includes('contentType')
+      && plan.mutation.retainExact.includes('tags')
       && plan.putCount === 1
       && plan.retries === 0
       && plan.liveMutateEnabled === false
       && rb.requiresSeparateExplicitApproval === true
       && rb.restoreScope === 'immediately_previous_version_only'
+      && rb.adjacencyProofRequired === true
+      && rb.paginationForbidden === true
+      && rb.preserveUserMetadata === true
+      && rb.httpSequence.length === 6
       && rb.priorSecretVersionId === FAKE_PRIOR_VERSION
       && rb.liveRollbackEnabled === false;
     greenCases.push({
@@ -499,6 +651,7 @@ async function main() {
       && result.newSecretVersionId === FAKE_NEW_VERSION
       && result.sourceTlsDeficient === true
       && result.sslmodeNormalized === true
+      && result.metadataPreserved === true
       && result.targetSslmode === 'verify-full'
       && result.privateRefsZeroed === true
       && result.pgClientInstantiated === 0
@@ -522,6 +675,157 @@ async function main() {
       callMethods,
     });
     console.log(`  ${ok ? 'PASS' : 'FAIL'}  GREEN fake_http_imds_get_put_verify_success`);
+  }
+
+  // ── GREEN: metadata preservation (contentType/tags/enabled/nbf/exp) ────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      secretValue: deficientDsn,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      newSecretVersionId: FAKE_NEW_VERSION,
+      normalizedSecretValue: verifyFullDsn,
+      secretContentType: FAKE_CONTENT_TYPE,
+      secretTags: { ...FAKE_TAGS },
+      secretAttributes: { ...FAKE_ATTRS },
+      rejectSecondPut: true,
+    });
+    const result = await executeDsnNormalizeAdapter({ httpRequest: http });
+    const putShape = http.getLastPutShape();
+    const unitCap = captureSecretUserMetadata({
+      value: 'x',
+      contentType: FAKE_CONTENT_TYPE,
+      tags: { ...FAKE_TAGS },
+      attributes: { enabled: true, nbf: FAKE_ATTRS.nbf, exp: FAKE_ATTRS.exp, created: 1, updated: 2 },
+    });
+    const unitEq = assertPreservedMetadataEqual(unitCap, {
+      value: 'y',
+      contentType: FAKE_CONTENT_TYPE,
+      tags: { ...FAKE_TAGS },
+      attributes: {
+        enabled: true,
+        nbf: FAKE_ATTRS.nbf,
+        exp: FAKE_ATTRS.exp,
+        created: 99,
+        updated: 100,
+      },
+    });
+    assertNoSecretLeak(JSON.stringify(result));
+    const ok = result.ok === true
+      && result.metadataPreserved === true
+      && putShape
+      && putShape.hasContentType === true
+      && putShape.hasTags === true
+      && putShape.hasAttributes === true
+      && putShape.attributeKeys.includes('enabled')
+      && putShape.attributeKeys.includes('nbf')
+      && putShape.attributeKeys.includes('exp')
+      && putShape.tagKeyCount === 2
+      && unitCap.ok === true
+      && unitEq.ok === true
+      && result.httpRequestCount === 4
+      && result.keyVaultPutCount === 1;
+    greenCases.push({
+      name: 'metadata_preservation_verified',
+      ok,
+      metadataPreserved: result.metadataPreserved === true,
+      putHasContentType: Boolean(putShape && putShape.hasContentType),
+      putHasTags: Boolean(putShape && putShape.hasTags),
+      putAttributeKeys: putShape ? putShape.attributeKeys : [],
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  GREEN metadata_preservation_verified`);
+  }
+
+  // ── GREEN: exact rollback sequence + call counts (adjacency proven) ────
+  {
+    resetDsnPlanCounters();
+    const http = createInjectedDsnNormalizeHttp({
+      mode: 'rollback',
+      imdsAccessToken: FAKE_IMDS_TOKEN,
+      currentSecretValue: verifyFullDsn,
+      priorSecretValue: deficientDsn,
+      currentSecretVersionId: FAKE_NEW_VERSION,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      putResponseVersionId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      newSecretVersionId: 'dddddddd-dddd-dddd-dddd-dddddddddddd',
+      currentVersionCreated: FAKE_CURRENT_CREATED,
+      priorVersionCreated: FAKE_PRIOR_CREATED,
+      secretContentType: FAKE_CONTENT_TYPE,
+      secretTags: { ...FAKE_TAGS },
+      secretAttributes: { ...FAKE_ATTRS },
+      priorContentType: FAKE_CONTENT_TYPE,
+      priorTags: { ...FAKE_TAGS },
+      priorAttributes: { ...FAKE_ATTRS },
+      rejectSecondPut: true,
+    });
+    const adjUnit = assertImmediatelyPreviousAdjacency({
+      currentVersionId: FAKE_NEW_VERSION,
+      priorVersionId: FAKE_PRIOR_VERSION,
+      currentCreated: FAKE_CURRENT_CREATED,
+      versions: [
+        {
+          id: `https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-database-url/${FAKE_NEW_VERSION}`,
+          attributes: { created: FAKE_CURRENT_CREATED },
+        },
+        {
+          id: `https://luna-sunset-staging-kv.vault.azure.net/secrets/sunset-database-url/${FAKE_PRIOR_VERSION}`,
+          attributes: { created: FAKE_PRIOR_CREATED },
+        },
+      ],
+    });
+    const result = await executeDsnRollbackAdapter({
+      httpRequest: http,
+      priorSecretVersionId: FAKE_PRIOR_VERSION,
+      approved: true,
+    });
+    const counters = getDsnPlanCounters();
+    assertNoSecretLeak(JSON.stringify(result));
+    const callMethods = http.calls.map((c) => `${c.purpose}:${c.method}`);
+    const putShape = http.getLastPutShape();
+    const ok = result.ok === true
+      && result.code === 'dsn_rollback_adapter_ok'
+      && adjUnit.ok === true
+      && result.adjacencyProven === true
+      && result.metadataPreserved === true
+      && result.httpRequestCount === 6
+      && result.imdsRequestCount === 1
+      && result.keyVaultGetCount === 3
+      && result.keyVaultListCount === 1
+      && result.keyVaultPutCount === 1
+      && result.putCount === 1
+      && counters.kvWriteCount === 1
+      && result.currentSecretVersionId === FAKE_NEW_VERSION
+      && result.priorSecretVersionId === FAKE_PRIOR_VERSION
+      && result.currentVersionCreated === FAKE_CURRENT_CREATED
+      && result.priorVersionCreated === FAKE_PRIOR_CREATED
+      && putShape
+      && putShape.hasContentType === true
+      && putShape.hasTags === true
+      && putShape.hasAttributes === true
+      && callMethods[0] === 'imds_token:GET'
+      && callMethods[1] === 'keyvault_secret_get:GET'
+      && callMethods[2] === 'keyvault_secret_versions_list:GET'
+      && callMethods[3] === 'keyvault_secret_version_get:GET'
+      && callMethods[4] === 'keyvault_secret_put:PUT'
+      && callMethods[5] === 'keyvault_secret_verify_get:GET';
+    greenCases.push({
+      name: 'exact_rollback_sequence_call_counts',
+      ok,
+      httpRequestCount: result.httpRequestCount,
+      imdsRequestCount: result.imdsRequestCount,
+      keyVaultGetCount: result.keyVaultGetCount,
+      keyVaultListCount: result.keyVaultListCount,
+      keyVaultPutCount: result.keyVaultPutCount,
+      putCount: result.putCount,
+      adjacencyProven: result.adjacencyProven === true,
+      currentSecretVersionId: result.currentSecretVersionId,
+      priorSecretVersionId: result.priorSecretVersionId,
+      currentVersionCreated: result.currentVersionCreated,
+      priorVersionCreated: result.priorVersionCreated,
+      callMethods,
+    });
+    console.log(`  ${ok ? 'PASS' : 'FAIL'}  GREEN exact_rollback_sequence_call_counts`);
   }
 
   // ── GREEN: live mutate/rollback hard-disabled + hashes preserved ───────
@@ -593,8 +897,8 @@ async function main() {
     rollback: rollbackPlan,
     notes: [
       'Plan + offline injected-HTTP proof only — zero live KV read/write',
-      'Future live adapter: IMDS GET → KV GET → sslmode-only normalize → one PUT → verify GET',
-      'Rollback: restore only immediately previous version after separate approval',
+      'Future live adapter: IMDS GET → KV GET → capture metadata → sslmode-only normalize → one PUT (value+preserved metadata) → verify GET',
+      'Rollback: GET current + LIST versions (no pagination) → prove adjacency → GET prior → PUT value+metadata → verify; separate approval',
     ],
   };
 
@@ -622,6 +926,9 @@ async function main() {
     retriesForbidden: true,
     deletePurgeDisableForbidden: true,
     tagsContentTypeMutationForbidden: true,
+    metadataPreservationRequired: true,
+    rollbackAdjacencyProofRequired: true,
+    versionsPaginationForbidden: true,
     generatedAt,
     masterShaBasis: MASTER,
     slice: '14J',
@@ -644,7 +951,24 @@ async function main() {
       operation: 'setSecretNewVersion',
       field: 'sslmode',
       to: 'verify-full',
-      retainExact: ['host', 'port', 'database', 'username', 'password'],
+      retainExact: [
+        'host',
+        'port',
+        'database',
+        'username',
+        'password',
+        'contentType',
+        'tags',
+        'attributes.enabled',
+        'attributes.nbf',
+        'attributes.exp',
+      ],
+      preserveUserMetadata: true,
+      systemGeneratedMayDiffer: [
+        'id',
+        'attributes.created',
+        'attributes.updated',
+      ],
       putCount: 1,
       retries: 0,
       httpSequence: [
@@ -658,9 +982,21 @@ async function main() {
       operation: 'restoreImmediatelyPreviousSecretVersion',
       restoreScope: 'immediately_previous_version_only',
       requiresSeparateExplicitApproval: true,
+      adjacencyProofRequired: true,
+      adjacencyRule: 'versions[0]===current && versions[1]===prior && created[0]>created[1]',
+      paginationForbidden: true,
+      preserveUserMetadata: true,
       putCount: 1,
       retries: 0,
       defaultZeroWrites: true,
+      httpSequence: [
+        'IMDS GET',
+        'Key Vault secret GET current',
+        'Key Vault secret versions LIST',
+        'Key Vault secret version GET prior',
+        'Key Vault secret PUT',
+        'Key Vault secret verification GET',
+      ],
     },
     commandContract: {
       script: 'scripts/run-phase-d-kv-dsn-verify-full-plan.js',
@@ -697,6 +1033,14 @@ async function main() {
       keyVaultPutCount: 1,
       putCount: 1,
     },
+    rollbackSuccessCallCounts: {
+      httpRequestCount: 6,
+      imdsRequestCount: 1,
+      keyVaultGetCount: 3,
+      keyVaultListCount: 1,
+      keyVaultPutCount: 1,
+      putCount: 1,
+    },
     predicatesUnchangedFrom14A: {
       date_window: DATE_WINDOW_PREDICATE,
       price_unit: PRICE_UNIT_PREDICATE,
@@ -705,7 +1049,9 @@ async function main() {
       'Do not read or mutate the live Key Vault secret in Slice 14J',
       'Do not change host/port/database/username/password',
       'Do not delete/purge/disable secrets',
-      'Do not mutate tags/contentType',
+      'Do not mutate tags/contentType/attributes (preserve exactly)',
+      'Do not accept paginated secret version lists',
+      'Do not restore nonadjacent or stale versions',
       'Do not retry',
       'Do not instantiate a pg Client',
       'Do not claim Sunset repaired',
@@ -749,11 +1095,21 @@ async function main() {
       keyVaultPutCount: 1,
       putCount: 1,
     },
+    rollbackSuccessCallCounts: {
+      httpRequestCount: 6,
+      imdsRequestCount: 1,
+      keyVaultGetCount: 3,
+      keyVaultListCount: 1,
+      keyVaultPutCount: 1,
+      putCount: 1,
+    },
     locks: contract.locks,
     mutationContract: contract.mutationContract,
     rollbackContract: contract.rollbackContract,
     fakePriorSecretVersionId: FAKE_PRIOR_VERSION,
     fakeNewSecretVersionId: FAKE_NEW_VERSION,
+    fakePriorVersionCreated: FAKE_PRIOR_CREATED,
+    fakeCurrentVersionCreated: FAKE_CURRENT_CREATED,
   };
 
   assertNoSecretLeak(JSON.stringify(evidence));
@@ -776,14 +1132,15 @@ Built and offline-proven a locked, recoverable operator plan to normalize **only
 | Identity | \`wh-staging-identity\` / \`${DSN_PLAN_LOCKS.managedIdentityClientId}\` |
 | PG host / port / database | \`${DSN_PLAN_LOCKS.postgresHost}\` / \`${DSN_PLAN_LOCKS.port}\` / \`${DSN_PLAN_LOCKS.database}\` |
 | Mutation | \`sslmode\` only → \`verify-full\` |
+| Metadata | preserve exact contentType/tags/enabled/nbf/exp |
 | PUT count | exactly 1 (no retries) |
-| Rollback | immediately previous version only, separate approval |
+| Rollback | immediately previous version only (adjacency proven), separate approval |
 
 ## Mutation / rollback contract
 
-**Mutation (future live adapter):** IMDS GET → KV GET → parse+require exact host/port/database → retain user/password in memory → modify only \`sslmode\` → PUT one new secret version → verification GET → zero private refs. Prior version safe ID retained for rollback.
+**Mutation (future live adapter):** IMDS GET → KV GET → capture supported user metadata in memory → parse+require exact host/port/database → retain user/password in memory → modify only \`sslmode\` → PUT one new secret version with value **and** preserved metadata → verification GET proves DSN + metadata equality (only system version id/timestamps may differ) → zero private refs. Prior version safe ID retained for rollback.
 
-**Rollback:** restore only the immediately previous version after explicit separate approval. Default / wrong prior-version / wrong gates → **zero writes**.
+**Rollback:** separate approval (default disabled). Before any PUT: GET current + LIST versions (pagination rejected) → require \`versions[0]===current\` and \`versions[1]===caller prior\` with \`created[0]>created[1]\` → GET prior → validate exact target → PUT prior value+preserved metadata → verify. Nonadjacent/stale/paginated → **zero writes**.
 
 ## Operator command (plan-only; default refuse)
 
@@ -805,10 +1162,11 @@ npm run phase-d:kv-dsn-verify-full-plan -- \\
 
 | Class | Cases |
 |-------|-------|
-| RED | default/missing env/flag; wrong targets; forbidden value/DSN/url/token/version/file argv; host/tags/delete/retries/arbitrary-version; adapter without inject; already verify-full (zero PUT); PUT failure keeps prior-version safe ID; rollback without approval |
-| GREEN | locked mutation+rollback plans; CLI safe IDs; CLI rollback prior-version safe ID; fake HTTP **IMDS GET + KV GET + KV PUT + verify GET** (4 calls, 1 PUT); live disabled + hashes preserved + no pg Client |
+| RED | default/missing env/flag; wrong targets; forbidden value/DSN/url/token/version/file argv; host/tags/delete/retries/arbitrary-version; adapter without inject; already verify-full (zero PUT); PUT failure keeps prior-version safe ID; rollback without approval; unsupported metadata; metadata mismatch; nonadjacent/stale version; list pagination |
+| GREEN | locked mutation+rollback plans; CLI safe IDs; CLI rollback prior-version safe ID; fake HTTP **IMDS GET + KV GET + KV PUT + verify GET** (4 calls, 1 PUT); metadata preservation; exact rollback sequence (6 calls, adjacency+metadata); live disabled + hashes preserved + no pg Client |
 
-**Success call counts:** httpRequestCount=4, imdsRequestCount=1, keyVaultGetCount=2, keyVaultPutCount=1.
+**Mutation success call counts:** httpRequestCount=4, imdsRequestCount=1, keyVaultGetCount=2, keyVaultPutCount=1.
+**Rollback success call counts:** httpRequestCount=6, imdsRequestCount=1, keyVaultGetCount=3, keyVaultListCount=1, keyVaultPutCount=1.
 
 ## Non-goals / still open
 

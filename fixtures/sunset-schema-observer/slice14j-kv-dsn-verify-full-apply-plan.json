@@ -40,8 +40,14 @@
         "port",
         "database",
         "username",
-        "password"
+        "password",
+        "contentType",
+        "tags",
+        "attributes.enabled",
+        "attributes.nbf",
+        "attributes.exp"
       ],
+      "preserveUserMetadata": true,
       "forbidden": [
         "host_change",
         "port_change",
@@ -51,6 +57,8 @@
         "extra_query_param_change",
         "tags_mutation",
         "contentType_mutation",
+        "attributes_mutation",
+        "metadata_drop",
         "delete",
         "purge",
         "disable",
@@ -61,6 +69,8 @@
     "notes": [
       "Normalize only sslmode → verify-full on existing sunset-database-url",
       "Same exact host/port/database/username/password retained in memory only",
+      "PUT preserves exact contentType/tags/enabled/nbf/exp from current version",
+      "Verification GET proves preserved metadata equality; only version id/timestamps may differ",
       "One PUT new secret version; prior version ID retained for rollback",
       "Slice 14J is plan + offline proof only — zero live KV read/write"
     ]
@@ -74,8 +84,19 @@
     "operation": "restoreImmediatelyPreviousSecretVersion",
     "restoreScope": "immediately_previous_version_only",
     "requiresSeparateExplicitApproval": true,
+    "adjacencyProofRequired": true,
+    "paginationForbidden": true,
+    "preserveUserMetadata": true,
     "putCount": 1,
     "retries": 0,
+    "httpSequence": [
+      "IMDS GET",
+      "Key Vault secret GET current",
+      "Key Vault secret versions LIST",
+      "Key Vault secret version GET prior",
+      "Key Vault secret PUT",
+      "Key Vault secret verification GET"
+    ],
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
     "keyVaultName": "luna-sunset-staging-kv",
@@ -83,7 +104,10 @@
     "secretName": "sunset-database-url",
     "notes": [
       "Rollback restores only the immediately previous version after separate approval",
-      "Default / wrong prior-version / wrong gates → zero writes",
+      "Adjacency proven via GET current + LIST versions (no pagination) before any PUT",
+      "Caller prior-version ID must be exactly versions[1] after current versions[0]",
+      "PUT restores prior value + preserved contentType/tags/enabled/nbf/exp",
+      "Default / wrong prior-version / nonadjacent / paginated list → zero writes",
       "Never delete/purge/disable; never arbitrary version restore",
       "Slice 14J does not execute live rollback"
     ],
@@ -92,7 +116,7 @@
   },
   "notes": [
     "Plan + offline injected-HTTP proof only — zero live KV read/write",
-    "Future live adapter: IMDS GET → KV GET → sslmode-only normalize → one PUT → verify GET",
-    "Rollback: restore only immediately previous version after separate approval"
+    "Future live adapter: IMDS GET → KV GET → capture metadata → sslmode-only normalize → one PUT (value+preserved metadata) → verify GET",
+    "Rollback: GET current + LIST versions (no pagination) → prove adjacency → GET prior → PUT value+metadata → verify; separate approval"
   ]
 }

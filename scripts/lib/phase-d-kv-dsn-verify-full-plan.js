@@ -10,12 +10,16 @@
  * slice.
  *
  * Future live adapter (offline-proven with injected HTTP only):
- *   IMDS GET → KV GET → (sslmode-only mutate in memory) → KV PUT (one) →
- *   verification KV GET → zero private refs.
- * Rollback: restore only the immediately previous version after separate
- * explicit approval. Live mutate / rollback hard-disabled here.
+ *   IMDS GET → KV GET → capture user metadata in memory → sslmode-only mutate →
+ *   KV PUT (value + preserved metadata) → verification GET proves metadata
+ *   equality (only system version id/timestamps may differ) → zero private refs.
+ * Rollback (separate approval, default-disabled): IMDS → GET current → LIST
+ * versions (pagination rejected) → prove caller prior ID is immediately previous
+ * by immutable version IDs + created timestamps → GET prior → validate target →
+ * PUT value+preserved metadata → verify. Live mutate / rollback hard-disabled here.
  *
- * Never exposes/persists/hashes/evidences DSN or credentials.
+ * Never exposes/persists/hashes/evidences DSN, credentials, or sensitive metadata
+ * values (contentType/tags). Safe version IDs / created timestamps only.
  * Never instantiates a pg Client. No retries. No delete/purge/disable.
  */
 
@@ -65,6 +69,38 @@ const DSN_PLAN_LOCKS = Object.freeze({
   mutationField: 'sslmode',
   putCountMax: 1,
   retries: 0,
+  /** User-settable Key Vault secret metadata preserved across new versions. */
+  supportedUserMetadata: Object.freeze([
+    'contentType',
+    'tags',
+    'attributes.enabled',
+    'attributes.nbf',
+    'attributes.exp',
+  ]),
+  /** System-generated fields that may differ across versions. */
+  systemGeneratedMetadata: Object.freeze([
+    'id',
+    'attributes.created',
+    'attributes.updated',
+    'attributes.recoveryLevel',
+    'attributes.recoverableDays',
+  ]),
+  supportedAttributeKeys: Object.freeze(['enabled', 'nbf', 'exp']),
+  systemAttributeKeys: Object.freeze([
+    'created',
+    'updated',
+    'recoveryLevel',
+    'recoverableDays',
+  ]),
+  allowedSecretTopLevelKeys: Object.freeze([
+    'value',
+    'id',
+    'contentType',
+    'tags',
+    'attributes',
+    'kid',
+    'managed',
+  ]),
 });
 
 const KEY_VAULT_RESOURCE_ID = (
@@ -103,7 +139,19 @@ const LOCKED_MUTATION_PLAN = Object.freeze({
     field: 'sslmode',
     from: 'tls_deficient_any_non_verify_full',
     to: DSN_PLAN_LOCKS.targetSslmode,
-    retainExact: Object.freeze(['host', 'port', 'database', 'username', 'password']),
+    retainExact: Object.freeze([
+      'host',
+      'port',
+      'database',
+      'username',
+      'password',
+      'contentType',
+      'tags',
+      'attributes.enabled',
+      'attributes.nbf',
+      'attributes.exp',
+    ]),
+    preserveUserMetadata: true,
     forbidden: Object.freeze([
       'host_change',
       'port_change',
@@ -113,6 +161,8 @@ const LOCKED_MUTATION_PLAN = Object.freeze({
       'extra_query_param_change',
       'tags_mutation',
       'contentType_mutation',
+      'attributes_mutation',
+      'metadata_drop',
       'delete',
       'purge',
       'disable',
@@ -123,6 +173,8 @@ const LOCKED_MUTATION_PLAN = Object.freeze({
   notes: Object.freeze([
     'Normalize only sslmode → verify-full on existing sunset-database-url',
     'Same exact host/port/database/username/password retained in memory only',
+    'PUT preserves exact contentType/tags/enabled/nbf/exp from current version',
+    'Verification GET proves preserved metadata equality; only version id/timestamps may differ',
     'One PUT new secret version; prior version ID retained for rollback',
     'Slice 14J is plan + offline proof only — zero live KV read/write',
   ]),
@@ -137,8 +189,19 @@ const LOCKED_ROLLBACK_PLAN = Object.freeze({
   operation: 'restoreImmediatelyPreviousSecretVersion',
   restoreScope: 'immediately_previous_version_only',
   requiresSeparateExplicitApproval: true,
+  adjacencyProofRequired: true,
+  paginationForbidden: true,
+  preserveUserMetadata: true,
   putCount: 1,
   retries: 0,
+  httpSequence: Object.freeze([
+    'IMDS GET',
+    'Key Vault secret GET current',
+    'Key Vault secret versions LIST',
+    'Key Vault secret version GET prior',
+    'Key Vault secret PUT',
+    'Key Vault secret verification GET',
+  ]),
   subscriptionId: DSN_PLAN_LOCKS.subscriptionId,
   resourceGroup: DSN_PLAN_LOCKS.resourceGroup,
   keyVaultName: DSN_PLAN_LOCKS.keyVaultName,
@@ -146,7 +209,10 @@ const LOCKED_ROLLBACK_PLAN = Object.freeze({
   secretName: DSN_PLAN_LOCKS.secretName,
   notes: Object.freeze([
     'Rollback restores only the immediately previous version after separate approval',
-    'Default / wrong prior-version / wrong gates → zero writes',
+    'Adjacency proven via GET current + LIST versions (no pagination) before any PUT',
+    'Caller prior-version ID must be exactly versions[1] after current versions[0]',
+    'PUT restores prior value + preserved contentType/tags/enabled/nbf/exp',
+    'Default / wrong prior-version / nonadjacent / paginated list → zero writes',
     'Never delete/purge/disable; never arbitrary version restore',
     'Slice 14J does not execute live rollback',
   ]),
@@ -183,10 +249,16 @@ const SAFE_OUTPUT_KEYS = Object.freeze([
   'mutationField',
   'priorSecretVersionId',
   'newSecretVersionId',
+  'currentSecretVersionId',
   'rollbackPriorVersionId',
+  'metadataPreserved',
+  'adjacencyProven',
+  'currentVersionCreated',
+  'priorVersionCreated',
   'putCount',
   'retries',
   'httpSequence',
+  'keyVaultListCount',
   'errors',
   'message',
   'note',
@@ -232,6 +304,7 @@ let httpRequestCount = 0;
 let imdsRequestCount = 0;
 let keyVaultGetCount = 0;
 let keyVaultPutCount = 0;
+let keyVaultListCount = 0;
 let kvWriteCount = 0;
 let pgClientInstantiated = 0;
 
@@ -241,6 +314,7 @@ function getDsnPlanCounters() {
     imdsRequestCount,
     keyVaultGetCount,
     keyVaultPutCount,
+    keyVaultListCount,
     kvWriteCount,
     pgClientInstantiated,
   };
@@ -251,6 +325,7 @@ function resetDsnPlanCounters() {
   imdsRequestCount = 0;
   keyVaultGetCount = 0;
   keyVaultPutCount = 0;
+  keyVaultListCount = 0;
   kvWriteCount = 0;
   pgClientInstantiated = 0;
 }
@@ -263,11 +338,398 @@ function buildLockedKeyVaultSecretUrl() {
   );
 }
 
+function buildLockedKeyVaultSecretVersionsUrl() {
+  return (
+    `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/`
+    + `${encodeURIComponent(DSN_PLAN_LOCKS.secretName)}/versions`
+    + `?api-version=${DSN_PLAN_LOCKS.keyVaultApiVersion}`
+  );
+}
+
+function buildLockedKeyVaultSecretVersionUrl(versionId) {
+  return (
+    `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/`
+    + `${encodeURIComponent(DSN_PLAN_LOCKS.secretName)}/`
+    + `${encodeURIComponent(String(versionId))}`
+    + `?api-version=${DSN_PLAN_LOCKS.keyVaultApiVersion}`
+  );
+}
+
 function extractVersionIdFromSecretId(secretId) {
   const raw = String(secretId || '');
   // https://{vault}/secrets/{name}/{version}
   const m = raw.match(/\/secrets\/[^/]+\/([0-9a-fA-F-]{8,})$/);
   return m ? m[1] : null;
+}
+
+function deepFreezeClone(value) {
+  if (value == null || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    return Object.freeze(value.map((v) => deepFreezeClone(v)));
+  }
+  const out = {};
+  for (const k of Object.keys(value).sort()) {
+    out[k] = deepFreezeClone(value[k]);
+  }
+  return Object.freeze(out);
+}
+
+function stableJson(value) {
+  if (value === undefined) return undefined;
+  if (value === null || typeof value !== 'object') return JSON.stringify(value);
+  if (Array.isArray(value)) {
+    return `[${value.map((v) => stableJson(v)).join(',')}]`;
+  }
+  const keys = Object.keys(value).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;
+}
+
+/**
+ * Capture supported user-settable Key Vault secret metadata in memory.
+ * Rejects unsupported / unsafe shapes before any PUT. Never returns tag or
+ * contentType values in public fields — only private `_metadata`.
+ */
+function captureSecretUserMetadata(secretBody) {
+  const body = secretBody && typeof secretBody === 'object' ? secretBody : null;
+  if (!body) {
+    return {
+      ok: false,
+      errors: [{ code: 'secret_metadata_missing', message: 'secret body required for metadata capture' }],
+    };
+  }
+
+  for (const key of Object.keys(body)) {
+    if (!DSN_PLAN_LOCKS.allowedSecretTopLevelKeys.includes(key)) {
+      return {
+        ok: false,
+        errors: [{
+          code: 'unsupported_secret_metadata',
+          message: 'unsupported Key Vault secret top-level metadata key',
+        }],
+      };
+    }
+  }
+
+  if (body.managed === true) {
+    return {
+      ok: false,
+      errors: [{
+        code: 'unsupported_secret_metadata',
+        message: 'managed Key Vault secrets are unsupported for this mutation',
+      }],
+    };
+  }
+
+  let contentType;
+  if (Object.prototype.hasOwnProperty.call(body, 'contentType')) {
+    if (body.contentType != null && typeof body.contentType !== 'string') {
+      return {
+        ok: false,
+        errors: [{ code: 'unsupported_secret_metadata', message: 'contentType must be a string or null' }],
+      };
+    }
+    contentType = body.contentType == null ? null : String(body.contentType);
+  }
+
+  let tags;
+  if (Object.prototype.hasOwnProperty.call(body, 'tags')) {
+    if (body.tags == null) {
+      tags = null;
+    } else if (typeof body.tags !== 'object' || Array.isArray(body.tags)) {
+      return {
+        ok: false,
+        errors: [{ code: 'unsupported_secret_metadata', message: 'tags must be a string-map object' }],
+      };
+    } else {
+      const next = {};
+      for (const [k, v] of Object.entries(body.tags)) {
+        if (typeof k !== 'string' || typeof v !== 'string') {
+          return {
+            ok: false,
+            errors: [{
+              code: 'unsupported_secret_metadata',
+              message: 'tags keys and values must be strings',
+            }],
+          };
+        }
+        next[k] = v;
+      }
+      tags = next;
+    }
+  }
+
+  const attributes = {};
+  let hasAttributes = false;
+  if (Object.prototype.hasOwnProperty.call(body, 'attributes')) {
+    if (body.attributes == null) {
+      hasAttributes = false;
+    } else if (typeof body.attributes !== 'object' || Array.isArray(body.attributes)) {
+      return {
+        ok: false,
+        errors: [{ code: 'unsupported_secret_metadata', message: 'attributes must be an object' }],
+      };
+    } else {
+      for (const key of Object.keys(body.attributes)) {
+        if (DSN_PLAN_LOCKS.systemAttributeKeys.includes(key)) continue;
+        if (!DSN_PLAN_LOCKS.supportedAttributeKeys.includes(key)) {
+          return {
+            ok: false,
+            errors: [{
+              code: 'unsupported_secret_metadata',
+              message: 'unsupported Key Vault secret attribute key',
+            }],
+          };
+        }
+        const val = body.attributes[key];
+        if (key === 'enabled') {
+          if (typeof val !== 'boolean') {
+            return {
+              ok: false,
+              errors: [{ code: 'unsupported_secret_metadata', message: 'attributes.enabled must be boolean' }],
+            };
+          }
+          attributes.enabled = val;
+          hasAttributes = true;
+        } else if (key === 'nbf' || key === 'exp') {
+          if (typeof val !== 'number' || !Number.isFinite(val)) {
+            return {
+              ok: false,
+              errors: [{
+                code: 'unsupported_secret_metadata',
+                message: `attributes.${key} must be a finite number`,
+              }],
+            };
+          }
+          attributes[key] = val;
+          hasAttributes = true;
+        }
+      }
+    }
+  }
+
+  const _metadata = {};
+  if (contentType !== undefined) _metadata.contentType = contentType;
+  if (tags !== undefined) _metadata.tags = tags;
+  if (hasAttributes) _metadata.attributes = attributes;
+
+  return {
+    ok: true,
+    errors: [],
+    hasUserMetadata: Object.keys(_metadata).length > 0,
+    _metadata,
+  };
+}
+
+/**
+ * Build PUT body: secret value plus exact preserved user metadata.
+ * Omits system-generated fields (created/updated/id).
+ */
+function buildPutBodyWithPreservedMetadata(secretValue, metadataBag) {
+  const body = { value: String(secretValue) };
+  const meta = metadataBag && metadataBag._metadata ? metadataBag._metadata : null;
+  if (!meta) return body;
+  if (Object.prototype.hasOwnProperty.call(meta, 'contentType')) {
+    body.contentType = meta.contentType;
+  }
+  if (Object.prototype.hasOwnProperty.call(meta, 'tags')) {
+    body.tags = meta.tags == null ? null : { ...meta.tags };
+  }
+  if (meta.attributes && typeof meta.attributes === 'object') {
+    body.attributes = { ...meta.attributes };
+  }
+  return body;
+}
+
+/**
+ * Prove preserved user metadata byte/semantic equality.
+ * Only system-generated version id / created / updated may differ.
+ * Never returns metadata values — only ok/code.
+ */
+function assertPreservedMetadataEqual(expectedMetaBag, actualSecretBody) {
+  const expected = expectedMetaBag && expectedMetaBag._metadata
+    ? expectedMetaBag._metadata
+    : {};
+  const actualCap = captureSecretUserMetadata(actualSecretBody);
+  if (!actualCap.ok) {
+    return {
+      ok: false,
+      errors: actualCap.errors,
+      code: actualCap.errors[0] && actualCap.errors[0].code,
+    };
+  }
+  const actual = actualCap._metadata || {};
+
+  const expectedHas = {
+    contentType: Object.prototype.hasOwnProperty.call(expected, 'contentType'),
+    tags: Object.prototype.hasOwnProperty.call(expected, 'tags'),
+    attributes: Object.prototype.hasOwnProperty.call(expected, 'attributes'),
+  };
+  const actualHas = {
+    contentType: Object.prototype.hasOwnProperty.call(actual, 'contentType'),
+    tags: Object.prototype.hasOwnProperty.call(actual, 'tags'),
+    attributes: Object.prototype.hasOwnProperty.call(actual, 'attributes'),
+  };
+
+  if (expectedHas.contentType !== actualHas.contentType
+    || stableJson(expected.contentType) !== stableJson(actual.contentType)) {
+    return {
+      ok: false,
+      code: 'metadata_mismatch',
+      errors: [{ code: 'metadata_mismatch', message: 'preserved contentType mismatch' }],
+    };
+  }
+  if (expectedHas.tags !== actualHas.tags
+    || stableJson(expected.tags) !== stableJson(actual.tags)) {
+    return {
+      ok: false,
+      code: 'metadata_mismatch',
+      errors: [{ code: 'metadata_mismatch', message: 'preserved tags mismatch' }],
+    };
+  }
+  if (expectedHas.attributes !== actualHas.attributes
+    || stableJson(expected.attributes) !== stableJson(actual.attributes)) {
+    return {
+      ok: false,
+      code: 'metadata_mismatch',
+      errors: [{ code: 'metadata_mismatch', message: 'preserved attributes mismatch' }],
+    };
+  }
+
+  return { ok: true, errors: [], code: 'metadata_preserved', metadataPreserved: true };
+}
+
+/**
+ * Prove caller prior version is immediately previous to current.
+ * Requires newest-first versions list: [current, prior, ...].
+ * Uses immutable version IDs and created timestamps. Zero writes on failure.
+ */
+function assertImmediatelyPreviousAdjacency({
+  currentVersionId,
+  priorVersionId,
+  versions,
+  currentCreated = null,
+} = {}) {
+  if (!currentVersionId || !priorVersionId) {
+    return {
+      ok: false,
+      code: 'adjacency_ids_required',
+      errors: [{ code: 'adjacency_ids_required', message: 'current and prior version ids required' }],
+    };
+  }
+  if (String(currentVersionId) === String(priorVersionId)) {
+    return {
+      ok: false,
+      code: 'nonadjacent_version_rejected',
+      errors: [{ code: 'nonadjacent_version_rejected', message: 'prior version must differ from current' }],
+    };
+  }
+  if (!Array.isArray(versions) || versions.length < 2) {
+    return {
+      ok: false,
+      code: 'versions_list_insufficient',
+      errors: [{ code: 'versions_list_insufficient', message: 'secret versions list must include current and prior' }],
+    };
+  }
+
+  const parsed = [];
+  for (const entry of versions) {
+    const id = extractVersionIdFromSecretId(entry && entry.id);
+    if (!id) {
+      return {
+        ok: false,
+        code: 'versions_list_invalid',
+        errors: [{ code: 'versions_list_invalid', message: 'version list entry missing immutable version id' }],
+      };
+    }
+    const created = entry && entry.attributes && typeof entry.attributes.created === 'number'
+      ? entry.attributes.created
+      : null;
+    if (created == null) {
+      return {
+        ok: false,
+        code: 'versions_list_invalid',
+        errors: [{ code: 'versions_list_invalid', message: 'version list entry missing created timestamp' }],
+      };
+    }
+    parsed.push({ id, created });
+  }
+
+  if (parsed[0].id !== String(currentVersionId)) {
+    return {
+      ok: false,
+      code: 'versions_list_current_mismatch',
+      errors: [{
+        code: 'versions_list_current_mismatch',
+        message: 'versions[0] must be the current secret version id',
+      }],
+    };
+  }
+  if (currentCreated != null && parsed[0].created !== Number(currentCreated)) {
+    return {
+      ok: false,
+      code: 'versions_list_current_mismatch',
+      errors: [{
+        code: 'versions_list_current_mismatch',
+        message: 'versions[0] created timestamp must match current GET',
+      }],
+    };
+  }
+  if (parsed[1].id !== String(priorVersionId)) {
+    return {
+      ok: false,
+      code: 'nonadjacent_version_rejected',
+      errors: [{
+        code: 'nonadjacent_version_rejected',
+        message: 'supplied prior-version-id is not immediately previous',
+      }],
+    };
+  }
+  if (!(parsed[0].created > parsed[1].created)) {
+    return {
+      ok: false,
+      code: 'nonadjacent_version_rejected',
+      errors: [{
+        code: 'nonadjacent_version_rejected',
+        message: 'current created timestamp must be strictly after prior',
+      }],
+    };
+  }
+
+  return {
+    ok: true,
+    code: 'adjacency_proven',
+    adjacencyProven: true,
+    currentSecretVersionId: parsed[0].id,
+    priorSecretVersionId: parsed[1].id,
+    currentVersionCreated: parsed[0].created,
+    priorVersionCreated: parsed[1].created,
+    errors: [],
+  };
+}
+
+function rejectVersionsListPagination(listBody, requestPath) {
+  const path = String(requestPath || '');
+  if (/[?&]\$skiptoken=/i.test(path) || /[?&]maxresults=/i.test(path)) {
+    return {
+      ok: false,
+      code: 'versions_pagination_rejected',
+      errors: [{
+        code: 'versions_pagination_rejected',
+        message: 'secret versions pagination parameters are forbidden',
+      }],
+    };
+  }
+  if (listBody && listBody.nextLink) {
+    return {
+      ok: false,
+      code: 'versions_pagination_rejected',
+      errors: [{
+        code: 'versions_pagination_rejected',
+        message: 'paginated secret versions responses are rejected',
+      }],
+    };
+  }
+  return { ok: true, errors: [], code: 'versions_pagination_absent' };
 }
 
 function argvFlagValue(argv, flag) {
@@ -308,11 +770,15 @@ function zeroPrivateRefs(bag) {
     '_secretValue',
     '_normalizedDsn',
     '_priorValue',
+    '_metadata',
+    '_otherQueryParams',
     'password',
     'user',
     'token',
     'access_token',
     'value',
+    'contentType',
+    'tags',
   ];
   for (const k of keys) {
     if (Object.prototype.hasOwnProperty.call(bag, k)) {
@@ -527,6 +993,47 @@ function validateNormalizedSecretInMemory(secretValue, expectedUser, expectedPas
   }
 }
 
+/**
+ * Validate rollback restore target in memory: exact locked host/port/database
+ * and credentials present. Any sslmode allowed (prior may be TLS-deficient).
+ */
+function validateRollbackTargetSecretInMemory(secretValue) {
+  const raw = String(secretValue == null ? '' : secretValue);
+  const secrets = [raw];
+  try {
+    const parsed = parseDatabaseUrl(raw);
+    if (!parsed.ok) {
+      return { ok: false, errors: [{ code: 'rollback_dsn_parse_failed', message: 'prior secret not a usable DSN' }] };
+    }
+    const p = parsed.parsed;
+    if (p.host !== DSN_PLAN_LOCKS.postgresHost) {
+      return { ok: false, errors: [{ code: 'rollback_wrong_host', message: 'prior host must match locked target' }] };
+    }
+    if (Number(p.port) !== DSN_PLAN_LOCKS.port) {
+      return { ok: false, errors: [{ code: 'rollback_wrong_port', message: 'prior port must match locked target' }] };
+    }
+    if (p.database !== DSN_PLAN_LOCKS.database) {
+      return { ok: false, errors: [{ code: 'rollback_wrong_database', message: 'prior database must match locked target' }] };
+    }
+    if (!p.user || !p.hasPassword) {
+      return {
+        ok: false,
+        errors: [{ code: 'rollback_credentials_missing', message: 'prior secret must include user and password' }],
+      };
+    }
+    return {
+      ok: true,
+      errors: [],
+      postgresHost: DSN_PLAN_LOCKS.postgresHost,
+      database: DSN_PLAN_LOCKS.database,
+      port: DSN_PLAN_LOCKS.port,
+    };
+  } catch (err) {
+    const safe = sanitizePlanError(err, secrets);
+    return { ok: false, errors: [{ code: safe.code, message: safe.message }] };
+  }
+}
+
 function buildLockedMutationPlan() {
   return { ...LOCKED_MUTATION_PLAN, mutation: { ...LOCKED_MUTATION_PLAN.mutation } };
 }
@@ -558,6 +1065,7 @@ function mutationPlanMatchesLocked(plan) {
     && plan.mutation
     && plan.mutation.field === 'sslmode'
     && plan.mutation.to === 'verify-full'
+    && plan.mutation.preserveUserMetadata === true
   );
 }
 
@@ -691,8 +1199,11 @@ function evaluateMutationCandidate(candidate = {}) {
     errors.push({ code: 'put_count_rejected', message: 'putCount must be exactly 1' });
   }
   if (c.tagsMutation === true || c.contentTypeMutation === true
-    || c.tags != null || c.contentType != null) {
-    errors.push({ code: 'tags_content_type_mutation_rejected', message: 'tags/contentType mutations forbidden' });
+    || c.attributesMutation === true
+    || c.metadataDrop === true
+    || (c.tags != null && c.preserveUserMetadata !== true)
+    || (c.contentType != null && c.preserveUserMetadata !== true)) {
+    errors.push({ code: 'tags_content_type_mutation_rejected', message: 'tags/contentType/attributes mutations forbidden' });
   }
   if (c.hostChange === true || c.databaseChange === true || c.userChange === true
     || c.passwordChange === true || c.portChange === true) {
@@ -974,9 +1485,17 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
       return fail('prior_version_id_missing', 'current secret version id required for recoverable rollback');
     }
 
+    const metaCap = captureSecretUserMetadata(getBody);
+    if (!metaCap.ok) {
+      zeroPrivateRefs(metaCap);
+      return fail(metaCap.errors[0].code, metaCap.errors[0].message, { priorSecretVersionId });
+    }
+    privateBag._metadata = metaCap._metadata;
+
     const parsed = parseTlsDeficientSunsetDsnInMemory(secretValue);
     if (!parsed.ok) {
       zeroPrivateRefs(parsed);
+      zeroPrivateRefs(metaCap);
       return fail(parsed.errors[0].code, parsed.errors[0].message);
     }
     secrets.push(parsed._user, parsed._password, parsed._dsn);
@@ -990,6 +1509,7 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     if (!normalized.ok) {
       zeroPrivateRefs(parsed);
       zeroPrivateRefs(normalized);
+      zeroPrivateRefs(metaCap);
       return fail(normalized.errors[0].code, normalized.errors[0].message);
     }
     normalizedDsn = normalized._normalizedDsn;
@@ -1002,7 +1522,8 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     privateBag._dsn = null;
     parsed._dsn = null;
 
-    // 3) KV PUT — exactly one; body value only (no tags/contentType)
+    // 3) KV PUT — exactly one; value + exact preserved user metadata
+    const putPayload = buildPutBodyWithPreservedMetadata(normalizedDsn, metaCap);
     httpRequestCount += 1;
     keyVaultPutCount += 1;
     kvWriteCount += 1;
@@ -1015,7 +1536,7 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ value: normalizedDsn }),
+      body: JSON.stringify(putPayload),
     });
     if (!putRes || Number(putRes.statusCode) !== 200) {
       return fail('kv_put_rejected', 'Key Vault secret PUT rejected', {
@@ -1039,7 +1560,7 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     privateBag._normalizedDsn = null;
     normalized._normalizedDsn = null;
 
-    // 4) Verification GET
+    // 4) Verification GET — value + preserved metadata equality
     httpRequestCount += 1;
     keyVaultGetCount += 1;
     const verifyRes = await httpRequest({
@@ -1074,16 +1595,24 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
     }
     secrets.push(verifyValue);
     const verified = validateNormalizedSecretInMemory(verifyValue, user, password);
-    // Zero credential refs immediately after in-memory validation.
+    const metaVerified = assertPreservedMetadataEqual(metaCap, verifyBody);
+    // Zero credential + metadata refs immediately after in-memory validation.
     user = null;
     password = null;
     zeroPrivateRefs(privateBag);
     zeroPrivateRefs(parsed);
     zeroPrivateRefs(normalized);
+    zeroPrivateRefs(metaCap);
     token = null;
 
     if (!verified.ok) {
       return fail(verified.errors[0].code, verified.errors[0].message, {
+        priorSecretVersionId,
+        newSecretVersionId,
+      });
+    }
+    if (!metaVerified.ok) {
+      return fail(metaVerified.code || metaVerified.errors[0].code, metaVerified.errors[0].message, {
         priorSecretVersionId,
         newSecretVersionId,
       });
@@ -1112,6 +1641,7 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
       liveMutation: false,
       sourceTlsDeficient: true,
       sslmodeNormalized: true,
+      metadataPreserved: true,
       targetSslmode: DSN_PLAN_LOCKS.targetSslmode,
       mutationField: 'sslmode',
       postgresHost: DSN_PLAN_LOCKS.postgresHost,
@@ -1149,8 +1679,9 @@ async function executeDsnNormalizeAdapter({ httpRequest = null } = {}) {
 
 /**
  * Offline rollback adapter proof — restores only immediately previous version
- * after separate approval flag. Live rollback hard-disabled; inject required.
- * Default / wrong prior version → zero writes.
+ * after separate approval. Adjacency proven via GET current + LIST versions
+ * (pagination rejected) before any PUT. Live rollback hard-disabled; inject
+ * required. Default / nonadjacent / stale / wrong prior → zero writes.
  */
 async function executeDsnRollbackAdapter({
   httpRequest = null,
@@ -1159,8 +1690,10 @@ async function executeDsnRollbackAdapter({
 } = {}) {
   const countersBefore = getDsnPlanCounters();
   const secrets = [];
+  const privateBag = {};
 
   const fail = (code, message, extra = {}) => {
+    zeroPrivateRefs(privateBag);
     const counters = getDsnPlanCounters();
     return {
       ok: false,
@@ -1171,6 +1704,9 @@ async function executeDsnRollbackAdapter({
       kvWriteCount: counters.kvWriteCount - countersBefore.kvWriteCount,
       kvPutCount: counters.keyVaultPutCount - countersBefore.keyVaultPutCount,
       httpRequestCount: counters.httpRequestCount - countersBefore.httpRequestCount,
+      keyVaultListCount: counters.keyVaultListCount - countersBefore.keyVaultListCount,
+      adjacencyProven: false,
+      metadataPreserved: false,
       privateRefsZeroed: true,
       pgClientInstantiated: 0,
       errors: [{ code, message }],
@@ -1191,7 +1727,9 @@ async function executeDsnRollbackAdapter({
     return fail('prior_version_id_rejected', 'rollback requires exact immediately-previous safe version id');
   }
 
+  let token = null;
   try {
+    // 1) IMDS GET
     const imdsUrl = new URL(buildLockedImdsTokenUrl());
     httpRequestCount += 1;
     imdsRequestCount += 1;
@@ -1206,81 +1744,240 @@ async function executeDsnRollbackAdapter({
       return fail('imds_http_rejected', 'IMDS token GET rejected');
     }
     const imdsBody = JSON.parse(String(imdsRes.body || ''));
-    const token = imdsBody && imdsBody.access_token ? String(imdsBody.access_token) : null;
+    token = imdsBody && imdsBody.access_token ? String(imdsBody.access_token) : null;
     if (!token) return fail('imds_token_missing', 'IMDS access_token missing');
     secrets.push(token);
+    privateBag._token = token;
 
-    const kvBase = buildLockedKeyVaultSecretUrl();
-    const versionUrl = new URL(
-      `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/`
-      + `${encodeURIComponent(DSN_PLAN_LOCKS.secretName)}/`
-      + `${encodeURIComponent(priorSecretVersionId)}`
-      + `?api-version=${DSN_PLAN_LOCKS.keyVaultApiVersion}`,
-    );
+    const kvUrl = new URL(buildLockedKeyVaultSecretUrl());
+    const versionsUrl = new URL(buildLockedKeyVaultSecretVersionsUrl());
+    const priorUrl = new URL(buildLockedKeyVaultSecretVersionUrl(priorSecretVersionId));
 
+    // 2) GET current version (before any write)
     httpRequestCount += 1;
     keyVaultGetCount += 1;
-    const getRes = await httpRequest({
+    const currentRes = await httpRequest({
+      purpose: 'keyvault_secret_get',
+      method: 'GET',
+      hostname: kvUrl.hostname,
+      path: `${kvUrl.pathname}${kvUrl.search}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!currentRes || Number(currentRes.statusCode) !== 200) {
+      return fail('kv_current_get_rejected', 'current secret GET rejected', {
+        rollbackPriorVersionId: priorSecretVersionId,
+      });
+    }
+    const currentBody = JSON.parse(String(currentRes.body || ''));
+    const currentVersionId = extractVersionIdFromSecretId(currentBody.id);
+    if (!currentVersionId) {
+      return fail('current_version_id_missing', 'current secret version id required', {
+        rollbackPriorVersionId: priorSecretVersionId,
+      });
+    }
+    const currentCreated = currentBody.attributes && typeof currentBody.attributes.created === 'number'
+      ? currentBody.attributes.created
+      : null;
+
+    // 3) LIST exact secret versions — pagination forbidden/rejected
+    httpRequestCount += 1;
+    keyVaultListCount += 1;
+    const listRes = await httpRequest({
+      purpose: 'keyvault_secret_versions_list',
+      method: 'GET',
+      hostname: versionsUrl.hostname,
+      path: `${versionsUrl.pathname}${versionsUrl.search}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!listRes || Number(listRes.statusCode) !== 200) {
+      return fail('kv_versions_list_rejected', 'secret versions LIST rejected', {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    const listBody = JSON.parse(String(listRes.body || ''));
+    const pageCheck = rejectVersionsListPagination(listBody, `${versionsUrl.pathname}${versionsUrl.search}`);
+    if (!pageCheck.ok) {
+      return fail(pageCheck.code, pageCheck.errors[0].message, {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    const versions = Array.isArray(listBody.value) ? listBody.value : null;
+    const adjacency = assertImmediatelyPreviousAdjacency({
+      currentVersionId,
+      priorVersionId: priorSecretVersionId,
+      versions,
+      currentCreated,
+    });
+    if (!adjacency.ok) {
+      return fail(adjacency.code, adjacency.errors[0].message, {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+
+    // 4) GET prior version (exact target) — still zero writes
+    httpRequestCount += 1;
+    keyVaultGetCount += 1;
+    const priorRes = await httpRequest({
       purpose: 'keyvault_secret_version_get',
       method: 'GET',
-      hostname: versionUrl.hostname,
-      path: `${versionUrl.pathname}${versionUrl.search}`,
+      hostname: priorUrl.hostname,
+      path: `${priorUrl.pathname}${priorUrl.search}`,
       headers: { Authorization: `Bearer ${token}` },
       expectedVersionId: priorSecretVersionId,
     });
-    if (!getRes || Number(getRes.statusCode) !== 200) {
+    if (!priorRes || Number(priorRes.statusCode) !== 200) {
       return fail('kv_prior_version_get_rejected', 'prior version GET rejected', {
         rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
       });
     }
-    const getBody = JSON.parse(String(getRes.body || ''));
-    const gotVersion = extractVersionIdFromSecretId(getBody.id);
-    if (gotVersion && gotVersion !== priorSecretVersionId) {
-      return fail('arbitrary_version_rollback_rejected', 'GET version is not the immediately previous id', {
+    const priorBody = JSON.parse(String(priorRes.body || ''));
+    const gotVersion = extractVersionIdFromSecretId(priorBody.id);
+    if (!gotVersion || gotVersion !== String(priorSecretVersionId)) {
+      return fail('arbitrary_version_rollback_rejected', 'GET version is not the supplied prior id', {
         rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
       });
     }
-    const priorValue = getBody && getBody.value != null ? String(getBody.value) : null;
+    const priorValue = priorBody && priorBody.value != null ? String(priorBody.value) : null;
     if (!priorValue) {
       return fail('kv_prior_value_missing', 'prior version value missing', {
         rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
       });
     }
     secrets.push(priorValue);
+    privateBag._priorValue = priorValue;
 
-    const putUrl = new URL(kvBase);
+    const targetOk = validateRollbackTargetSecretInMemory(priorValue);
+    if (!targetOk.ok) {
+      return fail(targetOk.errors[0].code, targetOk.errors[0].message, {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+
+    const metaCap = captureSecretUserMetadata(priorBody);
+    if (!metaCap.ok) {
+      zeroPrivateRefs(metaCap);
+      return fail(metaCap.errors[0].code, metaCap.errors[0].message, {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    privateBag._metadata = metaCap._metadata;
+
+    // 5) PUT restore — value + preserved metadata (one write)
+    const putPayload = buildPutBodyWithPreservedMetadata(priorValue, metaCap);
     httpRequestCount += 1;
     keyVaultPutCount += 1;
     kvWriteCount += 1;
     const putRes = await httpRequest({
       purpose: 'keyvault_secret_put',
       method: 'PUT',
-      hostname: putUrl.hostname,
-      path: `${putUrl.pathname}${putUrl.search}`,
+      hostname: kvUrl.hostname,
+      path: `${kvUrl.pathname}${kvUrl.search}`,
       headers: {
         Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ value: priorValue }),
+      body: JSON.stringify(putPayload),
     });
     if (!putRes || Number(putRes.statusCode) !== 200) {
       return fail('kv_rollback_put_rejected', 'rollback PUT rejected', {
         rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    const putBody = JSON.parse(String(putRes.body || ''));
+    const restoredVersionId = extractVersionIdFromSecretId(putBody.id) || null;
+
+    // Drop prior value before verify GET
+    privateBag._priorValue = null;
+
+    // 6) Verification GET — value + preserved metadata
+    httpRequestCount += 1;
+    keyVaultGetCount += 1;
+    const verifyRes = await httpRequest({
+      purpose: 'keyvault_secret_verify_get',
+      method: 'GET',
+      hostname: kvUrl.hostname,
+      path: `${kvUrl.pathname}${kvUrl.search}`,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!verifyRes || Number(verifyRes.statusCode) !== 200) {
+      return fail('kv_rollback_verify_rejected', 'rollback verification GET rejected', {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+        newSecretVersionId: restoredVersionId,
+      });
+    }
+    const verifyBody = JSON.parse(String(verifyRes.body || ''));
+    const verifyValue = verifyBody && verifyBody.value != null ? String(verifyBody.value) : null;
+    if (!verifyValue) {
+      return fail('kv_rollback_verify_value_missing', 'rollback verification value missing', {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    secrets.push(verifyValue);
+    if (verifyValue !== priorValue) {
+      return fail('rollback_value_mismatch', 'rollback verification value does not match prior', {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+      });
+    }
+    const metaVerified = assertPreservedMetadataEqual(metaCap, verifyBody);
+    zeroPrivateRefs(privateBag);
+    zeroPrivateRefs(metaCap);
+    token = null;
+
+    if (!metaVerified.ok) {
+      return fail(metaVerified.code || metaVerified.errors[0].code, metaVerified.errors[0].message, {
+        rollbackPriorVersionId: priorSecretVersionId,
+        currentSecretVersionId: currentVersionId,
+        newSecretVersionId: restoredVersionId,
       });
     }
 
     const counters = getDsnPlanCounters();
+    const deltaHttp = counters.httpRequestCount - countersBefore.httpRequestCount;
+    const deltaPut = counters.keyVaultPutCount - countersBefore.keyVaultPutCount;
+    if (deltaPut !== 1) {
+      return fail('put_count_integrity_failed', `expected exactly 1 PUT, got ${deltaPut}`, {
+        rollbackPriorVersionId: priorSecretVersionId,
+      });
+    }
+    if (deltaHttp !== 6) {
+      return fail('http_sequence_integrity_failed', `expected exactly 6 HTTP calls, got ${deltaHttp}`, {
+        rollbackPriorVersionId: priorSecretVersionId,
+      });
+    }
+
     return {
       ok: true,
       code: 'dsn_rollback_adapter_ok',
       liveRollbackEnabled: false,
       liveMutation: false,
+      adjacencyProven: true,
+      metadataPreserved: true,
       rollbackPriorVersionId: priorSecretVersionId,
       priorSecretVersionId,
+      currentSecretVersionId: currentVersionId,
+      newSecretVersionId: restoredVersionId,
+      currentVersionCreated: adjacency.currentVersionCreated,
+      priorVersionCreated: adjacency.priorVersionCreated,
       putCount: 1,
       retries: 0,
-      httpRequestCount: counters.httpRequestCount - countersBefore.httpRequestCount,
-      keyVaultPutCount: counters.keyVaultPutCount - countersBefore.keyVaultPutCount,
+      httpSequence: [...LOCKED_ROLLBACK_PLAN.httpSequence],
+      httpRequestCount: deltaHttp,
+      imdsRequestCount: counters.imdsRequestCount - countersBefore.imdsRequestCount,
+      keyVaultGetCount: counters.keyVaultGetCount - countersBefore.keyVaultGetCount,
+      keyVaultListCount: counters.keyVaultListCount - countersBefore.keyVaultListCount,
+      keyVaultPutCount: deltaPut,
       kvWriteCount: counters.kvWriteCount - countersBefore.kvWriteCount,
       privateRefsZeroed: true,
       pgClientInstantiated: 0,
@@ -1289,31 +1986,73 @@ async function executeDsnRollbackAdapter({
   } catch (err) {
     const safe = sanitizePlanError(err, secrets);
     return fail(safe.code, safe.message);
+  } finally {
+    token = null;
+    zeroPrivateRefs(privateBag);
   }
 }
 
 /**
  * Build injected HTTP router for offline RED/GREEN proof.
- * Supports IMDS GET, KV GET, KV PUT, verification GET, version GET.
+ * Supports IMDS GET, KV GET, KV versions LIST, KV PUT (value+preserved
+ * metadata), verification GET, version GET. Never records secret/metadata
+ * values — only safe purpose/method/path and put-shape flags.
  */
 function createInjectedDsnNormalizeHttp(script) {
   const s = script || {};
   const imdsUrl = new URL(buildLockedImdsTokenUrl());
   const kvUrl = new URL(buildLockedKeyVaultSecretUrl());
+  const versionsUrl = new URL(buildLockedKeyVaultSecretVersionsUrl());
   const calls = [];
   let putCountLocal = 0;
+  let lastPutShape = null;
+  let lastPutBody = null;
+
+  function secretEnvelope({
+    value,
+    versionId,
+    created,
+    contentType,
+    tags,
+    attributes,
+    extraTopLevel,
+  }) {
+    const attrs = {
+      enabled: true,
+      created: created != null ? created : 1700000000,
+      updated: created != null ? created : 1700000000,
+      ...(attributes || {}),
+    };
+    const body = {
+      value,
+      id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${versionId}`,
+      attributes: attrs,
+    };
+    if (contentType !== undefined) body.contentType = contentType;
+    else if (s.secretContentType !== undefined) body.contentType = s.secretContentType;
+    if (tags !== undefined) body.tags = tags;
+    else if (s.secretTags !== undefined) body.tags = s.secretTags;
+    if (s.secretAttributes && attributes == null && !Object.prototype.hasOwnProperty.call(s, 'omitSecretAttributesMerge')) {
+      Object.assign(body.attributes, s.secretAttributes);
+    }
+    if (extraTopLevel && typeof extraTopLevel === 'object') {
+      Object.assign(body, extraTopLevel);
+    }
+    return body;
+  }
 
   async function httpRequest(req) {
     const request = req || {};
     const method = String(request.method || 'GET').toUpperCase();
-    calls.push({
+    const call = {
       purpose: request.purpose || null,
       hostname: request.hostname || null,
       path: request.path ? String(request.path).split('?')[0] : null,
       method,
       hasAuthorization: Boolean(request.headers && request.headers.Authorization),
-      // Never record body/Authorization values.
-    });
+      // Never record body/Authorization/metadata values.
+    };
+    calls.push(call);
 
     if (s.throwOn && s.throwOn === request.purpose) {
       throw Object.assign(new Error(s.throwErrorMessage || 'injected http failure'), {
@@ -1365,7 +2104,7 @@ function createInjectedDsnNormalizeHttp(script) {
         return { statusCode: 400, body: '{"error":"wrong_kv_host"}' };
       }
       const pathFull = String(request.path || '');
-      if (!pathFull.startsWith(kvUrl.pathname)) {
+      if (!pathFull.startsWith(kvUrl.pathname) || pathFull.includes('/versions')) {
         return { statusCode: 404, body: '{"error":"wrong_secret"}' };
       }
       if (request.purpose === 'keyvault_secret_get' && s.kvGetStatusCode && s.kvGetStatusCode !== 200) {
@@ -1379,21 +2118,140 @@ function createInjectedDsnNormalizeHttp(script) {
       const value = isVerify
         ? (Object.prototype.hasOwnProperty.call(s, 'verifySecretValue')
           ? s.verifySecretValue
-          : s.normalizedSecretValue)
-        : (Object.prototype.hasOwnProperty.call(s, 'secretValue')
-          ? s.secretValue
-          : s.defaultSecretValue);
+          : (lastPutBody && lastPutBody.value != null
+            ? lastPutBody.value
+            : s.normalizedSecretValue))
+        : (Object.prototype.hasOwnProperty.call(s, 'currentSecretValue')
+          ? s.currentSecretValue
+          : (Object.prototype.hasOwnProperty.call(s, 'secretValue')
+            ? s.secretValue
+            : s.defaultSecretValue));
       const versionId = isVerify
         ? (s.newSecretVersionId || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+        : (s.currentSecretVersionId || s.newSecretVersionId || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb');
+      // For mutation GET current, prior version is the current-before-put id.
+      const mutationCurrentId = isVerify
+        ? versionId
         : (s.priorSecretVersionId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa');
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          value,
-          id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${versionId}`,
-          attributes: { enabled: true },
-        }),
-      };
+      const useId = (s.mode === 'rollback' && !isVerify)
+        ? (s.currentSecretVersionId || s.newSecretVersionId || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+        : (isVerify ? versionId : mutationCurrentId);
+      const created = (s.mode === 'rollback' && !isVerify)
+        ? (s.currentVersionCreated != null ? s.currentVersionCreated : 1700002000)
+        : (s.priorVersionCreated != null ? s.priorVersionCreated : 1700001000);
+
+      let contentType;
+      let tags;
+      let attributes;
+      if (isVerify) {
+        if (s.verifyMetadataMismatch === true) {
+          contentType = 'application/mismatched';
+          tags = { proof: 'mismatched' };
+          attributes = { enabled: false };
+        } else if (lastPutBody) {
+          contentType = Object.prototype.hasOwnProperty.call(lastPutBody, 'contentType')
+            ? lastPutBody.contentType
+            : undefined;
+          tags = Object.prototype.hasOwnProperty.call(lastPutBody, 'tags')
+            ? lastPutBody.tags
+            : undefined;
+          attributes = lastPutBody.attributes
+            ? { ...lastPutBody.attributes }
+            : undefined;
+        } else if (s.verifyContentType !== undefined || s.verifyTags !== undefined) {
+          contentType = s.verifyContentType;
+          tags = s.verifyTags;
+          attributes = s.verifyAttributes;
+        }
+      } else if (s.getExtraTopLevel) {
+        return {
+          statusCode: 200,
+          body: JSON.stringify(secretEnvelope({
+            value,
+            versionId: useId,
+            created,
+            contentType: s.secretContentType,
+            tags: s.secretTags,
+            attributes: s.secretAttributes,
+            extraTopLevel: s.getExtraTopLevel,
+          })),
+        };
+      }
+
+      const envelope = secretEnvelope({
+        value,
+        versionId: useId,
+        created: isVerify
+          ? (s.newVersionCreated != null ? s.newVersionCreated : 1700002000)
+          : created,
+        contentType,
+        tags,
+        attributes,
+      });
+      return { statusCode: 200, body: JSON.stringify(envelope) };
+    }
+
+    if (request.purpose === 'keyvault_secret_versions_list') {
+      if (method !== 'GET') {
+        return { statusCode: 405, body: JSON.stringify({ error: 'http_method_forbidden' }) };
+      }
+      if (request.hostname !== versionsUrl.hostname) {
+        return { statusCode: 400, body: '{"error":"wrong_kv_host"}' };
+      }
+      const pathFull = String(request.path || '');
+      if (!pathFull.startsWith(versionsUrl.pathname.split('?')[0])
+        && !pathFull.includes(`/secrets/${DSN_PLAN_LOCKS.secretName}/versions`)) {
+        return { statusCode: 404, body: '{"error":"wrong_versions_path"}' };
+      }
+      if (/[?&]\$skiptoken=/i.test(pathFull) || /[?&]maxresults=/i.test(pathFull)) {
+        return { statusCode: 400, body: '{"error":"pagination_params_forbidden"}' };
+      }
+      if (s.kvVersionsListStatusCode && s.kvVersionsListStatusCode !== 200) {
+        return {
+          statusCode: s.kvVersionsListStatusCode,
+          body: s.kvVersionsListBody || '{"error":"versions_list_failed"}',
+        };
+      }
+      const currentId = s.currentSecretVersionId || s.newSecretVersionId || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+      const priorId = s.priorSecretVersionId || 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
+      const staleId = s.staleSecretVersionId || 'cccccccc-cccc-cccc-cccc-cccccccccccc';
+      const currentCreated = s.currentVersionCreated != null ? s.currentVersionCreated : 1700002000;
+      const priorCreated = s.priorVersionCreated != null ? s.priorVersionCreated : 1700001000;
+      const staleCreated = s.staleVersionCreated != null ? s.staleVersionCreated : 1700000000;
+      let value;
+      if (Array.isArray(s.versionsList)) {
+        value = s.versionsList;
+      } else if (s.nonadjacentList === true) {
+        // current, stale, prior — prior is not immediately previous
+        value = [
+          {
+            id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${currentId}`,
+            attributes: { enabled: true, created: currentCreated, updated: currentCreated },
+          },
+          {
+            id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${staleId}`,
+            attributes: { enabled: true, created: staleCreated + 500, updated: staleCreated + 500 },
+          },
+          {
+            id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${priorId}`,
+            attributes: { enabled: true, created: priorCreated, updated: priorCreated },
+          },
+        ];
+      } else {
+        value = [
+          {
+            id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${currentId}`,
+            attributes: { enabled: true, created: currentCreated, updated: currentCreated },
+          },
+          {
+            id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${priorId}`,
+            attributes: { enabled: true, created: priorCreated, updated: priorCreated },
+          },
+        ];
+      }
+      const body = { value };
+      if (s.versionsNextLink) body.nextLink = s.versionsNextLink;
+      return { statusCode: 200, body: JSON.stringify(body) };
     }
 
     if (request.purpose === 'keyvault_secret_version_get') {
@@ -1408,13 +2266,16 @@ function createInjectedDsnNormalizeHttp(script) {
       if (s.kvVersionGetStatusCode && s.kvVersionGetStatusCode !== 200) {
         return { statusCode: s.kvVersionGetStatusCode, body: '{"error":"version_get_failed"}' };
       }
-      return {
-        statusCode: 200,
-        body: JSON.stringify({
-          value: s.priorSecretValue || s.secretValue || s.defaultSecretValue,
-          id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${expected}`,
-        }),
-      };
+      const envelope = secretEnvelope({
+        value: s.priorSecretValue || s.secretValue || s.defaultSecretValue,
+        versionId: expected,
+        created: s.priorVersionCreated != null ? s.priorVersionCreated : 1700001000,
+        contentType: s.priorContentType !== undefined ? s.priorContentType : s.secretContentType,
+        tags: s.priorTags !== undefined ? s.priorTags : s.secretTags,
+        attributes: s.priorAttributes !== undefined ? s.priorAttributes : s.secretAttributes,
+        extraTopLevel: s.priorExtraTopLevel,
+      });
+      return { statusCode: 200, body: JSON.stringify(envelope) };
     }
 
     if (request.purpose === 'keyvault_secret_put') {
@@ -1428,31 +2289,61 @@ function createInjectedDsnNormalizeHttp(script) {
       if (s.kvPutStatusCode && s.kvPutStatusCode !== 200) {
         return { statusCode: s.kvPutStatusCode, body: s.kvPutBody || '{"error":"kv_put_failed"}' };
       }
-      // Reject body that mutates tags/contentType.
       let parsedBody = null;
       try {
         parsedBody = JSON.parse(String(request.body || '{}'));
       } catch (_) {
         return { statusCode: 400, body: '{"error":"put_body_not_json"}' };
       }
-      if (parsedBody.tags != null || parsedBody.contentType != null
-        || parsedBody.attributes != null) {
-        return { statusCode: 400, body: '{"error":"tags_content_type_forbidden"}' };
-      }
       if (parsedBody.value == null) {
         return { statusCode: 400, body: '{"error":"value_required"}' };
       }
+      // Reject unknown PUT top-level keys (preserve-only contract).
+      for (const key of Object.keys(parsedBody)) {
+        if (!['value', 'contentType', 'tags', 'attributes'].includes(key)) {
+          return { statusCode: 400, body: '{"error":"unsupported_put_metadata"}' };
+        }
+      }
+      if (parsedBody.attributes && typeof parsedBody.attributes === 'object') {
+        for (const key of Object.keys(parsedBody.attributes)) {
+          if (!DSN_PLAN_LOCKS.supportedAttributeKeys.includes(key)) {
+            return { statusCode: 400, body: '{"error":"unsupported_put_attributes"}' };
+          }
+        }
+      }
+      lastPutBody = parsedBody;
+      lastPutShape = {
+        hasValue: true,
+        hasContentType: Object.prototype.hasOwnProperty.call(parsedBody, 'contentType'),
+        hasTags: Object.prototype.hasOwnProperty.call(parsedBody, 'tags'),
+        hasAttributes: Object.prototype.hasOwnProperty.call(parsedBody, 'attributes'),
+        attributeKeys: parsedBody.attributes
+          ? Object.keys(parsedBody.attributes).sort()
+          : [],
+        tagKeyCount: parsedBody.tags && typeof parsedBody.tags === 'object'
+          ? Object.keys(parsedBody.tags).length
+          : 0,
+      };
+      call.putShape = { ...lastPutShape };
       // Store for verify GET if not overridden.
       if (!Object.prototype.hasOwnProperty.call(s, 'verifySecretValue')
         && !Object.prototype.hasOwnProperty.call(s, 'normalizedSecretValue')) {
         s.normalizedSecretValue = parsedBody.value;
       }
-      const newId = s.newSecretVersionId || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
+      const newId = s.putResponseVersionId
+        || s.newSecretVersionId
+        || 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
       return {
         statusCode: 200,
         body: JSON.stringify({
           id: `${DSN_PLAN_LOCKS.keyVaultHttpsUrl}/secrets/${DSN_PLAN_LOCKS.secretName}/${newId}`,
-          attributes: { enabled: true },
+          attributes: {
+            enabled: parsedBody.attributes && typeof parsedBody.attributes.enabled === 'boolean'
+              ? parsedBody.attributes.enabled
+              : true,
+            created: s.newVersionCreated != null ? s.newVersionCreated : 1700003000,
+            updated: s.newVersionCreated != null ? s.newVersionCreated : 1700003000,
+          },
         }),
       };
     }
@@ -1461,8 +2352,15 @@ function createInjectedDsnNormalizeHttp(script) {
   }
 
   httpRequest.calls = calls;
-  httpRequest.reset = () => { calls.length = 0; putCountLocal = 0; };
+  httpRequest.reset = () => {
+    calls.length = 0;
+    putCountLocal = 0;
+    lastPutShape = null;
+    lastPutBody = null;
+  };
   httpRequest.getPutCount = () => putCountLocal;
+  httpRequest.getLastPutShape = () => (lastPutShape ? { ...lastPutShape } : null);
+  // Intentionally no getter for put body values (secret/metadata-safe).
   return httpRequest;
 }
 
@@ -1581,11 +2479,19 @@ module.exports = {
   SAFE_OUTPUT_KEYS,
   FORBIDDEN_ARGV_FLAGS,
   buildLockedKeyVaultSecretUrl,
+  buildLockedKeyVaultSecretVersionsUrl,
+  buildLockedKeyVaultSecretVersionUrl,
   buildLockedImdsTokenUrl,
   extractVersionIdFromSecretId,
+  captureSecretUserMetadata,
+  buildPutBodyWithPreservedMetadata,
+  assertPreservedMetadataEqual,
+  assertImmediatelyPreviousAdjacency,
+  rejectVersionsListPagination,
   parseTlsDeficientSunsetDsnInMemory,
   normalizeSslmodeOnlyInMemory,
   validateNormalizedSecretInMemory,
+  validateRollbackTargetSecretInMemory,
   buildLockedMutationPlan,
   buildLockedRollbackPlan,
   mutationPlanMatchesLocked,

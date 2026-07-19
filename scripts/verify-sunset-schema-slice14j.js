@@ -72,6 +72,10 @@ const REQUIRED_RED = [
   'already_verify_full_zero_puts',
   'put_failure_retains_prior_version_safe_id',
   'rollback_without_approval_zero_writes',
+  'unsupported_attributes_zero_writes',
+  'metadata_mismatch_rejected',
+  'nonadjacent_stale_version_zero_writes',
+  'list_pagination_rejected_zero_writes',
 ];
 
 const REQUIRED_GREEN = [
@@ -79,6 +83,8 @@ const REQUIRED_GREEN = [
   'cli_plan_only_safe_ids',
   'cli_rollback_plan_only_safe_prior_version_id',
   'fake_http_imds_get_put_verify_success',
+  'metadata_preservation_verified',
+  'exact_rollback_sequence_call_counts',
   'live_disabled_hashes_preserved_no_pg_client',
 ];
 
@@ -189,8 +195,21 @@ function main() {
     && contract.mutationContract.to === 'verify-full'
     && contract.mutationContract.putCount === 1
     && contract.mutationContract.retries === 0
+    && contract.mutationContract.preserveUserMetadata === true
+    && contract.mutationContract.retainExact.includes('contentType')
+    && contract.mutationContract.retainExact.includes('tags')
+    && contract.mutationContract.retainExact.includes('attributes.enabled')
     && contract.rollbackContract.restoreScope === 'immediately_previous_version_only'
+    && contract.rollbackContract.adjacencyProofRequired === true
+    && contract.rollbackContract.paginationForbidden === true
+    && contract.rollbackContract.preserveUserMetadata === true
+    && contract.rollbackContract.httpSequence.length === 6
+    && contract.metadataPreservationRequired === true
+    && contract.rollbackAdjacencyProofRequired === true
+    && contract.versionsPaginationForbidden === true
     && applyPlan.mutation.putCount === 1
+    && applyPlan.mutation.mutation.preserveUserMetadata === true
+    && applyPlan.rollback.adjacencyProofRequired === true
     && applyPlan.liveMutateEnabled === false);
 
   pass('success-call-counts',
@@ -201,8 +220,15 @@ function main() {
     && evidence.successCallCounts.putCount === 1
     && contract.successCallCounts.httpRequestCount === 4
     && contract.authorizedHttpSequenceOnSuccess.length === 4
+    && evidence.rollbackSuccessCallCounts.httpRequestCount === 6
+    && evidence.rollbackSuccessCallCounts.keyVaultListCount === 1
+    && evidence.rollbackSuccessCallCounts.keyVaultGetCount === 3
+    && evidence.rollbackSuccessCallCounts.keyVaultPutCount === 1
+    && contract.rollbackSuccessCallCounts.httpRequestCount === 6
     && findings.includes('httpRequestCount=4')
-    && findings.includes('keyVaultPutCount=1'));
+    && findings.includes('httpRequestCount=6')
+    && findings.includes('keyVaultPutCount=1')
+    && findings.includes('keyVaultListCount=1'));
 
   pass('command-contract',
     contract.commandContract.script === 'scripts/run-phase-d-kv-dsn-verify-full-plan.js'
@@ -257,7 +283,10 @@ function main() {
     && findings.includes('Zero live mutation')
     && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(JSON.stringify(evidence))
     && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(JSON.stringify(contract))
-    && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(findings));
+    && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(findings)
+    && !JSON.stringify(evidence).includes('text/plain')
+    && !JSON.stringify(contract).includes('text/plain')
+    && !libSrc.includes('az keyvault'));
 
   // Live re-check of default + plan-only paths (offline; no Azure).
   resetDsnPlanCounters();

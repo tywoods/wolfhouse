@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14j-kv-dsn-verify-full-plan-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T20:10:21.209Z",
+  "generatedAt": "2026-07-19T20:18:01.125Z",
   "masterShaBasis": "ec6a5e9589026db1675a82f4d0b05ddc4a62320e",
   "slice": "14J",
   "liveMutateEnabled": false,
@@ -24,8 +24,8 @@
   "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
   "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
   "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
-  "redCaseCount": 10,
-  "greenCaseCount": 5,
+  "redCaseCount": 14,
+  "greenCaseCount": 7,
   "redCases": [
     {
       "name": "default_path_zero_kv_writes",
@@ -85,6 +85,31 @@
       "ok": true,
       "code": "rollback_approval_required",
       "kvWriteCount": 0
+    },
+    {
+      "name": "unsupported_attributes_zero_writes",
+      "ok": true,
+      "code": "unsupported_secret_metadata",
+      "keyVaultPutCount": 0
+    },
+    {
+      "name": "metadata_mismatch_rejected",
+      "ok": true,
+      "code": "metadata_mismatch",
+      "keyVaultPutCount": 1
+    },
+    {
+      "name": "nonadjacent_stale_version_zero_writes",
+      "ok": true,
+      "code": "nonadjacent_version_rejected",
+      "kvWriteCount": 0,
+      "keyVaultListCount": 1
+    },
+    {
+      "name": "list_pagination_rejected_zero_writes",
+      "ok": true,
+      "code": "versions_pagination_rejected",
+      "kvWriteCount": 0
     }
   ],
   "greenCases": [
@@ -123,6 +148,41 @@
       ]
     },
     {
+      "name": "metadata_preservation_verified",
+      "ok": true,
+      "metadataPreserved": true,
+      "putHasContentType": true,
+      "putHasTags": true,
+      "putAttributeKeys": [
+        "enabled",
+        "exp",
+        "nbf"
+      ]
+    },
+    {
+      "name": "exact_rollback_sequence_call_counts",
+      "ok": true,
+      "httpRequestCount": 6,
+      "imdsRequestCount": 1,
+      "keyVaultGetCount": 3,
+      "keyVaultListCount": 1,
+      "keyVaultPutCount": 1,
+      "putCount": 1,
+      "adjacencyProven": true,
+      "currentSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      "priorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      "currentVersionCreated": 1700002000,
+      "priorVersionCreated": 1700001000,
+      "callMethods": [
+        "imds_token:GET",
+        "keyvault_secret_get:GET",
+        "keyvault_secret_versions_list:GET",
+        "keyvault_secret_version_get:GET",
+        "keyvault_secret_put:PUT",
+        "keyvault_secret_verify_get:GET"
+      ]
+    },
+    {
       "name": "live_disabled_hashes_preserved_no_pg_client",
       "ok": true,
       "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
@@ -134,6 +194,14 @@
     "httpRequestCount": 4,
     "imdsRequestCount": 1,
     "keyVaultGetCount": 2,
+    "keyVaultPutCount": 1,
+    "putCount": 1
+  },
+  "rollbackSuccessCallCounts": {
+    "httpRequestCount": 6,
+    "imdsRequestCount": 1,
+    "keyVaultGetCount": 3,
+    "keyVaultListCount": 1,
     "keyVaultPutCount": 1,
     "putCount": 1
   },
@@ -160,7 +228,18 @@
       "port",
       "database",
       "username",
-      "password"
+      "password",
+      "contentType",
+      "tags",
+      "attributes.enabled",
+      "attributes.nbf",
+      "attributes.exp"
+    ],
+    "preserveUserMetadata": true,
+    "systemGeneratedMayDiffer": [
+      "id",
+      "attributes.created",
+      "attributes.updated"
     ],
     "putCount": 1,
     "retries": 0,
@@ -175,10 +254,24 @@
     "operation": "restoreImmediatelyPreviousSecretVersion",
     "restoreScope": "immediately_previous_version_only",
     "requiresSeparateExplicitApproval": true,
+    "adjacencyProofRequired": true,
+    "adjacencyRule": "versions[0]===current && versions[1]===prior && created[0]>created[1]",
+    "paginationForbidden": true,
+    "preserveUserMetadata": true,
     "putCount": 1,
     "retries": 0,
-    "defaultZeroWrites": true
+    "defaultZeroWrites": true,
+    "httpSequence": [
+      "IMDS GET",
+      "Key Vault secret GET current",
+      "Key Vault secret versions LIST",
+      "Key Vault secret version GET prior",
+      "Key Vault secret PUT",
+      "Key Vault secret verification GET"
+    ]
   },
   "fakePriorSecretVersionId": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
-  "fakeNewSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+  "fakeNewSecretVersionId": "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+  "fakePriorVersionCreated": 1700001000,
+  "fakeCurrentVersionCreated": 1700002000
 }

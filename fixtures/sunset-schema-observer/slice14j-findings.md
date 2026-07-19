@@ -2,7 +2,7 @@
 
 **Status:** complete (plan + offline injected-HTTP proof; live mutate/rollback hard-disabled; zero live KV read/write)
 **Master basis:** `ec6a5e9589026db1675a82f4d0b05ddc4a62320e`
-**Generated:** 2026-07-19T20:10:21.209Z
+**Generated:** 2026-07-19T20:18:01.125Z
 
 ## Outcome
 
@@ -14,14 +14,15 @@ Built and offline-proven a locked, recoverable operator plan to normalize **only
 | Identity | `wh-staging-identity` / `0dd41fa2-52c8-4e04-bc23-8aa462938c19` |
 | PG host / port / database | `luna-sunset-staging-pg-app.postgres.database.azure.com` / `5432` / `sunset_staging` |
 | Mutation | `sslmode` only → `verify-full` |
+| Metadata | preserve exact contentType/tags/enabled/nbf/exp |
 | PUT count | exactly 1 (no retries) |
-| Rollback | immediately previous version only, separate approval |
+| Rollback | immediately previous version only (adjacency proven), separate approval |
 
 ## Mutation / rollback contract
 
-**Mutation (future live adapter):** IMDS GET → KV GET → parse+require exact host/port/database → retain user/password in memory → modify only `sslmode` → PUT one new secret version → verification GET → zero private refs. Prior version safe ID retained for rollback.
+**Mutation (future live adapter):** IMDS GET → KV GET → capture supported user metadata in memory → parse+require exact host/port/database → retain user/password in memory → modify only `sslmode` → PUT one new secret version with value **and** preserved metadata → verification GET proves DSN + metadata equality (only system version id/timestamps may differ) → zero private refs. Prior version safe ID retained for rollback.
 
-**Rollback:** restore only the immediately previous version after explicit separate approval. Default / wrong prior-version / wrong gates → **zero writes**.
+**Rollback:** separate approval (default disabled). Before any PUT: GET current + LIST versions (pagination rejected) → require `versions[0]===current` and `versions[1]===caller prior` with `created[0]>created[1]` → GET prior → validate exact target → PUT prior value+preserved metadata → verify. Nonadjacent/stale/paginated → **zero writes**.
 
 ## Operator command (plan-only; default refuse)
 
@@ -43,10 +44,11 @@ npm run phase-d:kv-dsn-verify-full-plan -- \
 
 | Class | Cases |
 |-------|-------|
-| RED | default/missing env/flag; wrong targets; forbidden value/DSN/url/token/version/file argv; host/tags/delete/retries/arbitrary-version; adapter without inject; already verify-full (zero PUT); PUT failure keeps prior-version safe ID; rollback without approval |
-| GREEN | locked mutation+rollback plans; CLI safe IDs; CLI rollback prior-version safe ID; fake HTTP **IMDS GET + KV GET + KV PUT + verify GET** (4 calls, 1 PUT); live disabled + hashes preserved + no pg Client |
+| RED | default/missing env/flag; wrong targets; forbidden value/DSN/url/token/version/file argv; host/tags/delete/retries/arbitrary-version; adapter without inject; already verify-full (zero PUT); PUT failure keeps prior-version safe ID; rollback without approval; unsupported metadata; metadata mismatch; nonadjacent/stale version; list pagination |
+| GREEN | locked mutation+rollback plans; CLI safe IDs; CLI rollback prior-version safe ID; fake HTTP **IMDS GET + KV GET + KV PUT + verify GET** (4 calls, 1 PUT); metadata preservation; exact rollback sequence (6 calls, adjacency+metadata); live disabled + hashes preserved + no pg Client |
 
-**Success call counts:** httpRequestCount=4, imdsRequestCount=1, keyVaultGetCount=2, keyVaultPutCount=1.
+**Mutation success call counts:** httpRequestCount=4, imdsRequestCount=1, keyVaultGetCount=2, keyVaultPutCount=1.
+**Rollback success call counts:** httpRequestCount=6, imdsRequestCount=1, keyVaultGetCount=3, keyVaultListCount=1, keyVaultPutCount=1.
 
 ## Non-goals / still open
 
