@@ -165,6 +165,15 @@ function main() {
     && evidence.redFailures.every((r) => r.failedClosed === true)
     && requiredRed.every((n) => redNames.includes(n)));
 
+  {
+    const genRed = (evidence.redFailures || []).find((r) => r.name === 'generated_weekdays_column');
+    pass('red-generated-weekdays-hits-attgenerated',
+      Boolean(genRed)
+      && genRed.failedClosed === true
+      && /is a generated column/i.test(String(genRed.message || ''))
+      && /weekdays SMALLINT\[] NOT NULL GENERATED ALWAYS AS/i.test(proveSrc));
+  }
+
   pass('green-preserve-exact-columns',
     evidence.greenCases
     && evidence.greenCases.every((g) => g.ok === true)

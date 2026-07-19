@@ -7,7 +7,7 @@
   "azureMutation": false,
   "disposablePostgreSQLOnly": true,
   "disposableBackend": "pglite",
-  "generatedAt": "2026-07-19T15:49:30.832Z",
+  "generatedAt": "2026-07-19T15:54:19.106Z",
   "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
   "migration": {
     "id": "040_tenant_services_saas_catalog_columns",
@@ -127,7 +127,7 @@
     {
       "name": "generated_weekdays_column",
       "failedClosed": true,
-      "message": "040: incompatible tenant_services.weekdays nullability got nullable=t expected=f"
+      "message": "040: tenant_services.weekdays is a generated column"
     }
   ],
   "greenCases": [

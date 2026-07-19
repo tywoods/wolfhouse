@@ -424,9 +424,22 @@ async function main() {
     await c.query('DROP TABLE tenant_services CASCADE');
   });
 
+  // PostgreSQL forbids DEFAULT on generated columns. Use NOT NULL + SMALLINT[] with a
+  // constant generation expression so type/nullability match expected catalog shape and
+  // migration 040 fails specifically on the attgenerated guard (not nullable=t first).
   await redCase('generated_weekdays_column', async (c) => {
-    await c.query(`ALTER TABLE tenant_services ADD COLUMN weekdays SMALLINT[] GENERATED ALWAYS AS ('{}'::smallint[]) STORED`);
+    await c.query(
+      `ALTER TABLE tenant_services ADD COLUMN weekdays SMALLINT[] NOT NULL GENERATED ALWAYS AS ('{}'::smallint[]) STORED`,
+    );
   });
+  {
+    const genRed = redResults.find((r) => r.name === 'generated_weekdays_column');
+    if (!genRed || !/is a generated column/i.test(String(genRed.message || ''))) {
+      throw new Error(
+        `generated_weekdays_column must fail on attgenerated guard, got: ${genRed && genRed.message}`,
+      );
+    }
+  }
 
   const greenResults = [
     {
