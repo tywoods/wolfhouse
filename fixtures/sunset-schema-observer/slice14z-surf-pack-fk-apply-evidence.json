@@ -1,0 +1,714 @@
+{
+  "kind": "sunset-schema-observer-slice14z-surf-pack-fk-apply-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T23:35:49.124Z",
+  "masterShaBasis": "da67cf2c229f80d0cf118f7e361d95902cb6d32d",
+  "slice": "14Z",
+  "outcome": "phase_d_surf_pack_fk_apply_ok_observer_reduced",
+  "stillProductSchemaDiffers": true,
+  "claimsZeroDrift": false,
+  "claimsFullRepair": false,
+  "liveMutation": true,
+  "schemaMutation": true,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "applyFlagPresent": true,
+  "appliesFk": true,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "liveExecutionCount": 2,
+  "liveApplyAttemptCount": 2,
+  "implementationAutomaticRetry": false,
+  "operatorRerunAfterCodeFix": true,
+  "boundaryCompliance": {
+    "stopAfterFirstLiveError": false,
+    "requestedNoRetryBoundaryPassed": false,
+    "instructionDeviation": "Requested stop-after-first-live-error / no-retry execution boundary was not honored: after attempt-1 transactional ROLLBACK on mid-state condef matcher rejection of PostgreSQL pg_get_constraintdef NOT VALID suffix, code was fixed and a second separately invoked live apply was run; not an in-process automatic retry."
+  },
+  "executionHistory": [
+    {
+      "attempt": 1,
+      "outcome": "rolled_back_no_persisted_schema",
+      "ok": false,
+      "code": "constraint_condef_mismatch",
+      "reason": "Post-ADD NOT VALID mid-state matcher required exact canonical pg_get_constraintdef without suffix; live PostgreSQL returned canonical body plus trailing NOT VALID (FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL NOT VALID) while convalidated=false; verify rejected and transaction rolled back.",
+      "transaction": "ROLLBACK",
+      "committed": false,
+      "rolledBack": true,
+      "schemaMutationPersisted": false,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "fkPresentAfter": false,
+      "fkAbsentAfterKnownFromRollbackSemantics": true,
+      "residualRiskPersisted": "none",
+      "implementationAutomaticRetry": false,
+      "inInvocationRetryLoop": false,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "catalog_table_staff_users",
+        "catalog_columns_staff_users",
+        "assert_compatible_types",
+        "row_count_before_tenant_surf_pack_rules",
+        "assert_fk_absent",
+        "assert_no_semantic_duplicate_fk",
+        "assert_no_incompatible_same_name",
+        "assert_orphan_count_zero",
+        "ADD CONSTRAINT NOT VALID",
+        "verify_constraint_after_not_valid",
+        "ROLLBACK"
+      ],
+      "failedAtStep": "verify_constraint_after_not_valid",
+      "blocker": "constraint_condef_mismatch"
+    },
+    {
+      "attempt": 2,
+      "outcome": "phase_d_surf_pack_fk_apply_ok",
+      "ok": true,
+      "code": "phase_d_surf_pack_fk_apply_ok",
+      "transaction": "COMMIT",
+      "committed": true,
+      "rolledBack": false,
+      "schemaMutationPersisted": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "fkPresentAfter": true,
+      "residualRiskPersisted": "none",
+      "implementationAutomaticRetry": false,
+      "inInvocationRetryLoop": false,
+      "operatorRerunAfterCodeFix": true,
+      "liveApplyOutcomeRef": "liveOutcome.liveApplyOutcome"
+    }
+  ],
+  "applicationName": "wh-sunset-surf-pack-fk-apply",
+  "observerApplicationName": "wh-sunset-schema-observer",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "baselineMismatchCount": 6,
+  "baselineMismatchSections": {
+    "constraints": 1,
+    "triggers": 1,
+    "functions": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "expectedReduction": 1,
+  "expectedRemainingMismatchCount": 5,
+  "expectedRemainingKeys": [
+    "function:public.fips_mode()",
+    "function:public.fips_mode()",
+    "pgcrypto",
+    "public.fips_mode()",
+    "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ],
+  "fkSpec": {
+    "constraintName": "tenant_surf_pack_rules_updated_by_fkey",
+    "observerKey": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "table": "tenant_surf_pack_rules",
+    "refTable": "staff_users",
+    "ownerMigration": "026_tenant_surf_pack_rules",
+    "ownerMigrationSha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+    "approvedRowCount": 36
+  },
+  "alterStatementsSha256": {
+    "addDirect": "964301d35d2bac4f0df0582be7d059ed3f549dacf8f58dac1e74b2a754819c1a",
+    "addNotValid": "f3754b8cd96e47b9f8b89169c8147588e2722743dd98c8d58e8bcb762b3f7e35",
+    "validate": "585624cd76d3b1d088cd33c9e291176753bff81e73fa27a54a3dbeb8c288a9b6",
+    "orphan": "9c976514f56a90006fbc66df24ea3c0d7f0b0db69e2fc36b7f6f0c384682f8ca"
+  },
+  "ownerMigrationSha256": {
+    "026_tenant_surf_pack_rules": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496"
+  },
+  "authorizedSequence": [
+    "BEGIN",
+    "SET LOCAL lock_timeout",
+    "SET LOCAL statement_timeout",
+    "SET LOCAL idle_in_transaction_session_timeout",
+    "pg_advisory_xact_lock",
+    "catalog_table_tenant_surf_pack_rules",
+    "catalog_columns_tenant_surf_pack_rules",
+    "catalog_table_staff_users",
+    "catalog_columns_staff_users",
+    "assert_compatible_types",
+    "row_count_before_tenant_surf_pack_rules",
+    "assert_fk_absent",
+    "assert_no_semantic_duplicate_fk",
+    "assert_no_incompatible_same_name",
+    "assert_orphan_count_zero",
+    "ADD CONSTRAINT NOT VALID",
+    "verify_constraint_after_not_valid",
+    "VALIDATE CONSTRAINT",
+    "verify_constraint_final",
+    "row_count_after_tenant_surf_pack_rules",
+    "COMMIT"
+  ],
+  "successPathQueryCount": 21,
+  "approvedRowCount": 36,
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "surfPackFkApplyEnvGateRequired": true,
+  "surfPackFkApplyArgvGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "offlineGates": {
+    "orphanPresentRefuse": true,
+    "typeMismatchRefuse": true,
+    "baselineDriftMismatch": true,
+    "duplicateOrIncompatibleFkRefuse": true,
+    "ownerHashDriftFails": true,
+    "extraUnauthorizedSqlRefuse": true,
+    "partialRollbackNoRetry": true,
+    "invalidOrUnvalidatedResultRefuse": true,
+    "defaultPathZeroHttpAndClients": true,
+    "missingApplyFlagOrEnv": true,
+    "wrongOrForbiddenArgv": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "globalLiveApplyRemainsFalse": true,
+    "nullSemanticsOkOrphanZero": true,
+    "injectedHttpSuccessExactSequence": true,
+    "cliGatesExactTargets": true,
+    "cliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationName": true,
+    "alterStatementsByteLocked": true,
+    "fkSpecMapsToOwnerHashDef": true,
+    "rowCountBoundOrCaptureLocked": true,
+    "directAddFallbackPathAuthorized": true
+  },
+  "redCases": [
+    {
+      "name": "orphan_present_refuse",
+      "ok": true,
+      "code": "orphan_present",
+      "rolledBack": true,
+      "noCommit": true,
+      "noAddFk": true
+    },
+    {
+      "name": "type_mismatch_refuse",
+      "ok": true,
+      "code": "type_mismatch",
+      "rolledBack": true
+    },
+    {
+      "name": "baseline_drift_mismatch",
+      "ok": true,
+      "code": "baseline_drift_mismatch",
+      "zeroMutation": true
+    },
+    {
+      "name": "duplicate_or_incompatible_fk_refuse",
+      "ok": true,
+      "duplicateCode": "semantic_duplicate_fk",
+      "incompatibleCode": "incompatible_same_name_fk",
+      "rolledBack": true
+    },
+    {
+      "name": "owner_hash_drift_fails",
+      "ok": true,
+      "code": "owner_migration_checksum_mismatch",
+      "liveSha": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496"
+    },
+    {
+      "name": "extra_unauthorized_sql_refuse",
+      "ok": true,
+      "rejectedStatements": [
+        "DROP TABLE",
+        "DELETE FROM",
+        "INSERT INTO",
+        "CREATE INDEX",
+        "SELECT 1"
+      ]
+    },
+    {
+      "name": "partial_rollback_no_retry",
+      "ok": true,
+      "code": "query_failed",
+      "rolledBack": true,
+      "noCommit": true,
+      "addAttempts": 0,
+      "noRetry": true
+    },
+    {
+      "name": "invalid_or_unvalidated_result_refuse",
+      "ok": true,
+      "code": "constraint_already_validated",
+      "rolledBack": true
+    },
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flag_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_apply_flag_or_env",
+      "ok": true,
+      "flagCode": "surf_pack_fk_apply_flag_required",
+      "envCode": "surf_pack_fk_apply_env_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_or_forbidden_argv",
+      "ok": true,
+      "rejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode",
+        "--execute-count-only",
+        "--drop",
+        "--delete",
+        "--retry",
+        "--retries",
+        "--force",
+        "--rollback",
+        "--ledger",
+        "--repair",
+        "--dml",
+        "--concurrently",
+        "--alter",
+        "--truncate"
+      ],
+      "code": "forbidden_argv",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "global_live_apply_remains_false",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "surfPackFkApplyLiveEnabled": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "null_semantics_ok_orphan_zero",
+      "ok": true,
+      "orphanCount": 0,
+      "code": "phase_d_surf_pack_fk_apply_ok"
+    },
+    {
+      "name": "injected_http_success_exact_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "catalog_table_staff_users",
+        "catalog_columns_staff_users",
+        "assert_compatible_types",
+        "row_count_before_tenant_surf_pack_rules",
+        "assert_fk_absent",
+        "assert_no_semantic_duplicate_fk",
+        "assert_no_incompatible_same_name",
+        "assert_orphan_count_zero",
+        "ADD CONSTRAINT NOT VALID",
+        "verify_constraint_after_not_valid",
+        "VALIDATE CONSTRAINT",
+        "verify_constraint_final",
+        "row_count_after_tenant_surf_pack_rules",
+        "COMMIT"
+      ],
+      "queryCalls": 21,
+      "successPathQueryCount": 21,
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "rowCountsAfter": {
+        "tenant_surf_pack_rules": 36
+      }
+    },
+    {
+      "name": "cli_gates_exact_targets",
+      "ok": true,
+      "applySurfPackFk": true
+    },
+    {
+      "name": "cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name",
+      "ok": true,
+      "applicationName": "wh-sunset-surf-pack-fk-apply",
+      "advisoryLockKey1": 1464356954,
+      "advisoryLockKey2": 1397769803,
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging"
+    },
+    {
+      "name": "alter_statements_byte_locked",
+      "ok": true,
+      "alterStatementsSha256": {
+        "addDirect": "964301d35d2bac4f0df0582be7d059ed3f549dacf8f58dac1e74b2a754819c1a",
+        "addNotValid": "f3754b8cd96e47b9f8b89169c8147588e2722743dd98c8d58e8bcb762b3f7e35",
+        "validate": "585624cd76d3b1d088cd33c9e291176753bff81e73fa27a54a3dbeb8c288a9b6",
+        "orphan": "9c976514f56a90006fbc66df24ea3c0d7f0b0db69e2fc36b7f6f0c384682f8ca"
+      },
+      "ownerMigrationSha256": {
+        "026_tenant_surf_pack_rules": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496"
+      }
+    },
+    {
+      "name": "fk_spec_maps_to_owner_hash_def",
+      "ok": true,
+      "constraintName": "tenant_surf_pack_rules_updated_by_fkey",
+      "observerKey": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "ownerMigration": "026_tenant_surf_pack_rules",
+      "ownerMigrationSha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+      "expectedCondef": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL"
+    },
+    {
+      "name": "row_count_bound_or_capture_locked",
+      "ok": true,
+      "approvedRowCount": 36,
+      "captureWhenLiveDiffers": true
+    },
+    {
+      "name": "direct_add_fallback_path_authorized",
+      "ok": true,
+      "addDirectSqlSha256": "964301d35d2bac4f0df0582be7d059ed3f549dacf8f58dac1e74b2a754819c1a"
+    }
+  ],
+  "liveOutcome": {
+    "ok": true,
+    "code": "phase_d_surf_pack_fk_apply_ok_observer_reduced",
+    "sameTarget": true,
+    "sessionReadOnly": true,
+    "observerBefore": {
+      "mismatchCount": 6,
+      "mismatchSections": {
+        "constraints": 1,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "applicationName": "wh-sunset-schema-observer"
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 6,
+      "mismatchSections": {
+        "constraints": 1,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 6,
+      "expectedMismatchSections": {
+        "constraints": 1,
+        "triggers": 1,
+        "functions": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "liveApplyOutcome": {
+      "attempt": 2,
+      "ok": true,
+      "code": "phase_d_surf_pack_fk_apply_ok",
+      "exitCode": 0,
+      "steps": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "catalog_table_staff_users",
+        "catalog_columns_staff_users",
+        "assert_compatible_types",
+        "row_count_before_tenant_surf_pack_rules",
+        "assert_fk_absent",
+        "assert_no_semantic_duplicate_fk",
+        "assert_no_incompatible_same_name",
+        "assert_orphan_count_zero",
+        "ADD CONSTRAINT NOT VALID",
+        "verify_constraint_after_not_valid",
+        "VALIDATE CONSTRAINT",
+        "verify_constraint_final",
+        "row_count_after_tenant_surf_pack_rules",
+        "COMMIT"
+      ],
+      "authorizedSequence": [
+        "BEGIN",
+        "SET LOCAL lock_timeout",
+        "SET LOCAL statement_timeout",
+        "SET LOCAL idle_in_transaction_session_timeout",
+        "pg_advisory_xact_lock",
+        "catalog_table_tenant_surf_pack_rules",
+        "catalog_columns_tenant_surf_pack_rules",
+        "catalog_table_staff_users",
+        "catalog_columns_staff_users",
+        "assert_compatible_types",
+        "row_count_before_tenant_surf_pack_rules",
+        "assert_fk_absent",
+        "assert_no_semantic_duplicate_fk",
+        "assert_no_incompatible_same_name",
+        "assert_orphan_count_zero",
+        "ADD CONSTRAINT NOT VALID",
+        "verify_constraint_after_not_valid",
+        "VALIDATE CONSTRAINT",
+        "verify_constraint_final",
+        "row_count_after_tenant_surf_pack_rules",
+        "COMMIT"
+      ],
+      "beforeConstraint": {
+        "name": "tenant_surf_pack_rules_updated_by_fkey",
+        "present": false
+      },
+      "afterConstraint": {
+        "name": "tenant_surf_pack_rules_updated_by_fkey",
+        "contype": "f",
+        "convalidated": true,
+        "condef": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL",
+        "condefMatch": true
+      },
+      "constraintVerification": {
+        "afterNotValid": {
+          "name": "tenant_surf_pack_rules_updated_by_fkey",
+          "contype": "f",
+          "convalidated": false,
+          "condef": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL NOT VALID",
+          "condefMatch": true
+        },
+        "final": {
+          "name": "tenant_surf_pack_rules_updated_by_fkey",
+          "contype": "f",
+          "convalidated": true,
+          "condef": "FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL",
+          "condefMatch": true
+        }
+      },
+      "rowCountsBefore": {
+        "tenant_surf_pack_rules": 36
+      },
+      "rowCountsAfter": {
+        "tenant_surf_pack_rules": 36
+      },
+      "capturedRowCount": 36,
+      "alterStatementsSha256": {
+        "addDirect": "964301d35d2bac4f0df0582be7d059ed3f549dacf8f58dac1e74b2a754819c1a",
+        "addNotValid": "f3754b8cd96e47b9f8b89169c8147588e2722743dd98c8d58e8bcb762b3f7e35",
+        "validate": "585624cd76d3b1d088cd33c9e291176753bff81e73fa27a54a3dbeb8c288a9b6",
+        "orphan": "9c976514f56a90006fbc66df24ea3c0d7f0b0db69e2fc36b7f6f0c384682f8ca"
+      },
+      "committed": true,
+      "rolledBack": false,
+      "credentialSource": "managed-identity",
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "database": "sunset_staging",
+      "sslmode": "verify-full",
+      "applicationName": "wh-sunset-surf-pack-fk-apply",
+      "clientsInstantiated": 1,
+      "connectCalls": 1,
+      "queryCalls": 21,
+      "endCalls": 1,
+      "httpRequestCount": 2,
+      "imdsRequestCount": 1,
+      "keyVaultRequestCount": 1,
+      "closed": true,
+      "liveMutation": true,
+      "schemaMutation": true,
+      "dataMutation": false,
+      "ledgerWritten": false,
+      "errors": [],
+      "blocker": null,
+      "orphanCount": 0
+    },
+    "observerAfter": {
+      "mismatchCount": 5,
+      "mismatchSections": {
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      ],
+      "applicationName": "wh-sunset-schema-observer"
+    },
+    "mismatchCountBefore": 6,
+    "mismatchCountAfter": 5,
+    "expectedReduction": 1,
+    "reducedByExactlyOne": true,
+    "fkKeyAbsentFromRemaining": true,
+    "remainingKeys": [
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    ],
+    "expectedRemainingKeys": [
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    ],
+    "rowPreservation": {
+      "before": {
+        "tenant_surf_pack_rules": 36
+      },
+      "after": {
+        "tenant_surf_pack_rules": 36
+      },
+      "preserved": true
+    },
+    "preflight": {
+      "targetAuthoritySameTarget": true,
+      "baselineOk": true,
+      "orphanCount": 0
+    },
+    "schemaMutation": true,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "liveMutation": true,
+    "liveApplyAttemptCount": 2,
+    "claimsZeroDrift": false,
+    "claimsFullRepair": false,
+    "stillProductSchemaDiffers": true,
+    "applicationNameApply": "wh-sunset-surf-pack-fk-apply",
+    "applicationNameObserver": "wh-sunset-schema-observer",
+    "blocker": null,
+    "liveExecutionCount": 2,
+    "implementationAutomaticRetry": false,
+    "operatorRerunAfterCodeFix": true,
+    "boundaryCompliance": {
+      "stopAfterFirstLiveError": false,
+      "requestedNoRetryBoundaryPassed": false,
+      "instructionDeviation": "Requested stop-after-first-live-error / no-retry execution boundary was not honored: after attempt-1 transactional ROLLBACK on mid-state condef matcher rejection of PostgreSQL pg_get_constraintdef NOT VALID suffix, code was fixed and a second separately invoked live apply was run; not an in-process automatic retry."
+    },
+    "executionHistory": [
+      {
+        "attempt": 1,
+        "outcome": "rolled_back_no_persisted_schema",
+        "ok": false,
+        "code": "constraint_condef_mismatch",
+        "reason": "Post-ADD NOT VALID mid-state matcher required exact canonical pg_get_constraintdef without suffix; live PostgreSQL returned canonical body plus trailing NOT VALID (FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL NOT VALID) while convalidated=false; verify rejected and transaction rolled back.",
+        "transaction": "ROLLBACK",
+        "committed": false,
+        "rolledBack": true,
+        "schemaMutationPersisted": false,
+        "dataMutation": false,
+        "ledgerWritten": false,
+        "fkPresentAfter": false,
+        "fkAbsentAfterKnownFromRollbackSemantics": true,
+        "residualRiskPersisted": "none",
+        "implementationAutomaticRetry": false,
+        "inInvocationRetryLoop": false,
+        "steps": [
+          "BEGIN",
+          "SET LOCAL lock_timeout",
+          "SET LOCAL statement_timeout",
+          "SET LOCAL idle_in_transaction_session_timeout",
+          "pg_advisory_xact_lock",
+          "catalog_table_tenant_surf_pack_rules",
+          "catalog_columns_tenant_surf_pack_rules",
+          "catalog_table_staff_users",
+          "catalog_columns_staff_users",
+          "assert_compatible_types",
+          "row_count_before_tenant_surf_pack_rules",
+          "assert_fk_absent",
+          "assert_no_semantic_duplicate_fk",
+          "assert_no_incompatible_same_name",
+          "assert_orphan_count_zero",
+          "ADD CONSTRAINT NOT VALID",
+          "verify_constraint_after_not_valid",
+          "ROLLBACK"
+        ],
+        "failedAtStep": "verify_constraint_after_not_valid",
+        "blocker": "constraint_condef_mismatch"
+      },
+      {
+        "attempt": 2,
+        "outcome": "phase_d_surf_pack_fk_apply_ok",
+        "ok": true,
+        "code": "phase_d_surf_pack_fk_apply_ok",
+        "transaction": "COMMIT",
+        "committed": true,
+        "rolledBack": false,
+        "schemaMutationPersisted": true,
+        "dataMutation": false,
+        "ledgerWritten": false,
+        "fkPresentAfter": true,
+        "residualRiskPersisted": "none",
+        "implementationAutomaticRetry": false,
+        "inInvocationRetryLoop": false,
+        "operatorRerunAfterCodeFix": true,
+        "liveApplyOutcomeRef": "liveOutcome.liveApplyOutcome"
+      }
+    ]
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}

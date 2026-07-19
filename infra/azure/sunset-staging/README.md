@@ -752,6 +752,21 @@ SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_TA
 
 Artifacts: `slice14y-five-index-apply-contract.json`, `slice14y-five-index-apply-evidence.json`, `slice14y-findings.md`.
 
+### Slice 14Z — apply tenant_surf_pack_rules_updated_by_fkey (implemented)
+
+Applies exactly the one missing canonical residual FK from the post-14Y inventory (byte-locked `FOREIGN KEY (updated_by) REFERENCES staff_users(id) ON DELETE SET NULL`; owner `026_tenant_surf_pack_rules` hash-locked). Default-disabled managed-identity apply. Preflight requires same target/TLS/PG15 and normalized baseline mismatchCount === **6** (sections constraints=1,triggers=1,functions=1,ownership=1,acls=1,extensions=1). One TLS `verify-full` session `application_name=wh-sunset-surf-pack-fk-apply`: BEGIN → lock/statement/idle timeouts → advisory lock WHPZ/SPFK (0x5748505A / 0x5350464B) → recheck tables/columns/type-compat (uuid) / FK absence / no semantic duplicate / no incompatible same-name / orphan_count=0 (NULL updated_by not orphan) → ADD CONSTRAINT NOT VALID → verify condef + convalidated=false → VALIDATE CONSTRAINT → verify convalidated=true → row counts unchanged → COMMIT (ROLLBACK on any error; no retry). Post-apply observer must reduce by exactly **one**; do **not** claim zero drift. No index/trigger/function/extension/ownership/ACL/ledger/KV/RBAC/network/deploy; no DROP/DML; no migration change. Verifier does **not** re-run live. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14z-surf-pack-fk-apply
+npm run verify:sunset-schema-slice14z
+npm run phase-d:surf-pack-fk-apply
+node scripts/prove-sunset-schema-slice14z-surf-pack-fk-apply.js --offline
+# live (default-disabled; gated):
+SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_TARGET_AUTHORITY=1 SUNSET_PHASE_D_SURF_PACK_FK_APPLY=1 SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 node scripts/prove-sunset-schema-slice14z-surf-pack-fk-apply.js --live --prove-active-db-target-authority --apply-surf-pack-fk --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 --resource-group luna-sunset-staging-rg --container-app luna-sunset-staging-staff-api --postgres-server luna-sunset-staging-pg-app --database sunset_staging --credential-source managed-identity
+```
+
+Artifacts: `slice14z-surf-pack-fk-apply-contract.json`, `slice14z-surf-pack-fk-apply-evidence.json`, `slice14z-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -836,3 +851,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14W — final NOT NULL rename-provenance normalization (002/003/004 tuples; baseline 23; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14X — NOT NULL identifier truncation normalization (one NAMEDATALEN tuple; baseline 12; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14Y — apply five residual indexes (baseline 11→6; schema mutation only; zero data/ledger) — 2026-07-19*
+*FOUNDATION Slice 14Z — apply tenant_surf_pack_rules_updated_by_fkey (baseline 6→5; schema mutation only; zero data/ledger) — 2026-07-19*
