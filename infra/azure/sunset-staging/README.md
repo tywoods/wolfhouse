@@ -737,6 +737,21 @@ node scripts/prove-sunset-schema-slice14x-identifier-truncation-normalization.js
 
 Artifacts: `slice14x-identifier-truncation-normalization-contract.json`, `slice14x-identifier-truncation-normalization-evidence.json`, `slice14x-findings.md`.
 
+### Slice 14Y — apply five residual indexes (implemented)
+
+Applies exactly the five missing canonical residual indexes from the post-14X inventory (byte/semantic-locked CREATE INDEX from expected-product-schema; owners 026/032/035 hash-locked). Default-disabled managed-identity apply. Preflight requires same target/TLS/PG15 and normalized baseline mismatchCount === **11** (sections indexes=5,constraints=1,triggers=1,functions=1,ownership=1,acls=1,extensions=1). One TLS `verify-full` session `application_name=wh-sunset-five-index-apply`: BEGIN → lock/statement/idle timeouts → advisory lock → recheck tables/columns/absence/no semantic duplicate/no incompatible name/approved row bounds → five regular CREATE INDEX (no CONCURRENTLY) in migration-dependency order → verify `pg_get_indexdef` + valid/ready → row counts unchanged → COMMIT (ROLLBACK on any error; no retry). Post-apply observer must reduce by exactly **five**; do **not** claim zero drift. No FK/trigger/function/extension/ownership/ACL/ledger/KV/RBAC/network/deploy; no DROP/ALTER; no migration change. Verifier does **not** re-run live. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14y-five-index-apply
+npm run verify:sunset-schema-slice14y
+npm run phase-d:five-index-apply
+node scripts/prove-sunset-schema-slice14y-five-index-apply.js --offline
+# live (default-disabled; gated):
+SUNSET_PHASE_D_LIVE_READONLY=1 SUNSET_PHASE_D_LIVE_PREFLIGHT=1 SUNSET_PHASE_D_TARGET_AUTHORITY=1 SUNSET_PHASE_D_FIVE_INDEX_APPLY=1 SUNSET_PHASE_D_CREDENTIAL_SOURCE=managed-identity AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 node scripts/prove-sunset-schema-slice14y-five-index-apply.js --live --prove-active-db-target-authority --apply-five-indexes --subscription 6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 --resource-group luna-sunset-staging-rg --container-app luna-sunset-staging-staff-api --postgres-server luna-sunset-staging-pg-app --database sunset_staging --credential-source managed-identity
+```
+
+Artifacts: `slice14y-five-index-apply-contract.json`, `slice14y-five-index-apply-evidence.json`, `slice14y-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -820,3 +835,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14V — hostel_id→client_id rename-alias normalization (migration 003; 12 aliases; PG15; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14W — final NOT NULL rename-provenance normalization (002/003/004 tuples; baseline 23; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14X — NOT NULL identifier truncation normalization (one NAMEDATALEN tuple; baseline 12; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14Y — apply five residual indexes (baseline 11→6; schema mutation only; zero data/ledger) — 2026-07-19*
