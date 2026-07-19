@@ -65,12 +65,11 @@ function gitBlobSha(rel) {
   return sha256(gitBlobBytes(rel));
 }
 
-function isResolved13a1(decisions, provenance, byteReport, expected) {
+function isResolved13a1(decisions, provenance, byteReport, expected, report, mismatch) {
   const dec007 = (decisions.items || []).find((d) => d.id === 'DEC-007');
-  // Slice 13C.2 regenerates expected fingerprint; 13A historical lock remains CANON_FP via
-  // previousProductFingerprint / classification report, not the live expected tip.
-  const expectedHolds13aFingerprint = expected.productFingerprint === CANON_FP
-    || expected.previousProductFingerprint === CANON_FP;
+  // 13A fingerprint preserved in investigation artifacts; live expected tip may advance (13C.2+).
+  const expectedHolds13aFingerprint = report.canonicalExpectedFingerprint === CANON_FP
+    && mismatch.canonicalExpectedFingerprint === CANON_FP;
   return Boolean(
     dec007
     && dec007.status === 'resolved_by_slice_13a1'
@@ -103,15 +102,19 @@ function main() {
   const findings = fs.readFileSync(FINDINGS_PATH, 'utf8');
   const buildSrc = fs.readFileSync(BUILD_PATH, 'utf8');
   const verifySrc = fs.readFileSync(VERIFY_PATH, 'utf8');
-  const resolved13a1 = isResolved13a1(decisions, provenance, byteReport, expected);
+  const resolved13a1 = isResolved13a1(decisions, provenance, byteReport, expected, report, mismatch);
+  const expectedHolds13aFingerprint = report.canonicalExpectedFingerprint === CANON_FP
+    && mismatch.canonicalExpectedFingerprint === CANON_FP;
 
   pass('no-live-derived-expected-fixture',
-    (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
+    expectedHolds13aFingerprint
     && (!expected.source || expected.source !== 'live-sunset-staging-observer-catalog')
     && !/\b(from live|live-derived|live-sunset-staging-observer-catalog)\b/i.test(
       String(expected.source || ''),
     )
-    && /not derived from live/i.test(String(expected.slice13c2Note || 'not derived from live'))
+    && /not derived from live/i.test(String(
+      expected.slice13c3aNote || expected.slice13c2Note || 'not derived from live',
+    ))
     && report.canonicalExpectedFingerprint === CANON_FP
     && report.actualLiveFingerprint === LIVE_FP
     && mismatch.canonicalExpectedFingerprint === CANON_FP);

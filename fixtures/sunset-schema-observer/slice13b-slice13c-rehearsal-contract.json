@@ -65,9 +65,19 @@
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
     "B": "complete_location_model_promotion",
-    "C": "pending",
+    "C": "partial_tenant_services_columns_complete",
     "D": "pending",
     "E": "pending",
     "F": "pending"
+  },
+  "slice13c3aPhaseC": {
+    "status": "complete_tenant_services_column_promotion",
+    "completedAt": "2026-07-19T15:49:30.833Z",
+    "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+    "migrationId": "040_tenant_services_saas_catalog_columns",
+    "migrationFilename": "040_tenant_services_saas_catalog_columns.sql",
+    "evidence": "fixtures/sunset-schema-observer/slice13c3a-tenant-services-promotion-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3a-mismatch-29-to-25-evidence.json",
+    "note": "Phase C tenant_services live-only columns promoted into one forward migration (29→25). Phase D CHECKs/CMT/notification/surf-pack remain. No live apply."
   }
 }

@@ -1,0 +1,154 @@
+{
+  "kind": "sunset-schema-observer-slice13c3a-tenant-services-promotion-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "disposableBackend": "pglite",
+  "generatedAt": "2026-07-19T15:49:30.832Z",
+  "masterShaBasis": "5158320585f0a894329d8ff017fa658d86d041bf",
+  "migration": {
+    "id": "040_tenant_services_saas_catalog_columns",
+    "filename": "040_tenant_services_saas_catalog_columns.sql",
+    "sha256CanonicalLfV1": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "order": 38
+  },
+  "fieldMatrix": [
+    {
+      "column": "weekdays",
+      "liveDefinition": "SMALLINT[] NOT NULL DEFAULT '{}'",
+      "codeOwner": "scripts/lib/tenant-services-writes.js ensureServicesTable + validateServiceBody",
+      "meaning": "Optional weekday filter (0=Sun..6=Sat) for recurring catalog availability",
+      "decision": "promote",
+      "evidence": "DEC-004 Phase C; Slice 13A live_only; Staff ensure-DDL"
+    },
+    {
+      "column": "block_rooms_enabled",
+      "liveDefinition": "BOOLEAN NOT NULL DEFAULT false",
+      "codeOwner": "scripts/lib/tenant-services-writes.js + tenant-service-room-blocks.js ensureServiceBlockColumns",
+      "meaning": "Enables whole-room operator inventory blocks for camp/service dates",
+      "decision": "promote",
+      "evidence": "DEC-004 Phase C; syncServiceRoomBlocks gate"
+    },
+    {
+      "column": "blocked_room_codes",
+      "liveDefinition": "TEXT[] NOT NULL DEFAULT '{}'",
+      "codeOwner": "scripts/lib/tenant-service-room-blocks.js normalizeRoomCodes + writes layer",
+      "meaning": "Room codes to block when block_rooms_enabled",
+      "decision": "promote",
+      "evidence": "DEC-004 Phase C; required when block_rooms_enabled"
+    },
+    {
+      "column": "room_block_booking_ids",
+      "liveDefinition": "UUID[] NOT NULL DEFAULT '{}'",
+      "codeOwner": "scripts/lib/tenant-service-room-blocks.js syncServiceRoomBlocks",
+      "meaning": "Backing operator whole_room booking UUIDs for active blocks",
+      "decision": "promote",
+      "evidence": "DEC-004 Phase C; mutated by syncServiceRoomBlocks only"
+    }
+  ],
+  "objectsPromoted": [
+    "tenant_services.weekdays",
+    "tenant_services.block_rooms_enabled",
+    "tenant_services.blocked_room_codes",
+    "tenant_services.room_block_booking_ids"
+  ],
+  "objectsExcluded": [
+    "tenant_services_date_window CHECK",
+    "tenant_services_price_unit CHECK",
+    "customer_message_templates",
+    "client_notification_events indexes",
+    "tenant_surf_pack_rules FK/trigger/index",
+    "schema_migration_ledger bootstrap"
+  ],
+  "forwardCount": {
+    "before": 37,
+    "after": 38
+  },
+  "manifestHash": {
+    "before": "7ac14e1637b7e58f28bda8f494f8556dd0f03c27c00a04340ebf941f19e7beb0",
+    "after": "427206aeeed1890c3a1fa2f666d11b66411333811b071fb1af5986126d8d12eb"
+  },
+  "productFingerprint": {
+    "before": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+    "after": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+  },
+  "pathA": {
+    "ok": true,
+    "appliedCount": 38,
+    "secondApplyNoOp": true,
+    "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "observerSelfMatch": true,
+    "promotedColumnsPresent": true,
+    "phaseDChecksUnchanged": true
+  },
+  "pathB": {
+    "ok": true,
+    "pre040Applied": 37,
+    "ensureLiveDdlApplied": true,
+    "after040Fingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+    "second040Idempotent": true,
+    "convergedWithPathA": true,
+    "exactColumnsPreservedByAttnum": true
+  },
+  "catalogValidation": {
+    "approach": "pg_attribute + pg_type udt_name, attnotnull, pg_get_expr default, attgenerated/attidentity; incompatible RAISE else ADD IF NOT EXISTS",
+    "locks": "brief ACCESS EXCLUSIVE on ALTER TABLE tenant_services ADD COLUMN",
+    "compatibility": "absent add; exact compatible preserve/no-op; incompatible type/default/nullability/generated/identity fail closed rollback"
+  },
+  "redFailures": [
+    {
+      "name": "incompatible_weekdays_type",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.weekdays type udt=_int4 expected=_int2"
+    },
+    {
+      "name": "incompatible_block_rooms_enabled_type",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.block_rooms_enabled type udt=text expected=bool"
+    },
+    {
+      "name": "incompatible_blocked_room_codes_nullable",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.blocked_room_codes nullability got nullable=t expected=f"
+    },
+    {
+      "name": "incompatible_room_block_booking_ids_default",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.room_block_booking_ids default got='{00000000-0000-0000-0000-000000000001}'::uuid[] expected='{}'::uuid[]"
+    },
+    {
+      "name": "missing_parent_tenant_services_table",
+      "failedClosed": true,
+      "message": "040_tenant_services_saas_catalog_columns: tenant_services missing (apply 028 first)"
+    },
+    {
+      "name": "generated_weekdays_column",
+      "failedClosed": true,
+      "message": "040: incompatible tenant_services.weekdays nullability got nullable=t expected=f"
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "exact_existing_columns_unchanged",
+      "ok": true,
+      "detail": "Path B attnum-stable across 040 for all four promoted columns"
+    },
+    {
+      "name": "second_migration_application_noop",
+      "ok": true,
+      "detail": "Path A ledger second apply empty; Path B second 040 fingerprint unchanged"
+    },
+    {
+      "name": "path_a_path_b_converge",
+      "ok": true,
+      "detail": "fp=120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+    }
+  ],
+  "mismatchTrajectory": "29 → 25",
+  "remainingClassifications": {
+    "genuine_database_drift": 25
+  }
+}

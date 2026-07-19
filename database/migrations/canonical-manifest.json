@@ -413,6 +413,15 @@
       "rationale": "Slice 13C.2: promote approved location-aware Sunset admin rule model (structural effects of proposed 023+025). Historical PROPOSED files remain non-executable."
     },
     {
+      "id": "040_tenant_services_saas_catalog_columns",
+      "filename": "040_tenant_services_saas_catalog_columns.sql",
+      "sha256": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+      "order": 38,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Slice 13C.3a: promote approved tenant_services live-only SaaS catalog columns (weekdays, room-block model). Phase D CHECKs deferred."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

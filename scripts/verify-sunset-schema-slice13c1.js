@@ -73,7 +73,9 @@ function main() {
     evidence.masterShaBasis === MASTER
     && evidence.fingerprints.canonicalExpected === CANON_FP
     && evidence.fingerprints.liveRawCommitted === LIVE_FP
-    && (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
+    && (expected.productFingerprint === CANON_FP
+      || expected.previousProductFingerprint === CANON_FP
+      || classReport.canonicalExpectedFingerprint === CANON_FP)
     && classReport.actualLiveFingerprint === LIVE_FP);
 
   pass('design-safety-flags',
@@ -322,7 +324,8 @@ function main() {
     contract.phaseStatus
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && (contract.phaseStatus.B === 'pending' || contract.phaseStatus.B === 'complete_location_model_promotion')
-    && contract.phaseStatus.C === 'pending'
+    && (contract.phaseStatus.C === 'pending'
+      || contract.phaseStatus.C === 'partial_tenant_services_columns_complete')
     && contract.phaseStatus.D === 'pending'
     && contract.phaseStatus.E === 'pending'
     && contract.slice13c1PhaseA
@@ -348,7 +351,9 @@ function main() {
     /NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1/.test(observeSrc)
     && /allowLocal/.test(observeSrc));
   pass('canonical-fixture-fingerprint-13a-era-recorded',
-    (expected.productFingerprint === CANON_FP || expected.previousProductFingerprint === CANON_FP)
+    (expected.productFingerprint === CANON_FP
+      || expected.previousProductFingerprint === CANON_FP
+      || classReport.canonicalExpectedFingerprint === CANON_FP)
     && evidence.fingerprints.canonicalExpected === CANON_FP
     && !/writeFileSync\([^)]*expected-product-schema/i.test(verifySrc));
 
