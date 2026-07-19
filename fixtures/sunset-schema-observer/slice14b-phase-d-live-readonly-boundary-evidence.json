@@ -1,0 +1,216 @@
+{
+  "kind": "sunset-schema-observer-slice14b-phase-d-live-readonly-boundary-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T18:51:24.972Z",
+  "masterShaBasis": "8905be445fcce5d23e813f66d339c48580c5ecd9",
+  "slice": "14B",
+  "outcome": "phase_d_live_readonly_boundary_proven_offline_hard_disabled",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": false,
+  "liveQueryExecution": false,
+  "azureConnectivity": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "offlineGates": {
+    "defaultPathZeroConnectionCalls": true,
+    "dualFlagsRequired": true,
+    "exactTargetAcceptedOnlyWithDualFlags": true,
+    "wrongSubscriptionRejectedBeforeConnect": true,
+    "wrongResourceGroupRejectedBeforeConnect": true,
+    "wrongHostRejectedBeforeConnect": true,
+    "wrongDatabaseRejectedBeforeConnect": true,
+    "wrongTlsRejectedBeforeConnect": true,
+    "credentialFromArgvRejected": true,
+    "credentialFileNotApprovedRejected": true,
+    "firewallNetworkMutationRejected": true,
+    "unauthorizedSqlRejected": true,
+    "authorized14aCatalogAndAggregateOnly": true,
+    "countOnlySecretFree": true,
+    "liveAdapterFactoryHardDisabled": true,
+    "approvedFileCredentialAcceptedWithoutConnect": true
+  },
+  "redCases": [
+    {
+      "name": "missing_dual_flags",
+      "ok": true,
+      "rejected": true,
+      "code": "live_readonly_flags_required",
+      "errorCodes": [
+        "live_readonly_flag_required",
+        "live_preflight_flag_required"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "single_flag_readonly_only",
+      "ok": true,
+      "rejected": true,
+      "code": "live_readonly_flags_required",
+      "errorCodes": [
+        "live_preflight_flag_required"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wrong_subscription",
+      "ok": true,
+      "rejected": true,
+      "code": "live_readonly_flags_required",
+      "errorCodes": [
+        "subscription_env_mismatch"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wrong_resource_group",
+      "ok": true,
+      "rejected": true,
+      "code": "wrong_target",
+      "errorCodes": [
+        "wrong_resource_group",
+        "forbidden_resource_group"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wrong_host",
+      "ok": true,
+      "rejected": true,
+      "code": "wrong_target",
+      "errorCodes": [
+        "wrong_postgres_host"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wrong_database",
+      "ok": true,
+      "rejected": true,
+      "code": "wrong_target",
+      "errorCodes": [
+        "wrong_database",
+        "forbidden_database"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wrong_tls",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_target_rejected",
+      "errorCodes": [
+        "tls_not_verify_full"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "credential_from_argv",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "credential_from_argv_forbidden"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "credential_file_not_approved",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "credential_file_path_not_approved"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "firewall_mutation_planned",
+      "ok": true,
+      "rejected": true,
+      "code": "network_mutation_forbidden",
+      "errorCodes": [
+        "network_mutation_forbidden"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "exact_target_dual_flags",
+      "ok": true,
+      "accepted": true,
+      "connectCalls": 0,
+      "queryCalls": 0,
+      "liveReadonlyConnectEnabled": false,
+      "code": "target_accepted_connect_hard_disabled"
+    },
+    {
+      "name": "approved_file_credential",
+      "ok": true,
+      "accepted": true,
+      "connectCalls": 0,
+      "queryCalls": 0,
+      "credentialSource": "approved_file"
+    }
+  ],
+  "queryAuthorization": {
+    "outputKeys": [
+      "total_rows",
+      "date_window_violations",
+      "price_unit_violations"
+    ],
+    "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+    "authorizedSessionSql": [
+      "BEGIN READ ONLY",
+      "SHOW transaction_read_only",
+      "COMMIT",
+      "ROLLBACK"
+    ],
+    "returnsRowValues": false,
+    "acceptsArbitrarySql": false,
+    "sampleCountOnlyShape": {
+      "total_rows": 10,
+      "date_window_violations": 2,
+      "price_unit_violations": 1
+    }
+  },
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight"
+  },
+  "note": "Slice 14B proves the hard-disabled live read-only boundary only. No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+}

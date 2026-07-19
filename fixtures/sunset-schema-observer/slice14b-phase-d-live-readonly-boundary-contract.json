@@ -1,0 +1,99 @@
+{
+  "kind": "sunset-schema-observer-slice14b-phase-d-live-readonly-boundary-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "liveReadonlyConnectEnabled": false,
+  "liveQueryExecution": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "mutates": false,
+  "firewallMutation": false,
+  "networkMutation": false,
+  "defaultEnabled": false,
+  "dualEnableFlagsRequired": true,
+  "disposablePostgreSQLOnly": false,
+  "injectedAdaptersOnly": true,
+  "generatedAt": "2026-07-19T18:51:24.972Z",
+  "masterShaBasis": "8905be445fcce5d23e813f66d339c48580c5ecd9",
+  "slice": "14B",
+  "purpose": "Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Offline injected-adapter proof only in this slice.",
+  "targets": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight"
+  },
+  "credentialSources": {
+    "approvedEnv": "SUNSET_SCHEMA_OBSERVER_DATABASE_URL",
+    "approvedFileEnv": "SUNSET_PHASE_D_LIVE_DSN_FILE",
+    "approvedFilePrefixes": [
+      "/run/secrets/",
+      "/var/run/secrets/"
+    ],
+    "forbidden": [
+      "argv",
+      "output",
+      "evidence",
+      "committed_files"
+    ]
+  },
+  "dualEnableFlags": {
+    "SUNSET_PHASE_D_LIVE_READONLY": "1",
+    "SUNSET_PHASE_D_LIVE_PREFLIGHT": "1",
+    "AZURE_SUBSCRIPTION_ID": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9"
+  },
+  "session": {
+    "beginReadOnly": true,
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "sslmode": "verify-full",
+    "authorizedSessionSql": [
+      "BEGIN READ ONLY",
+      "SHOW transaction_read_only",
+      "COMMIT",
+      "ROLLBACK"
+    ]
+  },
+  "queryAuthorization": {
+    "authorizedCatalogSql": [
+      "SELECT 1\nFROM pg_class rel\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\nAND rel.relname = $2\nAND rel.relkind = 'r'",
+      "SELECT\n  a.attname AS name,\n  t.typname AS udt_name,\n  NOT a.attnotnull AS is_nullable\nFROM pg_attribute a\nJOIN pg_type t ON t.oid = a.atttypid\nJOIN pg_class rel ON rel.oid = a.attrelid\nJOIN pg_namespace n ON n.oid = rel.relnamespace\nWHERE n.nspname = $1\n  AND rel.relname = $2\n  AND a.attnum > 0\n  AND NOT a.attisdropped\n  AND a.attname = ANY($3::text[])\nORDER BY a.attname"
+    ],
+    "authorizedAggregateSql": "SELECT\n  count(*)::bigint AS total_rows,\n  count(*) FILTER (WHERE NOT (end_date IS NULL OR start_date IS NULL OR end_date >= start_date))::bigint AS date_window_violations,\n  count(*) FILTER (WHERE NOT (price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off')))::bigint AS price_unit_violations\nFROM public.tenant_services",
+    "outputKeys": [
+      "total_rows",
+      "date_window_violations",
+      "price_unit_violations"
+    ],
+    "returnsRowValues": false,
+    "returnsIdentifiers": false,
+    "returnsGuestData": false,
+    "acceptsArbitrarySql": false,
+    "predicatesUnchangedFrom14A": {
+      "date_window": "(end_date IS NULL OR start_date IS NULL OR end_date >= start_date)",
+      "price_unit": "(price_unit IN ('per_day', 'per_week', 'per_stay', 'one_off'))"
+    }
+  },
+  "forbidden": [
+    "live connect/query execution (Slice 14B)",
+    "firewall/network mutation",
+    "apply/DDL/ledger",
+    "migration",
+    "Azure mutation",
+    "credential in argv/output/evidence/committed files",
+    "row payloads",
+    "arbitrary SQL",
+    "14A predicate alteration"
+  ],
+  "nonGoals": [
+    "No Phase D constraint apply",
+    "No Sunset repair claim",
+    "No live evidence capture",
+    "No live observer job",
+    "No expected-fixture regeneration"
+  ]
+}

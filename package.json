@@ -301,6 +301,8 @@
     "verify:sunset-schema-slice13c3d": "node scripts/verify-sunset-schema-slice13c3d.js",
     "prove:sunset-schema-slice14a-phase-d-preflight": "node scripts/prove-sunset-schema-slice14a-phase-d-preflight.js",
     "verify:sunset-schema-slice14a": "node scripts/verify-sunset-schema-slice14a.js",
+    "prove:sunset-schema-slice14b-phase-d-live-readonly-boundary": "node scripts/prove-sunset-schema-slice14b-phase-d-live-readonly-boundary.js",
+    "verify:sunset-schema-slice14b": "node scripts/verify-sunset-schema-slice14b.js",
     "prove:sunset-schema-slice13c2-location-promotion": "node scripts/prove-sunset-schema-slice13c2-location-promotion.js",
     "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",
     "build:sunset-schema-slice13a-manifest-hash-report": "node scripts/build-sunset-schema-slice13a-manifest-hash-report.js",
