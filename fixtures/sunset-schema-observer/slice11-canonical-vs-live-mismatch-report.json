@@ -1,0 +1,1031 @@
+{
+  "kind": "sunset-schema-observer-canonical-vs-live-mismatch-report",
+  "label": "observation only — live drift is a failure, not a fixture refresh",
+  "secretFree": true,
+  "containsProductRowValues": false,
+  "generatedAt": "2026-07-19T11:30:55.177Z",
+  "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+  "fingerprintsEqual": false,
+  "match": false,
+  "observerExitIfRun": 4,
+  "counts": {
+    "expected_only": 31,
+    "live_only": 15,
+    "definition_mismatch": 42
+  },
+  "mismatchCount": 88,
+  "groupCounts": {
+    "missingExpectedObjects": 2,
+    "unexpectedLiveObjects": 0,
+    "columnsDefaultsNullability": 17,
+    "enums": 0,
+    "indexesConstraints": 24,
+    "functionsDefinitionsSecurityVolatility": 0,
+    "rlsAndPolicies": 1,
+    "ownership": 40,
+    "acls": 2,
+    "extensions": 2,
+    "other": 0
+  },
+  "groups": {
+    "missingExpectedObjects": [
+      {
+        "kind": "expected_only",
+        "section": "tables",
+        "key": "customer_message_templates"
+      },
+      {
+        "kind": "expected_only",
+        "section": "triggers",
+        "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      }
+    ],
+    "unexpectedLiveObjects": [],
+    "columnsDefaultsNullability": [
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.active"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.body"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.channel"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.client_id"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.created_at"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.id"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.tags"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.title"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.updated_at"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_lesson_capacity_rules.location_id"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_lesson_time_rules.capacity"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_lesson_time_rules.location_id"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_price_rules.location_id"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_services.block_rooms_enabled"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_services.blocked_room_codes"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_services.room_block_booking_ids"
+      },
+      {
+        "kind": "live_only",
+        "section": "columns",
+        "key": "tenant_services.weekdays"
+      }
+    ],
+    "enums": [],
+    "indexesConstraints": [
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "customer_message_templates.customer_message_templates_pkey.PRIMARY KEY"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "tenant_services.tenant_services_date_window.CHECK"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "tenant_services.tenant_services_price_unit.CHECK"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      },
+      {
+        "kind": "live_only",
+        "section": "constraints",
+        "key": "tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "client_notification_events.idx_client_notification_events_client_created"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "client_notification_events.idx_client_notification_events_conversation"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "client_notification_settings.idx_client_notification_settings_client"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "customer_message_templates.customer_message_templates_pkey"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "customer_message_templates.idx_customer_message_templates_client_active"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_price_rules.uq_tenant_price_rules_active_window"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc"
+      },
+      {
+        "kind": "live_only",
+        "section": "indexes",
+        "key": "tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+      }
+    ],
+    "functionsDefinitionsSecurityVolatility": [],
+    "rlsAndPolicies": [
+      {
+        "kind": "expected_only",
+        "section": "rlsFlags",
+        "key": "customer_message_templates"
+      }
+    ],
+    "ownership": [
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "extension:pgcrypto"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "extension:plpgsql"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.armor(bytea, text[], text[])"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.armor(bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.crypt(text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.dearmor(text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.decrypt_iv(bytea, bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.decrypt(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.digest(bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.digest(text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.encrypt_iv(bytea, bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.encrypt(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.gen_random_bytes(integer)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.gen_random_uuid()"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.gen_salt(text, integer)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.gen_salt(text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.hmac(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.hmac(text, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_armor_headers(text, OUT key text, OUT value text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_key_id(bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt(bytea, bytea, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_decrypt(bytea, bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_encrypt(text, bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_pub_encrypt(text, bytea)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_decrypt_bytea(bytea, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_decrypt_bytea(bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_decrypt(bytea, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_decrypt(bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_encrypt_bytea(bytea, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_encrypt_bytea(bytea, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_encrypt(text, text, text)"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "function:public.pgp_sym_encrypt(text, text)"
+      },
+      {
+        "kind": "expected_only",
+        "section": "ownership",
+        "key": "relation:customer_message_templates"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "ownership",
+        "key": "schema:public"
+      }
+    ],
+    "acls": [
+      {
+        "kind": "expected_only",
+        "section": "acls",
+        "key": "relation:customer_message_templates"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "acls",
+        "key": "schema:public"
+      }
+    ],
+    "extensions": [
+      {
+        "kind": "definition_mismatch",
+        "section": "extensions",
+        "key": "pgcrypto"
+      },
+      {
+        "kind": "definition_mismatch",
+        "section": "extensions",
+        "key": "plpgsql"
+      }
+    ],
+    "other": []
+  },
+  "mismatches": [
+    {
+      "kind": "expected_only",
+      "section": "tables",
+      "key": "customer_message_templates"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.active"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.body"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.channel"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.client_id"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.created_at"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.id"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.tags"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.title"
+    },
+    {
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.updated_at"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_capacity_rules.location_id"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.capacity"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.location_id"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_price_rules.location_id"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.block_rooms_enabled"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.blocked_room_codes"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.room_block_booking_ids"
+    },
+    {
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.weekdays"
+    },
+    {
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY"
+    },
+    {
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_pkey.PRIMARY KEY"
+    },
+    {
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_date_window.CHECK"
+    },
+    {
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_price_unit.CHECK"
+    },
+    {
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+    },
+    {
+      "kind": "live_only",
+      "section": "constraints",
+      "key": "tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_client_created"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_conversation"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_settings.idx_client_notification_settings_client"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.customer_message_templates_pkey"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.idx_customer_message_templates_client_active"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window"
+    },
+    {
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc"
+    },
+    {
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window_loc"
+    },
+    {
+      "kind": "expected_only",
+      "section": "triggers",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+    },
+    {
+      "kind": "expected_only",
+      "section": "rlsFlags",
+      "key": "customer_message_templates"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:pgcrypto"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:plpgsql"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea, text[], text[])"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.crypt(text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.dearmor(text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt_iv(bytea, bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt_iv(bytea, bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_bytes(integer)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_uuid()"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text, integer)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(text, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_armor_headers(text, OUT key text, OUT value text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_key_id(bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text, text)"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text)"
+    },
+    {
+      "kind": "expected_only",
+      "section": "ownership",
+      "key": "relation:customer_message_templates"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "schema:public"
+    },
+    {
+      "kind": "expected_only",
+      "section": "acls",
+      "key": "relation:customer_message_templates"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "acls",
+      "key": "schema:public"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "pgcrypto"
+    },
+    {
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "plpgsql"
+    }
+  ],
+  "migrationLedgerVersusCanonicalForwardChain": {
+    "schema_migration_ledger_present_live": false,
+    "canonicalForwardCount": 36,
+    "recordedAppliedSet": "unknown — schema_migration_ledger absent on sunset_staging",
+    "note": "Cannot reconcile live applied migrations to the canonical forward chain without a ledger."
+  },
+  "customer_message_templates": {
+    "canonicalMigration": "database/migrations/035_customer_message_templates.sql",
+    "presentInCanonicalExpected": true,
+    "presentLive": false,
+    "missingMismatchKeys": [
+      {
+        "kind": "expected_only",
+        "section": "tables",
+        "key": "customer_message_templates"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.active"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.body"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.channel"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.client_id"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.created_at"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.id"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.tags"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.title"
+      },
+      {
+        "kind": "expected_only",
+        "section": "columns",
+        "key": "customer_message_templates.updated_at"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY"
+      },
+      {
+        "kind": "expected_only",
+        "section": "constraints",
+        "key": "customer_message_templates.customer_message_templates_pkey.PRIMARY KEY"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "customer_message_templates.customer_message_templates_pkey"
+      },
+      {
+        "kind": "expected_only",
+        "section": "indexes",
+        "key": "customer_message_templates.idx_customer_message_templates_client_active"
+      },
+      {
+        "kind": "expected_only",
+        "section": "rlsFlags",
+        "key": "customer_message_templates"
+      },
+      {
+        "kind": "expected_only",
+        "section": "ownership",
+        "key": "relation:customer_message_templates"
+      },
+      {
+        "kind": "expected_only",
+        "section": "acls",
+        "key": "relation:customer_message_templates"
+      }
+    ]
+  }
+}

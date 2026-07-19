@@ -5,9 +5,10 @@
  * (allowed firewall egress). Password never appears in az/container argv —
  * CREATE uses a temporary Key Vault secret read via managed identity.
  *
- * Worker source is staged to a temporary Key Vault secret (0600 --file), then a
- * short bootstrap command fetches it via MI. This avoids containerapp exec
- * command-length limits on Windows.
+ * Fixed role-provision worker source is staged to a temporary Key Vault secret
+ * (0600 --file), then a short bootstrap command fetches it via MI. This avoids
+ * containerapp exec command-length limits on Windows. Callers may only invoke
+ * the typed WH_OBS_OP operations — there is no API that accepts arbitrary JS.
  */
 
 const { spawnSync } = require('child_process');
@@ -484,94 +485,12 @@ function runContainerWorker(op, envExtra) {
   return parsed;
 }
 
-/**
- * Stage arbitrary worker JS to a temp KV secret, exec via MI bootstrap, parse WH_OBS markers, delete.
- * Same secret-safe path as runContainerWorker; for Slice 11 read-only/drift proofs.
- */
-function runStagedWorkerSource(source) {
-  const launcher = String(source || '');
-  if (!launcher.includes('WH_OBS_BEGIN') || !launcher.includes('WH_OBS_END')) {
-    throw Object.assign(new Error('worker source must emit WH_OBS markers'), { code: 'worker_markers_required' });
-  }
-  const secretName = `${TEMP_WORKER_SECRET}-${Date.now()}`;
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'wh-obs-worker-'));
-  const filePath = path.join(dir, 'worker.js');
-  try {
-    fs.writeFileSync(filePath, launcher, { encoding: 'utf8', mode: 0o600 });
-    try { fs.chmodSync(filePath, 0o600); } catch (_) { /* windows */ }
-    azJson([
-      'keyvault', 'secret', 'set',
-      '--vault-name', TARGETS.keyVault,
-      '--name', secretName,
-      '--file', filePath,
-      '--subscription', TARGETS.subscriptionId,
-      '-o', 'json',
-    ]);
-  } finally {
-    try { fs.unlinkSync(filePath); } catch (_) { /* ignore */ }
-    try { fs.rmdirSync(dir); } catch (_) { /* ignore */ }
-  }
-
-  let mixed;
-  let cleanupError = null;
-  try {
-    mixed = runBootstrapCommand(secretName);
-  } finally {
-    try {
-      deleteWorkerSecret(secretName);
-    } catch (err) {
-      cleanupError = err;
-    }
-  }
-
-  const begin = mixed.indexOf('WH_OBS_BEGIN');
-  const end = mixed.indexOf('WH_OBS_END');
-  if (begin < 0 || end <= begin) {
-    throw Object.assign(
-      new Error(redactSecrets(
-        cleanupError
-          ? `${String(cleanupError.message || cleanupError)}; container worker produced no result marker`
-          : (mixed.slice(0, 400) || 'container worker produced no result marker'),
-        [],
-      )),
-      { code: cleanupError ? cleanupError.code || 'temp_worker_secret_still_active' : 'container_exec_failed' },
-    );
-  }
-  const parsed = JSON.parse(mixed.slice(begin + 'WH_OBS_BEGIN'.length, end));
-  const tempWorkerSecretCleanup = cleanupError
-    ? {
-      ok: false,
-      stillActive: true,
-      code: cleanupError.code || 'temp_worker_secret_still_active',
-      secretName,
-    }
-    : {
-      ok: true,
-      stillActive: false,
-      secretName,
-    };
-  if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-    parsed.tempWorkerSecretCleanup = tempWorkerSecretCleanup;
-  }
-  if (cleanupError) {
-    throw Object.assign(
-      new Error(redactSecrets(String(cleanupError.message || cleanupError), [])),
-      {
-        code: cleanupError.code || 'temp_worker_secret_still_active',
-        result: parsed,
-      },
-    );
-  }
-  return parsed;
-}
-
 module.exports = {
   TEMP_BOOTSTRAP_SECRET,
   TEMP_WORKER_SECRET,
   STAFF_API_APP,
   SUNSET_STAGING_MI_CLIENT_ID,
   runContainerWorker,
-  runStagedWorkerSource,
   azureCliInvoker,
   azJson,
   deleteWorkerSecret,

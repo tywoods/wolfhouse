@@ -539,14 +539,26 @@ async function main() {
   // Slice 11 correction: canonical fixture integrity (no live blessing)
   {
     const CONTRACT = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'expected-product-schema.json');
-    const CAPTURE = path.join(ROOT, 'scripts', 'capture-sunset-expected-schema-from-live.js');
+    const CAPTURE = path.join(ROOT, 'scripts', 'capture-sunset-live-schema-observation.js');
     const COMPARE = path.join(ROOT, 'scripts', 'compare-sunset-canonical-vs-live-evidence.js');
     const README = path.join(ROOT, 'infra', 'azure', 'sunset-staging', 'README.md');
     const GEN = path.join(ROOT, 'scripts', 'generate-sunset-expected-schema-contract.js');
+    const EVIDENCE11 = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice11-job-execution-evidence.json');
+    const MISMATCH = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice11-canonical-vs-live-mismatch-report.json');
+    const FOLLOWUP = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice12-observer-image-repair-contract.json');
+    const CONTAINER_PG = path.join(ROOT, 'scripts', 'lib', 'sunset-schema-observer-role-container-pg.js');
     const contract = JSON.parse(fs.readFileSync(CONTRACT, 'utf8'));
     const captureSrc = fs.readFileSync(CAPTURE, 'utf8');
+    const compareSrc = fs.readFileSync(COMPARE, 'utf8');
     const readme = fs.readFileSync(README, 'utf8');
     const genSrc = fs.readFileSync(GEN, 'utf8');
+    const containerPgSrc = fs.readFileSync(CONTAINER_PG, 'utf8');
+    const evidence11 = JSON.parse(fs.readFileSync(EVIDENCE11, 'utf8'));
+    const mismatch = JSON.parse(fs.readFileSync(MISMATCH, 'utf8'));
+    const followup = JSON.parse(fs.readFileSync(FOLLOWUP, 'utf8'));
+
+    const CANONICAL_FP = 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52';
+    const LIVE_FP = 'fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd';
 
     pass(
       'slice11-canonical-fixture-not-live-derived',
@@ -574,14 +586,16 @@ async function main() {
       'slice11-live-capture-cannot-write-canonical-fixture',
       /refused_canonical_fixture_overwrite/.test(captureSrc)
         && /mustNotOverwriteExpectedFixture/.test(captureSrc)
-        && /tmp.*foundation-slice11/.test(captureSrc),
+        && /tmp.*foundation-slice11/.test(captureSrc)
+        && /observation_output_path_locked/.test(captureSrc),
     );
     pass(
       'slice11-docs-forbid-blessing-live-drift',
       /failure requiring investigation/i.test(readme)
         && /observations only/i.test(readme)
         && /Canonical expected state/i.test(readme)
-        && !/Expected contract may be refreshed from the live/i.test(readme),
+        && !/Expected contract may be refreshed from the live/i.test(readme)
+        && !/capture-sunset-expected-schema-from-live/.test(readme),
     );
     pass(
       'slice11-generator-is-migration-derived',
@@ -589,15 +603,20 @@ async function main() {
         && /expected-product-schema\.json/.test(genSrc),
     );
     pass(
+      'slice11-canonical-fixture-equals-migration-contract-fingerprint',
+      contract.productFingerprint === CANONICAL_FP
+        && fingerprintProductSchema(contract.snapshot) === CANONICAL_FP,
+    );
+    pass(
       'slice11-compare-evidence-script-exists',
-      fs.existsSync(COMPARE),
+      fs.existsSync(COMPARE)
+        && /actual-live-state-evidence\.json/.test(compareSrc)
+        && !/runStagedWorkerSource/.test(compareSrc),
     );
     pass(
       'slice11-live-derived-cannot-false-green',
-      contract.productFingerprint
-        === 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52'
-        && contract.productFingerprint
-          !== 'fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd',
+      contract.productFingerprint === CANONICAL_FP
+        && contract.productFingerprint !== LIVE_FP,
     );
     pass(
       'slice11-cmt-cannot-vanish-while-migration-canonical',
@@ -605,6 +624,77 @@ async function main() {
         && /035_customer_message_templates/.test(
           fs.readFileSync(path.join(ROOT, 'database', 'migrations', 'canonical-manifest.json'), 'utf8'),
         ),
+    );
+    pass(
+      'slice11-no-generic-arbitrary-source-worker-helper',
+      !/\brunStagedWorkerSource\b/.test(containerPgSrc)
+        && !/module\.exports[\s\S]*runStagedWorkerSource/.test(containerPgSrc)
+        && !/Stage arbitrary worker JS/.test(containerPgSrc),
+    );
+    pass(
+      'slice11-no-slice11-script-uploads-executable-kv-source',
+      !fs.existsSync(path.join(ROOT, 'scripts', 'run-sunset-schema-observer-slice11.js'))
+        && !fs.existsSync(path.join(ROOT, 'scripts', 'finish-sunset-schema-observer-slice11.js'))
+        && !fs.existsSync(path.join(ROOT, 'scripts', 'lib', 'sunset-schema-observer-slice11-proof.js'))
+        && !fs.existsSync(path.join(ROOT, 'scripts', 'capture-sunset-expected-schema-from-live.js'))
+        && !/keyvault['"]\s*,\s*['"]secret['"]\s*,\s*['"]set['"]/.test(captureSrc)
+        && !/runStagedWorkerSource/.test(captureSrc)
+        && !/runContainerWorker/.test(captureSrc)
+        && /does NOT upload source to Key Vault/.test(captureSrc)
+        && /usedKeyVaultWorkerUpload:\s*false/.test(captureSrc),
+    );
+    pass(
+      'slice11-no-obsolete-hardcoded-slice11final-image-in-scripts',
+      (() => {
+        const scriptsDir = path.join(ROOT, 'scripts');
+        const needle = ['a5a57b3920b0a71f71e35786b8784de1ae25b69b', 'slice11final'].join('-');
+        const bad = [];
+        const walk = (dir) => {
+          for (const ent of fs.readdirSync(dir, { withFileTypes: true })) {
+            const p = path.join(dir, ent.name);
+            if (ent.isDirectory()) walk(p);
+            else if (/\.(js|mjs|cjs)$/.test(ent.name)) {
+              const rel = path.relative(ROOT, p).replace(/\\/g, '/');
+              if (rel === 'scripts/verify-sunset-schema-observer.js') continue;
+              const src = fs.readFileSync(p, 'utf8');
+              if (src.includes(needle)) bad.push(rel);
+            }
+          }
+        };
+        walk(scriptsDir);
+        return bad.length === 0;
+      })(),
+    );
+    pass(
+      'slice11-current-job-marked-unsafe-for-canonical-monitoring',
+      evidence11.finalJobState
+        && evidence11.finalJobState.currentImageContainsLiveDerivedExpectedFixture === true
+        && evidence11.finalJobState.safeForCanonicalMonitoring === false
+        && evidence11.finalJobState.defaultExecutionWouldFalseGreen === true
+        && evidence11.passed === false
+        && /unresolved/i.test(String(evidence11.outcome || '')),
+    );
+    pass(
+      'slice11-mismatch-evidence-totals-reconcile-88',
+      mismatch.mismatchCount === 88
+        && Array.isArray(mismatch.mismatches)
+        && mismatch.mismatches.length === 88
+        && mismatch.counts
+        && (mismatch.counts.expected_only + mismatch.counts.live_only + mismatch.counts.definition_mismatch) === 88
+        && mismatch.canonicalExpectedFingerprint === CANONICAL_FP
+        && mismatch.actualLiveFingerprint === LIVE_FP
+        && mismatch.observerExitIfRun === 4
+        && mismatch.match === false
+        && mismatch.containsProductRowValues === false
+        && Object.values(mismatch.groupCounts || {}).reduce((a, b) => a + Number(b || 0), 0) === 88,
+    );
+    pass(
+      'slice11-followup-image-repair-contract-present',
+      followup.kind === 'sunset-schema-observer-slice12-image-repair-contract'
+        && followup.canonicalExpectedFingerprintRequired === CANONICAL_FP
+        && followup.expectedObserverExitWhileDriftRemains === 4
+        && followup.databaseRepairOutOfScope === true
+        && followup.currentJobUnsafeUntilImageRepair === true,
     );
   }
 

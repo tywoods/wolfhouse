@@ -1,10 +1,13 @@
 'use strict';
 
 /**
- * Evidence-only: assemble a previously captured live catalog snapshot from
- * chunked Log Analytics text. Writes ONLY under gitignored tmp/.
+ * Evidence-only canonical-vs-live comparison from already captured observation.
+ *
+ * Prefers tmp/foundation-slice11/actual-live-state-evidence.json (gitignored).
+ * Optionally assembles that file from chunk-capture.txt first.
  * NEVER overwrites fixtures/sunset-schema-observer/expected-product-schema.json.
- * Label: actual live state — not canonical.
+ * Writes operator-local mismatch copy under tmp/ only; committed audit report is
+ * fixtures/sunset-schema-observer/slice11-canonical-vs-live-mismatch-report.json.
  */
 
 const fs = require('fs');
@@ -13,9 +16,16 @@ const {
   fingerprintProductSchema,
   compareSnapshots,
 } = require('./lib/sunset-schema-observer');
+const { parseChunks } = require('./capture-sunset-live-schema-observation');
 
 const ROOT = path.join(__dirname, '..');
 const CANONICAL = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'expected-product-schema.json');
+const COMMITTED_REPORT = path.join(
+  ROOT,
+  'fixtures',
+  'sunset-schema-observer',
+  'slice11-canonical-vs-live-mismatch-report.json',
+);
 const OUT_DIR = path.join(ROOT, 'tmp', 'foundation-slice11');
 const LIVE_OUT = path.join(OUT_DIR, 'actual-live-state-evidence.json');
 const MISMATCH_OUT = path.join(OUT_DIR, 'canonical-vs-live-mismatch-report.json');
@@ -24,32 +34,6 @@ const CHUNK_SRC = path.join(OUT_DIR, 'chunk-capture.txt');
 function fail(msg) {
   console.error(JSON.stringify({ ok: false, error: msg }));
   process.exit(2);
-}
-
-function parseChunks(text) {
-  const lines = String(text || '').split(/\r?\n/);
-  let expected = null;
-  const parts = [];
-  let done = false;
-  for (const line of lines) {
-    const mChunks = line.match(/^WH_LIVE_CONTRACT_CHUNKS\s+(\d+)\s*$/);
-    if (mChunks) {
-      expected = Number(mChunks[1]);
-      continue;
-    }
-    const mPart = line.match(/^WH_LIVE_CONTRACT_PART\s+(\d+)\/(\d+)\s+([A-Za-z0-9+/=]+)\s*$/);
-    if (mPart) {
-      parts.push({ i: Number(mPart[1]), n: Number(mPart[2]), b64: mPart[3] });
-      continue;
-    }
-    if (line.trim() === 'WH_LIVE_CONTRACT_DONE') done = true;
-  }
-  if (!done || !expected || parts.length !== expected) {
-    return { ok: false, expected, got: parts.length, done };
-  }
-  parts.sort((a, b) => a.i - b.i);
-  const json = Buffer.from(parts.map((p) => p.b64).join(''), 'base64').toString('utf8');
-  return { ok: true, payload: JSON.parse(json) };
 }
 
 function groupDrifts(drifts) {
@@ -95,24 +79,28 @@ function groupDrifts(drifts) {
   return groups;
 }
 
-function main() {
-  if (!fs.existsSync(CANONICAL)) fail('canonical_fixture_missing');
-  if (!fs.existsSync(CHUNK_SRC)) fail('chunk_capture_missing');
-
-  const canonical = JSON.parse(fs.readFileSync(CANONICAL, 'utf8'));
-  if (canonical.source === 'live-sunset-staging-observer-catalog') {
-    fail('canonical_fixture_still_live_derived');
+function loadLiveSnapshot() {
+  if (fs.existsSync(LIVE_OUT)) {
+    const liveEvidence = JSON.parse(fs.readFileSync(LIVE_OUT, 'utf8'));
+    if (!liveEvidence.notCanonical || liveEvidence.label !== 'actual live state — not canonical') {
+      fail('live_evidence_missing_observation_label');
+    }
+    const liveFp = fingerprintProductSchema(liveEvidence.snapshot);
+    if (liveFp !== liveEvidence.productFingerprint) fail('live_fingerprint_mismatch');
+    return {
+      snapshot: liveEvidence.snapshot,
+      productFingerprint: liveFp,
+      forwardCount: liveEvidence.forwardCount,
+      manifestHash: liveEvidence.manifestHash,
+      source: 'actual-live-state-evidence.json',
+    };
   }
-  const canonicalFp = fingerprintProductSchema(canonical.snapshot);
-  if (canonicalFp !== canonical.productFingerprint) fail('canonical_fingerprint_mismatch');
-
+  if (!fs.existsSync(CHUNK_SRC)) fail('live_evidence_or_chunk_capture_missing');
   const parsed = parseChunks(fs.readFileSync(CHUNK_SRC, 'utf8'));
   if (!parsed.ok || !parsed.payload || !parsed.payload.contract) fail('live_chunks_incomplete');
-
   const liveContract = parsed.payload.contract;
   const liveFp = fingerprintProductSchema(liveContract.snapshot);
   if (liveFp !== liveContract.productFingerprint) fail('live_fingerprint_mismatch');
-
   fs.mkdirSync(OUT_DIR, { recursive: true });
   const liveEvidence = {
     kind: 'sunset-schema-observer-actual-live-state-evidence',
@@ -126,37 +114,74 @@ function main() {
     manifestHash: liveContract.manifestHash,
     snapshot: liveContract.snapshot,
   };
+  if (LIVE_OUT.replace(/\\/g, '/').includes('/fixtures/')) fail('refused_fixtures_path');
   fs.writeFileSync(LIVE_OUT, `${JSON.stringify(liveEvidence, null, 2)}\n`, { mode: 0o600 });
   try { fs.chmodSync(LIVE_OUT, 0o600); } catch (_) { /* windows */ }
+  return {
+    snapshot: liveContract.snapshot,
+    productFingerprint: liveFp,
+    forwardCount: liveContract.forwardCount,
+    manifestHash: liveContract.manifestHash,
+    source: 'chunk-capture.txt',
+  };
+}
 
-  // Refuse to write under fixtures/
-  if (LIVE_OUT.replace(/\\/g, '/').includes('/fixtures/')) fail('refused_fixtures_path');
+function main() {
+  if (!fs.existsSync(CANONICAL)) fail('canonical_fixture_missing');
 
-  const cmp = compareSnapshots(canonical.snapshot, liveContract.snapshot);
+  const canonical = JSON.parse(fs.readFileSync(CANONICAL, 'utf8'));
+  if (canonical.source === 'live-sunset-staging-observer-catalog'
+    || canonical.source === 'live-observation-only') {
+    fail('canonical_fixture_still_live_derived');
+  }
+  const canonicalFp = fingerprintProductSchema(canonical.snapshot);
+  if (canonicalFp !== canonical.productFingerprint) fail('canonical_fingerprint_mismatch');
+
+  const live = loadLiveSnapshot();
+  const cmp = compareSnapshots(canonical.snapshot, live.snapshot);
   const groups = groupDrifts(cmp.drifts);
+  const mismatches = (cmp.drifts || []).map((d) => ({ kind: d.kind, section: d.section, key: d.key }));
   const mismatchCount = cmp.counts.expected_only + cmp.counts.live_only + cmp.counts.definition_mismatch;
+  const groupCounts = Object.fromEntries(
+    Object.entries(groups).map(([k, v]) => [k, v.length]),
+  );
   const cmt = {
     missingFromLiveTables: (canonical.snapshot.tables || []).includes('customer_message_templates')
-      && !(liveContract.snapshot.tables || []).includes('customer_message_templates'),
-    expectedColumns: (cmp.drifts || []).filter((d) => String(d.key || '').startsWith('customer_message_templates')),
+      && !(live.snapshot.tables || []).includes('customer_message_templates'),
+    missingMismatchKeys: mismatches.filter((d) => String(d.key || '').includes('customer_message_templates')),
   };
 
   const report = {
     kind: 'sunset-schema-observer-canonical-vs-live-mismatch-report',
     label: 'observation only — live drift is a failure, not a fixture refresh',
+    secretFree: true,
+    containsProductRowValues: false,
     generatedAt: new Date().toISOString(),
     canonicalExpectedFingerprint: canonical.productFingerprint,
-    actualLiveFingerprint: liveFp,
-    fingerprintsEqual: canonical.productFingerprint === liveFp,
-    match: cmp.ok && canonical.productFingerprint === liveFp,
-    observerExitIfRun: (cmp.ok && canonical.productFingerprint === liveFp) ? 0 : 4,
+    actualLiveFingerprint: live.productFingerprint,
+    fingerprintsEqual: canonical.productFingerprint === live.productFingerprint,
+    match: cmp.ok && canonical.productFingerprint === live.productFingerprint,
+    observerExitIfRun: (cmp.ok && canonical.productFingerprint === live.productFingerprint) ? 0 : 4,
     counts: cmp.counts,
     mismatchCount,
+    groupCounts,
     groups,
-    customer_message_templates: cmt,
-    sample: (cmp.drifts || []).slice(0, 80),
-    allDrifts: cmp.drifts,
+    mismatches,
+    migrationLedgerVersusCanonicalForwardChain: {
+      schema_migration_ledger_present_live: false,
+      canonicalForwardCount: 36,
+      recordedAppliedSet: 'unknown — schema_migration_ledger absent on sunset_staging',
+      note: 'Cannot reconcile live applied migrations to the canonical forward chain without a ledger.',
+    },
+    customer_message_templates: {
+      canonicalMigration: 'database/migrations/035_customer_message_templates.sql',
+      presentInCanonicalExpected: true,
+      presentLive: !cmt.missingFromLiveTables,
+      missingMismatchKeys: cmt.missingMismatchKeys,
+    },
   };
+
+  fs.mkdirSync(OUT_DIR, { recursive: true });
   fs.writeFileSync(MISMATCH_OUT, `${JSON.stringify(report, null, 2)}\n`);
 
   console.log(JSON.stringify({
@@ -168,7 +193,9 @@ function main() {
     observerExitIfRun: report.observerExitIfRun,
     liveEvidencePath: path.relative(ROOT, LIVE_OUT).replace(/\\/g, '/'),
     mismatchReportPath: path.relative(ROOT, MISMATCH_OUT).replace(/\\/g, '/'),
+    committedAuditReportPath: path.relative(ROOT, COMMITTED_REPORT).replace(/\\/g, '/'),
     cmtMissingLive: cmt.missingFromLiveTables,
+    note: 'Does not mutate Azure/Postgres; does not overwrite canonical fixture.',
   }, null, 2));
 }
 

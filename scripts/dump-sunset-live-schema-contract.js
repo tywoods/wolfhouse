@@ -63,7 +63,7 @@ async function main() {
     emitChunks({
       ok: true,
       contract: {
-        kind: 'sunset-expected-product-schema',
+        kind: 'sunset-live-product-schema-observation',
         scope: CONTRACT_SCOPE,
         includedSections: INCLUDED_SECTIONS.slice(),
         excludedSections: EXCLUDED_SECTIONS.slice(),

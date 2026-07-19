@@ -293,14 +293,17 @@ node scripts/prepare-sunset-schema-observer-job-slice10-params.js
 
 Manual job `luna-sunset-staging-sch-obs` was executed (not scheduled). Evidence: `fixtures/sunset-schema-observer/slice11-job-execution-evidence.json`.
 
+**Outcome:** Slice 11 is **unresolved**. Canonical-vs-live drift remains (`match=false`, observer exit 4, mismatchCount 88). Prior `match=true` was invalid because a live-derived expected fixture made the observer circular.
+
 **Canonical expected state** comes only from the reviewed migration chain / canonical manifest via `scripts/generate-sunset-expected-schema-contract.js` → `fixtures/sunset-schema-observer/expected-product-schema.json`.
 
 **Live snapshots are observations only.** Any divergence between canonical expected and live Sunset is a **failure requiring investigation**, not a reason to refresh, overwrite, bless, or replace the expected fixture with live state.
 
 - Baseline observe uses `node scripts/observe-sunset-schema-drift.js` with KV secretRef DSN only and the **canonical** fixture.
-- Optional evidence-only live collector (`scripts/capture-sunset-expected-schema-from-live.js`) writes solely under gitignored `tmp/foundation-slice11/actual-live-state-evidence.json` (label: “actual live state — not canonical”) and **cannot** overwrite `expected-product-schema.json`.
-- Safe synthetic drift proofs compare against the **canonical** fixture via a temporary injob override; they must not alter canonical or live state.
-- Job image may differ from the Staff API app image when only the observer job needs scripts/fixtures; document that split explicitly.
+- Optional evidence-only live observation assembler (`scripts/capture-sunset-live-schema-observation.js`) consumes observer-job dump chunks and writes solely under gitignored `tmp/foundation-slice11/actual-live-state-evidence.json` (label: “actual live state — not canonical”). It **cannot** overwrite `expected-product-schema.json` and must not run via Staff API / arbitrary staged source.
+- Committed audit report (all mismatch keys, secret-free): `fixtures/sunset-schema-observer/slice11-canonical-vs-live-mismatch-report.json`.
+- **Current job image is unsafe for canonical monitoring** (`currentImageContainsLiveDerivedExpectedFixture=true`, `safeForCanonicalMonitoring=false`). Default execution would false-green. Bicep `NoChange` means configuration convergence only, not fixture content correctness. Follow-up image repair: `fixtures/sunset-schema-observer/slice12-observer-image-repair-contract.json` (DB drift repair out of scope for that slice).
+- Safe synthetic drift proofs (in-job) compare against the **canonical** fixture via a temporary override; they must not alter canonical or live state.
 
 ```bash
 # secret-free module params (metadata only), then operator-approved what-if:
@@ -359,4 +362,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 8 — convergent/safe provisioner hardenings — 2026-07-18*
 *FOUNDATION Slice 9 — live Sunset staging role+KV provision (approved; no job/firewall/schema/data) — 2026-07-19*
 *FOUNDATION Slice 10 — deploy manual unscheduled `luna-sunset-staging-sch-obs` job (not executed; KV secret ref only) — 2026-07-19*
-*FOUNDATION Slice 11 — execute manual schema-observer job; canonical-vs-live drift is a failure (not a fixture refresh) — 2026-07-19*
+*FOUNDATION Slice 11 — execute manual schema-observer job; canonical-vs-live drift unresolved (exit 4 / 88 mismatches); live blessing forbidden; follow-up image repair required — 2026-07-19*

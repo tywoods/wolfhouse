@@ -79,7 +79,9 @@
     "ownership": 40,
     "acls": 2,
     "extensions": 2,
-    "reportPath": "tmp/foundation-slice11/canonical-vs-live-mismatch-report.json (gitignored)"
+    "mismatchCount": 88,
+    "committedReportPath": "fixtures/sunset-schema-observer/slice11-canonical-vs-live-mismatch-report.json",
+    "operatorLocalCopyPath": "tmp/foundation-slice11/canonical-vs-live-mismatch-report.json (gitignored; optional)"
   },
   "customer_message_templates": {
     "canonicalMigration": "database/migrations/035_customer_message_templates.sql",
@@ -135,14 +137,33 @@
     "hasSchedule": false,
     "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final",
     "command": ["node", "scripts/observe-sunset-schema-drift.js"],
-    "secretNames": ["sunset-schema-observer-database-url"]
+    "secretNames": ["sunset-schema-observer-database-url"],
+    "currentImageContainsLiveDerivedExpectedFixture": true,
+    "safeForCanonicalMonitoring": false,
+    "defaultExecutionWouldFalseGreen": true,
+    "recovered": false,
+    "correct": false,
+    "operationalForCanonicalObserve": false,
+    "note": "Current job image still embeds the live-derived expected fixture. Do not call this job recovered, correct, or operational for canonical monitoring. Image repair is a separate follow-up slice (slice12-observer-image-repair-contract.json)."
+  },
+  "committedMismatchEvidence": {
+    "path": "fixtures/sunset-schema-observer/slice11-canonical-vs-live-mismatch-report.json",
+    "mismatchCount": 88,
+    "secretFree": true
+  },
+  "followUpContract": {
+    "path": "fixtures/sunset-schema-observer/slice12-observer-image-repair-contract.json",
+    "databaseRepairOutOfScope": true
   },
   "standaloneModuleWhatIf": {
     "create": 0,
     "delete": 0,
     "modify": 0,
     "jobChangeType": "NoChange",
-    "staffApiImageParam": "current job image (not Staff API app image)"
+    "meansConfigurationConvergenceOnly": true,
+    "notContentCorrectness": true,
+    "staffApiImageParam": "current job image (not Staff API app image)",
+    "note": "Bicep NoChange means module params match the deployed job configuration. It does not prove the image embeds the canonical fixture."
   },
   "cost": {
     "before": 15.6024442580645,
