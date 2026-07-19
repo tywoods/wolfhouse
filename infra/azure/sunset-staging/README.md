@@ -354,7 +354,28 @@ npm run build:sunset-schema-slice13a-classification
 npm run verify:sunset-schema-slice13a
 ```
 
-**Outcome:** ownership/ACL/extension mismatches are largely Azure environment-identity / observer-normalization differences (do not mutate ownership to match role names). Migration `035_customer_message_templates` is **absent** live and appears safely additive (not applied here). Proposed location_id / `*_loc` index shapes present live remain an operator decision. **migration_integrity_blocker:** manifest sha256 ≠ current Git blob for most forward migrations (CRLF working-tree hashing at Slice 4; executable SQL unchanged) — do not claim byte-verified provenance. `schema_migration_ledger` absent → FOUNDATION still blocked on unresolved DB drift.
+**Outcome:** ownership/ACL/extension mismatches are largely Azure environment-identity / observer-normalization differences (do not mutate ownership to match role names). Migration `035_customer_message_templates` is **absent** live and appears safely additive (not applied here). Proposed location_id / `*_loc` index shapes present live remain an operator decision. **migration_integrity_blocker:** resolved in Slice 13A.1 (`canonical_lf_v1`). `schema_migration_ledger` absent → FOUNDATION still blocked on unresolved DB drift pending Slice 13B+ repair phases.
+
+---
+
+## Schema reconciliation design (FOUNDATION Slice 13B)
+
+**Design only** — approved forward-only reconciliation direction for the 88 mismatches and absent ledger. **No repair implementation, no Slice 13C rehearsal execution, no live mutation, no observer job start, no canonical migration/manifest/fixture changes.**
+
+Artifacts:
+- `fixtures/sunset-schema-observer/slice13b-decision-record.json` (DEC-001…006)
+- `fixtures/sunset-schema-observer/slice13b-phased-reconciliation-design.json` (phases A–F)
+- `fixtures/sunset-schema-observer/slice13b-mismatch-to-phase-map.json` (88 keys → exactly one phase)
+- `fixtures/sunset-schema-observer/slice13b-ledger-bootstrap-spec.json`
+- `fixtures/sunset-schema-observer/slice13b-slice13c-rehearsal-contract.json` (disposable-only)
+- `fixtures/sunset-schema-observer/slice13b-findings.md`
+
+```bash
+npm run build:sunset-schema-slice13b-design
+npm run verify:sunset-schema-slice13b
+```
+
+**Direction (operator approval still required before repair):** observer Azure normalization (no ownership mutation); promote location-aware model into canonical forward later; additive 035 + tenant_services columns; CHECK constraints after violation-count preflight; fail-closed ledger bootstrap (`verified_structural_baseline` vs `executed_by_canonical_runner`); keep 018/019/020 blocked until metadata checks pass.
 
 ---
 
@@ -409,3 +430,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 11 — execute manual schema-observer job; canonical-vs-live drift unresolved (exit 4 / 88 mismatches); live blessing forbidden; follow-up image repair required — 2026-07-19*
 *FOUNDATION Slice 12 — repair observer job image from canonical master; live observe exit 4; DB drift unresolved; FOUNDATION blocked — 2026-07-19*
 *FOUNDATION Slice 13A — classify 88 mismatches + 36-migration provenance (investigation only; no repair/live mutation) — 2026-07-19*
+*FOUNDATION Slice 13A.1 — canonical_lf_v1 migration checksums (EOL-invariant; DEC-007 resolved) — 2026-07-19*
+*FOUNDATION Slice 13B — approved-direction reconciliation design (design only; no repair/live mutation) — 2026-07-19*

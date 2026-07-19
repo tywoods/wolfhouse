@@ -1,0 +1,47 @@
+{
+  "kind": "sunset-schema-observer-slice13b-slice13c-rehearsal-contract",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveApplyCapability": false,
+  "designOnly": true,
+  "generatedAt": "2026-07-19T14:37:14.341Z",
+  "masterShaBasis": "5dc43550d0197efacbb59dab4657960d2aaa36eb",
+  "slice": "13C",
+  "purpose": "Disposable rehearsal of approved Slice 13B repair direction before any Sunset live apply slice",
+  "requirements": {
+    "disposablePostgreSQLOnly": true,
+    "forbiddenTargets": [
+      "Azure Sunset staging",
+      "Azure production",
+      "Wolfhouse production",
+      "any host matching migration-integrity FORBIDDEN_HOST_PATTERNS",
+      "databases named sunset_staging / wolfhouse / prod"
+    ],
+    "preState": "Construct disposable DB pre-state that reproduces the approved relevant drift subsets for phases under test (Azure-like owners for A; location-aware live shape for B; absent 035 and missing indexes for C; missing CHECKs with controllable violation rows for D RED paths).",
+    "repairToolingDefaultsDisabled": true,
+    "liveApplyCapability": false,
+    "canonicalObserverEndState": {
+      "match": true,
+      "mismatchCount": 0,
+      "exitCode": 0
+    },
+    "secondRunNoOp": true,
+    "failureInjection": [
+      "Inject checksum mismatch → fail closed; prove rollback/no partial ledger claim",
+      "Inject CHECK violation count > 0 → Phase D aborts before constraint add",
+      "Inject ambiguous migration bootstrap attempt → rejected"
+    ],
+    "successCriteria": [
+      "Observer match=true / mismatchCount=0 on disposable DB after rehearsal repair path",
+      "Second observer run identical no-op",
+      "No code path can target live Sunset without explicit future operator-approved slice"
+    ]
+  },
+  "nonGoals": [
+    "No live apply",
+    "No Azure mutation",
+    "No blessing live dumps into expected-product-schema.json",
+    "No reading production/staging product-row payloads"
+  ]
+}

@@ -1,0 +1,238 @@
+{
+  "kind": "sunset-schema-observer-slice13b-phased-reconciliation-design",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "designOnly": true,
+  "generatedAt": "2026-07-19T14:37:14.341Z",
+  "masterShaBasis": "5dc43550d0197efacbb59dab4657960d2aaa36eb",
+  "startingObserver": {
+    "exitCode": 4,
+    "mismatchCount": 88
+  },
+  "fingerprints": {
+    "canonical": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "live": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd"
+  },
+  "phaseMismatchTotals": {
+    "A": 42,
+    "B": 17,
+    "C": 27,
+    "D": 2,
+    "E": 0,
+    "F": 0,
+    "sumMappedFrom88": 88
+  },
+  "expectedMismatchCountTrajectory": [
+    {
+      "afterPhase": null,
+      "mismatchCount": 88,
+      "note": "current live vs current canonical fixture"
+    },
+    {
+      "afterPhase": "A",
+      "mismatchCount": 46,
+      "note": "Observer Azure normalization only — no DB mutation; 42 ownership/ACL/extension noise cleared"
+    },
+    {
+      "afterPhase": "B",
+      "mismatchCount": 29,
+      "note": "After promoting location model into canonical forward + regenerating expected fixture (live already location-aware)"
+    },
+    {
+      "afterPhase": "C",
+      "mismatchCount": 2,
+      "note": "After additive 035 + tenant_services columns + notification/surf-pack indexes/FK/trigger"
+    },
+    {
+      "afterPhase": "D",
+      "mismatchCount": 0,
+      "note": "After CHECK constraints added with zero preflight violations"
+    },
+    {
+      "afterPhase": "E",
+      "mismatchCount": 0,
+      "note": "Ledger bootstrap — product fingerprint sections exclude ledger"
+    },
+    {
+      "afterPhase": "F",
+      "mismatchCount": 0,
+      "match": true,
+      "note": "Canonical observer verification; second run no-op"
+    }
+  ],
+  "phases": [
+    {
+      "id": "A",
+      "title": "Observer Azure normalization correction",
+      "mismatchKeysResolved": 42,
+      "expectedMismatchBefore": 88,
+      "expectedMismatchAfter": 46,
+      "prerequisites": [
+        "Slice 13A classification committed",
+        "DEC-001 operator approval of allowlisted mappings",
+        "Observer image rebuild/deploy capability in a later slice (not 13B)"
+      ],
+      "transactionalBoundary": "none — code/config change to observer only",
+      "lockDowntimeExpectation": "none on database; brief job image rollout only in later slice",
+      "staffApiCompatibility": "unchanged",
+      "backupRestoreRequirement": "not required for observer-only change",
+      "verification": [
+        "Unit/RED tests: allowlisted azuresu/azure_pg_admin mappings succeed",
+        "Unit/RED tests: ACL broadening still fails closed",
+        "Disposable observer run against fixture with Azure-like owners → those 42 keys absent"
+      ],
+      "rollbackOrForwardRecovery": "Revert observer image/code; no DB rollback",
+      "redAbortConditions": [
+        "ABORT if proposed observer change would equate any ACL with strictly more grantees or privileges than expected after mapping, or if any mapping targets a non-allowlisted role name.",
+        "ABORT if any database OWNER/ACL SQL is introduced"
+      ],
+      "databaseMutation": false
+    },
+    {
+      "id": "B",
+      "title": "Promote approved canonical forward model (location_id)",
+      "mismatchKeysResolved": 17,
+      "expectedMismatchBefore": 46,
+      "expectedMismatchAfter": 29,
+      "prerequisites": [
+        "DEC-002 operator approval",
+        "Phase A ideally complete (ordering preferred, not hard DB dependency)",
+        "Design-reviewed forward migrations derived from 023/025 PROPOSED — still not applied in 13B"
+      ],
+      "transactionalBoundary": "Later repair: migration apply transaction(s) only if live somehow lacks objects; expected path is fixture/manifest promotion because live already has location schema",
+      "lockDowntimeExpectation": "low — primarily git/canonical fixture regeneration; live DDL only if drift from assumed live state",
+      "staffApiCompatibility": "aligns contract with existing multi-location behavior",
+      "backupRestoreRequirement": "logical backup before any live DDL if live differs from assumed location-aware state",
+      "verification": [
+        "canonical forward includes location model",
+        "expected-product-schema regenerated; productFingerprint updated only via migration-derived generator",
+        "observer vs live: 17 location keys cleared"
+      ],
+      "rollbackOrForwardRecovery": "Forward-fix preferred; do not drop location_id columns as rollback",
+      "redAbortConditions": [
+        "ABORT Phase B if promoting would drop or rewrite live location_id data, or if Staff API paths still require pre-location uniqueness semantics.",
+        "ABORT if repair attempts to bless live without promoting migrations"
+      ],
+      "databaseMutation": "only in later repair if required; not in 13B"
+    },
+    {
+      "id": "C",
+      "title": "Additive schema reconciliation (035 + tenant_services columns + indexes/FK/trigger)",
+      "mismatchKeysResolved": 27,
+      "expectedMismatchBefore": 29,
+      "expectedMismatchAfter": 2,
+      "prerequisites": [
+        "DEC-003 and DEC-004 (columns portion) operator approval",
+        "Phase B complete or location mismatches otherwise accounted for",
+        "clients table present for 035 FK",
+        "Disposable rehearsal (Slice 13C) green"
+      ],
+      "transactionalBoundary": "each additive migration in its own ledgered transaction via canonical runner",
+      "lockDowntimeExpectation": "short ACCESS EXCLUSIVE only around CREATE INDEX/TABLE; prefer CONCURRENTLY only if repair design explicitly allows and runner supports",
+      "staffApiCompatibility": "035 enables CRM templates; tenant_services columns already used by Staff ensure-DDL",
+      "backupRestoreRequirement": "yes before live additive apply",
+      "verification": [
+        "035 objects exist",
+        "tenant_services live-only columns present in canonical fixture after promotion",
+        "notification + surf-pack expected indexes/FK/trigger present",
+        "mismatchCount decreases by 27"
+      ],
+      "rollbackOrForwardRecovery": "forward-recovery; avoid DROP unless rehearsal-proven safe",
+      "redAbortConditions": [
+        "ABORT if live already has a conflicting customer_message_templates relation with incompatible columns, or if clients table is absent.",
+        "ABORT on non-additive conflict (existing incompatible relation/column type)"
+      ],
+      "databaseMutation": "later repair only",
+      "includes": {
+        "migration035": true,
+        "tenantServicesLiveColumns": true,
+        "notificationIndexes": true,
+        "surfPackFkIndexTrigger": true
+      }
+    },
+    {
+      "id": "D",
+      "title": "Constraint / data-sensitive reconciliation",
+      "mismatchKeysResolved": 2,
+      "expectedMismatchBefore": 2,
+      "expectedMismatchAfter": 0,
+      "prerequisites": [
+        "Phase C complete",
+        "Preflight violation counts == 0 for both CHECK predicates (aggregate queries only)",
+        "DEC-004 operator approval for constraint add"
+      ],
+      "transactionalBoundary": "ADD CONSTRAINT in transaction after preflight; abort if validate fails",
+      "lockDowntimeExpectation": "brief; CHECK validation may scan tenant_services",
+      "staffApiCompatibility": "rejects invalid writes that previously slipped through",
+      "backupRestoreRequirement": "yes",
+      "verification": [
+        "both CHECK constraints present",
+        "observer mismatchCount 0 for schema sections",
+        "preflight counts archived as evidence"
+      ],
+      "rollbackOrForwardRecovery": "DROP CONSTRAINT forward-recovery only with approval if emergency",
+      "redAbortConditions": [
+        "ABORT Phase D if either violation count > 0 without an approved remediation plan; ABORT Phase C if promoting columns would require destructive type changes.",
+        "ABORT if violation count > 0"
+      ],
+      "databaseMutation": "later repair only"
+    },
+    {
+      "id": "E",
+      "title": "Ledger bootstrap",
+      "mismatchKeysResolved": 0,
+      "expectedMismatchBefore": 0,
+      "expectedMismatchAfter": 0,
+      "prerequisites": [
+        "Phases A–D complete or observer already match=true for product schema",
+        "DEC-005 / DEC-006 gates",
+        "canonical_lf_v1 manifest available"
+      ],
+      "transactionalBoundary": "create ledger + insert bootstrap rows in controlled transaction(s)",
+      "lockDowntimeExpectation": "minimal",
+      "staffApiCompatibility": "none expected (ledger excluded from product fingerprint)",
+      "backupRestoreRequirement": "yes",
+      "verification": [
+        "ledger present",
+        "no ambiguous migration marked applied",
+        "checksums canonical_lf_v1 or exact legacySha256 only",
+        "source/evidence columns populated per bootstrap spec"
+      ],
+      "rollbackOrForwardRecovery": "delete bootstrap rows only with operator approval; never invent replacements",
+      "redAbortConditions": [
+        "ABORT if bootstrap would insert executed_by_canonical_runner without runner proof, or would mark ambiguous migrations as applied, or would accept a hash that is neither canonical_lf_v1 nor exact committed legacySha256.",
+        "ABORT any ledger bootstrap or repair phase that marks 018/019/020 as executed_by_canonical_runner or verified_structural_baseline without the requiredChecks evidence."
+      ],
+      "databaseMutation": "later repair only",
+      "specRef": "fixtures/sunset-schema-observer/slice13b-ledger-bootstrap-spec.json"
+    },
+    {
+      "id": "F",
+      "title": "Canonical observer verification and recovery",
+      "mismatchKeysResolved": 0,
+      "expectedMismatchBefore": 0,
+      "expectedMismatchAfter": 0,
+      "prerequisites": [
+        "Phases A–E complete as applicable",
+        "Observer image embeds regenerated expected fixture when Phase B/C/D changed canonical"
+      ],
+      "transactionalBoundary": "none — read-only observer",
+      "lockDowntimeExpectation": "none",
+      "staffApiCompatibility": "n/a",
+      "backupRestoreRequirement": "n/a for verification itself",
+      "verification": [
+        "manual observer job: match=true, mismatchCount=0, exit 0",
+        "second run identical no-op",
+        "failure-injection recovery drills only on disposable DBs (Slice 13C)"
+      ],
+      "rollbackOrForwardRecovery": "if mismatch returns, fail closed and re-enter appropriate phase — do not bless live",
+      "redAbortConditions": [
+        "ABORT if operator proposes updating expected fixture from live dump",
+        "ABORT if job is scheduled or write credentials are attached"
+      ],
+      "databaseMutation": false
+    }
+  ]
+}

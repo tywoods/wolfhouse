@@ -1,0 +1,93 @@
+{
+  "kind": "sunset-schema-observer-slice13b-ledger-bootstrap-spec",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "designOnly": true,
+  "generatedAt": "2026-07-19T14:37:14.341Z",
+  "masterShaBasis": "5dc43550d0197efacbb59dab4657960d2aaa36eb",
+  "checksumMode": "canonical_lf_v1",
+  "principles": [
+    "Never claim a migration was executed solely from numbering or filename order",
+    "Use canonical_lf_v1 hashes for new ledger writes",
+    "Exact committed legacySha256 may be accepted only under Slice 13A.1 ledgerChecksumAccepted contract",
+    "Ambiguous migrations remain blocked until DEC-006 checks pass",
+    "Preserve source, evidence, and provenance for every bootstrapped row"
+  ],
+  "rowKinds": {
+    "verified_structural_baseline": {
+      "meaning": "Catalog metadata (and optional aggregates) prove the migration’s structural effects are present; does NOT assert the canonical runner executed the file on this database",
+      "allowedWhen": [
+        "Required object/column/constraint signatures for that migration are present",
+        "DEC-006 migrations only after their requiredChecks pass"
+      ],
+      "forbiddenWhen": [
+        "Evidence is only “a later migration number exists”",
+        "Partial or conflicting signatures"
+      ],
+      "checksumField": "canonical_lf_v1 sha256 from manifest entry (or exact legacySha256 only if documenting a pre-13A.1 ledger row being preserved — not preferred for new baseline rows)"
+    },
+    "executed_by_canonical_runner": {
+      "meaning": "This database applied the migration file through runCanonicalMigrations (or successor) with advisory lock + transactional apply + ledger insert",
+      "allowedWhen": [
+        "Runner proof exists (apply log/evidence artifact) for this environment",
+        "Pre-apply checksum matched manifest under canonical_lf_v1"
+      ],
+      "forbiddenWhen": [
+        "Bootstrap-only inference",
+        "Manual psql apply without runner evidence"
+      ],
+      "checksumField": "always entry.sha256 under canonical_lf_v1 at insert time"
+    }
+  },
+  "proposedLedgerExtensionsDesignOnly": {
+    "note": "Additive columns for bootstrap provenance — design only; DDL occurs in later repair",
+    "columns": [
+      {
+        "name": "apply_kind",
+        "type": "text",
+        "values": [
+          "verified_structural_baseline",
+          "executed_by_canonical_runner"
+        ]
+      },
+      {
+        "name": "evidence_ref",
+        "type": "text",
+        "purpose": "path or id of evidence artifact"
+      },
+      {
+        "name": "provenance_notes",
+        "type": "text",
+        "purpose": "human-readable source of truth summary"
+      },
+      {
+        "name": "checksum_mode",
+        "type": "text",
+        "purpose": "canonical_lf_v1"
+      }
+    ],
+    "compatibility": "Existing Slice 4 ledger shape remains readable; extensions are additive. Until migrated, bootstrap tooling must not pretend apply_kind exists on live."
+  },
+  "bootstrapAlgorithm": [
+    "1. Ensure schema_migration_ledger exists (DDL from migration-integrity LEDGER_DDL + approved extensions).",
+    "2. Load canonical manifest (checksumMode canonical_lf_v1).",
+    "3. For each forward entry in order: evaluate structural signatures.",
+    "4. If DEC-006 blocked → skip insert; leave gap recorded as blocked — fail closed on runner until resolved or explicitly waived by operator with new decision id.",
+    "5. If structural signatures fully match → may insert verified_structural_baseline with evidence_ref.",
+    "6. Never insert executed_by_canonical_runner during bootstrap.",
+    "7. Partial matches → no row; record partial in evidence; block runner for that prefix.",
+    "8. Future runner applies: only append executed_by_canonical_runner for unapplied ids; reconcileLedger accepts canonical sha256 or exact legacySha256 per 13A.1."
+  ],
+  "interactionWithFutureRunner": {
+    "reconcile": "Bootstrapped verified_structural_baseline rows count as applied for skip purposes only if checksum matches accept rules and apply_order forms a contiguous prefix without blocked gaps.",
+    "newApplies": "Always insert executed_by_canonical_runner with canonical_lf_v1 hash.",
+    "blockedAmbiguous": "If 018/019/020 lack baseline rows, runner must fail closed on partial history rather than apply later migrations out of order."
+  },
+  "abortConditions": [
+    "Inserting executed_by_canonical_runner without runner proof",
+    "Accepting arbitrary checksums",
+    "Marking ambiguous migrations applied without DEC-006 checks",
+    "Claiming fully_applied from numbering alone"
+  ]
+}
