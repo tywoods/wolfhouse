@@ -327,7 +327,8 @@ function main() {
     && (contract.phaseStatus.C === 'pending'
       || contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
       || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
-      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence'
+      || contract.phaseStatus.C === 'complete_integrated_phase_c_disposable_proof')
     && contract.phaseStatus.D === 'pending'
     && contract.phaseStatus.E === 'pending'
     && contract.slice13c1PhaseA

@@ -65,7 +65,7 @@
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
     "B": "complete_location_model_promotion",
-    "C": "complete_notification_surfpack_convergence",
+    "C": "complete_integrated_phase_c_disposable_proof",
     "D": "pending",
     "E": "pending",
     "F": "pending"
@@ -104,5 +104,22 @@
     "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3c-mismatch-8-to-2-evidence.json",
     "keyMap": "fixtures/sunset-schema-observer/slice13c3c-six-key-map.json",
     "note": "Phase C notification/surf-pack six keys converged via 041 (8→2). Phase D CHECKs remain. Product fingerprint unchanged. No live apply."
+  },
+  "slice13c3dPhaseC": {
+    "status": "complete_integrated_phase_c_disposable_proof",
+    "completedAt": "2026-07-19T16:59:25.732Z",
+    "masterShaBasis": "d68d03500f4449185c4247a2ddec126c54c13d9c",
+    "sequence": [
+      "040_tenant_services_saas_catalog_columns",
+      "035_customer_message_templates",
+      "041_notification_surfpack_convergence"
+    ],
+    "newForwardMigration": false,
+    "claimsAllThreeAtomicity": false,
+    "trajectory": "29 → 25 → 8 → 2",
+    "evidence": "fixtures/sunset-schema-observer/slice13c3d-integrated-phase-c-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c3d-mismatch-29-to-2-evidence.json",
+    "checkpointKeySets": "fixtures/sunset-schema-observer/slice13c3d-checkpoint-key-sets.json",
+    "note": "Integrated disposable Phase C proof (040+035+041) 29→2. Phase D CHECKs remain. No live apply. No new forward migration."
   }
 }

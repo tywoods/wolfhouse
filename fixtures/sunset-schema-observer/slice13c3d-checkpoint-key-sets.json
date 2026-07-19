@@ -1,0 +1,138 @@
+{
+  "kind": "sunset-schema-observer-slice13c3d-checkpoint-key-sets",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T16:59:25.729Z",
+  "masterShaBasis": "d68d03500f4449185c4247a2ddec126c54c13d9c",
+  "trajectory": "29 → 25 → 8 → 2",
+  "claimsAllThreeAtomicity": false,
+  "historicalColumnKeyNote": "Post-13C.2 offline classification used live_only|columns|tenant_services.* for the four SaaS columns. Against current 39-forward expected (columns present in contract), the disposable prestate omits those columns, so observer keys are expected_only|columns|tenant_services.*. Same four substantive objects.",
+  "historicalLiveOnlyColumnKeys": [
+    "live_only|columns|tenant_services.block_rooms_enabled",
+    "live_only|columns|tenant_services.blocked_room_codes",
+    "live_only|columns|tenant_services.room_block_booking_ids",
+    "live_only|columns|tenant_services.weekdays"
+  ],
+  "checkpoints": {
+    "before": {
+      "count": 29,
+      "keys": [
+        "expected_only|acls|relation:customer_message_templates",
+        "expected_only|columns|customer_message_templates.active",
+        "expected_only|columns|customer_message_templates.body",
+        "expected_only|columns|customer_message_templates.channel",
+        "expected_only|columns|customer_message_templates.client_id",
+        "expected_only|columns|customer_message_templates.created_at",
+        "expected_only|columns|customer_message_templates.id",
+        "expected_only|columns|customer_message_templates.tags",
+        "expected_only|columns|customer_message_templates.title",
+        "expected_only|columns|customer_message_templates.updated_at",
+        "expected_only|columns|tenant_services.block_rooms_enabled",
+        "expected_only|columns|tenant_services.blocked_room_codes",
+        "expected_only|columns|tenant_services.room_block_booking_ids",
+        "expected_only|columns|tenant_services.weekdays",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+        "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+        "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+        "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+        "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "expected_only|ownership|relation:customer_message_templates",
+        "expected_only|rlsFlags|customer_message_templates",
+        "expected_only|tables|customer_message_templates",
+        "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      ]
+    },
+    "after040": {
+      "count": 25,
+      "keys": [
+        "expected_only|acls|relation:customer_message_templates",
+        "expected_only|columns|customer_message_templates.active",
+        "expected_only|columns|customer_message_templates.body",
+        "expected_only|columns|customer_message_templates.channel",
+        "expected_only|columns|customer_message_templates.client_id",
+        "expected_only|columns|customer_message_templates.created_at",
+        "expected_only|columns|customer_message_templates.id",
+        "expected_only|columns|customer_message_templates.tags",
+        "expected_only|columns|customer_message_templates.title",
+        "expected_only|columns|customer_message_templates.updated_at",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+        "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+        "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+        "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+        "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+        "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "expected_only|ownership|relation:customer_message_templates",
+        "expected_only|rlsFlags|customer_message_templates",
+        "expected_only|tables|customer_message_templates",
+        "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      ]
+    },
+    "after035": {
+      "count": 8,
+      "keys": [
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+        "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+        "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+        "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+        "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+      ]
+    },
+    "after041": {
+      "count": 2,
+      "keys": [
+        "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+        "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+      ]
+    }
+  },
+  "columnKeysResolvedBy040": [
+    "expected_only|columns|tenant_services.block_rooms_enabled",
+    "expected_only|columns|tenant_services.blocked_room_codes",
+    "expected_only|columns|tenant_services.room_block_booking_ids",
+    "expected_only|columns|tenant_services.weekdays"
+  ],
+  "cmtKeysResolvedBy035": [
+    "expected_only|acls|relation:customer_message_templates",
+    "expected_only|columns|customer_message_templates.active",
+    "expected_only|columns|customer_message_templates.body",
+    "expected_only|columns|customer_message_templates.channel",
+    "expected_only|columns|customer_message_templates.client_id",
+    "expected_only|columns|customer_message_templates.created_at",
+    "expected_only|columns|customer_message_templates.id",
+    "expected_only|columns|customer_message_templates.tags",
+    "expected_only|columns|customer_message_templates.title",
+    "expected_only|columns|customer_message_templates.updated_at",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+    "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+    "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+    "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+    "expected_only|ownership|relation:customer_message_templates",
+    "expected_only|rlsFlags|customer_message_templates",
+    "expected_only|tables|customer_message_templates"
+  ],
+  "sixKeysResolvedBy041": [
+    "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+    "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+    "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+    "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+    "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
+  ],
+  "phaseDRemaining": [
+    "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+    "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+  ]
+}

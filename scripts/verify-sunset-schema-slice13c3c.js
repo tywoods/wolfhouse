@@ -284,7 +284,8 @@ function main() {
     contract.phaseStatus
     && contract.phaseStatus.A === 'complete_offline_identity_normalization'
     && contract.phaseStatus.B === 'complete_location_model_promotion'
-    && contract.phaseStatus.C === 'complete_notification_surfpack_convergence'
+    && (contract.phaseStatus.C === 'complete_notification_surfpack_convergence'
+      || contract.phaseStatus.C === 'complete_integrated_phase_c_disposable_proof')
     && contract.phaseStatus.D === 'pending'
     && contract.slice13c3cPhaseC
     && contract.slice13c3cPhaseC.migrationId === MIG_041_ID

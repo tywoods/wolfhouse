@@ -214,7 +214,8 @@ function main() {
     && contract.phaseStatus.B === 'complete_location_model_promotion'
     && (contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
       || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
-      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence'
+      || contract.phaseStatus.C === 'complete_integrated_phase_c_disposable_proof')
     && contract.slice13c3aPhaseC
     && contract.slice13c3aPhaseC.migrationId === MIG_040_ID
     && contract.liveApplyCapability === false
