@@ -1,7 +1,7 @@
 # FOUNDATION Slice 13C.2 — location-aware admin model promotion (DEC-002 / Phase B)
 
-**Master basis:** `e3764ae3823200a4817edd8a60beb53775a010b6`  
-**New forward migration:** `039_sunset_admin_location_aware_rules.sql`  
+**Master basis:** `e3764ae3823200a4817edd8a60beb53775a010b6`
+**New forward migration:** `039_sunset_admin_location_aware_rules.sql`
 **canonical_lf_v1 hash:** `d170d7baead7442439a372e36127013516271a8fba983c93ea6a2cdd10450713`
 
 ## Verdict
