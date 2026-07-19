@@ -724,6 +724,19 @@ node scripts/prove-sunset-schema-slice14w-final-rename-normalization.js --offlin
 
 Artifacts: `slice14w-final-rename-normalization-contract.json`, `slice14w-final-rename-normalization-evidence.json`, `slice14w-findings.md`.
 
+### Slice 14X — NOT NULL identifier truncation normalization (implemented)
+
+Read-only observer normalization for exactly **one** PostgreSQL auto-generated NOT NULL identifier truncation artifact from migration **002** (byte/hash-locked). Extends — does not weaken — 14T/14V/14W. Default **OFF** in compare. Locked tuple: `package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null` (exact 63-byte NAMEDATALEN name), type=`n`, definition=`NOT NULL double_supplement_per_person_per_night_cents`, column nullable=NO. Derives name via label-preserving `makeObjectName` truncation; rejects naive truncations / near-collisions / fuzzy prefixes. Merged target-authority + one TLS `verify-full` session `application_name=wh-sunset-identifier-truncation-normalization`. Baseline (identity + 14T + 14V + 14W; truncation off) must be mismatchCount === **12** with sections constraints=2,indexes=5,functions=1,triggers=1,ownership=1,acls=1,extensions=1 or `baseline_drift_mismatch`. Reports normalized count + remaining keys (accounting: baseline = normalized + remaining). **Zero mutation.** Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14x-identifier-truncation-normalization
+npm run verify:sunset-schema-slice14x
+npm run phase-d:identifier-truncation-normalization
+node scripts/prove-sunset-schema-slice14x-identifier-truncation-normalization.js --offline
+```
+
+Artifacts: `slice14x-identifier-truncation-normalization-contract.json`, `slice14x-identifier-truncation-normalization-evidence.json`, `slice14x-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -806,3 +819,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14U — Residual drift classify + preflight (exact 35; read-only aggregates; execute:false batches; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14V — hostel_id→client_id rename-alias normalization (migration 003; 12 aliases; PG15; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14W — final NOT NULL rename-provenance normalization (002/003/004 tuples; baseline 23; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14X — NOT NULL identifier truncation normalization (one NAMEDATALEN tuple; baseline 12; zero mutation) — 2026-07-19*

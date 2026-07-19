@@ -2063,6 +2063,442 @@ function normalizeFinalNotNullRenameProvenance(expected, live, opts) {
   };
 }
 
+/**
+ * Slice 14X — exactly one PostgreSQL auto-generated NOT NULL identifier
+ * truncation artifact. Extends (does not weaken) 14T/14V/14W. Default OFF in
+ * compareSnapshots; 14X enables explicitly. No fuzzy/general prefix matching.
+ *
+ * PostgreSQL NAMEDATALEN=64 → max identifier bytes = 63. Auto NOT NULL names
+ * are makeObjectName(`${table}_${column}`, NULL, "not_null"): the `_not_null`
+ * label is preserved and the preceding name1 is truncated to fit.
+ */
+const PG_MAX_IDENTIFIER_BYTES = 63; // NAMEDATALEN - 1
+const PG_NOT_NULL_CONSTRAINT_LABEL = 'not_null';
+const IDENTIFIER_TRUNCATION_RULE = 'pg_namedatalen_auto_not_null_truncation';
+const IDENTIFIER_TRUNCATION_REQUIRED_VERSION_CLASS = 'postgresql_15';
+
+/** Exact locked tuple from canonical expected-product-schema + migration 002. */
+const IDENTIFIER_TRUNCATION_LOCKED_TUPLE = Object.freeze({
+  table: 'package_price_rules',
+  column: 'double_supplement_per_person_per_night_cents',
+  name: 'package_price_rules_double_supplement_per_person_per_n_not_null',
+  type: 'n',
+  definition: 'NOT NULL double_supplement_per_person_per_night_cents',
+  migrationId: '002_package_pricing',
+  migrationFilename: MIGRATION_002_FILENAME,
+  migrationSha256: MIGRATION_002_PACKAGE_PRICING_SHA256,
+  columnDeclarationSql:
+    'double_supplement_per_person_per_night_cents INTEGER NOT NULL DEFAULT 1000',
+});
+
+/**
+ * Derive PostgreSQL auto-generated `{table}_{column}_not_null` name with
+ * NAMEDATALEN truncation (label preserved). ASCII-only identifiers.
+ */
+function derivePgAutoNotNullConstraintName(table, column) {
+  const t = String(table || '');
+  const c = String(column || '');
+  if (!t || !c) return null;
+  const label = PG_NOT_NULL_CONSTRAINT_LABEL;
+  const overhead = Buffer.byteLength(label, 'utf8') + 1; // `_` + label
+  const avail = PG_MAX_IDENTIFIER_BYTES - overhead;
+  if (avail <= 0) return null;
+  let name1 = `${t}_${c}`;
+  const name1Bytes = Buffer.from(name1, 'utf8');
+  if (name1Bytes.length > avail) {
+    name1 = name1Bytes.subarray(0, avail).toString('utf8');
+  }
+  const derived = `${name1}_${label}`;
+  if (Buffer.byteLength(derived, 'utf8') > PG_MAX_IDENTIFIER_BYTES) return null;
+  return derived;
+}
+
+/**
+ * Extract the exact column NOT NULL declaration from migration 002 SQL text.
+ */
+function extractMigration002DoubleSupplementNotNullDeclaration(sqlText) {
+  const text = String(sqlText || '');
+  const re = /double_supplement_per_person_per_night_cents\s+INTEGER\s+NOT\s+NULL\s+DEFAULT\s+1000/i;
+  if (!re.test(text)) {
+    return { ok: false, reason: 'column_declaration_not_found' };
+  }
+  if (!/CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+package_price_rules/i.test(text)) {
+    return { ok: false, reason: 'table_create_not_found' };
+  }
+  return {
+    ok: true,
+    table: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.table,
+    column: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.column,
+    declarationSql: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.columnDeclarationSql,
+  };
+}
+
+/**
+ * Build hash-locked provenance for the single truncated NOT NULL artifact.
+ * Derives the observed 63-byte name via NAMEDATALEN rule and rejects any
+ * other truncated form. Requires exact committed tuple + migration 002 hash.
+ */
+function buildIdentifierTruncationNotNullProvenance(opts) {
+  const options = opts || {};
+  const migrationsDir = options.migrationsDir
+    || path.join(__dirname, '..', '..', 'database', 'migrations');
+  const migrationPath = options.migration002Path
+    || path.join(migrationsDir, MIGRATION_002_FILENAME);
+  if (!fs.existsSync(migrationPath)) {
+    return {
+      ok: false,
+      code: 'migration_002_missing',
+      message: `migration 002 not found at ${migrationPath}`,
+    };
+  }
+  const sha256 = sha256MigrationFile(migrationPath);
+  const expectSha = options.expectedMigration002Sha256
+    || MIGRATION_002_PACKAGE_PRICING_SHA256;
+  if (sha256 !== expectSha) {
+    return {
+      ok: false,
+      code: 'migration_002_hash_mismatch',
+      message: `migration 002 hash changed: got ${sha256}, expected ${expectSha}`,
+      migrationSha256: sha256,
+      expectedSha256: expectSha,
+    };
+  }
+  const extracted = extractMigration002DoubleSupplementNotNullDeclaration(
+    fs.readFileSync(migrationPath, 'utf8'),
+  );
+  if (!extracted.ok) {
+    return {
+      ok: false,
+      code: 'migration_002_column_declaration_parse_failed',
+      message: extracted.reason,
+      migrationSha256: sha256,
+    };
+  }
+
+  const derivedName = derivePgAutoNotNullConstraintName(
+    IDENTIFIER_TRUNCATION_LOCKED_TUPLE.table,
+    IDENTIFIER_TRUNCATION_LOCKED_TUPLE.column,
+  );
+  if (derivedName !== IDENTIFIER_TRUNCATION_LOCKED_TUPLE.name) {
+    return {
+      ok: false,
+      code: 'derived_name_mismatch',
+      message: `derived name ${derivedName} !== locked ${IDENTIFIER_TRUNCATION_LOCKED_TUPLE.name}`,
+      derivedName,
+      lockedName: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.name,
+      migrationSha256: sha256,
+    };
+  }
+  if (Buffer.byteLength(derivedName, 'utf8') !== PG_MAX_IDENTIFIER_BYTES) {
+    return {
+      ok: false,
+      code: 'derived_name_length_mismatch',
+      message: `derived name must be exactly ${PG_MAX_IDENTIFIER_BYTES} bytes`,
+      derivedName,
+      byteLength: Buffer.byteLength(derivedName, 'utf8'),
+      migrationSha256: sha256,
+    };
+  }
+
+  const untruncated = `${IDENTIFIER_TRUNCATION_LOCKED_TUPLE.table}_`
+    + `${IDENTIFIER_TRUNCATION_LOCKED_TUPLE.column}_not_null`;
+  if (!(Buffer.byteLength(untruncated, 'utf8') > PG_MAX_IDENTIFIER_BYTES)) {
+    return {
+      ok: false,
+      code: 'truncation_not_required',
+      message: 'full auto name fits NAMEDATALEN; truncation artifact unexpected',
+      untruncated,
+      migrationSha256: sha256,
+    };
+  }
+
+  const tuple = Object.freeze({
+    kind: 'identifier_truncation',
+    migrationId: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.migrationId,
+    migrationFilename: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.migrationFilename,
+    migrationSha256: sha256,
+    table: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.table,
+    column: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.column,
+    name: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.name,
+    type: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.type,
+    definition: IDENTIFIER_TRUNCATION_LOCKED_TUPLE.definition,
+    derivedName,
+    untruncatedName: untruncated,
+    nameByteLength: PG_MAX_IDENTIFIER_BYTES,
+    columnDeclarationSql: extracted.declarationSql,
+    rule: IDENTIFIER_TRUNCATION_RULE,
+  });
+
+  return {
+    ok: true,
+    tuples: Object.freeze([tuple]),
+    provenanceCount: 1,
+    migration002Sha256: sha256,
+    lockedTuple: tuple,
+    rule: IDENTIFIER_TRUNCATION_RULE,
+  };
+}
+
+/**
+ * Match expected type-n constraint against the exact locked truncation tuple.
+ * Rejects every other truncated name (no prefix/fuzzy matching).
+ */
+function parseIdentifierTruncationNotNullMatch(constraint, provenance) {
+  if (!constraint || typeof constraint !== 'object') {
+    return { ok: false, reason: 'missing_constraint' };
+  }
+  if (!provenance || provenance.ok !== true || !Array.isArray(provenance.tuples)
+    || provenance.tuples.length !== 1) {
+    return { ok: false, reason: 'provenance_unavailable' };
+  }
+  const tuple = provenance.tuples[0];
+  const type = String(constraint.type || '');
+  if (type !== 'n') {
+    return { ok: false, reason: 'not_not_null_type' };
+  }
+  const table = String(constraint.table || '');
+  const name = String(constraint.name || '');
+  const definition = String(constraint.definition || '');
+  if (!table || !name) {
+    return { ok: false, reason: 'ambiguous_key' };
+  }
+  if (table !== tuple.table) {
+    return { ok: false, reason: 'wrong_table' };
+  }
+  if (definition !== tuple.definition) {
+    return { ok: false, reason: 'wrong_definition' };
+  }
+  // Exact name only — reject naive truncations, untruncated, near-collisions.
+  if (name !== tuple.name) {
+    return { ok: false, reason: 'name_not_exact_locked_truncation' };
+  }
+  if (Buffer.byteLength(name, 'utf8') !== PG_MAX_IDENTIFIER_BYTES) {
+    return { ok: false, reason: 'name_length_mismatch' };
+  }
+  const derived = derivePgAutoNotNullConstraintName(tuple.table, tuple.column);
+  if (derived !== name) {
+    return { ok: false, reason: 'derived_name_mismatch' };
+  }
+  return {
+    ok: true,
+    kind: 'identifier_truncation',
+    table,
+    name,
+    type,
+    definition,
+    column: tuple.column,
+    key: `${table}.${name}.${type}`,
+    columnKey: `${table}.${tuple.column}`,
+    migrationSha256: tuple.migrationSha256,
+    migrationId: tuple.migrationId,
+    derivedName: derived,
+    nameByteLength: PG_MAX_IDENTIFIER_BYTES,
+    rule: tuple.rule,
+  };
+}
+
+/**
+ * Slice 14X — exclude only the exact locked truncated NOT NULL constraint when
+ * expected/live encode attnotnull on the same column (nullable=NO) and the
+ * live constraint object is absent. Never fuzzy-matches other truncated names.
+ */
+function normalizeIdentifierTruncationNotNull(expected, live, opts) {
+  const options = opts || {};
+  const profile = options.profile || null;
+  const audit = [];
+  const retainedReasons = [];
+  const expectedConstraints = Array.isArray(expected && expected.constraints)
+    ? expected.constraints.slice()
+    : [];
+
+  if (profile !== NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    return {
+      ok: true,
+      applied: false,
+      reason: 'profile_not_azure_flexible_server_v1',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const versionGate = assertPg15AzureFlexibleServerContext(
+    options.azureContext,
+    options.serverVersionClass,
+  );
+  if (!versionGate.ok) {
+    return {
+      ok: false,
+      applied: false,
+      code: (versionGate.errors[0] && versionGate.errors[0].code) || 'azure_context_rejected',
+      message: (versionGate.errors[0] && versionGate.errors[0].message) || 'azure/pg15 context rejected',
+      errors: versionGate.errors,
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+  if (versionGate.skipped === true) {
+    return {
+      ok: true,
+      applied: false,
+      reason: versionGate.reason || 'pg15_context_absent',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const provenance = options.provenance
+    || buildIdentifierTruncationNotNullProvenance({
+      migrationsDir: options.migrationsDir,
+      migration002Path: options.migration002Path,
+      expectedMigration002Sha256: options.expectedMigration002Sha256,
+    });
+  if (!provenance || provenance.ok !== true) {
+    return {
+      ok: false,
+      applied: false,
+      code: (provenance && provenance.code) || 'provenance_unavailable',
+      message: (provenance && provenance.message) || 'identifier truncation provenance unavailable',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: provenance || null,
+    };
+  }
+
+  const expectedCols = indexColumnsByTableColumn(expected && expected.columns);
+  const liveCols = indexColumnsByTableColumn(live && live.columns);
+  const liveConstraintKeys = new Set(
+    (live && live.constraints ? live.constraints : []).map(
+      (c) => `${c.table}.${c.name}.${c.type}`,
+    ),
+  );
+
+  const columnClaimCounts = Object.create(null);
+  const parsedByIndex = expectedConstraints.map((c, idx) => {
+    const parsed = parseIdentifierTruncationNotNullMatch(c, provenance);
+    if (parsed.ok) {
+      columnClaimCounts[parsed.columnKey] = (columnClaimCounts[parsed.columnKey] || 0) + 1;
+    }
+    return { idx, constraint: c, parsed };
+  });
+
+  const dropKeys = new Set();
+  for (const entry of parsedByIndex) {
+    const { parsed, constraint } = entry;
+    if (!parsed.ok) {
+      const type = String(constraint.type || '');
+      const name = String(constraint.name || '');
+      // Retain near-collision truncated shapes for audit visibility.
+      if (type === 'n' && (
+        name.includes('double_supplement')
+        || name.includes('_per_n_not_null')
+        || Buffer.byteLength(name, 'utf8') === PG_MAX_IDENTIFIER_BYTES
+      )) {
+        retainedReasons.push({
+          key: `${constraint.table}.${constraint.name}.${constraint.type}`,
+          reason: parsed.reason,
+        });
+      }
+      continue;
+    }
+
+    if (columnClaimCounts[parsed.columnKey] > 1) {
+      retainedReasons.push({ key: parsed.key, reason: 'duplicate_column_claim' });
+      continue;
+    }
+
+    if (liveConstraintKeys.has(parsed.key)) {
+      retainedReasons.push({ key: parsed.key, reason: 'live_has_constraint_object' });
+      continue;
+    }
+
+    const expCol = expectedCols.get(parsed.columnKey);
+    if (!expCol || expCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !expCol ? 'expected_column_missing' : 'expected_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(expCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'expected_column_not_nullable_no' });
+      continue;
+    }
+
+    const liveCol = liveCols.get(parsed.columnKey);
+    if (!liveCol || liveCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !liveCol ? 'live_column_missing' : 'live_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(liveCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'live_column_nullable_mismatch' });
+      continue;
+    }
+
+    dropKeys.add(parsed.key);
+    audit.push({
+      section: 'constraints',
+      key: parsed.key,
+      rule: IDENTIFIER_TRUNCATION_RULE,
+      table: parsed.table,
+      column: parsed.column,
+      expectedNullable: 'NO',
+      liveNullable: 'NO',
+      derivedName: parsed.derivedName,
+      nameByteLength: parsed.nameByteLength,
+      migrationId: parsed.migrationId,
+      migrationSha256: parsed.migrationSha256,
+    });
+  }
+
+  const filtered = expectedConstraints.filter(
+    (c) => !dropKeys.has(`${c.table}.${c.name}.${c.type}`),
+  );
+
+  return {
+    ok: true,
+    applied: true,
+    profile,
+    constraints: filtered,
+    normalizedCount: dropKeys.size,
+    audit,
+    retainedReasons,
+    provenance: {
+      provenanceCount: provenance.provenanceCount,
+      migration002Sha256: provenance.migration002Sha256,
+      lockedTuple: provenance.lockedTuple,
+      tuples: provenance.tuples.map((t) => ({
+        kind: t.kind,
+        migrationId: t.migrationId,
+        migrationSha256: t.migrationSha256,
+        table: t.table,
+        column: t.column,
+        name: t.name,
+        type: t.type,
+        definition: t.definition,
+        derivedName: t.derivedName,
+        untruncatedName: t.untruncatedName,
+        nameByteLength: t.nameByteLength,
+        columnDeclarationSql: t.columnDeclarationSql,
+      })),
+      rule: provenance.rule,
+    },
+  };
+}
+
 function classifyServerVersionClass(serverVersionNum, serverVersion) {
   const num = Number(serverVersionNum);
   if (Number.isFinite(num) && num >= 10000) {
@@ -2103,6 +2539,7 @@ function compareSnapshots(expected, live, opts) {
   let notNullNormalization = null;
   let renameAliasNormalization = null;
   let finalRenameNormalization = null;
+  let identifierTruncationNormalization = null;
   let expectedSnap = expected;
   if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
     normalization = normalizeObservedIdentityPresentation(live, {
@@ -2122,6 +2559,7 @@ function compareSnapshots(expected, live, opts) {
         notNullNormalization: null,
         renameAliasNormalization: null,
         finalRenameNormalization: null,
+        identifierTruncationNormalization: null,
       };
     }
     liveSnap = normalization.snapshot;
@@ -2145,6 +2583,7 @@ function compareSnapshots(expected, live, opts) {
           notNullNormalization,
           renameAliasNormalization: null,
           finalRenameNormalization: null,
+          identifierTruncationNormalization: null,
         };
       }
       expectedSnap = {
@@ -2183,6 +2622,7 @@ function compareSnapshots(expected, live, opts) {
           notNullNormalization,
           renameAliasNormalization,
           finalRenameNormalization: null,
+          identifierTruncationNormalization: null,
         };
       }
       expectedSnap = {
@@ -2226,11 +2666,52 @@ function compareSnapshots(expected, live, opts) {
           notNullNormalization,
           renameAliasNormalization,
           finalRenameNormalization,
+          identifierTruncationNormalization: null,
         };
       }
       expectedSnap = {
         ...expectedSnap,
         constraints: finalRenameNormalization.constraints,
+      };
+    }
+
+    // Slice 14X: exact NAMEDATALEN truncated NOT NULL name (one locked tuple).
+    // Default OFF so 14W remaining inventory stays stable; 14X enables explicitly.
+    if (options.enableIdentifierTruncationNormalization === true) {
+      identifierTruncationNormalization = normalizeIdentifierTruncationNotNull(
+        expectedSnap,
+        liveSnap,
+        {
+          profile: options.normalizationProfile,
+          azureContext: options.azureContext,
+          serverVersionClass: options.serverVersionClass
+            || (options.azureContext && options.azureContext.versionClass)
+            || null,
+          provenance: options.identifierTruncationProvenance || null,
+          migrationsDir: options.migrationsDir,
+          migration002Path: options.migration002Path,
+          expectedMigration002Sha256: options.expectedMigration002Sha256,
+        },
+      );
+      if (!identifierTruncationNormalization.ok) {
+        return {
+          ok: false,
+          drifts: [],
+          counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+          normalizationError: {
+            code: identifierTruncationNormalization.code,
+            message: identifierTruncationNormalization.message,
+            errors: identifierTruncationNormalization.errors || [],
+          },
+          notNullNormalization,
+          renameAliasNormalization,
+          finalRenameNormalization,
+          identifierTruncationNormalization,
+        };
+      }
+      expectedSnap = {
+        ...expectedSnap,
+        constraints: identifierTruncationNormalization.constraints,
       };
     }
   }
@@ -2275,6 +2756,7 @@ function compareSnapshots(expected, live, opts) {
     notNullNormalization,
     renameAliasNormalization,
     finalRenameNormalization,
+    identifierTruncationNormalization,
   };
 }
 
@@ -2697,6 +3179,16 @@ module.exports = {
   buildFinalNotNullRenameProvenance,
   parseFinalNotNullRenameProvenanceMatch,
   normalizeFinalNotNullRenameProvenance,
+  PG_MAX_IDENTIFIER_BYTES,
+  PG_NOT_NULL_CONSTRAINT_LABEL,
+  IDENTIFIER_TRUNCATION_RULE,
+  IDENTIFIER_TRUNCATION_REQUIRED_VERSION_CLASS,
+  IDENTIFIER_TRUNCATION_LOCKED_TUPLE,
+  derivePgAutoNotNullConstraintName,
+  extractMigration002DoubleSupplementNotNullDeclaration,
+  buildIdentifierTruncationNotNullProvenance,
+  parseIdentifierTruncationNotNullMatch,
+  normalizeIdentifierTruncationNotNull,
   classifyServerVersionClass,
   CANONICAL_NOT_NULL_DEFINITION_RE,
   assertReadOnlySession,
