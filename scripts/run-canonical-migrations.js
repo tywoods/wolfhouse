@@ -20,7 +20,10 @@ const {
   validateManifestIntegrity,
   assertSafeDatabaseTarget,
   prepareMigrationBody,
-  sha256File,
+  checksumMigrationFile,
+  ledgerChecksumAccepted,
+  resolveChecksumMode,
+  CHECKSUM_MODE_CANONICAL_LF_V1,
 } = require('./lib/migration-integrity');
 
 async function withAdvisoryLock(client, fn) {
@@ -56,7 +59,8 @@ function reconcileLedger(forward, ledgerRows) {
       });
       continue;
     }
-    if (row.checksum_sha256 !== expected.sha256) {
+    const checksumGate = ledgerChecksumAccepted(expected, row.checksum_sha256);
+    if (!checksumGate.ok) {
       errors.push({
         code: 'ledger_checksum_mismatch',
         message: `ledger checksum mismatch for ${row.id}`,
@@ -95,13 +99,15 @@ function reconcileLedger(forward, ledgerRows) {
  * Apply one migration + ledger insert in a single atomic transaction.
  * Outer BEGIN/COMMIT wrappers are stripped conservatively before execution.
  */
-async function applyOne(client, entry, migrationsDir, hooks) {
+async function applyOne(client, entry, migrationsDir, hooks, checksumMode) {
+  const mode = checksumMode || CHECKSUM_MODE_CANONICAL_LF_V1;
   const abs = path.join(migrationsDir, entry.filename);
-  const sql = fs.readFileSync(abs, 'utf8');
-  const liveSha = sha256File(abs);
-  if (liveSha !== entry.sha256) {
+  const sqlBuf = fs.readFileSync(abs);
+  const sql = sqlBuf.toString('utf8');
+  const live = checksumMigrationFile(abs, mode);
+  if (!live.ok || live.sha256 !== entry.sha256) {
     throw Object.assign(new Error(`checksum mismatch before apply: ${entry.filename}`), {
-      code: 'checksum_mismatch',
+      code: live.ok ? 'checksum_mismatch' : live.code || 'checksum_mismatch',
     });
   }
 
@@ -118,6 +124,7 @@ async function applyOne(client, entry, migrationsDir, hooks) {
     if (hooks && typeof hooks.beforeLedgerInsert === 'function') {
       await hooks.beforeLedgerInsert(client, entry);
     }
+    // New ledger rows always store canonical_lf_v1 (entry.sha256 under declared mode).
     await client.query(
       `INSERT INTO schema_migration_ledger (id, filename, checksum_sha256, apply_order)
        VALUES ($1, $2, $3, $4)`,
@@ -151,6 +158,15 @@ async function runCanonicalMigrations(opts) {
   }
 
   const manifest = loadManifest(options.manifestPath || MANIFEST_PATH);
+  const modeGate = resolveChecksumMode(manifest);
+  if (!modeGate.ok) {
+    return {
+      ok: false,
+      applied: [],
+      skipped: [],
+      errors: [{ code: modeGate.code, message: modeGate.message }],
+    };
+  }
   const integrity = validateManifestIntegrity(manifest, {
     migrationsDir: options.migrationsDir || MIGRATIONS_DIR,
   });
@@ -193,9 +209,15 @@ async function runCanonicalMigrations(opts) {
           applied.push(entry.id);
           continue;
         }
-        await applyOne(client, entry, options.migrationsDir || MIGRATIONS_DIR, {
-          beforeLedgerInsert: options.beforeLedgerInsert,
-        });
+        await applyOne(
+          client,
+          entry,
+          options.migrationsDir || MIGRATIONS_DIR,
+          {
+            beforeLedgerInsert: options.beforeLedgerInsert,
+          },
+          modeGate.mode,
+        );
         applied.push(entry.id);
       }
     });

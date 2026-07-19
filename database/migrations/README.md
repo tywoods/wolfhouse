@@ -33,9 +33,13 @@ Numeric file order (`001`, `002`, `003`) does not match fresh-DB dependency orde
 
 `020_wolfhouse_room_gender_metadata.sql` updates `rooms` for `wolfhouse-somo` only. On an empty Sunset database it is a **no-op** (zero matching rows) but should still run to keep migration parity with Wolfhouse.
 
-## Migration ledger (FOUNDATION Slice 4)
+## Migration ledger (FOUNDATION Slice 4 + 13A.1)
 
-Canonical forward chain + classifications live in `canonical-manifest.json` (immutable checksums).
+Canonical forward chain + classifications live in `canonical-manifest.json`.
+
+**Checksum mode:** `canonical_lf_v1` (Slice 13A.1) — SHA-256 over UTF-8 bytes after CRLF/lone-CR → LF normalization. Identical on Windows and Linux regardless of checkout EOL conversion. Rejects NUL/binary content.
+
+**Legacy ledger rows:** environments that applied under Slice 4 may still store pre-transition (CRLF-era working-tree) hashes. The runner accepts only the exact committed `legacySha256` for that entry, or the new canonical hash. New ledger inserts always write `canonical_lf_v1`. Arbitrary mismatches fail closed. Transition evidence: `fixtures/sunset-schema-observer/slice13a1-checksum-canonical-lf-v1-transition-report.json`.
 
 ```bash
 # Integrity gate (no database)
@@ -52,5 +56,7 @@ node scripts/prove-canonical-migrations-fresh-db.js
 The runner refuses Azure / staging / production hosts and forbidden DB names (`sunset_staging`, `wolfhouse_staging`, …). It records applies in `schema_migration_ledger` under a PostgreSQL advisory lock.
 
 **015 gap:** intentionally unused (documented above). Duplicate numbers `024` / `030` / `033` are resolved in the manifest without renaming SQL files.
+
+Git attributes pin `database/migrations/*.sql` to `eol=lf` so new migrations stay LF in the object store.
 
 ---

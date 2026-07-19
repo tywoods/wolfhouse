@@ -10,7 +10,7 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { loadManifest, MANIFEST_PATH, forwardEntries, validateManifestIntegrity } = require('./lib/migration-integrity');
+const { loadManifest, MANIFEST_PATH, forwardEntries, validateManifestIntegrity, sha256CanonicalLfV1FromBuffer, CHECKSUM_MODE_CANONICAL_LF_V1 } = require('./lib/migration-integrity');
 
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(ROOT, 'fixtures', 'sunset-schema-observer');
@@ -20,6 +20,7 @@ const PROV_PATH = path.join(FIX, 'slice13a-migration-provenance-matrix.json');
 const FINDINGS_PATH = path.join(FIX, 'slice13a-findings.md');
 const DECISIONS_PATH = path.join(FIX, 'slice13a-operator-decision-list.json');
 const BYTE_PATH = path.join(FIX, 'slice13a-manifest-byte-provenance-report.json');
+const TRANSITION_PATH = path.join(FIX, 'slice13a1-checksum-canonical-lf-v1-transition-report.json');
 const MISMATCH_PATH = path.join(FIX, 'slice11-canonical-vs-live-mismatch-report.json');
 const EXPECTED_PATH = path.join(FIX, 'expected-product-schema.json');
 const BUILD_PATH = path.join(ROOT, 'scripts', 'build-sunset-schema-slice13a-classification.js');
@@ -50,14 +51,34 @@ function sha256(buf) {
   return crypto.createHash('sha256').update(buf).digest('hex');
 }
 
-function gitBlobSha(rel) {
+function gitBlobBytes(rel) {
   const r = spawnSync('git', ['show', `HEAD:${rel.replace(/\\/g, '/')}`], {
     cwd: ROOT,
     encoding: 'buffer',
     maxBuffer: 10 * 1024 * 1024,
   });
   if (r.status !== 0) throw new Error(`git show failed for ${rel}`);
-  return sha256(Buffer.from(r.stdout));
+  return Buffer.from(r.stdout);
+}
+
+function gitBlobSha(rel) {
+  return sha256(gitBlobBytes(rel));
+}
+
+function isResolved13a1(decisions, provenance, byteReport, expected) {
+  const dec007 = (decisions.items || []).find((d) => d.id === 'DEC-007');
+  return Boolean(
+    dec007
+    && dec007.status === 'resolved_by_slice_13a1'
+    && fs.existsSync(TRANSITION_PATH)
+    && provenance.migration_integrity_blocker
+    && provenance.migration_integrity_blocker.present === false
+    && provenance.migration_integrity_blocker.resolved === true
+    && byteReport.migration_integrity_blocker
+    && byteReport.migration_integrity_blocker.present === false
+    && expected.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1
+    && expected.productFingerprint === CANON_FP,
+  );
 }
 
 function main() {
@@ -78,6 +99,7 @@ function main() {
   const findings = fs.readFileSync(FINDINGS_PATH, 'utf8');
   const buildSrc = fs.readFileSync(BUILD_PATH, 'utf8');
   const verifySrc = fs.readFileSync(VERIFY_PATH, 'utf8');
+  const resolved13a1 = isResolved13a1(decisions, provenance, byteReport, expected);
 
   pass('no-live-derived-expected-fixture', expected.productFingerprint === CANON_FP
     && (!expected.source || expected.source !== 'live-sunset-staging-observer-catalog')
@@ -130,70 +152,118 @@ function main() {
   const manifest = loadManifest(MANIFEST_PATH);
   const forward = forwardEntries(manifest);
   pass('forward-manifest-36', forward.length === 36);
+  pass(
+    'manifest-checksum-mode-when-resolved',
+    !resolved13a1 || manifest.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1,
+  );
 
-  // Existing working-tree validator (environment-dependent) — capture actual result.
   const integrity = validateManifestIntegrity(manifest);
-  console.log(`  INFO  existing-validateManifestIntegrity ok=${integrity.ok} errors=${integrity.errors.length}`);
+  console.log(`  INFO  validateManifestIntegrity ok=${integrity.ok} errors=${integrity.errors.length} mode=${manifest.checksumMode || 'none'}`);
+  pass('green-manifest-integrity-when-resolved', !resolved13a1 || integrity.ok);
 
-  // Honest byte report gates
+  // Honest byte report gates (historical investigation fields preserved)
   const comparisons = byteReport.comparisons || [];
   pass('byte-report-has-36-comparisons', comparisons.length === 36
     && byteReport.totals
     && byteReport.totals.forwardCount === 36
     && (byteReport.totals.bytesMatchManifest + byteReport.totals.bytesMismatchManifest) === 36);
 
-  let gitBlobCompareOk = true;
-  let claimedVerifiedWhileMismatch = false;
-  for (const m of migs) {
-    const ent = forward.find((e) => e.id === m.id);
-    const cmp = comparisons.find((c) => c.id === m.id);
-    if (!ent || !cmp) { gitBlobCompareOk = false; continue; }
-    if (!m.manifestRecordedSha256 || !m.currentGitBlobSha256) { gitBlobCompareOk = false; continue; }
-    if (m.manifestRecordedSha256 !== ent.sha256) { gitBlobCompareOk = false; continue; }
-    if (m.manifestRecordedSha256 !== cmp.manifestRecordedSha256) { gitBlobCompareOk = false; continue; }
-    const liveBlob = gitBlobSha(`database/migrations/${m.filename}`);
-    if (m.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
-    if (cmp.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
-    const expectedMatch = liveBlob === ent.sha256;
-    if (m.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
-    if (cmp.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
-    if (m.hashesVerifiedAgainstGitBlob === true && m.bytesMatchManifest !== true) {
-      claimedVerifiedWhileMismatch = true;
+  if (resolved13a1) {
+    const transition = JSON.parse(fs.readFileSync(TRANSITION_PATH, 'utf8'));
+    let canonOk = true;
+    for (const m of migs) {
+      const ent = forward.find((e) => e.id === m.id);
+      if (!ent) { canonOk = false; continue; }
+      if (m.manifestRecordedSha256 !== ent.sha256) { canonOk = false; continue; }
+      const blob = gitBlobBytes(`database/migrations/${m.filename}`);
+      const canon = sha256CanonicalLfV1FromBuffer(blob);
+      if (canon !== ent.sha256) { canonOk = false; continue; }
+      if (m.bytesMatchManifest !== true) { canonOk = false; continue; }
+      if (m.hashesVerifiedAgainstGitBlob !== true) { canonOk = false; continue; }
     }
+    pass('canonical-lf-v1-forward-hashes-byte-verifiable', canonOk && migs.length === 36);
+    pass(
+      'hash-match-mismatch-totals-reconcile-36',
+      provenance.hashTotals
+        && provenance.hashTotals.bytesMatchManifest === 36
+        && provenance.hashTotals.bytesMismatchManifest === 0
+        && provenance.hashTotals.reconcileTo36 === true
+        && provenance.hashTotals.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1,
+    );
+    pass(
+      'dec-007-resolved-by-slice-13a1',
+      decisions.items.some((d) => d.id === 'DEC-007' && d.status === 'resolved_by_slice_13a1')
+        && provenance.migration_integrity_blocker.present === false
+        && byteReport.migration_integrity_blocker.present === false
+        && /Slice 13A\.1 resolution/i.test(findings)
+        && transition.checksumMode === CHECKSUM_MODE_CANONICAL_LF_V1
+        && transition.totals.executableSqlUnchanged === transition.totals.manifestEntries
+        && transition.productFingerprintUnchanged === CANON_FP,
+    );
+    pass('no-false-hash-verified-claim',
+      migs.every((m) => m.hashesVerifiedAgainstGitBlob === true && m.bytesMatchManifest === true)
+        && provenance.migration_integrity_blocker.hashesVerifiedClaim === true);
+    pass('migration-integrity-blocker-recorded-when-mismatch', true);
+    pass('does-not-claim-all-manifest-hashes-match-git-blobs', true);
+    pass('raw-git-blob-hash-fields-honest',
+      // Historical byte-report comparisons remain the Slice 13A investigation record (2 match / 34 mismatch).
+      byteReport.totals.bytesMatchManifest === 2
+        && byteReport.totals.bytesMismatchManifest === 34
+        && byteReport.rootCause
+        && byteReport.rootCause.notStaleExecutableSql === true);
+  } else {
+    let gitBlobCompareOk = true;
+    let claimedVerifiedWhileMismatch = false;
+    for (const m of migs) {
+      const ent = forward.find((e) => e.id === m.id);
+      const cmp = comparisons.find((c) => c.id === m.id);
+      if (!ent || !cmp) { gitBlobCompareOk = false; continue; }
+      if (!m.manifestRecordedSha256 || !m.currentGitBlobSha256) { gitBlobCompareOk = false; continue; }
+      if (m.manifestRecordedSha256 !== ent.sha256) { gitBlobCompareOk = false; continue; }
+      if (m.manifestRecordedSha256 !== cmp.manifestRecordedSha256) { gitBlobCompareOk = false; continue; }
+      const liveBlob = gitBlobSha(`database/migrations/${m.filename}`);
+      if (m.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
+      if (cmp.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
+      const expectedMatch = liveBlob === ent.sha256;
+      if (m.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
+      if (cmp.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
+      if (m.hashesVerifiedAgainstGitBlob === true && m.bytesMatchManifest !== true) {
+        claimedVerifiedWhileMismatch = true;
+      }
+    }
+    pass('raw-git-blob-hash-fields-honest', gitBlobCompareOk && !claimedVerifiedWhileMismatch);
+
+    const matchN = migs.filter((m) => m.bytesMatchManifest).length;
+    const mismatchN = migs.filter((m) => !m.bytesMatchManifest).length;
+    pass('hash-match-mismatch-totals-reconcile-36',
+      matchN + mismatchN === 36
+      && provenance.hashTotals
+      && provenance.hashTotals.bytesMatchManifest === matchN
+      && provenance.hashTotals.bytesMismatchManifest === mismatchN
+      && provenance.hashTotals.reconcileTo36 === true
+      && byteReport.totals.bytesMatchManifest === matchN
+      && byteReport.totals.bytesMismatchManifest === mismatchN);
+
+    pass('no-false-hash-verified-claim',
+      migs.every((m) => m.hashesVerifiedAgainstGitBlob === m.bytesMatchManifest)
+      && provenance.migration_integrity_blocker
+      && provenance.migration_integrity_blocker.hashesVerifiedClaim === false
+      && provenance.migration_integrity_blocker.present === (mismatchN > 0)
+      && provenance.migration_integrity_blocker.state === 'migration_integrity_blocker');
+
+    pass('migration-integrity-blocker-recorded-when-mismatch',
+      mismatchN === 0
+      || (
+        provenance.migration_integrity_blocker.present === true
+        && byteReport.migration_integrity_blocker.present === true
+        && (decisions.items || []).some((d) => d.id === 'DEC-007' && d.status === 'migration_integrity_blocker')
+        && /migration_integrity_blocker/i.test(findings)
+      ));
+
+    pass('does-not-claim-all-manifest-hashes-match-git-blobs',
+      !(mismatchN > 0 && /hashes verified against git blob/i.test(findings) && !/blocker/i.test(findings))
+      && (mismatchN === 0 || /do not claim byte-verified/i.test(findings)));
   }
-  pass('raw-git-blob-hash-fields-honest', gitBlobCompareOk && !claimedVerifiedWhileMismatch);
-
-  const matchN = migs.filter((m) => m.bytesMatchManifest).length;
-  const mismatchN = migs.filter((m) => !m.bytesMatchManifest).length;
-  pass('hash-match-mismatch-totals-reconcile-36',
-    matchN + mismatchN === 36
-    && provenance.hashTotals
-    && provenance.hashTotals.bytesMatchManifest === matchN
-    && provenance.hashTotals.bytesMismatchManifest === mismatchN
-    && provenance.hashTotals.reconcileTo36 === true
-    && byteReport.totals.bytesMatchManifest === matchN
-    && byteReport.totals.bytesMismatchManifest === mismatchN);
-
-  pass('no-false-hash-verified-claim',
-    migs.every((m) => m.hashesVerifiedAgainstGitBlob === m.bytesMatchManifest)
-    && provenance.migration_integrity_blocker
-    && provenance.migration_integrity_blocker.hashesVerifiedClaim === false
-    && provenance.migration_integrity_blocker.present === (mismatchN > 0)
-    && provenance.migration_integrity_blocker.state === 'migration_integrity_blocker');
-
-  pass('migration-integrity-blocker-recorded-when-mismatch',
-    mismatchN === 0
-    || (
-      provenance.migration_integrity_blocker.present === true
-      && byteReport.migration_integrity_blocker.present === true
-      && (decisions.items || []).some((d) => d.id === 'DEC-007' && d.status === 'migration_integrity_blocker')
-      && /migration_integrity_blocker/i.test(findings)
-    ));
-
-  // Allow PR to pass with honest blocker; reject if it claims all hashes match when they do not.
-  pass('does-not-claim-all-manifest-hashes-match-git-blobs',
-    !(mismatchN > 0 && /hashes verified against git blob/i.test(findings) && !/blocker/i.test(findings))
-    && (mismatchN === 0 || /do not claim byte-verified/i.test(findings)));
 
   const mig035 = migs.find((m) => m.id === '035_customer_message_templates');
   pass('migration-035-explicit',

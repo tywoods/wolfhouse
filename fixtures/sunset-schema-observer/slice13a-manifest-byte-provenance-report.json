@@ -30,12 +30,18 @@
     "executableSqlChangedBeyondEolSinceManifest": 0
   },
   "migration_integrity_blocker": {
-    "present": true,
+    "present": false,
     "code": "canonical_manifest_sha256_not_equal_current_git_blob",
     "reason": "Raw Git blob sha256 differs from manifest-recorded sha256 for one or more forward migrations. Byte-verified migration provenance is blocked until a dedicated manifest-integrity repair rewrites hashes from committed blobs (or pins eol=lf) without changing executable SQL intent.",
-    "doNotClaimHashesVerified": true,
+    "doNotClaimHashesVerified": false,
     "doNotInferReliableHistoricalApplicationFromByteManifest": true,
-    "existingValidateManifestIntegrityNote": "scripts/verify-migration-integrity.js → validateManifestIntegrity hashes working-tree files via sha256File(disk). On this Windows autocrlf checkout it returned ok=true (working-tree CRLF matches CRLF-recorded manifest). That pass does not prove git-blob equality."
+    "existingValidateManifestIntegrityNote": "scripts/verify-migration-integrity.js → validateManifestIntegrity hashes working-tree files via sha256File(disk). On this Windows autocrlf checkout it returned ok=true (working-tree CRLF matches CRLF-recorded manifest). That pass does not prove git-blob equality.",
+    "resolved": true,
+    "resolvedBySlice": "13A.1",
+    "resolvedChecksumMode": "canonical_lf_v1",
+    "resolutionReport": "fixtures/sunset-schema-observer/slice13a1-checksum-canonical-lf-v1-transition-report.json",
+    "historicalNote": "At Slice 13A investigation time, 34/36 forward Git blobs mismatched CRLF-era manifest hashes. Slice 13A.1 resolved with canonical_lf_v1.",
+    "hashesVerifiedUnderCanonicalLfV1": true
   },
   "matchingIds": [
     "021_sunset_admin_business_config",
@@ -978,5 +984,11 @@
       },
       "commitsAfterManifestTouchingFile": []
     }
-  ]
+  ],
+  "slice13a1Resolution": {
+    "resolved": true,
+    "checksumMode": "canonical_lf_v1",
+    "allManifestEntriesMigrated": 41,
+    "productFingerprintUnchanged": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52"
+  }
 }
