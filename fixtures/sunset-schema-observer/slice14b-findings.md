@@ -2,7 +2,7 @@
 
 **Status:** complete (hard-disabled boundary; offline injected-adapter proof)
 **Master basis:** `8905be445fcce5d23e813f66d339c48580c5ecd9`
-**Generated:** 2026-07-19T18:51:24.972Z
+**Generated:** 2026-07-19T18:56:23.173Z
 
 ## Outcome
 
@@ -23,12 +23,16 @@ Added a **hard-disabled** live read-only connection boundary that can later run 
 
 ### Credential boundary
 
-Credentials may come **only** from:
+Credentials may come **only** from protected admin env populated by the existing locked loader (`scripts/load-sunset-staging-pg-admin-env.js` → Key Vault `sunset-database-url`):
 
-- approved env `SUNSET_SCHEMA_OBSERVER_DATABASE_URL`
-- approved file path via `SUNSET_PHASE_D_LIVE_DSN_FILE` under `/run/secrets/` / `/var/run/secrets/`
+- `SUNSET_STAGING_PG_ADMIN_USER`
+- `SUNSET_STAGING_PG_ADMIN_PASSWORD`
 
-Never from argv, output, evidence, or committed repository files.
+Connection config is constructed **only** for the locked host/database (`sslmode=verify-full`, `application_name=wh-sunset-phase-d-preflight`).
+
+**Never** accepted: caller-supplied DSN, argv credential, `SUNSET_SCHEMA_OBSERVER_DATABASE_URL` (CONNECT-only / no SELECT), `WOLFHOUSE_DATABASE_URL`, or arbitrary file path.
+
+Username/password are **never** printed, persisted, returned, hashed, or included in evidence/errors.
 
 ### Query boundary
 
@@ -39,9 +43,10 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session `BEGIN RE
 | Case | Result |
 |------|--------|
 | Default path (no dual flags) | RED — zero connection calls |
-| Exact target + dual flags | GREEN accept — connect still hard-disabled (0 connect/query) |
+| Exact target + dual flags + protected admin env | GREEN accept — connect still hard-disabled (0 connect/query) |
 | Wrong subscription / RG / host / database / TLS | RED before connect |
-| Credential from argv / non-approved file | RED before connect |
+| Observer DSN / missing / partial admin credentials | RED before connect |
+| Caller-supplied DSN / argv / WOLFHOUSE_DATABASE_URL / file path | RED before connect |
 | Firewall/network mutation planned | RED |
 | Unauthorized SQL | RED |
 | 14A catalog + aggregate + session SQL | GREEN authorize |
@@ -62,7 +67,7 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session `BEGIN RE
 
 ## Non-claims
 
-**Do not claim** Sunset is repaired. Phase D `ADD CONSTRAINT` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence.
+**Do not claim** Sunset is repaired. Phase D `ADD CONSTRAINT` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
 
 ## Commands
 

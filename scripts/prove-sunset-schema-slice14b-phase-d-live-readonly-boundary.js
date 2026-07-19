@@ -27,9 +27,9 @@ const {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
-  CREDENTIAL_ENV,
-  CREDENTIAL_FILE_ENV,
-  APPROVED_CREDENTIAL_FILE_PREFIXES,
+  CREDENTIAL_USER_ENV,
+  CREDENTIAL_PASSWORD_ENV,
+  OBSERVER_DSN_ENV,
   AUTHORIZED_AGGREGATE_SQL,
   AUTHORIZED_TABLE_EXISTS_SQL,
   AUTHORIZED_COLUMN_CATALOG_SQL,
@@ -37,7 +37,7 @@ const {
   OUTPUT_COUNT_KEYS,
   validateTargets,
   evaluateDualEnableFlags,
-  resolveApprovedCredentials,
+  resolveProtectedAdminCredentials,
   authorizeLiveReadonlySql,
   assertNoNetworkMutation,
   assertNoSecretInArgv,
@@ -81,10 +81,11 @@ const LOCKED_13C_SHA = Object.freeze({
   '041': '3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09',
 });
 
-const FAKE_PASSWORD = 'slice14b-proof-password-never-commit';
-const GOOD_DSN = [
+const FAKE_ADMIN_USER = 'slice14b-proof-admin-user';
+const FAKE_ADMIN_PASSWORD = 'slice14b-proof-admin-password-never-commit';
+const FAKE_OBSERVER_DSN = [
   'postgresql://sunset_schema_observer:',
-  encodeURIComponent(FAKE_PASSWORD),
+  encodeURIComponent('slice14b-observer-password-never-commit'),
   `@${TARGETS.postgresHost}:5432/${TARGETS.database}?sslmode=verify-full`,
 ].join('');
 
@@ -93,7 +94,8 @@ function dualEnv(extra) {
     [ENV_LIVE_READONLY]: '1',
     [ENV_LIVE_PREFLIGHT]: '1',
     [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-    [CREDENTIAL_ENV]: GOOD_DSN,
+    [CREDENTIAL_USER_ENV]: FAKE_ADMIN_USER,
+    [CREDENTIAL_PASSWORD_ENV]: FAKE_ADMIN_PASSWORD,
     ...(extra || {}),
   };
 }
@@ -188,7 +190,11 @@ async function main() {
 
   const redCases = [];
   redCases.push(await runRed('missing_dual_flags', async () => evaluateLiveReadonlyBoundary({
-    env: { [CREDENTIAL_ENV]: GOOD_DSN, [ENV_SUBSCRIPTION]: TARGETS.subscriptionId },
+    env: {
+      [CREDENTIAL_USER_ENV]: FAKE_ADMIN_USER,
+      [CREDENTIAL_PASSWORD_ENV]: FAKE_ADMIN_PASSWORD,
+      [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
+    },
     argv: ['node', 'prove'],
     azureAdapters: goodAzure(),
     dbAdapters: goodDb(),
@@ -197,7 +203,8 @@ async function main() {
     env: {
       [ENV_LIVE_READONLY]: '1',
       [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-      [CREDENTIAL_ENV]: GOOD_DSN,
+      [CREDENTIAL_USER_ENV]: FAKE_ADMIN_USER,
+      [CREDENTIAL_PASSWORD_ENV]: FAKE_ADMIN_PASSWORD,
     },
     argv: ['node', 'prove'],
     azureAdapters: goodAzure(),
@@ -227,45 +234,87 @@ async function main() {
     dbAdapters: createInjectedDbAdapters({ host: 'evil.example.com' }),
   })));
   redCases.push(await runRed('wrong_database', async () => evaluateLiveReadonlyBoundary({
-    env: dualEnv({
-      [CREDENTIAL_ENV]: GOOD_DSN.replace(TARGETS.database, 'wolfhouse_staging'),
-    }),
+    env: dualEnv(),
     argv: ['node', 'prove'],
     targets: { ...TARGETS, database: 'wolfhouse_staging' },
     azureAdapters: goodAzure(),
     dbAdapters: createInjectedDbAdapters({ database: 'wolfhouse_staging' }),
   })));
   redCases.push(await runRed('wrong_tls', async () => evaluateLiveReadonlyBoundary({
-    env: dualEnv({
-      [CREDENTIAL_ENV]: GOOD_DSN.replace('sslmode=verify-full', 'sslmode=require'),
-    }),
+    env: dualEnv(),
     argv: ['node', 'prove'],
+    targets: { ...TARGETS, sslmode: 'require' },
     azureAdapters: goodAzure(),
     dbAdapters: createInjectedDbAdapters({ sslmode: 'require' }),
   })));
-  redCases.push(await runRed('credential_from_argv', async () => {
-    const env = {
+  redCases.push(await runRed('credential_from_argv', async () => evaluateLiveReadonlyBoundary({
+    env: {
       [ENV_LIVE_READONLY]: '1',
       [ENV_LIVE_PREFLIGHT]: '1',
       [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-      // no env/file credential
-    };
-    return evaluateLiveReadonlyBoundary({
-      env,
-      argv: ['node', 'prove', `--dsn=${GOOD_DSN}`],
-      azureAdapters: goodAzure(),
-      dbAdapters: goodDb(),
-    });
-  }));
-  redCases.push(await runRed('credential_file_not_approved', async () => evaluateLiveReadonlyBoundary({
+    },
+    argv: ['node', 'prove', `--dsn=${FAKE_OBSERVER_DSN}`],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('observer_credentials_forbidden', async () => evaluateLiveReadonlyBoundary({
     env: dualEnv({
-      [CREDENTIAL_ENV]: '',
-      [CREDENTIAL_FILE_ENV]: path.join(FIX, 'slice14b-fake-dsn.txt'),
+      [CREDENTIAL_USER_ENV]: '',
+      [CREDENTIAL_PASSWORD_ENV]: '',
+      [OBSERVER_DSN_ENV]: FAKE_OBSERVER_DSN,
     }),
     argv: ['node', 'prove'],
     azureAdapters: goodAzure(),
     dbAdapters: goodDb(),
-    readFileSync: () => GOOD_DSN,
+  })));
+  redCases.push(await runRed('missing_admin_credentials', async () => evaluateLiveReadonlyBoundary({
+    env: {
+      [ENV_LIVE_READONLY]: '1',
+      [ENV_LIVE_PREFLIGHT]: '1',
+      [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
+    },
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('partial_admin_user_only', async () => evaluateLiveReadonlyBoundary({
+    env: dualEnv({ [CREDENTIAL_PASSWORD_ENV]: '' }),
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('partial_admin_password_only', async () => evaluateLiveReadonlyBoundary({
+    env: dualEnv({ [CREDENTIAL_USER_ENV]: '' }),
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('wolfhouse_database_url_forbidden', async () => evaluateLiveReadonlyBoundary({
+    env: dualEnv({
+      [CREDENTIAL_USER_ENV]: '',
+      [CREDENTIAL_PASSWORD_ENV]: '',
+      WOLFHOUSE_DATABASE_URL: FAKE_OBSERVER_DSN,
+    }),
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('credential_file_path_forbidden', async () => evaluateLiveReadonlyBoundary({
+    env: dualEnv({
+      [CREDENTIAL_USER_ENV]: '',
+      [CREDENTIAL_PASSWORD_ENV]: '',
+      SUNSET_PHASE_D_LIVE_DSN_FILE: '/run/secrets/fake-dsn',
+    }),
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+  })));
+  redCases.push(await runRed('caller_supplied_dsn_forbidden', async () => evaluateLiveReadonlyBoundary({
+    env: dualEnv(),
+    argv: ['node', 'prove'],
+    azureAdapters: goodAzure(),
+    dbAdapters: goodDb(),
+    dsn: FAKE_OBSERVER_DSN,
   })));
   redCases.push(await runRed('firewall_mutation_planned', async () => evaluateLiveReadonlyBoundary({
     env: dualEnv(),
@@ -294,8 +343,9 @@ async function main() {
   } catch (e) {
     throw new Error(`authorized SQL rejected: ${e.message}`);
   }
+  if (!aggregateOk) throw new Error('authorized SQL must pass');
 
-  // GREEN: exact target + dual flags → accepted, still zero connect/query
+  // GREEN: exact target + dual flags + protected admin env → accepted, still zero connect/query
   const greenAzureRec = createCallRecorder();
   const greenDbRec = createCallRecorder();
   const green = await runCase('exact_target_dual_flags', async () => {
@@ -312,7 +362,15 @@ async function main() {
     if (r.liveReadonlyConnectEnabled !== false) {
       throw new Error('connect must remain hard-disabled');
     }
-    return { ok: true, ...r, azureCalls: greenAzureRec.total(), dbConnectInfoCalls: greenDbRec.count('connectInfo') };
+    if (!r.plan || r.plan.credentialSource !== 'protected_admin_env') {
+      throw new Error('GREEN must record protected_admin_env credential source');
+    }
+    return {
+      ok: true,
+      ...r,
+      azureCalls: greenAzureRec.total(),
+      dbConnectInfoCalls: greenDbRec.count('connectInfo'),
+    };
   });
 
   // Count-only shaping + secret-free
@@ -325,9 +383,15 @@ async function main() {
     throw new Error('count-only shape drift');
   }
 
+  const leakSecrets = [
+    FAKE_ADMIN_USER,
+    FAKE_ADMIN_PASSWORD,
+    FAKE_OBSERVER_DSN,
+    'slice14b-observer-password-never-commit',
+  ];
   const leakScan = assertSecretFreeText(
-    JSON.stringify({ green: redactDeep(green, [GOOD_DSN, FAKE_PASSWORD]), redCases }),
-    [GOOD_DSN, FAKE_PASSWORD],
+    JSON.stringify({ green: redactDeep(green, leakSecrets), redCases }),
+    leakSecrets,
   );
   if (!leakScan.ok) throw new Error(`secret leak in proof payload: ${leakScan.hits.join(',')}`);
 
@@ -349,25 +413,8 @@ async function main() {
   }
 
   // Credential argv helper
-  if (assertNoSecretInArgv(['--dsn', GOOD_DSN], [GOOD_DSN]).ok !== false) {
+  if (assertNoSecretInArgv(['--dsn', FAKE_OBSERVER_DSN], [FAKE_OBSERVER_DSN]).ok !== false) {
     throw new Error('argv secret must be detected');
-  }
-
-  // Approved file path (injected read) GREEN source
-  const fileGreen = await evaluateLiveReadonlyBoundary({
-    env: {
-      [ENV_LIVE_READONLY]: '1',
-      [ENV_LIVE_PREFLIGHT]: '1',
-      [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-      [CREDENTIAL_FILE_ENV]: `${APPROVED_CREDENTIAL_FILE_PREFIXES[0]}sunset-schema-observer-database-url`,
-    },
-    argv: ['node', 'prove'],
-    azureAdapters: goodAzure(),
-    dbAdapters: goodDb(),
-    readFileSync: () => GOOD_DSN,
-  });
-  if (!fileGreen.accepted || fileGreen.counters.connectCalls !== 0) {
-    throw new Error('approved file credential path must accept without connect');
   }
 
   const generatedAt = new Date().toISOString();
@@ -393,13 +440,31 @@ async function main() {
     masterShaBasis: MASTER,
     slice: '14B',
     purpose:
-      'Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Offline injected-adapter proof only in this slice.',
+      'Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Credentials from protected admin env only (Key Vault sunset-database-url loader). Offline injected-adapter proof only in this slice.',
     targets: { ...TARGETS },
     credentialSources: {
-      approvedEnv: CREDENTIAL_ENV,
-      approvedFileEnv: CREDENTIAL_FILE_ENV,
-      approvedFilePrefixes: APPROVED_CREDENTIAL_FILE_PREFIXES.slice(),
-      forbidden: ['argv', 'output', 'evidence', 'committed_files'],
+      approvedUserEnv: CREDENTIAL_USER_ENV,
+      approvedPasswordEnv: CREDENTIAL_PASSWORD_ENV,
+      loader: 'scripts/load-sunset-staging-pg-admin-env.js',
+      keyVaultSecret: 'sunset-database-url',
+      connectConfig: {
+        host: TARGETS.postgresHost,
+        port: TARGETS.port,
+        database: TARGETS.database,
+        sslmode: 'verify-full',
+        application_name: TARGETS.applicationName,
+      },
+      forbidden: [
+        'argv',
+        'output',
+        'evidence',
+        'committed_files',
+        'caller_supplied_dsn',
+        OBSERVER_DSN_ENV,
+        'WOLFHOUSE_DATABASE_URL',
+        'SUNSET_PHASE_D_LIVE_DSN_FILE',
+        'arbitrary_file_path',
+      ],
     },
     dualEnableFlags: {
       [ENV_LIVE_READONLY]: '1',
@@ -435,6 +500,8 @@ async function main() {
       'migration',
       'Azure mutation',
       'credential in argv/output/evidence/committed files',
+      'observer DSN / WOLFHOUSE_DATABASE_URL / caller-supplied DSN / file path credentials',
+      'username/password in evidence/errors',
       'row payloads',
       'arbitrary SQL',
       '14A predicate alteration',
@@ -445,6 +512,8 @@ async function main() {
       'No live evidence capture',
       'No live observer job',
       'No expected-fixture regeneration',
+      'No observer role/grant changes',
+      'No Key Vault loader changes',
     ],
   };
 
@@ -475,6 +544,15 @@ async function main() {
     migration028Sha256CanonicalLfV1: EXPECTED_028_SHA256,
     defaultDisabled: true,
     dualEnableFlagsRequired: true,
+    credentialContract: {
+      source: 'protected_admin_env',
+      userEnv: CREDENTIAL_USER_ENV,
+      passwordEnv: CREDENTIAL_PASSWORD_ENV,
+      observerDsnAccepted: false,
+      callerSuppliedDsnAccepted: false,
+      filePathAccepted: false,
+      usernamePasswordInEvidence: false,
+    },
     offlineGates: {
       defaultPathZeroConnectionCalls: true,
       dualFlagsRequired: true,
@@ -485,13 +563,18 @@ async function main() {
       wrongDatabaseRejectedBeforeConnect: true,
       wrongTlsRejectedBeforeConnect: true,
       credentialFromArgvRejected: true,
-      credentialFileNotApprovedRejected: true,
+      observerCredentialsRejectedBeforeConnect: true,
+      missingAdminCredentialsRejectedBeforeConnect: true,
+      partialAdminCredentialsRejectedBeforeConnect: true,
+      wolfhouseDatabaseUrlRejectedBeforeConnect: true,
+      credentialFilePathRejectedBeforeConnect: true,
+      callerSuppliedDsnRejectedBeforeConnect: true,
       firewallNetworkMutationRejected: true,
       unauthorizedSqlRejected: true,
       authorized14aCatalogAndAggregateOnly: true,
       countOnlySecretFree: true,
       liveAdapterFactoryHardDisabled: true,
-      approvedFileCredentialAcceptedWithoutConnect: true,
+      protectedAdminEnvAcceptedWithoutConnect: true,
     },
     redCases,
     greenCases: [
@@ -502,15 +585,8 @@ async function main() {
         connectCalls: 0,
         queryCalls: 0,
         liveReadonlyConnectEnabled: false,
+        credentialSource: 'protected_admin_env',
         code: green.code,
-      },
-      {
-        name: 'approved_file_credential',
-        ok: true,
-        accepted: true,
-        connectCalls: 0,
-        queryCalls: 0,
-        credentialSource: 'approved_file',
       },
     ],
     queryAuthorization: {
@@ -523,12 +599,12 @@ async function main() {
     },
     targets: { ...TARGETS },
     note:
-      'Slice 14B proves the hard-disabled live read-only boundary only. No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
+      'Slice 14B proves the hard-disabled live read-only boundary only. Protected admin env credentials (not CONNECT-only observer DSN). No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired.',
   };
 
   // Final secret scan on artifacts about to be written
   const artifactBlob = `${JSON.stringify(evidence)}${JSON.stringify(contract)}`;
-  const finalScan = assertSecretFreeText(artifactBlob, [GOOD_DSN, FAKE_PASSWORD]);
+  const finalScan = assertSecretFreeText(artifactBlob, leakSecrets);
   if (!finalScan.ok) throw new Error('evidence/contract would leak secrets');
 
   const findings = `# FOUNDATION Slice 14B — Phase D live read-only connection boundary
@@ -556,12 +632,16 @@ Added a **hard-disabled** live read-only connection boundary that can later run 
 
 ### Credential boundary
 
-Credentials may come **only** from:
+Credentials may come **only** from protected admin env populated by the existing locked loader (\`scripts/load-sunset-staging-pg-admin-env.js\` → Key Vault \`sunset-database-url\`):
 
-- approved env \`${CREDENTIAL_ENV}\`
-- approved file path via \`${CREDENTIAL_FILE_ENV}\` under \`${APPROVED_CREDENTIAL_FILE_PREFIXES.join('` / `')}\`
+- \`${CREDENTIAL_USER_ENV}\`
+- \`${CREDENTIAL_PASSWORD_ENV}\`
 
-Never from argv, output, evidence, or committed repository files.
+Connection config is constructed **only** for the locked host/database (\`sslmode=verify-full\`, \`application_name=${TARGETS.applicationName}\`).
+
+**Never** accepted: caller-supplied DSN, argv credential, \`${OBSERVER_DSN_ENV}\` (CONNECT-only / no SELECT), \`WOLFHOUSE_DATABASE_URL\`, or arbitrary file path.
+
+Username/password are **never** printed, persisted, returned, hashed, or included in evidence/errors.
 
 ### Query boundary
 
@@ -572,9 +652,10 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session \`BEGIN R
 | Case | Result |
 |------|--------|
 | Default path (no dual flags) | RED — zero connection calls |
-| Exact target + dual flags | GREEN accept — connect still hard-disabled (0 connect/query) |
+| Exact target + dual flags + protected admin env | GREEN accept — connect still hard-disabled (0 connect/query) |
 | Wrong subscription / RG / host / database / TLS | RED before connect |
-| Credential from argv / non-approved file | RED before connect |
+| Observer DSN / missing / partial admin credentials | RED before connect |
+| Caller-supplied DSN / argv / WOLFHOUSE_DATABASE_URL / file path | RED before connect |
 | Firewall/network mutation planned | RED |
 | Unauthorized SQL | RED |
 | 14A catalog + aggregate + session SQL | GREEN authorize |
@@ -595,7 +676,7 @@ Only Slice **14A** catalog queries + its exact aggregate (plus session \`BEGIN R
 
 ## Non-claims
 
-**Do not claim** Sunset is repaired. Phase D \`ADD CONSTRAINT\` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence.
+**Do not claim** Sunset is repaired. Phase D \`ADD CONSTRAINT\` is **not** implemented. Live connect/query against Sunset staging is **hard-disabled** in 14B. Zero live/Azure mutation. No firewall, ledger, migration, apply flag, or live evidence. No observer role/grant or Key Vault loader changes.
 
 ## Commands
 
@@ -612,12 +693,19 @@ npm run verify:sunset-schema-slice14b
   // Touch validateTargets green for completeness
   if (!validateTargets(TARGETS).ok) throw new Error('TARGETS self-validate failed');
   if (evaluateDualEnableFlags(dualEnv()).ok !== true) throw new Error('dual flags self-check failed');
-  const credSelf = resolveApprovedCredentials({ env: dualEnv(), argv: ['node'] });
-  if (!credSelf.ok || credSelf.source !== 'approved_env') throw new Error('credential self-check failed');
+  const credSelf = resolveProtectedAdminCredentials({ env: dualEnv(), argv: ['node'] });
+  if (!credSelf.ok || credSelf.source !== 'protected_admin_env') {
+    throw new Error('credential self-check failed');
+  }
+  if (credSelf.connectInfo.host !== TARGETS.postgresHost
+    || credSelf.connectInfo.database !== TARGETS.database
+    || credSelf.connectInfo.sslmode !== 'verify-full') {
+    throw new Error('locked connect info self-check failed');
+  }
 
   console.log('  PASS  default-path-zero-calls');
   console.log(`  PASS  red-cases (${redCases.length})`);
-  console.log('  PASS  green-exact-target-dual-flags (connect hard-disabled)');
+  console.log('  PASS  green-exact-target-protected-admin-env (connect hard-disabled)');
   console.log('  PASS  query-authorization + count-only + secret-free');
   console.log('  PASS  canonical-hashes-unchanged');
   console.log('\nArtifacts written:');

@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14b-phase-d-live-readonly-boundary-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T18:51:24.972Z",
+  "generatedAt": "2026-07-19T18:56:23.173Z",
   "masterShaBasis": "8905be445fcce5d23e813f66d339c48580c5ecd9",
   "slice": "14B",
   "outcome": "phase_d_live_readonly_boundary_proven_offline_hard_disabled",
@@ -30,6 +30,15 @@
   "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
   "defaultDisabled": true,
   "dualEnableFlagsRequired": true,
+  "credentialContract": {
+    "source": "protected_admin_env",
+    "userEnv": "SUNSET_STAGING_PG_ADMIN_USER",
+    "passwordEnv": "SUNSET_STAGING_PG_ADMIN_PASSWORD",
+    "observerDsnAccepted": false,
+    "callerSuppliedDsnAccepted": false,
+    "filePathAccepted": false,
+    "usernamePasswordInEvidence": false
+  },
   "offlineGates": {
     "defaultPathZeroConnectionCalls": true,
     "dualFlagsRequired": true,
@@ -40,13 +49,18 @@
     "wrongDatabaseRejectedBeforeConnect": true,
     "wrongTlsRejectedBeforeConnect": true,
     "credentialFromArgvRejected": true,
-    "credentialFileNotApprovedRejected": true,
+    "observerCredentialsRejectedBeforeConnect": true,
+    "missingAdminCredentialsRejectedBeforeConnect": true,
+    "partialAdminCredentialsRejectedBeforeConnect": true,
+    "wolfhouseDatabaseUrlRejectedBeforeConnect": true,
+    "credentialFilePathRejectedBeforeConnect": true,
+    "callerSuppliedDsnRejectedBeforeConnect": true,
     "firewallNetworkMutationRejected": true,
     "unauthorizedSqlRejected": true,
     "authorized14aCatalogAndAggregateOnly": true,
     "countOnlySecretFree": true,
     "liveAdapterFactoryHardDisabled": true,
-    "approvedFileCredentialAcceptedWithoutConnect": true
+    "protectedAdminEnvAcceptedWithoutConnect": true
   },
   "redCases": [
     {
@@ -122,7 +136,7 @@
       "name": "wrong_tls",
       "ok": true,
       "rejected": true,
-      "code": "credential_target_rejected",
+      "code": "wrong_target",
       "errorCodes": [
         "tls_not_verify_full"
       ],
@@ -141,12 +155,78 @@
       "queryCalls": 0
     },
     {
-      "name": "credential_file_not_approved",
+      "name": "observer_credentials_forbidden",
       "ok": true,
       "rejected": true,
       "code": "credential_source_rejected",
       "errorCodes": [
-        "credential_file_path_not_approved"
+        "observer_dsn_forbidden"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "missing_admin_credentials",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "credential_source_missing"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "partial_admin_user_only",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "pg_admin_password_required"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "partial_admin_password_only",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "pg_admin_user_required"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "wolfhouse_database_url_forbidden",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "wolfhouse_database_url_forbidden"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "credential_file_path_forbidden",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "credential_file_path_forbidden"
+      ],
+      "connectCalls": 0,
+      "queryCalls": 0
+    },
+    {
+      "name": "caller_supplied_dsn_forbidden",
+      "ok": true,
+      "rejected": true,
+      "code": "credential_source_rejected",
+      "errorCodes": [
+        "caller_supplied_dsn_forbidden"
       ],
       "connectCalls": 0,
       "queryCalls": 0
@@ -171,15 +251,8 @@
       "connectCalls": 0,
       "queryCalls": 0,
       "liveReadonlyConnectEnabled": false,
+      "credentialSource": "protected_admin_env",
       "code": "target_accepted_connect_hard_disabled"
-    },
-    {
-      "name": "approved_file_credential",
-      "ok": true,
-      "accepted": true,
-      "connectCalls": 0,
-      "queryCalls": 0,
-      "credentialSource": "approved_file"
     }
   ],
   "queryAuthorization": {
@@ -210,7 +283,8 @@
     "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
     "database": "sunset_staging",
     "sslmode": "verify-full",
-    "applicationName": "wh-sunset-phase-d-preflight"
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
   },
-  "note": "Slice 14B proves the hard-disabled live read-only boundary only. No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
+  "note": "Slice 14B proves the hard-disabled live read-only boundary only. Protected admin env credentials (not CONNECT-only observer DSN). No live connect/query. Phase D CHECK ADD remains a later slice. Do not claim Sunset repaired."
 }

@@ -7,23 +7,26 @@
  * preflight against the exact Sunset staging PostgreSQL/database.
  *
  * Locks: subscription, resource group, server FQDN, database, TLS verify-full,
- * application_name, BEGIN READ ONLY. Credentials only from approved env/file
- * path — never argv, output, evidence, or committed files.
+ * application_name, BEGIN READ ONLY. Credentials only from protected admin env
+ * (SUNSET_STAGING_PG_ADMIN_USER / SUNSET_STAGING_PG_ADMIN_PASSWORD), populated
+ * by the existing locked loader from Key Vault sunset-database-url — never argv,
+ * observer DSN, WOLFHOUSE_DATABASE_URL, caller-supplied DSN, file path, output,
+ * or evidence.
  *
  * This slice does NOT connect to live Azure/PostgreSQL, does NOT execute live
  * queries, and does NOT add apply/DDL/ledger capability.
  */
 
-const fs = require('fs');
-const path = require('path');
 const {
   EXPECTED_HOST,
   EXPECTED_DATABASE,
   OBSERVER_DSN_ENV,
-  parseDatabaseUrl,
-  assertObserverTarget,
   assertNoLeakedDsn,
 } = require('./sunset-schema-observer');
+const {
+  ENV_PG_ADMIN_USER,
+  ENV_PG_ADMIN_PASSWORD,
+} = require('./sunset-schema-observer-role-provision');
 const {
   AUTHORIZED_AGGREGATE_SQL,
   OUTPUT_KEYS,
@@ -42,6 +45,7 @@ const TARGETS = Object.freeze({
   database: EXPECTED_DATABASE,
   sslmode: 'verify-full',
   applicationName: 'wh-sunset-phase-d-preflight',
+  port: 5432,
 });
 
 /**
@@ -55,13 +59,17 @@ const ENV_LIVE_READONLY = 'SUNSET_PHASE_D_LIVE_READONLY';
 const ENV_LIVE_PREFLIGHT = 'SUNSET_PHASE_D_LIVE_PREFLIGHT';
 const ENV_SUBSCRIPTION = 'AZURE_SUBSCRIPTION_ID';
 
-/** Approved credential sources only (never argv / evidence / committed files). */
-const CREDENTIAL_ENV = OBSERVER_DSN_ENV; // SUNSET_SCHEMA_OBSERVER_DATABASE_URL
-const CREDENTIAL_FILE_ENV = 'SUNSET_PHASE_D_LIVE_DSN_FILE';
-
-const APPROVED_CREDENTIAL_FILE_PREFIXES = Object.freeze([
-  '/run/secrets/',
-  '/var/run/secrets/',
+/**
+ * Protected admin credential env only (same contract as Slice 9 provisioner /
+ * load-sunset-staging-pg-admin-env.js). Never observer DSN / file / argv.
+ */
+const CREDENTIAL_USER_ENV = ENV_PG_ADMIN_USER;
+const CREDENTIAL_PASSWORD_ENV = ENV_PG_ADMIN_PASSWORD;
+const FORBIDDEN_DSN_ENVS = Object.freeze([
+  OBSERVER_DSN_ENV,
+  'WOLFHOUSE_DATABASE_URL',
+  'SUNSET_PHASE_D_LIVE_DSN_FILE',
+  'DATABASE_URL',
 ]);
 
 const FORBIDDEN_NETWORK_MUTATION_MARKERS = Object.freeze([
@@ -199,7 +207,9 @@ function redactDeep(value, secrets, depth) {
   if (typeof value === 'object') {
     const out = {};
     for (const [k, v] of Object.entries(value)) {
-      if (/password|secret|dsn|credential/i.test(k) && typeof v === 'string') {
+      // Redact secret-bearing fields only — not metadata keys like credentialSource.
+      if (/^(?:_?(?:password|user|username|dsn|secret)|.*(?:password|secret|dsn))$/i.test(k)
+        && typeof v === 'string') {
         out[k] = REDACTED;
       } else {
         out[k] = redactDeep(v, secrets, d + 1);
@@ -297,110 +307,123 @@ function evaluateDualEnableFlags(env) {
   return { ok: errors.length === 0, errors };
 }
 
-function isPathInsideRepo(absPath) {
-  const root = path.resolve(path.join(__dirname, '..', '..'));
-  const resolved = path.resolve(absPath);
-  return resolved === root || resolved.startsWith(`${root}${path.sep}`);
+/**
+ * Build connect config for the locked Sunset staging host/database only.
+ * Host, database, port, sslmode, and application_name are never caller-supplied.
+ * User/password stay on private fields only — never evidence/errors/output.
+ */
+function buildLockedAdminConnectConfig(user, password) {
+  return {
+    host: TARGETS.postgresHost,
+    port: TARGETS.port,
+    database: TARGETS.database,
+    sslmode: TARGETS.sslmode,
+    application_name: TARGETS.applicationName,
+    // Private — never copy into evidence/output/errors.
+    _user: String(user),
+    _password: String(password),
+  };
+}
+
+function secretFreeConnectInfo(connectConfig) {
+  const c = connectConfig || {};
+  return {
+    host: c.host,
+    port: c.port,
+    database: c.database,
+    sslmode: c.sslmode,
+    application_name: c.application_name,
+    hasUser: Boolean(c._user),
+    hasPassword: Boolean(c._password),
+  };
 }
 
 /**
- * Resolve credentials from approved env or approved file path only.
- * Never reads argv. Never returns the secret in the public result — callers
- * that need the DSN for a later connect receive it only via private field
- * when connect is enabled (not in Slice 14B evidence).
+ * Resolve protected admin credentials only.
+ * Never accepts caller-supplied DSN, argv credential, observer DSN,
+ * WOLFHOUSE_DATABASE_URL, or arbitrary file path.
+ * Never returns username/password in the public result — private fields only.
  */
-function resolveApprovedCredentials(opts) {
+function resolveProtectedAdminCredentials(opts) {
   const options = opts || {};
   const env = options.env || process.env;
   const argv = options.argv || process.argv;
   const errors = [];
 
-  // Reject credential-shaped argv immediately.
-  for (const arg of argv) {
-    if (/postgres(?:ql)?:\/\//i.test(String(arg))) {
-      errors.push({
-        code: 'credential_from_argv_forbidden',
-        message: 'credentials must not appear in argv',
-      });
-      return { ok: false, errors, source: null };
-    }
-  }
-
-  const filePathRaw = String(env[CREDENTIAL_FILE_ENV] || '').trim();
-  const envDsn = String(env[CREDENTIAL_ENV] || '').trim();
-
-  if (filePathRaw) {
-    if (!path.isAbsolute(filePathRaw)) {
-      errors.push({
-        code: 'credential_file_not_absolute',
-        message: `${CREDENTIAL_FILE_ENV} must be an absolute path`,
-      });
-      return { ok: false, errors, source: null };
-    }
-    const approvedPrefix = APPROVED_CREDENTIAL_FILE_PREFIXES.some((p) => filePathRaw.startsWith(p));
-    if (!approvedPrefix) {
-      errors.push({
-        code: 'credential_file_path_not_approved',
-        message: `${CREDENTIAL_FILE_ENV} path is outside approved prefixes`,
-      });
-      return { ok: false, errors, source: null };
-    }
-    if (isPathInsideRepo(filePathRaw)) {
-      errors.push({
-        code: 'credential_from_committed_file_forbidden',
-        message: 'credentials must not come from committed repository files',
-      });
-      return { ok: false, errors, source: null };
-    }
-
-    let dsn;
-    try {
-      if (typeof options.readFileSync === 'function') {
-        dsn = String(options.readFileSync(filePathRaw, 'utf8')).trim();
-      } else {
-        dsn = fs.readFileSync(filePathRaw, 'utf8').trim();
-      }
-    } catch (_) {
-      errors.push({
-        code: 'credential_file_unreadable',
-        message: 'approved credential file could not be read',
-      });
-      return { ok: false, errors, source: null };
-    }
-    if (!dsn) {
-      errors.push({
-        code: 'credential_file_empty',
-        message: 'approved credential file is empty',
-      });
-      return { ok: false, errors, source: null };
-    }
-    const argvCheck = assertNoSecretInArgv(argv, [dsn]);
-    if (!argvCheck.ok) {
-      errors.push({
-        code: 'credential_from_argv_forbidden',
-        message: 'credentials must not appear in argv',
-      });
-      return { ok: false, errors, source: null };
-    }
-    return {
-      ok: true,
-      errors: [],
-      source: 'approved_file',
-      fileEnv: CREDENTIAL_FILE_ENV,
-      // Private — never copy into evidence/output.
-      _dsn: dsn,
-    };
-  }
-
-  if (!envDsn) {
+  // Reject caller-supplied DSN options immediately.
+  if (options.dsn != null || options.connectionString != null
+    || options.databaseUrl != null || options.connectConfig != null) {
     errors.push({
-      code: 'credential_source_missing',
-      message: `set ${CREDENTIAL_ENV} or ${CREDENTIAL_FILE_ENV}`,
+      code: 'caller_supplied_dsn_forbidden',
+      message: 'caller-supplied DSN / connection config is forbidden',
     });
     return { ok: false, errors, source: null };
   }
 
-  const argvCheck = assertNoSecretInArgv(argv, [envDsn]);
+  // Reject credential-shaped argv immediately.
+  for (const arg of argv) {
+    if (/postgres(?:ql)?:\/\//i.test(String(arg))
+      || /--(?:dsn|database-url|password|pg-password)=/i.test(String(arg))) {
+      errors.push({
+        code: 'credential_from_argv_forbidden',
+        message: 'credentials must not appear in argv',
+      });
+      return { ok: false, errors, source: null };
+    }
+  }
+
+  // Forbidden alternate credential sources — never accept as this boundary's contract.
+  for (const name of FORBIDDEN_DSN_ENVS) {
+    if (String(env[name] || '').trim()) {
+      const code = name === OBSERVER_DSN_ENV
+        ? 'observer_dsn_forbidden'
+        : name === 'WOLFHOUSE_DATABASE_URL'
+          ? 'wolfhouse_database_url_forbidden'
+          : name === 'SUNSET_PHASE_D_LIVE_DSN_FILE'
+            ? 'credential_file_path_forbidden'
+            : 'forbidden_dsn_env';
+      errors.push({
+        code,
+        message: `${name} is not an accepted credential source for Phase D live read-only`,
+      });
+      return { ok: false, errors, source: null };
+    }
+  }
+
+  if (options.credentialFilePath || options.readFileSync) {
+    errors.push({
+      code: 'credential_file_path_forbidden',
+      message: 'arbitrary credential file paths are forbidden',
+    });
+    return { ok: false, errors, source: null };
+  }
+
+  const user = String(env[CREDENTIAL_USER_ENV] || '').trim();
+  const password = String(env[CREDENTIAL_PASSWORD_ENV] || '').trim();
+
+  if (!user && !password) {
+    errors.push({
+      code: 'credential_source_missing',
+      message: `set ${CREDENTIAL_USER_ENV} and ${CREDENTIAL_PASSWORD_ENV} (via locked Key Vault loader)`,
+    });
+    return { ok: false, errors, source: null };
+  }
+  if (!user) {
+    errors.push({
+      code: 'pg_admin_user_required',
+      message: `${CREDENTIAL_USER_ENV} is required`,
+    });
+    return { ok: false, errors, source: null };
+  }
+  if (!password) {
+    errors.push({
+      code: 'pg_admin_password_required',
+      message: `${CREDENTIAL_PASSWORD_ENV} is required`,
+    });
+    return { ok: false, errors, source: null };
+  }
+
+  const argvCheck = assertNoSecretInArgv(argv, [user, password]);
   if (!argvCheck.ok) {
     errors.push({
       code: 'credential_from_argv_forbidden',
@@ -409,68 +432,80 @@ function resolveApprovedCredentials(opts) {
     return { ok: false, errors, source: null };
   }
 
+  const connectConfig = buildLockedAdminConnectConfig(user, password);
   return {
     ok: true,
     errors: [],
-    source: 'approved_env',
-    envName: CREDENTIAL_ENV,
-    _dsn: envDsn,
+    source: 'protected_admin_env',
+    userEnv: CREDENTIAL_USER_ENV,
+    passwordEnv: CREDENTIAL_PASSWORD_ENV,
+    connectInfo: secretFreeConnectInfo(connectConfig),
+    // Private — never copy into evidence/output.
+    _connectConfig: connectConfig,
+    _user: user,
+    _password: password,
   };
 }
 
-function assertCredentialDsnMatchesLockedTarget(dsn) {
-  const parsed = parseDatabaseUrl(dsn);
-  if (!parsed.ok) {
-    return {
-      ok: false,
-      errors: parsed.errors && parsed.errors.length
-        ? parsed.errors
-        : [{ code: 'dsn_parse_failed', message: 'DSN is not a valid URL' }],
-    };
+/** @deprecated alias — prefer resolveProtectedAdminCredentials */
+function resolveApprovedCredentials(opts) {
+  return resolveProtectedAdminCredentials(opts);
+}
+
+function assertLockedConnectConfig(connectConfig) {
+  const c = connectConfig || {};
+  const errors = [];
+  if (String(c.host || '') !== TARGETS.postgresHost) {
+    errors.push({
+      code: 'wrong_host',
+      message: `host must be exactly ${TARGETS.postgresHost}`,
+    });
   }
-  const target = assertObserverTarget(parsed.parsed, { allowLocalEphemeral: false });
-  if (!target.ok) {
-    return { ok: false, errors: target.errors };
+  if (String(c.database || '') !== TARGETS.database) {
+    errors.push({
+      code: 'wrong_database',
+      message: `database must be exactly ${TARGETS.database}`,
+    });
   }
-  if (String(parsed.parsed.sslmode || '') !== 'verify-full') {
-    return {
-      ok: false,
-      errors: [{
-        code: 'tls_not_verify_full',
-        message: 'DSN must use sslmode=verify-full',
-      }],
-    };
+  if (String(c.sslmode || '') !== 'verify-full') {
+    errors.push({
+      code: 'tls_not_verify_full',
+      message: 'connection must use sslmode=verify-full',
+    });
   }
-  if (String(parsed.parsed.host || '') !== TARGETS.postgresHost) {
-    return {
-      ok: false,
-      errors: [{
-        code: 'wrong_host',
-        message: `host must be exactly ${TARGETS.postgresHost}`,
-      }],
-    };
+  if (String(c.application_name || '') !== TARGETS.applicationName) {
+    errors.push({
+      code: 'wrong_application_name',
+      message: `application_name must be ${TARGETS.applicationName}`,
+    });
   }
-  if (String(parsed.parsed.database || '') !== TARGETS.database) {
-    return {
-      ok: false,
-      errors: [{
-        code: 'wrong_database',
-        message: `database must be exactly ${TARGETS.database}`,
-      }],
-    };
+  if (Number(c.port) !== TARGETS.port) {
+    errors.push({
+      code: 'wrong_port',
+      message: `port must be exactly ${TARGETS.port}`,
+    });
+  }
+  if (!c._user || !c._password) {
+    errors.push({
+      code: 'credential_source_missing',
+      message: 'protected admin user and password required',
+    });
   }
   return {
-    ok: true,
-    errors: [],
-    parsed: {
-      host: parsed.parsed.host,
-      database: parsed.parsed.database,
-      sslmode: parsed.parsed.sslmode,
-      port: parsed.parsed.port,
-      user: parsed.parsed.user,
-      hasPassword: parsed.parsed.hasPassword,
-      // never include password
-    },
+    ok: errors.length === 0,
+    errors,
+    connectInfo: secretFreeConnectInfo(c),
+  };
+}
+
+/** @deprecated alias — DSN paths removed; admin connect config is locked. */
+function assertCredentialDsnMatchesLockedTarget() {
+  return {
+    ok: false,
+    errors: [{
+      code: 'caller_supplied_dsn_forbidden',
+      message: 'caller-supplied DSN is forbidden; use protected admin env only',
+    }],
   };
 }
 
@@ -675,11 +710,17 @@ async function evaluateLiveReadonlyBoundary(opts) {
     }
   }
 
-  const creds = resolveApprovedCredentials({
+  const creds = resolveProtectedAdminCredentials({
     env,
     argv,
+    dsn: options.dsn,
+    connectionString: options.connectionString,
+    databaseUrl: options.databaseUrl,
+    connectConfig: options.connectConfig,
+    credentialFilePath: options.credentialFilePath,
     readFileSync: options.readFileSync,
   });
+  const secrets = [creds._user, creds._password].filter(Boolean);
   if (!creds.ok) {
     return redactDeep({
       ok: false,
@@ -690,17 +731,16 @@ async function evaluateLiveReadonlyBoundary(opts) {
       liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
       liveQueryExecution: false,
       liveMutation: false,
-    }, []);
+    }, secrets);
   }
 
-  const dsnGate = assertCredentialDsnMatchesLockedTarget(creds._dsn);
-  const secrets = [creds._dsn];
-  if (!dsnGate.ok) {
+  const configGate = assertLockedConnectConfig(creds._connectConfig);
+  if (!configGate.ok) {
     return redactDeep({
       ok: false,
       accepted: false,
       code: 'credential_target_rejected',
-      errors: dsnGate.errors,
+      errors: configGate.errors,
       counters,
       liveReadonlyConnectEnabled: PHASE_D_LIVE_READONLY_CONNECT_ENABLED,
       liveQueryExecution: false,
@@ -834,9 +874,10 @@ module.exports = {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
-  CREDENTIAL_ENV,
-  CREDENTIAL_FILE_ENV,
-  APPROVED_CREDENTIAL_FILE_PREFIXES,
+  CREDENTIAL_USER_ENV,
+  CREDENTIAL_PASSWORD_ENV,
+  FORBIDDEN_DSN_ENVS,
+  OBSERVER_DSN_ENV,
   FORBIDDEN_NETWORK_MUTATION_MARKERS,
   REDACTED,
   AUTHORIZED_AGGREGATE_SQL,
@@ -849,7 +890,11 @@ module.exports = {
   AGGREGATE_CONTRACT,
   validateTargets,
   evaluateDualEnableFlags,
+  resolveProtectedAdminCredentials,
   resolveApprovedCredentials,
+  buildLockedAdminConnectConfig,
+  secretFreeConnectInfo,
+  assertLockedConnectConfig,
   assertCredentialDsnMatchesLockedTarget,
   authorizeLiveReadonlySql,
   authorizeAggregateSql,

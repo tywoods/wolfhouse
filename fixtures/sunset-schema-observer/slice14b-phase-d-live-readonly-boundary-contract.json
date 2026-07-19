@@ -15,10 +15,10 @@
   "dualEnableFlagsRequired": true,
   "disposablePostgreSQLOnly": false,
   "injectedAdaptersOnly": true,
-  "generatedAt": "2026-07-19T18:51:24.972Z",
+  "generatedAt": "2026-07-19T18:56:23.173Z",
   "masterShaBasis": "8905be445fcce5d23e813f66d339c48580c5ecd9",
   "slice": "14B",
-  "purpose": "Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Offline injected-adapter proof only in this slice.",
+  "purpose": "Hard-disabled live read-only connection boundary that can later run the merged 14A count-only preflight against exact Sunset staging PostgreSQL/database. Credentials from protected admin env only (Key Vault sunset-database-url loader). Offline injected-adapter proof only in this slice.",
   "targets": {
     "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
     "resourceGroup": "luna-sunset-staging-rg",
@@ -26,20 +26,31 @@
     "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
     "database": "sunset_staging",
     "sslmode": "verify-full",
-    "applicationName": "wh-sunset-phase-d-preflight"
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "port": 5432
   },
   "credentialSources": {
-    "approvedEnv": "SUNSET_SCHEMA_OBSERVER_DATABASE_URL",
-    "approvedFileEnv": "SUNSET_PHASE_D_LIVE_DSN_FILE",
-    "approvedFilePrefixes": [
-      "/run/secrets/",
-      "/var/run/secrets/"
-    ],
+    "approvedUserEnv": "SUNSET_STAGING_PG_ADMIN_USER",
+    "approvedPasswordEnv": "SUNSET_STAGING_PG_ADMIN_PASSWORD",
+    "loader": "scripts/load-sunset-staging-pg-admin-env.js",
+    "keyVaultSecret": "sunset-database-url",
+    "connectConfig": {
+      "host": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+      "port": 5432,
+      "database": "sunset_staging",
+      "sslmode": "verify-full",
+      "application_name": "wh-sunset-phase-d-preflight"
+    },
     "forbidden": [
       "argv",
       "output",
       "evidence",
-      "committed_files"
+      "committed_files",
+      "caller_supplied_dsn",
+      "SUNSET_SCHEMA_OBSERVER_DATABASE_URL",
+      "WOLFHOUSE_DATABASE_URL",
+      "SUNSET_PHASE_D_LIVE_DSN_FILE",
+      "arbitrary_file_path"
     ]
   },
   "dualEnableFlags": {
@@ -85,6 +96,8 @@
     "migration",
     "Azure mutation",
     "credential in argv/output/evidence/committed files",
+    "observer DSN / WOLFHOUSE_DATABASE_URL / caller-supplied DSN / file path credentials",
+    "username/password in evidence/errors",
     "row payloads",
     "arbitrary SQL",
     "14A predicate alteration"
@@ -94,6 +107,8 @@
     "No Sunset repair claim",
     "No live evidence capture",
     "No live observer job",
-    "No expected-fixture regeneration"
+    "No expected-fixture regeneration",
+    "No observer role/grant changes",
+    "No Key Vault loader changes"
   ]
 }

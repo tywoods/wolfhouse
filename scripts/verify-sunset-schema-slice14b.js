@@ -25,8 +25,9 @@ const {
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,
   ENV_SUBSCRIPTION,
-  CREDENTIAL_ENV,
-  CREDENTIAL_FILE_ENV,
+  CREDENTIAL_USER_ENV,
+  CREDENTIAL_PASSWORD_ENV,
+  OBSERVER_DSN_ENV,
   AUTHORIZED_AGGREGATE_SQL,
   AUTHORIZED_SESSION_SQL,
   OUTPUT_COUNT_KEYS,
@@ -71,7 +72,13 @@ const REQUIRED_RED = [
   'wrong_database',
   'wrong_tls',
   'credential_from_argv',
-  'credential_file_not_approved',
+  'observer_credentials_forbidden',
+  'missing_admin_credentials',
+  'partial_admin_user_only',
+  'partial_admin_password_only',
+  'wolfhouse_database_url_forbidden',
+  'credential_file_path_forbidden',
+  'caller_supplied_dsn_forbidden',
   'firewall_mutation_planned',
 ];
 
@@ -96,10 +103,11 @@ async function main() {
   const libPath = path.join(ROOT, 'scripts', 'lib', 'phase-d-live-readonly-boundary.js');
   const adaptersPath = path.join(ROOT, 'scripts', 'lib', 'phase-d-live-readonly-adapters.js');
   const lib14aPath = path.join(ROOT, 'scripts', 'lib', 'phase-d-check-preflight.js');
+  const loaderPath = path.join(ROOT, 'scripts', 'load-sunset-staging-pg-admin-env.js');
 
   pass(
     'artifacts-exist',
-    [evidencePath, contractPath, findingsPath, expectedPath, provePath, libPath, adaptersPath, lib14aPath]
+    [evidencePath, contractPath, findingsPath, expectedPath, provePath, libPath, adaptersPath, lib14aPath, loaderPath]
       .every((p) => fs.existsSync(p)),
   );
 
@@ -111,6 +119,7 @@ async function main() {
   const verifySrc = fs.readFileSync(verifyPath, 'utf8');
   const libSrc = fs.readFileSync(libPath, 'utf8');
   const adaptersSrc = fs.readFileSync(adaptersPath, 'utf8');
+  const loaderSrc = fs.readFileSync(loaderPath, 'utf8');
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
 
   const expectedBytes = fs.readFileSync(expectedPath);
@@ -186,13 +195,31 @@ async function main() {
     && contract.targets.subscriptionId === TARGETS.subscriptionId
     && evidence.targets.database === TARGETS.database);
 
-  pass('credential-boundary',
-    CREDENTIAL_ENV === 'SUNSET_SCHEMA_OBSERVER_DATABASE_URL'
-    && CREDENTIAL_FILE_ENV === 'SUNSET_PHASE_D_LIVE_DSN_FILE'
-    && contract.credentialSources.approvedEnv === CREDENTIAL_ENV
+  pass('credential-boundary-protected-admin',
+    CREDENTIAL_USER_ENV === 'SUNSET_STAGING_PG_ADMIN_USER'
+    && CREDENTIAL_PASSWORD_ENV === 'SUNSET_STAGING_PG_ADMIN_PASSWORD'
+    && OBSERVER_DSN_ENV === 'SUNSET_SCHEMA_OBSERVER_DATABASE_URL'
+    && contract.credentialSources.approvedUserEnv === CREDENTIAL_USER_ENV
+    && contract.credentialSources.approvedPasswordEnv === CREDENTIAL_PASSWORD_ENV
+    && contract.credentialSources.keyVaultSecret === 'sunset-database-url'
+    && contract.credentialSources.loader === 'scripts/load-sunset-staging-pg-admin-env.js'
     && contract.credentialSources.forbidden.includes('argv')
-    && contract.credentialSources.forbidden.includes('committed_files')
-    && /never from argv/i.test(findings));
+    && contract.credentialSources.forbidden.includes(OBSERVER_DSN_ENV)
+    && contract.credentialSources.forbidden.includes('WOLFHOUSE_DATABASE_URL')
+    && contract.credentialSources.forbidden.includes('caller_supplied_dsn')
+    && contract.credentialSources.forbidden.includes('arbitrary_file_path')
+    && evidence.credentialContract.source === 'protected_admin_env'
+    && evidence.credentialContract.observerDsnAccepted === false
+    && evidence.credentialContract.usernamePasswordInEvidence === false
+    && /protected admin env/i.test(findings)
+    && /SUNSET_STAGING_PG_ADMIN_USER/.test(findings)
+    && /never/i.test(findings)
+    && /sunset-database-url/.test(loaderSrc)
+    && /ENV_PG_ADMIN_USER/.test(loaderSrc)
+    && /ENV_PG_ADMIN_PASSWORD/.test(loaderSrc)
+    && !/CREDENTIAL_ENV\s*=\s*OBSERVER_DSN_ENV/.test(libSrc)
+    && /resolveProtectedAdminCredentials/.test(libSrc)
+    && /buildLockedAdminConnectConfig/.test(libSrc));
 
   pass('dual-enable-flags',
     ENV_LIVE_READONLY === 'SUNSET_PHASE_D_LIVE_READONLY'
@@ -230,6 +257,9 @@ async function main() {
     REQUIRED_RED.every((n) => redNames.includes(n))
     && (evidence.redCases || []).every((c) => c.ok === true && c.rejected === true && c.connectCalls === 0)
     && evidence.offlineGates.defaultPathZeroConnectionCalls === true
+    && evidence.offlineGates.observerCredentialsRejectedBeforeConnect === true
+    && evidence.offlineGates.missingAdminCredentialsRejectedBeforeConnect === true
+    && evidence.offlineGates.partialAdminCredentialsRejectedBeforeConnect === true
     && evidence.offlineGates.unauthorizedSqlRejected === true
     && evidence.offlineGates.firewallNetworkMutationRejected === true);
 
@@ -240,7 +270,8 @@ async function main() {
     && green.accepted === true
     && green.connectCalls === 0
     && green.queryCalls === 0
-    && green.liveReadonlyConnectEnabled === false);
+    && green.liveReadonlyConnectEnabled === false
+    && green.credentialSource === 'protected_admin_env');
 
   // Live offline re-check: default path zero calls
   const defaultResult = await evaluateLiveReadonlyBoundary({
@@ -256,14 +287,15 @@ async function main() {
     && defaultResult.counters.azureCalls === 0
     && defaultResult.counters.connectInfoCalls === 0);
 
-  const FAKE = 'postgresql://sunset_schema_observer:x@'
-    + `${TARGETS.postgresHost}:5432/${TARGETS.database}?sslmode=verify-full`;
+  const FAKE_USER = 'verify-slice14b-admin-user';
+  const FAKE_PASSWORD = 'verify-slice14b-admin-password';
   const greenRuntime = await evaluateLiveReadonlyBoundary({
     env: {
       [ENV_LIVE_READONLY]: '1',
       [ENV_LIVE_PREFLIGHT]: '1',
       [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-      [CREDENTIAL_ENV]: FAKE,
+      [CREDENTIAL_USER_ENV]: FAKE_USER,
+      [CREDENTIAL_PASSWORD_ENV]: FAKE_PASSWORD,
     },
     argv: ['node', 'verify'],
     azureAdapters: createInjectedAzureAdapters({}),
@@ -274,14 +306,51 @@ async function main() {
     && greenRuntime.accepted === true
     && greenRuntime.counters.connectCalls === 0
     && greenRuntime.counters.queryCalls === 0
-    && greenRuntime.liveReadonlyConnectEnabled === false);
+    && greenRuntime.liveReadonlyConnectEnabled === false
+    && greenRuntime.plan
+    && greenRuntime.plan.credentialSource === 'protected_admin_env');
+
+  const redObserver = await evaluateLiveReadonlyBoundary({
+    env: {
+      [ENV_LIVE_READONLY]: '1',
+      [ENV_LIVE_PREFLIGHT]: '1',
+      [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
+      [OBSERVER_DSN_ENV]: `postgresql://sunset_schema_observer:x@${TARGETS.postgresHost}:5432/${TARGETS.database}?sslmode=verify-full`,
+    },
+    argv: ['node', 'verify'],
+    azureAdapters: createInjectedAzureAdapters({}),
+    dbAdapters: createInjectedDbAdapters({}),
+  });
+  pass('runtime-red-observer-before-connect',
+    redObserver.ok === false
+    && redObserver.code === 'credential_source_rejected'
+    && (redObserver.errors || []).some((e) => e.code === 'observer_dsn_forbidden')
+    && redObserver.counters.connectCalls === 0
+    && redObserver.counters.queryCalls === 0);
+
+  const redPartial = await evaluateLiveReadonlyBoundary({
+    env: {
+      [ENV_LIVE_READONLY]: '1',
+      [ENV_LIVE_PREFLIGHT]: '1',
+      [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
+      [CREDENTIAL_USER_ENV]: FAKE_USER,
+    },
+    argv: ['node', 'verify'],
+    azureAdapters: createInjectedAzureAdapters({}),
+    dbAdapters: createInjectedDbAdapters({}),
+  });
+  pass('runtime-red-partial-admin-before-connect',
+    redPartial.ok === false
+    && redPartial.counters.connectCalls === 0
+    && (redPartial.errors || []).some((e) => e.code === 'pg_admin_password_required'));
 
   const redHost = await evaluateLiveReadonlyBoundary({
     env: {
       [ENV_LIVE_READONLY]: '1',
       [ENV_LIVE_PREFLIGHT]: '1',
       [ENV_SUBSCRIPTION]: TARGETS.subscriptionId,
-      [CREDENTIAL_ENV]: FAKE,
+      [CREDENTIAL_USER_ENV]: FAKE_USER,
+      [CREDENTIAL_PASSWORD_ENV]: FAKE_PASSWORD,
     },
     argv: ['node', 'verify'],
     targets: { ...TARGETS, postgresHost: 'evil.example.com' },
@@ -334,13 +403,12 @@ async function main() {
     && /hard-disabled/i.test(findings)
     && !/Sunset is repaired/i.test(findings.replace(/Do not claim[\s\S]*?repaired/i, '')));
 
+  const artifactText = `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`;
   pass('no-secret-tokens-in-artifacts',
-    !/slice14b-proof-password|GUEST_SECRET_|evil@example\.com/.test(
-      `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`,
-    )
-    && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(
-      `${JSON.stringify(evidence)}${JSON.stringify(contract)}${findings}`,
-    ));
+    !/slice14b-proof-admin-password|slice14b-observer-password|verify-slice14b-admin-password|GUEST_SECRET_/i.test(artifactText)
+    && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(artifactText)
+    && !new RegExp(FAKE_USER).test(artifactText)
+    && !new RegExp(FAKE_PASSWORD).test(artifactText));
 
   pass('verify-is-offline-only',
     !/require\(['"]\.\/lib\/disposable-postgres-harness['"]\)/.test(verifySrc)
