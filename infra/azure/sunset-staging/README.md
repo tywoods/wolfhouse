@@ -122,8 +122,9 @@ luna-sunset-staging-identity  →  AcrPull  →  whstagingacr (entire registry)
 |-----------|------|-------|-------|
 | `luna-sunset-staging-identity` | Key Vault Secrets User | `luna-sunset-staging-kv` | get/list secrets only |
 | `luna-sunset-staging-identity` | AcrPull | `whstagingacr` | pull only; no push |
+| `wh-staging-identity` (Lunabox) | Key Vault Secrets User | `luna-sunset-staging-kv` | Slice **14H plan-only** — not deployed yet; resolves 14G 403 |
 
-Container App uses user-assigned identity for Key Vault secret refs and ACR pull.
+Container App uses user-assigned identity for Key Vault secret refs and ACR pull. Lunabox MI assignment is a standalone module (`wh-staging-identity-kv-secrets-user-role.bicep`) — **not** wired into `main.bicep`.
 
 ---
 
@@ -540,6 +541,30 @@ npm run phase-d:credential-preflight
 
 Artifacts: `slice14f-phase-d-credential-preflight-contract.json`, `slice14f-phase-d-credential-preflight-evidence.json`, `slice14f-findings.md`.
 
+### Slice 14H — Key Vault Secrets User RBAC apply-plan for Lunabox MI (implemented; plan-only)
+
+Defines and offline-proves **exactly one** least-privilege Azure RBAC assignment resolving the Slice **14G** live credential-preflight **403** (`http_status_rejected` on Key Vault secret GET) — **without deploying it**.
+
+| Lock | Value |
+|------|-------|
+| Principal | `wh-staging-identity` / `e3136eed-948b-4947-a26e-50a33b45a41a` |
+| Role | Key Vault Secrets User / `4633458b-17de-408a-b874-0445c86b69e6` |
+| Scope | vault `luna-sunset-staging-kv` only (RG `luna-sunset-staging-rg` / sub `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`) |
+| Assignment name | deterministic `4653f1f5-6c4f-54bd-acba-6cad3d56d791` (`guid(existingKeyVault.id, principalId, roleDefinitionId)`) |
+| principalType | `ServicePrincipal` |
+| Module | `wh-staging-identity-kv-secrets-user-role.bicep` (standalone existing-resource reference; **not** in `main.bicep`) |
+
+Default-disabled operator CLI (`scripts/run-phase-d-kv-secrets-user-rbac-plan.js` / `npm run phase-d:kv-secrets-user-rbac-plan`) requires `SUNSET_PHASE_D_KV_SECRETS_USER_RBAC_PLAN=1` + `--plan-only` + exact `--subscription` / `--resource-group` / `--key-vault` / `--principal-id` / `--role-definition-id`. Default/wrong args → **zero Azure mutation**. Live apply / what-if / deploy / RBAC create hard-disabled. Offline tests reject subscription/RG/vault/principal/role/scope broadening, Owner/Contributor/Admin, wildcard/RG/subscription scope, delete, duplicate/random GUID, and unrelated changes. Safe IDs only. **No** Key Vault retry, PG, DB, network, secret read, migration/DDL/ledger. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14h-kv-secrets-user-rbac-plan
+npm run verify:sunset-schema-slice14h
+# default refuse (zero Azure mutation):
+npm run phase-d:kv-secrets-user-rbac-plan
+```
+
+Artifacts: `slice14h-kv-secrets-user-rbac-apply-plan.json`, `slice14h-kv-secrets-user-rbac-plan-contract.json`, `slice14h-kv-secrets-user-rbac-plan-evidence.json`, `slice14h-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -608,3 +633,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14E — Phase D managed-identity credential loader (live HTTP hard-disabled; offline injected-HTTP proof; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14F — Phase D credential-preflight activation (metadata-only; offline injected-HTTP proof; no pg Client; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14G — Phase D live metadata-only credential preflight (gated real IMDS+KV GET; no pg Client; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14H — Key Vault Secrets User RBAC apply-plan for Lunabox wh-staging-identity (plan-only; offline prove; zero Azure mutation) — 2026-07-19*
