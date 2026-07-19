@@ -2,12 +2,10 @@
 
 /**
  * Sunset schema-observer role + KV DSN provisioning helpers
- * (FOUNDATION Slice 7 + Slice 8 hardenings).
+ * (FOUNDATION Slice 7–9).
  *
- * Fail-closed. Default is dry-run. LIVE_APPLY_ENABLED remains false in this
- * slice — the real CLI never mutates Azure/PostgreSQL/Key Vault. Injected-adapter
- * tests may exercise executeConvergentBootstrap directly.
- *
+ * Fail-closed. Default is dry-run. LIVE_APPLY_ENABLED is true for Slice 9
+ * Sunset-staging-only live apply; still requires --apply + env gates.
  * Credentials are generated only at execution time, never logged, never passed
  * via process argv, and always redacted from adapter results/errors/reports.
  */
@@ -38,8 +36,8 @@ const TARGETS = Object.freeze({
   secretName: 'sunset-schema-observer-database-url',
 });
 
-/** Live mutation stays off until a later approved execution slice. */
-const LIVE_APPLY_ENABLED = false;
+/** Live mutation enabled for FOUNDATION Slice 9 (Sunset staging only). */
+const LIVE_APPLY_ENABLED = true;
 
 const ENV_APPLY_FLAG = 'SUNSET_SCHEMA_OBSERVER_ROLE_APPLY';
 const ENV_SUBSCRIPTION = 'AZURE_SUBSCRIPTION_ID';
@@ -520,6 +518,20 @@ function evaluateApplyGate(opts) {
       message: `${ENV_SUBSCRIPTION} must equal locked Sunset staging subscription`,
     });
   }
+  if (LIVE_APPLY_ENABLED) {
+    if (!String(env[ENV_PG_ADMIN_USER] || '').trim()) {
+      errors.push({
+        code: 'pg_admin_user_required',
+        message: `${ENV_PG_ADMIN_USER} is required for live apply`,
+      });
+    }
+    if (!String(env[ENV_PG_ADMIN_PASSWORD] || '').trim()) {
+      errors.push({
+        code: 'pg_admin_password_required',
+        message: `${ENV_PG_ADMIN_PASSWORD} is required for live apply`,
+      });
+    }
+  }
   if (!LIVE_APPLY_ENABLED) {
     errors.push({
       code: 'live_apply_disabled',
@@ -773,7 +785,7 @@ function buildProvisionPlan(targets) {
       'CREATE ROLE PASSWORD uses validated URL-safe literal escaping (utility statements do not take bind params).',
       'KV writes use --file (0600 temp) or protected stdin — never --value with DSN in argv.',
       'KV failure after create: REVOKE CONNECT → RESET default_transaction_read_only → DROP ROLE (new role only).',
-      'Default CLI mode is dry-run; LIVE_APPLY_ENABLED remains false.',
+      'Default CLI mode is dry-run; live apply requires --apply + env gates (FOUNDATION Slice 9).',
     ],
   };
 }

@@ -42,7 +42,7 @@
 |------|-------|
 | Managed certificate | Custom domain TLS — live only |
 | `luna-sunset-staging-hold-expiry` job | Scheduled job — live only |
-| Schema observer dedicated RO DB role + KV secret | FOUNDATION Slice 7/8 tooling (`scripts/provision-sunset-schema-observer-role.js`); **live apply disabled** — dry-run only until a later approved execution slice; Bicep references `sunset-schema-observer-database-url` only when job gate is on |
+| Schema observer dedicated RO DB role + KV secret | FOUNDATION Slice 9 live provision of `sunset_schema_observer` + `sunset-schema-observer-database-url` (job still gated off in Bicep) |
 | Postgres firewall rules | Live egress allow rules — leave `postgresAllowedIpAddresses: []` |
 | External DNS | `sunset-staging.lunafrontdesk.com` outside this subscription |
 | Operator Key Vault Secrets Officer | Human RBAC — not in template |
@@ -270,9 +270,9 @@ Secret-free live probe fixture: `fixtures/sunset-staging-bicep-preflight/live-pr
 
 ---
 
-## Schema observer role + KV secret (FOUNDATION Slice 7/8 — source only)
+## Schema observer role + KV secret (FOUNDATION Slice 7–9)
 
-Fail-closed convergent provision tooling for the dedicated observer role / DSN secret. **Default is dry-run. Live apply remains disabled** (`LIVE_APPLY_ENABLED=false`) even with `--apply`.
+Fail-closed convergent provision tooling for the dedicated observer role / DSN secret. **Default is dry-run.** Slice 9 enables live apply for Sunset staging only (`LIVE_APPLY_ENABLED=true`) when `--apply` and env gates are set.
 
 | Locked target | Value |
 |---------------|-------|
@@ -283,26 +283,22 @@ Fail-closed convergent provision tooling for the dedicated observer role / DSN s
 | Role | `sunset_schema_observer` |
 | Secret | `sunset-schema-observer-database-url` |
 
-**Slice 8 hardenings (still no live mutation):**
+**Hardening (Slice 8) + live wire-up (Slice 9):**
 - Verify live Azure subscription/RG/Postgres FQDN/KV before any DB/KV action
 - Connect only to locked `sslmode=verify-full` host; require `current_database()=sunset_staging`
 - Enforce `NOBYPASSRLS`; fail closed on memberships/ownership/excess ACLs outside CONNECT-only
 - Convergent bootstrap: absent+absent→create; both valid→no-op; inconsistent→refuse; KV failure rolls back only a newly created role (REVOKE CONNECT → RESET readonly → DROP ROLE); never rotate existing credentials
 - `CREATE ROLE PASSWORD` uses validated URL-safe SQL literals (not protocol bind params); KV writes via 0600 temp `--file` (never DSN in argv); redact secrets from results/errors/reports
+- Live adapters: `scripts/lib/sunset-schema-observer-role-live-adapters.js` (no firewall/network, no schema/data, no Container Apps job)
 
 ```bash
 # Dry-run (default) — prints plan; no Azure/Postgres mutation
 node scripts/provision-sunset-schema-observer-role.js
 
-# Focused verifier (injected adapters only; no Azure)
+# Focused verifier (injected adapters; no Azure mutation)
 npm run verify:sunset-schema-observer-role-provision
-```
 
-Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`, `default_transaction_read_only=on`, `CONNECT` on `sunset_staging` only (no product DML/DDL grants; no firewall/network mutation).
-
-Future apply (do **not** run until a later approved slice enables live apply):
-
-```bash
+# Approved Slice 9 live apply (Sunset staging only)
 SUNSET_SCHEMA_OBSERVER_ROLE_APPLY=1 \
 AZURE_SUBSCRIPTION_ID=6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9 \
 SUNSET_STAGING_PG_ADMIN_USER=<admin-login> \
@@ -310,8 +306,11 @@ SUNSET_STAGING_PG_ADMIN_PASSWORD=<admin-password> \
   node scripts/provision-sunset-schema-observer-role.js --apply
 ```
 
+Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`, `default_transaction_read_only=on`, `CONNECT` on `sunset_staging` only (no product DML/DDL grants; no firewall/network mutation).
+
 ---
 
 *FOUNDATION Slice 3 — enforced Bicep deployment preflight (read-only; fail-closed) — 2026-07-17*
 *FOUNDATION Slice 7 — schema-observer role/KV provision tooling (source-only; live apply disabled) — 2026-07-18*
-*FOUNDATION Slice 8 — convergent/safe provisioner hardenings (source-only; live apply still disabled) — 2026-07-18*
+*FOUNDATION Slice 8 — convergent/safe provisioner hardenings — 2026-07-18*
+*FOUNDATION Slice 9 — live Sunset staging role+KV provision (approved; no job/firewall/schema/data) — 2026-07-19*

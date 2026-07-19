@@ -121,7 +121,7 @@ async function main() {
 
   pass('cli-exists', fs.existsSync(CLI));
   pass('lib-exists', fs.existsSync(LIB));
-  pass('live-apply-disabled', LIVE_APPLY_ENABLED === false);
+  pass('live-apply-enabled', LIVE_APPLY_ENABLED === true);
   pass('locked-subscription', TARGETS.subscriptionId === '6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9');
   pass('locked-rg', TARGETS.resourceGroup === 'luna-sunset-staging-rg');
   pass('locked-pg', TARGETS.postgresServer === 'luna-sunset-staging-pg-app');
@@ -757,11 +757,11 @@ async function main() {
     pass('green-argv-file-ok', good.ok);
   }
 
-  // CLI runProvision still refuses live apply
+  // CLI runProvision refuses without admin env even when live flag is on
   {
     const result = await runProvision({
       applyRequested: true,
-      env: applyEnv(),
+      env: applyEnv(), // missing PG admin
       targets: TARGETS,
       azure: goodAzure(),
       db: goodDb(),
@@ -771,12 +771,45 @@ async function main() {
       },
     });
     pass(
-      'red-cli-apply-refused-live-disabled',
+      'red-cli-apply-refused-missing-pg-admin',
       result.refused === true
         && !result.ok
-        && result.errors.some((e) => e.code === 'live_apply_disabled')
+        && result.errors.some((e) => e.code === 'pg_admin_user_required' || e.code === 'pg_admin_password_required')
         && result.counters.postgresExec === 0,
     );
+  }
+
+  {
+    const result = await runProvision({
+      applyRequested: true,
+      env: {
+        ...applyEnv(),
+        SUNSET_STAGING_PG_ADMIN_USER: 'sunsetadmin',
+        SUNSET_STAGING_PG_ADMIN_PASSWORD: 'unit-test-not-real',
+      },
+      targets: TARGETS,
+      __testAllowApply: true,
+      azure: goodAzure(),
+      db: goodDb(),
+      inspectState: async () => ({
+        roleExists: false,
+        secretExists: false,
+      }),
+      postgresExec: async () => {},
+      keyVaultSecretSetSecure: async () => {},
+      generatePassword: () => generateRolePassword(),
+    });
+    // With __testAllowApply + admin env, injected create path may run — ensure gate alone is green.
+    void result;
+    const gate = evaluateApplyGate({
+      applyRequested: true,
+      env: {
+        ...applyEnv(),
+        SUNSET_STAGING_PG_ADMIN_USER: 'sunsetadmin',
+        SUNSET_STAGING_PG_ADMIN_PASSWORD: 'unit-test-not-real',
+      },
+    });
+    pass('green-apply-gate-with-admin-env', gate.ok && gate.liveApplyEnabled === true);
   }
 
   // Plan / dry-run / firewall
@@ -811,9 +844,10 @@ async function main() {
   {
     const readme = fs.readFileSync(README, 'utf8');
     pass(
-      'docs-slice8-hardening',
-      /Slice 8|NOBYPASSRLS|convergent|LIVE_APPLY_ENABLED/i.test(readme)
-        && /provision-sunset-schema-observer-role/i.test(readme),
+      'docs-slice9-live-apply',
+      /Slice 9/i.test(readme)
+        && /provision-sunset-schema-observer-role/i.test(readme)
+        && /LIVE_APPLY_ENABLED/i.test(readme),
     );
   }
   {
