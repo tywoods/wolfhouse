@@ -872,6 +872,200 @@ async function main() {
     pass('green-redact-deep', !JSON.stringify(nested).includes(pw));
   }
 
+  // ── Partial-bootstrap failure boundary (transactional worker + adapter) ──
+  {
+    const {
+      bootstrapCreateTransactional,
+      createSimulatedBootstrapClient,
+      handleBootstrapCreateResult,
+    } = require('./lib/sunset-schema-observer-role-bootstrap-pg');
+    const pw = generateRolePassword();
+
+    // CREATE succeeds, GRANT fails → ROLLBACK → role absent
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'create',
+      });
+      pass(
+        'red-bootstrap-fail-after-create-rolled-back',
+        result.ok === false
+          && result.transactional === true
+          && result.createSucceeded === true
+          && result.grantSucceeded === false
+          && result.rolledBack === true
+          && result.roleRemains === false
+          && result.hasConnect === false
+          && result.hasReadonlySetting === false
+          && !JSON.stringify(result).includes(pw)
+          && !/PASSWORD\s+'/i.test(JSON.stringify(result)),
+      );
+    }
+
+    // CREATE+GRANT succeed, ALTER fails → ROLLBACK → role absent
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'grant',
+      });
+      pass(
+        'red-bootstrap-fail-after-grant-rolled-back',
+        result.ok === false
+          && result.createSucceeded === true
+          && result.grantSucceeded === true
+          && result.alterSucceeded === false
+          && result.rolledBack === true
+          && result.roleRemains === false
+          && result.hasConnect === false
+          && result.hasReadonlySetting === false
+          && !JSON.stringify(result).includes(pw),
+      );
+    }
+
+    // Green transactional commit
+    {
+      const client = createSimulatedBootstrapClient();
+      const result = await bootstrapCreateTransactional(client, { password: pw });
+      pass(
+        'green-bootstrap-transactional-commit',
+        result.ok === true
+          && result.committed === true
+          && result.createSucceeded === true
+          && result.grantSucceeded === true
+          && result.alterSucceeded === true
+          && client.state.roles.has(TARGETS.roleName)
+          && !JSON.stringify(result).includes(pw),
+      );
+    }
+
+    // Non-transactional dirty progress → adapter runs ordered rollback; no KV secret write
+    {
+      const sim = createSimulatedBootstrapClient();
+      // Seed a leftover role as if CREATE committed outside a transaction.
+      await sim.query('BEGIN');
+      await sim.query(`CREATE ROLE ${TARGETS.roleName} LOGIN PASSWORD 'x' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS`);
+      await sim.query(`GRANT CONNECT ON DATABASE ${TARGETS.database} TO ${TARGETS.roleName}`);
+      await sim.query('COMMIT');
+
+      const dirty = {
+        ok: false,
+        transactional: false,
+        createSucceeded: true,
+        grantSucceeded: false,
+        alterSucceeded: false,
+        committed: false,
+        rolledBack: false,
+        roleRemains: true,
+        hasConnect: true,
+        hasReadonlySetting: false,
+        failedStep: 'grant',
+        error: 'injected_non_transactional_grant_fail',
+      };
+      const kvSetCalls = [];
+      const sqlLog = [];
+      let threw = null;
+      try {
+        await handleBootstrapCreateResult(dirty, {
+          targets: TARGETS,
+          kvSetCalls,
+          postgresExec: async (sql) => {
+            sqlLog.push(String(sql));
+            return sim.query(sql);
+          },
+        });
+      } catch (err) {
+        threw = err;
+      }
+      pass(
+        'red-adapter-partial-create-runs-narrow-rollback',
+        threw
+          && threw.createSucceeded === true
+          && sim.state.roles.has(TARGETS.roleName) === false
+          && sqlLog.some((s) => /^REVOKE CONNECT/.test(s))
+          && sqlLog.some((s) => /^ALTER ROLE .+ RESET default_transaction_read_only/.test(s))
+          && sqlLog.some((s) => /^DROP ROLE /.test(s))
+          && !sqlLog.some((s) => /DROP OWNED/i.test(s))
+          && kvSetCalls.length === 0
+          && !String(threw.message || '').includes(pw),
+      );
+    }
+
+    // Fail-after-create through convergent bootstrap: no observer secret write
+    {
+      const kvWrites = [];
+      const result = await executeConvergentBootstrap({
+        azure: goodAzure(),
+        db: goodDb(),
+        generatePassword: () => pw,
+        inspectState: async () => ({ roleExists: false, secretExists: false }),
+        postgresExec: async (_sql, _params, meta) => {
+          if (meta && meta.stepId === 'create_role_if_absent') {
+            const r = {
+              ok: false,
+              transactional: true,
+              createSucceeded: true,
+              grantSucceeded: false,
+              committed: false,
+              rolledBack: true,
+              roleRemains: false,
+              hasConnect: false,
+              hasReadonlySetting: false,
+              failedStep: 'grant',
+              error: 'injected_fail_after_create',
+            };
+            await handleBootstrapCreateResult(r, {
+              targets: TARGETS,
+              kvSetCalls: kvWrites,
+            });
+          }
+          return { ok: true };
+        },
+        keyVaultSecretSetSecure: async () => {
+          kvWrites.push('observer-secret');
+        },
+      });
+      pass(
+        'red-partial-bootstrap-no-observer-secret-write',
+        result.ok === false
+          && kvWrites.length === 0
+          && result.counters.roleCreated === 0
+          && result.counters.keyVaultSet === 0
+          && !JSON.stringify(result).includes(pw)
+          && !/PASSWORD\s+'/i.test(JSON.stringify(result)),
+      );
+    }
+
+    // ALTER-fail case through handleBootstrapCreateResult after transactional proof
+    {
+      const client = createSimulatedBootstrapClient();
+      const partial = await bootstrapCreateTransactional(client, {
+        password: pw,
+        injectFailAfter: 'grant',
+      });
+      const kvSetCalls = [];
+      let threw = null;
+      try {
+        await handleBootstrapCreateResult(partial, {
+          targets: TARGETS,
+          kvSetCalls,
+          postgresExec: async (sql) => client.query(sql),
+        });
+      } catch (err) {
+        threw = err;
+      }
+      pass(
+        'red-bootstrap-alter-fail-no-secret-role-absent',
+        threw
+          && partial.roleRemains === false
+          && client.state.roles.has(TARGETS.roleName) === false
+          && kvSetCalls.length === 0
+          && !String(threw && threw.message).includes(pw),
+      );
+    }
+  }
+
   console.log(`\n── verify:sunset-schema-observer-role-provision ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);
   process.exit(failed ? 1 : 0);
 }

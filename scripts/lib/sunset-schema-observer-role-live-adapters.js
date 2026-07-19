@@ -19,12 +19,17 @@ const {
   redactSecrets,
   writeKeyVaultSecretSecure,
   REDACTED,
+  rollbackNewlyCreatedObserverRole,
 } = require('./sunset-schema-observer-role-provision');
 const { parseDatabaseUrl: parseDsn } = require('./sunset-schema-observer');
 const {
   TEMP_BOOTSTRAP_SECRET,
   runContainerWorker,
+  secretIsActive,
 } = require('./sunset-schema-observer-role-container-pg');
+const {
+  handleBootstrapCreateResult,
+} = require('./sunset-schema-observer-role-bootstrap-pg');
 
 /** Process-local proof that container reached sunset_staging (avoids extra execs). */
 let connectedDbProof = null;
@@ -270,28 +275,66 @@ async function setTempBootstrapPassword(password) {
 }
 
 function deleteTempBootstrapPassword() {
+  const name = TEMP_BOOTSTRAP_SECRET;
+  const errors = [];
   try {
     azJson([
       'keyvault', 'secret', 'delete',
       '--vault-name', TARGETS.keyVault,
-      '--name', TEMP_BOOTSTRAP_SECRET,
+      '--name', name,
       '--subscription', TARGETS.subscriptionId,
       '-o', 'json',
     ], { allowSecretSet: true });
-  } catch (_) {
-    /* best-effort */
+  } catch (err) {
+    errors.push(`delete:${String(err && err.message ? err.message : err).slice(0, 120)}`);
   }
   try {
     execSync(
-      `${azPath()} keyvault secret purge --vault-name ${TARGETS.keyVault} --name ${TEMP_BOOTSTRAP_SECRET} --subscription ${TARGETS.subscriptionId}`,
+      `${azPath()} keyvault secret purge --vault-name ${TARGETS.keyVault} --name ${name} --subscription ${TARGETS.subscriptionId}`,
       { encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
     );
-  } catch (_) {
-    /* best-effort */
+  } catch (err) {
+    errors.push(`purge:${String(err && err.message ? err.message : err).slice(0, 120)}`);
   }
+
+  let stillActive = false;
+  try {
+    stillActive = secretIsActive(name);
+  } catch (_) {
+    // Fall back to direct show via azJson
+    try {
+      azJson([
+        'keyvault', 'secret', 'show',
+        '--vault-name', TARGETS.keyVault,
+        '--name', name,
+        '--subscription', TARGETS.subscriptionId,
+        '-o', 'json',
+      ]);
+      stillActive = true;
+    } catch (showErr) {
+      const msg = String(showErr && showErr.message ? showErr.message : showErr);
+      stillActive = !/SecretNotFound|was not found|404/i.test(msg);
+    }
+  }
+
+  if (stillActive) {
+    throw Object.assign(
+      new Error(redactSecrets(
+        `temp_bootstrap_secret_still_active name=${name}${errors.length ? ` detail=${errors.join(';')}` : ''}`,
+        [],
+      )),
+      { code: 'temp_bootstrap_secret_still_active', secretName: name },
+    );
+  }
+  return { ok: true, secretName: name, active: false };
 }
 
-function createLivePostgresExec() {
+function createLivePostgresExec(deps) {
+  const d = deps || {};
+  const runWorker = d.runContainerWorker || runContainerWorker;
+  const rollbackFn = d.rollbackNewlyCreatedObserverRole || rollbackNewlyCreatedObserverRole;
+  const handleResult = d.handleBootstrapCreateResult || handleBootstrapCreateResult;
+
   return async function postgresExec(sql, _params, meta) {
     const stepId = meta && meta.stepId;
     if (stepId === 'create_role_if_absent') {
@@ -299,35 +342,69 @@ function createLivePostgresExec() {
       if (!password) {
         throw Object.assign(new Error('create_role sql missing password literal'), { code: 'missing_password' });
       }
+      let cleanupError = null;
       try {
         await setTempBootstrapPassword(password);
-        // Bundles CREATE + GRANT CONNECT + ALTER ROLE readonly in one container exec.
-        const r = runContainerWorker('bootstrap_create');
-        if (!r || r.ok === false) {
-          throw Object.assign(new Error((r && r.error) || 'bootstrap_create failed'), { code: 'create_role_failed' });
+        const r = runWorker('bootstrap_create');
+        // Transactional success path
+        if (r && r.ok === true && r.committed === true) {
+          bootstrapCreateFlushed = true;
+          return { ok: true, stepId, bundled: true, transactional: true };
         }
-        bootstrapCreateFlushed = true;
-        return { ok: true, stepId, bundled: true };
+        // Partial / failed bootstrap — rollback if role remains; never write observer secret here.
+        await handleResult(r, {
+          targets: TARGETS,
+          rollbackNewlyCreatedObserverRole: rollbackFn,
+          postgresExec: async (rbSql) => {
+            if (/PASSWORD/i.test(String(rbSql))) {
+              throw Object.assign(new Error('password sql forbidden via rollback exec'), {
+                code: 'password_sql_forbidden',
+              });
+            }
+            const rb = runWorker('exec', { WH_OBS_SQL: rbSql });
+            if (!rb || rb.ok === false) {
+              throw Object.assign(new Error((rb && rb.error) || 'rollback exec failed'), {
+                code: 'pg_exec_failed',
+              });
+            }
+            return { ok: true };
+          },
+          kvSetCalls: [],
+        });
+        // handleResult throws on failure; unreachable
+        return { ok: false, stepId };
       } finally {
-        deleteTempBootstrapPassword();
+        try {
+          deleteTempBootstrapPassword();
+        } catch (err) {
+          cleanupError = err;
+        }
+        if (cleanupError) {
+          // Surface after try body; do not claim success with active temp secret.
+          throw Object.assign(
+            new Error(redactSecrets(
+              `temp_bootstrap_secret_cleanup_failed name=${TEMP_BOOTSTRAP_SECRET}`,
+              [password],
+            )),
+            { code: 'temp_bootstrap_secret_still_active' },
+          );
+        }
       }
     }
     if (stepId === 'grant_connect' || stepId === 'role_readonly_default') {
-      // Already applied inside bootstrap_create when create_role_if_absent ran.
       if (bootstrapCreateFlushed) {
         return { ok: true, stepId, alreadyBundled: true };
       }
-      const r = runContainerWorker('exec', { WH_OBS_SQL: sql });
+      const r = runWorker('exec', { WH_OBS_SQL: sql });
       if (!r || r.ok === false) {
         throw Object.assign(new Error((r && r.error) || 'exec failed'), { code: 'pg_exec_failed' });
       }
       return { ok: true, stepId };
     }
-    // Rollback / other non-password SQL
     if (/PASSWORD/i.test(String(sql))) {
       throw Object.assign(new Error('password sql forbidden via generic exec'), { code: 'password_sql_forbidden' });
     }
-    const r = runContainerWorker('exec', { WH_OBS_SQL: sql });
+    const r = runWorker('exec', { WH_OBS_SQL: sql });
     if (!r || r.ok === false) {
       throw Object.assign(new Error((r && r.error) || 'exec failed'), { code: 'pg_exec_failed' });
     }
@@ -413,5 +490,7 @@ module.exports = {
   inspectRoleAndSecret,
   verifyLivePostState,
   createLiveAzureAdapters,
+  createLivePostgresExec,
+  deleteTempBootstrapPassword,
   requireAdminEnv,
 };

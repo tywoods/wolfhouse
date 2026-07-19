@@ -201,10 +201,41 @@ async function main(){
       const password=await kvGet(TEMP, token);
       if(!password) throw new Error('bootstrap_password_missing');
       if(!/^[A-Za-z0-9_-]{40,128}$/.test(password)) throw new Error('password_format_invalid');
-      await client.query('CREATE ROLE '+ROLE+' LOGIN PASSWORD '+sqlLit(password)+' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS');
-      await client.query('GRANT CONNECT ON DATABASE '+DB+' TO '+ROLE);
-      await client.query('ALTER ROLE '+ROLE+' SET default_transaction_read_only = on');
-      return {ok:true,created:true,granted:true,readonly:true};
+      const progress={ok:false,transactional:true,createSucceeded:false,grantSucceeded:false,alterSucceeded:false,committed:false,rolledBack:false,roleRemains:null,hasConnect:null,hasReadonlySetting:null,failedStep:null,error:null};
+      try{
+        await client.query('BEGIN');
+        await client.query('CREATE ROLE '+ROLE+' LOGIN PASSWORD '+sqlLit(password)+' NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLICATION NOBYPASSRLS');
+        progress.createSucceeded=true;
+        await client.query('GRANT CONNECT ON DATABASE '+DB+' TO '+ROLE);
+        progress.grantSucceeded=true;
+        await client.query('ALTER ROLE '+ROLE+' SET default_transaction_read_only = on');
+        progress.alterSucceeded=true;
+        await client.query('COMMIT');
+        progress.committed=true;
+        progress.ok=true;
+        progress.roleRemains=true;
+        progress.hasConnect=true;
+        progress.hasReadonlySetting=true;
+        return progress;
+      }catch(err){
+        progress.failedStep=progress.alterSucceeded?'commit':(progress.grantSucceeded?'alter':(progress.createSucceeded?'grant':'create'));
+        progress.error=String(err&&err.message||err).replace(password,'***REDACTED***');
+        try{ await client.query('ROLLBACK'); progress.rolledBack=true; }catch(rb){ progress.rolledBack=false; progress.error+=";rollback_failed"; }
+        const existsR=await client.query('SELECT 1 AS ok FROM pg_roles WHERE rolname=$1',[ROLE]);
+        progress.roleRemains=existsR.rowCount>0;
+        if(progress.roleRemains){
+          try{ progress.hasConnect=(await client.query('SELECT has_database_privilege($1,$2,\\'CONNECT\\') AS c',[ROLE,DB])).rows[0].c===true; }catch(_){ progress.hasConnect=null; }
+          try{
+            const cfgs=(await client.query('SELECT unnest(COALESCE(rolconfig,ARRAY[]::text[])) AS cfg FROM pg_roles WHERE rolname=$1',[ROLE])).rows||[];
+            progress.hasReadonlySetting=cfgs.some(r=>String(r.cfg||'').toLowerCase().startsWith('default_transaction_read_only='));
+          }catch(_){ progress.hasReadonlySetting=null; }
+        }else{
+          progress.hasConnect=false;
+          progress.hasReadonlySetting=false;
+        }
+        progress.ok=false;
+        return progress;
+      }
     }
     throw new Error('unknown_op');
   });
@@ -238,8 +269,33 @@ function buildLauncherSource(op, envExtra) {
   return `${envAssigns}${CONTAINER_WORKER}`;
 }
 
+function secretIsActive(secretName) {
+  try {
+    azJson([
+      'keyvault', 'secret', 'show',
+      '--vault-name', TARGETS.keyVault,
+      '--name', secretName,
+      '--subscription', TARGETS.subscriptionId,
+      '-o', 'json',
+    ]);
+    return true;
+  } catch (err) {
+    const msg = String(err && err.message ? err.message : err);
+    if (/SecretNotFound|was not found|Secret Disabled|404/i.test(msg)) {
+      return false;
+    }
+    // Ambiguous — treat as still present so callers fail closed.
+    return true;
+  }
+}
+
+/**
+ * Delete + purge temp worker secret, then verify it is not an active secret.
+ * Surfaces secret-free failure if still active. Never returns secret values.
+ */
 function deleteWorkerSecret(secretName) {
   const name = secretName || TEMP_WORKER_SECRET;
+  const errors = [];
   try {
     azJson([
       'keyvault', 'secret', 'delete',
@@ -248,8 +304,8 @@ function deleteWorkerSecret(secretName) {
       '--subscription', TARGETS.subscriptionId,
       '-o', 'json',
     ], { allowFailure: true, allowEmpty: true });
-  } catch (_) {
-    /* best-effort */
+  } catch (err) {
+    errors.push(`delete:${String(err && err.message ? err.message : err).slice(0, 120)}`);
   }
   try {
     azSpawn([
@@ -258,9 +314,20 @@ function deleteWorkerSecret(secretName) {
       '--name', name,
       '--subscription', TARGETS.subscriptionId,
     ], { allowFailure: true });
-  } catch (_) {
-    /* best-effort */
+  } catch (err) {
+    errors.push(`purge:${String(err && err.message ? err.message : err).slice(0, 120)}`);
   }
+
+  if (secretIsActive(name)) {
+    throw Object.assign(
+      new Error(redactSecrets(
+        `temp_worker_secret_still_active name=${name}${errors.length ? ` detail=${errors.join(';')}` : ''}`,
+        [],
+      )),
+      { code: 'temp_worker_secret_still_active', secretName: name },
+    );
+  }
+  return { ok: true, secretName: name, active: false };
 }
 
 function sleepSync(ms) {
@@ -316,6 +383,7 @@ function runBootstrapCommand(secretName) {
 
 /**
  * Stage worker to a unique KV secret, exec short bootstrap in staff-api, parse markers, delete.
+ * Cleanup failure is never silently ignored — surfaces secret-free error if secret still active.
  */
 function runContainerWorker(op, envExtra) {
   const launcher = buildLauncherSource(op, envExtra);
@@ -339,21 +407,45 @@ function runContainerWorker(op, envExtra) {
   }
 
   let mixed;
+  let cleanupError = null;
   try {
     mixed = runBootstrapCommand(secretName);
   } finally {
-    deleteWorkerSecret(secretName);
+    try {
+      deleteWorkerSecret(secretName);
+    } catch (err) {
+      cleanupError = err;
+    }
   }
 
   const begin = mixed.indexOf('WH_OBS_BEGIN');
   const end = mixed.indexOf('WH_OBS_END');
   if (begin < 0 || end <= begin) {
     throw Object.assign(
-      new Error(redactSecrets(mixed.slice(0, 400) || 'container worker produced no result marker', [])),
-      { code: 'container_exec_failed' },
+      new Error(redactSecrets(
+        cleanupError
+          ? `${String(cleanupError.message || cleanupError)}; container worker produced no result marker`
+          : (mixed.slice(0, 400) || 'container worker produced no result marker'),
+        [],
+      )),
+      { code: cleanupError ? cleanupError.code || 'temp_worker_secret_still_active' : 'container_exec_failed' },
     );
   }
-  return JSON.parse(mixed.slice(begin + 'WH_OBS_BEGIN'.length, end));
+  const parsed = JSON.parse(mixed.slice(begin + 'WH_OBS_BEGIN'.length, end));
+  if (cleanupError) {
+    throw Object.assign(
+      new Error(redactSecrets(
+        `temp_worker_secret_cleanup_failed after_worker name=${secretName}`,
+        [],
+      )),
+      {
+        code: 'temp_worker_secret_still_active',
+        secretName,
+        workerResultOk: parsed && parsed.ok !== false,
+      },
+    );
+  }
+  return parsed;
 }
 
 module.exports = {
@@ -364,4 +456,6 @@ module.exports = {
   runContainerWorker,
   azureCliInvoker,
   azJson,
+  deleteWorkerSecret,
+  secretIsActive,
 };

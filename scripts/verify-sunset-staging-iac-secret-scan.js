@@ -38,6 +38,7 @@ const DISCOVERY_PATHSPECS = [
   'scripts/lib/sunset-schema-observer-role-provision.js',
   'scripts/lib/sunset-schema-observer-role-live-adapters.js',
   'scripts/lib/sunset-schema-observer-role-container-pg.js',
+  'scripts/lib/sunset-schema-observer-role-bootstrap-pg.js',
   'scripts/provision-sunset-schema-observer-role.js',
   'scripts/verify-sunset-schema-observer-role-provision.js',
   'scripts/capture-sunset-staging-rg-cost.js',

@@ -290,6 +290,8 @@ Fail-closed convergent provision tooling for the dedicated observer role / DSN s
 - Convergent bootstrap: absent+absent→create; both valid→no-op; inconsistent→refuse; KV failure rolls back only a newly created role (REVOKE CONNECT → RESET readonly → DROP ROLE); never rotate existing credentials
 - `CREATE ROLE PASSWORD` uses validated URL-safe SQL literals (not protocol bind params); KV writes via 0600 temp `--file` (never DSN in argv); redact secrets from results/errors/reports
 - Live adapters: `scripts/lib/sunset-schema-observer-role-live-adapters.js` (no firewall/network, no schema/data, no Container Apps job)
+- PostgreSQL bootstrap is **transactional** (`BEGIN` → CREATE → GRANT CONNECT → ALTER readonly → `COMMIT`); on failure `ROLLBACK` and prove role absent. If a non-transactional partial create ever remains, the adapter runs the ordered REVOKE→RESET→DROP rollback (never `DROP OWNED`).
+- Temp KV secrets (`*-bootstrap-temp`, `*-worker-temp*`) are deleted/purged then verified absent as active secrets; cleanup failure is fail-closed.
 
 ```bash
 # Dry-run (default) — prints plan; no Azure/Postgres mutation
