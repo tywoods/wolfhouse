@@ -3,7 +3,7 @@
 /**
  * generate-sunset-expected-schema-contract — FOUNDATION Slice 6
  * Builds fixtures/sunset-schema-observer/expected-product-schema.json from the
- * canonical 36-migration chain on disposable local PostgreSQL.
+ * canonical migration chain on disposable local PostgreSQL.
  */
 
 const { execFileSync } = require('child_process');

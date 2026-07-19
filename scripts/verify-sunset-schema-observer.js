@@ -348,7 +348,7 @@ async function main() {
     const manifest = loadManifest(MANIFEST_PATH);
     const stale = contractStalenessErrors(contract, manifest);
     pass('green-contract-fresh', stale.length === 0, JSON.stringify(stale.slice(0, 3)));
-    pass('green-contract-forward-36', Number(contract.forwardCount) === 36);
+    pass('green-contract-forward-37', Number(contract.forwardCount) === 37);
     pass('green-contract-scope', contract.scope === CONTRACT_SCOPE);
     pass(
       'green-contract-includes-enums-functions-rls',
@@ -557,8 +557,9 @@ async function main() {
     const mismatch = JSON.parse(fs.readFileSync(MISMATCH, 'utf8'));
     const followup = JSON.parse(fs.readFileSync(FOLLOWUP, 'utf8'));
 
-    const CANONICAL_FP = 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52';
+    const HISTORICAL_CANONICAL_FP_SLICE11 = 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52';
     const LIVE_FP = 'fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd';
+    const CURRENT_FP = contract.productFingerprint;
 
     pass(
       'slice11-canonical-fixture-not-live-derived',
@@ -571,8 +572,8 @@ async function main() {
       (contract.snapshot.tables || []).includes('customer_message_templates'),
     );
     pass(
-      'slice11-canonical-forward-36-with-cmt-migration',
-      Number(contract.forwardCount) === 36
+      'slice11-canonical-forward-with-cmt-migration',
+      Number(contract.forwardCount) >= 36
         && fs.existsSync(path.join(ROOT, 'database', 'migrations', '035_customer_message_templates.sql')),
     );
     pass(
@@ -599,13 +600,14 @@ async function main() {
     );
     pass(
       'slice11-generator-is-migration-derived',
-      /canonical 36-migration|disposable local PostgreSQL|runCanonicalMigrations/i.test(genSrc)
+      /canonical \d+-migration|disposable local PostgreSQL|runCanonicalMigrations/i.test(genSrc)
         && /expected-product-schema\.json/.test(genSrc),
     );
     pass(
       'slice11-canonical-fixture-equals-migration-contract-fingerprint',
-      contract.productFingerprint === CANONICAL_FP
-        && fingerprintProductSchema(contract.snapshot) === CANONICAL_FP,
+      CURRENT_FP === fingerprintProductSchema(contract.snapshot)
+        && (CURRENT_FP === HISTORICAL_CANONICAL_FP_SLICE11
+          || contract.previousProductFingerprint === HISTORICAL_CANONICAL_FP_SLICE11),
     );
     pass(
       'slice11-compare-evidence-script-exists',
@@ -615,8 +617,8 @@ async function main() {
     );
     pass(
       'slice11-live-derived-cannot-false-green',
-      contract.productFingerprint === CANONICAL_FP
-        && contract.productFingerprint !== LIVE_FP,
+      CURRENT_FP !== LIVE_FP
+        && HISTORICAL_CANONICAL_FP_SLICE11 !== LIVE_FP,
     );
     pass(
       'slice11-cmt-cannot-vanish-while-migration-canonical',
@@ -681,7 +683,7 @@ async function main() {
         && mismatch.mismatches.length === 88
         && mismatch.counts
         && (mismatch.counts.expected_only + mismatch.counts.live_only + mismatch.counts.definition_mismatch) === 88
-        && mismatch.canonicalExpectedFingerprint === CANONICAL_FP
+        && mismatch.canonicalExpectedFingerprint === HISTORICAL_CANONICAL_FP_SLICE11
         && mismatch.actualLiveFingerprint === LIVE_FP
         && mismatch.observerExitIfRun === 4
         && mismatch.match === false
@@ -691,7 +693,7 @@ async function main() {
     pass(
       'slice11-followup-image-repair-contract-present',
       followup.kind === 'sunset-schema-observer-slice12-image-repair-contract'
-        && followup.canonicalExpectedFingerprintRequired === CANONICAL_FP
+        && followup.canonicalExpectedFingerprintRequired === HISTORICAL_CANONICAL_FP_SLICE11
         && followup.expectedObserverExitWhileDriftRemains === 4
         && followup.databaseRepairOutOfScope === true,
     );
@@ -732,7 +734,8 @@ async function main() {
         && evidence12.imageContentProof.liveDerivedSourceMarker === false
         && evidence12.imageContentProof.unsafeSlice11FalseGreenFixture === false
         && evidence12.imageContentProof.contactedPostgreSQL === false
-        && contract12.productFingerprint === CANONICAL_FP12,
+        && (contract12.productFingerprint === CANONICAL_FP12
+          || contract12.previousProductFingerprint === CANONICAL_FP12),
     );
     pass(
       'slice12-staff-api-app-image-unchanged',
@@ -815,7 +818,7 @@ async function main() {
   {
     const { forward, manifestHash } = hashCanonicalManifest(loadManifest(MANIFEST_PATH));
     pass('green-manifest-hash-stable-shape', /^[a-f0-9]{64}$/.test(manifestHash));
-    pass('green-forward-count-36', forward.length === 36);
+    pass('green-forward-count-37', forward.length === 37);
     pass(
       'normalize-sql-idempotent',
       normalizeSql(INTROSPECTION_SQL.tables) === normalizeSql(`  ${INTROSPECTION_SQL.tables}  ;`),

@@ -7,6 +7,7 @@
   "masterShaBasis": "3c27d4ee3dd9b5678c63037d3ccc524c21907332",
   "correctionOf": "a322e5dda3ad57e3baf4795720a877b743fdbd53",
   "canonicalForwardCount": 36,
+  "slice13c2Note": "Slice 13A provenance remains the 36-forward investigation record. Slice 13C.2 added forward 037 (039_sunset_admin_location_aware_rules); live tip forward count is 37.",
   "schema_migration_ledger_present_live": false,
   "byteProvenanceReportPath": "fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json",
   "migration_integrity_blocker": {

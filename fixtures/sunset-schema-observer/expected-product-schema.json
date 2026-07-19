@@ -47,14 +47,18 @@
     "config_relations",
     "config_conditions"
   ],
-  "generatedAt": "2026-07-18T11:00:28.607Z",
-  "forwardCount": 36,
-  "manifestHash": "d13655e129b6358dd8742111a956216bf4a2203d50efd654214786565fd146ed",
-  "productFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "generatedAt": "2026-07-19T15:10:20.581Z",
+  "generatedFromMaster": "e3764ae3823200a4817edd8a60beb53775a010b6",
+  "slice13c2Note": "Regenerated from disposable canonical chain including 039_sunset_admin_location_aware_rules; not derived from live.",
+  "checksumMode": "canonical_lf_v1",
+  "forwardCount": 37,
+  "manifestHash": "ad8fda75699c6f26bcbb69c10d85d8ea362cd7240212bee13178635b48a71b1e",
+  "productFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+  "previousProductFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "excludes": [
     "schema_migration_ledger"
   ],
-  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded. Ownership/ACL cover schema, relations, functions, types; extensions include owner/schema/relocatable/config identity.",
+  "note": "Structural+security product-schema contract (not complete schema equivalence). schema_migration_ledger excluded.",
   "snapshot": {
     "tables": [
       "add_on_items",
@@ -5056,6 +5060,14 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
+      },
+      {
+        "table": "tenant_lesson_capacity_rules",
         "column": "scope",
         "type": "text",
         "udt": "text",
@@ -5112,6 +5124,14 @@
       },
       {
         "table": "tenant_lesson_time_rules",
+        "column": "capacity",
+        "type": "integer",
+        "udt": "int4",
+        "nullable": "YES",
+        "default": null
+      },
+      {
+        "table": "tenant_lesson_time_rules",
         "column": "client_slug",
         "type": "text",
         "udt": "text",
@@ -5165,6 +5185,14 @@
         "udt": "text",
         "nullable": "NO",
         "default": null
+      },
+      {
+        "table": "tenant_lesson_time_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -5309,6 +5337,14 @@
         "udt": "text",
         "nullable": "NO",
         "default": null
+      },
+      {
+        "table": "tenant_price_rules",
+        "column": "location_id",
+        "type": "text",
+        "udt": "text",
+        "nullable": "NO",
+        "default": "'sunset-somo'::text"
       },
       {
         "table": "tenant_price_rules",
@@ -7528,6 +7564,12 @@
       },
       {
         "table": "tenant_lesson_time_rules",
+        "name": "tenant_lesson_time_rules_capacity_check",
+        "type": "CHECK",
+        "definition": "CHECK (((capacity IS NULL) OR ((capacity >= 1) AND (capacity <= 999))))"
+      },
+      {
+        "table": "tenant_lesson_time_rules",
         "name": "tenant_lesson_time_rules_effective_window",
         "type": "CHECK",
         "definition": "CHECK (((effective_to IS NULL) OR (effective_from IS NULL) OR (effective_to >= effective_from)))"
@@ -8780,18 +8822,18 @@
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_date",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date ON public.tenant_lesson_capacity_rules USING btree (client_slug, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_date_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_date_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, service_date) WHERE ((scope = 'date'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_default",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default ON public.tenant_lesson_capacity_rules USING btree (client_slug) WHERE ((scope = 'default'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_default_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_default_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id) WHERE ((scope = 'default'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_capacity_rules",
-        "name": "uq_tenant_lesson_capacity_weekday",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday ON public.tenant_lesson_capacity_rules USING btree (client_slug, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
+        "name": "uq_tenant_lesson_capacity_weekday_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_capacity_weekday_loc ON public.tenant_lesson_capacity_rules USING btree (client_slug, location_id, weekday) WHERE ((scope = 'weekday'::text) AND (active = true))"
       },
       {
         "table": "tenant_lesson_time_rules",
@@ -8815,13 +8857,13 @@
       },
       {
         "table": "tenant_lesson_time_rules",
-        "name": "uq_tenant_lesson_time_date",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date ON public.tenant_lesson_time_rules USING btree (client_slug, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
+        "name": "uq_tenant_lesson_time_date_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_date_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, service_date, time_local, lesson_type) WHERE ((service_date IS NOT NULL) AND (active = true))"
       },
       {
         "table": "tenant_lesson_time_rules",
-        "name": "uq_tenant_lesson_time_recurring",
-        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring ON public.tenant_lesson_time_rules USING btree (client_slug, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
+        "name": "uq_tenant_lesson_time_recurring_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_lesson_time_recurring_loc ON public.tenant_lesson_time_rules USING btree (client_slug, location_id, lesson_type, time_local) WHERE ((service_date IS NULL) AND (active = true))"
       },
       {
         "table": "tenant_price_rules",
@@ -8845,8 +8887,8 @@
       },
       {
         "table": "tenant_price_rules",
-        "name": "uq_tenant_price_rules_active_window",
-        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window ON public.tenant_price_rules USING btree (client_slug, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
+        "name": "uq_tenant_price_rules_active_window_loc",
+        "def": "CREATE UNIQUE INDEX uq_tenant_price_rules_active_window_loc ON public.tenant_price_rules USING btree (client_slug, location_id, item_type, item_code, unit, COALESCE(effective_from, '1970-01-01'::date)) WHERE (active = true)"
       },
       {
         "table": "tenant_private_lesson_rules",
@@ -11849,8 +11891,5 @@
         "configConditions": ""
       }
     ]
-  },
-  "checksumMode": "canonical_lf_v1",
-  "generatedFromMaster": "235aca35d0c784e4a4c2388f075b5aa0ada85766",
-  "slice13a1Note": "manifestHash regenerated for canonical_lf_v1; productFingerprint unchanged"
+  }
 }

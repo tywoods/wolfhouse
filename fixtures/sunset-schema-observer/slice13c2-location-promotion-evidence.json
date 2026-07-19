@@ -1,0 +1,106 @@
+{
+  "kind": "sunset-schema-observer-slice13c2-location-promotion-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "generatedAt": "2026-07-19T15:10:33.564Z",
+  "masterShaBasis": "e3764ae3823200a4817edd8a60beb53775a010b6",
+  "migration": {
+    "id": "039_sunset_admin_location_aware_rules",
+    "filename": "039_sunset_admin_location_aware_rules.sql",
+    "sha256CanonicalLfV1": "d170d7baead7442439a372e36127013516271a8fba983c93ea6a2cdd10450713",
+    "order": 37
+  },
+  "objectsPromoted": [
+    "tenant_price_rules.location_id",
+    "tenant_lesson_capacity_rules.location_id",
+    "tenant_lesson_time_rules.location_id",
+    "tenant_lesson_time_rules.capacity",
+    "tenant_lesson_time_rules_capacity_check",
+    "uq_tenant_price_rules_active_window_loc",
+    "uq_tenant_lesson_capacity_default_loc",
+    "uq_tenant_lesson_capacity_weekday_loc",
+    "uq_tenant_lesson_capacity_date_loc",
+    "uq_tenant_lesson_time_recurring_loc",
+    "uq_tenant_lesson_time_date_loc"
+  ],
+  "objectsExcluded": [
+    "conversations.location_id",
+    "024_sunset_conversation_location_id_PROPOSED",
+    "tenant_services",
+    "customer_message_templates",
+    "schema_migration_ledger bootstrap"
+  ],
+  "proposedFilesRemainNonExecutable": {
+    "023_sunset_admin_location_id_PROPOSED.sql": true,
+    "025_sunset_lesson_time_capacity_PROPOSED.sql": true,
+    "024_sunset_conversation_location_id_PROPOSED.sql": true
+  },
+  "forwardCount": {
+    "before": 36,
+    "after": 37
+  },
+  "manifestHash": {
+    "after": "ad8fda75699c6f26bcbb69c10d85d8ea362cd7240212bee13178635b48a71b1e"
+  },
+  "productFingerprint": {
+    "before": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "after": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1"
+  },
+  "pathA": {
+    "ok": true,
+    "appliedCount": 37,
+    "secondApplyNoOp": true,
+    "productFingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+    "observerSelfMatch": true,
+    "conversationsLocationIdAbsent": true
+  },
+  "pathB": {
+    "ok": true,
+    "pre039Applied": 36,
+    "structural023025Applied": true,
+    "after039Fingerprint": "553d21d3dca91b60a1b9e09799f677051be63d491792fd68e12b5f6652c220f1",
+    "second039Idempotent": true,
+    "convergedWithPathA": true,
+    "conversationsLocationIdAbsent": true
+  },
+  "redFailures": [
+    {
+      "name": "incompatible_location_id_type",
+      "failedClosed": true,
+      "message": "039: incompatible tenant_price_rules.location_id type integer"
+    },
+    {
+      "name": "incompatible_capacity_type",
+      "failedClosed": true,
+      "message": "039: incompatible tenant_lesson_time_rules.capacity type text"
+    },
+    {
+      "name": "missing_parent_admin_table",
+      "failedClosed": true,
+      "message": "039_sunset_admin_location_aware_rules: required admin-rule tables missing (apply 021 first)"
+    },
+    {
+      "name": "duplicate_rows_block_location_unique_index",
+      "failedClosed": true,
+      "message": "could not create unique index \"uq_tenant_price_rules_active_window_loc\""
+    },
+    {
+      "name": "incompatible_existing_unique_constraint_name",
+      "failedClosed": true,
+      "message": "cannot drop index uq_tenant_price_rules_active_window_loc because constraint uq_tenant_price_rules_active_window_loc on table tenant_price_rules requires it"
+    },
+    {
+      "name": "conflicting_fk_on_location_id",
+      "failedClosed": true,
+      "message": "039: unexpected FOREIGN KEY on admin-rule location_id (approved model is app-validated TEXT, no DB FK)"
+    }
+  ],
+  "mismatchTrajectory": "46 → 29",
+  "remainingClassifications": {
+    "genuine_database_drift": 29
+  }
+}

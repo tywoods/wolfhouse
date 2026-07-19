@@ -404,6 +404,15 @@
       "legacySha256": "0c134bac1248d21f64af7cdc229e103f130b0eab52666bf5ffccc0c88d9cd366"
     },
     {
+      "id": "039_sunset_admin_location_aware_rules",
+      "filename": "039_sunset_admin_location_aware_rules.sql",
+      "sha256": "d170d7baead7442439a372e36127013516271a8fba983c93ea6a2cdd10450713",
+      "order": 37,
+      "classification": "canonical_forward",
+      "inForwardChain": true,
+      "rationale": "Slice 13C.2: promote approved location-aware Sunset admin rule model (structural effects of proposed 023+025). Historical PROPOSED files remain non-executable."
+    },
+    {
       "id": "022_sunset_location_id_PROPOSED",
       "filename": "022_sunset_location_id_PROPOSED.sql",
       "sha256": "5854d06527c2f2f1cd6e209b9a87759db3d72396a0ee9b9c58a834ff18f8448f",

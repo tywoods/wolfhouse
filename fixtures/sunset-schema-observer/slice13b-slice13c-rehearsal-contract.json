@@ -50,11 +50,21 @@
     "masterShaBasis": "896b8220dd8586ce8ca6a416eeeefcb819c2a9b5",
     "normalizationProfile": "azure_flexible_server_v1",
     "evidence": "fixtures/sunset-schema-observer/slice13c1-azure-identity-normalization-evidence.json",
-    "note": "Phase A observer Azure identity normalization implemented and proven offline (88→46). Disposable DB rehearsal of A is satisfied by unit/fixture proof; live observer job not started. Phases B–E remain pending."
+    "note": "Phase A observer Azure identity normalization implemented and proven offline (88→46). Disposable DB rehearsal of A is satisfied by unit/fixture proof; live observer job not started."
+  },
+  "slice13c2PhaseB": {
+    "status": "complete_location_model_promotion",
+    "completedAt": "2026-07-19T15:05:34.435Z",
+    "masterShaBasis": "e3764ae3823200a4817edd8a60beb53775a010b6",
+    "migrationId": "039_sunset_admin_location_aware_rules",
+    "migrationFilename": "039_sunset_admin_location_aware_rules.sql",
+    "evidence": "fixtures/sunset-schema-observer/slice13c2-location-promotion-evidence.json",
+    "mismatchEvidence": "fixtures/sunset-schema-observer/slice13c2-mismatch-46-to-29-evidence.json",
+    "note": "Phase B location-aware admin model promoted into one canonical forward migration and proven on disposable PostgreSQL (46→29). Still product_schema_differs; do not claim Sunset repaired. No live apply."
   },
   "phaseStatus": {
     "A": "complete_offline_identity_normalization",
-    "B": "pending",
+    "B": "complete_location_model_promotion",
     "C": "pending",
     "D": "pending",
     "E": "pending",

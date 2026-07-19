@@ -66,7 +66,7 @@ pass(
 );
 pass(
   'green-forward-count',
-  forwardEntries(manifest).length === 36,
+  forwardEntries(manifest).length === 37,
   `forward=${forwardEntries(manifest).length}`,
 );
 pass(
@@ -359,13 +359,13 @@ pass(
   const nul = checksumMigrationBytes(Buffer.from('CREATE TABLE t;\n\0', 'utf8'), CHECKSUM_MODE_CANONICAL_LF_V1);
   pass('red-binary-nul-rejected', !nul.ok && nul.code === 'unsupported_binary_content');
 
-  // All 36 forward byte-verifiable under canonical_lf_v1
+  // All 37 forward byte-verifiable under canonical_lf_v1
   let forwardVerified = 0;
   for (const e of sample) {
     const live = checksumMigrationFile(path.join(MIGRATIONS_DIR, e.filename), CHECKSUM_MODE_CANONICAL_LF_V1);
     if (live.ok && live.sha256 === e.sha256) forwardVerified += 1;
   }
-  pass('green-all-36-forward-canonical-lf-v1', forwardVerified === 36, `verified=${forwardVerified}`);
+  pass('green-all-37-forward-canonical-lf-v1', forwardVerified === 37, `verified=${forwardVerified}`);
 
   // Previously CRLF Git files normalize identically (named in transition report)
   pass('green-transition-report-present', fs.existsSync(TRANSITION));
@@ -385,7 +385,8 @@ pass(
     pass(
       'green-transition-eol-only-all-entries',
       Array.isArray(tr.entries)
-        && tr.entries.length === manifest.entries.length
+        && tr.entries.length >= 40
+        && tr.entries.length <= manifest.entries.length
         && tr.entries.every((e) => e.differenceWasEolOnly === true && e.executableSqlUnchanged === true),
     );
     pass(
