@@ -1,0 +1,402 @@
+{
+  "kind": "slice14ab-azure-pgcrypto-compat-normalization-evidence",
+  "slice": "14AB",
+  "masterShaBasis": "51578961029ae7c7b53582542f049d53f2952b98",
+  "applicationName": "wh-sunset-pgcrypto-compatibility",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "baselineMismatchCountExpected": 4,
+  "baselineMismatchSectionsExpected": {
+    "functions": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "lockedVersionPair": {
+    "expectedVersion": "1.4",
+    "liveVersion": "1.3"
+  },
+  "rule": "azure_pg15_pgcrypto_compatibility",
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "offline": {
+    "red": [
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_pgcrypto_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "non_azure_profile_retains",
+        "ok": true
+      },
+      {
+        "name": "non_pg15_retains_or_rejects",
+        "ok": true
+      },
+      {
+        "name": "wrong_live_version_retains",
+        "ok": true
+      },
+      {
+        "name": "wrong_namespace_retains",
+        "ok": true
+      },
+      {
+        "name": "wrong_owner_retains",
+        "ok": true
+      },
+      {
+        "name": "wrong_relocatable_retains",
+        "ok": true
+      },
+      {
+        "name": "upgrade_available_1_4_unapplied_fails",
+        "ok": true
+      },
+      {
+        "name": "missing_gen_random_uuid_capability_retains",
+        "ok": true
+      },
+      {
+        "name": "gen_random_uuid_not_extension_member_retains",
+        "ok": true
+      },
+      {
+        "name": "fips_mode_present_differently_retains",
+        "ok": true
+      },
+      {
+        "name": "extra_unexpected_pgcrypto_member_delta_retains",
+        "ok": true
+      },
+      {
+        "name": "expected_bytes_change_fails",
+        "ok": true
+      }
+    ],
+    "green": [
+      {
+        "name": "exact_locked_version_pair_normalizes_four",
+        "ok": true
+      },
+      {
+        "name": "capability_proof_gen_random_uuid",
+        "ok": true
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      },
+      {
+        "name": "accounting_baseline_4_normalized_4_remaining_0",
+        "ok": true,
+        "detail": {
+          "raw": 4,
+          "normalized": 4,
+          "remaining": 0
+        }
+      },
+      {
+        "name": "raw_vs_normalized_compare_api",
+        "ok": true
+      },
+      {
+        "name": "fips_mode_absence_member_delta",
+        "ok": true
+      },
+      {
+        "name": "prior_14x_rules_still_default_behavior",
+        "ok": true
+      },
+      {
+        "name": "offline_injected_authority_same_target",
+        "ok": true,
+        "detail": {
+          "code": "pgcrypto_compatibility_normalization_injected",
+          "sameTarget": true
+        }
+      }
+    ]
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "pgcrypto_compatibility_normalization_observer_match",
+    "sameTarget": true,
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "observerBefore": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 4,
+      "counts": {
+        "expected_only": 3,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "functions": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "pgcrypto",
+        "public.fips_mode()"
+      ],
+      "pgcryptoCompatibilitiesNormalized": 0,
+      "pgcryptoCompatibilityNormalization": null,
+      "normalizationError": null
+    },
+    "observerAfter": {
+      "ok": true,
+      "match": true,
+      "code": "observer_match",
+      "mismatchCount": 0,
+      "counts": {
+        "expected_only": 0,
+        "live_only": 0,
+        "definition_mismatch": 0
+      },
+      "mismatchSections": {},
+      "remainingKeys": [],
+      "pgcryptoCompatibilitiesNormalized": 4,
+      "pgcryptoCompatibilityNormalization": {
+        "applied": true,
+        "normalizedCount": 4,
+        "reason": null,
+        "versionPair": {
+          "expectedVersion": "1.4",
+          "liveVersion": "1.3"
+        },
+        "capabilityProof": {
+          "gen_random_uuid": {
+            "identity": "public.gen_random_uuid()",
+            "returnType": "uuid",
+            "language": "c",
+            "extname": "pgcrypto"
+          }
+        }
+      },
+      "normalizationError": null
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 4,
+      "mismatchSections": {
+        "functions": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 4,
+      "expectedMismatchSections": {
+        "functions": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "baselineMismatchCount": 4,
+    "pgcryptoCompatibilitiesNormalized": 4,
+    "remainingMismatchCount": 0,
+    "remainingKeys": [],
+    "accountingOk": true,
+    "liveProfile": {
+      "installed": {
+        "extversion": "1.3",
+        "schema": "public",
+        "owner": "azuresu",
+        "relocatable": true
+      },
+      "availableExtensions": {
+        "name": "pgcrypto",
+        "default_version": "1.3",
+        "installed_version": "1.3"
+      },
+      "availableVersions": [
+        {
+          "name": "pgcrypto",
+          "version": "1.3",
+          "installed": true,
+          "relocatable": true,
+          "schema": null
+        }
+      ],
+      "updatePaths": [
+        {
+          "source": "1.0",
+          "target": "1.1",
+          "path": "1.0--1.1"
+        },
+        {
+          "source": "1.0",
+          "target": "1.2",
+          "path": "1.0--1.1--1.2"
+        },
+        {
+          "source": "1.0",
+          "target": "1.3",
+          "path": "1.0--1.1--1.2--1.3"
+        },
+        {
+          "source": "1.1",
+          "target": "1.0",
+          "path": null
+        },
+        {
+          "source": "1.1",
+          "target": "1.2",
+          "path": "1.1--1.2"
+        },
+        {
+          "source": "1.1",
+          "target": "1.3",
+          "path": "1.1--1.2--1.3"
+        },
+        {
+          "source": "1.2",
+          "target": "1.0",
+          "path": null
+        },
+        {
+          "source": "1.2",
+          "target": "1.1",
+          "path": null
+        },
+        {
+          "source": "1.2",
+          "target": "1.3",
+          "path": "1.2--1.3"
+        },
+        {
+          "source": "1.3",
+          "target": "1.0",
+          "path": null
+        },
+        {
+          "source": "1.3",
+          "target": "1.1",
+          "path": null
+        },
+        {
+          "source": "1.3",
+          "target": "1.2",
+          "path": null
+        }
+      ],
+      "updatePathsNote": null,
+      "fipsMode": {
+        "present": false,
+        "functions": null,
+        "ownership": null,
+        "acls": null
+      },
+      "capabilityMembership": {
+        "public.gen_random_uuid()": {
+          "extname": "pgcrypto",
+          "returnType": "uuid",
+          "language": "c"
+        }
+      },
+      "memberFunctions": [
+        "public.armor(bytea)",
+        "public.armor(bytea, text[], text[])",
+        "public.crypt(text, text)",
+        "public.dearmor(text)",
+        "public.decrypt(bytea, bytea, text)",
+        "public.decrypt_iv(bytea, bytea, bytea, text)",
+        "public.digest(bytea, text)",
+        "public.digest(text, text)",
+        "public.encrypt(bytea, bytea, text)",
+        "public.encrypt_iv(bytea, bytea, bytea, text)",
+        "public.gen_random_bytes(integer)",
+        "public.gen_random_uuid()",
+        "public.gen_salt(text)",
+        "public.gen_salt(text, integer)",
+        "public.hmac(bytea, bytea, text)",
+        "public.hmac(text, text, text)",
+        "public.pgp_armor_headers(text, OUT key text, OUT value text)",
+        "public.pgp_key_id(bytea)",
+        "public.pgp_pub_decrypt(bytea, bytea)",
+        "public.pgp_pub_decrypt(bytea, bytea, text)",
+        "public.pgp_pub_decrypt(bytea, bytea, text, text)",
+        "public.pgp_pub_decrypt_bytea(bytea, bytea)",
+        "public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+        "public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+        "public.pgp_pub_encrypt(text, bytea)",
+        "public.pgp_pub_encrypt(text, bytea, text)",
+        "public.pgp_pub_encrypt_bytea(bytea, bytea)",
+        "public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+        "public.pgp_sym_decrypt(bytea, text)",
+        "public.pgp_sym_decrypt(bytea, text, text)",
+        "public.pgp_sym_decrypt_bytea(bytea, text)",
+        "public.pgp_sym_decrypt_bytea(bytea, text, text)",
+        "public.pgp_sym_encrypt(text, text)",
+        "public.pgp_sym_encrypt(text, text, text)",
+        "public.pgp_sym_encrypt_bytea(bytea, text)",
+        "public.pgp_sym_encrypt_bytea(bytea, text, text)"
+      ]
+    },
+    "productFingerprintLive": "039b67d034d4bd1eec68cf8a348a1f6fad2b13bcc526f24584127d028d3f0c12",
+    "applicationName": "wh-sunset-pgcrypto-compatibility",
+    "httpRequestCount": 6,
+    "clientsInstantiated": 1,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "verifyNeverRerunsLive": true
+  },
+  "secretHandlingProof": {
+    "leakScanPassed": true,
+    "fakeCredentialsUsed": true,
+    "dsnNeverPersisted": true
+  },
+  "verifyNeverRerunsLive": true
+}
