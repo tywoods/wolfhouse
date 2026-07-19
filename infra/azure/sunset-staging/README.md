@@ -711,6 +711,19 @@ node scripts/prove-sunset-schema-slice14v-rename-alias-normalization.js --offlin
 
 Artifacts: `slice14v-rename-alias-normalization-contract.json`, `slice14v-rename-alias-normalization-evidence.json`, `slice14v-findings.md`.
 
+### Slice 14W — final NOT NULL rename-provenance normalization (implemented)
+
+Read-only observer normalization for exact rename-provenance NOT NULL legacy-name residuals from migrations **002/003/004** (byte/hash-locked tuples). Extends — does not weaken — 14T exact-name or 14V hostel_id alias rules. Default **OFF** in compare (14V inventory stable). Merged target-authority + one TLS `verify-full` session `application_name=wh-sunset-final-rename-normalization`. Baseline (identity + 14T + 14V; final rename off) must be mismatchCount === **23** or `baseline_drift_mismatch`. Reports normalized count + remaining keys (accounting: baseline = normalized + remaining; do not force final count). Covers: 003 `hostels→clients` (`clients.hostels_<col>_not_null`, nine approved columns), 002 `price_per_person_per_night_cents→price_per_person_per_week_cents`, 004 `kind→payment_kind` + `amount_cents→amount_due_cents`. Truncated names / wrong defs / unapproved columns / old+new coexistence retain. **Zero mutation.** Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14w-final-rename-normalization
+npm run verify:sunset-schema-slice14w
+npm run phase-d:final-rename-normalization
+node scripts/prove-sunset-schema-slice14w-final-rename-normalization.js --offline
+```
+
+Artifacts: `slice14w-final-rename-normalization-contract.json`, `slice14w-final-rename-normalization-evidence.json`, `slice14w-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -792,3 +805,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14T — NOT NULL observer representation normalization (constraint↔attnotnull; 483→35; 448 normalized; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14U — Residual drift classify + preflight (exact 35; read-only aggregates; execute:false batches; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14V — hostel_id→client_id rename-alias normalization (migration 003; 12 aliases; PG15; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14W — final NOT NULL rename-provenance normalization (002/003/004 tuples; baseline 23; zero mutation) — 2026-07-19*
