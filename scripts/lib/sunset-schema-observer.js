@@ -1108,6 +1108,385 @@ function normalizeNotNullConstraintRepresentation(expected, live, opts) {
   };
 }
 
+/**
+ * Slice 14V — migration 003 hostel_id→client_id NOT NULL constraint-name alias.
+ * Does NOT broaden Slice 14T's exact-name rule (parseCanonicalNotNullConstraint).
+ * Provenance is byte/hash-locked to canonical migration 003's guarded rename loop.
+ */
+const MIGRATION_003_FILENAME = '003_rename_hostel_to_client.sql';
+const MIGRATION_003_HOSTEL_CLIENT_RENAME_SHA256 = 'f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257';
+const MIGRATION_003_OLD_COLUMN = 'hostel_id';
+const MIGRATION_003_CURRENT_COLUMN = 'client_id';
+const MIGRATION_003_ALIAS_DEFINITION = 'NOT NULL client_id';
+const MIGRATION_003_RENAME_ALIAS_RULE = 'migration_003_rename_alias';
+const MIGRATION_003_REQUIRED_VERSION_CLASS = 'postgresql_15';
+
+/** Extract tables from migration 003's guarded hostel_id→client_id rename loop. */
+function extractMigration003HostelIdRenameTables(sqlText) {
+  const text = String(sqlText || '');
+  const blockRe = /FOREACH\s+t\s+IN\s+ARRAY\s+ARRAY\[([\s\S]*?)\]\s*LOOP([\s\S]*?)END\s+LOOP/gi;
+  let match;
+  while ((match = blockRe.exec(text)) !== null) {
+    const body = match[2] || '';
+    if (!/RENAME\s+COLUMN\s+hostel_id\s+TO\s+client_id/i.test(body)) continue;
+    if (!/column_name\s*=\s*'hostel_id'/i.test(body)) continue;
+    const raw = match[1] || '';
+    const tables = [];
+    const identRe = /'([a-z_][a-z0-9_]*)'/g;
+    let m;
+    while ((m = identRe.exec(raw)) !== null) {
+      tables.push(m[1]);
+    }
+    if (tables.length === 0) {
+      return { ok: false, reason: 'rename_loop_tables_empty' };
+    }
+    // Deduplicate while preserving first-seen order, then sort for lock stability.
+    const seen = new Set();
+    const unique = [];
+    for (const t of tables) {
+      if (seen.has(t)) continue;
+      seen.add(t);
+      unique.push(t);
+    }
+    return { ok: true, tables: unique.slice().sort() };
+  }
+  return { ok: false, reason: 'rename_loop_not_found' };
+}
+
+/**
+ * Byte/hash-locked alias provenance map derived directly from migration 003.
+ * Only tables enumerated by the guarded hostel_id→client_id rename loop.
+ */
+function buildMigration003HostelClientRenameAliasProvenance(opts) {
+  const options = opts || {};
+  const pathMod = require('path');
+  const fsMod = require('fs');
+  const cryptoMod = require('crypto');
+  const migrationPath = options.migrationPath
+    || pathMod.join(__dirname, '..', '..', 'database', 'migrations', MIGRATION_003_FILENAME);
+  if (!fsMod.existsSync(migrationPath)) {
+    return {
+      ok: false,
+      code: 'migration_003_missing',
+      message: `migration 003 not found at ${migrationPath}`,
+    };
+  }
+  const bytes = fsMod.readFileSync(migrationPath);
+  // Prefer repo canonical_lf_v1 when available; fall back to raw sha256 of file bytes.
+  let sha256;
+  try {
+    const { sha256CanonicalLfV1FromBuffer } = require('./migration-integrity');
+    sha256 = sha256CanonicalLfV1FromBuffer(bytes);
+  } catch (_) {
+    sha256 = cryptoMod.createHash('sha256').update(bytes).digest('hex');
+  }
+  const expectedSha = options.expectedSha256 || MIGRATION_003_HOSTEL_CLIENT_RENAME_SHA256;
+  if (sha256 !== expectedSha) {
+    return {
+      ok: false,
+      code: 'migration_003_hash_mismatch',
+      message: `migration 003 hash changed: got ${sha256}, expected ${expectedSha}`,
+      migrationSha256: sha256,
+      expectedSha256: expectedSha,
+    };
+  }
+  const extracted = extractMigration003HostelIdRenameTables(bytes.toString('utf8'));
+  if (!extracted.ok) {
+    return {
+      ok: false,
+      code: 'migration_003_provenance_parse_failed',
+      message: extracted.reason || 'failed to parse rename loop',
+      migrationSha256: sha256,
+    };
+  }
+  return {
+    ok: true,
+    migrationId: '003_rename_hostel_to_client',
+    migrationFilename: MIGRATION_003_FILENAME,
+    migrationPath,
+    migrationSha256: sha256,
+    oldColumn: MIGRATION_003_OLD_COLUMN,
+    currentColumn: MIGRATION_003_CURRENT_COLUMN,
+    aliasDefinition: MIGRATION_003_ALIAS_DEFINITION,
+    approvedTables: Object.freeze(extracted.tables.slice()),
+    provenanceCount: extracted.tables.length,
+    rule: MIGRATION_003_RENAME_ALIAS_RULE,
+  };
+}
+
+/**
+ * Parse expected constraint as a migration-003 hostel_id→client_id rename alias.
+ * Does not alter parseCanonicalNotNullConstraint (14T exact-name rule stays narrow).
+ */
+function parseMigration003HostelIdNotNullRenameAlias(constraint, provenance) {
+  if (!constraint || typeof constraint !== 'object') {
+    return { ok: false, reason: 'missing_constraint' };
+  }
+  if (!provenance || provenance.ok !== true || !Array.isArray(provenance.approvedTables)) {
+    return { ok: false, reason: 'provenance_unavailable' };
+  }
+  const type = String(constraint.type || '');
+  if (type !== 'n') {
+    return { ok: false, reason: 'not_not_null_type' };
+  }
+  const table = String(constraint.table || '');
+  const name = String(constraint.name || '');
+  const definition = String(constraint.definition || '');
+  if (!table || !name) {
+    return { ok: false, reason: 'ambiguous_key' };
+  }
+  if (definition !== MIGRATION_003_ALIAS_DEFINITION) {
+    return { ok: false, reason: 'wrong_definition' };
+  }
+  const legacyName = `${table}_${MIGRATION_003_OLD_COLUMN}_not_null`;
+  if (name !== legacyName) {
+    return { ok: false, reason: 'legacy_name_mismatch' };
+  }
+  if (!provenance.approvedTables.includes(table)) {
+    return { ok: false, reason: 'table_not_provenance_approved' };
+  }
+  return {
+    ok: true,
+    table,
+    name,
+    type,
+    definition,
+    oldColumn: MIGRATION_003_OLD_COLUMN,
+    currentColumn: MIGRATION_003_CURRENT_COLUMN,
+    key: `${table}.${name}.${type}`,
+    columnKey: `${table}.${MIGRATION_003_CURRENT_COLUMN}`,
+    oldColumnKey: `${table}.${MIGRATION_003_OLD_COLUMN}`,
+  };
+}
+
+function assertPg15AzureFlexibleServerContext(azureContext, serverVersionClass) {
+  const gate = assertAzureFlexibleServerContext(azureContext);
+  if (!gate.ok) return { ...gate, skipped: false };
+  const versionClass = serverVersionClass != null
+    ? String(serverVersionClass)
+    : (azureContext && azureContext.versionClass != null
+      ? String(azureContext.versionClass)
+      : null);
+  if (versionClass == null || versionClass === '') {
+    return {
+      ok: true,
+      skipped: true,
+      reason: 'pg15_context_absent',
+      errors: [],
+      versionClass: null,
+    };
+  }
+  if (versionClass !== MIGRATION_003_REQUIRED_VERSION_CLASS) {
+    return {
+      ok: false,
+      skipped: false,
+      errors: [{
+        code: 'pg15_context_required',
+        message: `migration_003 rename alias requires ${MIGRATION_003_REQUIRED_VERSION_CLASS} context (got ${versionClass})`,
+      }],
+    };
+  }
+  return { ok: true, skipped: false, errors: [], versionClass };
+}
+
+/**
+ * Slice 14V — exclude only proven migration-003 hostel_id→client_id NOT NULL
+ * name aliases when live encodes the guarantee via attnotnull on client_id and
+ * hostel_id is absent. Never broadens 14T exact-name parsing.
+ *
+ * Soft-skips (ok, applied:false) when PG15 version class is absent so older
+ * azure_flexible_server_v1 callers that omit versionClass keep working.
+ */
+function normalizeMigration003HostelIdNotNullRenameAlias(expected, live, opts) {
+  const options = opts || {};
+  const profile = options.profile || null;
+  const audit = [];
+  const retainedReasons = [];
+  const expectedConstraints = Array.isArray(expected && expected.constraints)
+    ? expected.constraints.slice()
+    : [];
+
+  if (profile !== NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    return {
+      ok: true,
+      applied: false,
+      reason: 'profile_not_azure_flexible_server_v1',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const versionGate = assertPg15AzureFlexibleServerContext(
+    options.azureContext,
+    options.serverVersionClass,
+  );
+  if (!versionGate.ok) {
+    return {
+      ok: false,
+      applied: false,
+      code: (versionGate.errors[0] && versionGate.errors[0].code) || 'azure_context_rejected',
+      message: (versionGate.errors[0] && versionGate.errors[0].message) || 'azure/pg15 context rejected',
+      errors: versionGate.errors,
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+  if (versionGate.skipped === true) {
+    return {
+      ok: true,
+      applied: false,
+      reason: versionGate.reason || 'pg15_context_absent',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const provenance = options.provenance
+    || buildMigration003HostelClientRenameAliasProvenance({
+      migrationPath: options.migrationPath,
+      expectedSha256: options.expectedMigration003Sha256,
+    });
+  if (!provenance || provenance.ok !== true) {
+    return {
+      ok: false,
+      applied: false,
+      code: (provenance && provenance.code) || 'provenance_unavailable',
+      message: (provenance && provenance.message) || 'migration 003 provenance unavailable',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: provenance || null,
+    };
+  }
+
+  const expectedCols = indexColumnsByTableColumn(expected && expected.columns);
+  const liveCols = indexColumnsByTableColumn(live && live.columns);
+  const liveConstraintKeys = new Set(
+    (live && live.constraints ? live.constraints : []).map(
+      (c) => `${c.table}.${c.name}.${c.type}`,
+    ),
+  );
+
+  const columnClaimCounts = Object.create(null);
+  const parsedByIndex = expectedConstraints.map((c, idx) => {
+    const parsed = parseMigration003HostelIdNotNullRenameAlias(c, provenance);
+    if (parsed.ok) {
+      columnClaimCounts[parsed.columnKey] = (columnClaimCounts[parsed.columnKey] || 0) + 1;
+    }
+    return { idx, constraint: c, parsed };
+  });
+
+  const dropKeys = new Set();
+  for (const entry of parsedByIndex) {
+    const { parsed, constraint } = entry;
+    if (!parsed.ok) {
+      // Only record retain reasons for type-n constraints that look like rename
+      // leftovers we considered (legacy hostel_id name or alias definition).
+      const type = String(constraint.type || '');
+      const name = String(constraint.name || '');
+      const definition = String(constraint.definition || '');
+      if (type === 'n' && (
+        name.endsWith(`_${MIGRATION_003_OLD_COLUMN}_not_null`)
+        || definition === MIGRATION_003_ALIAS_DEFINITION
+      )) {
+        retainedReasons.push({
+          key: `${constraint.table}.${constraint.name}.${constraint.type}`,
+          reason: parsed.reason,
+        });
+      }
+      continue;
+    }
+
+    if (columnClaimCounts[parsed.columnKey] > 1) {
+      retainedReasons.push({ key: parsed.key, reason: 'duplicate_column_claim' });
+      continue;
+    }
+
+    if (liveConstraintKeys.has(parsed.key)) {
+      retainedReasons.push({ key: parsed.key, reason: 'live_has_constraint_object' });
+      continue;
+    }
+
+    const expCol = expectedCols.get(parsed.columnKey);
+    if (!expCol || expCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !expCol ? 'expected_column_missing' : 'expected_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(expCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'expected_column_not_nullable_no' });
+      continue;
+    }
+
+    const liveCol = liveCols.get(parsed.columnKey);
+    if (!liveCol || liveCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !liveCol ? 'live_column_missing' : 'live_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(liveCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'live_column_nullable_mismatch' });
+      continue;
+    }
+
+    const liveOld = liveCols.get(parsed.oldColumnKey);
+    if (liveOld && !liveOld.duplicate) {
+      retainedReasons.push({ key: parsed.key, reason: 'live_hostel_id_present' });
+      continue;
+    }
+
+    dropKeys.add(parsed.key);
+    audit.push({
+      section: 'constraints',
+      key: parsed.key,
+      rule: MIGRATION_003_RENAME_ALIAS_RULE,
+      table: parsed.table,
+      oldColumn: parsed.oldColumn,
+      currentColumn: parsed.currentColumn,
+      expectedNullable: 'NO',
+      liveNullable: 'NO',
+      liveHostelIdAbsent: true,
+      migrationSha256: provenance.migrationSha256,
+    });
+  }
+
+  const filtered = expectedConstraints.filter(
+    (c) => !dropKeys.has(`${c.table}.${c.name}.${c.type}`),
+  );
+
+  return {
+    ok: true,
+    applied: true,
+    profile,
+    constraints: filtered,
+    normalizedCount: dropKeys.size,
+    audit,
+    retainedReasons,
+    provenance: {
+      migrationSha256: provenance.migrationSha256,
+      provenanceCount: provenance.provenanceCount,
+      approvedTables: provenance.approvedTables.slice(),
+      oldColumn: provenance.oldColumn,
+      currentColumn: provenance.currentColumn,
+      rule: provenance.rule,
+    },
+  };
+}
+
 function classifyServerVersionClass(serverVersionNum, serverVersion) {
   const num = Number(serverVersionNum);
   if (Number.isFinite(num) && num >= 10000) {
@@ -1146,6 +1525,7 @@ function compareSnapshots(expected, live, opts) {
   let liveSnap = live;
   let normalization = null;
   let notNullNormalization = null;
+  let renameAliasNormalization = null;
   let expectedSnap = expected;
   if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
     normalization = normalizeObservedIdentityPresentation(live, {
@@ -1163,6 +1543,7 @@ function compareSnapshots(expected, live, opts) {
           errors: normalization.errors || [],
         },
         notNullNormalization: null,
+        renameAliasNormalization: null,
       };
     }
     liveSnap = normalization.snapshot;
@@ -1184,11 +1565,49 @@ function compareSnapshots(expected, live, opts) {
             errors: notNullNormalization.errors || [],
           },
           notNullNormalization,
+          renameAliasNormalization: null,
         };
       }
       expectedSnap = {
         ...expected,
         constraints: notNullNormalization.constraints,
+      };
+    }
+
+    // Slice 14V: migration 003 hostel_id→client_id name-alias only (does not
+    // broaden 14T exact-name parsing). Default on for azure profile + PG15.
+    if (options.disableRenameAliasNormalization !== true) {
+      renameAliasNormalization = normalizeMigration003HostelIdNotNullRenameAlias(
+        expectedSnap,
+        liveSnap,
+        {
+          profile: options.normalizationProfile,
+          azureContext: options.azureContext,
+          serverVersionClass: options.serverVersionClass
+            || (options.azureContext && options.azureContext.versionClass)
+            || null,
+          provenance: options.renameAliasProvenance || null,
+          migrationPath: options.migration003Path,
+          expectedMigration003Sha256: options.expectedMigration003Sha256,
+        },
+      );
+      if (!renameAliasNormalization.ok) {
+        return {
+          ok: false,
+          drifts: [],
+          counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+          normalizationError: {
+            code: renameAliasNormalization.code,
+            message: renameAliasNormalization.message,
+            errors: renameAliasNormalization.errors || [],
+          },
+          notNullNormalization,
+          renameAliasNormalization,
+        };
+      }
+      expectedSnap = {
+        ...expectedSnap,
+        constraints: renameAliasNormalization.constraints,
       };
     }
   }
@@ -1231,6 +1650,7 @@ function compareSnapshots(expected, live, opts) {
     ok: counts.expected_only + counts.live_only + counts.definition_mismatch === 0,
     normalization,
     notNullNormalization,
+    renameAliasNormalization,
   };
 }
 
@@ -1622,6 +2042,17 @@ module.exports = {
   normalizePublicSchemaAclAzurePgAdmin,
   parseCanonicalNotNullConstraint,
   normalizeNotNullConstraintRepresentation,
+  MIGRATION_003_FILENAME,
+  MIGRATION_003_HOSTEL_CLIENT_RENAME_SHA256,
+  MIGRATION_003_OLD_COLUMN,
+  MIGRATION_003_CURRENT_COLUMN,
+  MIGRATION_003_ALIAS_DEFINITION,
+  MIGRATION_003_RENAME_ALIAS_RULE,
+  MIGRATION_003_REQUIRED_VERSION_CLASS,
+  extractMigration003HostelIdRenameTables,
+  buildMigration003HostelClientRenameAliasProvenance,
+  parseMigration003HostelIdNotNullRenameAlias,
+  normalizeMigration003HostelIdNotNullRenameAlias,
   classifyServerVersionClass,
   CANONICAL_NOT_NULL_DEFINITION_RE,
   assertReadOnlySession,

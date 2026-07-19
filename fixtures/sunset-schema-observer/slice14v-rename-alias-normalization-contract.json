@@ -1,0 +1,58 @@
+{
+  "kind": "slice14v-rename-alias-normalization-contract",
+  "slice": "14V",
+  "masterShaBasis": "7b54b17ff1071349c82344277971df75a87ed499",
+  "applicationName": "wh-sunset-rename-alias-normalization",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+  "baselineMismatchCount": 35,
+  "requiredRed": [
+    "default_path_zero_http_and_clients",
+    "missing_prove_flag_zero_clients",
+    "missing_rename_alias_env_zero_clients",
+    "wrong_exact_targets_zero_clients",
+    "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+    "non_azure_profile_retains_alias_constraints",
+    "non_pg15_version_retains_or_rejects",
+    "live_nullable_yes_retains_drift",
+    "live_column_missing_retains_drift",
+    "live_hostel_id_present_retains_drift",
+    "ambiguous_duplicate_claim_retains_drift",
+    "wrong_definition_retains_drift",
+    "arbitrary_old_name_retains_drift",
+    "nonapproved_table_retains_drift",
+    "migration_003_hash_change_fails",
+    "fourteen_t_exact_name_rule_unchanged"
+  ],
+  "requiredGreen": [
+    "exact_24_key_fixture",
+    "migration_003_provenance_15_tables_hash_locked",
+    "twelve_hostel_id_aliases_normalize_when_columns_match",
+    "negative_keys_within_24_retain",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "global_live_apply_remains_false",
+    "accounting_identity_baseline_aliases_plus_remaining",
+    "raw_vs_normalized_compare_api"
+  ],
+  "locks": {
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-rename-alias-normalization",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "gates": {
+    "envRenameAliasNormalization": "SUNSET_PHASE_D_RENAME_ALIAS_NORMALIZATION",
+    "cliProve": "--prove-rename-alias-normalization",
+    "defaultDisabled": true,
+    "liveApplyRemainsFalse": true
+  },
+  "verifyNeverRerunsLive": true
+}

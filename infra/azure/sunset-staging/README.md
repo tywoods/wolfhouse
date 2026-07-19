@@ -696,6 +696,21 @@ node scripts/prove-sunset-schema-slice14u-residual-drift-preflight.js --offline-
 
 Artifacts: `slice14u-residual-drift-preflight-contract.json`, `slice14u-residual-drift-preflight-evidence.json`, `slice14u-findings.md`.
 
+### Slice 14V — hostel_id→client_id rename-alias normalization (implemented)
+
+Read-only observer normalization for migration **003** `{table}_hostel_id_not_null` / `NOT NULL client_id` name aliases (15 provenance tables; hash-locked). Merged target-authority proof + one TLS `verify-full` `BEGIN READ ONLY` session with `application_name=wh-sunset-rename-alias-normalization`. Baseline (identity + 14T; rename alias off) must be mismatchCount === **35** (sections as 14U) or stop with `baseline_drift_mismatch`. Then applies rename-alias normalization under `azure_flexible_server_v1` + `postgresql_15` and reports aliases normalized + remaining key inventory (accounting: baseline = aliases + remaining). Does **not** broaden 14T `parseCanonicalNotNullConstraint`. Soft-skips when PG15 versionClass absent. **Zero mutation.** Default-disabled behind dual Phase D flags + `SUNSET_PHASE_D_TARGET_AUTHORITY=1` + `SUNSET_PHASE_D_RENAME_ALIAS_NORMALIZATION=1` + managed-identity + exact locked targets. Verifier does **not** re-run live. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14v-rename-alias-normalization
+npm run verify:sunset-schema-slice14v
+# default refuse (zero Clients):
+npm run phase-d:rename-alias-normalization
+# offline-only (preserve prior liveOutcome if present):
+node scripts/prove-sunset-schema-slice14v-rename-alias-normalization.js --offline
+```
+
+Artifacts: `slice14v-rename-alias-normalization-contract.json`, `slice14v-rename-alias-normalization-evidence.json`, `slice14v-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -776,3 +791,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14S — Phase B additive reconcile (CREATE TABLE customer_message_templates from byte-locked 035; no INDEX/COMMENT; gated live apply) — 2026-07-19*
 *FOUNDATION Slice 14T — NOT NULL observer representation normalization (constraint↔attnotnull; 483→35; 448 normalized; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14U — Residual drift classify + preflight (exact 35; read-only aggregates; execute:false batches; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14V — hostel_id→client_id rename-alias normalization (migration 003; 12 aliases; PG15; zero mutation) — 2026-07-19*
