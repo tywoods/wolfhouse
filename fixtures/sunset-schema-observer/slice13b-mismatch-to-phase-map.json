@@ -1,0 +1,905 @@
+{
+  "kind": "sunset-schema-observer-slice13b-mismatch-to-phase-map",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "generatedAt": "2026-07-19T14:37:14.339Z",
+  "masterShaBasis": "5dc43550d0197efacbb59dab4657960d2aaa36eb",
+  "sourceClassificationReport": "fixtures/sunset-schema-observer/slice13a-mismatch-classification-report.json",
+  "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+  "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+  "mismatchCount": 88,
+  "phaseCounts": {
+    "A": 42,
+    "B": 17,
+    "C": 27,
+    "D": 2,
+    "E": 0,
+    "F": 0
+  },
+  "phaseCountsNote": "Phases E (ledger bootstrap) and F (canonical verification) resolve zero of the 88 catalog mismatches; they are sequencing/governance phases. Every mismatch key maps to exactly one of A–D.",
+  "entries": [
+    {
+      "stableKey": "expected_only|tables|customer_message_templates",
+      "kind": "expected_only",
+      "section": "tables",
+      "key": "customer_message_templates",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.active",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.active",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.body",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.body",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.channel",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.channel",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.client_id",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.client_id",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.created_at",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.created_at",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.id",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.id",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.tags",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.tags",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.title",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.title",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|columns|customer_message_templates.updated_at",
+      "kind": "expected_only",
+      "section": "columns",
+      "key": "customer_message_templates.updated_at",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_capacity_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_capacity_rules.location_id",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_time_rules.capacity",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.capacity",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_lesson_time_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_lesson_time_rules.location_id",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_price_rules.location_id",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_price_rules.location_id",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.block_rooms_enabled",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.block_rooms_enabled",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_promote_live_tenant_services_columns",
+      "rationale": "Staff ensure-DDL columns required by SaaS catalog/room-block features"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.blocked_room_codes",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.blocked_room_codes",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_promote_live_tenant_services_columns",
+      "rationale": "Staff ensure-DDL columns required by SaaS catalog/room-block features"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.room_block_booking_ids",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.room_block_booking_ids",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_promote_live_tenant_services_columns",
+      "rationale": "Staff ensure-DDL columns required by SaaS catalog/room-block features"
+    },
+    {
+      "stableKey": "live_only|columns|tenant_services.weekdays",
+      "kind": "live_only",
+      "section": "columns",
+      "key": "tenant_services.weekdays",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_promote_live_tenant_services_columns",
+      "rationale": "Staff ensure-DDL columns required by SaaS catalog/room-block features"
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_date_window.CHECK",
+      "classification": "genuine_database_drift",
+      "phaseId": "D",
+      "resolution": "constraint_add_after_preflight_violation_counts",
+      "rationale": "Missing CHECK constraints; data-sensitive — require aggregate violation counts before ADD"
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_services.tenant_services_price_unit.CHECK",
+      "classification": "genuine_database_drift",
+      "phaseId": "D",
+      "resolution": "constraint_add_after_preflight_violation_counts",
+      "rationale": "Missing CHECK constraints; data-sensitive — require aggregate violation counts before ADD"
+    },
+    {
+      "stableKey": "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "kind": "expected_only",
+      "section": "constraints",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+      "kind": "live_only",
+      "section": "constraints",
+      "key": "tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_client_created",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_events.idx_client_notification_events_conversation",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "client_notification_settings.idx_client_notification_settings_client",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.customer_message_templates_pkey",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "customer_message_templates.idx_customer_message_templates_client_active",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "kind": "expected_only",
+      "section": "indexes",
+      "key": "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_date_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_default_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_capacity_rules.uq_tenant_lesson_capacity_weekday_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+      "kind": "live_only",
+      "section": "indexes",
+      "key": "tenant_price_rules.uq_tenant_price_rules_active_window_loc",
+      "classification": "canonical_manifest_question",
+      "phaseId": "B",
+      "resolution": "promote_location_aware_model_into_canonical_forward",
+      "rationale": "Live location_id / *_loc uniques match proposed 023/025 and multi-location Staff/Luna code"
+    },
+    {
+      "stableKey": "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "kind": "expected_only",
+      "section": "triggers",
+      "key": "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_index_fk_trigger_reconciliation",
+      "rationale": "Missing expected indexes/FK/trigger; additive and non-destructive"
+    },
+    {
+      "stableKey": "expected_only|rlsFlags|customer_message_templates",
+      "kind": "expected_only",
+      "section": "rlsFlags",
+      "key": "customer_message_templates",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|extension:pgcrypto",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:pgcrypto",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|extension:plpgsql",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "extension:plpgsql",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.armor(bytea, text[], text[])",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea, text[], text[])",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.armor(bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.armor(bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.crypt(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.crypt(text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.dearmor(text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.dearmor(text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.decrypt_iv(bytea, bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt_iv(bytea, bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.decrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.decrypt(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.digest(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.digest(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.digest(text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.encrypt_iv(bytea, bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt_iv(bytea, bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.encrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.encrypt(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_random_bytes(integer)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_bytes(integer)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_random_uuid()",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_random_uuid()",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_salt(text, integer)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text, integer)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.gen_salt(text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.gen_salt(text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.hmac(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.hmac(text, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.hmac(text, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_armor_headers(text, OUT key text, OUT value text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_key_id(bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_key_id(bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt_bytea(bytea, bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_decrypt(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_decrypt(bytea, bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt_bytea(bytea, bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_pub_encrypt(text, bytea)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_pub_encrypt(text, bytea)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt_bytea(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt_bytea(bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_decrypt(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_decrypt(bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt_bytea(bytea, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt_bytea(bytea, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|function:public.pgp_sym_encrypt(text, text)",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "function:public.pgp_sym_encrypt(text, text)",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "expected_only|ownership|relation:customer_message_templates",
+      "kind": "expected_only",
+      "section": "ownership",
+      "key": "relation:customer_message_templates",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "definition_mismatch|ownership|schema:public",
+      "kind": "definition_mismatch",
+      "section": "ownership",
+      "key": "schema:public",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "expected_only|acls|relation:customer_message_templates",
+      "kind": "expected_only",
+      "section": "acls",
+      "key": "relation:customer_message_templates",
+      "classification": "genuine_database_drift",
+      "phaseId": "C",
+      "resolution": "additive_apply_migration_035",
+      "rationale": "Absent live; CREATE TABLE IF NOT EXISTS + index; no seed"
+    },
+    {
+      "stableKey": "definition_mismatch|acls|schema:public",
+      "kind": "definition_mismatch",
+      "section": "acls",
+      "key": "schema:public",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|extensions|pgcrypto",
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "pgcrypto",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    },
+    {
+      "stableKey": "definition_mismatch|extensions|plpgsql",
+      "kind": "definition_mismatch",
+      "section": "extensions",
+      "key": "plpgsql",
+      "classification": "observer_normalization_difference",
+      "phaseId": "A",
+      "resolution": "observer_normalization_no_database_mutation",
+      "rationale": "Azure Flexible Server identity/ownership/ACL presentation vs local $db_owner fixtures"
+    }
+  ],
+  "contentHash": "efceea605c3c117c7e6a42359b5e5b96c59b0f15d2218b96ddc6b4251848f638"
+}

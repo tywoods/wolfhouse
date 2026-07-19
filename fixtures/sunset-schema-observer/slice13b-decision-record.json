@@ -1,0 +1,377 @@
+{
+  "kind": "sunset-schema-observer-slice13b-decision-record",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "liveMutation": false,
+  "designOnly": true,
+  "generatedAt": "2026-07-19T14:37:14.341Z",
+  "masterShaBasis": "5dc43550d0197efacbb59dab4657960d2aaa36eb",
+  "inputs": {
+    "slice13aClassification": "fixtures/sunset-schema-observer/slice13a-mismatch-classification-report.json",
+    "slice13aProvenance": "fixtures/sunset-schema-observer/slice13a-migration-provenance-matrix.json",
+    "slice13aDecisions": "fixtures/sunset-schema-observer/slice13a-operator-decision-list.json",
+    "slice13a1ChecksumMode": "canonical_lf_v1",
+    "canonicalFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
+    "liveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
+    "observerExit": 4,
+    "observerMismatchCount": 88
+  },
+  "priorDecisionsPreserved": [
+    {
+      "id": "DEC-001",
+      "status": "proposed_non_mutating"
+    },
+    {
+      "id": "DEC-002",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-003",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-004",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-005",
+      "status": "needs_operator_decision"
+    },
+    {
+      "id": "DEC-006",
+      "status": "unresolved_fail_closed"
+    },
+    {
+      "id": "DEC-007",
+      "status": "resolved_by_slice_13a1"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "DEC-001",
+      "topic": "Azure ownership/ACL/extension observer normalization",
+      "recommendedDecision": "Implement observer-only Azure identity normalization in a later repair/observer slice. Do not ALTER OWNER, GRANT/REVOKE, or rewrite ACLs on live Sunset merely to match local fixture role names.",
+      "status": "approved_direction_observer_normalization",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "Slice 13A classified 42 definition_mismatch rows as observer_normalization_difference (azuresu / azure_pg_admin vs $db_owner / pg_database_owner).",
+        "scripts/lib/sunset-schema-observer.js normalizeOwnerName only rewrites the connected datdba name to $db_owner; it does not map Azure Flexible Server system roles.",
+        "Product fingerprint excludes ledger; ownership presentation is environment identity, not tenant privilege model."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "ALTER OWNER / ACL rewrite on live to match $db_owner",
+          "reason": "Mutates Azure-managed identities; forbidden; does not improve product schema truth"
+        },
+        {
+          "alternative": "Bless live owners into canonical fixture without normalization policy",
+          "reason": "Would encode Azure-specific role names into canonical product contract and hide cross-env comparison"
+        },
+        {
+          "alternative": "Ignore ownership/ACL/extension sections entirely",
+          "reason": "Could hide genuine privilege escalation or ACL broadenings"
+        }
+      ],
+      "normalizationPolicy": {
+        "mode": "observer_only",
+        "databaseMutationAllowed": false,
+        "allowedSemanticEquivalenceMappings": [
+          {
+            "from": [
+              "azuresu"
+            ],
+            "to": "$db_owner",
+            "appliesTo": [
+              "extension_owner",
+              "function_owner"
+            ],
+            "condition": "Only when the role is an Azure Flexible Server system superuser/extension owner and the privilege set being compared is ownership identity presentation — not EXECUTE/GRANT broadenings"
+          },
+          {
+            "from": [
+              "azure_pg_admin",
+              "pg_database_owner"
+            ],
+            "to": "pg_database_owner",
+            "appliesTo": [
+              "schema_owner",
+              "acl_grantor_on_schema_public"
+            ],
+            "condition": "Only when comparing public schema owner/grantor identity between Azure Flexible Server and local docker fixtures"
+          },
+          {
+            "from": [
+              "<connected_datdba_role_name>"
+            ],
+            "to": "$db_owner",
+            "appliesTo": [
+              "any_owner_field"
+            ],
+            "condition": "Existing behavior: rewrite exact connected database owner name to $db_owner"
+          }
+        ],
+        "forbidden": [
+          "Treat PUBLIC or additional roles gaining SELECT/INSERT/UPDATE/DELETE/EXECUTE as equivalent",
+          "Collapse distinct privilege grants into a single owner token",
+          "Hide ACL widenings (extra grantees, broader privileges, WITH GRANT OPTION additions)",
+          "Map arbitrary custom roles to $db_owner",
+          "Normalize away ownership when live owner is a least-privilege app role that should not own extensions",
+          "Any SQL that ALTER OWNER / GRANT / REVOKE on live"
+        ],
+        "privilegeEscalationDetection": "After identity normalization, ACL and ownership comparisons must still fail closed on grantee set expansion, privilege bit expansion, or owner moving from system/extension identity to an application login with broader effective rights than expected."
+      },
+      "compatibilitySecurityConsequences": {
+        "staffApi": "none — observer presentation only",
+        "security": "Reduces false-positive drift noise without mutating privileges; still detects ACL broadenings and unexpected owners"
+      },
+      "abortCondition": "ABORT if proposed observer change would equate any ACL with strictly more grantees or privileges than expected after mapping, or if any mapping targets a non-allowlisted role name."
+    },
+    {
+      "id": "DEC-002",
+      "topic": "location_id / *_loc unique indexes vs pre-location canonical uniques",
+      "recommendedDecision": "Approve forward-compatible multi-location SaaS direction: later promote proposed 023 (location_id + *_loc uniques) and 025 (lesson time capacity) into the canonical forward chain and regenerate the expected product-schema fixture. Do not revert live location-aware admin-rule tables. Do not modify schema or canonical manifest in Slice 13B.",
+      "status": "approved_direction_promote_location_model",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "17 Slice 13A canonical_manifest_question mismatches: live has location_id + *_loc uniques; canonical expects pre-location uniques.",
+        "database/migrations/023_sunset_admin_location_id_PROPOSED.sql and 025_sunset_lesson_time_capacity_PROPOSED.sql match live shape but are proposed_not_executable.",
+        "Staff/Luna multi-school routing already uses location_id (sunset-hermes-tenant-router, sunset-school-locations, catalog/admin price identity paths).",
+        "Reverting live would be data-sensitive and conflict with current product behavior."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "Revert live toward pre-location uniques",
+          "reason": "Data-sensitive; breaks multi-location SaaS direction already used in code"
+        },
+        {
+          "alternative": "Bless live schema as canonical without promoting migrations",
+          "reason": "Forbidden; leaves forward chain and fixture divergent from intentional model"
+        },
+        {
+          "alternative": "Modify canonical manifest/fixture in this design slice",
+          "reason": "Slice 13B is design-only; promotion is Phase B of later repair"
+        }
+      ],
+      "proposedCanonicalDirection": {
+        "promoteMigrations": [
+          "023_sunset_admin_location_id_PROPOSED.sql → new forward migration (filename/numbering TBD in repair slice)",
+          "025_sunset_lesson_time_capacity_PROPOSED.sql → new forward migration"
+        ],
+        "deferConversationLocation": "024_sunset_conversation_location_id_PROPOSED remains deferred (DDL commented; metadata JSON path in use)",
+        "regenerateExpectedFixture": true,
+        "doNotChangeInSlice13b": true
+      },
+      "compatibilitySecurityConsequences": {
+        "staffApi": "Aligns canonical contract with location-aware admin rules already exercised by Staff/Luna",
+        "security": "Unique indexes become location-scoped; tenant isolation remains client_id + location_id"
+      },
+      "abortCondition": "ABORT Phase B if promoting would drop or rewrite live location_id data, or if Staff API paths still require pre-location uniqueness semantics."
+    },
+    {
+      "id": "DEC-003",
+      "topic": "Migration 035_customer_message_templates",
+      "recommendedDecision": "Approve additive introduction of customer_message_templates in a later repair phase (Phase C) via existing forward migration 035. No seed/backfill required. Not applied in 13B.",
+      "status": "approved_direction_additive_035",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "17 expected_only mismatches for table/columns/PK/FK/index/ownership/ACL/RLS — table absent live.",
+        "035 uses CREATE TABLE IF NOT EXISTS + CREATE INDEX IF NOT EXISTS; empty table; no seed.",
+        "scripts/lib/staff-customer-message-templates.js already implements CRM templates and tolerates missing relation.",
+        "Provenance: appearsSafelyAdditive=true, seedOrBackfillRequired=false."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "Remove table from canonical fixture",
+          "reason": "Staff CRM feature depends on it; would bless live absence"
+        },
+        {
+          "alternative": "Apply 035 in this design slice",
+          "reason": "Forbidden live mutation / repair implementation"
+        }
+      ],
+      "dependencies": {
+        "table": "customer_message_templates",
+        "columns": [
+          "id",
+          "client_id",
+          "title",
+          "body",
+          "channel",
+          "tags",
+          "active",
+          "created_at",
+          "updated_at"
+        ],
+        "primaryKey": "customer_message_templates_pkey",
+        "foreignKeys": [
+          "customer_message_templates_client_id_fkey → clients(id) ON DELETE CASCADE"
+        ],
+        "indexes": [
+          "idx_customer_message_templates_client_active"
+        ],
+        "triggers": [],
+        "checkConstraints": [],
+        "requiresClientsTable": true,
+        "seedOrBackfillRequired": false
+      },
+      "compatibilityRollback": {
+        "compatibility": "Staff API already handles missing table; after apply, templates CRUD becomes available",
+        "rollback": "Forward-recovery preferred; DROP TABLE only if rehearsal proves unused and operator explicitly approves (not default)"
+      },
+      "abortCondition": "ABORT if live already has a conflicting customer_message_templates relation with incompatible columns, or if clients table is absent."
+    },
+    {
+      "id": "DEC-004",
+      "topic": "tenant_services live-only columns vs missing CHECKs",
+      "recommendedDecision": "Treat live-only columns (weekdays, block_rooms_enabled, blocked_room_codes, room_block_booking_ids) as intentional SaaS catalog/room-block model — promote into a later additive forward migration (Phase C). Add missing CHECKs tenant_services_date_window and tenant_services_price_unit only in Phase D after preflight violation-count queries return zero (or after documented remediation). Do not DROP live columns. Do not inspect product-row contents in 13B.",
+      "status": "approved_direction_promote_columns_then_constraints",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "4 live_only tenant_services columns from Staff ensure-DDL (tenant-services-writes.js / tenant-service-room-blocks.js).",
+        "2 expected_only CHECK constraints from 028_tenant_services.sql absent live.",
+        "schedule_slots already in canonical 028 — not a live-only drift."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "DROP live-only columns to match current canonical 028",
+          "reason": "Destroys product features (room blocks / weekdays)"
+        },
+        {
+          "alternative": "ADD CHECK without preflight counts",
+          "reason": "May fail mid-transaction or leave invalid rows blocked"
+        },
+        {
+          "alternative": "Read product row values now",
+          "reason": "Forbidden in 13B; specify aggregate queries for later rehearsal only"
+        }
+      ],
+      "intendedSaasCatalogModel": {
+        "retainLiveColumns": [
+          "weekdays",
+          "block_rooms_enabled",
+          "blocked_room_codes",
+          "room_block_booking_ids"
+        ],
+        "restoreMissingChecks": [
+          "tenant_services_date_window",
+          "tenant_services_price_unit"
+        ]
+      },
+      "laterPreflightQueriesDesignOnly": [
+        {
+          "purpose": "count rows violating date_window CHECK semantics",
+          "sqlSketch": "SELECT count(*)::bigint AS violations FROM tenant_services WHERE NOT (/* date_window predicate matching 028 */);",
+          "note": "Exact predicate copied from 028 in repair slice; aggregate count only — no row payloads"
+        },
+        {
+          "purpose": "count rows violating price_unit CHECK semantics",
+          "sqlSketch": "SELECT count(*)::bigint AS violations FROM tenant_services WHERE NOT (/* price_unit predicate matching 028 */);",
+          "note": "Aggregate count only"
+        }
+      ],
+      "compatibilitySecurityConsequences": {
+        "staffApi": "Preserves room-block and weekday scheduling features",
+        "security": "CHECK restoration improves invariant enforcement after clean preflight"
+      },
+      "abortCondition": "ABORT Phase D if either violation count > 0 without an approved remediation plan; ABORT Phase C if promoting columns would require destructive type changes."
+    },
+    {
+      "id": "DEC-005",
+      "topic": "schema_migration_ledger bootstrap",
+      "recommendedDecision": "Introduce fail-closed ledger bootstrap in Phase E after structural reconciliation. Never claim a migration was executed solely from numbering. Use canonical_lf_v1 hashes. Distinguish verified_structural_baseline vs executed_by_canonical_runner. Ambiguous 018/019/020 remain blocked until DEC-006 checks pass. Exact legacySha256 acceptance only under Slice 13A.1 contract.",
+      "status": "approved_direction_fail_closed_ledger_bootstrap",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "schema_migration_ledger absent live (Slice 13A).",
+        "Catalog-signature inference is not byte-proven apply history.",
+        "Slice 13A.1 ledgerChecksumAccepted: exact sha256 or exact legacySha256 only."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "Backfill ledger rows for all 36 forwards from filename order alone",
+          "reason": "Would falsely assert execution; forbidden"
+        },
+        {
+          "alternative": "Skip ledger and continue catalog-only inference forever",
+          "reason": "Blocks durable repair discipline and observer confidence"
+        }
+      ],
+      "specRef": "fixtures/sunset-schema-observer/slice13b-ledger-bootstrap-spec.json",
+      "abortCondition": "ABORT if bootstrap would insert executed_by_canonical_runner without runner proof, or would mark ambiguous migrations as applied, or would accept a hash that is neither canonical_lf_v1 nor exact committed legacySha256."
+    },
+    {
+      "id": "DEC-006",
+      "topic": "Ambiguous migrations 018 / 019 / 020",
+      "recommendedDecision": "Keep each migration blocked (not proven fully_applied) until exact metadata/aggregate checks defined in this record pass. Do not guess applied status. Do not auto-repair.",
+      "status": "fail_closed_blocked_until_metadata_checks",
+      "confidence": "high",
+      "operatorApprovalRequired": true,
+      "evidence": [
+        "Slice 13A provenance: 018/019/020 inferredState=ambiguous (ALTER-only / weak signatures).",
+        "020 is often a no-op on Sunset row sets but that is not apply proof."
+      ],
+      "alternativesRejected": [
+        {
+          "alternative": "Mark fully_applied because later migrations exist",
+          "reason": "Numbering is not execution proof"
+        },
+        {
+          "alternative": "Re-run migrations blindly on live",
+          "reason": "May be non-idempotent or mask partial state; out of scope for design slice"
+        }
+      ],
+      "resolutionRequirements": [
+        {
+          "migrationId": "018_booking_service_records_nullable_service_date",
+          "requiredChecks": [
+            {
+              "id": "018-col-nullability",
+              "description": "information_schema / pg_attribute confirms booking_service_records.service_date is nullable (attnotnull=false) matching 018 intent"
+            },
+            {
+              "id": "018-no-conflicting-check",
+              "description": "No CHECK constraint remains that requires service_date IS NOT NULL (aggregate constraint catalog query)"
+            }
+          ],
+          "blockedUntil": "all requiredChecks pass with evidence artifact in a later slice"
+        },
+        {
+          "migrationId": "019_bookings_language",
+          "requiredChecks": [
+            {
+              "id": "019-column-present",
+              "description": "pg_attribute confirms bookings.language column exists with expected type (text/varchar per 019)"
+            },
+            {
+              "id": "019-default-or-nullability",
+              "description": "nullability/default matches 019 SQL (aggregate column metadata only)"
+            }
+          ],
+          "blockedUntil": "all requiredChecks pass with evidence artifact in a later slice"
+        },
+        {
+          "migrationId": "020_wolfhouse_room_gender_metadata",
+          "requiredChecks": [
+            {
+              "id": "020-columns-or-comment-present",
+              "description": "Catalog shows room gender metadata columns/comments introduced by 020 exist on rooms (names per 020 SQL)"
+            },
+            {
+              "id": "020-aggregate-population-optional",
+              "description": "Optional: count(*) of rooms where wolfhouse-somo metadata updated — aggregate only; zero rows on Sunset does not by itself prove apply, but non-zero matching predicate supports structural effect"
+            }
+          ],
+          "blockedUntil": "column/comment catalog checks pass; do not infer solely from Sunset no-op row counts"
+        }
+      ],
+      "abortCondition": "ABORT any ledger bootstrap or repair phase that marks 018/019/020 as executed_by_canonical_runner or verified_structural_baseline without the requiredChecks evidence."
+    }
+  ]
+}
