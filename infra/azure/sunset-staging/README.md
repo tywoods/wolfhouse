@@ -681,6 +681,21 @@ npm run phase-d:active-db-target-authority
 
 Artifacts: `slice14q-active-db-target-authority-contract.json`, `slice14q-active-db-target-authority-evidence.json`, `slice14q-findings.md`.
 
+### Slice 14U — Residual drift classify + preflight (implemented)
+
+Read-only classify + preflight of the exact **35** residual drifts remaining after Slice **14T** NOT NULL observer normalization (`azure_flexible_server_v1`). Merged target-authority proof + one TLS `verify-full` `BEGIN READ ONLY` session with `application_name=wh-sunset-residual-drift-preflight`. Baseline gate requires mismatchCount === 35 with sections constraints=25, indexes=5, functions=1, triggers=1, ownership=1, acls=1, extensions=1 (stop with `baseline_drift_mismatch` otherwise). Builds secret-free canonical key inventory + migration ownership; runs safe aggregates (null/duplicate/orphan/violation counts; index column support + COUNT(*)); plans deterministic mutation batches with **`execute:false` always**. **Zero mutation.** Do **not** invent/carry forward the historical 448 NOT NULL normalized count as residual inventory. Default-disabled behind dual Phase D flags + `SUNSET_PHASE_D_TARGET_AUTHORITY=1` + `SUNSET_PHASE_D_RESIDUAL_DRIFT_PREFLIGHT=1` + managed-identity + exact locked targets. Verifier does **not** re-run live. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14u-residual-drift-preflight
+npm run verify:sunset-schema-slice14u
+# default refuse (zero Clients):
+npm run phase-d:residual-drift-preflight
+# offline-only (preserve prior liveOutcome if present):
+node scripts/prove-sunset-schema-slice14u-residual-drift-preflight.js --offline-only
+```
+
+Artifacts: `slice14u-residual-drift-preflight-contract.json`, `slice14u-residual-drift-preflight-evidence.json`, `slice14u-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -760,3 +775,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14R — Live reconcile decision (occupancy + drift; A–G design-only phases incl. NOT NULL + non-table ownership; clean rebuild vs in-place; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14S — Phase B additive reconcile (CREATE TABLE customer_message_templates from byte-locked 035; no INDEX/COMMENT; gated live apply) — 2026-07-19*
 *FOUNDATION Slice 14T — NOT NULL observer representation normalization (constraint↔attnotnull; 483→35; 448 normalized; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14U — Residual drift classify + preflight (exact 35; read-only aggregates; execute:false batches; zero mutation) — 2026-07-19*
