@@ -1,0 +1,497 @@
+{
+  "kind": "slice14v-rename-alias-normalization-evidence",
+  "slice": "14V",
+  "masterShaBasis": "7b54b17ff1071349c82344277971df75a87ed499",
+  "generatedAt": "2026-07-19T22:48:14.471Z",
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "doNotClaimDatabaseMatchesCanonical": true,
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+  "renameAliasRule": "migration_003_rename_alias",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "applicationName": "wh-sunset-rename-alias-normalization",
+  "baselineMismatchCountExpected": 35,
+  "offline": {
+    "red": [
+      {
+        "name": "live_nullable_yes_retains_drift",
+        "ok": true,
+        "detail": {
+          "key": "beds.beds_hostel_id_not_null.n",
+          "retained": true,
+          "normalizedCount": 11
+        }
+      },
+      {
+        "name": "live_column_missing_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "live_hostel_id_present_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "ambiguous_duplicate_claim_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "wrong_definition_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "arbitrary_old_name_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "nonapproved_table_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "migration_003_hash_change_fails",
+        "ok": true
+      },
+      {
+        "name": "fourteen_t_exact_name_rule_unchanged",
+        "ok": true
+      },
+      {
+        "name": "non_azure_profile_retains_alias_constraints",
+        "ok": true
+      },
+      {
+        "name": "non_pg15_version_retains_or_rejects",
+        "ok": true
+      },
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true,
+        "code": "live_readonly_flag_required"
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true,
+        "code": "rename_alias_normalization_flag_required"
+      },
+      {
+        "name": "missing_rename_alias_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      }
+    ],
+    "green": [
+      {
+        "name": "exact_24_key_fixture",
+        "ok": true,
+        "detail": {
+          "keys": 24,
+          "positive": 12,
+          "negative": 12
+        }
+      },
+      {
+        "name": "migration_003_provenance_15_tables_hash_locked",
+        "ok": true,
+        "detail": {
+          "provenanceCount": 15,
+          "sha": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257"
+        }
+      },
+      {
+        "name": "twelve_hostel_id_aliases_normalize_when_columns_match",
+        "ok": true,
+        "detail": {
+          "positiveCount": 12,
+          "rawNn": 12,
+          "afterNn": 0,
+          "normalizedCount": 12
+        }
+      },
+      {
+        "name": "raw_vs_normalized_compare_api",
+        "ok": true
+      },
+      {
+        "name": "negative_keys_within_24_retain",
+        "ok": true,
+        "detail": {
+          "remainingNegatives": 12,
+          "hostelsRetained": true,
+          "truncatedRetained": true,
+          "amountCentsRetained": true,
+          "kindRetained": true
+        }
+      },
+      {
+        "name": "accounting_identity_baseline_aliases_plus_remaining",
+        "ok": true,
+        "detail": {
+          "baselineCount": 24,
+          "aliases": 12,
+          "remaining": 12
+        }
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      }
+    ],
+    "redCount": 16,
+    "greenCount": 10,
+    "fixture24": {
+      "keys": [
+        "beds.beds_hostel_id_not_null.n",
+        "booking_beds.booking_beds_hostel_id_not_null.n",
+        "bookings.bookings_hostel_id_not_null.n",
+        "clients.hostels_created_at_not_null.n",
+        "clients.hostels_currency_not_null.n",
+        "clients.hostels_id_not_null.n",
+        "clients.hostels_is_active_not_null.n",
+        "clients.hostels_name_not_null.n",
+        "clients.hostels_settings_not_null.n",
+        "clients.hostels_slug_not_null.n",
+        "clients.hostels_timezone_not_null.n",
+        "clients.hostels_updated_at_not_null.n",
+        "conversations.conversations_hostel_id_not_null.n",
+        "guests.guests_hostel_id_not_null.n",
+        "manual_entries.manual_entries_hostel_id_not_null.n",
+        "messages.messages_hostel_id_not_null.n",
+        "operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "packages.packages_hostel_id_not_null.n",
+        "payment_events.payment_events_hostel_id_not_null.n",
+        "payments.payments_amount_cents_not_null.n",
+        "payments.payments_hostel_id_not_null.n",
+        "payments.payments_kind_not_null.n",
+        "rooms.rooms_hostel_id_not_null.n"
+      ],
+      "positiveKeys": [
+        "beds.beds_hostel_id_not_null.n",
+        "booking_beds.booking_beds_hostel_id_not_null.n",
+        "bookings.bookings_hostel_id_not_null.n",
+        "conversations.conversations_hostel_id_not_null.n",
+        "guests.guests_hostel_id_not_null.n",
+        "manual_entries.manual_entries_hostel_id_not_null.n",
+        "messages.messages_hostel_id_not_null.n",
+        "operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+        "packages.packages_hostel_id_not_null.n",
+        "payment_events.payment_events_hostel_id_not_null.n",
+        "payments.payments_hostel_id_not_null.n",
+        "rooms.rooms_hostel_id_not_null.n"
+      ],
+      "negativeKeys": [
+        "clients.hostels_created_at_not_null.n",
+        "clients.hostels_currency_not_null.n",
+        "clients.hostels_id_not_null.n",
+        "clients.hostels_is_active_not_null.n",
+        "clients.hostels_name_not_null.n",
+        "clients.hostels_settings_not_null.n",
+        "clients.hostels_slug_not_null.n",
+        "clients.hostels_timezone_not_null.n",
+        "clients.hostels_updated_at_not_null.n",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "payments.payments_amount_cents_not_null.n",
+        "payments.payments_kind_not_null.n"
+      ],
+      "positiveCount": 12,
+      "negativeCount": 12
+    },
+    "provenance": {
+      "provenanceCount": 15,
+      "approvedTables": [
+        "automation_errors",
+        "beds",
+        "booking_beds",
+        "bookings",
+        "conversations",
+        "guests",
+        "manual_entries",
+        "messages",
+        "operator_room_release_requests",
+        "package_price_rules",
+        "packages",
+        "payment_events",
+        "payments",
+        "rooms",
+        "workflow_events"
+      ],
+      "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+      "rule": "migration_003_rename_alias"
+    }
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "rename_alias_normalization_observer_drift",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "blocker": "observer_drift",
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "observerBefore": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 35,
+      "counts": {
+        "expected_only": 34,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "beds.beds_hostel_id_not_null.n",
+        "booking_beds.booking_beds_hostel_id_not_null.n",
+        "bookings.bookings_hostel_id_not_null.n",
+        "client_notification_events.idx_client_notification_events_client_created",
+        "client_notification_events.idx_client_notification_events_conversation",
+        "client_notification_settings.idx_client_notification_settings_client",
+        "clients.hostels_created_at_not_null.n",
+        "clients.hostels_currency_not_null.n",
+        "clients.hostels_id_not_null.n",
+        "clients.hostels_is_active_not_null.n",
+        "clients.hostels_name_not_null.n",
+        "clients.hostels_settings_not_null.n",
+        "clients.hostels_slug_not_null.n",
+        "clients.hostels_timezone_not_null.n",
+        "clients.hostels_updated_at_not_null.n",
+        "conversations.conversations_hostel_id_not_null.n",
+        "customer_message_templates.idx_customer_message_templates_client_active",
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "guests.guests_hostel_id_not_null.n",
+        "manual_entries.manual_entries_hostel_id_not_null.n",
+        "messages.messages_hostel_id_not_null.n",
+        "operator_room_release_requests.operator_room_release_requests_hostel_id_not_null.n",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "packages.packages_hostel_id_not_null.n",
+        "payment_events.payment_events_hostel_id_not_null.n",
+        "payments.payments_amount_cents_not_null.n",
+        "payments.payments_hostel_id_not_null.n",
+        "payments.payments_kind_not_null.n",
+        "pgcrypto",
+        "public.fips_mode()",
+        "rooms.rooms_hostel_id_not_null.n",
+        "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "renameAliasesNormalized": 0,
+      "notNullArtifactsNormalized": 448,
+      "renameAliasNormalization": null,
+      "normalizationError": null
+    },
+    "observerAfter": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 23,
+      "counts": {
+        "expected_only": 22,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 13,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "client_notification_events.idx_client_notification_events_client_created",
+        "client_notification_events.idx_client_notification_events_conversation",
+        "client_notification_settings.idx_client_notification_settings_client",
+        "clients.hostels_created_at_not_null.n",
+        "clients.hostels_currency_not_null.n",
+        "clients.hostels_id_not_null.n",
+        "clients.hostels_is_active_not_null.n",
+        "clients.hostels_name_not_null.n",
+        "clients.hostels_settings_not_null.n",
+        "clients.hostels_slug_not_null.n",
+        "clients.hostels_timezone_not_null.n",
+        "clients.hostels_updated_at_not_null.n",
+        "customer_message_templates.idx_customer_message_templates_client_active",
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "payments.payments_amount_cents_not_null.n",
+        "payments.payments_kind_not_null.n",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "renameAliasesNormalized": 12,
+      "notNullArtifactsNormalized": 448,
+      "renameAliasNormalization": {
+        "applied": true,
+        "normalizedCount": 12,
+        "reason": null,
+        "provenance": {
+          "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "provenanceCount": 15,
+          "approvedTables": [
+            "automation_errors",
+            "beds",
+            "booking_beds",
+            "bookings",
+            "conversations",
+            "guests",
+            "manual_entries",
+            "messages",
+            "operator_room_release_requests",
+            "package_price_rules",
+            "packages",
+            "payment_events",
+            "payments",
+            "rooms",
+            "workflow_events"
+          ],
+          "oldColumn": "hostel_id",
+          "currentColumn": "client_id",
+          "rule": "migration_003_rename_alias"
+        }
+      },
+      "normalizationError": null
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 35,
+      "mismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 35,
+      "expectedMismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "baselineMismatchCount": 35,
+    "renameAliasesNormalized": 12,
+    "remainingMismatchCount": 23,
+    "remainingKeys": [
+      "client_notification_events.idx_client_notification_events_client_created",
+      "client_notification_events.idx_client_notification_events_conversation",
+      "client_notification_settings.idx_client_notification_settings_client",
+      "clients.hostels_created_at_not_null.n",
+      "clients.hostels_currency_not_null.n",
+      "clients.hostels_id_not_null.n",
+      "clients.hostels_is_active_not_null.n",
+      "clients.hostels_name_not_null.n",
+      "clients.hostels_settings_not_null.n",
+      "clients.hostels_slug_not_null.n",
+      "clients.hostels_timezone_not_null.n",
+      "clients.hostels_updated_at_not_null.n",
+      "customer_message_templates.idx_customer_message_templates_client_active",
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+      "payments.payments_amount_cents_not_null.n",
+      "payments.payments_kind_not_null.n",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+    ],
+    "accountingOk": true,
+    "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+    "provenanceCount": 15,
+    "productFingerprintLive": "b46a9b52b90122de8999e5e901340e979dec437a49b21aa4598fea646396d1eb",
+    "applicationName": "wh-sunset-rename-alias-normalization",
+    "httpRequestCount": 6,
+    "imdsRequestCount": 3,
+    "keyVaultRequestCount": 2,
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 30,
+    "endCalls": 1,
+    "usedLiveHttp": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": true,
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "errors": [],
+    "verifyNeverRerunsLive": true
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}
