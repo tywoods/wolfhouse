@@ -676,9 +676,9 @@ function main() {
 
   const findingsMd = `# FOUNDATION Slice 13A — Sunset schema drift classification (investigation only)
 
-**Master basis:** \`3c27d4ee3dd9b5678c63037d3ccc524c21907332\`  
-**Canonical fingerprint:** \`${CANON_FP}\`  
-**Live fingerprint:** \`${LIVE_FP}\`  
+**Master basis:** \`3c27d4ee3dd9b5678c63037d3ccc524c21907332\`
+**Canonical fingerprint:** \`${CANON_FP}\`
+**Live fingerprint:** \`${LIVE_FP}\`
 **mismatchCount:** 88 (expected_only=31, live_only=15, definition_mismatch=42)
 
 ## Verdict

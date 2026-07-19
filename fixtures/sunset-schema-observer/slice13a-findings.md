@@ -1,8 +1,8 @@
 # FOUNDATION Slice 13A — Sunset schema drift classification (investigation only)
 
-**Master basis:** `3c27d4ee3dd9b5678c63037d3ccc524c21907332`  
-**Canonical fingerprint:** `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52`  
-**Live fingerprint:** `fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd`  
+**Master basis:** `3c27d4ee3dd9b5678c63037d3ccc524c21907332`
+**Canonical fingerprint:** `daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52`
+**Live fingerprint:** `fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd`
 **mismatchCount:** 88 (expected_only=31, live_only=15, definition_mismatch=42)
 
 ## Verdict
