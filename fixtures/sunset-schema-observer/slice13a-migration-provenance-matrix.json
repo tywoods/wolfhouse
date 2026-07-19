@@ -1,12 +1,29 @@
 {
   "kind": "sunset-schema-observer-slice13a-migration-provenance-matrix",
-  "label": "structural inference only — schema_migration_ledger absent live; states are evidence-based not ledger-proven",
+  "label": "structural catalog inference only — byte manifest NOT verified against git blobs; schema_migration_ledger absent live",
   "secretFree": true,
   "containsRepairSql": false,
-  "generatedAt": "2026-07-19T13:59:27.544Z",
+  "generatedAt": "2026-07-19T14:10:00.440Z",
   "masterShaBasis": "3c27d4ee3dd9b5678c63037d3ccc524c21907332",
+  "correctionOf": "a322e5dda3ad57e3baf4795720a877b743fdbd53",
   "canonicalForwardCount": 36,
   "schema_migration_ledger_present_live": false,
+  "byteProvenanceReportPath": "fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json",
+  "migration_integrity_blocker": {
+    "present": true,
+    "state": "migration_integrity_blocker",
+    "code": "canonical_manifest_sha256_not_equal_current_git_blob",
+    "bytesMatchManifestCount": 2,
+    "bytesMismatchManifestCount": 34,
+    "hashesVerifiedClaim": false,
+    "doNotInferReliableHistoricalApplicationFromByteManifest": true,
+    "rootCauseCode": "manifest_hashed_crlf_working_tree_not_git_blob"
+  },
+  "hashTotals": {
+    "bytesMatchManifest": 2,
+    "bytesMismatchManifest": 34,
+    "reconcileTo36": true
+  },
   "provenanceTotals": {
     "fully_applied": 27,
     "ambiguous": 3,
@@ -18,8 +35,14 @@
     {
       "id": "001_init",
       "filename": "001_init.sql",
-      "sha256": "890ac04fcfa26ff5e85fcf8d639b84c078afd46f234bce82b02a67e834068bae",
       "order": 1,
+      "manifestRecordedSha256": "890ac04fcfa26ff5e85fcf8d639b84c078afd46f234bce82b02a67e834068bae",
+      "currentGitBlobSha256": "d38017349e058abb967ae998a96ef3014bdce7add96df09a1666cb1dc82bee3f",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "890ac04fcfa26ff5e85fcf8d639b84c078afd46f234bce82b02a67e834068bae",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_automation_errors_status",
         "index:idx_booking_beds_booking",
@@ -146,13 +169,20 @@
         "definition_mismatch|acls|schema:public",
         "definition_mismatch|extensions|pgcrypto",
         "definition_mismatch|extensions|plpgsql"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "003_rename_hostel_to_client",
       "filename": "003_rename_hostel_to_client.sql",
-      "sha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94",
       "order": 2,
+      "manifestRecordedSha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94",
+      "currentGitBlobSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "3aaba830bad279e5107947fc6602ed5d3c16de38c79c49f14a574b73bc1ebc94",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "trigger:clients_updated_at"
       ],
@@ -168,13 +198,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "002_package_pricing",
       "filename": "002_package_pricing.sql",
-      "sha256": "5d6eef33f8171d0cff7ed86c86e0bb13c4806b59513d84bb5097e9617d8a9b5c",
       "order": 3,
+      "manifestRecordedSha256": "5d6eef33f8171d0cff7ed86c86e0bb13c4806b59513d84bb5097e9617d8a9b5c",
+      "currentGitBlobSha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "5d6eef33f8171d0cff7ed86c86e0bb13c4806b59513d84bb5097e9617d8a9b5c",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_package_price_rules_lookup",
         "table:package_price_rules",
@@ -196,13 +233,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "004_payment_schema_phase2",
       "filename": "004_payment_schema_phase2.sql",
-      "sha256": "59035b804d5d32bc376e393ea76e263a2ec1c61611b5bf2fb511b134e326eea3",
       "order": 4,
+      "manifestRecordedSha256": "59035b804d5d32bc376e393ea76e263a2ec1c61611b5bf2fb511b134e326eea3",
+      "currentGitBlobSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "59035b804d5d32bc376e393ea76e263a2ec1c61611b5bf2fb511b134e326eea3",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:payments_amount_due_cents_check",
         "constraint:payments_amount_paid_cents_check",
@@ -226,13 +270,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "005_payment_intent_unique_partial",
       "filename": "005_payment_intent_unique_partial.sql",
-      "sha256": "6e9f1dc53766a537406e7a836d9284f811d8fe62c275d130e3c381d1f14807a6",
       "order": 5,
+      "manifestRecordedSha256": "6e9f1dc53766a537406e7a836d9284f811d8fe62c275d130e3c381d1f14807a6",
+      "currentGitBlobSha256": "57ca5eb7b49a368f4cb24f858735c9e74b6689b21eb0c9e209ee0ad5b82a78ec",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "6e9f1dc53766a537406e7a836d9284f811d8fe62c275d130e3c381d1f14807a6",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:payments_stripe_payment_intent_id_unique"
       ],
@@ -248,13 +299,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "006_confirmation_sent_at",
       "filename": "006_confirmation_sent_at.sql",
-      "sha256": "eb91a8bfaee1aa82a909aa6a98ce29c99b0def7c7ff3107723e3684705bfa38a",
       "order": 6,
+      "manifestRecordedSha256": "eb91a8bfaee1aa82a909aa6a98ce29c99b0def7c7ff3107723e3684705bfa38a",
+      "currentGitBlobSha256": "8adf2ba65d4c1c06728317cb9501274e43ff11fbb1cd8cce0a71636d141dc544",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "eb91a8bfaee1aa82a909aa6a98ce29c99b0def7c7ff3107723e3684705bfa38a",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_bookings_pending_confirmation"
       ],
@@ -270,13 +328,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "007_add_addon_orders",
       "filename": "007_add_addon_orders.sql",
-      "sha256": "910e370cc48aaa99c87f8c8ee6bbbdf9b036817fe4296c052be445d9d143e0ce",
       "order": 7,
+      "manifestRecordedSha256": "910e370cc48aaa99c87f8c8ee6bbbdf9b036817fe4296c052be445d9d143e0ce",
+      "currentGitBlobSha256": "4000be0a42cb17ae92d5001d6203a964a9eb9ed26d0d92fed73f61d80a84e300",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "910e370cc48aaa99c87f8c8ee6bbbdf9b036817fe4296c052be445d9d143e0ce",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_addon_items_order",
         "index:idx_addon_items_service_date",
@@ -382,13 +447,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "008_add_staff_handoffs",
       "filename": "008_add_staff_handoffs.sql",
-      "sha256": "164d75837557ec8f9418ece4f6ecb2c2a99a422b6ffe34f2d9958cf321a70fbb",
       "order": 8,
+      "manifestRecordedSha256": "164d75837557ec8f9418ece4f6ecb2c2a99a422b6ffe34f2d9958cf321a70fbb",
+      "currentGitBlobSha256": "3c07e60ceebbf6a6ae0d6122540fe6d3bf32af30171314c9db0e32867ae02a70",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "164d75837557ec8f9418ece4f6ecb2c2a99a422b6ffe34f2d9958cf321a70fbb",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_staff_handoffs_assigned_staff",
         "index:idx_staff_handoffs_booking",
@@ -448,13 +520,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "009_auth_staff_users",
       "filename": "009_auth_staff_users.sql",
-      "sha256": "7b5cb0236de2361f52b8634f49485abca6e0a2adad28a333e34186db27a355ed",
       "order": 9,
+      "manifestRecordedSha256": "7b5cb0236de2361f52b8634f49485abca6e0a2adad28a333e34186db27a355ed",
+      "currentGitBlobSha256": "b130017563616937b16fb9b5f43ac8e9adefd1d8470662e34f5f71e5477a6e22",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "7b5cb0236de2361f52b8634f49485abca6e0a2adad28a333e34186db27a355ed",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_auth_sessions_client",
         "index:idx_auth_sessions_expires_at",
@@ -502,13 +581,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "010_booking_service_records",
       "filename": "010_booking_service_records.sql",
-      "sha256": "e88f82baff66ff36ca7eaa7c6f7d7d2a3198003df8e6fadd8d8fb2f30b43169a",
       "order": 10,
+      "manifestRecordedSha256": "e88f82baff66ff36ca7eaa7c6f7d7d2a3198003df8e6fadd8d8fb2f30b43169a",
+      "currentGitBlobSha256": "237d20d2379c974a26efb171735718c63dadcd54adc564ba99b33dd1020a3d1a",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "e88f82baff66ff36ca7eaa7c6f7d7d2a3198003df8e6fadd8d8fb2f30b43169a",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_booking_service_records_booking",
         "index:idx_booking_service_records_client_date",
@@ -536,13 +622,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "011_service_payment_linkage",
       "filename": "011_service_payment_linkage.sql",
-      "sha256": "bb8ce0b7809d6f09612d91cb3ba5669d52a2199c4cfc1f17c8524f2e40263dbf",
       "order": 11,
+      "manifestRecordedSha256": "bb8ce0b7809d6f09612d91cb3ba5669d52a2199c4cfc1f17c8524f2e40263dbf",
+      "currentGitBlobSha256": "3ae97e90b12c3ad284296ae36070d57302d61d5e857a16b66348c2d2ebab3d39",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "bb8ce0b7809d6f09612d91cb3ba5669d52a2199c4cfc1f17c8524f2e40263dbf",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_booking_service_records_payment_id"
       ],
@@ -560,13 +653,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "012_bot_pause_states",
       "filename": "012_bot_pause_states.sql",
-      "sha256": "21b8c04cc0b987961b95e1c447350781e025e7f185da046aab685c43987f5e11",
       "order": 12,
+      "manifestRecordedSha256": "21b8c04cc0b987961b95e1c447350781e025e7f185da046aab685c43987f5e11",
+      "currentGitBlobSha256": "cdb3915d1db0e48c9dae06487a5bad4c3bcfe6a43da796d031354ec75b7b9486",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "21b8c04cc0b987961b95e1c447350781e025e7f185da046aab685c43987f5e11",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:bot_pause_states_scope_required",
         "index:idx_bot_pause_states_active_conversation",
@@ -600,13 +700,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "013_guest_message_sends",
       "filename": "013_guest_message_sends.sql",
-      "sha256": "74008ce759a68a20a0cb18fadf5ac468bfd87e4449416033e89b66ad183f6f68",
       "order": 13,
+      "manifestRecordedSha256": "74008ce759a68a20a0cb18fadf5ac468bfd87e4449416033e89b66ad183f6f68",
+      "currentGitBlobSha256": "beb7dd1ebdc32ac41b39875f7f616d72f2b47c4e4b18ec6d8cb92beffc667a82",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "74008ce759a68a20a0cb18fadf5ac468bfd87e4449416033e89b66ad183f6f68",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:guest_message_sends_client_idempotency_unique",
         "constraint:guest_message_sends_status_check",
@@ -634,13 +741,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "014_guest_message_events",
       "filename": "014_guest_message_events.sql",
-      "sha256": "638d22a56f34c5e036881db6bbdb1a893d7aad771c1d3276af5d0409386eabe6",
       "order": 14,
+      "manifestRecordedSha256": "638d22a56f34c5e036881db6bbdb1a893d7aad771c1d3276af5d0409386eabe6",
+      "currentGitBlobSha256": "2995260bfdc7eb238b177bddfccc2b6c164e42c2c3a3465a2a4009212edcf44d",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "638d22a56f34c5e036881db6bbdb1a893d7aad771c1d3276af5d0409386eabe6",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:guest_message_events_client_wa_unique",
         "index:idx_guest_message_events_client_slug",
@@ -666,13 +780,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "016_staff_phone_access",
       "filename": "016_staff_phone_access.sql",
-      "sha256": "d54adfa7f12e99a2e45378877f04cf8c1b717da6ff7a2a914a94551349875288",
       "order": 15,
+      "manifestRecordedSha256": "d54adfa7f12e99a2e45378877f04cf8c1b717da6ff7a2a914a94551349875288",
+      "currentGitBlobSha256": "c526bea8ac25c0ef12739d541809141a1d68a0eedab292488ca346b26f14c64d",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "d54adfa7f12e99a2e45378877f04cf8c1b717da6ff7a2a914a94551349875288",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:staff_phone_access_client_phone_channel_unique",
         "index:idx_staff_phone_access_client_active",
@@ -700,13 +821,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "017_booking_transfers",
       "filename": "017_booking_transfers.sql",
-      "sha256": "be25116cb6e6a3100bf79d63edbaa02c3c2a59bbaa6c1cf13650a7053098de2b",
       "order": 16,
+      "manifestRecordedSha256": "be25116cb6e6a3100bf79d63edbaa02c3c2a59bbaa6c1cf13650a7053098de2b",
+      "currentGitBlobSha256": "6278a9de6647ee082a639934bf34bac17e8e8037cfc5521eb66b47253a7e310c",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "be25116cb6e6a3100bf79d63edbaa02c3c2a59bbaa6c1cf13650a7053098de2b",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:booking_transfers_booking_direction_unique",
         "index:idx_booking_transfers_client_airport",
@@ -738,13 +866,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "018_booking_service_records_nullable_service_date",
       "filename": "018_booking_service_records_nullable_service_date.sql",
-      "sha256": "90f2940a6f9b8fe9a26da16306219c689f32c6332a9e55a626105cea5ca1aae0",
       "order": 17,
+      "manifestRecordedSha256": "90f2940a6f9b8fe9a26da16306219c689f32c6332a9e55a626105cea5ca1aae0",
+      "currentGitBlobSha256": "80bbadff728382f6c9ef20ada35f40279921b7bc411b9f1e0771bb67783bf2f6",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "90f2940a6f9b8fe9a26da16306219c689f32c6332a9e55a626105cea5ca1aae0",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [],
       "signaturesPresentLive": [],
       "inferredState": "ambiguous",
@@ -753,13 +888,20 @@
         "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "019_bookings_language",
       "filename": "019_bookings_language.sql",
-      "sha256": "73eb30bf4f213ba8fe3fbdc72741ea205bbef1f294e86e4ec2f4e5cbc9f6ec7e",
       "order": 18,
+      "manifestRecordedSha256": "73eb30bf4f213ba8fe3fbdc72741ea205bbef1f294e86e4ec2f4e5cbc9f6ec7e",
+      "currentGitBlobSha256": "95354b32377fcc390990b2296d7bb19385e070d2153806e28708b0d2ab42d622",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "73eb30bf4f213ba8fe3fbdc72741ea205bbef1f294e86e4ec2f4e5cbc9f6ec7e",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [],
       "signaturesPresentLive": [],
       "inferredState": "ambiguous",
@@ -768,13 +910,20 @@
         "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "020_wolfhouse_room_gender_metadata",
       "filename": "020_wolfhouse_room_gender_metadata.sql",
-      "sha256": "00b9985c056fae52a29a2d5855874bc66ebec834f83878aa447b74c3696b1ce6",
       "order": 19,
+      "manifestRecordedSha256": "00b9985c056fae52a29a2d5855874bc66ebec834f83878aa447b74c3696b1ce6",
+      "currentGitBlobSha256": "be99c96f4fc4ad00cd0e3216deb8fcaeec57431774c9a261f366fff9ac9b0ca0",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "00b9985c056fae52a29a2d5855874bc66ebec834f83878aa447b74c3696b1ce6",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [],
       "signaturesPresentLive": [],
       "inferredState": "ambiguous",
@@ -783,13 +932,20 @@
         "No CREATE TABLE/INDEX/TRIGGER/CONSTRAINT signatures extracted (may be ALTER-only)."
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "021_sunset_admin_business_config",
       "filename": "021_sunset_admin_business_config.sql",
-      "sha256": "039908f069d535a28fe37230084d4c13a0cfb28604ec4e622f5946628979de90",
       "order": 20,
+      "manifestRecordedSha256": "039908f069d535a28fe37230084d4c13a0cfb28604ec4e622f5946628979de90",
+      "currentGitBlobSha256": "039908f069d535a28fe37230084d4c13a0cfb28604ec4e622f5946628979de90",
+      "bytesMatchManifest": true,
+      "hashesVerifiedAgainstGitBlob": true,
+      "lineEndingOnlyDiscrepancy": false,
+      "sha256": "039908f069d535a28fe37230084d4c13a0cfb28604ec4e622f5946628979de90",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:tenant_lesson_capacity_rules_effective_window",
         "constraint:tenant_lesson_capacity_rules_scope_columns",
@@ -881,13 +1037,20 @@
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
         "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "024_booking_guests",
       "filename": "024_booking_guests.sql",
-      "sha256": "caad18c342b126727e47833f620ef2dd177dfcc1feb61d0ce5682422019283f6",
       "order": 21,
+      "manifestRecordedSha256": "caad18c342b126727e47833f620ef2dd177dfcc1feb61d0ce5682422019283f6",
+      "currentGitBlobSha256": "720e19cd677e3446f1fc4b158baa7f6714e10011d961dc6d5493719ca2493580",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "caad18c342b126727e47833f620ef2dd177dfcc1feb61d0ce5682422019283f6",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_booking_guests_booking",
         "index:idx_booking_guests_client_booking",
@@ -913,13 +1076,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "026_tenant_surf_pack_rules",
       "filename": "026_tenant_surf_pack_rules.sql",
-      "sha256": "ec7b1c3264d376caba6b57d2cc36efbda20a09b3a2bad52d53a617a8e81042db",
       "order": 22,
+      "manifestRecordedSha256": "ec7b1c3264d376caba6b57d2cc36efbda20a09b3a2bad52d53a617a8e81042db",
+      "currentGitBlobSha256": "ec7b1c3264d376caba6b57d2cc36efbda20a09b3a2bad52d53a617a8e81042db",
+      "bytesMatchManifest": true,
+      "hashesVerifiedAgainstGitBlob": true,
+      "lineEndingOnlyDiscrepancy": false,
+      "sha256": "ec7b1c3264d376caba6b57d2cc36efbda20a09b3a2bad52d53a617a8e81042db",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_tenant_surf_pack_client_active",
         "index:idx_tenant_surf_pack_client_loc",
@@ -961,13 +1131,20 @@
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
         "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc",
         "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "027_wolfhouse_staff_whatsapp_numbers",
       "filename": "027_wolfhouse_staff_whatsapp_numbers.sql",
-      "sha256": "0c6b170a2f224618a4278e964eaf7a69ad1a46a1482163763c1728e0108ed6f2",
       "order": 23,
+      "manifestRecordedSha256": "0c6b170a2f224618a4278e964eaf7a69ad1a46a1482163763c1728e0108ed6f2",
+      "currentGitBlobSha256": "58ff363c4a58fadbb15f37b11e021044ab1999b9a439b76e6e63d1ea03678f05",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "0c6b170a2f224618a4278e964eaf7a69ad1a46a1482163763c1728e0108ed6f2",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_wolfhouse_staff_whatsapp_numbers_client_active",
         "table:wolfhouse_staff_whatsapp_numbers"
@@ -1029,13 +1206,20 @@
         "definition_mismatch|acls|schema:public",
         "definition_mismatch|extensions|pgcrypto",
         "definition_mismatch|extensions|plpgsql"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "028_tenant_services",
       "filename": "028_tenant_services.sql",
-      "sha256": "ba84b2a02004d71803075bc33c8c49a11e4b2846f62725cf0f586e26505d22ce",
       "order": 24,
+      "manifestRecordedSha256": "ba84b2a02004d71803075bc33c8c49a11e4b2846f62725cf0f586e26505d22ce",
+      "currentGitBlobSha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "ba84b2a02004d71803075bc33c8c49a11e4b2846f62725cf0f586e26505d22ce",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:tenant_services_date_window",
         "constraint:tenant_services_price_unit",
@@ -1064,13 +1248,20 @@
         "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
         "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "029_booking_service_records_generic_type",
       "filename": "029_booking_service_records_generic_type.sql",
-      "sha256": "3f7fe5bd23222cb13a2f86ebbabd4b0a6d73eaca2aa13ae248eb70c730896fa7",
       "order": 25,
+      "manifestRecordedSha256": "3f7fe5bd23222cb13a2f86ebbabd4b0a6d73eaca2aa13ae248eb70c730896fa7",
+      "currentGitBlobSha256": "0d4ca6b0b8fbf175c7f9ae881c8da4f152575c237786e064f611a3fd6189f831",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "3f7fe5bd23222cb13a2f86ebbabd4b0a6d73eaca2aa13ae248eb70c730896fa7",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:booking_service_records_service_type_check"
       ],
@@ -1094,13 +1285,20 @@
         "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
         "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "030_tenant_house_notes",
       "filename": "030_tenant_house_notes.sql",
-      "sha256": "ddbac2e937d2af242f4ceed01b2ce8972a77574ccb62de6cf52de346d00f919f",
       "order": 26,
+      "manifestRecordedSha256": "ddbac2e937d2af242f4ceed01b2ce8972a77574ccb62de6cf52de346d00f919f",
+      "currentGitBlobSha256": "7470006cce19e088a5080b8d90fadd93b2da6e4b94a7d8afad11199875302425",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "ddbac2e937d2af242f4ceed01b2ce8972a77574ccb62de6cf52de346d00f919f",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "table:tenant_house_notes"
       ],
@@ -1116,13 +1314,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "030_booking_service_records_slot_reservations",
       "filename": "030_booking_service_records_slot_reservations.sql",
-      "sha256": "0b1a458d729d2d7cdfe15e3e26143bd5b0fbccc2e9ad77333ed4197bc63ac09f",
       "order": 27,
+      "manifestRecordedSha256": "0b1a458d729d2d7cdfe15e3e26143bd5b0fbccc2e9ad77333ed4197bc63ac09f",
+      "currentGitBlobSha256": "c69d788fec3acc248dcc5990c7465e54aeea30882ff66671050c236ff9c111ac",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "0b1a458d729d2d7cdfe15e3e26143bd5b0fbccc2e9ad77333ed4197bc63ac09f",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_booking_service_records_service_slot"
       ],
@@ -1138,13 +1343,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "031_customers",
       "filename": "031_customers.sql",
-      "sha256": "6f2d020cc74ac0a00d348cd094323cf262388eebc8b54037b3bbd84f5e398325",
       "order": 28,
+      "manifestRecordedSha256": "6f2d020cc74ac0a00d348cd094323cf262388eebc8b54037b3bbd84f5e398325",
+      "currentGitBlobSha256": "f8a9f1ce3504a2a4d3ea429813fbbe4622b84e6305518a7bd1711fe93002a04c",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "6f2d020cc74ac0a00d348cd094323cf262388eebc8b54037b3bbd84f5e398325",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_customers_client_location",
         "index:idx_customers_client_phone",
@@ -1228,13 +1440,20 @@
         "definition_mismatch|acls|schema:public",
         "definition_mismatch|extensions|pgcrypto",
         "definition_mismatch|extensions|plpgsql"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "032_client_notification_settings",
       "filename": "032_client_notification_settings.sql",
-      "sha256": "63da768d3c3afdb7cf34345f4fee939ab758c1257525cff3da9ca9a42ddebd25",
       "order": 29,
+      "manifestRecordedSha256": "63da768d3c3afdb7cf34345f4fee939ab758c1257525cff3da9ca9a42ddebd25",
+      "currentGitBlobSha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "63da768d3c3afdb7cf34345f4fee939ab758c1257525cff3da9ca9a42ddebd25",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_client_notification_events_client_created",
         "index:idx_client_notification_events_conversation",
@@ -1281,13 +1500,20 @@
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
         "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "033_tenant_private_lesson_rules",
       "filename": "033_tenant_private_lesson_rules.sql",
-      "sha256": "3f67f61da9e5a05308f890c6196ee4837c21ec0f2904e3253378b4218a64fd34",
       "order": 30,
+      "manifestRecordedSha256": "3f67f61da9e5a05308f890c6196ee4837c21ec0f2904e3253378b4218a64fd34",
+      "currentGitBlobSha256": "a95143a378fc0f4f541934cc977437d71982ed4b8573ad5d6334db29ea27ddc4",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "3f67f61da9e5a05308f890c6196ee4837c21ec0f2904e3253378b4218a64fd34",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_tenant_private_lesson_client_active",
         "index:uq_tenant_private_lesson_client_loc",
@@ -1327,13 +1553,20 @@
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
         "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "033_staff_automated_notifications",
       "filename": "033_staff_automated_notifications.sql",
-      "sha256": "b1c29f99bcef7b5070cff40c3477d7e27a2ad6fecb40417c63f1156828384891",
       "order": 31,
+      "manifestRecordedSha256": "b1c29f99bcef7b5070cff40c3477d7e27a2ad6fecb40417c63f1156828384891",
+      "currentGitBlobSha256": "4e8aa6d4ee3f4dd919a73989ea72b246e7ed16b4eb057f55383297235fbbaa62",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "b1c29f99bcef7b5070cff40c3477d7e27a2ad6fecb40417c63f1156828384891",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_staff_automated_notification_events_client_created",
         "index:idx_staff_automated_notifications_client_location",
@@ -1379,13 +1612,20 @@
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_date_loc",
         "live_only|indexes|tenant_lesson_time_rules.uq_tenant_lesson_time_recurring_loc",
         "live_only|indexes|tenant_price_rules.uq_tenant_price_rules_active_window_loc"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "034_customers_crm_tags",
       "filename": "034_customers_crm_tags.sql",
-      "sha256": "8f5114c2a3039ce50a5908f78eb874b684c3f049b7af3c610176c4a8a3541d16",
       "order": 32,
+      "manifestRecordedSha256": "8f5114c2a3039ce50a5908f78eb874b684c3f049b7af3c610176c4a8a3541d16",
+      "currentGitBlobSha256": "d129d88e9a00740c67181c70a2d88e657399abe7bf2e7e0c675ac28b770cc78a",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "8f5114c2a3039ce50a5908f78eb874b684c3f049b7af3c610176c4a8a3541d16",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:idx_customers_crm_tags"
       ],
@@ -1401,13 +1641,20 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "035_customer_message_templates",
       "filename": "035_customer_message_templates.sql",
-      "sha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
       "order": 33,
+      "manifestRecordedSha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+      "currentGitBlobSha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:customer_message_templates_client_id_fkey",
         "constraint:customer_message_templates_pkey",
@@ -1440,13 +1687,20 @@
         "expected_only|rlsFlags|customer_message_templates",
         "expected_only|ownership|relation:customer_message_templates",
         "expected_only|acls|relation:customer_message_templates"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "036_sunset_waivers",
       "filename": "036_sunset_waivers.sql",
-      "sha256": "ed140ac226643f27560c647fd6914cef6096a7bb85a479bd908f5383ca6abc97",
       "order": 34,
+      "manifestRecordedSha256": "ed140ac226643f27560c647fd6914cef6096a7bb85a479bd908f5383ca6abc97",
+      "currentGitBlobSha256": "ae2211d5fd50cebdb7b0c0ea019a429283c610707c7e2cce7e97e321b2a32845",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "ed140ac226643f27560c647fd6914cef6096a7bb85a479bd908f5383ca6abc97",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:waiver_form_requests_public_id_unique",
         "constraint:waiver_form_requests_token_hash_unique",
@@ -1490,13 +1744,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "037_sunset_group_waivers",
       "filename": "037_sunset_group_waivers.sql",
-      "sha256": "a7c45c50af7c89913178f1e36c3d663e0dcdb4490dce473b3515d2c21ec7effd",
       "order": 35,
+      "manifestRecordedSha256": "a7c45c50af7c89913178f1e36c3d663e0dcdb4490dce473b3515d2c21ec7effd",
+      "currentGitBlobSha256": "9b39335b556355d0622ef7d2e2adc89dcdf6869444fce10549b977fe854d8a88",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "a7c45c50af7c89913178f1e36c3d663e0dcdb4490dce473b3515d2c21ec7effd",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "constraint:waiver_form_requests_request_mode_check",
         "constraint:waiver_form_requests_target_count_check",
@@ -1522,13 +1783,20 @@
       "relatedMismatchCount": 1,
       "relatedMismatchStableKeys": [
         "live_only|constraints|tenant_lesson_time_rules.tenant_lesson_time_rules_capacity_check.CHECK"
-      ]
+      ],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     },
     {
       "id": "038_sunset_payment_link_idempotency",
       "filename": "038_sunset_payment_link_idempotency.sql",
-      "sha256": "0c134bac1248d21f64af7cdc229e103f130b0eab52666bf5ffccc0c88d9cd366",
       "order": 36,
+      "manifestRecordedSha256": "0c134bac1248d21f64af7cdc229e103f130b0eab52666bf5ffccc0c88d9cd366",
+      "currentGitBlobSha256": "2aa8322caba74853e232f8e0d1de8ec3b6ab39572986885b4172bdb44139de1f",
+      "bytesMatchManifest": false,
+      "hashesVerifiedAgainstGitBlob": false,
+      "lineEndingOnlyDiscrepancy": true,
+      "sha256": "0c134bac1248d21f64af7cdc229e103f130b0eab52666bf5ffccc0c88d9cd366",
+      "sha256Means": "manifestRecordedSha256_only_not_git_blob_verified",
       "signaturesExpected": [
         "index:payments_sunset_authoritative_intent_unique"
       ],
@@ -1544,13 +1812,17 @@
         "missingOfExpected=0"
       ],
       "relatedMismatchCount": 0,
-      "relatedMismatchStableKeys": []
+      "relatedMismatchStableKeys": [],
+      "structuralInferenceNote": "Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present."
     }
   ],
   "migration_035_customer_message_templates": {
     "id": "035_customer_message_templates",
     "filename": "035_customer_message_templates.sql",
-    "sha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+    "manifestRecordedSha256": "f7bd15ff73cec379bbef552189d963d2d190d3fcf995fa95b15d5bfca44b84fd",
+    "currentGitBlobSha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "bytesMatchManifest": false,
+    "hashesVerifiedAgainstGitBlob": false,
     "inferredState": "absent",
     "confidence": "high",
     "expectedObjects": [

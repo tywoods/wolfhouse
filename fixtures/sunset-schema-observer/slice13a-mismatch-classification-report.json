@@ -5,8 +5,9 @@
   "containsProductRowValues": false,
   "containsRepairSql": false,
   "containsLiveApplyCode": false,
-  "generatedAt": "2026-07-19T13:59:27.544Z",
+  "generatedAt": "2026-07-19T14:10:00.440Z",
   "masterShaBasis": "3c27d4ee3dd9b5678c63037d3ccc524c21907332",
+  "correctionOf": "a322e5dda3ad57e3baf4795720a877b743fdbd53",
   "canonicalExpectedFingerprint": "daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52",
   "actualLiveFingerprint": "fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd",
   "liveEvidence": {

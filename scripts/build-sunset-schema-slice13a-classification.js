@@ -77,11 +77,8 @@ function readForwardMigrations() {
   return forward.map((e) => {
     const filePath = path.join(MIG_DIR, e.filename);
     const sql = fs.readFileSync(filePath, 'utf8');
-    const hash = sha256File(filePath);
-    if (hash !== e.sha256) {
-      throw new Error(`hash mismatch for ${e.filename}: manifest=${e.sha256} disk=${hash}`);
-    }
-    return { ...e, sql, filePath };
+    // Working-tree hash may match a CRLF-recorded manifest on Windows; do not treat as git-blob verification.
+    return { ...e, sql, filePath, workingTreeSha256: sha256File(filePath) };
   });
 }
 
@@ -345,8 +342,8 @@ function classifyOne(m, ctx) {
   };
 }
 
-function buildProvenance(migrations, classifications, expectedSnap, liveSnap) {
-  const byMig = new Map(migrations.map((m) => [m.id, m]));
+function buildProvenance(migrations, classifications, expectedSnap, liveSnap, byteReport) {
+  const byByte = new Map((byteReport.comparisons || []).map((c) => [c.id, c]));
 
   // Signature helpers: object names strongly associated with each migration via SQL tokens
   function extractSignatures(sql, id) {
@@ -465,8 +462,15 @@ function buildProvenance(migrations, classifications, expectedSnap, liveSnap) {
     return {
       id: m.id,
       filename: m.filename,
-      sha256: m.sha256,
       order: m.order,
+      manifestRecordedSha256: m.sha256,
+      currentGitBlobSha256: (byByte.get(m.id) || {}).currentGitBlobSha256 || null,
+      bytesMatchManifest: Boolean((byByte.get(m.id) || {}).bytesMatchManifest),
+      hashesVerifiedAgainstGitBlob: Boolean((byByte.get(m.id) || {}).bytesMatchManifest),
+      lineEndingOnlyDiscrepancy: Boolean((byByte.get(m.id) || {}).lineEndingOnlyDiscrepancy),
+      // Deprecated single field retained only as manifest-recorded value (NOT a verification claim).
+      sha256: m.sha256,
+      sha256Means: 'manifestRecordedSha256_only_not_git_blob_verified',
       signaturesExpected: signaturesExpectedPresent.length ? signaturesExpectedPresent : rawSigs,
       signaturesPresentLive,
       inferredState,
@@ -474,6 +478,8 @@ function buildProvenance(migrations, classifications, expectedSnap, liveSnap) {
       evidence,
       relatedMismatchCount: related.length,
       relatedMismatchStableKeys: related.map((r) => r.stableKey),
+      structuralInferenceNote:
+        'Catalog-signature inference only. Not byte-verified historical apply proof while migration_integrity_blocker is present.',
     };
   });
 }
@@ -533,13 +539,40 @@ function main() {
     repairShapeTotals[c.laterRepairShape] = (repairShapeTotals[c.laterRepairShape] || 0) + 1;
   }
 
-  const provenance = buildProvenance(migrations, classifications, expected.snapshot, liveMeta.snapshot);
+  const byteReportPath = path.join(FIX, 'slice13a-manifest-byte-provenance-report.json');
+  if (!fs.existsSync(byteReportPath)) {
+    throw new Error('Run scripts/build-sunset-schema-slice13a-manifest-hash-report.js first');
+  }
+  const byteReport = JSON.parse(fs.readFileSync(byteReportPath, 'utf8'));
+  if (!byteReport.comparisons || byteReport.comparisons.length !== 36) {
+    throw new Error('byte provenance report must contain 36 comparisons');
+  }
+
+  const provenance = buildProvenance(
+    migrations,
+    classifications,
+    expected.snapshot,
+    liveMeta.snapshot,
+    byteReport,
+  );
   if (provenance.length !== 36) throw new Error('provenance length != 36');
   if (new Set(provenance.map((p) => p.id)).size !== 36) throw new Error('provenance ids not unique');
 
   const provenanceTotals = {};
   for (const p of provenance) {
     provenanceTotals[p.inferredState] = (provenanceTotals[p.inferredState] || 0) + 1;
+  }
+
+  const matchCount = provenance.filter((p) => p.bytesMatchManifest).length;
+  const mismatchCountHashes = provenance.filter((p) => !p.bytesMatchManifest).length;
+  if (matchCount + mismatchCountHashes !== 36) {
+    throw new Error('hash match totals must reconcile to 36');
+  }
+  if (provenance.some((p) => !p.manifestRecordedSha256 || !p.currentGitBlobSha256)) {
+    throw new Error('every provenance row must include both hashes');
+  }
+  if (provenance.some((p) => p.hashesVerifiedAgainstGitBlob && !p.bytesMatchManifest)) {
+    throw new Error('cannot claim hashes verified when bytesMatchManifest=false');
   }
 
   const mig035 = provenance.find((p) => p.id === '035_customer_message_templates');
@@ -554,6 +587,7 @@ function main() {
     containsLiveApplyCode: false,
     generatedAt: new Date().toISOString(),
     masterShaBasis: '3c27d4ee3dd9b5678c63037d3ccc524c21907332',
+    correctionOf: 'a322e5dda3ad57e3baf4795720a877b743fdbd53',
     canonicalExpectedFingerprint: CANON_FP,
     actualLiveFingerprint: LIVE_FP,
     liveEvidence: {
@@ -577,19 +611,40 @@ function main() {
 
   const provenanceMatrix = {
     kind: 'sunset-schema-observer-slice13a-migration-provenance-matrix',
-    label: 'structural inference only — schema_migration_ledger absent live; states are evidence-based not ledger-proven',
+    label:
+      'structural catalog inference only — byte manifest NOT verified against git blobs; schema_migration_ledger absent live',
     secretFree: true,
     containsRepairSql: false,
     generatedAt: new Date().toISOString(),
     masterShaBasis: '3c27d4ee3dd9b5678c63037d3ccc524c21907332',
+    correctionOf: 'a322e5dda3ad57e3baf4795720a877b743fdbd53',
     canonicalForwardCount: 36,
     schema_migration_ledger_present_live: false,
+    byteProvenanceReportPath: 'fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json',
+    migration_integrity_blocker: {
+      present: true,
+      state: 'migration_integrity_blocker',
+      code: 'canonical_manifest_sha256_not_equal_current_git_blob',
+      bytesMatchManifestCount: matchCount,
+      bytesMismatchManifestCount: mismatchCountHashes,
+      hashesVerifiedClaim: false,
+      doNotInferReliableHistoricalApplicationFromByteManifest: true,
+      rootCauseCode: byteReport.rootCause && byteReport.rootCause.code,
+    },
+    hashTotals: {
+      bytesMatchManifest: matchCount,
+      bytesMismatchManifest: mismatchCountHashes,
+      reconcileTo36: matchCount + mismatchCountHashes === 36,
+    },
     provenanceTotals,
     migrations: provenance,
     migration_035_customer_message_templates: {
       id: mig035.id,
       filename: mig035.filename,
-      sha256: mig035.sha256,
+      manifestRecordedSha256: mig035.manifestRecordedSha256,
+      currentGitBlobSha256: mig035.currentGitBlobSha256,
+      bytesMatchManifest: mig035.bytesMatchManifest,
+      hashesVerifiedAgainstGitBlob: mig035.hashesVerifiedAgainstGitBlob,
       inferredState: mig035.inferredState,
       confidence: mig035.confidence,
       expectedObjects: [
@@ -664,6 +719,16 @@ function main() {
           .filter((p) => p.inferredState === 'ambiguous')
           .map((p) => p.id),
       },
+      {
+        id: 'DEC-007',
+        topic: 'Canonical manifest sha256 ≠ current Git blob (migration_integrity_blocker)',
+        recommendation:
+          'Do not regenerate or rewrite canonical-manifest.json in Slice 13A. Open a dedicated manifest-integrity repair to re-hash from committed Git blobs (and/or pin eol=lf) after confirming executable SQL is unchanged. Until then, do not claim byte-verified migration provenance or reliable historical apply from the manifest.',
+        status: 'migration_integrity_blocker',
+        relatedReport: 'fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json',
+        bytesMatchManifest: matchCount,
+        bytesMismatchManifest: mismatchCountHashes,
+      },
       ...unresolved.map((u, i) => ({
         id: `DEC-UNRESOLVED-${String(i + 1).padStart(3, '0')}`,
         topic: u.stableKey,
@@ -686,6 +751,7 @@ function main() {
 - Runtime observer image is already repaired (Slice 12). This slice classifies **why** live still differs.
 - **Do not bless live as canonical. Do not apply migrations or mutate ownership from this report.**
 - \`schema_migration_ledger\` is **absent** live → applied-set is inferred from catalog signatures only.
+- **migration_integrity_blocker:** \`canonical-manifest.json\` sha256 values do **not** equal current Git blob hashes for ${mismatchCountHashes}/36 forward migrations (deterministic CRLF working-tree hashing at Slice 4). Executable SQL (LF-normalized) is unchanged since manifest creation. **Do not claim byte-verified hashes or reliable historical application from this manifest.**
 
 ## Classification totals
 
@@ -696,17 +762,28 @@ function main() {
 | canonical_manifest_question | ${classTotals.canonical_manifest_question} |
 | unresolved | ${classTotals.unresolved} |
 
+## Manifest byte provenance
+
+| Measure | Count |
+|---------|------:|
+| bytesMatchManifest (git blob) | ${matchCount} |
+| bytesMismatchManifest (git blob) | ${mismatchCountHashes} |
+
+Root cause: manifest recorded Windows CRLF working-tree hashes (\`core.autocrlf=true\`); Git stores LF for most files. See \`slice13a-manifest-byte-provenance-report.json\`. Existing \`validateManifestIntegrity\` hashes working-tree bytes and can pass on Windows while raw git-blob comparison fails.
+
 ## Ownership / ACL / extensions
 
 Live owners for pgcrypto/plpgsql functions and extensions are \`azuresu\`; public schema owner/ACL grantor is \`azure_pg_admin\`. Canonical expected uses \`$db_owner\` / \`pg_database_owner\` after local generation.
 
 **Interpretation:** Azure Flexible Server environment identities, not tenant privilege drift. Observer \`normalizeOwnerName\` only rewrites \`datdba\` → \`$db_owner\` — **normalization defect candidate**. **Do not recommend ownership mutation merely to match role names.**
 
-## Migration provenance totals
+## Migration provenance totals (catalog signatures only)
 
 | Inferred state | Count |
 |----------------|------:|
 ${Object.entries(provenanceTotals).map(([k, v]) => `| ${k} | ${v} |`).join('\n')}
+
+Structural states are **not** byte-manifest-verified apply proofs while the integrity blocker is present.
 
 ## Migration 035 (\`035_customer_message_templates\`)
 
@@ -718,12 +795,13 @@ ${Object.entries(provenanceTotals).map(([k, v]) => `| ${k} | ${v} |`).join('\n')
 
 - \`fixtures/sunset-schema-observer/slice13a-mismatch-classification-report.json\`
 - \`fixtures/sunset-schema-observer/slice13a-migration-provenance-matrix.json\`
+- \`fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json\`
 - \`fixtures/sunset-schema-observer/slice13a-operator-decision-list.json\`
 - This findings note
 
 ## Forbidden (honored)
 
-No live DDL/DML, ledger, role, credential, image, job, Staff API, Luna, firewall/network, Wolfhouse, or production mutation. No executable repair tooling. No observer job start. No product-row reads.
+No live DDL/DML, ledger, role, credential, image, job, Staff API, Luna, firewall/network, Wolfhouse, or production mutation. No executable repair tooling. No observer job start. No product-row reads. No blind manifest regeneration.
 `;
 
   fs.writeFileSync(

@@ -289,6 +289,7 @@
     "verify:sunset-schema-observer": "node scripts/verify-sunset-schema-observer.js",
     "verify:sunset-schema-slice13a": "node scripts/verify-sunset-schema-slice13a.js",
     "build:sunset-schema-slice13a-classification": "node scripts/build-sunset-schema-slice13a-classification.js",
+    "build:sunset-schema-slice13a-manifest-hash-report": "node scripts/build-sunset-schema-slice13a-manifest-hash-report.js",
     "prove:sunset-schema-observer-local": "node scripts/prove-sunset-schema-observer-local.js",
     "verify:sunset-schema-observer-role-provision": "node scripts/verify-sunset-schema-observer-role-provision.js",
     "provision:sunset-schema-observer-role": "node scripts/provision-sunset-schema-observer-role.js",

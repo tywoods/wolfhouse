@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice13a-operator-decision-list",
   "secretFree": true,
-  "generatedAt": "2026-07-19T13:59:27.544Z",
+  "generatedAt": "2026-07-19T14:10:00.440Z",
   "failClosed": true,
   "items": [
     {
@@ -49,6 +49,15 @@
         "019_bookings_language",
         "020_wolfhouse_room_gender_metadata"
       ]
+    },
+    {
+      "id": "DEC-007",
+      "topic": "Canonical manifest sha256 ≠ current Git blob (migration_integrity_blocker)",
+      "recommendation": "Do not regenerate or rewrite canonical-manifest.json in Slice 13A. Open a dedicated manifest-integrity repair to re-hash from committed Git blobs (and/or pin eol=lf) after confirming executable SQL is unchanged. Until then, do not claim byte-verified migration provenance or reliable historical apply from the manifest.",
+      "status": "migration_integrity_blocker",
+      "relatedReport": "fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json",
+      "bytesMatchManifest": 2,
+      "bytesMismatchManifest": 34
     }
   ]
 }

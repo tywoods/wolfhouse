@@ -344,14 +344,17 @@ npm run verify:sunset-schema-observer
 Artifacts:
 - `fixtures/sunset-schema-observer/slice13a-mismatch-classification-report.json`
 - `fixtures/sunset-schema-observer/slice13a-migration-provenance-matrix.json`
+- `fixtures/sunset-schema-observer/slice13a-manifest-byte-provenance-report.json`
 - `fixtures/sunset-schema-observer/slice13a-findings.md`
 - `fixtures/sunset-schema-observer/slice13a-operator-decision-list.json`
 
 ```bash
+npm run build:sunset-schema-slice13a-manifest-hash-report
+npm run build:sunset-schema-slice13a-classification
 npm run verify:sunset-schema-slice13a
 ```
 
-**Outcome:** ownership/ACL/extension mismatches are largely Azure environment-identity / observer-normalization differences (do not mutate ownership to match role names). Migration `035_customer_message_templates` is **absent** live and appears safely additive (not applied here). Proposed location_id / `*_loc` index shapes present live remain an operator decision. `schema_migration_ledger` absent → FOUNDATION still blocked on unresolved DB drift.
+**Outcome:** ownership/ACL/extension mismatches are largely Azure environment-identity / observer-normalization differences (do not mutate ownership to match role names). Migration `035_customer_message_templates` is **absent** live and appears safely additive (not applied here). Proposed location_id / `*_loc` index shapes present live remain an operator decision. **migration_integrity_blocker:** manifest sha256 ≠ current Git blob for most forward migrations (CRLF working-tree hashing at Slice 4; executable SQL unchanged) — do not claim byte-verified provenance. `schema_migration_ledger` absent → FOUNDATION still blocked on unresolved DB drift.
 
 ---
 

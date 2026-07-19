@@ -3,12 +3,14 @@
 /**
  * verify:sunset-schema-slice13a — FOUNDATION Slice 13A RED→GREEN
  * Offline investigation gates only. No Azure mutation. No DB connections.
+ * Compares raw Git blobs for migration hash honesty.
  */
 
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { loadManifest, MANIFEST_PATH, forwardEntries } = require('./lib/migration-integrity');
+const { loadManifest, MANIFEST_PATH, forwardEntries, validateManifestIntegrity } = require('./lib/migration-integrity');
 
 const ROOT = path.join(__dirname, '..');
 const FIX = path.join(ROOT, 'fixtures', 'sunset-schema-observer');
@@ -17,9 +19,11 @@ const CLASS_PATH = path.join(FIX, 'slice13a-mismatch-classification-report.json'
 const PROV_PATH = path.join(FIX, 'slice13a-migration-provenance-matrix.json');
 const FINDINGS_PATH = path.join(FIX, 'slice13a-findings.md');
 const DECISIONS_PATH = path.join(FIX, 'slice13a-operator-decision-list.json');
+const BYTE_PATH = path.join(FIX, 'slice13a-manifest-byte-provenance-report.json');
 const MISMATCH_PATH = path.join(FIX, 'slice11-canonical-vs-live-mismatch-report.json');
 const EXPECTED_PATH = path.join(FIX, 'expected-product-schema.json');
 const BUILD_PATH = path.join(ROOT, 'scripts', 'build-sunset-schema-slice13a-classification.js');
+const HASH_BUILD_PATH = path.join(ROOT, 'scripts', 'build-sunset-schema-slice13a-manifest-hash-report.js');
 const VERIFY_PATH = path.join(ROOT, 'scripts', 'verify-sunset-schema-slice13a.js');
 
 const CANON_FP = 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52';
@@ -42,18 +46,33 @@ function pass(name, cond, detail) {
   }
 }
 
-function sha256File(p) {
-  return crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
+function sha256(buf) {
+  return crypto.createHash('sha256').update(buf).digest('hex');
+}
+
+function gitBlobSha(rel) {
+  const r = spawnSync('git', ['show', `HEAD:${rel.replace(/\\/g, '/')}`], {
+    cwd: ROOT,
+    encoding: 'buffer',
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  if (r.status !== 0) throw new Error(`git show failed for ${rel}`);
+  return sha256(Buffer.from(r.stdout));
 }
 
 function main() {
   console.log('verify:sunset-schema-slice13a — RED→GREEN\n');
 
-  pass('artifacts-exist', [CLASS_PATH, PROV_PATH, FINDINGS_PATH, DECISIONS_PATH, BUILD_PATH].every((p) => fs.existsSync(p)));
+  pass(
+    'artifacts-exist',
+    [CLASS_PATH, PROV_PATH, FINDINGS_PATH, DECISIONS_PATH, BYTE_PATH, BUILD_PATH, HASH_BUILD_PATH]
+      .every((p) => fs.existsSync(p)),
+  );
 
   const report = JSON.parse(fs.readFileSync(CLASS_PATH, 'utf8'));
   const provenance = JSON.parse(fs.readFileSync(PROV_PATH, 'utf8'));
   const decisions = JSON.parse(fs.readFileSync(DECISIONS_PATH, 'utf8'));
+  const byteReport = JSON.parse(fs.readFileSync(BYTE_PATH, 'utf8'));
   const mismatch = JSON.parse(fs.readFileSync(MISMATCH_PATH, 'utf8'));
   const expected = JSON.parse(fs.readFileSync(EXPECTED_PATH, 'utf8'));
   const findings = fs.readFileSync(FINDINGS_PATH, 'utf8');
@@ -112,14 +131,69 @@ function main() {
   const forward = forwardEntries(manifest);
   pass('forward-manifest-36', forward.length === 36);
 
-  let hashOk = true;
+  // Existing working-tree validator (environment-dependent) — capture actual result.
+  const integrity = validateManifestIntegrity(manifest);
+  console.log(`  INFO  existing-validateManifestIntegrity ok=${integrity.ok} errors=${integrity.errors.length}`);
+
+  // Honest byte report gates
+  const comparisons = byteReport.comparisons || [];
+  pass('byte-report-has-36-comparisons', comparisons.length === 36
+    && byteReport.totals
+    && byteReport.totals.forwardCount === 36
+    && (byteReport.totals.bytesMatchManifest + byteReport.totals.bytesMismatchManifest) === 36);
+
+  let gitBlobCompareOk = true;
+  let claimedVerifiedWhileMismatch = false;
   for (const m of migs) {
     const ent = forward.find((e) => e.id === m.id);
-    if (!ent || ent.sha256 !== m.sha256) { hashOk = false; break; }
-    const disk = sha256File(path.join(ROOT, 'database', 'migrations', m.filename));
-    if (disk !== m.sha256) { hashOk = false; break; }
+    const cmp = comparisons.find((c) => c.id === m.id);
+    if (!ent || !cmp) { gitBlobCompareOk = false; continue; }
+    if (!m.manifestRecordedSha256 || !m.currentGitBlobSha256) { gitBlobCompareOk = false; continue; }
+    if (m.manifestRecordedSha256 !== ent.sha256) { gitBlobCompareOk = false; continue; }
+    if (m.manifestRecordedSha256 !== cmp.manifestRecordedSha256) { gitBlobCompareOk = false; continue; }
+    const liveBlob = gitBlobSha(`database/migrations/${m.filename}`);
+    if (m.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
+    if (cmp.currentGitBlobSha256 !== liveBlob) { gitBlobCompareOk = false; continue; }
+    const expectedMatch = liveBlob === ent.sha256;
+    if (m.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
+    if (cmp.bytesMatchManifest !== expectedMatch) { gitBlobCompareOk = false; continue; }
+    if (m.hashesVerifiedAgainstGitBlob === true && m.bytesMatchManifest !== true) {
+      claimedVerifiedWhileMismatch = true;
+    }
   }
-  pass('migration-hashes-match-canonical-manifest', hashOk);
+  pass('raw-git-blob-hash-fields-honest', gitBlobCompareOk && !claimedVerifiedWhileMismatch);
+
+  const matchN = migs.filter((m) => m.bytesMatchManifest).length;
+  const mismatchN = migs.filter((m) => !m.bytesMatchManifest).length;
+  pass('hash-match-mismatch-totals-reconcile-36',
+    matchN + mismatchN === 36
+    && provenance.hashTotals
+    && provenance.hashTotals.bytesMatchManifest === matchN
+    && provenance.hashTotals.bytesMismatchManifest === mismatchN
+    && provenance.hashTotals.reconcileTo36 === true
+    && byteReport.totals.bytesMatchManifest === matchN
+    && byteReport.totals.bytesMismatchManifest === mismatchN);
+
+  pass('no-false-hash-verified-claim',
+    migs.every((m) => m.hashesVerifiedAgainstGitBlob === m.bytesMatchManifest)
+    && provenance.migration_integrity_blocker
+    && provenance.migration_integrity_blocker.hashesVerifiedClaim === false
+    && provenance.migration_integrity_blocker.present === (mismatchN > 0)
+    && provenance.migration_integrity_blocker.state === 'migration_integrity_blocker');
+
+  pass('migration-integrity-blocker-recorded-when-mismatch',
+    mismatchN === 0
+    || (
+      provenance.migration_integrity_blocker.present === true
+      && byteReport.migration_integrity_blocker.present === true
+      && (decisions.items || []).some((d) => d.id === 'DEC-007' && d.status === 'migration_integrity_blocker')
+      && /migration_integrity_blocker/i.test(findings)
+    ));
+
+  // Allow PR to pass with honest blocker; reject if it claims all hashes match when they do not.
+  pass('does-not-claim-all-manifest-hashes-match-git-blobs',
+    !(mismatchN > 0 && /hashes verified against git blob/i.test(findings) && !/blocker/i.test(findings))
+    && (mismatchN === 0 || /do not claim byte-verified/i.test(findings)));
 
   const mig035 = migs.find((m) => m.id === '035_customer_message_templates');
   pass('migration-035-explicit',
@@ -162,6 +236,7 @@ function main() {
     report.containsRepairSql === false
     && report.containsLiveApplyCode === false
     && provenance.containsRepairSql === false
+    && byteReport.containsRepairSql === false
     && decisions.failClosed === true);
 
   pass('ownership-normalization-defect-documented',
@@ -172,7 +247,13 @@ function main() {
 
   pass('master-sha-basis',
     report.masterShaBasis === MASTER
-    && provenance.masterShaBasis === MASTER);
+    && provenance.masterShaBasis === MASTER
+    && byteReport.masterShaBasis === MASTER);
+
+  pass('root-cause-line-ending-documented',
+    byteReport.rootCause
+    && /crlf|line.?ending|autocrlf/i.test(JSON.stringify(byteReport.rootCause))
+    && byteReport.rootCause.notStaleExecutableSql === true);
 
   console.log(`\n── verify:sunset-schema-slice13a ${failed ? 'FAILED' : 'PASSED'} (failed=${failed}) ──`);
   process.exit(failed ? 1 : 0);
