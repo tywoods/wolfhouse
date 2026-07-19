@@ -1,0 +1,685 @@
+{
+  "kind": "slice14w-final-rename-normalization-evidence",
+  "slice": "14W",
+  "masterShaBasis": "c0efa35ae818cb3c723dc81f79eee57e3041af70",
+  "applicationName": "wh-sunset-final-rename-normalization",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration002Sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+  "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+  "migration004Sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+  "baselineMismatchCountExpected": 23,
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "offline": {
+    "red": [
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "missing_final_rename_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "non_azure_profile_retains_rename_constraints",
+        "ok": true
+      },
+      {
+        "name": "non_pg15_version_retains_or_rejects",
+        "ok": true
+      },
+      {
+        "name": "live_nullable_yes_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "live_column_missing_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "live_old_table_or_column_present_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "ambiguous_duplicate_claim_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "wrong_definition_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "arbitrary_alias_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "unapproved_hostels_column_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "truncated_name_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "migration_hash_change_fails",
+        "ok": true
+      },
+      {
+        "name": "fourteen_t_exact_name_rule_unchanged",
+        "ok": true
+      },
+      {
+        "name": "fourteen_v_hostel_id_alias_unchanged",
+        "ok": true
+      }
+    ],
+    "green": [
+      {
+        "name": "exact_12_provenance_fixture",
+        "ok": true,
+        "detail": {
+          "positive": 12,
+          "negative": 5,
+          "keys": [
+            "clients.hostels_created_at_not_null.n",
+            "clients.hostels_currency_not_null.n",
+            "clients.hostels_id_not_null.n",
+            "clients.hostels_is_active_not_null.n",
+            "clients.hostels_name_not_null.n",
+            "clients.hostels_settings_not_null.n",
+            "clients.hostels_slug_not_null.n",
+            "clients.hostels_timezone_not_null.n",
+            "clients.hostels_updated_at_not_null.n",
+            "package_price_rules.package_price_rules_price_per_person_per_night_cents_not_null.n",
+            "payments.payments_amount_cents_not_null.n",
+            "payments.payments_kind_not_null.n"
+          ]
+        }
+      },
+      {
+        "name": "migration_hashes_and_tuples_locked",
+        "ok": true,
+        "detail": {
+          "provenanceCount": 4,
+          "sha002": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+          "sha003": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "sha004": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+          "tuples": [
+            {
+              "kind": "table_rename",
+              "migrationId": "003_rename_hostel_to_client",
+              "renameSql": "ALTER TABLE IF EXISTS hostels RENAME TO clients",
+              "legacyName": null
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "002_package_pricing",
+              "renameSql": "RENAME COLUMN price_per_person_per_night_cents TO price_per_person_per_week_cents",
+              "legacyName": "package_price_rules_price_per_person_per_night_cents_not_null"
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "004_payment_schema_phase2",
+              "renameSql": "ALTER TABLE payments RENAME COLUMN kind TO payment_kind",
+              "legacyName": "payments_kind_not_null"
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "004_payment_schema_phase2",
+              "renameSql": "ALTER TABLE payments RENAME COLUMN amount_cents TO amount_due_cents",
+              "legacyName": "payments_amount_cents_not_null"
+            }
+          ]
+        }
+      },
+      {
+        "name": "twelve_rename_artifacts_normalize_when_columns_match",
+        "ok": true,
+        "detail": {
+          "rawNn": 12,
+          "afterNn": 0,
+          "normalizedCount": 12
+        }
+      },
+      {
+        "name": "raw_vs_normalized_compare_api",
+        "ok": true
+      },
+      {
+        "name": "negative_keys_retain",
+        "ok": true,
+        "detail": {
+          "remainingNegatives": 5,
+          "truncatedRetained": true
+        }
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      },
+      {
+        "name": "accounting_baseline_normalized_plus_remaining",
+        "ok": true,
+        "detail": {
+          "baselineCount": 12,
+          "normalized": 12,
+          "remaining": 0
+        }
+      },
+      {
+        "name": "final_rename_default_off_preserves_14v",
+        "ok": true
+      }
+    ],
+    "positiveKeys": [
+      "clients.hostels_created_at_not_null.n",
+      "clients.hostels_currency_not_null.n",
+      "clients.hostels_id_not_null.n",
+      "clients.hostels_is_active_not_null.n",
+      "clients.hostels_name_not_null.n",
+      "clients.hostels_settings_not_null.n",
+      "clients.hostels_slug_not_null.n",
+      "clients.hostels_timezone_not_null.n",
+      "clients.hostels_updated_at_not_null.n",
+      "package_price_rules.package_price_rules_price_per_person_per_night_cents_not_null.n",
+      "payments.payments_amount_cents_not_null.n",
+      "payments.payments_kind_not_null.n"
+    ],
+    "negativeKeys": [
+      "clients.hostels_stripe_account_id_not_null.n",
+      "clients.hostels_whatsapp_phone_number_id_not_null.n",
+      "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+      "payments.payments_amount_paid_cents_not_null_legacy.n",
+      "payments.payments_weird_alias_not_null.n"
+    ],
+    "provenanceTuples": [
+      {
+        "kind": "table_rename",
+        "migrationId": "003_rename_hostel_to_client",
+        "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+        "renameSql": "ALTER TABLE IF EXISTS hostels RENAME TO clients",
+        "legacyName": null,
+        "definition": null,
+        "approvedColumns": [
+          "created_at",
+          "currency",
+          "id",
+          "is_active",
+          "name",
+          "settings",
+          "slug",
+          "timezone",
+          "updated_at"
+        ],
+        "oldTable": "hostels",
+        "currentTable": "clients",
+        "oldColumn": null,
+        "currentColumn": null
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "002_package_pricing",
+        "migrationSha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+        "renameSql": "RENAME COLUMN price_per_person_per_night_cents TO price_per_person_per_week_cents",
+        "legacyName": "package_price_rules_price_per_person_per_night_cents_not_null",
+        "definition": "NOT NULL price_per_person_per_week_cents",
+        "approvedColumns": null,
+        "oldTable": null,
+        "currentTable": null,
+        "oldColumn": "price_per_person_per_night_cents",
+        "currentColumn": "price_per_person_per_week_cents"
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "004_payment_schema_phase2",
+        "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+        "renameSql": "ALTER TABLE payments RENAME COLUMN kind TO payment_kind",
+        "legacyName": "payments_kind_not_null",
+        "definition": "NOT NULL payment_kind",
+        "approvedColumns": null,
+        "oldTable": null,
+        "currentTable": null,
+        "oldColumn": "kind",
+        "currentColumn": "payment_kind"
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "004_payment_schema_phase2",
+        "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+        "renameSql": "ALTER TABLE payments RENAME COLUMN amount_cents TO amount_due_cents",
+        "legacyName": "payments_amount_cents_not_null",
+        "definition": "NOT NULL amount_due_cents",
+        "approvedColumns": null,
+        "oldTable": null,
+        "currentTable": null,
+        "oldColumn": "amount_cents",
+        "currentColumn": "amount_due_cents"
+      }
+    ]
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "final_rename_normalization_observer_drift",
+    "sameTarget": true,
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "observerBefore": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 23,
+      "counts": {
+        "expected_only": 22,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 13,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "client_notification_events.idx_client_notification_events_client_created",
+        "client_notification_events.idx_client_notification_events_conversation",
+        "client_notification_settings.idx_client_notification_settings_client",
+        "clients.hostels_created_at_not_null.n",
+        "clients.hostels_currency_not_null.n",
+        "clients.hostels_id_not_null.n",
+        "clients.hostels_is_active_not_null.n",
+        "clients.hostels_name_not_null.n",
+        "clients.hostels_settings_not_null.n",
+        "clients.hostels_slug_not_null.n",
+        "clients.hostels_timezone_not_null.n",
+        "clients.hostels_updated_at_not_null.n",
+        "customer_message_templates.idx_customer_message_templates_client_active",
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "payments.payments_amount_cents_not_null.n",
+        "payments.payments_kind_not_null.n",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "renameAliasesNormalized": 12,
+      "finalRenamesNormalized": 0,
+      "notNullArtifactsNormalized": 448,
+      "renameAliasNormalization": {
+        "applied": true,
+        "normalizedCount": 12,
+        "reason": null,
+        "provenance": {
+          "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "provenanceCount": 15,
+          "approvedTables": [
+            "automation_errors",
+            "beds",
+            "booking_beds",
+            "bookings",
+            "conversations",
+            "guests",
+            "manual_entries",
+            "messages",
+            "operator_room_release_requests",
+            "package_price_rules",
+            "packages",
+            "payment_events",
+            "payments",
+            "rooms",
+            "workflow_events"
+          ],
+          "oldColumn": "hostel_id",
+          "currentColumn": "client_id",
+          "rule": "migration_003_rename_alias"
+        }
+      },
+      "finalRenameNormalization": null,
+      "normalizationError": null
+    },
+    "observerAfter": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 12,
+      "counts": {
+        "expected_only": 11,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 2,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "remainingKeys": [
+        "client_notification_events.idx_client_notification_events_client_created",
+        "client_notification_events.idx_client_notification_events_conversation",
+        "client_notification_settings.idx_client_notification_settings_client",
+        "customer_message_templates.idx_customer_message_templates_client_active",
+        "function:public.fips_mode()",
+        "function:public.fips_mode()",
+        "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+        "pgcrypto",
+        "public.fips_mode()",
+        "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+        "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+      ],
+      "renameAliasesNormalized": 12,
+      "finalRenamesNormalized": 11,
+      "notNullArtifactsNormalized": 448,
+      "renameAliasNormalization": {
+        "applied": true,
+        "normalizedCount": 12,
+        "reason": null,
+        "provenance": {
+          "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "provenanceCount": 15,
+          "approvedTables": [
+            "automation_errors",
+            "beds",
+            "booking_beds",
+            "bookings",
+            "conversations",
+            "guests",
+            "manual_entries",
+            "messages",
+            "operator_room_release_requests",
+            "package_price_rules",
+            "packages",
+            "payment_events",
+            "payments",
+            "rooms",
+            "workflow_events"
+          ],
+          "oldColumn": "hostel_id",
+          "currentColumn": "client_id",
+          "rule": "migration_003_rename_alias"
+        }
+      },
+      "finalRenameNormalization": {
+        "applied": true,
+        "normalizedCount": 11,
+        "reason": null,
+        "provenance": {
+          "provenanceCount": 4,
+          "migration002Sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+          "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+          "migration004Sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+          "tableRenameApprovedColumns": [
+            "created_at",
+            "currency",
+            "id",
+            "is_active",
+            "name",
+            "settings",
+            "slug",
+            "timezone",
+            "updated_at"
+          ],
+          "tuples": [
+            {
+              "kind": "table_rename",
+              "migrationId": "003_rename_hostel_to_client",
+              "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+              "renameSql": "ALTER TABLE IF EXISTS hostels RENAME TO clients",
+              "table": "clients",
+              "oldTable": "hostels",
+              "oldColumn": null,
+              "currentColumn": null,
+              "legacyName": null,
+              "definition": null,
+              "approvedColumns": [
+                "created_at",
+                "currency",
+                "id",
+                "is_active",
+                "name",
+                "settings",
+                "slug",
+                "timezone",
+                "updated_at"
+              ]
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "002_package_pricing",
+              "migrationSha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+              "renameSql": "RENAME COLUMN price_per_person_per_night_cents TO price_per_person_per_week_cents",
+              "table": "package_price_rules",
+              "oldTable": null,
+              "oldColumn": "price_per_person_per_night_cents",
+              "currentColumn": "price_per_person_per_week_cents",
+              "legacyName": "package_price_rules_price_per_person_per_night_cents_not_null",
+              "definition": "NOT NULL price_per_person_per_week_cents",
+              "approvedColumns": null
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "004_payment_schema_phase2",
+              "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+              "renameSql": "ALTER TABLE payments RENAME COLUMN kind TO payment_kind",
+              "table": "payments",
+              "oldTable": null,
+              "oldColumn": "kind",
+              "currentColumn": "payment_kind",
+              "legacyName": "payments_kind_not_null",
+              "definition": "NOT NULL payment_kind",
+              "approvedColumns": null
+            },
+            {
+              "kind": "column_rename",
+              "migrationId": "004_payment_schema_phase2",
+              "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+              "renameSql": "ALTER TABLE payments RENAME COLUMN amount_cents TO amount_due_cents",
+              "table": "payments",
+              "oldTable": null,
+              "oldColumn": "amount_cents",
+              "currentColumn": "amount_due_cents",
+              "legacyName": "payments_amount_cents_not_null",
+              "definition": "NOT NULL amount_due_cents",
+              "approvedColumns": null
+            }
+          ],
+          "rule": "exact_rename_provenance_tuple"
+        }
+      },
+      "normalizationError": null
+    },
+    "baseline": {
+      "ok": true,
+      "code": "baseline_ok",
+      "mismatchCount": 23,
+      "mismatchSections": {
+        "constraints": 13,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "expectedMismatchCount": 23,
+      "expectedMismatchSections": {
+        "constraints": 13,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      }
+    },
+    "baselineMismatchCount": 23,
+    "finalRenamesNormalized": 11,
+    "remainingMismatchCount": 12,
+    "remainingKeys": [
+      "client_notification_events.idx_client_notification_events_client_created",
+      "client_notification_events.idx_client_notification_events_conversation",
+      "client_notification_settings.idx_client_notification_settings_client",
+      "customer_message_templates.idx_customer_message_templates_client_active",
+      "function:public.fips_mode()",
+      "function:public.fips_mode()",
+      "package_price_rules.package_price_rules_double_supplement_per_person_per_n_not_null.n",
+      "pgcrypto",
+      "public.fips_mode()",
+      "tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY"
+    ],
+    "accountingOk": true,
+    "migration002Sha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+    "migration003Sha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+    "migration004Sha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+    "provenanceCount": 4,
+    "provenanceTuples": [
+      {
+        "kind": "table_rename",
+        "migrationId": "003_rename_hostel_to_client",
+        "migrationSha256": "f79826262081050f68c7f8014136d90730dc4dedffe37549aad2ff998f340257",
+        "renameSql": "ALTER TABLE IF EXISTS hostels RENAME TO clients",
+        "table": "clients",
+        "oldTable": "hostels",
+        "oldColumn": null,
+        "currentColumn": null,
+        "legacyName": null,
+        "definition": null,
+        "approvedColumns": [
+          "created_at",
+          "currency",
+          "id",
+          "is_active",
+          "name",
+          "settings",
+          "slug",
+          "timezone",
+          "updated_at"
+        ]
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "002_package_pricing",
+        "migrationSha256": "3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748",
+        "renameSql": "RENAME COLUMN price_per_person_per_night_cents TO price_per_person_per_week_cents",
+        "table": "package_price_rules",
+        "oldTable": null,
+        "oldColumn": "price_per_person_per_night_cents",
+        "currentColumn": "price_per_person_per_week_cents",
+        "legacyName": "package_price_rules_price_per_person_per_night_cents_not_null",
+        "definition": "NOT NULL price_per_person_per_week_cents",
+        "approvedColumns": null
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "004_payment_schema_phase2",
+        "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+        "renameSql": "ALTER TABLE payments RENAME COLUMN kind TO payment_kind",
+        "table": "payments",
+        "oldTable": null,
+        "oldColumn": "kind",
+        "currentColumn": "payment_kind",
+        "legacyName": "payments_kind_not_null",
+        "definition": "NOT NULL payment_kind",
+        "approvedColumns": null
+      },
+      {
+        "kind": "column_rename",
+        "migrationId": "004_payment_schema_phase2",
+        "migrationSha256": "c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1",
+        "renameSql": "ALTER TABLE payments RENAME COLUMN amount_cents TO amount_due_cents",
+        "table": "payments",
+        "oldTable": null,
+        "oldColumn": "amount_cents",
+        "currentColumn": "amount_due_cents",
+        "legacyName": "payments_amount_cents_not_null",
+        "definition": "NOT NULL amount_due_cents",
+        "approvedColumns": null
+      }
+    ],
+    "productFingerprintLive": "b46a9b52b90122de8999e5e901340e979dec437a49b21aa4598fea646396d1eb",
+    "applicationName": "wh-sunset-final-rename-normalization",
+    "httpRequestCount": 6,
+    "imdsRequestCount": 3,
+    "keyVaultRequestCount": 2,
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 30,
+    "endCalls": 1,
+    "usedLiveHttp": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": true,
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "errors": [],
+    "verifyNeverRerunsLive": true
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}

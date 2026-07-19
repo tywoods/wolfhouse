@@ -1487,6 +1487,582 @@ function normalizeMigration003HostelIdNotNullRenameAlias(expected, live, opts) {
   };
 }
 
+/**
+ * Slice 14W — generic exact rename provenance tuples for residual NOT NULL
+ * legacy-name artifacts. Extends (does not weaken) 14T exact-name parsing or
+ * 14V hostel_id→client_id alias normalization. Default OFF in compareSnapshots;
+ * 14W enables explicitly. Byte/hash-locked to migrations 002/003/004.
+ */
+const MIGRATION_002_FILENAME = '002_package_pricing.sql';
+const MIGRATION_002_PACKAGE_PRICING_SHA256 = '3caa9c743252bd058c7eb8cb9bdbd39686b3970249c9d5c051e6971ebf476748';
+const MIGRATION_004_FILENAME = '004_payment_schema_phase2.sql';
+const MIGRATION_004_PAYMENT_SCHEMA_SHA256 = 'c82718b6417ffa8c594227bb8873b8d89d65d567caf4489e108f1b86485f22c1';
+const MIGRATION_003_TABLE_RENAME_OLD = 'hostels';
+const MIGRATION_003_TABLE_RENAME_CURRENT = 'clients';
+const MIGRATION_003_TABLE_RENAME_SQL = 'ALTER TABLE IF EXISTS hostels RENAME TO clients';
+const MIGRATION_003_TABLE_RENAME_APPROVED_COLUMNS = Object.freeze([
+  'created_at',
+  'currency',
+  'id',
+  'is_active',
+  'name',
+  'settings',
+  'slug',
+  'timezone',
+  'updated_at',
+]);
+const MIGRATION_002_COLUMN_RENAME_TABLE = 'package_price_rules';
+const MIGRATION_002_COLUMN_RENAME_OLD = 'price_per_person_per_night_cents';
+const MIGRATION_002_COLUMN_RENAME_CURRENT = 'price_per_person_per_week_cents';
+const MIGRATION_002_COLUMN_RENAME_SQL = 'RENAME COLUMN price_per_person_per_night_cents TO price_per_person_per_week_cents';
+const MIGRATION_004_COLUMN_RENAMES = Object.freeze([
+  Object.freeze({
+    table: 'payments',
+    oldColumn: 'kind',
+    currentColumn: 'payment_kind',
+    renameSql: 'ALTER TABLE payments RENAME COLUMN kind TO payment_kind',
+  }),
+  Object.freeze({
+    table: 'payments',
+    oldColumn: 'amount_cents',
+    currentColumn: 'amount_due_cents',
+    renameSql: 'ALTER TABLE payments RENAME COLUMN amount_cents TO amount_due_cents',
+  }),
+]);
+const FINAL_RENAME_RULE = 'exact_rename_provenance_tuple';
+const FINAL_RENAME_REQUIRED_VERSION_CLASS = 'postgresql_15';
+
+function sha256MigrationFile(migrationPath) {
+  const bytes = fs.readFileSync(migrationPath);
+  try {
+    const { sha256CanonicalLfV1FromBuffer } = require('./migration-integrity');
+    return sha256CanonicalLfV1FromBuffer(bytes);
+  } catch (_) {
+    return crypto.createHash('sha256').update(bytes).digest('hex');
+  }
+}
+
+function extractGuardedColumnRename(sqlText, table, oldColumn, currentColumn) {
+  const text = String(sqlText || '');
+  const renameRe = new RegExp(
+    String.raw`ALTER\s+TABLE\s+${table}\s+RENAME\s+COLUMN\s+${oldColumn}\s+TO\s+${currentColumn}`,
+    'i',
+  );
+  const bareRenameRe = new RegExp(
+    String.raw`RENAME\s+COLUMN\s+${oldColumn}\s+TO\s+${currentColumn}`,
+    'i',
+  );
+  if (!renameRe.test(text) && !bareRenameRe.test(text)) {
+    return { ok: false, reason: 'rename_sql_not_found' };
+  }
+  const oldPresent = new RegExp(
+    String.raw`column_name\s*=\s*'${oldColumn}'`,
+    'i',
+  ).test(text);
+  if (!oldPresent) {
+    return { ok: false, reason: 'old_column_guard_missing' };
+  }
+  return {
+    ok: true,
+    table,
+    oldColumn,
+    currentColumn,
+    renameSql: `RENAME COLUMN ${oldColumn} TO ${currentColumn}`,
+  };
+}
+
+function extractMigration003HostelsTableRename(sqlText) {
+  const text = String(sqlText || '');
+  if (!/ALTER\s+TABLE\s+IF\s+EXISTS\s+hostels\s+RENAME\s+TO\s+clients/i.test(text)) {
+    return { ok: false, reason: 'table_rename_sql_not_found' };
+  }
+  return {
+    ok: true,
+    oldTable: MIGRATION_003_TABLE_RENAME_OLD,
+    currentTable: MIGRATION_003_TABLE_RENAME_CURRENT,
+    renameSql: MIGRATION_003_TABLE_RENAME_SQL,
+    approvedColumns: MIGRATION_003_TABLE_RENAME_APPROVED_COLUMNS.slice(),
+  };
+}
+
+/**
+ * Build hash-locked exact provenance tuples from migrations 002/003/004.
+ * Only the enumerated renames; never arbitrary aliases.
+ */
+function buildFinalNotNullRenameProvenance(opts) {
+  const options = opts || {};
+  const migrationsDir = options.migrationsDir
+    || path.join(__dirname, '..', '..', 'database', 'migrations');
+  const path002 = options.migration002Path
+    || path.join(migrationsDir, MIGRATION_002_FILENAME);
+  const path003 = options.migration003Path
+    || path.join(migrationsDir, MIGRATION_003_FILENAME);
+  const path004 = options.migration004Path
+    || path.join(migrationsDir, MIGRATION_004_FILENAME);
+
+  for (const [p, code] of [
+    [path002, 'migration_002_missing'],
+    [path003, 'migration_003_missing'],
+    [path004, 'migration_004_missing'],
+  ]) {
+    if (!fs.existsSync(p)) {
+      return { ok: false, code, message: `migration not found at ${p}` };
+    }
+  }
+
+  const sha002 = sha256MigrationFile(path002);
+  const sha003 = sha256MigrationFile(path003);
+  const sha004 = sha256MigrationFile(path004);
+  const expect002 = options.expectedMigration002Sha256 || MIGRATION_002_PACKAGE_PRICING_SHA256;
+  const expect003 = options.expectedMigration003Sha256 || MIGRATION_003_HOSTEL_CLIENT_RENAME_SHA256;
+  const expect004 = options.expectedMigration004Sha256 || MIGRATION_004_PAYMENT_SCHEMA_SHA256;
+
+  if (sha002 !== expect002) {
+    return {
+      ok: false,
+      code: 'migration_002_hash_mismatch',
+      message: `migration 002 hash changed: got ${sha002}, expected ${expect002}`,
+      migration002Sha256: sha002,
+      expectedSha256: expect002,
+    };
+  }
+  if (sha003 !== expect003) {
+    return {
+      ok: false,
+      code: 'migration_003_hash_mismatch',
+      message: `migration 003 hash changed: got ${sha003}, expected ${expect003}`,
+      migration003Sha256: sha003,
+      expectedSha256: expect003,
+    };
+  }
+  if (sha004 !== expect004) {
+    return {
+      ok: false,
+      code: 'migration_004_hash_mismatch',
+      message: `migration 004 hash changed: got ${sha004}, expected ${expect004}`,
+      migration004Sha256: sha004,
+      expectedSha256: expect004,
+    };
+  }
+
+  const text002 = fs.readFileSync(path002, 'utf8');
+  const text003 = fs.readFileSync(path003, 'utf8');
+  const text004 = fs.readFileSync(path004, 'utf8');
+
+  const tableRename = extractMigration003HostelsTableRename(text003);
+  if (!tableRename.ok) {
+    return {
+      ok: false,
+      code: 'migration_003_table_rename_parse_failed',
+      message: tableRename.reason,
+      migration003Sha256: sha003,
+    };
+  }
+
+  const col002 = extractGuardedColumnRename(
+    text002,
+    MIGRATION_002_COLUMN_RENAME_TABLE,
+    MIGRATION_002_COLUMN_RENAME_OLD,
+    MIGRATION_002_COLUMN_RENAME_CURRENT,
+  );
+  if (!col002.ok) {
+    return {
+      ok: false,
+      code: 'migration_002_column_rename_parse_failed',
+      message: col002.reason,
+      migration002Sha256: sha002,
+    };
+  }
+
+  const col004 = [];
+  for (const spec of MIGRATION_004_COLUMN_RENAMES) {
+    const extracted = extractGuardedColumnRename(
+      text004,
+      spec.table,
+      spec.oldColumn,
+      spec.currentColumn,
+    );
+    if (!extracted.ok) {
+      return {
+        ok: false,
+        code: 'migration_004_column_rename_parse_failed',
+        message: `${spec.oldColumn}->${spec.currentColumn}: ${extracted.reason}`,
+        migration004Sha256: sha004,
+      };
+    }
+    col004.push({
+      kind: 'column_rename',
+      migrationId: '004_payment_schema_phase2',
+      migrationFilename: MIGRATION_004_FILENAME,
+      migrationSha256: sha004,
+      table: spec.table,
+      oldColumn: spec.oldColumn,
+      currentColumn: spec.currentColumn,
+      renameSql: spec.renameSql,
+      legacyName: `${spec.table}_${spec.oldColumn}_not_null`,
+      definition: `NOT NULL ${spec.currentColumn}`,
+      rule: FINAL_RENAME_RULE,
+    });
+  }
+
+  const tuples = Object.freeze([
+    Object.freeze({
+      kind: 'table_rename',
+      migrationId: '003_rename_hostel_to_client',
+      migrationFilename: MIGRATION_003_FILENAME,
+      migrationSha256: sha003,
+      oldTable: tableRename.oldTable,
+      currentTable: tableRename.currentTable,
+      renameSql: tableRename.renameSql,
+      approvedColumns: Object.freeze(tableRename.approvedColumns.slice()),
+      rule: FINAL_RENAME_RULE,
+    }),
+    Object.freeze({
+      kind: 'column_rename',
+      migrationId: '002_package_pricing',
+      migrationFilename: MIGRATION_002_FILENAME,
+      migrationSha256: sha002,
+      table: col002.table,
+      oldColumn: col002.oldColumn,
+      currentColumn: col002.currentColumn,
+      renameSql: MIGRATION_002_COLUMN_RENAME_SQL,
+      legacyName: `${col002.table}_${col002.oldColumn}_not_null`,
+      definition: `NOT NULL ${col002.currentColumn}`,
+      rule: FINAL_RENAME_RULE,
+    }),
+    ...col004.map((t) => Object.freeze(t)),
+  ]);
+
+  return {
+    ok: true,
+    tuples,
+    provenanceCount: tuples.length,
+    migration002Sha256: sha002,
+    migration003Sha256: sha003,
+    migration004Sha256: sha004,
+    tableRenameApprovedColumns: MIGRATION_003_TABLE_RENAME_APPROVED_COLUMNS.slice(),
+    rule: FINAL_RENAME_RULE,
+  };
+}
+
+/**
+ * Match an expected type-n constraint against exact provenance tuples.
+ * Does not alter parseCanonicalNotNullConstraint (14T stays narrow).
+ */
+function parseFinalNotNullRenameProvenanceMatch(constraint, provenance) {
+  if (!constraint || typeof constraint !== 'object') {
+    return { ok: false, reason: 'missing_constraint' };
+  }
+  if (!provenance || provenance.ok !== true || !Array.isArray(provenance.tuples)) {
+    return { ok: false, reason: 'provenance_unavailable' };
+  }
+  const type = String(constraint.type || '');
+  if (type !== 'n') {
+    return { ok: false, reason: 'not_not_null_type' };
+  }
+  const table = String(constraint.table || '');
+  const name = String(constraint.name || '');
+  const definition = String(constraint.definition || '');
+  if (!table || !name) {
+    return { ok: false, reason: 'ambiguous_key' };
+  }
+
+  for (const tuple of provenance.tuples) {
+    if (tuple.kind === 'table_rename') {
+      if (table !== tuple.currentTable) continue;
+      const m = name.match(new RegExp(
+        `^${tuple.oldTable}_([a-z_][a-z0-9_]*)_not_null$`,
+      ));
+      if (!m) continue;
+      const column = m[1];
+      if (definition !== `NOT NULL ${column}`) {
+        return { ok: false, reason: 'wrong_definition' };
+      }
+      if (!tuple.approvedColumns.includes(column)) {
+        return { ok: false, reason: 'column_not_provenance_approved' };
+      }
+      return {
+        ok: true,
+        kind: 'table_rename',
+        table,
+        name,
+        type,
+        definition,
+        column,
+        oldTable: tuple.oldTable,
+        currentTable: tuple.currentTable,
+        key: `${table}.${name}.${type}`,
+        columnKey: `${table}.${column}`,
+        oldTableKey: tuple.oldTable,
+        migrationSha256: tuple.migrationSha256,
+        migrationId: tuple.migrationId,
+        renameSql: tuple.renameSql,
+        rule: tuple.rule,
+      };
+    }
+
+    if (tuple.kind === 'column_rename') {
+      if (table !== tuple.table) continue;
+      if (name !== tuple.legacyName) continue;
+      if (definition !== tuple.definition) {
+        return { ok: false, reason: 'wrong_definition' };
+      }
+      return {
+        ok: true,
+        kind: 'column_rename',
+        table,
+        name,
+        type,
+        definition,
+        oldColumn: tuple.oldColumn,
+        currentColumn: tuple.currentColumn,
+        key: `${table}.${name}.${type}`,
+        columnKey: `${table}.${tuple.currentColumn}`,
+        oldColumnKey: `${table}.${tuple.oldColumn}`,
+        migrationSha256: tuple.migrationSha256,
+        migrationId: tuple.migrationId,
+        renameSql: tuple.renameSql,
+        rule: tuple.rule,
+      };
+    }
+  }
+
+  return { ok: false, reason: 'no_provenance_tuple_match' };
+}
+
+function indexTablesByName(tables) {
+  const set = new Set();
+  for (const t of tables || []) {
+    if (t == null) continue;
+    if (typeof t === 'string') set.add(t);
+    else if (t.name != null) set.add(String(t.name));
+  }
+  return set;
+}
+
+/**
+ * Slice 14W — exclude only proven exact rename-provenance NOT NULL legacy
+ * names when live encodes the guarantee via attnotnull on the current column
+ * and the old table/column is absent. Never broadens 14T/14V.
+ */
+function normalizeFinalNotNullRenameProvenance(expected, live, opts) {
+  const options = opts || {};
+  const profile = options.profile || null;
+  const audit = [];
+  const retainedReasons = [];
+  const expectedConstraints = Array.isArray(expected && expected.constraints)
+    ? expected.constraints.slice()
+    : [];
+
+  if (profile !== NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    return {
+      ok: true,
+      applied: false,
+      reason: 'profile_not_azure_flexible_server_v1',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const versionGate = assertPg15AzureFlexibleServerContext(
+    options.azureContext,
+    options.serverVersionClass,
+  );
+  if (!versionGate.ok) {
+    return {
+      ok: false,
+      applied: false,
+      code: (versionGate.errors[0] && versionGate.errors[0].code) || 'azure_context_rejected',
+      message: (versionGate.errors[0] && versionGate.errors[0].message) || 'azure/pg15 context rejected',
+      errors: versionGate.errors,
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+  if (versionGate.skipped === true) {
+    return {
+      ok: true,
+      applied: false,
+      reason: versionGate.reason || 'pg15_context_absent',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: null,
+    };
+  }
+
+  const provenance = options.provenance
+    || buildFinalNotNullRenameProvenance({
+      migrationsDir: options.migrationsDir,
+      migration002Path: options.migration002Path,
+      migration003Path: options.migration003Path,
+      migration004Path: options.migration004Path,
+      expectedMigration002Sha256: options.expectedMigration002Sha256,
+      expectedMigration003Sha256: options.expectedMigration003Sha256,
+      expectedMigration004Sha256: options.expectedMigration004Sha256,
+    });
+  if (!provenance || provenance.ok !== true) {
+    return {
+      ok: false,
+      applied: false,
+      code: (provenance && provenance.code) || 'provenance_unavailable',
+      message: (provenance && provenance.message) || 'final rename provenance unavailable',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      provenance: provenance || null,
+    };
+  }
+
+  const expectedCols = indexColumnsByTableColumn(expected && expected.columns);
+  const liveCols = indexColumnsByTableColumn(live && live.columns);
+  const liveTables = indexTablesByName(live && live.tables);
+  const liveConstraintKeys = new Set(
+    (live && live.constraints ? live.constraints : []).map(
+      (c) => `${c.table}.${c.name}.${c.type}`,
+    ),
+  );
+
+  const columnClaimCounts = Object.create(null);
+  const parsedByIndex = expectedConstraints.map((c, idx) => {
+    const parsed = parseFinalNotNullRenameProvenanceMatch(c, provenance);
+    if (parsed.ok) {
+      columnClaimCounts[parsed.columnKey] = (columnClaimCounts[parsed.columnKey] || 0) + 1;
+    }
+    return { idx, constraint: c, parsed };
+  });
+
+  const dropKeys = new Set();
+  for (const entry of parsedByIndex) {
+    const { parsed, constraint } = entry;
+    if (!parsed.ok) {
+      const type = String(constraint.type || '');
+      const name = String(constraint.name || '');
+      if (type === 'n' && (
+        name.startsWith('hostels_')
+        || /_kind_not_null$|_amount_cents_not_null$|_price_per_person_per_night_cents_not_null$/.test(name)
+        || name.includes('hostels_')
+      )) {
+        retainedReasons.push({
+          key: `${constraint.table}.${constraint.name}.${constraint.type}`,
+          reason: parsed.reason,
+        });
+      }
+      continue;
+    }
+
+    if (columnClaimCounts[parsed.columnKey] > 1) {
+      retainedReasons.push({ key: parsed.key, reason: 'duplicate_column_claim' });
+      continue;
+    }
+
+    if (liveConstraintKeys.has(parsed.key)) {
+      retainedReasons.push({ key: parsed.key, reason: 'live_has_constraint_object' });
+      continue;
+    }
+
+    const expCol = expectedCols.get(parsed.columnKey);
+    if (!expCol || expCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !expCol ? 'expected_column_missing' : 'expected_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(expCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'expected_column_not_nullable_no' });
+      continue;
+    }
+
+    const liveCol = liveCols.get(parsed.columnKey);
+    if (!liveCol || liveCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !liveCol ? 'live_column_missing' : 'live_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(liveCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'live_column_nullable_mismatch' });
+      continue;
+    }
+
+    if (parsed.kind === 'table_rename') {
+      if (liveTables.has(parsed.oldTableKey)) {
+        retainedReasons.push({ key: parsed.key, reason: 'live_old_table_present' });
+        continue;
+      }
+    } else if (parsed.kind === 'column_rename') {
+      const liveOld = liveCols.get(parsed.oldColumnKey);
+      if (liveOld && !liveOld.duplicate) {
+        retainedReasons.push({ key: parsed.key, reason: 'live_old_column_present' });
+        continue;
+      }
+    }
+
+    dropKeys.add(parsed.key);
+    audit.push({
+      section: 'constraints',
+      key: parsed.key,
+      rule: FINAL_RENAME_RULE,
+      kind: parsed.kind,
+      table: parsed.table,
+      column: parsed.column || parsed.currentColumn,
+      oldTable: parsed.oldTable || null,
+      oldColumn: parsed.oldColumn || null,
+      currentColumn: parsed.currentColumn || parsed.column || null,
+      expectedNullable: 'NO',
+      liveNullable: 'NO',
+      migrationId: parsed.migrationId,
+      migrationSha256: parsed.migrationSha256,
+      renameSql: parsed.renameSql,
+    });
+  }
+
+  const filtered = expectedConstraints.filter(
+    (c) => !dropKeys.has(`${c.table}.${c.name}.${c.type}`),
+  );
+
+  return {
+    ok: true,
+    applied: true,
+    profile,
+    constraints: filtered,
+    normalizedCount: dropKeys.size,
+    audit,
+    retainedReasons,
+    provenance: {
+      provenanceCount: provenance.provenanceCount,
+      migration002Sha256: provenance.migration002Sha256,
+      migration003Sha256: provenance.migration003Sha256,
+      migration004Sha256: provenance.migration004Sha256,
+      tableRenameApprovedColumns: provenance.tableRenameApprovedColumns.slice(),
+      tuples: provenance.tuples.map((t) => ({
+        kind: t.kind,
+        migrationId: t.migrationId,
+        migrationSha256: t.migrationSha256,
+        renameSql: t.renameSql,
+        table: t.table || t.currentTable || null,
+        oldTable: t.oldTable || null,
+        oldColumn: t.oldColumn || null,
+        currentColumn: t.currentColumn || null,
+        legacyName: t.legacyName || null,
+        definition: t.definition || null,
+        approvedColumns: t.approvedColumns ? t.approvedColumns.slice() : null,
+      })),
+      rule: provenance.rule,
+    },
+  };
+}
+
 function classifyServerVersionClass(serverVersionNum, serverVersion) {
   const num = Number(serverVersionNum);
   if (Number.isFinite(num) && num >= 10000) {
@@ -1526,6 +2102,7 @@ function compareSnapshots(expected, live, opts) {
   let normalization = null;
   let notNullNormalization = null;
   let renameAliasNormalization = null;
+  let finalRenameNormalization = null;
   let expectedSnap = expected;
   if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
     normalization = normalizeObservedIdentityPresentation(live, {
@@ -1544,6 +2121,7 @@ function compareSnapshots(expected, live, opts) {
         },
         notNullNormalization: null,
         renameAliasNormalization: null,
+        finalRenameNormalization: null,
       };
     }
     liveSnap = normalization.snapshot;
@@ -1566,6 +2144,7 @@ function compareSnapshots(expected, live, opts) {
           },
           notNullNormalization,
           renameAliasNormalization: null,
+          finalRenameNormalization: null,
         };
       }
       expectedSnap = {
@@ -1603,11 +2182,55 @@ function compareSnapshots(expected, live, opts) {
           },
           notNullNormalization,
           renameAliasNormalization,
+          finalRenameNormalization: null,
         };
       }
       expectedSnap = {
         ...expectedSnap,
         constraints: renameAliasNormalization.constraints,
+      };
+    }
+
+    // Slice 14W: exact rename provenance tuples (002/003/004). Default OFF so
+    // 14V remaining inventory stays stable; 14W enables explicitly.
+    if (options.enableFinalRenameNormalization === true) {
+      finalRenameNormalization = normalizeFinalNotNullRenameProvenance(
+        expectedSnap,
+        liveSnap,
+        {
+          profile: options.normalizationProfile,
+          azureContext: options.azureContext,
+          serverVersionClass: options.serverVersionClass
+            || (options.azureContext && options.azureContext.versionClass)
+            || null,
+          provenance: options.finalRenameProvenance || null,
+          migrationsDir: options.migrationsDir,
+          migration002Path: options.migration002Path,
+          migration003Path: options.migration003Path,
+          migration004Path: options.migration004Path,
+          expectedMigration002Sha256: options.expectedMigration002Sha256,
+          expectedMigration003Sha256: options.expectedMigration003Sha256,
+          expectedMigration004Sha256: options.expectedMigration004Sha256,
+        },
+      );
+      if (!finalRenameNormalization.ok) {
+        return {
+          ok: false,
+          drifts: [],
+          counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+          normalizationError: {
+            code: finalRenameNormalization.code,
+            message: finalRenameNormalization.message,
+            errors: finalRenameNormalization.errors || [],
+          },
+          notNullNormalization,
+          renameAliasNormalization,
+          finalRenameNormalization,
+        };
+      }
+      expectedSnap = {
+        ...expectedSnap,
+        constraints: finalRenameNormalization.constraints,
       };
     }
   }
@@ -1651,6 +2274,7 @@ function compareSnapshots(expected, live, opts) {
     normalization,
     notNullNormalization,
     renameAliasNormalization,
+    finalRenameNormalization,
   };
 }
 
@@ -2053,6 +2677,26 @@ module.exports = {
   buildMigration003HostelClientRenameAliasProvenance,
   parseMigration003HostelIdNotNullRenameAlias,
   normalizeMigration003HostelIdNotNullRenameAlias,
+  MIGRATION_002_FILENAME,
+  MIGRATION_002_PACKAGE_PRICING_SHA256,
+  MIGRATION_004_FILENAME,
+  MIGRATION_004_PAYMENT_SCHEMA_SHA256,
+  MIGRATION_003_TABLE_RENAME_OLD,
+  MIGRATION_003_TABLE_RENAME_CURRENT,
+  MIGRATION_003_TABLE_RENAME_SQL,
+  MIGRATION_003_TABLE_RENAME_APPROVED_COLUMNS,
+  MIGRATION_002_COLUMN_RENAME_TABLE,
+  MIGRATION_002_COLUMN_RENAME_OLD,
+  MIGRATION_002_COLUMN_RENAME_CURRENT,
+  MIGRATION_002_COLUMN_RENAME_SQL,
+  MIGRATION_004_COLUMN_RENAMES,
+  FINAL_RENAME_RULE,
+  FINAL_RENAME_REQUIRED_VERSION_CLASS,
+  extractGuardedColumnRename,
+  extractMigration003HostelsTableRename,
+  buildFinalNotNullRenameProvenance,
+  parseFinalNotNullRenameProvenanceMatch,
+  normalizeFinalNotNullRenameProvenance,
   classifyServerVersionClass,
   CANONICAL_NOT_NULL_DEFINITION_RE,
   assertReadOnlySession,
