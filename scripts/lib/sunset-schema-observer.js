@@ -86,6 +86,8 @@ const INTROSPECTION_SQL = Object.freeze({
   show_statement_timeout: 'SHOW statement_timeout',
   show_lock_timeout: 'SHOW lock_timeout',
   show_application_name: 'SHOW application_name',
+  show_server_version: 'SHOW server_version',
+  show_server_version_num: 'SHOW server_version_num',
   db_owner: `
 SELECT pg_catalog.pg_get_userbyid(d.datdba) AS db_owner
 FROM pg_catalog.pg_database d
@@ -909,10 +911,242 @@ function normalizeObservedIdentityPresentation(snapshot, opts) {
   return { ok: true, profile, snapshot: out, audit };
 }
 
+/**
+ * Canonical expected-side NOT NULL constraint object shape (PG contype 'n').
+ * Exact: type === 'n', definition === 'NOT NULL <ident>', name === '<table>_<ident>_not_null'.
+ */
+const CANONICAL_NOT_NULL_DEFINITION_RE = /^NOT NULL ([a-z_][a-z0-9_]*)$/;
+
+function parseCanonicalNotNullConstraint(constraint) {
+  if (!constraint || typeof constraint !== 'object') {
+    return { ok: false, reason: 'missing_constraint' };
+  }
+  const type = String(constraint.type || '');
+  if (type !== 'n') {
+    return { ok: false, reason: 'not_not_null_type' };
+  }
+  const table = String(constraint.table || '');
+  const name = String(constraint.name || '');
+  const definition = String(constraint.definition || '');
+  if (!table || !name) {
+    return { ok: false, reason: 'ambiguous_key' };
+  }
+  const m = definition.match(CANONICAL_NOT_NULL_DEFINITION_RE);
+  if (!m) {
+    return { ok: false, reason: 'unsupported_definition_shape' };
+  }
+  const column = m[1];
+  const expectedName = `${table}_${column}_not_null`;
+  if (name !== expectedName) {
+    return { ok: false, reason: 'name_shape_mismatch' };
+  }
+  return {
+    ok: true,
+    table,
+    column,
+    name,
+    type,
+    definition,
+    key: `${table}.${name}.${type}`,
+    columnKey: `${table}.${column}`,
+  };
+}
+
+function indexColumnsByTableColumn(columns) {
+  const map = new Map();
+  for (const c of columns || []) {
+    if (!c || c.table == null || c.column == null) continue;
+    const key = `${c.table}.${c.column}`;
+    if (map.has(key)) {
+      map.set(key, { duplicate: true, column: c });
+    } else {
+      map.set(key, { duplicate: false, column: c });
+    }
+  }
+  return map;
+}
+
+/**
+ * Slice 14T — cross-PG-version NOT NULL representation normalization for
+ * azure_flexible_server_v1 only. Expected may encode NOT NULL as pg_constraint
+ * contype 'n'; Azure Flexible Server often encodes the same guarantee via
+ * pg_attribute.attnotnull (column nullable=NO) without a matching constraint
+ * object. Exclude only proven-equivalent expected constraint objects.
+ *
+ * Never suppress real nullable drift: missing table/column, nullable!=NO,
+ * ambiguous/duplicate keys, unsupported shapes, or non-Azure profiles retain
+ * the expected constraint in comparison.
+ */
+function normalizeNotNullConstraintRepresentation(expected, live, opts) {
+  const options = opts || {};
+  const profile = options.profile || null;
+  const audit = [];
+  const retainedReasons = [];
+  const expectedConstraints = Array.isArray(expected && expected.constraints)
+    ? expected.constraints.slice()
+    : [];
+
+  if (profile !== NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    return {
+      ok: true,
+      applied: false,
+      reason: 'profile_not_azure_flexible_server_v1',
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+    };
+  }
+
+  const gate = assertAzureFlexibleServerContext(options.azureContext);
+  if (!gate.ok) {
+    return {
+      ok: false,
+      applied: false,
+      code: (gate.errors[0] && gate.errors[0].code) || 'azure_context_rejected',
+      message: (gate.errors[0] && gate.errors[0].message) || 'azure context rejected',
+      errors: gate.errors,
+      constraints: expectedConstraints,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+    };
+  }
+
+  const expectedCols = indexColumnsByTableColumn(expected && expected.columns);
+  const liveCols = indexColumnsByTableColumn(live && live.columns);
+  const liveConstraintKeys = new Set(
+    (live && live.constraints ? live.constraints : []).map(
+      (c) => `${c.table}.${c.name}.${c.type}`,
+    ),
+  );
+
+  // Detect duplicate canonical claims for the same table.column among candidates.
+  const columnClaimCounts = Object.create(null);
+  const parsedByIndex = expectedConstraints.map((c, idx) => {
+    const parsed = parseCanonicalNotNullConstraint(c);
+    if (parsed.ok) {
+      columnClaimCounts[parsed.columnKey] = (columnClaimCounts[parsed.columnKey] || 0) + 1;
+    }
+    return { idx, constraint: c, parsed };
+  });
+
+  const dropKeys = new Set();
+  for (const entry of parsedByIndex) {
+    const { parsed, constraint } = entry;
+    if (!parsed.ok) {
+      if (String(constraint.type || '') === 'n') {
+        retainedReasons.push({
+          key: `${constraint.table}.${constraint.name}.${constraint.type}`,
+          reason: parsed.reason,
+        });
+      }
+      continue;
+    }
+
+    if (columnClaimCounts[parsed.columnKey] > 1) {
+      retainedReasons.push({ key: parsed.key, reason: 'duplicate_column_claim' });
+      continue;
+    }
+
+    // If live already exposes the same constraint object, leave normal compare.
+    if (liveConstraintKeys.has(parsed.key)) {
+      retainedReasons.push({ key: parsed.key, reason: 'live_has_constraint_object' });
+      continue;
+    }
+
+    const expCol = expectedCols.get(parsed.columnKey);
+    if (!expCol || expCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !expCol ? 'expected_column_missing' : 'expected_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(expCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'expected_column_not_nullable_no' });
+      continue;
+    }
+
+    const liveCol = liveCols.get(parsed.columnKey);
+    if (!liveCol || liveCol.duplicate) {
+      retainedReasons.push({
+        key: parsed.key,
+        reason: !liveCol ? 'live_column_missing' : 'live_column_ambiguous',
+      });
+      continue;
+    }
+    if (String(liveCol.column.nullable) !== 'NO') {
+      retainedReasons.push({ key: parsed.key, reason: 'live_column_nullable_mismatch' });
+      continue;
+    }
+
+    dropKeys.add(parsed.key);
+    audit.push({
+      section: 'constraints',
+      key: parsed.key,
+      rule: 'not_null_constraint_object_to_attnotnull_equivalence',
+      table: parsed.table,
+      column: parsed.column,
+      expectedNullable: 'NO',
+      liveNullable: 'NO',
+    });
+  }
+
+  const filtered = expectedConstraints.filter(
+    (c) => !dropKeys.has(`${c.table}.${c.name}.${c.type}`),
+  );
+
+  return {
+    ok: true,
+    applied: true,
+    profile,
+    constraints: filtered,
+    normalizedCount: dropKeys.size,
+    audit,
+    retainedReasons,
+  };
+}
+
+function classifyServerVersionClass(serverVersionNum, serverVersion) {
+  const num = Number(serverVersionNum);
+  if (Number.isFinite(num) && num >= 10000) {
+    const major = Math.floor(num / 10000);
+    return {
+      ok: true,
+      serverVersionNum: num,
+      serverVersion: serverVersion != null ? String(serverVersion) : null,
+      major,
+      versionClass: `postgresql_${major}`,
+    };
+  }
+  const text = String(serverVersion || '');
+  const m = text.match(/^(\d+)/);
+  if (m) {
+    const major = Number(m[1]);
+    return {
+      ok: true,
+      serverVersionNum: Number.isFinite(num) ? num : null,
+      serverVersion: text || null,
+      major,
+      versionClass: `postgresql_${major}`,
+    };
+  }
+  return {
+    ok: false,
+    serverVersionNum: Number.isFinite(num) ? num : null,
+    serverVersion: text || null,
+    major: null,
+    versionClass: 'unknown',
+  };
+}
+
 function compareSnapshots(expected, live, opts) {
   const options = opts || {};
   let liveSnap = live;
   let normalization = null;
+  let notNullNormalization = null;
+  let expectedSnap = expected;
   if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
     normalization = normalizeObservedIdentityPresentation(live, {
       profile: options.normalizationProfile,
@@ -928,9 +1162,35 @@ function compareSnapshots(expected, live, opts) {
           message: normalization.message,
           errors: normalization.errors || [],
         },
+        notNullNormalization: null,
       };
     }
     liveSnap = normalization.snapshot;
+
+    // Slice 14T: NOT NULL constraint↔attnotnull equivalence (default on for azure profile).
+    if (options.disableNotNullConstraintNormalization !== true) {
+      notNullNormalization = normalizeNotNullConstraintRepresentation(expected, liveSnap, {
+        profile: options.normalizationProfile,
+        azureContext: options.azureContext,
+      });
+      if (!notNullNormalization.ok) {
+        return {
+          ok: false,
+          drifts: [],
+          counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+          normalizationError: {
+            code: notNullNormalization.code,
+            message: notNullNormalization.message,
+            errors: notNullNormalization.errors || [],
+          },
+          notNullNormalization,
+        };
+      }
+      expectedSnap = {
+        ...expected,
+        constraints: notNullNormalization.constraints,
+      };
+    }
   }
   const drifts = [];
   function diffSection(name, expList, liveList, keyFn, equalFn) {
@@ -946,20 +1206,20 @@ function compareSnapshots(expected, live, opts) {
       if (!eMap.has(k)) drifts.push({ kind: 'live_only', section: name, key: k });
     }
   }
-  diffSection('tables', (expected.tables || []).map((t) => ({ name: t })), (liveSnap.tables || []).map((t) => ({ name: t })), (x) => x.name, () => true);
-  diffSection('columns', expected.columns, liveSnap.columns, (c) => `${c.table}.${c.column}`, deepEqual);
-  diffSection('constraints', expected.constraints, liveSnap.constraints, (c) => `${c.table}.${c.name}.${c.type}`, deepEqual);
-  diffSection('indexes', expected.indexes, liveSnap.indexes, (i) => `${i.table}.${i.name}`, (a, b) => a.def === b.def);
-  diffSection('sequences', (expected.sequences || []).map((s) => ({ name: s })), (liveSnap.sequences || []).map((s) => ({ name: s })), (x) => x.name, () => true);
-  diffSection('views', expected.views, liveSnap.views, (v) => v.name, (a, b) => a.def === b.def);
-  diffSection('enums', expected.enums, liveSnap.enums, (e) => `${e.type}:${e.label}`, (a, b) => a.order === b.order && a.label === b.label);
-  diffSection('functions', expected.functions, liveSnap.functions, (f) => f.identity || f.name, deepEqual);
-  diffSection('triggers', expected.triggers, liveSnap.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
-  diffSection('rlsFlags', expected.rlsFlags, liveSnap.rlsFlags, (r) => r.table, deepEqual);
-  diffSection('rlsPolicies', expected.rlsPolicies, liveSnap.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
-  diffSection('ownership', expected.ownership, liveSnap.ownership, (o) => `${o.kind}:${o.identity}`, deepEqual);
-  diffSection('acls', expected.acls, liveSnap.acls, (a) => `${a.kind}:${a.identity}`, deepEqual);
-  diffSection('extensions', expected.extensions, liveSnap.extensions, (e) => e.name, deepEqual);
+  diffSection('tables', (expectedSnap.tables || []).map((t) => ({ name: t })), (liveSnap.tables || []).map((t) => ({ name: t })), (x) => x.name, () => true);
+  diffSection('columns', expectedSnap.columns, liveSnap.columns, (c) => `${c.table}.${c.column}`, deepEqual);
+  diffSection('constraints', expectedSnap.constraints, liveSnap.constraints, (c) => `${c.table}.${c.name}.${c.type}`, deepEqual);
+  diffSection('indexes', expectedSnap.indexes, liveSnap.indexes, (i) => `${i.table}.${i.name}`, (a, b) => a.def === b.def);
+  diffSection('sequences', (expectedSnap.sequences || []).map((s) => ({ name: s })), (liveSnap.sequences || []).map((s) => ({ name: s })), (x) => x.name, () => true);
+  diffSection('views', expectedSnap.views, liveSnap.views, (v) => v.name, (a, b) => a.def === b.def);
+  diffSection('enums', expectedSnap.enums, liveSnap.enums, (e) => `${e.type}:${e.label}`, (a, b) => a.order === b.order && a.label === b.label);
+  diffSection('functions', expectedSnap.functions, liveSnap.functions, (f) => f.identity || f.name, deepEqual);
+  diffSection('triggers', expectedSnap.triggers, liveSnap.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
+  diffSection('rlsFlags', expectedSnap.rlsFlags, liveSnap.rlsFlags, (r) => r.table, deepEqual);
+  diffSection('rlsPolicies', expectedSnap.rlsPolicies, liveSnap.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
+  diffSection('ownership', expectedSnap.ownership, liveSnap.ownership, (o) => `${o.kind}:${o.identity}`, deepEqual);
+  diffSection('acls', expectedSnap.acls, liveSnap.acls, (a) => `${a.kind}:${a.identity}`, deepEqual);
+  diffSection('extensions', expectedSnap.extensions, liveSnap.extensions, (e) => e.name, deepEqual);
   const counts = {
     expected_only: drifts.filter((d) => d.kind === 'expected_only').length,
     live_only: drifts.filter((d) => d.kind === 'live_only').length,
@@ -970,6 +1230,7 @@ function compareSnapshots(expected, live, opts) {
     counts,
     ok: counts.expected_only + counts.live_only + counts.definition_mismatch === 0,
     normalization,
+    notNullNormalization,
   };
 }
 
@@ -1359,6 +1620,10 @@ module.exports = {
   normalizeObservedIdentityPresentation,
   normalizeObservedOwnerAzure,
   normalizePublicSchemaAclAzurePgAdmin,
+  parseCanonicalNotNullConstraint,
+  normalizeNotNullConstraintRepresentation,
+  classifyServerVersionClass,
+  CANONICAL_NOT_NULL_DEFINITION_RE,
   assertReadOnlySession,
   safeQuery,
   introspectProductSchema,
