@@ -1,0 +1,240 @@
+{
+  "kind": "slice14t-not-null-observer-normalization-evidence",
+  "slice": "14T",
+  "masterShaBasis": "9a6d45b0d0d880d43ed41749d95d2d289ace9917",
+  "generatedAt": "2026-07-19T22:24:59.771Z",
+  "secretFree": true,
+  "liveMutation": false,
+  "schemaMutation": false,
+  "dataMutation": false,
+  "ledgerWritten": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "networkMutation": false,
+  "firewallAction": false,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "blessesLiveAsCanonical": false,
+  "doNotClaimDatabaseMatchesCanonical": true,
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "migration035Sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+  "lockedMigrationShas": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "normalizationProfile": "azure_flexible_server_v1",
+  "applicationName": "wh-sunset-not-null-normalization",
+  "offline": {
+    "red": [
+      {
+        "name": "live_nullable_yes_retains_drift",
+        "ok": true,
+        "detail": {
+          "retained": true,
+          "normalizedCount": 8
+        }
+      },
+      {
+        "name": "live_column_missing_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "ambiguous_duplicate_claim_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "unsupported_definition_shape_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "non_not_null_pk_fk_check_untouched",
+        "ok": true
+      },
+      {
+        "name": "name_shape_mismatch_retains_drift",
+        "ok": true
+      },
+      {
+        "name": "non_azure_profile_retains_not_null_constraints",
+        "ok": true
+      },
+      {
+        "name": "default_path_zero_http_and_clients",
+        "ok": true,
+        "code": "live_readonly_flag_required"
+      },
+      {
+        "name": "missing_prove_flag_zero_clients",
+        "ok": true,
+        "code": "not_null_normalization_flag_required"
+      },
+      {
+        "name": "missing_not_null_env_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "wrong_exact_targets_zero_clients",
+        "ok": true
+      },
+      {
+        "name": "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+        "ok": true
+      }
+    ],
+    "green": [
+      {
+        "name": "migration_035_eight_plus_not_null_normalize_when_columns_match",
+        "ok": true,
+        "detail": {
+          "cmtNotNullCount": 9,
+          "rawNn": 9,
+          "afterNn": 0,
+          "normalizedCount": 9
+        }
+      },
+      {
+        "name": "raw_vs_normalized_compare_api",
+        "ok": true
+      },
+      {
+        "name": "server_version_class_classifier",
+        "ok": true
+      },
+      {
+        "name": "cli_gates_exact_targets",
+        "ok": true
+      },
+      {
+        "name": "cli_default_disabled",
+        "ok": true
+      },
+      {
+        "name": "locks_identity_vault_secret_pg_tls_application_name",
+        "ok": true
+      },
+      {
+        "name": "global_live_apply_remains_false",
+        "ok": true
+      },
+      {
+        "name": "injected_authority_observer_path_secret_free",
+        "ok": true
+      }
+    ],
+    "redCount": 12,
+    "greenCount": 8,
+    "migration035Fixture": {
+      "cmtNotNullCount": 9,
+      "cmtNotNullKeys": [
+        "customer_message_templates.customer_message_templates_active_not_null.n",
+        "customer_message_templates.customer_message_templates_body_not_null.n",
+        "customer_message_templates.customer_message_templates_channel_not_null.n",
+        "customer_message_templates.customer_message_templates_client_id_not_null.n",
+        "customer_message_templates.customer_message_templates_created_at_not_null.n",
+        "customer_message_templates.customer_message_templates_id_not_null.n",
+        "customer_message_templates.customer_message_templates_tags_not_null.n",
+        "customer_message_templates.customer_message_templates_title_not_null.n",
+        "customer_message_templates.customer_message_templates_updated_at_not_null.n"
+      ],
+      "table": "customer_message_templates"
+    }
+  },
+  "liveOutcome": {
+    "ok": true,
+    "code": "not_null_normalization_observer_drift",
+    "sameTarget": true,
+    "sameTargetReason": "same_keyvault_secret_authority",
+    "blocker": "observer_drift",
+    "sessionReadOnly": true,
+    "transactionReadOnly": true,
+    "serverVersionClass": {
+      "ok": true,
+      "serverVersionNum": 150018,
+      "serverVersion": "15.18",
+      "major": 15,
+      "versionClass": "postgresql_15"
+    },
+    "observerBefore": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 483,
+      "counts": {
+        "expected_only": 482,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 473,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "notNullArtifactsNormalized": 0,
+      "normalizationError": null
+    },
+    "observerAfter": {
+      "ok": false,
+      "match": false,
+      "code": "observer_drift",
+      "mismatchCount": 35,
+      "counts": {
+        "expected_only": 34,
+        "live_only": 0,
+        "definition_mismatch": 1
+      },
+      "mismatchSections": {
+        "constraints": 25,
+        "indexes": 5,
+        "functions": 1,
+        "triggers": 1,
+        "ownership": 1,
+        "acls": 1,
+        "extensions": 1
+      },
+      "notNullArtifactsNormalized": 448,
+      "normalizationError": null
+    },
+    "productFingerprintLive": "b46a9b52b90122de8999e5e901340e979dec437a49b21aa4598fea646396d1eb",
+    "applicationName": "wh-sunset-not-null-normalization",
+    "httpRequestCount": 6,
+    "imdsRequestCount": 3,
+    "keyVaultRequestCount": 2,
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 30,
+    "endCalls": 1,
+    "usedLiveHttp": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "schemaMutation": false,
+    "dataMutation": false,
+    "ledgerWritten": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "committed": true,
+    "rolledBack": false,
+    "closed": true,
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "errors": []
+  },
+  "secretHandlingProof": {
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "observerNeverPersistsDsn": true
+  },
+  "verifyNeverRerunsLive": true
+}

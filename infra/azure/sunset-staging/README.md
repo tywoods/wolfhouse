@@ -759,3 +759,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14Q — Active Staff API ↔ Key Vault DB target authority (read-only proof + drift classification; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14R — Live reconcile decision (occupancy + drift; A–G design-only phases incl. NOT NULL + non-table ownership; clean rebuild vs in-place; zero mutation) — 2026-07-19*
 *FOUNDATION Slice 14S — Phase B additive reconcile (CREATE TABLE customer_message_templates from byte-locked 035; no INDEX/COMMENT; gated live apply) — 2026-07-19*
+*FOUNDATION Slice 14T — NOT NULL observer representation normalization (constraint↔attnotnull; 483→35; 448 normalized; zero mutation) — 2026-07-19*
