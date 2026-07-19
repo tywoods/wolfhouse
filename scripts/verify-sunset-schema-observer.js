@@ -693,8 +693,122 @@ async function main() {
       followup.kind === 'sunset-schema-observer-slice12-image-repair-contract'
         && followup.canonicalExpectedFingerprintRequired === CANONICAL_FP
         && followup.expectedObserverExitWhileDriftRemains === 4
-        && followup.databaseRepairOutOfScope === true
-        && followup.currentJobUnsafeUntilImageRepair === true,
+        && followup.databaseRepairOutOfScope === true,
+    );
+  }
+
+  // Slice 12: observer runtime image repair (DB drift still unresolved)
+  {
+    const EVIDENCE12 = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice12-observer-image-repair-evidence.json');
+    const FOLLOWUP12 = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'slice12-observer-image-repair-contract.json');
+    const CONTRACT12 = path.join(ROOT, 'fixtures', 'sunset-schema-observer', 'expected-product-schema.json');
+    const CAPTURE12 = path.join(ROOT, 'scripts', 'capture-sunset-live-schema-observation.js');
+    const README12 = path.join(ROOT, 'infra', 'azure', 'sunset-staging', 'README.md');
+    const evidence12 = JSON.parse(fs.readFileSync(EVIDENCE12, 'utf8'));
+    const followup12 = JSON.parse(fs.readFileSync(FOLLOWUP12, 'utf8'));
+    const contract12 = JSON.parse(fs.readFileSync(CONTRACT12, 'utf8'));
+    const captureSrc12 = fs.readFileSync(CAPTURE12, 'utf8');
+    const readme12 = fs.readFileSync(README12, 'utf8');
+    const CANONICAL_FP12 = 'daeec81cf322c596712992e0bd5d1542c925a34243e9e88e211abf172102ba52';
+    const LIVE_FP12 = 'fa7efa9246c2bd75fe41741652c462bb98b3c571906635e55a91ae5735ca1dfd';
+    const MASTER12 = '86de3ee59901205a22e3cdffef9ccc922e312d8d';
+    const UNSAFE11 = 'a5a57b3920b0a71f71e35786b8784de1ae25b69b-slice11final';
+    const STAFF12 = '186307418400581a74f86b096e02bc32a41513b6';
+
+    pass(
+      'slice12-evidence-image-tag-contains-master-sha',
+      evidence12.imageBuild
+        && String(evidence12.imageBuild.tag || '').includes(MASTER12)
+        && String(evidence12.imageBuild.tag || '').includes('slice12observer')
+        && evidence12.imageBuild.tagContainsMasterSha === true
+        && evidence12.masterShaAtStart === MASTER12,
+    );
+    pass(
+      'slice12-built-image-canonical-fingerprint-exact',
+      evidence12.imageContentProof
+        && evidence12.imageContentProof.canonicalFingerprint === CANONICAL_FP12
+        && evidence12.imageContentProof.forwardCount === 36
+        && evidence12.imageContentProof.customer_message_templatesPresent === true
+        && evidence12.imageContentProof.liveDerivedSourceMarker === false
+        && evidence12.imageContentProof.unsafeSlice11FalseGreenFixture === false
+        && evidence12.imageContentProof.contactedPostgreSQL === false
+        && contract12.productFingerprint === CANONICAL_FP12,
+    );
+    pass(
+      'slice12-staff-api-app-image-unchanged',
+      evidence12.staffApiUnchanged
+        && String(evidence12.staffApiUnchanged.image || '').includes(STAFF12)
+        && evidence12.staffApiUnchanged.redeployed === false
+        && evidence12.mutations
+        && evidence12.mutations.staffApiApp === false,
+    );
+    pass(
+      'slice12-final-job-image-differs-from-unsafe-slice11',
+      evidence12.finalJobState
+        && evidence12.finalJobState.differsFromUnsafeSlice11Image === true
+        && !String(evidence12.finalJobState.image || '').includes(UNSAFE11)
+        && String(evidence12.finalJobState.imageDigest || '').startsWith('sha256:')
+        && evidence12.finalJobState.safeForCanonicalMonitoring === true
+        && evidence12.finalJobState.currentImageContainsLiveDerivedExpectedFixture === false
+        && evidence12.finalJobState.defaultExecutionWouldFalseGreen === false,
+    );
+    pass(
+      'slice12-exit4-mismatch-totals-reconcile-88',
+      evidence12.canonicalLiveExecution
+        && evidence12.canonicalLiveExecution.azureStatus === 'Failed'
+        && evidence12.canonicalLiveExecution.exitCode === 4
+        && evidence12.canonicalLiveExecution.code === 'product_schema_differs'
+        && evidence12.canonicalLiveExecution.match === false
+        && evidence12.canonicalLiveExecution.ok === false
+        && evidence12.canonicalLiveExecution.canonicalExpectedFingerprint === CANONICAL_FP12
+        && evidence12.canonicalLiveExecution.actualLiveFingerprint === LIVE_FP12
+        && evidence12.canonicalLiveExecution.mismatchCount === 88
+        && evidence12.canonicalLiveExecution.counts
+        && evidence12.canonicalLiveExecution.counts.expected_only === 31
+        && evidence12.canonicalLiveExecution.counts.live_only === 15
+        && evidence12.canonicalLiveExecution.counts.definition_mismatch === 42
+        && (31 + 15 + 42) === 88
+        && evidence12.canonicalLiveExecution.customer_message_templatesExpectedOnly === true
+        && evidence12.canonicalLiveExecution.falseGreen === false
+        && evidence12.canonicalLiveExecution.secretLeakageInLogs === false,
+    );
+    pass(
+      'slice12-job-remains-manual-unscheduled',
+      evidence12.finalJobState
+        && evidence12.finalJobState.triggerType === 'Manual'
+        && evidence12.finalJobState.hasSchedule === false
+        && evidence12.mutations
+        && evidence12.mutations.jobScheduled === false
+        && /Manual; schedule absent/i.test(readme12),
+    );
+    pass(
+      'slice12-no-fixture-refresh-or-live-blessing-path',
+      evidence12.mutations
+        && evidence12.mutations.canonicalFixtureRefreshedFromLive === false
+        && evidence12.databaseDriftUnresolved === true
+        && evidence12.foundationBlocked === true
+        && followup12.runtimeImageRepairComplete === true
+        && followup12.databaseRepairOutOfScope === true
+        && followup12.foundationBlocked === true
+        && /Do not bless live state|live blessing forbidden|not a reason to refresh/i.test(readme12)
+        && /refuseCanonicalOverwrite|refused_canonical_fixture_overwrite/.test(captureSrc12)
+        && !/capture-sunset-expected-schema-from-live/.test(readme12)
+        && !fs.existsSync(path.join(ROOT, 'scripts', 'capture-sunset-expected-schema-from-live.js')),
+    );
+    pass(
+      'slice12-zero-db-schema-network-mutation-claimed',
+      evidence12.mutations
+        && evidence12.mutations.postgresqlSchema === false
+        && evidence12.mutations.migrationLedger === false
+        && evidence12.mutations.roles === false
+        && evidence12.mutations.credentials === false
+        && evidence12.mutations.grants === false
+        && evidence12.mutations.data === false
+        && evidence12.mutations.firewall === false
+        && evidence12.mutations.network === false
+        && evidence12.mutations.luna === false
+        && evidence12.mutations.wolfhouse === false
+        && evidence12.mutations.production === false,
     );
   }
 
