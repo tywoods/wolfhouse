@@ -449,6 +449,27 @@ npm run verify:sunset-schema-slice13c3c
 
 Artifacts: `slice13c3c-notification-surfpack-evidence.json`, `slice13c3c-mismatch-8-to-2-evidence.json`, `slice13c3c-six-key-map.json`, `slice13c3c-findings.md`.
 
+### Slice 13C.3d — integrated Phase C disposable proof (implemented)
+
+Integrated disposable proof that the reviewed Phase C sequence **040 → immutable 035 rehearsal → 041** transforms the exact **29-key** post-13C.2 drift prestate into exactly the **two** Phase D `tenant_services` CHECK mismatches. Multi-transaction checkpoints (not all-three atomic); fail-stop + idempotent resume proven. No new forward migration. Still `product_schema_differs`. **No live apply / observer job / image deploy.**
+
+| Measure | Value |
+|---------|------:|
+| Forward count | **39 (unchanged)** |
+| Migration 035 hash | `924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565` |
+| Migration 040 hash | `880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd` |
+| Migration 041 hash | `3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09` |
+| Manifest hash | `99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e` (**unchanged**) |
+| Product fingerprint | `120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18` (**unchanged**) |
+| Mismatch trajectory | **29 → 25 → 8 → 2** |
+
+```bash
+npm run prove:sunset-schema-slice13c3d-integrated-phase-c
+npm run verify:sunset-schema-slice13c3d
+```
+
+Artifacts: `slice13c3d-integrated-phase-c-evidence.json`, `slice13c3d-mismatch-29-to-2-evidence.json`, `slice13c3d-checkpoint-key-sets.json`, `slice13c3d-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -508,3 +529,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13C.2 — promote location-aware admin model via 039 (46→29; disposable proof only; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.3a — promote tenant_services SaaS catalog columns via 040 (29→25; disposable proof only; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.3b — rehearse existing migration 035 CMT (25→8; disposable proof only; no live mutation; no new forward migration) — 2026-07-19*
+*FOUNDATION Slice 13C.3c — converge notification/surf-pack via 041 (8→2; disposable proof only; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.3d — integrated Phase C disposable proof 040→035→041 (29→2; no new forward migration; no live mutation) — 2026-07-19*

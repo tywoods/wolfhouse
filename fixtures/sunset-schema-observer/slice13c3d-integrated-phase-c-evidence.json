@@ -1,0 +1,221 @@
+{
+  "kind": "sunset-schema-observer-slice13c3d-integrated-phase-c-evidence",
+  "secretFree": true,
+  "containsRepairSql": false,
+  "containsLiveApplyCode": false,
+  "liveMutation": false,
+  "azureMutation": false,
+  "disposablePostgreSQLOnly": true,
+  "disposableBackend": "pglite",
+  "generatedAt": "2026-07-19T18:32:06.893Z",
+  "masterShaBasis": "d68d03500f4449185c4247a2ddec126c54c13d9c",
+  "newForwardMigration": false,
+  "sequence": [
+    "040",
+    "035",
+    "041"
+  ],
+  "claimsAllThreeAtomicity": false,
+  "claimsCanonicalRunnerProvenance": false,
+  "wroteSchemaMigrationLedger": false,
+  "liveApplyEnabled": false,
+  "migrationHashes": {
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "forwardCountUnchanged": 39,
+  "dualExpectedMethod": {
+    "pre040": {
+      "source": "migration_derived_canonical_through_039",
+      "forwardCount": 37,
+      "derivedFromLive": false,
+      "committedToFixture": false
+    },
+    "post040Current": {
+      "source": "committed_expected_product_schema_json",
+      "forwardCount": 39,
+      "byteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+      "replaced": false
+    }
+  },
+  "omitNotNullConstraintShadows": true,
+  "noUniverseFilter": true,
+  "noAllowedExtraRegex": true,
+  "fresh39Forward": {
+    "ok": true,
+    "appliedCount": 39,
+    "secondApplyNoOp": true,
+    "observerSelfMatch": true,
+    "productFingerprint": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18"
+  },
+  "integrated": {
+    "ok": true,
+    "prestateBaseForwardCount": 37,
+    "prestateKeepsFourLiveColumns": true,
+    "prestateKeys": [
+      "expected_only|acls|relation:customer_message_templates",
+      "expected_only|columns|customer_message_templates.active",
+      "expected_only|columns|customer_message_templates.body",
+      "expected_only|columns|customer_message_templates.channel",
+      "expected_only|columns|customer_message_templates.client_id",
+      "expected_only|columns|customer_message_templates.created_at",
+      "expected_only|columns|customer_message_templates.id",
+      "expected_only|columns|customer_message_templates.tags",
+      "expected_only|columns|customer_message_templates.title",
+      "expected_only|columns|customer_message_templates.updated_at",
+      "expected_only|constraints|customer_message_templates.customer_message_templates_client_id_fkey.FOREIGN KEY",
+      "expected_only|constraints|customer_message_templates.customer_message_templates_pkey.PRIMARY KEY",
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK",
+      "expected_only|constraints|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_by_fkey.FOREIGN KEY",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_client_created",
+      "expected_only|indexes|client_notification_events.idx_client_notification_events_conversation",
+      "expected_only|indexes|client_notification_settings.idx_client_notification_settings_client",
+      "expected_only|indexes|customer_message_templates.customer_message_templates_pkey",
+      "expected_only|indexes|customer_message_templates.idx_customer_message_templates_client_active",
+      "expected_only|indexes|tenant_surf_pack_rules.idx_tenant_surf_pack_client_loc",
+      "expected_only|ownership|relation:customer_message_templates",
+      "expected_only|rlsFlags|customer_message_templates",
+      "expected_only|tables|customer_message_templates",
+      "expected_only|triggers|tenant_surf_pack_rules.tenant_surf_pack_rules_updated_at",
+      "live_only|columns|tenant_services.block_rooms_enabled",
+      "live_only|columns|tenant_services.blocked_room_codes",
+      "live_only|columns|tenant_services.room_block_booking_ids",
+      "live_only|columns|tenant_services.weekdays"
+    ],
+    "prestateFullObserverExact29": true,
+    "checkpoints": {
+      "before": 29,
+      "after040": 25,
+      "after035": 8,
+      "after041": 2
+    },
+    "fullObserverExactAtEveryCheckpoint": true,
+    "finalKeys": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    ],
+    "oidStableAcross041NoOp": true,
+    "attnumStableAcross040NoOp": true,
+    "cmtAttnumStableAcross035NoOp": true,
+    "columnKeyDirection": "live_only_then_resolved_by_canonical_promotion"
+  },
+  "secondFullSequenceNoOp": {
+    "ok": true,
+    "remainingKeysUnchanged": [
+      "expected_only|constraints|tenant_services.tenant_services_date_window.CHECK",
+      "expected_only|constraints|tenant_services.tenant_services_price_unit.CHECK"
+    ],
+    "oidPreserved": true,
+    "attnumPreserved": true
+  },
+  "failStopResume": {
+    "ok": true,
+    "preflight035Failure": {
+      "failedClosed": true,
+      "completedCheckpointsRemain": [
+        "040"
+      ],
+      "message": "035 preflight: column channel incompatible type (udt=int4, expected text)",
+      "resume035Deterministic": true,
+      "fullObserverRemainsAfter040SetBeforeResume": true
+    },
+    "conflict041After040035": {
+      "failedClosed": true,
+      "message": "041: incompatible target index idx_client_notification_settings_client (table=public.client_notification_events unique=f am=btree keys={client_slug,created_at} pred= include=f); refuse drop/replace",
+      "completedCheckpointsRemain": [
+        "040",
+        "035"
+      ],
+      "partial041RolledBack": true,
+      "plantedConflictRemainedUntilRemoved": true,
+      "resume041ConvergedToTwo": true,
+      "fullObserverRemainsAfter035SetBeforeResume": true
+    }
+  },
+  "redFailures": [
+    {
+      "name": "orchestrator_disabled_by_default",
+      "failedClosed": true
+    },
+    {
+      "name": "non_disposable_dsn_rejected",
+      "failedClosed": true
+    },
+    {
+      "name": "sequence_reorder_rejected",
+      "failedClosed": true
+    },
+    {
+      "name": "wrong_prestate_key_set_rejected",
+      "failedClosed": true
+    },
+    {
+      "name": "wrong_base_hashes_locked",
+      "failedClosed": true,
+      "detail": "assertLockedMigrationHashes enforces 035/040/041"
+    },
+    {
+      "name": "035_preflight_conflict_fail_stop",
+      "failedClosed": true
+    },
+    {
+      "name": "041_conflict_rolls_back_partial_only",
+      "failedClosed": true
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "fresh_39_forward_self_match",
+      "ok": true
+    },
+    {
+      "name": "migration_derived_pre040_37_forward",
+      "ok": true
+    },
+    {
+      "name": "exact_29_prestate_full_observer",
+      "ok": true
+    },
+    {
+      "name": "checkpoints_29_25_8_2_full_observer",
+      "ok": true
+    },
+    {
+      "name": "040_attnum_preserving_noop",
+      "ok": true
+    },
+    {
+      "name": "second_full_sequence_noop",
+      "ok": true
+    },
+    {
+      "name": "resume_after_035_preflight_failure",
+      "ok": true
+    },
+    {
+      "name": "resume_after_041_conflict",
+      "ok": true
+    },
+    {
+      "name": "final_two_phase_d_checks_only",
+      "ok": true
+    },
+    {
+      "name": "hashes_unchanged",
+      "ok": true
+    }
+  ],
+  "explicitlyUnchanged": [
+    "migration 035/040/041 byte hashes",
+    "canonical-manifest hash",
+    "expected-product-schema.json bytes",
+    "product fingerprint",
+    "forward count 39",
+    "Phase D CHECK definitions (not implemented)"
+  ]
+}

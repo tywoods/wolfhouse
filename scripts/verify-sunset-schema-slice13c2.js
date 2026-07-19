@@ -235,7 +235,8 @@ function main() {
     && (contract.phaseStatus.C === 'pending'
       || contract.phaseStatus.C === 'partial_tenant_services_columns_complete'
       || contract.phaseStatus.C === 'partial_cmt_035_rehearsal_complete'
-      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence')
+      || contract.phaseStatus.C === 'complete_notification_surfpack_convergence'
+      || contract.phaseStatus.C === 'complete_integrated_phase_c_disposable_proof')
     && contract.slice13c2PhaseB
     && contract.slice13c2PhaseB.migrationId === MIG_039_ID
     && contract.liveApplyCapability === false
