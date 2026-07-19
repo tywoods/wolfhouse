@@ -2077,6 +2077,59 @@ const PG_NOT_NULL_CONSTRAINT_LABEL = 'not_null';
 const IDENTIFIER_TRUNCATION_RULE = 'pg_namedatalen_auto_not_null_truncation';
 const IDENTIFIER_TRUNCATION_REQUIRED_VERSION_CLASS = 'postgresql_15';
 
+/** Slice 14AB — Azure PG15 pgcrypto 1.3 vs canonical 1.4 presentation normalization. */
+const PGCRYPTO_COMPATIBILITY_RULE = 'azure_pg15_pgcrypto_compatibility';
+const PGCRYPTO_EXPECTED_VERSION = '1.4';
+const PGCRYPTO_LIVE_VERSION = '1.3';
+const PGCRYPTO_COMPATIBILITY_REQUIRED_VERSION_CLASS = 'postgresql_15';
+
+const LOCKED_PGCRYPTO_EXTENSION = Object.freeze({
+  name: 'pgcrypto',
+  version: PGCRYPTO_EXPECTED_VERSION,
+  owner: '$db_owner',
+  schema: 'public',
+  relocatable: true,
+  configRelations: '',
+  configConditions: '',
+});
+
+const LOCKED_FIPS_MODE_FUNCTION = Object.freeze({
+  name: 'fips_mode',
+  identity: 'public.fips_mode()',
+  definition: 'CREATE OR REPLACE FUNCTION public.fips_mode()\n RETURNS boolean\n LANGUAGE c\n PARALLEL SAFE STRICT\nAS \'$libdir/pgcrypto\', $function$pg_check_fipsmode$function$',
+  returnType: 'boolean',
+  language: 'c',
+  volatility: 'volatile',
+  securityDefiner: false,
+  proconfig: '',
+});
+
+const LOCKED_FIPS_MODE_OWNERSHIP = Object.freeze({
+  kind: 'function',
+  name: 'fips_mode',
+  identity: 'public.fips_mode()',
+  subkind: 'f',
+  owner: '$db_owner',
+});
+
+const LOCKED_FIPS_MODE_ACL = Object.freeze({
+  kind: 'function',
+  name: 'fips_mode',
+  identity: 'public.fips_mode()',
+  subkind: 'f',
+  acl: '',
+});
+
+const PGCRYPTO_REQUIRED_CAPABILITIES = Object.freeze([
+  {
+    identity: 'public.gen_random_uuid()',
+    name: 'gen_random_uuid',
+    returnType: 'uuid',
+    language: 'c',
+    mustContainLib: '$libdir/pgcrypto',
+  },
+]);
+
 /** Exact locked tuple from canonical expected-product-schema + migration 002. */
 const IDENTIFIER_TRUNCATION_LOCKED_TUPLE = Object.freeze({
   table: 'package_price_rules',
@@ -2499,6 +2552,297 @@ function normalizeIdentifierTruncationNotNull(expected, live, opts) {
   };
 }
 
+function isPgcryptoLibFunction(fn) {
+  if (!fn || typeof fn !== 'object') return false;
+  const def = String(fn.definition || '');
+  return def.includes('$libdir/pgcrypto');
+}
+
+function findLockedTupleInList(list, locked) {
+  if (!Array.isArray(list) || !locked) return null;
+  return list.find((item) => deepEqual(item, locked)) || null;
+}
+
+function liveHasFipsModeArtifact(live) {
+  const snap = live || {};
+  const fn = (snap.functions || []).find((f) => f.identity === 'public.fips_mode()');
+  const own = (snap.ownership || []).find(
+    (o) => o.kind === 'function' && o.identity === 'public.fips_mode()',
+  );
+  const acl = (snap.acls || []).find(
+    (a) => a.kind === 'function' && a.identity === 'public.fips_mode()',
+  );
+  return { fn, own, acl, present: Boolean(fn || own || acl) };
+}
+
+/**
+ * Slice 14AB — presentation-only normalization for Azure PG15 pgcrypto 1.3
+ * ceiling vs canonical expected 1.4 + fips_mode() companion artifacts.
+ * Default OFF; mutates expected functions/ownership/acls/extensions only.
+ */
+function normalizeAzurePg15PgcryptoCompatibility(expected, live, opts) {
+  const options = opts || {};
+  const profile = options.profile || null;
+  const audit = [];
+  const retainedReasons = [];
+  const expectedFunctions = Array.isArray(expected && expected.functions)
+    ? expected.functions.slice()
+    : [];
+  const expectedOwnership = Array.isArray(expected && expected.ownership)
+    ? expected.ownership.slice()
+    : [];
+  const expectedAcls = Array.isArray(expected && expected.acls)
+    ? expected.acls.slice()
+    : [];
+  const expectedExtensions = Array.isArray(expected && expected.extensions)
+    ? expected.extensions.slice()
+    : [];
+  const versionPair = {
+    expectedVersion: PGCRYPTO_EXPECTED_VERSION,
+    liveVersion: PGCRYPTO_LIVE_VERSION,
+  };
+  const liveProfile = options.liveProfile || null;
+
+  function retain(reason, extra) {
+    return {
+      ok: true,
+      applied: false,
+      reason,
+      functions: expectedFunctions,
+      ownership: expectedOwnership,
+      acls: expectedAcls,
+      extensions: expectedExtensions,
+      normalizedCount: 0,
+      audit,
+      retainedReasons: retainedReasons.concat(reason),
+      rule: PGCRYPTO_COMPATIBILITY_RULE,
+      versionPair,
+      liveProfile,
+      capabilityProof: null,
+      ...(extra || {}),
+    };
+  }
+
+  if (profile !== NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    return retain('profile_not_azure_flexible_server_v1');
+  }
+
+  const versionGate = assertPg15AzureFlexibleServerContext(
+    options.azureContext,
+    options.serverVersionClass,
+  );
+  if (!versionGate.ok) {
+    return {
+      ok: false,
+      applied: false,
+      code: (versionGate.errors[0] && versionGate.errors[0].code) || 'azure_context_rejected',
+      message: (versionGate.errors[0] && versionGate.errors[0].message) || 'azure/pg15 context rejected',
+      errors: versionGate.errors,
+      functions: expectedFunctions,
+      ownership: expectedOwnership,
+      acls: expectedAcls,
+      extensions: expectedExtensions,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      rule: PGCRYPTO_COMPATIBILITY_RULE,
+      versionPair,
+      liveProfile,
+      capabilityProof: null,
+    };
+  }
+  if (versionGate.skipped === true) {
+    return retain(versionGate.reason || 'pg15_context_absent');
+  }
+
+  if (!liveProfile || typeof liveProfile !== 'object') {
+    return retain('live_profile_required');
+  }
+
+  const lockedFipsFn = findLockedTupleInList(expectedFunctions, LOCKED_FIPS_MODE_FUNCTION);
+  const lockedFipsOwn = findLockedTupleInList(expectedOwnership, LOCKED_FIPS_MODE_OWNERSHIP);
+  const lockedFipsAcl = findLockedTupleInList(expectedAcls, LOCKED_FIPS_MODE_ACL);
+  const lockedPgcryptoExt = findLockedTupleInList(expectedExtensions, LOCKED_PGCRYPTO_EXTENSION);
+  if (!lockedFipsFn || !lockedFipsOwn || !lockedFipsAcl) {
+    return retain('expected_fips_mode_tuples_missing');
+  }
+  if (!lockedPgcryptoExt) {
+    return retain('expected_pgcrypto_extension_tuple_missing');
+  }
+
+  const liveExt = (live && live.extensions ? live.extensions : []).find((e) => e.name === 'pgcrypto');
+  if (!liveExt) {
+    return retain('live_pgcrypto_not_installed');
+  }
+  if (String(liveExt.schema || '') !== 'public') {
+    return retain('wrong_namespace');
+  }
+  if (String(liveExt.version || '') !== PGCRYPTO_LIVE_VERSION) {
+    return retain('wrong_live_version');
+  }
+  const expectedPgcrypto = (expectedExtensions || []).find((e) => e.name === 'pgcrypto');
+  if (!expectedPgcrypto || String(expectedPgcrypto.version || '') !== PGCRYPTO_EXPECTED_VERSION) {
+    return retain('wrong_expected_version');
+  }
+  if (liveExt.relocatable !== true) {
+    return retain('wrong_relocatable');
+  }
+  const liveOwner = String(liveExt.owner || '');
+  if (liveOwner !== '$db_owner' && liveOwner !== String(lockedPgcryptoExt.owner || '')) {
+    return retain('wrong_owner');
+  }
+
+  const availableVersions = Array.isArray(liveProfile.availableVersions)
+    ? liveProfile.availableVersions
+    : [];
+  const version14Available = availableVersions.some(
+    (v) => String(v.version || '') === PGCRYPTO_EXPECTED_VERSION,
+  );
+  if (version14Available) {
+    return {
+      ok: false,
+      applied: false,
+      code: 'upgrade_available_unapplied',
+      message: `pgcrypto ${PGCRYPTO_EXPECTED_VERSION} available on server but not installed`,
+      errors: [{ code: 'upgrade_available_unapplied', message: 'version 1.4 available unapplied' }],
+      functions: expectedFunctions,
+      ownership: expectedOwnership,
+      acls: expectedAcls,
+      extensions: expectedExtensions,
+      normalizedCount: 0,
+      audit,
+      retainedReasons,
+      rule: PGCRYPTO_COMPATIBILITY_RULE,
+      versionPair,
+      liveProfile,
+      capabilityProof: null,
+    };
+  }
+  const installedSummary = liveProfile.installed || liveProfile.availableExtensions || null;
+  const defaultVersion = installedSummary && installedSummary.default_version != null
+    ? String(installedSummary.default_version)
+    : (liveProfile.availableExtensions && liveProfile.availableExtensions.default_version != null
+      ? String(liveProfile.availableExtensions.default_version)
+      : null);
+  const installedVersion = installedSummary && installedSummary.installed_version != null
+    ? String(installedSummary.installed_version)
+    : String(liveExt.version || '');
+  if (defaultVersion != null
+    && defaultVersion !== installedVersion
+    && installedVersion !== PGCRYPTO_LIVE_VERSION) {
+    return retain('version_not_approved');
+  }
+  const liveVersionListed = availableVersions.some(
+    (v) => String(v.version || '') === PGCRYPTO_LIVE_VERSION,
+  );
+  if (availableVersions.length > 0 && !liveVersionListed) {
+    return retain('live_version_not_azure_available');
+  }
+
+  const fipsLive = liveHasFipsModeArtifact(live);
+  if (fipsLive.present) {
+    if (fipsLive.fn && !deepEqual(fipsLive.fn, LOCKED_FIPS_MODE_FUNCTION)) {
+      return retain('fips_mode_present_differently');
+    }
+    return retain('fips_mode_present_on_live');
+  }
+
+  const capabilityMembership = liveProfile.capabilityMembership || {};
+  const capabilityProof = {};
+  for (const cap of PGCRYPTO_REQUIRED_CAPABILITIES) {
+    const liveFn = (live && live.functions ? live.functions : []).find(
+      (f) => f.identity === cap.identity,
+    );
+    if (!liveFn) {
+      return retain('missing_gen_random_uuid_capability');
+    }
+    if (String(liveFn.returnType || '') !== cap.returnType) {
+      return retain('capability_return_type_mismatch');
+    }
+    if (String(liveFn.language || '') !== cap.language) {
+      return retain('capability_language_mismatch');
+    }
+    if (!String(liveFn.definition || '').includes(cap.mustContainLib)) {
+      return retain('capability_definition_mismatch');
+    }
+    const member = capabilityMembership[cap.identity];
+    if (!member || String(member.extname || '') !== 'pgcrypto') {
+      return retain('gen_random_uuid_not_extension_member');
+    }
+    capabilityProof[cap.name] = {
+      identity: cap.identity,
+      returnType: liveFn.returnType,
+      language: liveFn.language,
+      extname: member.extname,
+    };
+  }
+
+  const liveMemberSet = new Set(
+    Array.isArray(liveProfile.memberFunctions) ? liveProfile.memberFunctions : [],
+  );
+  if (Array.isArray(liveProfile.memberFunctionIdentities)) {
+    for (const id of liveProfile.memberFunctionIdentities) liveMemberSet.add(String(id));
+  }
+  // Also accept live snapshot pgcrypto-lib identities (same format as expected).
+  for (const f of (live && live.functions ? live.functions : []).filter(isPgcryptoLibFunction)) {
+    if (f.identity) liveMemberSet.add(String(f.identity));
+  }
+  const expectedPgcryptoFns = expectedFunctions
+    .filter(isPgcryptoLibFunction)
+    .map((f) => String(f.identity || ''))
+    .filter(Boolean);
+  const expectedOnlyMembers = expectedPgcryptoFns.filter((id) => !liveMemberSet.has(id));
+  const expectedOnlySet = new Set(expectedOnlyMembers);
+  if (expectedOnlySet.size !== 1 || !expectedOnlySet.has('public.fips_mode()')) {
+    return retain('extra_unexpected_pgcrypto_member_delta');
+  }
+
+  const filteredFunctions = expectedFunctions.filter(
+    (f) => f.identity !== LOCKED_FIPS_MODE_FUNCTION.identity,
+  );
+  const filteredOwnership = expectedOwnership.filter(
+    (o) => !(o.kind === 'function' && o.identity === LOCKED_FIPS_MODE_OWNERSHIP.identity),
+  );
+  const filteredAcls = expectedAcls.filter(
+    (a) => !(a.kind === 'function' && a.identity === LOCKED_FIPS_MODE_ACL.identity),
+  );
+  const filteredExtensions = expectedExtensions.map((e) => {
+    if (e.name !== 'pgcrypto') return e;
+    return {
+      ...e,
+      version: PGCRYPTO_LIVE_VERSION,
+      schema: liveExt.schema != null ? liveExt.schema : e.schema,
+      owner: liveExt.owner != null ? liveExt.owner : e.owner,
+      relocatable: liveExt.relocatable != null ? liveExt.relocatable : e.relocatable,
+      configRelations: liveExt.configRelations != null ? liveExt.configRelations : e.configRelations,
+      configConditions: liveExt.configConditions != null ? liveExt.configConditions : e.configConditions,
+    };
+  });
+
+  audit.push(
+    'stripped_fips_mode_function',
+    'stripped_fips_mode_ownership',
+    'stripped_fips_mode_acl',
+    'mapped_pgcrypto_version',
+  );
+
+  return {
+    ok: true,
+    applied: true,
+    functions: filteredFunctions,
+    ownership: filteredOwnership,
+    acls: filteredAcls,
+    extensions: filteredExtensions,
+    normalizedCount: 4,
+    audit,
+    retainedReasons,
+    rule: PGCRYPTO_COMPATIBILITY_RULE,
+    versionPair,
+    liveProfile,
+    capabilityProof,
+  };
+}
+
 function classifyServerVersionClass(serverVersionNum, serverVersion) {
   const num = Number(serverVersionNum);
   if (Number.isFinite(num) && num >= 10000) {
@@ -2540,6 +2884,7 @@ function compareSnapshots(expected, live, opts) {
   let renameAliasNormalization = null;
   let finalRenameNormalization = null;
   let identifierTruncationNormalization = null;
+  let pgcryptoCompatibilityNormalization = null;
   let expectedSnap = expected;
   if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
     normalization = normalizeObservedIdentityPresentation(live, {
@@ -2560,6 +2905,7 @@ function compareSnapshots(expected, live, opts) {
         renameAliasNormalization: null,
         finalRenameNormalization: null,
         identifierTruncationNormalization: null,
+        pgcryptoCompatibilityNormalization: null,
       };
     }
     liveSnap = normalization.snapshot;
@@ -2584,6 +2930,7 @@ function compareSnapshots(expected, live, opts) {
           renameAliasNormalization: null,
           finalRenameNormalization: null,
           identifierTruncationNormalization: null,
+          pgcryptoCompatibilityNormalization: null,
         };
       }
       expectedSnap = {
@@ -2623,6 +2970,7 @@ function compareSnapshots(expected, live, opts) {
           renameAliasNormalization,
           finalRenameNormalization: null,
           identifierTruncationNormalization: null,
+          pgcryptoCompatibilityNormalization: null,
         };
       }
       expectedSnap = {
@@ -2667,6 +3015,7 @@ function compareSnapshots(expected, live, opts) {
           renameAliasNormalization,
           finalRenameNormalization,
           identifierTruncationNormalization: null,
+          pgcryptoCompatibilityNormalization: null,
         };
       }
       expectedSnap = {
@@ -2707,11 +3056,52 @@ function compareSnapshots(expected, live, opts) {
           renameAliasNormalization,
           finalRenameNormalization,
           identifierTruncationNormalization,
+          pgcryptoCompatibilityNormalization: null,
         };
       }
       expectedSnap = {
         ...expectedSnap,
         constraints: identifierTruncationNormalization.constraints,
+      };
+    }
+
+    // Slice 14AB: Azure PG15 pgcrypto 1.3 presentation normalization. Default OFF.
+    if (options.enablePgcryptoCompatibilityNormalization === true) {
+      pgcryptoCompatibilityNormalization = normalizeAzurePg15PgcryptoCompatibility(
+        expectedSnap,
+        liveSnap,
+        {
+          profile: options.normalizationProfile,
+          azureContext: options.azureContext,
+          serverVersionClass: options.serverVersionClass
+            || (options.azureContext && options.azureContext.versionClass)
+            || null,
+          liveProfile: options.liveProfile || null,
+        },
+      );
+      if (!pgcryptoCompatibilityNormalization.ok) {
+        return {
+          ok: false,
+          drifts: [],
+          counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+          normalizationError: {
+            code: pgcryptoCompatibilityNormalization.code,
+            message: pgcryptoCompatibilityNormalization.message,
+            errors: pgcryptoCompatibilityNormalization.errors || [],
+          },
+          notNullNormalization,
+          renameAliasNormalization,
+          finalRenameNormalization,
+          identifierTruncationNormalization,
+          pgcryptoCompatibilityNormalization,
+        };
+      }
+      expectedSnap = {
+        ...expectedSnap,
+        functions: pgcryptoCompatibilityNormalization.functions,
+        ownership: pgcryptoCompatibilityNormalization.ownership,
+        acls: pgcryptoCompatibilityNormalization.acls,
+        extensions: pgcryptoCompatibilityNormalization.extensions,
       };
     }
   }
@@ -2757,6 +3147,7 @@ function compareSnapshots(expected, live, opts) {
     renameAliasNormalization,
     finalRenameNormalization,
     identifierTruncationNormalization,
+    pgcryptoCompatibilityNormalization,
   };
 }
 
@@ -3189,6 +3580,15 @@ module.exports = {
   buildIdentifierTruncationNotNullProvenance,
   parseIdentifierTruncationNotNullMatch,
   normalizeIdentifierTruncationNotNull,
+  PGCRYPTO_COMPATIBILITY_RULE,
+  PGCRYPTO_EXPECTED_VERSION,
+  PGCRYPTO_LIVE_VERSION,
+  LOCKED_PGCRYPTO_EXTENSION,
+  LOCKED_FIPS_MODE_FUNCTION,
+  LOCKED_FIPS_MODE_OWNERSHIP,
+  LOCKED_FIPS_MODE_ACL,
+  PGCRYPTO_REQUIRED_CAPABILITIES,
+  normalizeAzurePg15PgcryptoCompatibility,
   classifyServerVersionClass,
   CANONICAL_NOT_NULL_DEFINITION_RE,
   assertReadOnlySession,

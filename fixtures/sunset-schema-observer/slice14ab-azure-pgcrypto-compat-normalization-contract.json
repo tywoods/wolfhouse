@@ -1,0 +1,69 @@
+{
+  "kind": "slice14ab-azure-pgcrypto-compat-normalization-contract",
+  "slice": "14AB",
+  "masterShaBasis": "51578961029ae7c7b53582542f049d53f2952b98",
+  "applicationName": "wh-sunset-pgcrypto-compatibility",
+  "normalizationProfile": "azure_flexible_server_v1",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "baselineMismatchCount": 4,
+  "baselineMismatchSections": {
+    "functions": 1,
+    "ownership": 1,
+    "acls": 1,
+    "extensions": 1
+  },
+  "lockedVersionPair": {
+    "expectedVersion": "1.4",
+    "liveVersion": "1.3"
+  },
+  "rule": "azure_pg15_pgcrypto_compatibility",
+  "requiredRed": [
+    "default_path_zero_http_and_clients",
+    "missing_prove_flag_zero_clients",
+    "missing_pgcrypto_env_zero_clients",
+    "wrong_exact_targets_zero_clients",
+    "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+    "non_azure_profile_retains",
+    "non_pg15_retains_or_rejects",
+    "wrong_live_version_retains",
+    "wrong_namespace_retains",
+    "wrong_owner_retains",
+    "wrong_relocatable_retains",
+    "upgrade_available_1_4_unapplied_fails",
+    "missing_gen_random_uuid_capability_retains",
+    "gen_random_uuid_not_extension_member_retains",
+    "fips_mode_present_differently_retains",
+    "extra_unexpected_pgcrypto_member_delta_retains",
+    "expected_bytes_change_fails"
+  ],
+  "requiredGreen": [
+    "exact_locked_version_pair_normalizes_four",
+    "capability_proof_gen_random_uuid",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "global_live_apply_remains_false",
+    "accounting_baseline_4_normalized_4_remaining_0",
+    "raw_vs_normalized_compare_api",
+    "fips_mode_absence_member_delta",
+    "prior_14x_rules_still_default_behavior"
+  ],
+  "locks": {
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-pgcrypto-compatibility",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "gates": {
+    "envPgcryptoCompatibilityNormalization": "SUNSET_PHASE_D_PGCRYPTO_COMPATIBILITY_NORMALIZATION",
+    "cliProve": "--prove-pgcrypto-compatibility-normalization",
+    "defaultDisabled": true,
+    "liveApplyRemainsFalse": true
+  },
+  "verifyNeverRerunsLive": true
+}
