@@ -481,6 +481,17 @@ npm run verify:sunset-schema-slice14a
 
 Artifacts: `slice14a-phase-d-preflight-contract.json`, `slice14a-phase-d-preflight-evidence.json`, `slice14a-findings.md`.
 
+### Slice 14B — Phase D live read-only connection boundary (implemented)
+
+Hard-disabled live read-only connection boundary that can later run the merged Slice 14A count-only preflight against the exact Sunset staging PostgreSQL/database. Locks subscription, resource group, server FQDN, database, TLS `verify-full`, `application_name=wh-sunset-phase-d-preflight`, and `BEGIN READ ONLY`. Credentials only from protected admin env (`SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD`), populated by the existing locked loader from Key Vault `sunset-database-url` — connection config constructed only for the locked host/database. Never accepts caller-supplied DSN, argv credential, `SUNSET_SCHEMA_OBSERVER_DATABASE_URL` (CONNECT-only / no SELECT), `WOLFHOUSE_DATABASE_URL`, or arbitrary file path; never prints/persists username/password in evidence/errors. Exact target accepted only with dual enable flags (`SUNSET_PHASE_D_LIVE_READONLY=1` + `SUNSET_PHASE_D_LIVE_PREFLIGHT=1` + matching `AZURE_SUBSCRIPTION_ID`). Offline injected-adapter proof only; **no** live connect/query, firewall/network mutation, apply/DDL/ledger, migration, observer role/grant changes, or 14A predicate changes. Still `product_schema_differs`. Canonical hashes **byte-identical**.
+
+```bash
+npm run prove:sunset-schema-slice14b-phase-d-live-readonly-boundary
+npm run verify:sunset-schema-slice14b
+```
+
+Artifacts: `slice14b-phase-d-live-readonly-boundary-contract.json`, `slice14b-phase-d-live-readonly-boundary-evidence.json`, `slice14b-findings.md`.
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -543,3 +554,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13C.3c — converge notification/surf-pack via 041 (8→2; disposable proof only; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 13C.3d — integrated Phase C disposable proof 040→035→041 (29→2; no new forward migration; no live mutation) — 2026-07-19*
 *FOUNDATION Slice 14A — Phase D CHECK aggregate preflight (source-only; disposable proof; no constraint apply; no live mutation) — 2026-07-19*
+*FOUNDATION Slice 14B — Phase D live read-only connection boundary (hard-disabled; offline injected-adapter proof; no live connect/query; no mutation) — 2026-07-19*
