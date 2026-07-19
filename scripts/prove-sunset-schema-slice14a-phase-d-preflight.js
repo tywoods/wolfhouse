@@ -717,8 +717,8 @@ async function main() {
 
   const findings = `# FOUNDATION Slice 14A — Phase D CHECK aggregate preflight
 
-**Status:** complete (source-only / disposable proof)  
-**Master basis:** \`${MASTER}\`  
+**Status:** complete (source-only / disposable proof)
+**Master basis:** \`${MASTER}\`
 **Generated:** ${generatedAt}
 
 ## Outcome

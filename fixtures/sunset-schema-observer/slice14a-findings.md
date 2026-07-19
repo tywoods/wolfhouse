@@ -1,7 +1,7 @@
 # FOUNDATION Slice 14A — Phase D CHECK aggregate preflight
 
-**Status:** complete (source-only / disposable proof)  
-**Master basis:** `935d278b01c49344ed6e6ef729ac36de5b7d5400`  
+**Status:** complete (source-only / disposable proof)
+**Master basis:** `935d278b01c49344ed6e6ef729ac36de5b7d5400`
 **Generated:** 2026-07-19T18:42:41.357Z
 
 ## Outcome
