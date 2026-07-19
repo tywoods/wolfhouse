@@ -60,7 +60,10 @@ const {
   evaluatePhaseDLiveReadonlyCliGates,
   evaluateExactTargetCliArgs,
   renderCliUsage,
+  renderFailClosedCliCatch,
+  ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW,
   FORBIDDEN_ARGV_FLAGS,
+  REDACTED,
 } = require('./lib/phase-d-live-readonly-cli');
 const {
   EXPECTED_028_SHA256,
@@ -330,6 +333,69 @@ async function main() {
     closed: true,
   });
 
+  // RED: outermost CLI catch fail-closed redaction (child-process inject)
+  const injectUser = FAKE_ADMIN_USER;
+  const injectPassword = FAKE_ADMIN_PASSWORD;
+  const injectEnv = {
+    PATH: process.env.PATH,
+    [CREDENTIAL_USER_ENV]: injectUser,
+    [CREDENTIAL_PASSWORD_ENV]: injectPassword,
+    [ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW]: '1',
+  };
+  const injectedCli = spawnSync(process.execPath, [CLI_PATH], {
+    env: injectEnv,
+    encoding: 'utf8',
+  });
+  const injectedOut = `${injectedCli.stdout || ''}${injectedCli.stderr || ''}`;
+  leakScan(injectedOut, secrets);
+  if (injectedCli.status === 0) {
+    throw new Error('injected toplevel CLI must exit nonzero');
+  }
+  let injectedPayload;
+  try {
+    injectedPayload = JSON.parse((injectedCli.stderr || '').trim());
+  } catch (e) {
+    throw new Error(`injected toplevel stderr must be JSON: ${injectedCli.stderr}`);
+  }
+  if (injectedPayload.ok !== false
+    || injectedPayload.code !== 'cli_failed'
+    || injectedPayload.liveMutation !== false
+    || injectedOut.includes(injectUser)
+    || injectedOut.includes(injectPassword)
+    || /postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(injectedOut)
+    || /stack|Error:/i.test(JSON.stringify(injectedPayload))
+    || String(injectedPayload.message || '').includes(injectUser)
+    || String(injectedPayload.message || '').includes(injectPassword)) {
+    throw new Error(`injected toplevel catch leaked or unstable: ${JSON.stringify(injectedPayload)}`);
+  }
+  if (!String(injectedPayload.message || '').includes(REDACTED)) {
+    throw new Error('injected toplevel message must contain redaction marker');
+  }
+  // Unit: renderFailClosedCliCatch also strips nested meta/cause
+  const unitCatch = renderFailClosedCliCatch(
+    Object.assign(
+      new Error(`unit boom ${injectUser} ${injectPassword}`),
+      {
+        code: 'unit_boom',
+        meta: { user: injectUser, password: injectPassword },
+        cause: { message: injectPassword, username: injectUser },
+      },
+    ),
+    { env: injectEnv, clientsInstantiated: 0 },
+  );
+  leakScan(unitCatch, secrets);
+  if (unitCatch.code !== 'cli_failed' || unitCatch.ok !== false) {
+    throw new Error('renderFailClosedCliCatch must be stable cli_failed');
+  }
+  red.push({
+    name: 'cli_toplevel_catch_redacts_admin_secrets',
+    ok: true,
+    status: injectedCli.status,
+    code: injectedPayload.code,
+    redactedMarkerPresent: true,
+    nestedSanitized: true,
+  });
+
   // GREEN: activated path exact sequence with injected Client
   resetPgClientInstantiateCount();
   const FakeOk = createScriptedFakePgClientFactory({
@@ -386,6 +452,35 @@ async function main() {
     name: 'cli_gates_pass_exact_target',
     ok: true,
     confirmed: cliGates.confirmed,
+  });
+
+  // GREEN: normal result rendering cannot regress secret safety
+  const renderSecrets = [FAKE_ADMIN_USER, FAKE_ADMIN_PASSWORD];
+  const poisonedRender = redactDeep({
+    ok: false,
+    code: 'cli_gates_rejected',
+    errors: [{
+      code: 'demo',
+      message: `gate detail user=${FAKE_ADMIN_USER} password=${FAKE_ADMIN_PASSWORD}`,
+    }],
+    message: `result message embeds ${FAKE_ADMIN_PASSWORD}`,
+    clientsInstantiated: 0,
+    liveMutation: false,
+  }, renderSecrets);
+  leakScan(poisonedRender, renderSecrets);
+  const cliSrcForRender = fs.readFileSync(CLI_PATH, 'utf8');
+  if (!cliSrcForRender.includes('collectProtectedAdminSecrets')
+    || !cliSrcForRender.includes('renderFailClosedCliCatch')
+    || !cliSrcForRender.includes('maybeThrowOfflineInjectedTopLevelError')
+    || cliSrcForRender.includes("}, []);")
+    || /const msg = String\(\(err && err\.message\)/.test(cliSrcForRender)) {
+    throw new Error('CLI must fail-closed redact with admin secrets (no empty redactDeep / raw err.message)');
+  }
+  green.push({
+    name: 'normal_result_rendering_secret_safe',
+    ok: true,
+    poisonedRenderSanitized: true,
+    cliUsesProtectedAdminSecrets: true,
   });
 
   // GREEN: boundary ready under dual flags (zero connect in boundary)
@@ -540,9 +635,11 @@ async function main() {
       cliDefaultDisabled: true,
       connectFailureSanitizedClose: true,
       queryFailureRollbackAndClose: true,
+      cliToplevelCatchRedactsAdminSecrets: true,
       activatedExactSequenceCountOnly: true,
       cliGatesPassExactTarget: true,
       boundaryReadyZeroConnect: true,
+      normalResultRenderingSecretSafe: true,
       credentialsNeverInLogsResultsErrors: true,
     },
     redCases: red,
@@ -578,6 +675,8 @@ Activated path (offline injected Client) executes only:
 
 closes exactly once, returns only counts/safe metadata; failures sanitize secrets and \`ROLLBACK\`/close.
 
+Outermost CLI \`main().catch\` is **fail-closed**: redacts \`SUNSET_STAGING_PG_ADMIN_USER\` / \`SUNSET_STAGING_PG_ADMIN_PASSWORD\` from message and nested error metadata before any stdout/stderr JSON; never prints env values, DSNs, stack, argv credentials, or raw error objects. Offline child-process inject proves \`cli_failed\` + nonzero exit with zero secret leakage. Normal result rendering also passes protected-admin secrets into \`redactDeep\`.
+
 ## Operator command (default-disabled)
 
 \`\`\`bash
@@ -603,7 +702,7 @@ SUNSET_STAGING_PG_ADMIN_PASSWORD=... \\
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero Clients; execute gate missing; CLI forbidden DSN/host/query; wrong exact target; CLI default refuse; connect/query failure sanitize + rollback/close |
+| RED | default zero Clients; execute gate missing; CLI forbidden DSN/host/query; wrong exact target; CLI default refuse; connect/query failure sanitize + rollback/close; outermost CLI catch redacts admin secrets (child-process inject) |
 | GREEN | activated exact sequence count-only; CLI gates pass; boundary ready with zero connect |
 
 ## Non-goals / still open

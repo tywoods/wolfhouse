@@ -19,7 +19,18 @@ const {
   evaluateDualEnableFlags,
   evaluateExecuteCountOnlyGate,
   redactDeep,
+  redactSecrets,
+  REDACTED,
 } = require('./phase-d-live-readonly-boundary');
+
+/**
+ * Offline-proof-only hook. When set to "1", the operator CLI throws an
+ * unexpected top-level error whose message/metadata intentionally embed the
+ * protected-admin env values so the outermost catch redaction can be proven.
+ * Never used on the live path.
+ */
+const ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW =
+  'SUNSET_PHASE_D_OFFLINE_INJECT_CLI_TOPLEVEL_THROW';
 
 const FORBIDDEN_ARGV_FLAGS = Object.freeze([
   '--dsn',
@@ -251,6 +262,89 @@ function renderCliUsage() {
   ].join('\n');
 }
 
+/**
+ * Collect protected-admin secret values from env for fail-closed redaction.
+ * Returns values only (never env keys as secrets). Empty strings omitted.
+ */
+function collectProtectedAdminSecrets(env) {
+  const e = env || {};
+  return [e[CREDENTIAL_USER_ENV], e[CREDENTIAL_PASSWORD_ENV]]
+    .filter((v) => v != null && String(v).length > 0)
+    .map(String);
+}
+
+/**
+ * Fail-closed outermost CLI catch payload.
+ * Redacts SUNSET_STAGING_PG_ADMIN_USER / SUNSET_STAGING_PG_ADMIN_PASSWORD from
+ * message and nested error metadata. Never emits env values, DSNs, stack,
+ * argv credentials, or raw error objects.
+ */
+function renderFailClosedCliCatch(err, opts) {
+  const options = opts || {};
+  const secrets = collectProtectedAdminSecrets(options.env || {});
+  const clientsInstantiated = Number.isFinite(options.clientsInstantiated)
+    ? options.clientsInstantiated
+    : 0;
+
+  const rawMessage = String(
+    (err && typeof err === 'object' && err.message != null)
+      ? err.message
+      : (err || 'cli failed'),
+  ).slice(0, 240);
+
+  const nested = {};
+  if (err && typeof err === 'object') {
+    if (err.meta != null) nested.meta = err.meta;
+    if (err.cause != null) nested.cause = err.cause;
+    if (err.errors != null) nested.errors = err.errors;
+    if (err.detail != null) nested.detail = err.detail;
+  }
+
+  const payload = {
+    ok: false,
+    code: 'cli_failed',
+    message: redactSecrets(rawMessage, secrets),
+    clientsInstantiated,
+    liveMutation: false,
+  };
+  if (Object.keys(nested).length > 0) {
+    payload.nested = redactDeep(nested, secrets);
+  }
+
+  // Final pass: never leave secret substrings / DSN / password-shaped keys.
+  return redactDeep(payload, secrets);
+}
+
+/**
+ * Offline proof only: throw an unexpected top-level error embedding both
+ * protected-admin env values (and a fake DSN) so child-process RED proof can
+ * assert the outermost catch redacts them. No-op unless inject env === "1".
+ */
+function maybeThrowOfflineInjectedTopLevelError(env) {
+  const e = env || {};
+  if (String(e[ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW] || '') !== '1') {
+    return false;
+  }
+  const user = String(e[CREDENTIAL_USER_ENV] || '');
+  const password = String(e[CREDENTIAL_PASSWORD_ENV] || '');
+  const err = new Error(
+    `unexpected toplevel boom user=${user} password=${password} `
+    + `dsn=postgresql://${user}:${password}@evil.example/db`,
+  );
+  err.code = 'injected_unexpected_toplevel';
+  err.meta = {
+    user,
+    password,
+    detail: `nested meta ${user} ${password}`,
+  };
+  err.cause = {
+    message: `cause embeds ${user}/${password}`,
+    password,
+    username: user,
+  };
+  throw err;
+}
+
 module.exports = {
   FORBIDDEN_ARGV_FLAGS,
   ALLOWED_ARGV_FLAGS,
@@ -258,6 +352,11 @@ module.exports = {
   evaluateExactTargetCliArgs,
   evaluatePhaseDLiveReadonlyCliGates,
   renderCliUsage,
+  collectProtectedAdminSecrets,
+  renderFailClosedCliCatch,
+  maybeThrowOfflineInjectedTopLevelError,
+  ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW,
+  REDACTED,
   TARGETS,
   ENV_LIVE_READONLY,
   ENV_LIVE_PREFLIGHT,

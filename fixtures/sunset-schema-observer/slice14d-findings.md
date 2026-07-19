@@ -2,7 +2,7 @@
 
 **Status:** complete (CONNECT_ENABLED activated; CLI default-disabled; offline injected-Client proof; no live query)
 **Master basis:** `6edd63762ea5a28cec764428c176da2118032729`
-**Generated:** 2026-07-19T19:14:01.308Z
+**Generated:** 2026-07-19T19:19:08.766Z
 
 ## Outcome
 
@@ -21,6 +21,8 @@ Activated path (offline injected Client) executes only:
 `BEGIN READ ONLY` → `SHOW transaction_read_only` → locked catalogs → exact aggregate → `COMMIT`
 
 closes exactly once, returns only counts/safe metadata; failures sanitize secrets and `ROLLBACK`/close.
+
+Outermost CLI `main().catch` is **fail-closed**: redacts `SUNSET_STAGING_PG_ADMIN_USER` / `SUNSET_STAGING_PG_ADMIN_PASSWORD` from message and nested error metadata before any stdout/stderr JSON; never prints env values, DSNs, stack, argv credentials, or raw error objects. Offline child-process inject proves `cli_failed` + nonzero exit with zero secret leakage. Normal result rendering also passes protected-admin secrets into `redactDeep`.
 
 ## Operator command (default-disabled)
 
@@ -47,7 +49,7 @@ SUNSET_STAGING_PG_ADMIN_PASSWORD=... \
 
 | Class | Cases |
 |-------|-------|
-| RED | default zero Clients; execute gate missing; CLI forbidden DSN/host/query; wrong exact target; CLI default refuse; connect/query failure sanitize + rollback/close |
+| RED | default zero Clients; execute gate missing; CLI forbidden DSN/host/query; wrong exact target; CLI default refuse; connect/query failure sanitize + rollback/close; outermost CLI catch redacts admin secrets (child-process inject) |
 | GREEN | activated exact sequence count-only; CLI gates pass; boundary ready with zero connect |
 
 ## Non-goals / still open

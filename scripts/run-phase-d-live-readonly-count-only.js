@@ -37,6 +37,9 @@
 const {
   evaluatePhaseDLiveReadonlyCliGates,
   renderCliUsage,
+  collectProtectedAdminSecrets,
+  renderFailClosedCliCatch,
+  maybeThrowOfflineInjectedTopLevelError,
   CLI_EXECUTE_COUNT_ONLY,
 } = require('./lib/phase-d-live-readonly-cli');
 const {
@@ -55,20 +58,25 @@ async function main() {
     process.exit(0);
   }
 
+  // Offline proof only — unexpected top-level throw embedding admin secrets.
+  maybeThrowOfflineInjectedTopLevelError(process.env);
+
   resetPgClientInstantiateCount();
+
+  const secrets = collectProtectedAdminSecrets(process.env);
 
   // Default / missing flags: refuse before any Client.
   if (!argv.includes(CLI_EXECUTE_COUNT_ONLY) && argv.length === 0) {
     console.log(renderCliUsage());
     console.log('');
-    console.log(JSON.stringify({
+    console.log(JSON.stringify(redactDeep({
       ok: false,
       code: 'default_disabled',
       clientsInstantiated: 0,
       liveQueryExecution: false,
       liveMutation: false,
       note: 'Default path refused — zero pg Clients',
-    }, null, 2));
+    }, secrets), null, 2));
     process.exit(2);
   }
 
@@ -87,7 +95,7 @@ async function main() {
       liveQueryExecution: false,
       liveMutation: false,
       note: 'CLI gates failed — zero pg Clients instantiated',
-    }, []);
+    }, secrets);
     console.error(JSON.stringify(safe, null, 2));
     process.exit(2);
   }
@@ -116,7 +124,7 @@ async function main() {
     writesLedger: false,
     errors: result.errors || undefined,
     message: result.message || undefined,
-  }, []);
+  }, secrets);
 
   if (result.ok) {
     console.log(JSON.stringify(safe, null, 2));
@@ -127,13 +135,10 @@ async function main() {
 }
 
 main().catch((err) => {
-  const msg = String((err && err.message) || err || 'cli failed').slice(0, 240);
-  console.error(JSON.stringify({
-    ok: false,
-    code: (err && err.code) || 'cli_failed',
-    message: msg,
+  const safe = renderFailClosedCliCatch(err, {
+    env: process.env,
     clientsInstantiated: getPgClientInstantiateCount(),
-    liveMutation: false,
-  }, null, 2));
+  });
+  console.error(JSON.stringify(safe, null, 2));
   process.exit(1);
 });

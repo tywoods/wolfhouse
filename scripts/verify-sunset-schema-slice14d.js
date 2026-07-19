@@ -49,7 +49,10 @@ const {
 const {
   evaluatePhaseDLiveReadonlyCliGates,
   evaluateExactTargetCliArgs,
+  renderFailClosedCliCatch,
+  ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW,
   FORBIDDEN_ARGV_FLAGS,
+  REDACTED,
 } = require('./lib/phase-d-live-readonly-cli');
 const {
   EXPECTED_028_SHA256,
@@ -82,11 +85,13 @@ const REQUIRED_RED = [
   'cli_default_disabled',
   'connect_failure_sanitized_close',
   'query_failure_rollback_and_close',
+  'cli_toplevel_catch_redacts_admin_secrets',
 ];
 
 const REQUIRED_GREEN = [
   'activated_exact_sequence_count_only',
   'cli_gates_pass_exact_target',
+  'normal_result_rendering_secret_safe',
   'boundary_ready_zero_connect',
 ];
 
@@ -208,6 +213,8 @@ async function main() {
     && evidence.offlineGates.activatedExactSequenceCountOnly === true
     && evidence.offlineGates.cliDefaultDisabled === true
     && evidence.offlineGates.queryFailureRollbackAndClose === true
+    && evidence.offlineGates.cliToplevelCatchRedactsAdminSecrets === true
+    && evidence.offlineGates.normalResultRenderingSecretSafe === true
     && evidence.cliExecutedLive === false
     && evidence.liveQueryExecution === false
     && evidence.liveMutation === false
@@ -312,6 +319,58 @@ async function main() {
     encoding: 'utf8',
   });
   pass('runtime-cli-default-refuse', cliDefault.status !== 0);
+
+  // Runtime: outermost catch fail-closed redaction via offline inject child-process
+  const injectCli = spawnSync(process.execPath, [cliPath], {
+    env: {
+      PATH: process.env.PATH,
+      [CREDENTIAL_USER_ENV]: FAKE_USER,
+      [CREDENTIAL_PASSWORD_ENV]: FAKE_PASSWORD,
+      [ENV_OFFLINE_INJECT_CLI_TOPLEVEL_THROW]: '1',
+    },
+    encoding: 'utf8',
+  });
+  const injectText = `${injectCli.stdout || ''}${injectCli.stderr || ''}`;
+  let injectPayload = null;
+  try {
+    injectPayload = JSON.parse((injectCli.stderr || '').trim());
+  } catch (_e) {
+    injectPayload = null;
+  }
+  pass('runtime-cli-toplevel-catch-redacts',
+    injectCli.status !== 0
+    && injectPayload
+    && injectPayload.ok === false
+    && injectPayload.code === 'cli_failed'
+    && injectPayload.liveMutation === false
+    && !injectText.includes(FAKE_USER)
+    && !injectText.includes(FAKE_PASSWORD)
+    && !/postgresql:\/\/[^:\s/@]+:[^@\s/]+@/i.test(injectText)
+    && String(injectPayload.message || '').includes(REDACTED));
+
+  const unitCatch = renderFailClosedCliCatch(
+    Object.assign(new Error(`boom ${FAKE_USER} ${FAKE_PASSWORD}`), {
+      meta: { password: FAKE_PASSWORD, user: FAKE_USER },
+    }),
+    {
+      env: {
+        [CREDENTIAL_USER_ENV]: FAKE_USER,
+        [CREDENTIAL_PASSWORD_ENV]: FAKE_PASSWORD,
+      },
+      clientsInstantiated: 0,
+    },
+  );
+  const unitText = JSON.stringify(unitCatch);
+  pass('runtime-fail-closed-catch-unit',
+    unitCatch.code === 'cli_failed'
+    && !unitText.includes(FAKE_USER)
+    && !unitText.includes(FAKE_PASSWORD));
+
+  pass('cli-source-fail-closed-catch',
+    cliSrc.includes('renderFailClosedCliCatch')
+    && cliSrc.includes('collectProtectedAdminSecrets')
+    && cliSrc.includes('maybeThrowOfflineInjectedTopLevelError')
+    && !/const msg = String\(\(err && err\.message\)/.test(cliSrc));
 
   let liveFactoryDisabled = false;
   try {

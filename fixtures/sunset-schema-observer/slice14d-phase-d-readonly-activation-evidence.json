@@ -1,7 +1,7 @@
 {
   "kind": "sunset-schema-observer-slice14d-phase-d-readonly-activation-evidence",
   "secretFree": true,
-  "generatedAt": "2026-07-19T19:14:01.308Z",
+  "generatedAt": "2026-07-19T19:19:08.766Z",
   "masterShaBasis": "6edd63762ea5a28cec764428c176da2118032729",
   "slice": "14D",
   "outcome": "phase_d_live_readonly_activation_proven_offline",
@@ -50,9 +50,11 @@
     "cliDefaultDisabled": true,
     "connectFailureSanitizedClose": true,
     "queryFailureRollbackAndClose": true,
+    "cliToplevelCatchRedactsAdminSecrets": true,
     "activatedExactSequenceCountOnly": true,
     "cliGatesPassExactTarget": true,
     "boundaryReadyZeroConnect": true,
+    "normalResultRenderingSecretSafe": true,
     "credentialsNeverInLogsResultsErrors": true
   },
   "redCases": [
@@ -113,6 +115,14 @@
       ],
       "rolledBack": true,
       "closed": true
+    },
+    {
+      "name": "cli_toplevel_catch_redacts_admin_secrets",
+      "ok": true,
+      "status": 1,
+      "code": "cli_failed",
+      "redactedMarkerPresent": true,
+      "nestedSanitized": true
     }
   ],
   "greenCases": [
@@ -145,6 +155,12 @@
         "postgresServer": "luna-sunset-staging-pg-app",
         "database": "sunset_staging"
       }
+    },
+    {
+      "name": "normal_result_rendering_secret_safe",
+      "ok": true,
+      "poisonedRenderSanitized": true,
+      "cliUsesProtectedAdminSecrets": true
     },
     {
       "name": "boundary_ready_zero_connect",
