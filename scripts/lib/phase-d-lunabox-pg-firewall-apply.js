@@ -395,6 +395,139 @@ function extractExistingLockedRules(ruleList) {
   return { ok: true, rules: found, all: list };
 }
 
+/** Exact three post-14N firewall rules (CAE + App + AllowLunaboxEgress). */
+const EXPECTED_POST_FIREWALL_RULES = Object.freeze([
+  FIREWALL_LOCKS.existingRules[0],
+  FIREWALL_LOCKS.existingRules[1],
+  Object.freeze({
+    name: FIREWALL_LOCKS.firewallRuleName,
+    startIpAddress: FIREWALL_LOCKS.startIpAddress,
+    endIpAddress: FIREWALL_LOCKS.endIpAddress,
+  }),
+]);
+
+/**
+ * Require exactly three locked rules (order-independent). Used by Slice 14O
+ * post-firewall prestate — refuse extras, missing, or IP drift.
+ */
+function extractExactThreeFirewallRules(ruleList) {
+  const list = Array.isArray(ruleList) ? ruleList.map(normalizeFirewallRule).filter(Boolean) : [];
+  if (list.length !== EXPECTED_POST_FIREWALL_RULES.length) {
+    return {
+      ok: false,
+      code: 'firewall_rule_count_mismatch',
+      errors: [{
+        code: 'firewall_rule_count_mismatch',
+        message: `expected exactly ${EXPECTED_POST_FIREWALL_RULES.length} firewall rules`,
+      }],
+      rules: list,
+      rulesCount: list.length,
+    };
+  }
+  const found = [];
+  for (const expected of EXPECTED_POST_FIREWALL_RULES) {
+    const got = list.find((r) => r.name === expected.name);
+    if (!got || !rulesByteSemanticEqual(got, expected)) {
+      return {
+        ok: false,
+        code: 'firewall_rule_mismatch',
+        errors: [{
+          code: 'firewall_rule_mismatch',
+          message: `rule ${expected.name} missing or IP drift`,
+        }],
+        rules: list,
+        rulesCount: list.length,
+      };
+    }
+    found.push({
+      name: got.name,
+      startIpAddress: got.startIpAddress,
+      endIpAddress: got.endIpAddress,
+      cidr: `${got.startIpAddress}/32`,
+    });
+  }
+  for (const r of list) {
+    if (isForbiddenAzureServicesRuleName(r.name)
+      || r.startIpAddress === '0.0.0.0'
+      || r.endIpAddress === '0.0.0.0') {
+      return {
+        ok: false,
+        code: 'azure_services_or_zero_rule_present',
+        errors: [{
+          code: 'azure_services_or_zero_rule_present',
+          message: 'forbidden Azure-services/0.0.0.0 rule present',
+        }],
+        rules: list,
+        rulesCount: list.length,
+      };
+    }
+  }
+  return { ok: true, rules: found, rulesCount: found.length };
+}
+
+const SAFE_PRESTATE_OUTPUT_KEYS = Object.freeze([
+  'ok',
+  'code',
+  'message',
+  'note',
+  'errors',
+  'liveMutation',
+  'networkMutation',
+  'firewallAction',
+  'kvMutation',
+  'rbacMutation',
+  'identityMutation',
+  'usedLiveHttp',
+  'realImdsCall',
+  'realArmCall',
+  'realOutboundIpCall',
+  'realPostgresCall',
+  'pgClientInstantiated',
+  'httpRequestCount',
+  'imdsRequestCount',
+  'armGetCount',
+  'armPutCount',
+  'armDeleteCount',
+  'outboundIpGetCount',
+  'putCount',
+  'retries',
+  'privateRefsZeroed',
+  'subscriptionId',
+  'resourceGroup',
+  'postgresServer',
+  'postgresHost',
+  'postgresServerResourceId',
+  'firewallRuleName',
+  'firewallRuleResourceId',
+  'startIpAddress',
+  'endIpAddress',
+  'expectedOutboundIpv4',
+  'serverState',
+  'publicNetworkAccess',
+  'serverReady',
+  'publicNetworkAccessEnabled',
+  'rulesCount',
+  'exactThreeRules',
+  'allowLunaboxEgressExact',
+  'firewallRules',
+  'outboundIpv4Service1',
+  'outboundIpv4Service2',
+  'outboundIpv4Matched',
+  'prestateOk',
+  'managedIdentityName',
+  'managedIdentityClientId',
+]);
+
+function pickSafePrestateOutput(obj) {
+  const out = {};
+  for (const k of SAFE_PRESTATE_OUTPUT_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(obj || {}, k)) {
+      out[k] = obj[k];
+    }
+  }
+  return out;
+}
+
 /**
  * Derive before/after rule snapshots + counts from locked existing rules and the
  * exact third rule — never from Azure's full `all` list length (which can already
@@ -1076,7 +1209,11 @@ function createInjectedFirewallHttp(script) {
     }
 
     if (request.purpose === 'firewall_rules_list_before') {
-      return { statusCode: 200, body: listBody(false) };
+      // Slice 14O prestate: post-firewall world already has the third rule.
+      return {
+        statusCode: 200,
+        body: listBody(s.postFirewallRulesPresent === true || s.includeThirdOnListBefore === true),
+      };
     }
     if (request.purpose === 'firewall_rules_list_after') {
       return { statusCode: 200, body: listBody(true) };
@@ -1753,6 +1890,345 @@ function assertBicepFirewallModuleLocked(repoRoot) {
   return { ok: errors.length === 0, errors, bicepPath, paramsPath };
 }
 
+/**
+ * FOUNDATION Slice 14O — read-only post-firewall prestate verify.
+ *
+ * Sequence (zero PUT/DELETE/mutation): IMDS ARM token → server GET (Ready +
+ * publicNetworkAccess Enabled) → firewall rules list (exact three including
+ * AllowLunaboxEgress 20.238.124.76/32) → two outbound IPv4 HTTPS echoes must
+ * equal the locked rule IP. On any failure: sanitize and stop (no PostgreSQL).
+ */
+async function executeLunaboxPgFirewallPrestateVerify(opts) {
+  const options = opts || {};
+  const countersBefore = getFirewallApplyCounters();
+  const secrets = [];
+  const privateBag = { _token: null };
+
+  let httpRequest = null;
+  let usedLiveHttp = false;
+  if (typeof options.httpRequest === 'function') {
+    httpRequest = options.httpRequest;
+    usedLiveHttp = false;
+  } else if (options.offline === true || options.forbidLiveHttp === true) {
+    return pickSafePrestateOutput({
+      ok: false,
+      code: 'http_transport_unavailable',
+      liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
+      kvMutation: false,
+      rbacMutation: false,
+      identityMutation: false,
+      usedLiveHttp: false,
+      realImdsCall: false,
+      realArmCall: false,
+      realOutboundIpCall: false,
+      realPostgresCall: false,
+      pgClientInstantiated: 0,
+      httpRequestCount: 0,
+      putCount: 0,
+      armPutCount: 0,
+      armDeleteCount: 0,
+      retries: 0,
+      privateRefsZeroed: true,
+      prestateOk: false,
+      message: 'http transport unavailable — zero ARM / zero PostgreSQL',
+      errors: [{ code: 'http_transport_unavailable', message: 'http transport unavailable' }],
+    });
+  } else if (PHASE_D_LUNABOX_PG_FIREWALL_LIVE_HTTP_ENABLED === true) {
+    httpRequest = createLiveFirewallHttpRequest();
+    usedLiveHttp = true;
+  } else {
+    return pickSafePrestateOutput({
+      ok: false,
+      code: 'live_http_disabled',
+      liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
+      usedLiveHttp: false,
+      pgClientInstantiated: 0,
+      putCount: 0,
+      prestateOk: false,
+      privateRefsZeroed: true,
+      message: 'live HTTP disabled — zero PostgreSQL',
+      errors: [{ code: 'live_http_disabled', message: 'live HTTP disabled' }],
+    });
+  }
+
+  const fail = (code, message, extra) => {
+    privateBag._token = null;
+    const counters = getFirewallApplyCounters();
+    return pickSafePrestateOutput({
+      ok: false,
+      code,
+      message,
+      liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
+      kvMutation: false,
+      rbacMutation: false,
+      identityMutation: false,
+      usedLiveHttp,
+      realImdsCall: usedLiveHttp && (counters.imdsRequestCount > countersBefore.imdsRequestCount),
+      realArmCall: usedLiveHttp && (counters.armGetCount > countersBefore.armGetCount),
+      realOutboundIpCall: usedLiveHttp
+        && (counters.outboundIpGetCount > countersBefore.outboundIpGetCount),
+      realPostgresCall: false,
+      pgClientInstantiated: 0,
+      httpRequestCount: counters.httpRequestCount - countersBefore.httpRequestCount,
+      imdsRequestCount: counters.imdsRequestCount - countersBefore.imdsRequestCount,
+      armGetCount: counters.armGetCount - countersBefore.armGetCount,
+      armPutCount: 0,
+      armDeleteCount: 0,
+      outboundIpGetCount: counters.outboundIpGetCount - countersBefore.outboundIpGetCount,
+      putCount: counters.putCount - countersBefore.putCount,
+      retries: 0,
+      privateRefsZeroed: true,
+      prestateOk: false,
+      subscriptionId: FIREWALL_LOCKS.subscriptionId,
+      resourceGroup: FIREWALL_LOCKS.resourceGroup,
+      postgresServer: FIREWALL_LOCKS.postgresServer,
+      postgresHost: FIREWALL_LOCKS.postgresHost,
+      postgresServerResourceId: buildPostgresServerResourceId(),
+      firewallRuleName: FIREWALL_LOCKS.firewallRuleName,
+      firewallRuleResourceId: buildFirewallRuleResourceId(),
+      startIpAddress: FIREWALL_LOCKS.startIpAddress,
+      endIpAddress: FIREWALL_LOCKS.endIpAddress,
+      expectedOutboundIpv4: FIREWALL_LOCKS.expectedOutboundIpv4,
+      managedIdentityName: FIREWALL_LOCKS.managedIdentityName,
+      managedIdentityClientId: FIREWALL_LOCKS.managedIdentityClientId,
+      errors: [{ code, message }],
+      ...(extra || {}),
+    });
+  };
+
+  try {
+    httpRequestCount += 1;
+    imdsRequestCount += 1;
+    const imdsUrl = new URL(buildLockedImdsArmTokenUrl());
+    const imdsRes = await httpRequest({
+      purpose: 'imds_arm_token',
+      method: 'GET',
+      hostname: imdsUrl.hostname,
+      path: `${imdsUrl.pathname}${imdsUrl.search}`,
+      headers: { Metadata: 'true' },
+    });
+    if (!imdsRes || Number(imdsRes.statusCode) !== 200) {
+      return fail('imds_http_rejected', 'IMDS ARM token GET rejected');
+    }
+    const imdsBody = JSON.parse(String(imdsRes.body || ''));
+    const token = imdsBody && imdsBody.access_token ? String(imdsBody.access_token) : null;
+    if (!token) return fail('imds_token_missing', 'IMDS access_token missing');
+    secrets.push(token);
+    privateBag._token = token;
+
+    httpRequestCount += 1;
+    armGetCount += 1;
+    const serverRes = await httpRequest({
+      purpose: 'server_get_before',
+      method: 'GET',
+      hostname: FIREWALL_LOCKS.managementHostname,
+      path: buildArmServerPath(),
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!serverRes || Number(serverRes.statusCode) !== 200) {
+      return fail('server_get_rejected', 'PostgreSQL server GET rejected');
+    }
+    const server = JSON.parse(String(serverRes.body || ''));
+    const serverState = server.properties && server.properties.state;
+    const publicNetworkAccess = server.properties
+      && server.properties.network
+      && server.properties.network.publicNetworkAccess;
+    if (serverState !== 'Ready') {
+      return fail('server_not_ready', 'PostgreSQL server not Ready — zero PostgreSQL', {
+        serverState: serverState || null,
+        publicNetworkAccess: publicNetworkAccess || null,
+        serverReady: false,
+        publicNetworkAccessEnabled: publicNetworkAccess === 'Enabled',
+      });
+    }
+    if (publicNetworkAccess !== 'Enabled') {
+      return fail('public_network_access_unexpected', 'publicNetworkAccess must be Enabled', {
+        serverState,
+        publicNetworkAccess: publicNetworkAccess || null,
+        serverReady: true,
+        publicNetworkAccessEnabled: false,
+      });
+    }
+
+    httpRequestCount += 1;
+    armGetCount += 1;
+    const rulesRes = await httpRequest({
+      purpose: 'firewall_rules_list_before',
+      method: 'GET',
+      hostname: FIREWALL_LOCKS.managementHostname,
+      path: buildArmFirewallRulesListPath(),
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!rulesRes || Number(rulesRes.statusCode) !== 200) {
+      return fail('firewall_list_rejected', 'firewall rules list GET rejected', {
+        serverState,
+        publicNetworkAccess,
+        serverReady: true,
+        publicNetworkAccessEnabled: true,
+      });
+    }
+    const rulesBody = JSON.parse(String(rulesRes.body || ''));
+    const extracted = extractExactThreeFirewallRules(rulesBody.value || []);
+    if (!extracted.ok) {
+      return fail(extracted.code, extracted.errors[0].message, {
+        serverState,
+        publicNetworkAccess,
+        serverReady: true,
+        publicNetworkAccessEnabled: true,
+        rulesCount: extracted.rulesCount,
+        exactThreeRules: false,
+        allowLunaboxEgressExact: false,
+        firewallRules: (extracted.rules || []).map((r) => ({
+          name: r.name,
+          startIpAddress: r.startIpAddress,
+          endIpAddress: r.endIpAddress,
+          cidr: `${r.startIpAddress}/32`,
+        })),
+      });
+    }
+    const lunabox = extracted.rules.find((r) => r.name === FIREWALL_LOCKS.firewallRuleName);
+    const allowLunaboxEgressExact = Boolean(
+      lunabox
+      && lunabox.startIpAddress === FIREWALL_LOCKS.startIpAddress
+      && lunabox.endIpAddress === FIREWALL_LOCKS.endIpAddress,
+    );
+
+    const outboundIps = [];
+    for (const svc of FIREWALL_LOCKS.outboundIpServices) {
+      httpRequestCount += 1;
+      outboundIpGetCount += 1;
+      const ipRes = await httpRequest({
+        purpose: svc.purpose,
+        method: 'GET',
+        hostname: svc.hostname,
+        path: svc.path,
+        headers: { Accept: 'text/plain' },
+      });
+      if (!ipRes || Number(ipRes.statusCode) !== 200) {
+        return fail('outbound_ip_http_rejected', `outbound IP service ${svc.name} rejected`, {
+          serverState,
+          publicNetworkAccess,
+          serverReady: true,
+          publicNetworkAccessEnabled: true,
+          rulesCount: extracted.rulesCount,
+          exactThreeRules: true,
+          allowLunaboxEgressExact,
+          firewallRules: extracted.rules,
+        });
+      }
+      const ip = String(ipRes.body || '').trim();
+      if (!isExactIpv4(ip) || ip.includes(':')) {
+        return fail('outbound_ip_not_ipv4', `outbound IP service ${svc.name} did not return exact IPv4`, {
+          serverState,
+          publicNetworkAccess,
+          serverReady: true,
+          publicNetworkAccessEnabled: true,
+          rulesCount: extracted.rulesCount,
+          exactThreeRules: true,
+          allowLunaboxEgressExact,
+          firewallRules: extracted.rules,
+        });
+      }
+      outboundIps.push(ip);
+    }
+    if (outboundIps[0] !== FIREWALL_LOCKS.expectedOutboundIpv4
+      || outboundIps[1] !== FIREWALL_LOCKS.expectedOutboundIpv4) {
+      return fail(
+        'outbound_ip_mismatch',
+        'outbound IPv4 must equal locked 20.238.124.76 on both services — zero PostgreSQL',
+        {
+          outboundIpv4Service1: outboundIps[0],
+          outboundIpv4Service2: outboundIps[1],
+          outboundIpv4Matched: false,
+          serverState,
+          publicNetworkAccess,
+          serverReady: true,
+          publicNetworkAccessEnabled: true,
+          rulesCount: extracted.rulesCount,
+          exactThreeRules: true,
+          allowLunaboxEgressExact,
+          firewallRules: extracted.rules,
+        },
+      );
+    }
+
+    privateBag._token = null;
+    const counters = getFirewallApplyCounters();
+    const putDelta = counters.putCount - countersBefore.putCount;
+    const armPutDelta = counters.armPutCount - countersBefore.armPutCount;
+    if (putDelta !== 0 || armPutDelta !== 0) {
+      return fail('unexpected_put', 'prestate verify must never PUT', {
+        putCount: putDelta,
+        armPutCount: armPutDelta,
+      });
+    }
+
+    return pickSafePrestateOutput({
+      ok: true,
+      code: 'firewall_prestate_ok',
+      message: 'post-firewall prestate verified — Ready + Enabled + exact three rules + outbound IP match',
+      note: 'read-only ARM/outbound GETs only; zero mutation; zero PostgreSQL',
+      liveMutation: false,
+      networkMutation: false,
+      firewallAction: false,
+      kvMutation: false,
+      rbacMutation: false,
+      identityMutation: false,
+      usedLiveHttp,
+      realImdsCall: usedLiveHttp && (counters.imdsRequestCount > countersBefore.imdsRequestCount),
+      realArmCall: usedLiveHttp && (counters.armGetCount > countersBefore.armGetCount),
+      realOutboundIpCall: usedLiveHttp
+        && (counters.outboundIpGetCount > countersBefore.outboundIpGetCount),
+      realPostgresCall: false,
+      pgClientInstantiated: 0,
+      httpRequestCount: counters.httpRequestCount - countersBefore.httpRequestCount,
+      imdsRequestCount: counters.imdsRequestCount - countersBefore.imdsRequestCount,
+      armGetCount: counters.armGetCount - countersBefore.armGetCount,
+      armPutCount: 0,
+      armDeleteCount: 0,
+      outboundIpGetCount: counters.outboundIpGetCount - countersBefore.outboundIpGetCount,
+      putCount: 0,
+      retries: 0,
+      privateRefsZeroed: true,
+      prestateOk: true,
+      subscriptionId: FIREWALL_LOCKS.subscriptionId,
+      resourceGroup: FIREWALL_LOCKS.resourceGroup,
+      postgresServer: FIREWALL_LOCKS.postgresServer,
+      postgresHost: FIREWALL_LOCKS.postgresHost,
+      postgresServerResourceId: buildPostgresServerResourceId(),
+      firewallRuleName: FIREWALL_LOCKS.firewallRuleName,
+      firewallRuleResourceId: buildFirewallRuleResourceId(),
+      startIpAddress: FIREWALL_LOCKS.startIpAddress,
+      endIpAddress: FIREWALL_LOCKS.endIpAddress,
+      expectedOutboundIpv4: FIREWALL_LOCKS.expectedOutboundIpv4,
+      managedIdentityName: FIREWALL_LOCKS.managedIdentityName,
+      managedIdentityClientId: FIREWALL_LOCKS.managedIdentityClientId,
+      serverState,
+      publicNetworkAccess,
+      serverReady: true,
+      publicNetworkAccessEnabled: true,
+      rulesCount: extracted.rulesCount,
+      exactThreeRules: true,
+      allowLunaboxEgressExact: true,
+      firewallRules: extracted.rules,
+      outboundIpv4Service1: outboundIps[0],
+      outboundIpv4Service2: outboundIps[1],
+      outboundIpv4Matched: true,
+      errors: [],
+    });
+  } catch (err) {
+    const sanitized = sanitizeFirewallError(err, secrets);
+    privateBag._token = null;
+    return fail(sanitized.code, sanitized.message);
+  }
+}
+
 module.exports = {
   PHASE_D_LUNABOX_PG_FIREWALL_LIVE_APPLY_ENABLED,
   PHASE_D_LUNABOX_PG_FIREWALL_LIVE_HTTP_ENABLED,
@@ -1760,9 +2236,11 @@ module.exports = {
   ENV_FIREWALL_APPLY,
   CLI_APPLY_FIREWALL_RULE,
   FIREWALL_LOCKS,
+  EXPECTED_POST_FIREWALL_RULES,
   FORBIDDEN_ARGV_FLAGS,
   ALLOWED_ARGV_FLAGS,
   SAFE_OUTPUT_KEYS,
+  SAFE_PRESTATE_OUTPUT_KEYS,
   getFirewallApplyCounters,
   resetFirewallApplyCounters,
   buildPostgresServerResourceId,
@@ -1782,15 +2260,18 @@ module.exports = {
   firewallApplyEnv,
   renderFirewallApplyUsage,
   pickSafeFirewallOutput,
+  pickSafePrestateOutput,
   assertLockedFirewallLiveRequest,
   createLiveFirewallHttpRequest,
   createInjectedFirewallHttp,
   resolveFirewallHttpRequest,
   executeLunaboxPgFirewallApply,
+  executeLunaboxPgFirewallPrestateVerify,
   assertBicepFirewallModuleLocked,
   normalizeFirewallRule,
   rulesByteSemanticEqual,
   extractExistingLockedRules,
+  extractExactThreeFirewallRules,
   buildExistingRuleSnapshots,
   computeCostDelta,
 };

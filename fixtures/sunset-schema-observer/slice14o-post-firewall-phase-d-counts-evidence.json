@@ -1,0 +1,484 @@
+{
+  "kind": "sunset-schema-observer-slice14o-post-firewall-phase-d-counts-evidence",
+  "secretFree": true,
+  "generatedAt": "2026-07-19T21:24:27.762Z",
+  "masterShaBasis": "c0874b04a622190766e74c443bc361e1776ef02f",
+  "slice": "14O",
+  "outcome": "phase_d_post_firewall_counts_ok",
+  "stillProductSchemaDiffers": true,
+  "phaseDConstraintsApplied": false,
+  "liveMutation": false,
+  "liveReadonlyConnectEnabled": true,
+  "liveHttpEnabled": true,
+  "liveApplyEnabled": false,
+  "firewallAction": false,
+  "networkMutation": false,
+  "kvMutation": false,
+  "rbacMutation": false,
+  "identityMutation": false,
+  "migrationAdded": false,
+  "ledgerWritten": false,
+  "applyFlagPresent": false,
+  "appliesConstraints": false,
+  "writesLedger": false,
+  "forwardCountUnchanged": 39,
+  "newForwardMigration": false,
+  "existingCliGatesUnchanged": true,
+  "connectErrorClassifierApplied": true,
+  "connectMessageClassifierApplied": true,
+  "firewallPrestateAttemptCount": 1,
+  "credentialPreflightAttemptCount": 1,
+  "liveCountAttemptCount": 1,
+  "migrationHashes": {
+    "028": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+    "035": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+    "040": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+    "041": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09"
+  },
+  "manifestHashUnchanged": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "productFingerprintUnchanged": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "migration028Sha256CanonicalLfV1": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+  "defaultDisabled": true,
+  "dualEnableFlagsRequired": true,
+  "executeCountOnlyGateRequired": true,
+  "managedIdentityCredentialSourceFlagRequired": true,
+  "authorizedSequence": [
+    "firewall prestate (server Ready + publicNetworkAccess Enabled + exact three rules + dual outbound IP)",
+    "IMDS GET",
+    "Key Vault secret GET",
+    "in-memory exact target validation",
+    "one pg Client (TLS verify-full, application_name wh-sunset-phase-d-preflight)",
+    "BEGIN READ ONLY",
+    "SHOW transaction_read_only",
+    "catalog_table",
+    "catalog_columns",
+    "aggregate",
+    "COMMIT"
+  ],
+  "offlineGates": {
+    "defaultPathZeroHttpAndClients": true,
+    "missingExecuteGateZeroClients": true,
+    "wrongOrForbiddenCliArgsZeroClients": true,
+    "managedIdentityRequiresEnvAndArgv": true,
+    "firewallOutboundIpMismatchZeroPostgres": true,
+    "firewallRuleCountMismatchZeroPostgres": true,
+    "firewallServerNotReadyZeroPostgres": true,
+    "connectClassifierSecretMessagesSanitize": true,
+    "injectedFirewallPrestateExactThreeRules": true,
+    "injectedHttpSuccessExactCountSequence": true,
+    "cliGatesManagedIdentityExactTargets": true,
+    "countOnlyCliDefaultDisabled": true,
+    "locksIdentityVaultSecretPgTlsApplicationNameFirewall": true,
+    "applyDisabledConnectAndHttpEnabled": true,
+    "connectClassifierCategoryMappings": true
+  },
+  "redCases": [
+    {
+      "name": "default_path_zero_http_and_clients",
+      "ok": true,
+      "code": "live_readonly_flags_required",
+      "httpRequestCount": 0,
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "missing_execute_gate_zero_clients",
+      "ok": true,
+      "code": "target_accepted_execute_count_only_required",
+      "clientsInstantiated": 0
+    },
+    {
+      "name": "wrong_or_forbidden_cli_args_zero_clients",
+      "ok": true,
+      "wrongDatabaseRejected": true,
+      "forbiddenDsnRejected": true,
+      "forbiddenFlags": [
+        "--dsn",
+        "--connection-string",
+        "--database-url",
+        "--host",
+        "--port",
+        "--user",
+        "--password",
+        "--username",
+        "--query",
+        "--sql",
+        "--sslmode"
+      ]
+    },
+    {
+      "name": "managed_identity_requires_env_and_argv",
+      "ok": true,
+      "rejected": true
+    },
+    {
+      "name": "firewall_outbound_ip_mismatch_zero_postgres",
+      "ok": true,
+      "code": "outbound_ip_mismatch",
+      "putCount": 0,
+      "pgClientInstantiated": 0
+    },
+    {
+      "name": "firewall_rule_count_mismatch_zero_postgres",
+      "ok": true,
+      "code": "firewall_rule_count_mismatch",
+      "rulesCount": 2,
+      "putCount": 0
+    },
+    {
+      "name": "firewall_server_not_ready_zero_postgres",
+      "ok": true,
+      "code": "server_not_ready",
+      "putCount": 0
+    },
+    {
+      "name": "connect_classifier_secret_messages_sanitize",
+      "ok": true,
+      "classifiedUnknown": {
+        "category": "unknown",
+        "code": "unknown",
+        "message": "connect failed"
+      },
+      "classifiedDnsWithSecrets": {
+        "category": "dns",
+        "code": "ENOTFOUND",
+        "message": "connect failed"
+      },
+      "adversarialMessageClassifications": [
+        {
+          "name": "msg_tls",
+          "category": "tls",
+          "code": "MSG_TLS",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_auth",
+          "category": "auth",
+          "code": "MSG_AUTH",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_firewall",
+          "category": "firewall",
+          "code": "MSG_FIREWALL",
+          "message": "connect failed"
+        },
+        {
+          "name": "msg_timeout",
+          "category": "timeout",
+          "code": "MSG_TIMEOUT",
+          "message": "connect failed"
+        }
+      ]
+    }
+  ],
+  "greenCases": [
+    {
+      "name": "injected_firewall_prestate_exact_three_rules",
+      "ok": true,
+      "rulesCount": 3,
+      "outboundIpv4Matched": true,
+      "allowLunaboxEgressExact": true,
+      "putCount": 0,
+      "httpRequestCount": 5,
+      "armGetCount": 2,
+      "outboundIpGetCount": 2
+    },
+    {
+      "name": "injected_http_success_exact_count_sequence",
+      "ok": true,
+      "steps": [
+        "BEGIN READ ONLY",
+        "SHOW transaction_read_only",
+        "catalog_table",
+        "catalog_columns",
+        "aggregate",
+        "COMMIT"
+      ],
+      "counts": {
+        "total_rows": 11,
+        "date_window_violations": 2,
+        "price_unit_violations": 1
+      },
+      "clientsInstantiated": 1,
+      "httpRequestCount": 2,
+      "queryCalls": 6,
+      "credentialSource": "managed_identity",
+      "closed": true
+    },
+    {
+      "name": "cli_gates_managed_identity_exact_targets",
+      "ok": true,
+      "confirmed": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "luna-sunset-staging-rg",
+        "postgresServer": "luna-sunset-staging-pg-app",
+        "database": "sunset_staging"
+      }
+    },
+    {
+      "name": "count_only_cli_default_disabled",
+      "ok": true,
+      "exitCode": 2
+    },
+    {
+      "name": "locks_identity_vault_secret_pg_tls_application_name_firewall",
+      "ok": true,
+      "managedIdentityName": "wh-staging-identity",
+      "keyVaultName": "luna-sunset-staging-kv",
+      "secretName": "sunset-database-url",
+      "sslmode": "verify-full",
+      "applicationName": "wh-sunset-phase-d-preflight",
+      "firewallRuleName": "AllowLunaboxEgress",
+      "startIpAddress": "20.238.124.76"
+    },
+    {
+      "name": "apply_disabled_connect_and_http_enabled",
+      "ok": true,
+      "liveApplyEnabled": false,
+      "liveReadonlyConnectEnabled": true,
+      "liveHttpEnabled": true,
+      "firewallDeleteEnabled": false
+    },
+    {
+      "name": "connect_classifier_category_mappings",
+      "ok": true,
+      "mappings": [
+        {
+          "code": "28000",
+          "category": "auth"
+        },
+        {
+          "code": "ENOTFOUND",
+          "category": "dns"
+        },
+        {
+          "code": "EAI_AGAIN",
+          "category": "dns"
+        },
+        {
+          "code": "ETIMEDOUT",
+          "category": "timeout"
+        },
+        {
+          "code": "ECONNREFUSED",
+          "category": "refused"
+        },
+        {
+          "code": "ENETUNREACH",
+          "category": "unreachable"
+        },
+        {
+          "code": "EHOSTUNREACH",
+          "category": "unreachable"
+        },
+        {
+          "code": "ECONNRESET",
+          "category": "reset"
+        }
+      ],
+      "allowlistEntryCount": 25,
+      "syntheticCodes": {
+        "client_config": "MSG_CLIENT_CONFIG",
+        "auth": "MSG_AUTH",
+        "database": "MSG_DATABASE",
+        "firewall": "MSG_FIREWALL",
+        "tls": "MSG_TLS",
+        "dns": "MSG_DNS",
+        "timeout": "MSG_TIMEOUT",
+        "unknown": "unknown"
+      },
+      "categories": [
+        "dns",
+        "timeout",
+        "refused",
+        "unreachable",
+        "reset",
+        "tls",
+        "auth",
+        "database",
+        "connection",
+        "firewall",
+        "client_config",
+        "unknown"
+      ],
+      "messageProbeMaxLen": 512
+    }
+  ],
+  "redCaseCount": 8,
+  "greenCaseCount": 7,
+  "httpCallCounts": {
+    "successPathHttpRequestCount": 2,
+    "successPathImdsRequestCount": 1,
+    "successPathKeyVaultRequestCount": 1,
+    "defaultPathHttpRequestCount": 0,
+    "liveFirewallPrestateHttpRequestCount": 5,
+    "liveFirewallPrestateImdsRequestCount": 1,
+    "liveFirewallPrestateArmGetCount": 2,
+    "liveFirewallPrestateOutboundIpGetCount": 2,
+    "liveFirewallPrestatePutCount": 0,
+    "liveCredentialPreflightHttpCallsDelta": 2,
+    "liveCredentialPreflightImdsRequestCount": 1,
+    "liveCredentialPreflightKeyVaultRequestCount": 1,
+    "liveCountHttpRequestCount": 2,
+    "liveCountImdsRequestCount": 1,
+    "liveCountKeyVaultRequestCount": 1
+  },
+  "clientCallCounts": {
+    "successPathClientsInstantiated": 1,
+    "successPathQueryCalls": 6,
+    "defaultPathClientsInstantiated": 0,
+    "liveFirewallPrestateClientsInstantiated": 0,
+    "liveCredentialPreflightClientsInstantiated": 0,
+    "liveCountClientsInstantiated": 1,
+    "liveCountConnectCalls": 1,
+    "liveCountQueryCalls": 6,
+    "liveCountEndCalls": 1,
+    "liveCountSessions": 1
+  },
+  "safeCounts": {
+    "total_rows": 0,
+    "date_window_violations": 0,
+    "price_unit_violations": 0
+  },
+  "firewallPrestateOutcome": {
+    "ok": true,
+    "code": "firewall_prestate_ok",
+    "prestateOk": true,
+    "serverState": "Ready",
+    "publicNetworkAccess": "Enabled",
+    "serverReady": true,
+    "publicNetworkAccessEnabled": true,
+    "rulesCount": 3,
+    "exactThreeRules": true,
+    "allowLunaboxEgressExact": true,
+    "firewallRules": [
+      {
+        "name": "AllowSunsetCaeEgress",
+        "startIpAddress": "4.209.106.13",
+        "endIpAddress": "4.209.106.13",
+        "cidr": "4.209.106.13/32"
+      },
+      {
+        "name": "AllowSunsetAppEgress",
+        "startIpAddress": "4.208.189.26",
+        "endIpAddress": "4.208.189.26",
+        "cidr": "4.208.189.26/32"
+      },
+      {
+        "name": "AllowLunaboxEgress",
+        "startIpAddress": "20.238.124.76",
+        "endIpAddress": "20.238.124.76",
+        "cidr": "20.238.124.76/32"
+      }
+    ],
+    "outboundIpv4Service1": "20.238.124.76",
+    "outboundIpv4Service2": "20.238.124.76",
+    "outboundIpv4Matched": true,
+    "expectedOutboundIpv4": "20.238.124.76",
+    "httpRequestCount": 5,
+    "imdsRequestCount": 1,
+    "armGetCount": 2,
+    "armPutCount": 0,
+    "armDeleteCount": 0,
+    "outboundIpGetCount": 2,
+    "putCount": 0,
+    "retries": 0,
+    "usedLiveHttp": true,
+    "realImdsCall": true,
+    "realArmCall": true,
+    "realOutboundIpCall": true,
+    "realPostgresCall": false,
+    "pgClientInstantiated": 0,
+    "liveMutation": false,
+    "networkMutation": false,
+    "firewallAction": false,
+    "kvMutation": false,
+    "rbacMutation": false,
+    "identityMutation": false,
+    "postgresServer": "luna-sunset-staging-pg-app",
+    "firewallRuleName": "AllowLunaboxEgress",
+    "startIpAddress": "20.238.124.76",
+    "endIpAddress": "20.238.124.76",
+    "managedIdentityName": "wh-staging-identity",
+    "errors": [],
+    "blocker": null
+  },
+  "credentialPreflightOutcome": {
+    "ok": true,
+    "code": "credential_preflight_ok",
+    "exitCode": 0,
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "secretTargetValid": true,
+    "httpCallsDelta": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "clientsInstantiated": 0,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": false,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": null
+  },
+  "liveCountOutcome": {
+    "attempt": 1,
+    "ok": true,
+    "code": "phase_d_live_readonly_pg_sequence_ok",
+    "connectCategory": null,
+    "message": null,
+    "exitCode": 0,
+    "counts": {
+      "total_rows": 0,
+      "date_window_violations": 0,
+      "price_unit_violations": 0
+    },
+    "steps": [
+      "BEGIN READ ONLY",
+      "SHOW transaction_read_only",
+      "catalog_table",
+      "catalog_columns",
+      "aggregate",
+      "COMMIT"
+    ],
+    "credentialSource": "managed-identity",
+    "managedIdentityName": "wh-staging-identity",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url",
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-phase-d-preflight",
+    "clientsInstantiated": 1,
+    "connectCalls": 1,
+    "queryCalls": 6,
+    "endCalls": 1,
+    "httpRequestCount": 2,
+    "imdsRequestCount": 1,
+    "keyVaultRequestCount": 1,
+    "closed": true,
+    "liveQueryExecution": true,
+    "realImdsCall": true,
+    "realKeyVaultCall": true,
+    "realPostgresCall": true,
+    "liveMutation": false,
+    "errors": [],
+    "blocker": null
+  },
+  "secretHandlingProof": {
+    "privateFieldsZeroedImmediately": true,
+    "neverPrinted": true,
+    "neverPersisted": true,
+    "neverHashedIntoEvidence": true,
+    "neverInArgv": true,
+    "neverInTempFile": true,
+    "neverInChildProcessEnv": true,
+    "connectClassifierNeverOutputsRawMessage": true,
+    "connectMessageClassifierNeverOutputsMatchedFragment": true
+  }
+}
