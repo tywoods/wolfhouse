@@ -653,6 +653,326 @@ function normalizeAclText(acl, dbOwner) {
     .join(',');
 }
 
+/** DEC-001 / Slice 13C.1 — Azure Flexible Server identity presentation only. */
+const NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1 = 'azure_flexible_server_v1';
+const SUPPORTED_NORMALIZATION_PROFILES = Object.freeze([
+  NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1,
+]);
+
+function assertAzureFlexibleServerContext(ctx) {
+  const errors = [];
+  if (!ctx || ctx.verified !== true) {
+    errors.push({
+      code: 'azure_context_not_verified',
+      message: 'azure_flexible_server_v1 requires independently verified Azure Flexible Server context',
+    });
+    return { ok: false, errors };
+  }
+  if (String(ctx.host || '') !== EXPECTED_HOST) {
+    errors.push({
+      code: 'azure_context_wrong_host',
+      message: `host must be exactly ${EXPECTED_HOST}`,
+    });
+  }
+  if (String(ctx.database || '') !== EXPECTED_DATABASE) {
+    errors.push({
+      code: 'azure_context_wrong_database',
+      message: `database must be exactly ${EXPECTED_DATABASE}`,
+    });
+  }
+  return { ok: errors.length === 0, errors };
+}
+
+function resolveNormalizationProfile(profile, azureContext) {
+  if (profile == null || profile === '' || profile === false) {
+    return { ok: true, profile: null };
+  }
+  if (!SUPPORTED_NORMALIZATION_PROFILES.includes(profile)) {
+    return {
+      ok: false,
+      code: 'normalization_profile_unknown',
+      message: `unknown normalization profile ${profile}`,
+    };
+  }
+  if (profile === NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    const gate = assertAzureFlexibleServerContext(azureContext);
+    if (!gate.ok) {
+      return {
+        ok: false,
+        code: gate.errors[0] && gate.errors[0].code || 'azure_context_rejected',
+        message: (gate.errors[0] && gate.errors[0].message) || 'azure context rejected',
+        errors: gate.errors,
+      };
+    }
+  }
+  return { ok: true, profile };
+}
+
+/**
+ * Parse PostgreSQL aclitem list into structured entries.
+ * Format: grantee=privs/grantor (empty grantee = PUBLIC).
+ */
+function parseAclEntries(aclText) {
+  const parts = String(aclText || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  const entries = [];
+  for (const raw of parts) {
+    const m = raw.match(/^([^=]*)=([^/]*)\/(.+)$/);
+    if (!m) {
+      return { ok: false, code: 'acl_parse_failed', message: `unparseable ACL entry: ${raw}` };
+    }
+    entries.push({
+      raw,
+      grantee: m[1],
+      privs: m[2],
+      grantor: m[3],
+    });
+  }
+  return { ok: true, entries };
+}
+
+function formatAclEntries(entries) {
+  return entries
+    .map((e) => `${e.grantee}=${e.privs}/${e.grantor}`)
+    .sort()
+    .join(',');
+}
+
+/**
+ * Map azure_pg_admin ↔ pg_database_owner on public schema ACL only.
+ * Privilege letters (including grant-option *) must be unchanged; only role tokens move.
+ */
+function normalizePublicSchemaAclAzurePgAdmin(aclText) {
+  const parsed = parseAclEntries(aclText);
+  if (!parsed.ok) return parsed;
+  const roleMap = {
+    azure_pg_admin: 'pg_database_owner',
+    pg_database_owner: 'pg_database_owner',
+  };
+  const beforePrivFingerprint = parsed.entries.map((e) => e.privs).join('|');
+  const mapped = parsed.entries.map((e) => {
+    const grantee = Object.prototype.hasOwnProperty.call(roleMap, e.grantee)
+      ? roleMap[e.grantee]
+      : e.grantee;
+    const grantor = Object.prototype.hasOwnProperty.call(roleMap, e.grantor)
+      ? roleMap[e.grantor]
+      : e.grantor;
+    return { grantee, privs: e.privs, grantor };
+  });
+  const afterPrivFingerprint = mapped.map((e) => e.privs).join('|');
+  if (beforePrivFingerprint !== afterPrivFingerprint) {
+    return {
+      ok: false,
+      code: 'acl_privilege_changed_during_normalization',
+      message: 'privilege set changed while normalizing public schema ACL',
+    };
+  }
+  // Semantic privilege set: (normalizedGrantee, privs) multiset must preserve privilege codes.
+  const privilegeCodesOnly = (list) => list.map((e) => e.privs).slice().sort().join(',');
+  if (privilegeCodesOnly(parsed.entries) !== privilegeCodesOnly(mapped)) {
+    return {
+      ok: false,
+      code: 'acl_privilege_codes_drift',
+      message: 'privilege codes drifted during ACL role-token mapping',
+    };
+  }
+  return {
+    ok: true,
+    acl: formatAclEntries(mapped),
+    rule: 'azure_pg_admin_public_schema_acl_role_equivalence',
+    privilegeSetUnchanged: true,
+  };
+}
+
+function normalizeObservedOwnerAzure(owner, object) {
+  const o = String(owner || '');
+  const kind = String(object.kind || '');
+  const name = String(object.name || object.identity || '');
+
+  // Mapping 1: azuresu → $db_owner for extension + function owners only.
+  if (o === 'azuresu') {
+    if (kind === 'extension' || kind === 'function') {
+      return {
+        ok: true,
+        owner: '$db_owner',
+        rule: 'azuresu_to_db_owner_extension_or_function',
+        applied: true,
+      };
+    }
+    return {
+      ok: true,
+      owner: o,
+      rule: null,
+      applied: false,
+      refused: 'azuresu_not_allowed_for_object_class',
+    };
+  }
+
+  // Mapping 2: azure_pg_admin → pg_database_owner for public schema owner only.
+  if (o === 'azure_pg_admin') {
+    if (kind === 'schema' && name === 'public') {
+      return {
+        ok: true,
+        owner: 'pg_database_owner',
+        rule: 'azure_pg_admin_to_pg_database_owner_public_schema',
+        applied: true,
+      };
+    }
+    return {
+      ok: true,
+      owner: o,
+      rule: null,
+      applied: false,
+      refused: 'azure_pg_admin_not_allowed_outside_public_schema',
+    };
+  }
+
+  return { ok: true, owner: o, rule: null, applied: false };
+}
+
+/**
+ * Deterministic, auditable normalization of observed identity presentation.
+ * Does not mutate the input snapshot. Does not change privilege bits.
+ */
+function normalizeObservedIdentityPresentation(snapshot, opts) {
+  const options = opts || {};
+  const resolved = resolveNormalizationProfile(options.profile, options.azureContext);
+  if (!resolved.ok) {
+    return {
+      ok: false,
+      code: resolved.code,
+      message: resolved.message,
+      errors: resolved.errors || [{ code: resolved.code, message: resolved.message }],
+    };
+  }
+  const profile = resolved.profile;
+  const src = snapshot || {};
+  const out = JSON.parse(JSON.stringify(src));
+  const audit = [];
+
+  if (!profile) {
+    return { ok: true, profile: null, snapshot: out, audit };
+  }
+
+  if (profile === NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1) {
+    for (const o of out.ownership || []) {
+      const n = normalizeObservedOwnerAzure(o.owner, o);
+      if (n.applied) {
+        audit.push({
+          section: 'ownership',
+          key: `${o.kind}:${o.identity}`,
+          rule: n.rule,
+          from: o.owner,
+          to: n.owner,
+          privilegeSetUnchanged: true,
+        });
+        o.owner = n.owner;
+      }
+    }
+    for (const e of out.extensions || []) {
+      const n = normalizeObservedOwnerAzure(e.owner, { kind: 'extension', name: e.name, identity: e.name });
+      if (n.applied) {
+        audit.push({
+          section: 'extensions',
+          key: e.name,
+          rule: n.rule,
+          from: e.owner,
+          to: n.owner,
+          privilegeSetUnchanged: true,
+        });
+        e.owner = n.owner;
+      }
+    }
+    for (const a of out.acls || []) {
+      if (a.kind === 'schema' && (a.name === 'public' || a.identity === 'public')) {
+        const n = normalizePublicSchemaAclAzurePgAdmin(a.acl);
+        if (!n.ok) {
+          return { ok: false, code: n.code, message: n.message, audit };
+        }
+        if (n.acl !== a.acl) {
+          audit.push({
+            section: 'acls',
+            key: `${a.kind}:${a.identity}`,
+            rule: n.rule,
+            from: a.acl,
+            to: n.acl,
+            privilegeSetUnchanged: n.privilegeSetUnchanged === true,
+          });
+          a.acl = n.acl;
+        }
+      }
+    }
+  }
+
+  return { ok: true, profile, snapshot: out, audit };
+}
+
+function compareSnapshots(expected, live, opts) {
+  const options = opts || {};
+  let liveSnap = live;
+  let normalization = null;
+  if (options.normalizationProfile != null && options.normalizationProfile !== '' && options.normalizationProfile !== false) {
+    normalization = normalizeObservedIdentityPresentation(live, {
+      profile: options.normalizationProfile,
+      azureContext: options.azureContext,
+    });
+    if (!normalization.ok) {
+      return {
+        ok: false,
+        drifts: [],
+        counts: { expected_only: 0, live_only: 0, definition_mismatch: 0 },
+        normalizationError: {
+          code: normalization.code,
+          message: normalization.message,
+          errors: normalization.errors || [],
+        },
+      };
+    }
+    liveSnap = normalization.snapshot;
+  }
+  const drifts = [];
+  function diffSection(name, expList, liveList, keyFn, equalFn) {
+    const eMap = indexByKey(expList || [], keyFn);
+    const lMap = indexByKey(liveList || [], keyFn);
+    for (const [k, ev] of eMap) {
+      if (!lMap.has(k)) drifts.push({ kind: 'expected_only', section: name, key: k });
+      else if (!equalFn(ev, lMap.get(k))) {
+        drifts.push({ kind: 'definition_mismatch', section: name, key: k });
+      }
+    }
+    for (const [k] of lMap) {
+      if (!eMap.has(k)) drifts.push({ kind: 'live_only', section: name, key: k });
+    }
+  }
+  diffSection('tables', (expected.tables || []).map((t) => ({ name: t })), (liveSnap.tables || []).map((t) => ({ name: t })), (x) => x.name, () => true);
+  diffSection('columns', expected.columns, liveSnap.columns, (c) => `${c.table}.${c.column}`, deepEqual);
+  diffSection('constraints', expected.constraints, liveSnap.constraints, (c) => `${c.table}.${c.name}.${c.type}`, deepEqual);
+  diffSection('indexes', expected.indexes, liveSnap.indexes, (i) => `${i.table}.${i.name}`, (a, b) => a.def === b.def);
+  diffSection('sequences', (expected.sequences || []).map((s) => ({ name: s })), (liveSnap.sequences || []).map((s) => ({ name: s })), (x) => x.name, () => true);
+  diffSection('views', expected.views, liveSnap.views, (v) => v.name, (a, b) => a.def === b.def);
+  diffSection('enums', expected.enums, liveSnap.enums, (e) => `${e.type}:${e.label}`, (a, b) => a.order === b.order && a.label === b.label);
+  diffSection('functions', expected.functions, liveSnap.functions, (f) => f.identity || f.name, deepEqual);
+  diffSection('triggers', expected.triggers, liveSnap.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
+  diffSection('rlsFlags', expected.rlsFlags, liveSnap.rlsFlags, (r) => r.table, deepEqual);
+  diffSection('rlsPolicies', expected.rlsPolicies, liveSnap.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
+  diffSection('ownership', expected.ownership, liveSnap.ownership, (o) => `${o.kind}:${o.identity}`, deepEqual);
+  diffSection('acls', expected.acls, liveSnap.acls, (a) => `${a.kind}:${a.identity}`, deepEqual);
+  diffSection('extensions', expected.extensions, liveSnap.extensions, (e) => e.name, deepEqual);
+  const counts = {
+    expected_only: drifts.filter((d) => d.kind === 'expected_only').length,
+    live_only: drifts.filter((d) => d.kind === 'live_only').length,
+    definition_mismatch: drifts.filter((d) => d.kind === 'definition_mismatch').length,
+  };
+  return {
+    drifts,
+    counts,
+    ok: counts.expected_only + counts.live_only + counts.definition_mismatch === 0,
+    normalization,
+  };
+}
+
 function buildProductSchemaSnapshot(rowsByKind, opts) {
   const options = opts || {};
   const dbOwner = options.dbOwner || null;
@@ -816,47 +1136,6 @@ function indexByKey(items, keyFn) {
 
 function deepEqual(a, b) {
   return JSON.stringify(a) === JSON.stringify(b);
-}
-
-function compareSnapshots(expected, live) {
-  const drifts = [];
-  function diffSection(name, expList, liveList, keyFn, equalFn) {
-    const eMap = indexByKey(expList || [], keyFn);
-    const lMap = indexByKey(liveList || [], keyFn);
-    for (const [k, ev] of eMap) {
-      if (!lMap.has(k)) drifts.push({ kind: 'expected_only', section: name, key: k });
-      else if (!equalFn(ev, lMap.get(k))) {
-        drifts.push({ kind: 'definition_mismatch', section: name, key: k });
-      }
-    }
-    for (const [k] of lMap) {
-      if (!eMap.has(k)) drifts.push({ kind: 'live_only', section: name, key: k });
-    }
-  }
-  diffSection('tables', (expected.tables || []).map((t) => ({ name: t })), (live.tables || []).map((t) => ({ name: t })), (x) => x.name, () => true);
-  diffSection('columns', expected.columns, live.columns, (c) => `${c.table}.${c.column}`, deepEqual);
-  diffSection('constraints', expected.constraints, live.constraints, (c) => `${c.table}.${c.name}.${c.type}`, deepEqual);
-  diffSection('indexes', expected.indexes, live.indexes, (i) => `${i.table}.${i.name}`, (a, b) => a.def === b.def);
-  diffSection('sequences', (expected.sequences || []).map((s) => ({ name: s })), (live.sequences || []).map((s) => ({ name: s })), (x) => x.name, () => true);
-  diffSection('views', expected.views, live.views, (v) => v.name, (a, b) => a.def === b.def);
-  diffSection('enums', expected.enums, live.enums, (e) => `${e.type}:${e.label}`, (a, b) => a.order === b.order && a.label === b.label);
-  diffSection('functions', expected.functions, live.functions, (f) => f.identity || f.name, deepEqual);
-  diffSection('triggers', expected.triggers, live.triggers, (t) => `${t.table}.${t.name}`, (a, b) => a.def === b.def);
-  diffSection('rlsFlags', expected.rlsFlags, live.rlsFlags, (r) => r.table, deepEqual);
-  diffSection('rlsPolicies', expected.rlsPolicies, live.rlsPolicies, (p) => `${p.table}.${p.name}`, deepEqual);
-  diffSection('ownership', expected.ownership, live.ownership, (o) => `${o.kind}:${o.identity}`, deepEqual);
-  diffSection('acls', expected.acls, live.acls, (a) => `${a.kind}:${a.identity}`, deepEqual);
-  diffSection('extensions', expected.extensions, live.extensions, (e) => e.name, deepEqual);
-  const counts = {
-    expected_only: drifts.filter((d) => d.kind === 'expected_only').length,
-    live_only: drifts.filter((d) => d.kind === 'live_only').length,
-    definition_mismatch: drifts.filter((d) => d.kind === 'definition_mismatch').length,
-  };
-  return {
-    drifts,
-    counts,
-    ok: counts.expected_only + counts.live_only + counts.definition_mismatch === 0,
-  };
 }
 
 function assertReadOnlySession(showRows) {
@@ -1072,6 +1351,14 @@ module.exports = {
   buildProductSchemaSnapshot,
   fingerprintProductSchema,
   compareSnapshots,
+  NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1,
+  SUPPORTED_NORMALIZATION_PROFILES,
+  assertAzureFlexibleServerContext,
+  resolveNormalizationProfile,
+  parseAclEntries,
+  normalizeObservedIdentityPresentation,
+  normalizeObservedOwnerAzure,
+  normalizePublicSchemaAclAzurePgAdmin,
   assertReadOnlySession,
   safeQuery,
   introspectProductSchema,

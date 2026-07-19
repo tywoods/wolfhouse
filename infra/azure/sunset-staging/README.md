@@ -377,6 +377,17 @@ npm run verify:sunset-schema-slice13b
 
 **Direction (operator approval still required before repair):** observer Azure normalization (no ownership mutation); promote location-aware model into canonical forward later; additive 035 + tenant_services columns; CHECK constraints after violation-count preflight; fail-closed ledger bootstrap (`verified_structural_baseline` vs `executed_by_canonical_runner`); keep 018/019/020 blocked until metadata checks pass.
 
+### Slice 13C.1 — Phase A identity normalization (implemented)
+
+Observer profile `azure_flexible_server_v1` normalizes Azure Flexible Server identity presentation only. Offline/committed evidence proves **88 → 46** mismatches (42 ownership/ACL/extension presentation keys cleared; 46 substantive remain). Canonical fixture unchanged. Live DB still does not match canonical.
+
+```bash
+npm run build:sunset-schema-slice13c1-normalization-evidence
+npm run verify:sunset-schema-slice13c1
+```
+
+Artifacts: `fixtures/sunset-schema-observer/slice13c1-azure-identity-normalization-evidence.json`, `slice13c1-findings.md`. Phase A marked complete on the Slice 13C rehearsal contract; Phases B–E remain pending. **No observer job start in this slice.**
+
 ---
 
 ## Schema observer role + KV secret (FOUNDATION Slice 7–9)
@@ -432,3 +443,4 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 13A — classify 88 mismatches + 36-migration provenance (investigation only; no repair/live mutation) — 2026-07-19*
 *FOUNDATION Slice 13A.1 — canonical_lf_v1 migration checksums (EOL-invariant; DEC-007 resolved) — 2026-07-19*
 *FOUNDATION Slice 13B — approved-direction reconciliation design (design only; no repair/live mutation) — 2026-07-19*
+*FOUNDATION Slice 13C.1 — azure_flexible_server_v1 observer identity normalization (88→46; no live mutation) — 2026-07-19*

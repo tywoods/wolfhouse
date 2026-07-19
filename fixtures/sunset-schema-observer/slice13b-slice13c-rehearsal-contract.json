@@ -43,5 +43,21 @@
     "No Azure mutation",
     "No blessing live dumps into expected-product-schema.json",
     "No reading production/staging product-row payloads"
-  ]
+  ],
+  "slice13c1PhaseA": {
+    "status": "complete_offline_identity_normalization",
+    "completedAt": "2026-07-19T14:51:22.099Z",
+    "masterShaBasis": "896b8220dd8586ce8ca6a416eeeefcb819c2a9b5",
+    "normalizationProfile": "azure_flexible_server_v1",
+    "evidence": "fixtures/sunset-schema-observer/slice13c1-azure-identity-normalization-evidence.json",
+    "note": "Phase A observer Azure identity normalization implemented and proven offline (88→46). Disposable DB rehearsal of A is satisfied by unit/fixture proof; live observer job not started. Phases B–E remain pending."
+  },
+  "phaseStatus": {
+    "A": "complete_offline_identity_normalization",
+    "B": "pending",
+    "C": "pending",
+    "D": "pending",
+    "E": "pending",
+    "F": "pending"
+  }
 }

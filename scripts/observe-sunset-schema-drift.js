@@ -28,6 +28,7 @@ const {
   contractStalenessErrors,
   contractScopeMeta,
   redactSecrets,
+  NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1,
 } = require('./lib/sunset-schema-observer');
 const { loadManifest, MANIFEST_PATH } = require('./lib/migration-integrity');
 
@@ -132,10 +133,32 @@ async function main() {
     report.session = session.show;
     const product = await introspectProductSchema(client);
     report.productFingerprintLive = fingerprintProductSchema(product.snapshot);
-    const cmp = compareSnapshots(contract.snapshot, product.snapshot);
+    const azureContext = allowLocal
+      ? null
+      : {
+        verified: true,
+        host: EXPECTED_HOST,
+        database: EXPECTED_DATABASE,
+      };
+    const normalizationProfile = allowLocal
+      ? null
+      : NORMALIZATION_PROFILE_AZURE_FLEXIBLE_SERVER_V1;
+    const cmp = compareSnapshots(contract.snapshot, product.snapshot, {
+      normalizationProfile,
+      azureContext,
+    });
+    if (cmp.normalizationError) {
+      report.code = cmp.normalizationError.code || 'normalization_failed';
+      report.errors = cmp.normalizationError.errors || [cmp.normalizationError];
+      emit(report);
+      process.exit(2);
+    }
+    report.normalizationProfile = normalizationProfile;
     report.drift.counts = cmp.counts;
     report.drift.sample = cmp.drifts.slice(0, 100);
-    report.match = cmp.ok && report.productFingerprintExpected === report.productFingerprintLive;
+    report.drift.mismatchCount = cmp.drifts.length;
+    report.match = cmp.ok;
+    // Fingerprints remain raw (pre-normalization) so Azure identity presentation still differs.
     report.ok = report.match;
     if (!report.match) report.code = 'product_schema_differs';
     emit(report);
