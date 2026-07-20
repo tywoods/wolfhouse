@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "outcome_id": "15K_signature_control_reaudit",
+  "boundary_ids": [
+    "B01_meta_whatsapp_signature_ingress",
+    "B12_stripe_webhook_signature"
+  ],
+  "status": "reaudited",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "note": "15A matrix/doc retain historical B01 unproven and B12 proven_isolated_by_runtime verdicts. This overlay records the 15K source/config reaudit without rewriting 15A artifacts. No live secret reads; live activation of META_APP_SECRET / STRIPE_WEBHOOK_SECRET values is explicitly unproven.",
+  "master_basis": "9a734fa8e989e10800afbdde0ac722187f6db2d5",
+  "master_basis_15a": "32b44930685450cb27ac519d052332be7b18150d",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "reaudit": {
+    "B01_meta_whatsapp_signature_ingress": {
+      "historical_verdict": "unproven",
+      "reaudit_verdict": "vulnerable",
+      "severity": "high",
+      "controls_proven": [
+        "GET hub.mode must be subscribe else 403",
+        "GET hub.verify_token compared to resolveMetaWhatsAppVerifyToken (env or hardcoded default)",
+        "POST reads raw Buffer via readBodyRaw before JSON.parse",
+        "When META_APP_SECRET set and signature present with wrong format/mismatch → verified:false skipped:false → HTTP 403 before PostEntry/PG",
+        "HMAC-SHA256 + timingSafeEqual when lengths match"
+      ],
+      "reproducible_gaps": [
+        "META_APP_SECRET absent → skipped:true; handler admits and continues to normalize/PostEntry/PG",
+        "META_APP_SECRET present + missing X-Hub-Signature-256 → skipped:true error missing_signature_header; handler admits (treats skip like allow)",
+        "Handler gate is !skipped && !verified (skip is not reject)",
+        "DEFAULT_META_WHATSAPP_VERIFY_TOKEN hardcoded wolfhouse_verify_token when META_WHATSAPP_VERIFY_TOKEN unset",
+        "staging/sunset main.bicep declare META_WHATSAPP_TOKEN / phone id but not META_APP_SECRET or META_WHATSAPP_VERIFY_TOKEN",
+        "No startup validation requiring META_APP_SECRET for Staff API Meta webhook profile"
+      ],
+      "live_activation": "unproven"
+    },
+    "B12_stripe_webhook_signature": {
+      "historical_verdict": "proven_isolated_by_runtime",
+      "reaudit_verdict": "proven_isolated_by_runtime",
+      "severity": "high",
+      "controls_proven": [
+        "POST /staff/stripe/webhook uses readBodyRaw Buffer before constructEvent",
+        "STRIPE_WEBHOOK_SKIP_VERIFY !== true and missing STRIPE_WEBHOOK_SECRET → 503 no_db_write before session/payment DB",
+        "Missing stripe-signature → 400 before DB",
+        "constructEvent failure → 400 before DB",
+        "Tenant bind (15B) and payment lookup occur only after signature admission",
+        "staging + sunset Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false and secretRef stripe-webhook-secret",
+        "docker-compose.local defaults SKIP_VERIFY to false",
+        ".env.example documents SKIP_VERIFY=false"
+      ],
+      "residual_non_blocking": [
+        "STRIPE_WEBHOOK_SKIP_VERIFY=true bypasses HMAC with no NODE_ENV/runtime-profile startup refuse (docs-only footgun)",
+        "Single webhook secret per Staff API process (tenant isolation depends on per-runtime Stripe account + secret + DB)",
+        "Live webhook secret value and Stripe endpoint registration not proven offline"
+      ],
+      "live_activation": "partial_iac_only_secret_value_unproven"
+    }
+  }
+}

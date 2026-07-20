@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "contract_kind": "bounded_remediation_design",
+  "status": "design_only_not_implemented",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "next_implementation_slice": "FORTRESS-15L",
+  "outcome_id": "15L_meta_signature_fail_closed",
+  "boundary_id": "B01_meta_whatsapp_signature_ingress",
+  "title": "Fail-closed Meta WhatsApp hub signature and verify-token admission before any PostEntry/PG",
+  "problem": "Meta POST admission treats verifyMetaHubSignature256 skipped:true as allow. That includes (1) absent META_APP_SECRET and (2) present secret with missing X-Hub-Signature-256. Committed staging/sunset Bicep never wire META_APP_SECRET, so deployments from those manifests inherit fail-open POST. GET hub verify also falls back to a hardcoded default token.",
+  "owner_files": [
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/staff-query-api.js",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/.env.example"
+  ],
+  "required_controls": [
+    {
+      "id": "meta_post_missing_secret_reject",
+      "detail": "When META_APP_SECRET is empty, verifyMetaHubSignature256 must not return skipped:true that the HTTP handler admits. Prefer verified:false skipped:false with a stable error (e.g. app_secret_unconfigured) and HTTP 503/403 with no_write_performed before PostEntry."
+    },
+    {
+      "id": "meta_post_missing_header_reject",
+      "detail": "When META_APP_SECRET is set and X-Hub-Signature-256 is missing/empty, return skipped:false verified:false (missing_signature_header) so handleMetaWhatsAppWebhookPost rejects 403. Never map missing header to skipped:true."
+    },
+    {
+      "id": "meta_handler_reject_unverified",
+      "detail": "HTTP gate must reject unless verified:true (or an explicit, profile-gated META_WEBHOOK_SKIP_VERIFY-style flag analogous to Stripe — default false, refused in staging/production profiles)."
+    },
+    {
+      "id": "meta_get_verify_token_no_hardcoded_default",
+      "detail": "resolveMetaWhatsAppVerifyToken must not succeed with DEFAULT_META_WHATSAPP_VERIFY_TOKEN in staging/production profiles. Require META_WHATSAPP_VERIFY_TOKEN from env or fail closed on GET."
+    },
+    {
+      "id": "iac_wire_meta_app_secret",
+      "detail": "Declare META_APP_SECRET (and META_WHATSAPP_VERIFY_TOKEN) via Key Vault secretRef on staging and sunset Staff API Bicep, parallel to stripe-webhook-secret. Do not commit secret values."
+    }
+  ],
+  "acceptance_tests": [
+    "RED: META_APP_SECRET unset + POST body → 403/503; signature_verification_skipped must not allow PostEntry; acquired_pg false",
+    "RED: META_APP_SECRET set + missing X-Hub-Signature-256 → 403; no PostEntry/PG",
+    "RED: META_APP_SECRET set + wrong sha256 → 403; no PostEntry/PG",
+    "RED: GET hub verify with unset META_WHATSAPP_VERIFY_TOKEN under staging/production profile → 403 (no hardcoded default admit)",
+    "GREEN: META_APP_SECRET set + valid sha256=HMAC → admit to PostEntry path (authority/DB gates unchanged)",
+    "GREEN: GET with matching META_WHATSAPP_VERIFY_TOKEN still returns hub.challenge",
+    "GREEN: historical 15A B01 unproven verdict unchanged; 15K overlay + 15L remediation overlay only"
+  ],
+  "out_of_scope": [
+    "B02 Meta live client_slug authority (already 15H2)",
+    "B12 Stripe webhook signature behavior change (residual skip footgun optional follow-up)",
+    "live Meta / Azure / Key Vault secret rotation execution",
+    "Hermes WhatsApp verify token cutover on Lunabox"
+  ],
+  "must_not": [
+    "treat skipped:true as HTTP admit for Meta POST",
+    "commit real META_APP_SECRET or verify token values",
+    "enable a Meta skip-verify flag without staging/production refuse",
+    "rewrite 15A historical B01 verdict"
+  ]
+}

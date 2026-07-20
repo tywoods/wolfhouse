@@ -1,0 +1,138 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "description": "Offline RED/GREEN attack cases for B01/B12 signature-control reaudit. Fake IDs only — no live secrets, no network. Complements (does not rewrite) 15A attack-cases.json.",
+  "cases": [
+    {
+      "id": "AC15K_B01_NO_SECRET_SKIP_ADMIT",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "POST Meta webhook with META_APP_SECRET unset; signature helper returns skipped:true and HTTP gate admits",
+      "expect": {
+        "verdict": "vulnerable",
+        "helper": { "verified": false, "skipped": true },
+        "handler_admits_skipped": true
+      }
+    },
+    {
+      "id": "AC15K_B01_SECRET_MISSING_HEADER_SKIP_ADMIT",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET set but X-Hub-Signature-256 absent; helper skipped:true missing_signature_header; handler admits",
+      "expect": {
+        "verdict": "vulnerable",
+        "helper": { "verified": false, "skipped": true, "error": "missing_signature_header" },
+        "handler_admits_skipped": true
+      }
+    },
+    {
+      "id": "AC15K_B01_DEFAULT_VERIFY_TOKEN",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "GET hub challenge with hardcoded default token when META_WHATSAPP_VERIFY_TOKEN unset",
+      "expect": {
+        "verdict": "vulnerable",
+        "hub_ok": true,
+        "uses_default_token": true
+      }
+    },
+    {
+      "id": "AC15K_B01_IAC_NO_META_APP_SECRET",
+      "color": "RED",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "staging/sunset Bicep lack META_APP_SECRET declaration while Meta webhook route exists",
+      "expect": {
+        "verdict": "vulnerable",
+        "staging_has_meta_app_secret": false,
+        "sunset_has_meta_app_secret": false
+      }
+    },
+    {
+      "id": "AC15K_B01_MISMATCH_REJECT",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET set + wrong sha256 signature must not skip",
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "helper": { "verified": false, "skipped": false, "error": "signature_mismatch" }
+      }
+    },
+    {
+      "id": "AC15K_B01_VALID_HMAC_ACCEPT",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "META_APP_SECRET set + valid sha256=HMAC over raw body",
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "helper": { "verified": true, "skipped": false }
+      }
+    },
+    {
+      "id": "AC15K_B01_HUB_WRONG_TOKEN_403",
+      "color": "GREEN",
+      "boundary_ids": ["B01_meta_whatsapp_signature_ingress"],
+      "attack": "GET hub with wrong verify token → 403",
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "hub_ok": false,
+        "status": 403
+      }
+    },
+    {
+      "id": "AC15K_B12_MISSING_SECRET_503",
+      "color": "GREEN",
+      "boundary_ids": ["B12_stripe_webhook_signature"],
+      "attack": "Source requires STRIPE_WEBHOOK_SECRET when SKIP_VERIFY false and returns 503 no_db_write before DB",
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "source_patterns": ["STRIPE_WEBHOOK_SECRET not configured", "no_db_write", "503"]
+      }
+    },
+    {
+      "id": "AC15K_B12_RAW_BODY_BEFORE_CONSTRUCT",
+      "color": "GREEN",
+      "boundary_ids": ["B12_stripe_webhook_signature"],
+      "attack": "handleStripeWebhook reads readBodyRaw before constructEvent / skip branch",
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "order": ["readBodyRaw", "STRIPE_WEBHOOK_SKIP_VERIFY", "constructEvent"]
+      }
+    },
+    {
+      "id": "AC15K_B12_IAC_SKIP_FALSE",
+      "color": "GREEN",
+      "boundary_ids": ["B12_stripe_webhook_signature"],
+      "attack": "Committed staging/sunset Bicep pin STRIPE_WEBHOOK_SKIP_VERIFY=false and secretRef webhook secret",
+      "expect": {
+        "verdict": "proven_isolated_by_runtime",
+        "staging_skip_false": true,
+        "sunset_skip_false": true,
+        "secret_ref_present": true
+      }
+    },
+    {
+      "id": "AC15K_B12_SKIP_NO_STARTUP_REFUSE",
+      "color": "RED",
+      "boundary_ids": ["B12_stripe_webhook_signature"],
+      "attack": "STRIPE_WEBHOOK_SKIP_VERIFY bypass exists without NODE_ENV/production startup refuse (residual footgun; does not flip B12 rollup)",
+      "expect": {
+        "verdict": "proven_isolated_by_runtime",
+        "residual": "skip_without_startup_refuse",
+        "rollup_unchanged": true
+      }
+    },
+    {
+      "id": "AC15K_HISTORICAL_15A_UNCHANGED",
+      "color": "GREEN",
+      "boundary_ids": [
+        "B01_meta_whatsapp_signature_ingress",
+        "B12_stripe_webhook_signature"
+      ],
+      "attack": "15A matrix still records B01 unproven and B12 proven_isolated_by_runtime; status lives in 15K overlay only",
+      "expect": {
+        "b01_historical": "unproven",
+        "b12_historical": "proven_isolated_by_runtime"
+      }
+    }
+  ]
+}

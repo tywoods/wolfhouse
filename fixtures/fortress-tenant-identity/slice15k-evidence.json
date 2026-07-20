@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "outcome_id": "15K_signature_control_reaudit",
+  "master_basis": "9a734fa8e989e10800afbdde0ac722187f6db2d5",
+  "branch": "fortress/slice-15k-signature-control-audit",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "historical_audit_unchanged": true,
+  "reaudit_verdicts": {
+    "B01_meta_whatsapp_signature_ingress": {
+      "verdict": "vulnerable",
+      "severity": "high"
+    },
+    "B12_stripe_webhook_signature": {
+      "verdict": "proven_isolated_by_runtime",
+      "severity": "high"
+    }
+  },
+  "remediation_next_gate": "FORTRESS-15L / 15L_meta_signature_fail_closed",
+  "red": {
+    "cases": [
+      { "id": "AC15K_B01_NO_SECRET_SKIP_ADMIT", "ok": true },
+      { "id": "AC15K_B01_SECRET_MISSING_HEADER_SKIP_ADMIT", "ok": true },
+      { "id": "AC15K_B01_DEFAULT_VERIFY_TOKEN", "ok": true },
+      { "id": "AC15K_B01_IAC_NO_META_APP_SECRET", "ok": true },
+      { "id": "AC15K_B12_SKIP_NO_STARTUP_REFUSE", "ok": true }
+    ]
+  },
+  "green": {
+    "cases": [
+      { "id": "AC15K_B01_MISMATCH_REJECT", "ok": true },
+      { "id": "AC15K_B01_VALID_HMAC_ACCEPT", "ok": true },
+      { "id": "AC15K_B01_HUB_WRONG_TOKEN_403", "ok": true },
+      { "id": "AC15K_B12_MISSING_SECRET_503", "ok": true },
+      { "id": "AC15K_B12_RAW_BODY_BEFORE_CONSTRUCT", "ok": true },
+      { "id": "AC15K_B12_IAC_SKIP_FALSE", "ok": true },
+      { "id": "AC15K_HISTORICAL_15A_UNCHANGED", "ok": true }
+    ]
+  },
+  "notes": [
+    "No live secret reads; FAKE_APP_SECRET used only inside verifier process memory",
+    "15A historical B01 unproven and B12 proven_isolated_by_runtime preserved",
+    "B12 residual skip footgun documented; rollup unchanged"
+  ]
+}

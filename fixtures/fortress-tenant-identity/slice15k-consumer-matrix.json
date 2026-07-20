@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15K",
+  "outcome_id": "15K_signature_control_reaudit",
+  "description": "Source/config consumer matrix for B01 Meta signature/hub verify and B12 Stripe webhook signature. Fake IDs only. Distinguishes committed source guarantees from live activation.",
+  "boundary_rollup": {
+    "B01_meta_whatsapp_signature_ingress": "vulnerable",
+    "B12_stripe_webhook_signature": "proven_isolated_by_runtime"
+  },
+  "control_chain_b01": [
+    {
+      "step": 1,
+      "id": "C_META_READ_RAW_BODY",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "handleMetaWhatsAppWebhookPost → readBodyRaw",
+      "behavior": "Read up to 262144 raw bytes before JSON.parse",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 2,
+      "id": "C_META_RESOLVE_APP_SECRET",
+      "owner": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "symbol": "resolveMetaAppSecret",
+      "behavior": "trim(env.META_APP_SECRET); empty → falsy",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 3,
+      "id": "C_META_VERIFY_HMAC",
+      "owner": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "symbol": "verifyMetaHubSignature256",
+      "behavior": "Absent secret → skipped:true. Missing header → skipped:true. Bad format/mismatch → skipped:false verified:false. Match → verified:true.",
+      "side_effect_before_admit": "none",
+      "verdict": "vulnerable"
+    },
+    {
+      "step": 4,
+      "id": "C_META_HTTP_ADMIT_GATE",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "handleMetaWhatsAppWebhookPost",
+      "behavior": "Reject only when !skipped && !verified. skipped:true continues to JSON.parse + PostEntry.",
+      "side_effect_before_admit": "none on reject; on admit may acquire PG via PostEntry",
+      "verdict": "vulnerable"
+    },
+    {
+      "step": 5,
+      "id": "C_META_POST_ENTRY",
+      "owner": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "symbol": "processMetaWhatsAppWebhookPostEntry",
+      "behavior": "Normalize + authority + optional withPgClient claim/draft after signature admit",
+      "side_effect_before_admit": "n/a (post-admit)",
+      "verdict": "n/a_post_admit"
+    },
+    {
+      "step": 6,
+      "id": "C_META_HUB_GET",
+      "owner": "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "symbol": "verifyMetaHubChallenge / resolveMetaWhatsAppVerifyToken",
+      "behavior": "Compare hub.verify_token to env META_WHATSAPP_VERIFY_TOKEN or DEFAULT_META_WHATSAPP_VERIFY_TOKEN",
+      "side_effect_before_admit": "none",
+      "verdict": "vulnerable"
+    },
+    {
+      "step": 7,
+      "id": "C_META_ROUTE",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "router pathname === /staff/meta/whatsapp/webhook",
+      "behavior": "Public GET/POST; no session auth; path-exact before catch-all",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    }
+  ],
+  "control_chain_b12": [
+    {
+      "step": 1,
+      "id": "C_STRIPE_READ_RAW_BODY",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "handleStripeWebhook → readBodyRaw",
+      "behavior": "Read up to 102400 raw bytes for constructEvent",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 2,
+      "id": "C_STRIPE_SKIP_FLAG",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "STRIPE_WEBHOOK_SKIP_VERIFY",
+      "behavior": "=== 'true' bypasses HMAC; JSON.parse only. No NODE_ENV refuse at startup.",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_isolated_by_runtime"
+    },
+    {
+      "step": 3,
+      "id": "C_STRIPE_SECRET_REQUIRED",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "handleStripeWebhook secret gate",
+      "behavior": "Missing STRIPE_WEBHOOK_SECRET when skip false → 503 no_db_write",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 4,
+      "id": "C_STRIPE_CONSTRUCT_EVENT",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "stripe.webhooks.constructEvent",
+      "behavior": "HMAC verify raw body + stripe-signature + webhook secret; failure → 400",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 5,
+      "id": "C_STRIPE_TENANT_BIND",
+      "owner": "scripts/lib/stripe-webhook-tenant-config.js",
+      "symbol": "resolveStripeWebhookExpectedClientSlug",
+      "behavior": "After signature admit; missing/conflict → 503 no_db_write (15B)",
+      "side_effect_before_admit": "n/a (post-signature)",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "step": 6,
+      "id": "C_STRIPE_ROUTE",
+      "owner": "scripts/staff-query-api.js",
+      "symbol": "router pathname === /staff/stripe/webhook",
+      "behavior": "Public POST; no session auth; path-exact",
+      "side_effect_before_admit": "none",
+      "verdict": "proven_fail_closed"
+    }
+  ],
+  "config_consumers": [
+    {
+      "id": "CFG_STAGING_BICEP_STRIPE",
+      "path": "infra/azure/staging/main.bicep",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false", "STRIPE_WEBHOOK_SECRET secretRef"],
+      "meta_signature_vars": "absent (META_WHATSAPP_TOKEN / PHONE_NUMBER_ID only)",
+      "guarantee": "committed_iac",
+      "live_activation": "unproven_in_15k"
+    },
+    {
+      "id": "CFG_SUNSET_BICEP_STRIPE",
+      "path": "infra/azure/sunset-staging/main.bicep",
+      "vars": ["STRIPE_WEBHOOK_SKIP_VERIFY=false", "STRIPE_WEBHOOK_SECRET secretRef", "STRIPE_WEBHOOK_CLIENT_SLUG=sunset"],
+      "meta_signature_vars": "absent",
+      "guarantee": "committed_iac",
+      "live_activation": "skip_false_recorded_in_15d_inventory_secret_value_unproven"
+    },
+    {
+      "id": "CFG_ENV_EXAMPLE_STRIPE",
+      "path": "infra/.env.example",
+      "vars": ["STRIPE_WEBHOOK_SECRET placeholder name only", "STRIPE_WEBHOOK_SKIP_VERIFY=false"],
+      "meta_signature_vars": "absent",
+      "guarantee": "committed_safe_example",
+      "live_activation": "n/a"
+    },
+    {
+      "id": "CFG_COMPOSE_LOCAL_STRIPE",
+      "path": "infra/docker-compose.local.yml",
+      "vars": ["STRIPE_WEBHOOK_SECRET from host env", "STRIPE_WEBHOOK_SKIP_VERIFY default false"],
+      "meta_signature_vars": "absent",
+      "guarantee": "committed_local_default",
+      "live_activation": "n/a"
+    },
+    {
+      "id": "CFG_HERMES_VERIFY_TOKEN_HARDCODE",
+      "path": "scripts/lib/hermes-vm-profile.js",
+      "vars": ["WHATSAPP_VERIFY_TOKEN hardcoded sample"],
+      "meta_signature_vars": "Hermes profile constant; not Staff API META_APP_SECRET",
+      "guarantee": "committed_sample",
+      "live_activation": "out_of_scope_hermes_cutover"
+    },
+    {
+      "id": "CFG_META_APP_SECRET_IAC",
+      "path": "infra/azure/staging/main.bicep + infra/azure/sunset-staging/main.bicep",
+      "vars": [],
+      "meta_signature_vars": "META_APP_SECRET not declared",
+      "guarantee": "none",
+      "live_activation": "unproven"
+    }
+  ],
+  "skip_disable_flags": [
+    {
+      "flag": "implicit Meta skip",
+      "mechanism": "verifyMetaHubSignature256 returns skipped:true when secret absent OR header missing",
+      "production_guard": "none",
+      "boundary": "B01",
+      "verdict": "vulnerable"
+    },
+    {
+      "flag": "STRIPE_WEBHOOK_SKIP_VERIFY",
+      "mechanism": "env === 'true' bypasses constructEvent",
+      "production_guard": "docs + Bicep pin false; no startup refuse",
+      "boundary": "B12",
+      "verdict": "proven_isolated_by_runtime"
+    }
+  ],
+  "startup_validation": {
+    "B01": "none requiring META_APP_SECRET or META_WHATSAPP_VERIFY_TOKEN",
+    "B12": "none refusing STRIPE_WEBHOOK_SKIP_VERIFY under production/staging profile; secret absence fails per-request 503"
+  },
+  "failure_before_side_effect": {
+    "B01_reject_path": "403 JSON before PostEntry when !skipped && !verified",
+    "B01_skip_admit_path": "continues to PostEntry/PG — gap",
+    "B12_reject_path": "400/503 with no_db_write before tenant bind and payment UPDATEs"
+  }
+}
