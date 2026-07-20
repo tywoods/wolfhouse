@@ -1,0 +1,177 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15C",
+  "outcome_id": "15C_sunset_staging_stripe_webhook_slug_rollout_preflight",
+  "title": "Sunset-staging-only deployment preflight + declarative STRIPE_WEBHOOK_CLIENT_SLUG for merged 15B",
+  "master_basis": "f6507cca9a11572911b4f5707e8728ee9c59d181",
+  "live_mutation": false,
+  "wolfhouse_production_queried": false,
+  "wolfhouse_production_modified": false,
+  "build_deploy_mutation": false,
+  "status": "preflight_complete_iac_declared",
+  "depends_on": [
+    "FORTRESS-15A",
+    "FORTRESS-15B"
+  ],
+  "scope": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "resourceGroup": "luna-sunset-staging-rg",
+    "containerApp": "luna-sunset-staging-staff-api",
+    "portalHost": "sunset-staging.lunafrontdesk.com",
+    "tenantSlug": "sunset",
+    "imageRepository": "whstagingacr.azurecr.io/luna-sunset-staff-api"
+  },
+  "owner_files": [
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/azure/sunset-staging/README.md",
+    "scripts/lib/fortress-slice15c-sunset-rollout-preflight.js",
+    "scripts/verify-fortress-slice15c-sunset-stripe-rollout-preflight.js",
+    "fixtures/fortress-tenant-identity/slice15c-contract.json",
+    "fixtures/fortress-tenant-identity/slice15c-live-inventory.json",
+    "fixtures/fortress-tenant-identity/slice15c-evidence.json",
+    "fixtures/fortress-tenant-identity/slice15c-findings.md"
+  ],
+  "iac_delta": {
+    "module": "infra/azure/sunset-staging/main.bicep",
+    "add_env": [
+      {
+        "name": "STRIPE_WEBHOOK_CLIENT_SLUG",
+        "value": "sunset"
+      }
+    ],
+    "preserve_env": [
+      {
+        "name": "DEFAULT_CLIENT_SLUG",
+        "value": "sunset"
+      },
+      {
+        "name": "STRIPE_WEBHOOK_SKIP_VERIFY",
+        "value": "false"
+      }
+    ],
+    "future_image_when_supplied": "staffApiImageTag == full merged master SHA",
+    "forbidden_surfaces": [
+      "secrets",
+      "rbac",
+      "network",
+      "database",
+      "scaling",
+      "ingress",
+      "traffic",
+      "stripe_account",
+      "payment_config"
+    ],
+    "generic_wolfhouse_prod_iac_edited": false
+  },
+  "preflight_fail_closed": [
+    "default_client_slug_not_sunset",
+    "stripe_webhook_client_slug_not_sunset",
+    "conflicting_runtime_client_slugs",
+    "stripe_webhook_skip_verify_true",
+    "unexpected_subscription",
+    "unexpected_resource_group",
+    "unexpected_container_app",
+    "unhealthy_revision",
+    "ambiguous_traffic",
+    "image_provenance_unknown",
+    "mutable_latest_image",
+    "cost_spike"
+  ],
+  "hash_locks": {
+    "live_inventory_sha256": "29b96e9552d8cb9102e6a9a6f118768d5337053188c07f59174f461c087a07ad",
+    "live_inventory_path": "fixtures/fortress-tenant-identity/slice15c-live-inventory.json"
+  },
+  "cost": {
+    "type": "ActualCost",
+    "committed_prior_baseline": {
+      "amount": 13.493559344086,
+      "currency": "USD",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-17",
+        "label": "month-to-date"
+      },
+      "source": "infra/azure/sunset-staging/inventory/live-inventory.normalized.json"
+    },
+    "captured_predeploy": {
+      "amount": 16.4316563548387,
+      "currency": "USD",
+      "period": {
+        "from": "2026-07-01",
+        "to": "2026-07-20",
+        "label": "month-to-date"
+      }
+    },
+    "spike_multiplier": 2,
+    "spike_flagged": false
+  },
+  "live_capture_summary": {
+    "active_revision": "luna-sunset-staging-staff-api--0000266",
+    "healthState": "Healthy",
+    "trafficWeight": 100,
+    "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:186307418400581a74f86b096e02bc32a41513b6",
+    "DEFAULT_CLIENT_SLUG": "sunset",
+    "STRIPE_WEBHOOK_CLIENT_SLUG": null,
+    "STRIPE_WEBHOOK_SKIP_VERIFY": "false",
+    "provisioningState": "Succeeded",
+    "runningStatus": "Running",
+    "managed_identity": "luna-sunset-staging-identity"
+  },
+  "bicep_tooling": {
+    "compile": "succeeded_local_bicep_cli_invariant",
+    "what_if": "not_executed",
+    "what_if_reason": "az CLI absent in Cursor workspace; Docker daemon unavailable; secure deploy params not supplied. Expected Incremental what-if surface: staff-api env add STRIPE_WEBHOOK_CLIENT_SLUG=sunset plus image tag when staffApiImageTag supplied; platform noise only otherwise.",
+    "expected_what_if_surface": {
+      "env_add": [
+        {
+          "name": "STRIPE_WEBHOOK_CLIENT_SLUG",
+          "value": "sunset"
+        }
+      ],
+      "other_changes": [
+        "image_tag_when_supplied",
+        "platform_noise"
+      ],
+      "touched_surfaces": []
+    }
+  },
+  "deploy_sequence_15d_id": "15D_sunset_staging_staff_api_sha_rollout",
+  "red_case_ids": [
+    "RED_wrong_default_slug",
+    "RED_wrong_webhook_slug",
+    "RED_missing_both_slugs_conflict_pair",
+    "RED_conflicting_slugs",
+    "RED_skip_verify_true",
+    "RED_secret_leakage_in_inventory",
+    "RED_wrong_subscription",
+    "RED_wrong_resource_group",
+    "RED_wrong_app",
+    "RED_unhealthy_revision",
+    "RED_ambiguous_traffic",
+    "RED_mutable_latest_image",
+    "RED_unknown_image_tag",
+    "RED_excessive_what_if",
+    "RED_cost_spike"
+  ],
+  "green_case_ids": [
+    "GREEN_live_inventory_hash_lock",
+    "GREEN_live_preflight_pass",
+    "GREEN_bicep_declares_webhook_slug",
+    "GREEN_expected_what_if_surface",
+    "GREEN_cost_below_spike_threshold",
+    "GREEN_15d_sequence_complete",
+    "GREEN_zero_mutation_contract"
+  ],
+  "gates": [
+    "npm run verify:fortress-slice15c-sunset-stripe-rollout-preflight",
+    "npm run verify:fortress-slice15b-stripe-payment-tenant-bind",
+    "npm run verify:fortress-tenant-identity-boundary-matrix",
+    "npm run verify:waterbottle-expired-hold-payment-truth",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "node scripts/verify-sunset-stripe-payment-reconcile.js",
+    "npm run verify:multiclient",
+    "npm run verify:staff-auth-api",
+    "npm run verify:migration-integrity",
+    "git diff --check"
+  ]
+}

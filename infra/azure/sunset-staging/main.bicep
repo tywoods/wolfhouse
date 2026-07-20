@@ -429,6 +429,8 @@ resource staffApiApp 'Microsoft.App/containerApps@2023-05-01' = if (deployContai
             { name: 'SUNSET_SARDINERO_INBOX_EMAIL', value: sunsetSardineroInboxEmail }
             { name: 'BOT_PAUSE_CONTROLS_ENABLED', value: 'true' }
             { name: 'DEFAULT_CLIENT_SLUG', value: 'sunset' }
+            // FORTRESS 15C: dedicated webhook tenant bind (15B); keep DEFAULT_CLIENT_SLUG=sunset compat.
+            { name: 'STRIPE_WEBHOOK_CLIENT_SLUG', value: 'sunset' }
             { name: 'LUNA_BOT_INTERNAL_TOKEN', secretRef: 'luna-bot-internal-token' }
             { name: 'BOT_BOOKING_ENABLED', value: 'true' }
             { name: 'BOT_ADDON_REQUESTS_ENABLED', value: 'true' }
