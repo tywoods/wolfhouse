@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16M",
-  "title": "RADAR operations gate ledger (16M Stripe webhook event-id claim source-partial on G05)",
-  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
-  "branch": "radar/slice-16m-stripe-event-claim",
+  "slice": "RADAR-16O",
+  "title": "RADAR operations gate ledger (16O Stripe webhook error minimization source-partial on G08)",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16o-stripe-webhook-error-minimization",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only — no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only — not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
+      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only \u2014 no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only \u2014 not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -86,7 +86,7 @@
         "Staff API image with correlation middleware not deployed to staging",
         "No proven LAW/App Insights delivery or search of correlation events",
         "Retention policy for correlation completion records not frozen",
-        "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open"
+        "End-to-end Meta \u2192 Hermes \u2192 Staff API \u2192 Stripe correlation drill open"
       ],
       "progress_class": "source_partial_progress_only"
     },
@@ -95,7 +95,7 @@
       "name": "Readiness / dependencies",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only — not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
+      "rationale": "16I adds Staff API /readyz (dedicated max-1 pg Pool via public pg 8.21 options: connectionTimeoutMillis<=1500, statement_timeout<=1500, query_timeout<=2000; fixed SELECT 1; release healthy / release(err) once; no Promise.race/AbortController/private fields/app-pool) and ACA Startup/Liveness/Readiness probes in Wolfhouse + Sunset staging Bicep (port 3036; liveness/startup on /healthz without Postgres; readiness on /readyz; periodSeconds exceeds max operation bound). Source-partial only \u2014 not deployed; live ACA probes still empty/null; controlled readiness failure drill and lifecycle integration (closeReadinessPool) remain open. Supersedes deferred 16C (no signal/shutdown framework in this slice).",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-readiness.js",
@@ -168,7 +168,7 @@
       "name": "Actionable tenant-aware alerts",
       "verdict": "partial",
       "severity": "critical",
-      "rationale": "16H adds standalone staging-only Staff API metric-alert IaC (source module only): tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Bicep fail-closes exact subscription + RG/app tuple; derives tenant/AG; alert semantics are vars. No deployment wrapper. Source-partial only — not deployed; live metric_alerts still []; safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.",
+      "rationale": "16H adds standalone staging-only Staff API metric-alert IaC (source module only): tenant-named Requests Total statusCodeCategory=5xx >=3 over PT5M/PT1M and RestartCount Total >0 over PT5M/PT1M on both wh-staging-staff-api and luna-sunset-staging-staff-api, referencing existing 16B per-RG ops action-group names. Bicep fail-closes exact subscription + RG/app tuple; derives tenant/AG; alert semantics are vars. No deployment wrapper. Source-partial only \u2014 not deployed; live metric_alerts still []; safe Incremental operator deploy, notification delivery, and alert-fire drill remain open. Template cannot enforce ARM mode.",
       "source_evidence": [
         {
           "path": "infra/azure/staging-staff-api-metric-alerts/rg-staff-api-metric-alerts.bicep",
@@ -269,7 +269,7 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows → ROLLBACK + HTTP 200 idempotent exact-id (reason=stripe_event_id_already_claimed, no_db_write); first claim → addon FOR UPDATE lock/reload (or booking under-lock truth) → writes or distinct-event duplicate_business_outcome skip → mark processed=true → COMMIT; addon has no pre-transaction already-paid shortcut — stale lookup paid still claims; distinct-event response uses no_business_mutation + no_payment_or_service_rewrite (never no_db_write — ledger claim is a DB write); pre-commit claim/write/processed failure → ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS → best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column → client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only — not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
+      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows \u2192 ROLLBACK + HTTP 200 idempotent exact-id (reason=stripe_event_id_already_claimed, no_db_write); first claim \u2192 addon FOR UPDATE lock/reload (or booking under-lock truth) \u2192 writes or distinct-event duplicate_business_outcome skip \u2192 mark processed=true \u2192 COMMIT; addon has no pre-transaction already-paid shortcut \u2014 stale lookup paid still claims; distinct-event response uses no_business_mutation + no_payment_or_service_rewrite (never no_db_write \u2014 ledger claim is a DB write); pre-commit claim/write/processed failure \u2192 ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS \u2192 best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column \u2192 client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only \u2014 not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
       "progress_class": "source_partial_progress_only",
       "source_evidence": [
         {
@@ -381,7 +381,7 @@
           "path": "docs/STAGE-40C-HAMMER-REVIEW-PACK.md",
           "lines": "1-14,201",
           "symbols": [],
-          "note": "Conversation stress pack — not infra load test (still open)"
+          "note": "Conversation stress pack \u2014 not infra load test (still open)"
         }
       ],
       "live_evidence": [
@@ -391,7 +391,7 @@
         },
         {
           "ref": "live-inventory.json#alerts",
-          "note": "metric_alerts=[] both RGs — capacity alerts source-only; not deployed"
+          "note": "metric_alerts=[] both RGs \u2014 capacity alerts source-only; not deployed"
         }
       ],
       "gaps": [
@@ -446,8 +446,32 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16K minimizes public Staff API /healthz to a stable generic schema {status:ok,service:staff-api} with Cache-Control no-store — no auth_enabled/stage/stormglass/luna_ai provider/model/key/config/tenant/note fields. Source-partial only — not deployed; live public /healthz still exposes detailed fields until Staff API image deploy. Authenticated diagnostics remain on GET /staff/ask-luna/ai-status. LAW retention 30d and App Insights 90d remain proven live. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
+      "rationale": "16O minimizes public POST /staff/stripe/webhook error responses for Stripe SDK load failure and signature verification failure to stable generic bodies ({success:false,code:stripe_webhook_unavailable,retryable:true} HTTP 500; {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} HTTP 400) with allowlisted audit reasons only (sdk_load_failed/signature_verification_failed) \u2014 no raw exception text/stack/signature/body/secret/payload/tenant. 16K healthz minimization remains prior source-partial progress. Source-partial only \u2014 not deployed; live webhook error bodies and /healthz still expose detailed fields until Staff API image deploy. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
       "source_evidence": [
+        {
+          "path": "scripts/lib/stripe-webhook-public-errors.js",
+          "lines": "14-160",
+          "symbols": [
+            "buildInvalidStripeSignatureBody",
+            "buildStripeWebhookUnavailableBody",
+            "buildStripeWebhookPublicErrorAudit"
+          ],
+          "note": "Frozen public Stripe webhook error bodies + allowlisted audit reasons"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "13763-13791",
+          "symbols": [
+            "handleStripeWebhook"
+          ],
+          "note": "SDK/signature failure paths return generic bodies; no e.message concat"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16o-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen independent 16O Stripe webhook error-minimization contract"
+        },
         {
           "path": "scripts/lib/staff-api-healthz.js",
           "lines": "19-22,57-73,81-83",
@@ -515,6 +539,8 @@
         }
       ],
       "gaps": [
+        "Privacy drill (live Wolfhouse+Sunset generic webhook error bodies) open",
+        "Live deploy of minimized Stripe webhook public error bodies not done",
         "Log retention / PII redaction proof for ops telemetry still open",
         "Privacy drill (live Wolfhouse+Sunset generic schema) open",
         "Live deploy of minimized /healthz not done",
@@ -529,7 +555,7 @@
       "name": "Cost controls",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) — source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
+      "rationale": "Cost controls cover (1) budget threshold notifications and (2) anomaly detection as distinct controls. 16B adds standalone staging ActualCost budget-threshold IaC (USD 120/40, Enabled 80%/100%, parameterized ops-email AG per RG) \u2014 source partial progress only. Not deployed; live budgets still empty. Real notification delivery proof remains open. Anomaly detection is absent and not claimed.",
       "controls": {
         "budget_threshold": {
           "kind": "threshold",
@@ -584,7 +610,7 @@
         },
         {
           "ref": "live-inventory.json#budgets",
-          "note": "budgets=[] both RGs — live threshold control still absent (source-only partial)"
+          "note": "budgets=[] both RGs \u2014 live threshold control still absent (source-only partial)"
         }
       ],
       "gaps": [
@@ -609,7 +635,7 @@
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection",
     "title": "Add staging RG ActualCost budgets with ops notify thresholds (not anomaly detection)",
-    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only — anomaly detection remains a separate absent control.",
+    "why_smallest": "Complete live absence (budgets=[]), smallest ownership surface (Azure budget + action group only), no Staff API/Hermes runtime change, offline-verifiable from secret-free IaC/fixtures. This is budget-threshold partial progress only \u2014 anomaly detection remains a separate absent control.",
     "owner_files": [
       "infra/azure/staging-cost-budgets/",
       "scripts/lib/radar-slice16b-staging-cost-budgets.js",
@@ -628,20 +654,20 @@
     "acceptance_criteria": [
       "Standalone Consumption budget IaC for wh-staging-rg amount USD 120 with Enabled 80% and 100% Actual thresholds",
       "Standalone Consumption budget IaC for luna-sunset-staging-rg amount USD 40 with the same threshold properties",
-      "One parameterized ops-email action group per RG — no email default/personal address/secret in git",
+      "One parameterized ops-email action group per RG \u2014 no email default/personal address/secret in git",
       "Secret-free fixture + verifier prove budget names/scopes/thresholds without reading secret values",
       "Deployment Incremental-only and structurally unable to touch Container Apps/DB/KV/identities/networking/production",
       "Exact subscription/RG short-circuit preflight + RED tests for wrong scope/email/amounts/thresholds/extra resources/non-incremental",
-      "Real notification-delivery proof required for drill pass — Enabled configuration alone fails",
+      "Real notification-delivery proof required for drill pass \u2014 Enabled configuration alone fails",
       "16B must not claim anomaly-detection acceptance; anomaly remains separately absent",
       "No Staff API, Hermes, DB schema, or guest/payment runtime behavior change in the 16B diff"
     ],
     "budget_notification_acceptance": [
-      "Budget resources present on both staging RGs with explicit % thresholds (live — still open)",
-      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) — still open"
+      "Budget resources present on both staging RGs with explicit % thresholds (live \u2014 still open)",
+      "Ops receiver exists and a real notification delivery event is evidenced (not merely Enabled=true) \u2014 still open"
     ],
     "anomaly_detection_acceptance": [
-      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof — out of scope for 16B"
+      "Separate follow-on: Cost Management anomaly alert or equivalent with delivery proof \u2014 out of scope for 16B"
     ],
     "final_controlled_drill": {
       "id": "16B_DRILL_budget_threshold_notify",
@@ -668,7 +694,7 @@
     "gate_id": "G03_actionable_tenant_aware_alerts",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_notification_delivery_alert_fire",
-    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) — source module only",
+    "title": "Add staging Staff API tenant-named metric alerts (Requests 5xx + RestartCount) \u2014 source module only",
     "why_smallest": "G03 was fully absent live; smallest ownership surface is metricAlerts-only IaC scoped to exact Staff API app pairs, referencing existing 16B ops AG names, with no deployment wrapper.",
     "supersedes": [
       "16F_staff_api_metric_alerts",
@@ -722,7 +748,7 @@
     "gate_id": "G02_readiness_dependencies",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_failure_drill_lifecycle_integration",
-    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) — source partial only",
+    "title": "Add Staff API /readyz + ACA probes (dedicated max-1 readiness pool) \u2014 source partial only",
     "why_smallest": "G02 lacked dependency-aware readiness; narrowest ownership is /readyz + probe IaC without signal/shutdown framework.",
     "supersedes": [
       "16C_staff_api_readiness_dependencies"
@@ -774,7 +800,7 @@
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
-    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) — source partial only",
+    "title": "Add Staff API request correlation middleware (UUIDv4 + ALS header/context only) \u2014 source partial only",
     "why_smallest": "G01 lacked request correlation ID middleware; narrowest ownership is HTTP-boundary ALS + response header without completion logging, lifecycle listeners, async queue, or signal/shutdown framework.",
     "supersedes": [
       "16D_staff_api_request_correlation"
@@ -796,7 +822,7 @@
       "Live deploy / restart",
       "LAW/App Insights delivery + search proof",
       "Retention policy freeze",
-      "E2E Meta→Hermes→Staff→Stripe correlation drill",
+      "E2E Meta\u2192Hermes\u2192Staff\u2192Stripe correlation drill",
       "Production RGs"
     ],
     "acceptance_criteria": [
@@ -831,7 +857,7 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_log_retention_privacy_drill",
-    "title": "Minimize public Staff API /healthz to generic schema — source partial only",
+    "title": "Minimize public Staff API /healthz to generic schema \u2014 source partial only",
     "why_smallest": "G08 lacked public healthz privacy minimization; narrowest ownership is public body schema only without touching /readyz or authenticated diagnostics.",
     "supersedes": [],
     "owner_files": [
@@ -879,7 +905,7 @@
     "gate_id": "G06_scaling_capacity",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
-    "title": "Add Staff API capacity-pressure metric alerts (CPU/Memory Average >80) — source partial only",
+    "title": "Add Staff API capacity-pressure metric alerts (CPU/Memory Average >80) \u2014 source partial only",
     "why_smallest": "G06 lacked capacity-pressure alerting; narrowest ownership is CpuPercentage+MemoryPercentage static metric alerts on both staging Staff API apps wired to future 16B ops AG resource IDs without autoscaling or replica mutation.",
     "supersedes": [],
     "owner_files": [
@@ -929,7 +955,7 @@
     "gate_id": "G05_retry_replay_safety",
     "progress_class": "source_partial_progress_only",
     "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
-    "title": "Add fail-closed Stripe webhook event-id claim before payment mutations — source partial only",
+    "title": "Add fail-closed Stripe webhook event-id claim before payment mutations \u2014 source partial only",
     "why_smallest": "G05 lacked proven fail-closed payment_events ledger insert before Stripe webhook side effects; narrowest ownership is claim-before-mutation for booking-payment + addon_service paths using existing UNIQUE stripe_event_id, without deploy/DLQ/replay operator.",
     "supersedes": [],
     "owner_files": [
@@ -949,11 +975,11 @@
     ],
     "acceptance_criteria": [
       "Booking-payment and addon_service paths claim stripe_event_id inside same txn before mutations",
-      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows → 200 idempotent exact-id, no mutations",
-      "Addon: no pre-transaction already-paid shortcut; after claim, FOR UPDATE owned payment reload; already paid → processed + duplicate_business_outcome with no_business_mutation/no_payment_or_service_rewrite (never no_db_write); ineligible → fail closed",
+      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows \u2192 200 idempotent exact-id, no mutations",
+      "Addon: no pre-transaction already-paid shortcut; after claim, FOR UPDATE owned payment reload; already paid \u2192 processed + duplicate_business_outcome with no_business_mutation/no_payment_or_service_rewrite (never no_db_write); ineligible \u2192 fail closed",
       "First event winner: mutations then mark processed=true before COMMIT; only lock winner mutates",
-      "Pre-commit claim/write/processed failure → ROLLBACK + retryable 500",
-      "COMMIT failure → outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
+      "Pre-commit claim/write/processed failure \u2192 ROLLBACK + retryable 500",
+      "COMMIT failure \u2192 outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
       "Lookup returns owned hostel_id (client_id); payload allowlisted non-PII only",
       "Signature/tenant/validation/locked money math/business idempotency preserved",
       "Offline fake-pg RED/GREEN proves order, exact-id replay, distinct-event concurrency, pre-commit rollback+retry, modeled post-durable ack-failure retry, ownership fail-closed, canaries absent",
@@ -969,6 +995,55 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Live replay/concurrency proofs pass after approved deploy; no DLQ/operator claimed by this slice; real-PG ambiguous-commit drill remains open until proven"
+    }
+  },
+  "slice_16o_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16O_stripe_webhook_error_minimization",
+    "gate_id": "G08_retention_privacy",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_privacy_drill",
+    "title": "Minimize public Stripe webhook error responses (generic fail-closed) \u2014 source partial only",
+    "why_smallest": "G08 lacked public Stripe webhook error-body minimization; narrowest ownership is SDK-load + signature-verification client responses only without changing tenant binding, 16M claim logic, or skip_verify semantics.",
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16o-stripe-webhook-error-minimization.js",
+      "scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js",
+      "fixtures/radar-operations/slice16o-expected-contract.json"
+    ],
+    "out_of_scope_for_16o": [
+      "Live deploy / restart",
+      "DB migration",
+      "Changing STRIPE_WEBHOOK_SKIP_VERIFY behavior",
+      "Changing tenant binding",
+      "Changing 16M event-id claim transaction logic",
+      "Changing ignored/unmatched event responses",
+      "Privacy drill execution",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "SDK unavailable \u2192 HTTP 500 {success:false,code:stripe_webhook_unavailable,retryable:true} with no raw error",
+      "Missing/malformed/parser-throw signature \u2192 HTTP 400 {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}",
+      "Never return stack/exception class/parser details/signature/secret/payload/tenant config",
+      "Internal audit allowlisted reasons only (sdk_load_failed/signature_verification_failed); no signature/body logged",
+      "Signature-before-routing/DB, skip_verify=false, tenant binding, 16M txn, ignored/unmatched preserved",
+      "Real-listener RED/GREEN: exact bodies, no canaries, zero DB, no console leak, request ID retained",
+      "Live deploy and privacy drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16O_DRILL_stripe_webhook_error_privacy_live_prove",
+      "steps": [
+        "Approved deploy of Staff API image with minimized Stripe webhook error bodies (follow-on; not this commit)",
+        "POST /staff/stripe/webhook missing/malformed signature on staff-staging and sunset-staging; prove exact generic 400 body",
+        "Prove SDK-unavailable path returns exact generic 500 retryable body (or staged inject)",
+        "Prove X-Request-Id retained; audit reasons allowlisted; no raw error/signature/secret/payload",
+        "Prove 16M claim + tenant binding + skip_verify=false unchanged",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Live public Stripe webhook error bodies match generic contract on both tenants; 16M/tenant/skip_verify preserved; no deploy claimed by this slice"
     }
   }
 }

@@ -1,47 +1,41 @@
-# RADAR Slice 16M — Operations gate ledger (Stripe webhook event-id claim source-partial)
+# RADAR Slice 16O — Operations gate ledger (Stripe webhook error minimization source-partial)
 
-**Status:** source partial progress only (zero live deploy / mutation; concurrency / replay operator / DLQ / drill open)
-**Master basis:** `49b4ccff673014b28047307514f91a508cc8c497`
-**Branch:** `radar/slice-16m-stripe-event-claim`
+**Status:** source partial progress only (zero live deploy / mutation; privacy drill open)
+**Master basis:** `3e94498321cd26e64394984a5926d7a583226692`
+**Branch:** `radar/slice-16o-stripe-webhook-error-minimization`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
 
 ## Outcome
 
-Add **source-only fail-closed Stripe webhook event-id claim** before booking-payment and addon_service payment mutations. Use existing `payment_events.stripe_event_id` UNIQUE. Claim inside the same transaction: `INSERT … ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`; zero rows → rollback + HTTP 200 idempotent; first claim → path-specific lock/reload → existing writes or distinct-event business skip → `processed=true` → COMMIT. **Addon has no pre-transaction already-paid shortcut** — matched addon events always claim under transaction. Pre-commit failures → full rollback + retryable 500. **COMMIT failure is ambiguous** → best-effort rollback + retryable 500 `outcome_unknown=true` (never claim definitely rolled back). Addon distinct events: after claim, `SELECT … FOR UPDATE` owned payment; if already paid, mark claimed event processed with `duplicate_business_outcome` and return HTTP 200 idempotent with `no_business_mutation`/`no_payment_or_service_rewrite` (never `no_db_write` — ledger claim is a DB write). Privacy-minimized payload only. **Do not deploy.** G05 remains `partial` (event-claim source-partial only). Real PostgreSQL contention / ambiguous-commit drill remains **open** (no isolated ephemeral PostgreSQL on this host).
+Add **source-only fail-closed generic public error responses** for `POST /staff/stripe/webhook` Stripe SDK load failure and signature verification failure. Preserve HTTP status classes and internal audit observability, but replace client-visible concatenated `e.message` with stable generic codes/messages. **Do not deploy.** G08 remains `partial` (16O webhook error minimization + prior 16K healthz source-partial). Live deploy and privacy drill remain **open**.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `scripts/lib/stripe-webhook-event-claim.js` | Claim / mark-processed / minimized payload helper |
-| `scripts/lib/stripe-webhook-payment-truth.js` | Lookup returns owned `hostel_id` (`client_id` alias) |
-| `scripts/staff-query-api.js` | Webhook booking + addon paths wire claim-before-mutation |
-| `scripts/verify-radar-slice16m-stripe-event-claim.js` | Offline RED/GREEN verifier |
-| `fixtures/radar-operations/slice16m-expected-contract.json` | Frozen independent contract |
-| `npm run verify:radar-slice16m-stripe-event-claim` | Gate |
+| `scripts/lib/stripe-webhook-public-errors.js` | Frozen public bodies + allowlisted audit reasons |
+| `scripts/staff-query-api.js` | Webhook SDK/signature failure paths wire generic bodies |
+| `scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js` | Offline RED/GREEN + real-listener verifier |
+| `fixtures/radar-operations/slice16o-expected-contract.json` | Frozen independent contract |
+| `npm run verify:radar-slice16o-stripe-webhook-error-minimization` | Gate |
 
 ## Bounded contract
 
 | Bound | Value |
 |-------|--------|
-| Paths | `booking_payment`, `addon_service` only |
-| Claim SQL | `ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id` |
-| Ownership column | `client_id` (001_init `hostel_id`) |
-| Duplicate (exact event id) | HTTP 200 `idempotent` `reason=stripe_event_id_already_claimed`; `no_db_write=true` (ROLLBACK — no durable write) |
-| Distinct-event already paid (addon) | Claim processed + `duplicate_business_outcome`; HTTP 200 `reason=duplicate_business_outcome`; `no_business_mutation=true` + `no_payment_or_service_rewrite=true` (never `no_db_write` — ledger claim is a DB write) |
-| Addon pre-tx already-paid shortcut | Removed — matched addon events always claim under transaction |
-| Pre-commit failure | ROLLBACK + HTTP 500 retryable |
-| COMMIT failure | AMBIGUOUS → best-effort ROLLBACK + HTTP 500 `outcome_unknown=true` (no secret/error details); retry via durable claim |
-| Payload | allowlisted non-PII identifiers/state only (+ `duplicate_business_outcome` marker) |
-| Forbidden | raw Stripe event/session/customer; email/phone/name/addresses/tokens |
-| Out of scope | ignored/unmatched/invalid events; DLQ; replay operator; deploy; real-PG contention drill |
+| SDK unavailable | HTTP 500 `{success:false,code:stripe_webhook_unavailable,retryable:true}` — no raw error |
+| Missing / malformed / constructEvent throw | HTTP 400 `{success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature}` |
+| Forbidden public fields | stack, exception class, parser details, signature, webhook secret, event payload, tenant config, raw `error` text |
+| Internal audit | allowlisted `reason` only: `sdk_load_failed` / `signature_verification_failed`; never raw error/stack/signature/body |
+| Preserved | signature-before-routing/DB; `STRIPE_WEBHOOK_SKIP_VERIFY=false`; tenant binding; 16M claim txn; ignored/unmatched; request ID header |
+| Out of scope | live deploy; privacy drill; migration; skip_verify/tenant/16M/ignored behavior changes |
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + concurrency + drill) |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + drill) |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
@@ -57,44 +51,35 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 | G05 | Retry / replay safety | `partial` (16M event-id claim source-partial; deploy/replay/DLQ open) |
 | G06 | Scaling / capacity | `partial` (16L capacity-pressure source still partial) |
 | G07 | Rollback / incident runbooks | `partial` |
-| G08 | Retention / privacy | `partial` (16K healthz source still partial) |
+| G08 | Retention / privacy | `partial` (16O webhook error + 16K healthz source-partial) |
 | G09 | Cost controls | `partial` (16B budget-threshold source still partial) |
 
-## G05 semantics (truthful)
+## G08 semantics (truthful)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
-| Stripe event-id claim before mutations (source) | `partial` | booking + addon paths; same txn; addon FOR UPDATE lock/reload |
-| Schema UNIQUE `stripe_event_id` | present | 001_init (no new migration) |
-| Exact-ID conflict semantics | `partial` | ON CONFLICT DO NOTHING RETURNING; fake + source proven |
-| Addon distinct-event concurrency (fake) | `partial` | one business mutation; both claims processed; loser idempotent |
-| COMMIT ambiguity handling (source) | `partial` | `outcome_unknown=true`; fake pre-apply reject + modeled post-durable retry |
-| Live deploy of claim path | `open` | Not claimed |
-| Live concurrency proof | `open` | Not claimed |
-| Real PostgreSQL contention / ambiguous-commit drill | `open` | No isolated ephemeral PostgreSQL on this host |
-| Replay operator / stuck recovery | `open` | Not claimed |
-| DLQ | `open` | Not claimed |
-| Controlled replay drill | `open` | Not claimed |
-| All event types claimed | out of scope | Ignored/unmatched unchanged |
+| Public `/healthz` minimization (source) | `partial` | 16K — `{status:ok,service:staff-api}` |
+| Public Stripe webhook error minimization (source) | `partial` | 16O — generic SDK/signature failure bodies |
+| LAW retention 30d / App Insights 90d | proven live | unchanged |
+| Live deploy of minimized bodies | `open` | Not claimed |
+| Log-retention / PII redaction proof | `open` | Not claimed |
+| Privacy drill (live webhook + healthz) | `open` | Not claimed |
 
-## Slice 16M progress
+## Slice 16O progress
 
-**ID:** `16M_stripe_webhook_event_id_claim`
-**Gate:** `G05_retry_replay_safety`
+**ID:** `16O_stripe_webhook_error_minimization`
+**Gate:** `G08_retention_privacy`
 **Progress class:** `source_partial_progress_only`
-**Does not implement:** live deploy, concurrency proof, replay operator, DLQ, drill
+**Does not implement:** live deploy, privacy drill
 
 ### Still open
 
-- Live deploy of Staff API image with event-id claim
-- Live concurrency proof under real Postgres UNIQUE contention
-- Real PostgreSQL contention / ambiguous-commit drill (no isolated ephemeral PostgreSQL on this host)
-- Replay operator / stuck `processed=false` recovery
-- DLQ for unprocessable webhook events
-- Controlled replay drill
+- Live deploy of Staff API image with minimized Stripe webhook error bodies
+- End-to-end privacy drill proving live public webhook error bodies match generic contract on Wolfhouse + Sunset
 
 ## Prior partial progress retained
 
+- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial event-id claim (not deployed)
 - **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity alerts (not deployed)
 - **16K** `16K_staff_api_healthz_minimization` on G08 — source-partial healthz (not deployed)
 - **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation (not deployed)
@@ -104,4 +89,4 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16M. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API Stripe webhook claim helper + wiring are intentional 16M ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16O. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API Stripe webhook public-error helper + wiring are intentional 16O ownership.

@@ -1,0 +1,124 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16O",
+  "outcome_id": "16O_stripe_webhook_error_minimization",
+  "gate_id": "G08_retention_privacy",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16o-stripe-webhook-error-minimization",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Minimize public Stripe webhook error responses (generic fail-closed) — G08 source-partial",
+  "response_contract": {
+    "sdk_unavailable": {
+      "http_status": 500,
+      "body": {
+        "success": false,
+        "code": "stripe_webhook_unavailable",
+        "retryable": true
+      },
+      "forbidden_fields": [
+        "error",
+        "stack",
+        "exception",
+        "exception_class",
+        "message",
+        "details",
+        "signature",
+        "webhook_secret",
+        "payload",
+        "event",
+        "tenant",
+        "client_slug"
+      ]
+    },
+    "invalid_signature": {
+      "http_status": 400,
+      "applies_to": [
+        "missing_stripe_signature_header",
+        "malformed_stripe_signature",
+        "constructEvent_throw"
+      ],
+      "body": {
+        "success": false,
+        "code": "invalid_stripe_signature",
+        "message": "Invalid Stripe webhook signature"
+      },
+      "forbidden_fields": [
+        "error",
+        "stack",
+        "exception",
+        "exception_class",
+        "details",
+        "signature",
+        "webhook_secret",
+        "payload",
+        "event",
+        "tenant",
+        "client_slug"
+      ]
+    }
+  },
+  "audit_contract": {
+    "allowed_reasons": [
+      "sdk_load_failed",
+      "signature_verification_failed"
+    ],
+    "must_not_include": [
+      "raw_error_text",
+      "stack",
+      "signature",
+      "body",
+      "webhook_secret"
+    ]
+  },
+  "preserved": [
+    "signature_before_routing_db",
+    "STRIPE_WEBHOOK_SKIP_VERIFY=false_behavior",
+    "tenant_binding",
+    "16M_transaction_logic",
+    "status_semantics",
+    "ignored_unmatched_behavior",
+    "request_id_correlation_header"
+  ],
+  "must_not_change": [
+    "STRIPE_WEBHOOK_SKIP_VERIFY default false",
+    "tenant binding / STRIPE_WEBHOOK_CLIENT_SLUG",
+    "16M event-id claim transaction path",
+    "ignored/unmatched event responses",
+    "HTTP status classes for SDK (500) and signature (400)"
+  ],
+  "still_open": [
+    "Live deploy of Staff API image with minimized Stripe webhook error bodies",
+    "End-to-end privacy drill proving live public webhook error bodies match generic contract on Wolfhouse + Sunset"
+  ],
+  "final_controlled_drill": {
+    "id": "16O_DRILL_stripe_webhook_error_privacy_live_prove",
+    "status": "open",
+    "pass_rule": "After approved deploy: POST /staff/stripe/webhook with missing/malformed signature on staff-staging and sunset-staging returns exactly {success:false,code:invalid_stripe_signature,message:Invalid Stripe webhook signature} with HTTP 400; SDK-unavailable path returns {success:false,code:stripe_webhook_unavailable,retryable:true} with HTTP 500; no raw error/stack/signature/secret/payload/tenant fields; X-Request-Id retained; audit reasons allowlisted only; 16M claim + tenant binding + skip_verify=false unchanged"
+  },
+  "artifacts": [
+    "scripts/lib/stripe-webhook-public-errors.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16o-stripe-webhook-error-minimization.js",
+    "scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js",
+    "fixtures/radar-operations/slice16o-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 3e94498321cd26e64394984a5926d7a583226692..HEAD"
+  ]
+}

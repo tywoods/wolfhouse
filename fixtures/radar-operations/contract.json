@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16M",
-  "outcome_id": "16M_stripe_webhook_event_id_claim",
-  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
-  "branch": "radar/slice-16m-stripe-event-claim",
+  "slice": "RADAR-16O",
+  "outcome_id": "16O_stripe_webhook_error_minimization",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16o-stripe-webhook-error-minimization",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Stripe webhook event-id claim before payment mutations — G05 source-partial",
+  "title": "Minimize public Stripe webhook error responses \u2014 G08 source-partial",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
+  "does_not_implement": "live_deploy_privacy_drill",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -47,7 +47,11 @@
     "scripts/lib/stripe-webhook-event-claim.js",
     "scripts/verify-radar-slice16m-stripe-event-claim.js",
     "infra/azure/staging/main.bicep",
-    "infra/azure/sunset-staging/main.bicep"
+    "infra/azure/sunset-staging/main.bicep",
+    "fixtures/radar-operations/slice16o-expected-contract.json",
+    "scripts/lib/stripe-webhook-public-errors.js",
+    "scripts/lib/radar-slice16o-stripe-webhook-error-minimization.js",
+    "scripts/verify-radar-slice16o-stripe-webhook-error-minimization.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -108,7 +112,9 @@
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 49b4ccff673014b28047307514f91a508cc8c497..HEAD"
+    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "git diff --check 3e94498321cd26e64394984a5926d7a583226692..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -211,5 +217,13 @@
   "stripe_event_claim_real_pg_contention_drill": "open",
   "stripe_event_claim_replay_operator": "open",
   "stripe_event_claim_dlq": "open",
-  "stripe_event_claim_drill": "open"
+  "stripe_event_claim_drill": "open",
+  "selected_16o": {
+    "outcome_id": "16O_stripe_webhook_error_minimization",
+    "gate_id": "G08_retention_privacy",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_privacy_drill"
+  },
+  "stripe_webhook_error_live_deploy": "open",
+  "stripe_webhook_error_privacy_drill": "open"
 }

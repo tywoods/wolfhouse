@@ -781,6 +781,13 @@ const {
   lockOwnedPaymentForAddonEventClaim,
 } = require('./lib/stripe-webhook-event-claim');
 const {
+  buildInvalidStripeSignatureBody,
+  buildStripeWebhookUnavailableBody,
+  buildStripeWebhookPublicErrorAudit,
+  AUDIT_REASON_SDK_LOAD_FAILED,
+  AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED,
+} = require('./lib/stripe-webhook-public-errors');
+const {
   applyStripeBookingPaymentTruthWrites,
   isLockedPaymentValidationError,
 } = require('./lib/stripe-hold-promote-policy');
@@ -13758,15 +13765,29 @@ async function handleStripeWebhook(req, res) {
     }
     const sig = req.headers['stripe-signature'];
     if (!sig) {
-      return sendJSON(res, 400, { success: false, error: 'Missing stripe-signature header' });
+      // RADAR 16O — generic public body; allowlisted audit reason only (no signature/body/raw error).
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED));
+      return sendJSON(res, 400, buildInvalidStripeSignatureBody());
     }
     let stripe;
-    try { stripe = require('stripe')(STRIPE_SECRET_KEY || 'sk_test_placeholder'); }
-    catch (e) { return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message }); }
+    try {
+      // Offline dual-gate may inject loadStripe to prove SDK-unavailable path without Module._load patch.
+      const seamLoad = getFortress15j3OfflineSeams()
+        && getFortress15j3OfflineSeams().loadStripe;
+      if (typeof seamLoad === 'function') {
+        stripe = seamLoad(STRIPE_SECRET_KEY || 'sk_test_placeholder');
+      } else {
+        stripe = require('stripe')(STRIPE_SECRET_KEY || 'sk_test_placeholder');
+      }
+    } catch (_sdkLoadErr) {
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SDK_LOAD_FAILED));
+      return sendJSON(res, 500, buildStripeWebhookUnavailableBody());
+    }
     try {
       event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-    } catch (e) {
-      return sendJSON(res, 400, { success: false, error: 'Webhook signature verification failed: ' + e.message });
+    } catch (_sigVerifyErr) {
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED));
+      return sendJSON(res, 400, buildInvalidStripeSignatureBody());
     }
   }
 
