@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16K",
+  "outcome_id": "16K_staff_api_healthz_minimization",
+  "gate_id": "G08_retention_privacy",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "0d7340865d34804562c0e955a6276cfeff90560d",
+  "branch": "radar/slice-16k-healthz-minimization",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Minimize public Staff API /healthz response (generic schema) — G08 source-partial",
+  "public_healthz_schema": {
+    "status": "ok",
+    "service": "staff-api"
+  },
+  "cache_control": "no-store",
+  "http_status": 200,
+  "db_independent": true,
+  "forbidden_fields": [
+    "auth_enabled",
+    "stage",
+    "stormglass",
+    "luna_ai",
+    "note",
+    "tenant",
+    "tenant_slug",
+    "client",
+    "client_slug",
+    "provider",
+    "model",
+    "key_present",
+    "key_source",
+    "key_fingerprint",
+    "key_length",
+    "configured",
+    "config"
+  ],
+  "authenticated_diagnostics": [
+    "GET /staff/ask-luna/ai-status"
+  ],
+  "must_not_change": [
+    "/readyz",
+    "authenticated diagnostics endpoints"
+  ],
+  "still_open": [
+    "Live deploy of Staff API image with minimized /healthz",
+    "Log retention / PII redaction proof for ops telemetry",
+    "End-to-end privacy drill proving live public /healthz matches generic schema on Wolfhouse + Sunset"
+  ],
+  "final_controlled_drill": {
+    "id": "16K_DRILL_healthz_privacy_live_prove",
+    "status": "open",
+    "pass_rule": "After approved deploy: public GET /healthz on staff-staging and sunset-staging returns exactly {status:ok,service:staff-api} with Cache-Control no-store; no auth/stage/provider/model/key/config/tenant/note fields; /readyz unchanged; authenticated /staff/ask-luna/ai-status still returns diagnostics for viewer+"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-healthz.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16k-staff-api-healthz.js",
+    "scripts/verify-radar-slice16k-staff-api-healthz.js",
+    "fixtures/radar-operations/slice16k-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 0d7340865d34804562c0e955a6276cfeff90560d..HEAD"
+  ]
+}

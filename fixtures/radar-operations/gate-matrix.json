@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16J",
-  "title": "RADAR operations gate ledger (16J Staff API request correlation header+ALS source-partial; supersedes deferred 16D)",
-  "master_basis": "d9d297e8d28b499316fdcb89ff7954ebb4cdae06",
-  "branch": "radar/slice-16j-request-correlation",
+  "slice": "RADAR-16K",
+  "title": "RADAR operations gate ledger (16K Staff API /healthz minimization source-partial on G08)",
+  "master_basis": "0d7340865d34804562c0e955a6276cfeff90560d",
+  "branch": "radar/slice-16k-healthz-minimization",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -396,8 +396,41 @@
       "name": "Retention / privacy",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "LAW retention 30d and App Insights 90d proven live; privacy/GDPR gate documented before customer memory. Audit-log retention still TBD in Sunset admin spec. No end-to-end guest PII retention/deletion procedure proven for staging ops telemetry.",
+      "rationale": "16K minimizes public Staff API /healthz to a stable generic schema {status:ok,service:staff-api} with Cache-Control no-store \u2014 no auth_enabled/stage/stormglass/luna_ai provider/model/key/config/tenant/note fields. Source-partial only \u2014 not deployed; live public /healthz still exposes detailed fields until Staff API image deploy. Authenticated diagnostics remain on GET /staff/ask-luna/ai-status. LAW retention 30d and App Insights 90d remain proven live. Log-retention/PII redaction proof and privacy drill remain open. Deployment remains open.",
       "source_evidence": [
+        {
+          "path": "scripts/lib/staff-api-healthz.js",
+          "lines": "19-22,57-73,81-83",
+          "symbols": [
+            "HEALTHZ_BODY",
+            "handleStaffApiHealthz",
+            "assertPublicHealthzBody"
+          ],
+          "note": "Frozen public healthz schema; no env/provider introspection"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "86-90,46639-46654",
+          "symbols": [
+            "handleStaffApiHealthz",
+            "HEALTHZ_PATH"
+          ],
+          "note": "Public /healthz + / alias wired to minimized body; /readyz untouched"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16k-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen independent 16K healthz contract"
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "2015-2027,46066-46073",
+          "symbols": [
+            "handleAskLunaAiStatus"
+          ],
+          "note": "Authenticated AI diagnostics remain on /staff/ask-luna/ai-status"
+        },
         {
           "path": "docs/ROADMAP.md",
           "lines": "962-976",
@@ -432,10 +465,14 @@
         }
       ],
       "gaps": [
+        "Log retention / PII redaction proof for ops telemetry still open",
+        "Privacy drill (live Wolfhouse+Sunset generic schema) open",
+        "Live deploy of minimized /healthz not done",
         "No guest data deletion/export ops procedure for staging telemetry",
         "Audit retention policy not frozen",
         "No proven PII redaction in container logs shipped to LAW"
-      ]
+      ],
+      "progress_class": "source_partial_progress_only"
     },
     {
       "id": "G09_cost_controls",
@@ -735,6 +772,54 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Correlation searchable in LAW/App Insights with safe fields only after deploy + completion-logging follow-on; concurrent isolation proven; no deploy claimed by this slice"
+    }
+  },
+  "slice_16k_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16K_staff_api_healthz_minimization",
+    "gate_id": "G08_retention_privacy",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_log_retention_privacy_drill",
+    "title": "Minimize public Staff API /healthz to generic schema \u2014 source partial only",
+    "why_smallest": "G08 lacked public healthz privacy minimization; narrowest ownership is public body schema only without touching /readyz or authenticated diagnostics.",
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/staff-api-healthz.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16k-staff-api-healthz.js",
+      "scripts/verify-radar-slice16k-staff-api-healthz.js",
+      "fixtures/radar-operations/slice16k-expected-contract.json"
+    ],
+    "out_of_scope_for_16k": [
+      "Live deploy / restart",
+      "Changing /readyz",
+      "Changing authenticated diagnostics endpoints",
+      "Log retention policy freeze",
+      "PII redaction proof in LAW",
+      "Privacy drill execution",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "Public /healthz body exactly {status:ok,service:staff-api}",
+      "Cache-Control no-store on healthz responses",
+      "No auth/stage/stormglass/luna_ai/provider/model/key/config/tenant/note fields",
+      "/healthz remains DB-independent HTTP 200",
+      "/readyz behavior unchanged",
+      "Authenticated GET /staff/ask-luna/ai-status preserved for diagnostics",
+      "Real-listener env-canary RED/GREEN proofs; Wolfhouse/Sunset same body",
+      "Live deploy, log-retention proof, and privacy drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16K_DRILL_healthz_privacy_live_prove",
+      "steps": [
+        "Approved deploy of Staff API image with minimized /healthz (follow-on; not this commit)",
+        "GET /healthz on staff-staging and sunset-staging; prove exact generic schema",
+        "Prove Cache-Control no-store and no forbidden fields",
+        "Prove /readyz unchanged and authenticated ai-status still works",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Live public /healthz matches generic schema on both tenants; /readyz + authenticated diagnostics preserved; no deploy claimed by this slice"
     }
   }
 }

@@ -84,6 +84,10 @@ const {
   requestId,
   CORRELATION_HEADER_CANON,
 } = require('./lib/staff-api-request-correlation');
+const {
+  HEALTHZ_PATH,
+  handleStaffApiHealthz,
+} = require('./lib/staff-api-healthz');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
 let __fortress15j3OfflineSeams = null;
@@ -182,7 +186,7 @@ const {
   resolveBalanceDueIntentKey,
 } = require('./lib/staff-ask-luna-balance-due');
 const { classifyAskLunaIntentWithAi } = require('./lib/staff-ask-luna-ai-intent');
-const { resolveLunaAiDiagnostics, resolveLunaAiHealthSummary } = require('./lib/luna-ai-provider');
+const { resolveLunaAiDiagnostics } = require('./lib/luna-ai-provider');
 const { formatBalanceDueAnswerNatural } = require('./lib/staff-ask-luna-ai-answer-format');
 const {
   resolveAskLunaLessonsIntentKey,
@@ -238,7 +242,7 @@ const {
   getAskLunaFreeBedsOnNightQuery,
   formatAskLunaFreeBedsAnswer,
 } = require('./lib/staff-ask-luna-free-beds');
-const { hasStormglassConfig, getStormglassConfigStatus } = require('./lib/staff-stormglass-config');
+const { hasStormglassConfig } = require('./lib/staff-stormglass-config');
 const {
   fetchSurfForecastForStaff,
   resolveAskLunaSurfForecastIntentKey,
@@ -46633,7 +46637,9 @@ async function router(req, res) {
   }
 
   // RADAR 16I: /readyz = dependency readiness via dedicated max-1 readiness pool.
-  // /healthz stays static liveness — must not touch Postgres (ACA liveness/startup).
+  // RADAR 16K: /healthz = minimized public liveness — must not touch Postgres or
+  // expose auth/stage/provider/model/key/config/tenant/note fields (ACA liveness/startup).
+  // Authenticated AI diagnostics: GET /staff/ask-luna/ai-status (viewer+).
   // Lifecycle close of the readiness pool remains open (explicit closeReadinessPool).
   if (pathname === READYZ_PATH) {
     const seam = getFortress15j3OfflineSeams();
@@ -46643,16 +46649,8 @@ async function router(req, res) {
     return handleStaffApiReadyz(res, sendJSON, withPgClient, readinessOpts);
   }
 
-  if (pathname === '/healthz' || pathname === '/') {
-    return sendJSON(res, 200, {
-      status:       'ok',
-      service:      'wolfhouse-staff-query-api',
-      stage:        '7.7b',
-      auth_enabled: STAFF_AUTH_REQUIRED,
-      stormglass:   getStormglassConfigStatus(),
-      luna_ai:      resolveLunaAiHealthSummary(process.env),
-      note:         'read-only staff API + UI + conversation endpoints (shadow-mode review)',
-    });
+  if (pathname === HEALTHZ_PATH || pathname === '/') {
+    return handleStaffApiHealthz(res, sendJSON);
   }
 
   return send404(res);
