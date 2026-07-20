@@ -17,6 +17,7 @@
     "fixtures/radar-operations/contract.json",
     "fixtures/radar-operations/findings.md",
     "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
+    "fixtures/radar-operations/slice16b-expected-contract.json",
     "infra/azure/staging-cost-budgets/",
     "scripts/lib/radar-slice16b-staging-cost-budgets.js",
     "scripts/verify-radar-slice16b-staging-cost-budgets.js",

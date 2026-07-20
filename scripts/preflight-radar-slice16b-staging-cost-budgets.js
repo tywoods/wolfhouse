@@ -5,11 +5,13 @@
  *
  * Exact subscription/RG short-circuit preflight for RADAR 16B.
  * NEVER deploys. NEVER calls Azure mutating APIs.
+ * Fail-closed on every unknown/positional argv. Explicitly rejects --live.
  *
  * Usage:
  *   node scripts/preflight-radar-slice16b-staging-cost-budgets.js \
- *     --resource-group wh-staging-rg \
- *     [--ops-email via env WH_RADAR_16B_OPS_NOTIFY_EMAIL only]
+ *     --resource-group wh-staging-rg
+ *
+ * Env: WH_RADAR_16B_OPS_NOTIFY_EMAIL (required for email check; never committed)
  */
 
 const {
@@ -25,59 +27,134 @@ const {
   redactEmail,
 } = require('./lib/radar-slice16b-staging-cost-budgets');
 
+/** Azure dispatch counter — must remain 0 for this source-only slice. */
+const azureCalls = { count: 0 };
+
+const ALLOWED_FLAGS = new Set([
+  '--resource-group',
+  '-g',
+  '--mode',
+  '--deployment-mode',
+  '--help',
+  '-h',
+]);
+
+const FORBIDDEN_FLAGS = new Set([
+  '--live',
+  '--deploy',
+  '--apply',
+  '--what-if',
+  '--complete',
+  '--ops-email',
+  '--email',
+]);
+
+function refuse(reason, detail) {
+  const report = {
+    ok: false,
+    refused: true,
+    reason,
+    detail: detail || null,
+    azureCalls: azureCalls.count,
+    liveDeployEnabled: false,
+    note: 'Preflight refused before any Azure call',
+  };
+  console.error(JSON.stringify(report));
+  console.error(`REFUSED: ${reason}${detail ? ` (${detail})` : ''} azureCalls=${azureCalls.count}`);
+  process.exit(2);
+}
+
 function parseArgs(argv) {
-  const out = { resourceGroup: null, deploymentMode: 'Incremental', help: false };
-  for (let i = 2; i < argv.length; i += 1) {
-    const a = argv[i];
-    if (a === '--help' || a === '-h') out.help = true;
-    else if (a === '--resource-group' || a === '-g') {
-      out.resourceGroup = argv[i + 1];
-      i += 1;
-    } else if (a === '--mode' || a === '--deployment-mode') {
-      out.deploymentMode = argv[i + 1];
-      i += 1;
-    } else if (a === '--ops-email' || a === '--email') {
-      console.error('REFUSED: do not pass email on argv (use env ' + OPS_EMAIL_ENV + ')');
-      process.exit(2);
-    } else if (a === '--deploy' || a === '--apply' || a === '--what-if' || a === '--complete') {
-      console.error(`REFUSED: forbidden flag ${a}`);
-      process.exit(2);
+  const out = {
+    resourceGroup: null,
+    deploymentMode: 'Incremental',
+    help: false,
+  };
+  const args = argv.slice(2);
+
+  for (let i = 0; i < args.length; i += 1) {
+    const a = args[i];
+
+    if (!a.startsWith('-')) {
+      refuse('unknown_positional_arg', a);
     }
+
+    if (FORBIDDEN_FLAGS.has(a)) {
+      refuse('forbidden_flag', a);
+    }
+
+    if (a === '--help' || a === '-h') {
+      out.help = true;
+      continue;
+    }
+
+    if (a === '--resource-group' || a === '-g') {
+      const val = args[i + 1];
+      if (val == null || String(val).startsWith('-')) {
+        refuse('missing_flag_value', a);
+      }
+      out.resourceGroup = val;
+      i += 1;
+      continue;
+    }
+
+    if (a === '--mode' || a === '--deployment-mode') {
+      const val = args[i + 1];
+      if (val == null || String(val).startsWith('-')) {
+        refuse('missing_flag_value', a);
+      }
+      out.deploymentMode = val;
+      i += 1;
+      continue;
+    }
+
+    if (!ALLOWED_FLAGS.has(a)) {
+      refuse('unknown_cli_arg', a);
+    }
+
+    refuse('unknown_cli_arg', a);
   }
+
   return out;
 }
 
 function main() {
   const args = parseArgs(process.argv);
-  if (args.help || !args.resourceGroup) {
+  if (args.help) {
     console.log(`Usage: node scripts/preflight-radar-slice16b-staging-cost-budgets.js --resource-group <rg>`);
     console.log(`Env: ${OPS_EMAIL_ENV}=ops@your-domain (required for email check; never committed)`);
     console.log(`Locks: sub=${LOCKS.subscriptionId} mode=${LOCKS.deploymentMode} liveDeploy=${LOCKS.liveDeployEnabled}`);
-    process.exit(args.help ? 0 : 2);
+    console.log('Fail-closed: rejects --live/--deploy/--apply/--what-if/--complete, unknown flags, and positionals.');
+    process.exit(0);
   }
 
-  // Short-circuit BEFORE any Azure consideration.
+  if (!args.resourceGroup) {
+    refuse('missing_resource_group', '--resource-group required');
+  }
+
+  // Short-circuit BEFORE any Azure consideration. azureCalls stays 0.
   const scope = assertExactStagingScope({
     subscriptionId: LOCKS.subscriptionId,
     resourceGroup: args.resourceGroup,
   });
   if (!scope.ok) {
-    console.error('REFUSED: scope short-circuit', scope.errors.join(','));
-    process.exit(2);
+    refuse('scope_short_circuit', scope.errors.join(','));
   }
 
   const mode = assertDeploymentMode(args.deploymentMode);
   if (!mode.ok) {
-    console.error('REFUSED: deployment mode', mode.errors.join(','));
-    process.exit(2);
+    refuse('deployment_mode', mode.errors.join(','));
   }
 
   const plan = BUDGET_PLANS[args.resourceGroup];
+  if (!plan) {
+    refuse('unknown_resource_group_plan', args.resourceGroup);
+  }
+
   const emailRaw = process.env[OPS_EMAIL_ENV];
   const email = validateOpsEmail(emailRaw);
   if (!email.ok) {
-    console.error('REFUSED: ops email', email.errors.join(','));
-    process.exit(2);
+    refuse('ops_email', email.errors.join(','));
   }
 
   const evalResult = evaluateDeployRequest({
@@ -93,8 +170,11 @@ function main() {
   });
 
   if (!evalResult.ok) {
-    console.error('REFUSED: preflight', evalResult.errors.join(','));
-    process.exit(2);
+    refuse('preflight_eval', evalResult.errors.join(','));
+  }
+
+  if (azureCalls.count !== 0) {
+    refuse('azure_call_detected', String(azureCalls.count));
   }
 
   const report = {
@@ -116,6 +196,7 @@ function main() {
     opsEmailRedacted: redactEmail(email.email),
     resourceTypesAllowed: [...ALLOWED_RESOURCE_TYPES],
     bicepModuleRel: LOCKS.bicepModuleRel,
+    azureCalls: azureCalls.count,
     note: 'Preflight only — no Azure calls, no deploy',
   };
 

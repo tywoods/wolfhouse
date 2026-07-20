@@ -49,7 +49,9 @@ npm run verify:radar-slice16b-staging-cost-budgets
 node scripts/preflight-radar-slice16b-staging-cost-budgets.js --resource-group wh-staging-rg
 ```
 
-Preflight short-circuits unless subscription + RG match the locks exactly, rejects Complete mode, missing/invalid email, changed amounts/thresholds, and extra resource types. It does **not** deploy.
+Preflight short-circuits unless subscription + RG match the locks exactly, rejects Complete mode, missing/invalid email, changed amounts/thresholds, and extra resource types. It **fail-closes** on every unknown/positional argv and explicitly refuses `--live` / `--deploy` / `--apply` / `--what-if` with `azureCalls=0` before any Azure consideration. It does **not** deploy.
+
+The offline verifier is **independent**: it does not import the plan/preflight library; it compares the complete compiled and plan contracts to `fixtures/radar-operations/slice16b-expected-contract.json` (thresholds values+expressions, startDate, budget/AG names, groupShortName, email-default absence, schema_version/slice/master_basis/branch, exact RG set) and owns one-field RED mutations that must differ only at the intended field.
 
 ## Progress class
 
