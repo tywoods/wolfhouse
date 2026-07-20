@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16M",
-  "title": "RADAR operations gate ledger (16M Stripe webhook event-id claim source-partial on G05)",
-  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
-  "branch": "radar/slice-16m-stripe-event-claim",
+  "slice": "RADAR-16N",
+  "title": "RADAR operations gate ledger (16N Staff API request completion log source-partial on G01)",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16n-request-completion-log",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -31,7 +31,7 @@
       "name": "Correlation / structured logs",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. Header + ALS context only — no req/res finish/close/aborted/error listeners; no duration/route/status completion logging; no console emission; no one-record claims. No async log queue; no signal/shutdown ownership. Source-partial correlation only — not deployed; request completion logs, LAW/App Insights delivery+search, retention, and correlation drill remain open. Supersedes deferred 16D.",
+      "rationale": "16J adds Staff API HTTP-boundary request correlation (AsyncLocalStorage): accept X-Request-Id only as strict UUIDv4 (normalize lowercase) else crypto.randomUUID(); set response header before route handling; expose getRequestContext/requestId; trusted-ingress tenant binding. 16N adds safe synchronous normal-completion structured logs at createStaffQueryApiHttpServer: await ALS-wrapped handler; emit exactly one allowlisted JSON record (event=staff_api_request_completed) in a finally block via existing console/process stdout logger; fields request_id/tenant_slug/method/route/status_code/duration_ms only; no req/res finish/close/aborted/error listeners; no signal/shutdown/queue/flush ownership; abrupt process/socket termination explicitly out of scope. Source-partial only — not deployed; Azure stdout/LAW delivery + searchable query, retention, abrupt-path coverage, and correlation drill remain open. Supersedes deferred 16D.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -43,23 +43,40 @@
             "requestId",
             "setResponseCorrelationHeader"
           ],
-          "note": "UUIDv4 accept/generate + ALS + response header; no lifecycle listeners / completion emission"
+          "note": "UUIDv4 accept/generate + ALS + response header; no lifecycle listeners"
+        },
+        {
+          "path": "scripts/lib/staff-api-request-completion-log.js",
+          "lines": "1-120,200-260",
+          "symbols": [
+            "emitStaffApiRequestCompleted",
+            "buildRequestCompletedRecord",
+            "bucketDurationMs"
+          ],
+          "note": "Allowlisted staff_api_request_completed emission; logger failures swallowed; no lifecycle listeners"
         },
         {
           "path": "scripts/staff-query-api.js",
-          "lines": "74-86,46677-46698",
+          "lines": "74-90,46787-46820",
           "symbols": [
             "runWithRequestCorrelation",
+            "emitStaffApiRequestCompleted",
             "createStaffQueryApiHttpServer",
             "resolveTrustedIngressBinding"
           ],
-          "note": "Real-router wire at createServer; base catch path preserved; trusted ingress binding at construction"
+          "note": "Real-router wire at createServer; await ALS handler + finally completion emit; base catch path preserved"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16n-expected-contract.json",
+          "lines": "1-80",
+          "symbols": [],
+          "note": "Frozen 16N normal-settlement completion schema; abrupt paths out of scope"
         },
         {
           "path": "fixtures/radar-operations/slice16j-expected-contract.json",
           "lines": "1-40",
           "symbols": [],
-          "note": "Frozen independent header+ALS contract (completion logging false)"
+          "note": "Frozen independent header+ALS contract"
         },
         {
           "path": "infra/azure/staging/main.bicep",
@@ -82,10 +99,11 @@
         }
       ],
       "gaps": [
-        "Request completion logs (structured completion records) not implemented",
-        "Staff API image with correlation middleware not deployed to staging",
-        "No proven LAW/App Insights delivery or search of correlation events",
+        "Staff API image with correlation + completion logging not deployed to staging",
+        "No proven Azure stdout / LAW / App Insights delivery of completion events",
+        "No proven searchable query of staff_api_request_completed records",
         "Retention policy for correlation completion records not frozen",
+        "Abrupt process/socket termination path coverage explicitly out of scope / open",
         "End-to-end Meta → Hermes → Staff API → Stripe correlation drill open"
       ],
       "progress_class": "source_partial_progress_only"
@@ -787,9 +805,7 @@
       "fixtures/radar-operations/slice16j-expected-contract.json"
     ],
     "out_of_scope_for_16j": [
-      "Request completion logs / structured completion records",
       "Req/res finish/close/aborted/error lifecycle listeners",
-      "Duration/route/status console emission",
       "Async log delivery queue",
       "Signal/shutdown flush hooks",
       "Exit-code mutation / process handler install",
@@ -808,14 +824,14 @@
       "No req/res finish/close/aborted/error listeners beyond base counts",
       "Synthetic req/res error behavior byte-for-byte baseline (no new error listeners)",
       "Router catch block unchanged from master base (no headersSent guard)",
-      "No console/log completion side effect",
-      "Request completion logs/delivery/search/retention/drill remain open"
+      "16J outcome remains header+ALS; completion emission owned by follow-on 16N",
+      "Deploy/delivery/search/retention/drill remain open"
     ],
     "final_controlled_drill": {
       "id": "16J_DRILL_correlation_log_query",
       "steps": [
         "Approved deploy of Staff API image with correlation middleware (follow-on; not this commit)",
-        "Follow-on completion logging ownership (not this commit)",
+        "Follow-on completion logging ownership (16N source; deploy follow-on)",
         "Generate known X-Request-Id traffic",
         "Prove searchable correlation in LAW/App Insights with safe fields only",
         "Prove concurrent requests do not bleed context",
@@ -969,6 +985,63 @@
         "Freeze evidence JSON secret-free"
       ],
       "pass_rule": "Live replay/concurrency proofs pass after approved deploy; no DLQ/operator claimed by this slice; real-PG ambiguous-commit drill remains open until proven"
+    }
+  },
+  "slice_16n_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16N_staff_api_request_completion_log",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_abrupt_path_drill",
+    "title": "Add Staff API safe synchronous normal-completion structured request logs — source partial only",
+    "why_smallest": "G01 lacked safe request completion records after 16J ALS correlation; narrowest ownership is await+finally emission of one allowlisted console JSON record at createStaffQueryApiHttpServer without lifecycle listeners or signal/shutdown ownership.",
+    "builds_on": [
+      "16J_staff_api_request_correlation"
+    ],
+    "supersedes": [],
+    "owner_files": [
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/staff-query-api.js",
+      "scripts/lib/radar-slice16n-staff-request-completion-log.js",
+      "scripts/verify-radar-slice16n-staff-request-completion-log.js",
+      "fixtures/radar-operations/slice16n-expected-contract.json"
+    ],
+    "out_of_scope_for_16n": [
+      "Req/res finish/close/aborted/error lifecycle listeners",
+      "Async log delivery queue / buffer / flush",
+      "Signal/shutdown handlers / exit-code mutation",
+      "Abrupt process/socket termination capture",
+      "Live deploy / restart",
+      "Azure stdout / LAW / App Insights delivery proof",
+      "Searchable query proof",
+      "Retention policy freeze",
+      "E2E Meta→Hermes→Staff→Stripe correlation drill",
+      "Production RGs"
+    ],
+    "acceptance_criteria": [
+      "At createStaffQueryApiHttpServer: await ALS-wrapped handler; emit exactly one allowlisted JSON record in finally for normal settlement",
+      "event=staff_api_request_completed; fields only request_id/tenant_slug/method/route/status_code/duration_ms",
+      "request_id from ALS; tenant_slug from trusted construction binding only; method allowlisted/uppercased",
+      "route=normalized pathname without query/fragments; common UUID/numeric IDs replaced",
+      "status_code from res.statusCode bounded integer; duration_ms ceil-up to 5ms capped at 300000",
+      "Existing console/process stdout logger; logger failure caught and must not alter HTTP/rejection/process",
+      "Existing router catch remains byte-identical; handler rejection preserves existing behavior",
+      "No req/res lifecycle listeners; no signal/shutdown/queue/flush ownership",
+      "Real-listener proofs: 2xx/4xx/5xx exactly one record; ID correlation; concurrent isolation; canaries absent",
+      "Deploy/delivery/search/retention/abrupt-path/drill remain open"
+    ],
+    "final_controlled_drill": {
+      "id": "16N_DRILL_completion_log_search",
+      "steps": [
+        "Approved deploy of Staff API image with completion logging (follow-on; not this commit)",
+        "Generate known X-Request-Id traffic producing staff_api_request_completed records",
+        "Prove searchable allowlisted records in LAW/App Insights",
+        "Prove concurrent isolation and no PII fields",
+        "Do not claim abrupt-path coverage",
+        "Freeze evidence JSON secret-free"
+      ],
+      "pass_rule": "Searchable allowlisted completion records after approved deploy; concurrent isolation; abrupt paths not claimed by this slice"
     }
   }
 }

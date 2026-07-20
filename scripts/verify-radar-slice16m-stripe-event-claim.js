@@ -550,7 +550,12 @@ ok('C1 contract slice/branch/master',
   && contract.master_basis === MASTER
   && contract.gate_id === 'G05_retry_replay_safety'
   && contract.progress_class === 'source_partial_progress_only');
-ok('C2 HEAD branch matches', branch === BRANCH, `head=${branch}`);
+// Successor slices may own HEAD while 16M source remains frozen on its master basis.
+const allowedBranches16m = new Set([
+  BRANCH,
+  'radar/slice-16n-request-completion-log',
+]);
+ok('C2 HEAD branch matches (16M or successor 16N)', allowedBranches16m.has(branch), `head=${branch}`);
 ok('C3 ownership column is client_id (hostel rename)',
   PAYMENT_EVENTS_OWNERSHIP_COLUMN === 'client_id'
   && /INSERT INTO payment_events[\s\S]*client_id/.test(CLAIM_INSERT_SQL));

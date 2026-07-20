@@ -1,0 +1,114 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16N",
+  "outcome_id": "16N_staff_api_request_completion_log",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16n-request-completion-log",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Staff API safe synchronous normal-completion structured request logs — source partial; builds on 16J ALS",
+  "builds_on": {
+    "outcome_id": "16J_staff_api_request_correlation",
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "event_schema": {
+    "event": "staff_api_request_completed",
+    "fields_only": [
+      "event",
+      "request_id",
+      "tenant_slug",
+      "method",
+      "route",
+      "status_code",
+      "duration_ms"
+    ],
+    "request_id": "from_ALS_16J",
+    "tenant_slug": "trusted_construction_binding_only_else_omit",
+    "method": "allowlisted_uppercased",
+    "route": "normalized_pathname_no_query_fragments_uuid_numeric_ids_replaced",
+    "status_code": "res.statusCode_bounded_integer",
+    "duration_ms": {
+      "bucket_ms": 5,
+      "round": "ceil_up",
+      "cap_ms": 300000
+    }
+  },
+  "emission_contract": {
+    "boundary": "createStaffQueryApiHttpServer",
+    "mechanism": "await_ALS_wrapped_handler_finally_block",
+    "exactly_one_record_per_normal_settlement": true,
+    "logger": "existing_console_process_stdout",
+    "req_res_lifecycle_listeners": false,
+    "signal_shutdown_handlers": false,
+    "exit_code_mutation": false,
+    "async_log_queue": false,
+    "buffer_flush": false,
+    "abrupt_process_socket_termination_capture": false,
+    "logger_failure_must_not_alter_response_or_rejection": true,
+    "router_catch_byte_identical": true,
+    "handler_rejection": "preserve_existing_behavior_log_only_if_wrapper_settles_through_established_catch"
+  },
+  "exclusions": [
+    "url_query",
+    "raw_url",
+    "headers",
+    "body",
+    "guest",
+    "customer",
+    "name",
+    "phone",
+    "email",
+    "auth",
+    "cookie",
+    "token",
+    "key",
+    "stack",
+    "error_text",
+    "response_body"
+  ],
+  "still_open": [
+    "Live deploy of Staff API image with completion logging",
+    "Azure stdout / LAW / App Insights delivery proof",
+    "Searchable query of completion records in LAW/App Insights",
+    "Retention policy for completion records",
+    "Abrupt process/socket termination path coverage (explicitly out of scope)",
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill"
+  ],
+  "final_controlled_drill": {
+    "id": "16N_DRILL_completion_log_search",
+    "status": "open",
+    "pass_rule": "After approved deploy: known X-Request-Id traffic produces searchable allowlisted staff_api_request_completed records in LAW/App Insights; concurrent isolation; no PII fields; abrupt-path coverage not claimed by this slice"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-request-completion-log.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16n-staff-request-completion-log.js",
+    "scripts/verify-radar-slice16n-staff-request-completion-log.js",
+    "fixtures/radar-operations/slice16n-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16n-staff-request-completion-log",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 3e94498321cd26e64394984a5926d7a583226692..HEAD"
+  ],
+  "protected_paths_unchanged": [
+    "database/",
+    "docker/hermes-staging/",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/azure/staging-staff-api-metric-alerts"
+  ]
+}

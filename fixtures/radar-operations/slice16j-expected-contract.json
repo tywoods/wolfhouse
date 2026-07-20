@@ -55,11 +55,11 @@
     ]
   },
   "still_open": [
-    "Request completion logs (structured completion records)",
     "Live deploy of Staff API image with correlation middleware",
     "Log Analytics / App Insights delivery + search proof",
     "Retention policy for correlation completion records",
-    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill"
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill",
+    "Abrupt process/socket termination path coverage (out of scope for normal-settlement completion logs)"
   ],
   "final_controlled_drill": {
     "id": "16J_DRILL_correlation_log_query",

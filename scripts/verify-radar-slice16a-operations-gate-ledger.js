@@ -21,8 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '49b4ccff673014b28047307514f91a508cc8c497';
-const BRANCH_16M = 'radar/slice-16m-stripe-event-claim';
+const MASTER_BASIS = '3e94498321cd26e64394984a5926d7a583226692';
+const BRANCH_16N = 'radar/slice-16n-request-completion-log';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -106,7 +106,7 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16M owns Staff API Stripe event-claim wiring; 16A freeze still requires
+  // 16N owns Staff API completion-log wiring; 16A freeze still requires
   // database/, Hermes staging, staging Bicep, and 16H metric-alert module untouched.
   const paths = [
     'database/',
@@ -158,8 +158,8 @@ function currentBranch() {
 function staffApiRuntimeDiffVsMaster() {
   const paths = [
     'scripts/staff-query-api.js',
-    'scripts/lib/stripe-webhook-event-claim.js',
-    'scripts/lib/stripe-webhook-payment-truth.js',
+    'scripts/lib/staff-api-request-completion-log.js',
+    'scripts/lib/staff-api-request-correlation.js',
   ];
   try {
     return execSync(
@@ -338,11 +338,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16M id', /16M_stripe_webhook_event_id_claim/.test(doc));
+ok('F33 doc mentions selected 16N id', /16N_staff_api_request_completion_log/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
 ok('F35 findings lists G01/G02/G03/G05/G06/G08/G09 partial',
   /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G05/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16M/.test(findings));
+  && /16N/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -351,7 +351,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/Bicep/16H unchanged vs master basis (16M may touch Staff API claim paths)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/Bicep/16H unchanged vs master basis (16N may touch Staff API completion-log paths)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -375,14 +375,14 @@ ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js')
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
 
-const slice16mContract = readJson(path.join(FIXTURE_DIR, 'slice16m-expected-contract.json'));
+const slice16nContract = readJson(path.join(FIXTURE_DIR, 'slice16n-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16M contract + HEAD',
-  matrix.branch === BRANCH_16M
-  && contract.branch === BRANCH_16M
-  && slice16mContract.branch === BRANCH_16M
-  && headBranch === BRANCH_16M,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16m=${slice16mContract.branch} head=${headBranch}`);
+ok('F48 gate-matrix branch pin equals 16N contract + HEAD',
+  matrix.branch === BRANCH_16N
+  && contract.branch === BRANCH_16N
+  && slice16nContract.branch === BRANCH_16N
+  && headBranch === BRANCH_16N,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16n=${slice16nContract.branch} head=${headBranch}`);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -395,31 +395,32 @@ ok('F49 must_not forbids live/deployed mutation, not blanket source change',
 
 const g01 = matrix.gates.find((g) => g.id === 'G01_correlation_structured_logs');
 const g08 = matrix.gates.find((g) => g.id === 'G08_retention_privacy');
-const g05forF50 = matrix.gates.find((g) => g.id === 'G05_retry_replay_safety');
 const runtimeDiff = staffApiRuntimeDiffVsMaster();
 const bicepDiff = execSync(
   `git diff --name-only ${MASTER_BASIS} -- infra/azure/staging/main.bicep infra/azure/sunset-staging/main.bicep`,
   { cwd: ROOT, encoding: 'utf8' },
 ).trim().split(/\n/).filter(Boolean);
-const g05CitesClaim = g05forF50
-  && Array.isArray(g05forF50.source_evidence)
-  && g05forF50.source_evidence.some((ev) =>
-    ev.path === 'scripts/lib/stripe-webhook-event-claim.js'
+const g01CitesCompletion = g01
+  && Array.isArray(g01.source_evidence)
+  && g01.source_evidence.some((ev) =>
+    ev.path === 'scripts/lib/staff-api-request-completion-log.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not does not contradict 16M Staff API claim changes or G05 evidence',
+ok('F50 must_not does not contradict 16N Staff API completion-log changes or G01 evidence',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
-  && g05CitesClaim
+  && g01CitesCompletion
   && runtimeDiff.includes('scripts/staff-query-api.js')
-  && pathExists('scripts/lib/stripe-webhook-event-claim.js')
+  && pathExists('scripts/lib/staff-api-request-completion-log.js')
   && bicepDiff.length === 0
   && matrix.live_mutation === false,
   `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
 
-ok('F51 G01 partial source-partial via 16J',
+ok('F51 G01 partial source-partial via 16J+16N',
   g01 && g01.verdict === 'partial'
   && g01.progress_class === 'source_partial_progress_only'
   && /16J/.test(g01.rationale)
+  && /16N/.test(g01.rationale)
+  && /staff_api_request_completed|completion/i.test(g01.rationale)
   && /UUIDv4|uuid.?v4/i.test(g01.rationale));
 ok('F52 correlation lib present', pathExists('scripts/lib/staff-api-request-correlation.js'));
 ok('F53 16J verifier script present',
@@ -544,6 +545,44 @@ ok('F84 16M leaves deploy/concurrency/replay/DLQ/drill open',
   && /open/i.test(String(contract.stripe_event_claim_drill || '')));
 ok('F85 doc mentions G05 event-id claim',
   /G05/.test(doc) && /event-id claim|stripe_event_id/i.test(doc));
+
+ok('F86 completion-log lib present',
+  pathExists('scripts/lib/staff-api-request-completion-log.js'));
+ok('F87 16N verifier script present',
+  pathExists('scripts/verify-radar-slice16n-staff-request-completion-log.js'));
+ok('F88 16N contract fixture present',
+  pathExists('fixtures/radar-operations/slice16n-expected-contract.json'));
+
+const sel16n = matrix.slice_16n_selection;
+ok('F89 exactly one 16N selection',
+  sel16n && sel16n.selected === true
+  && sel16n.outcome_id === '16N_staff_api_request_completion_log'
+  && sel16n.gate_id === 'G01_correlation_structured_logs'
+  && sel16n.progress_class === 'source_partial_progress_only');
+ok('F90 contract selected_16n matches',
+  contract.selected_16n
+  && contract.selected_16n.outcome_id === '16N_staff_api_request_completion_log'
+  && contract.selected_16n.gate_id === 'G01_correlation_structured_logs');
+ok('F91 16N final controlled drill present',
+  sel16n.final_controlled_drill
+  && sel16n.final_controlled_drill.id === '16N_DRILL_completion_log_search');
+ok('F92 16N acceptance criteria finite (>=4)',
+  Array.isArray(sel16n.acceptance_criteria) && sel16n.acceptance_criteria.length >= 4);
+ok('F93 16N leaves deploy/delivery/search/retention/abrupt/drill open',
+  /live_deploy/.test(String(sel16n.does_not_implement || ''))
+  && /abrupt/.test(String(sel16n.does_not_implement || ''))
+  && /source_partial_via_16n/i.test(String(contract.correlation_completion_logs || ''))
+  && /open/i.test(String(contract.correlation_delivery_proof || ''))
+  && /open/i.test(String(contract.correlation_search_proof || ''))
+  && /open/i.test(String(contract.correlation_retention || ''))
+  && /open/i.test(String(contract.correlation_abrupt_path_coverage || ''))
+  && /open/i.test(String(contract.correlation_drill || '')));
+ok('F94 doc mentions G01 completion log',
+  /G01/.test(doc) && /staff_api_request_completed|completion log/i.test(doc));
+ok('F95 16N builds on 16J',
+  Array.isArray(sel16n.builds_on)
+  && sel16n.builds_on.includes('16J_staff_api_request_correlation')
+  && contract.selected_16n.builds_on === '16J_staff_api_request_correlation');
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

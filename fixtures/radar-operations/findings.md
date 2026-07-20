@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure + 16M Stripe event-id claim source-partial)
+# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure + 16M Stripe event-id claim + 16N request completion log source-partial)
 
-**Master basis (16M):** `49b4ccff673014b28047307514f91a508cc8c497`
+**Master basis (16N):** `3e94498321cd26e64394984a5926d7a583226692`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -29,8 +29,8 @@
 5. **G02 readiness / dependencies — partial (source only via 16I)**
    Staff API `/readyz` + ACA probes added in source (dedicated max-1 readiness pool; `/healthz` stays DB-independent). **Not deployed** — live ACA probes still empty/null. Controlled readiness failure drill and lifecycle integration remain open. Supersedes deferred 16C (no signal/shutdown framework in 16I).
 
-6. **G01 correlation / structured logs — partial (source only via 16J)**
-   Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
+6. **G01 correlation / structured logs — partial (source only via 16J + 16N)**
+   Staff API request correlation middleware (UUIDv4 accept/generate, ALS, response header) plus safe synchronous normal-completion structured logs (`staff_api_request_completed` via await+finally at `createStaffQueryApiHttpServer`; allowlisted fields only; no lifecycle listeners). **Not deployed** — Azure stdout/LAW delivery + searchable query, retention, abrupt-path coverage, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
 7. **G08 retention / privacy — partial (source only via 16K)**
    Public Staff API `/healthz` minimized in source to `{status:ok,service:staff-api}` (no auth/stage/provider/model/key/config/tenant/note). **Not deployed** — live `/healthz` still exposes detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
@@ -39,6 +39,10 @@
 
 - **G04 backlog:** handlers/jobs exist; backlog metrics missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
+
+## Slice 16N
+
+`16N_staff_api_request_completion_log` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Builds on 16J ALS. At `createStaffQueryApiHttpServer`, await ALS-wrapped handler and emit exactly one allowlisted JSON record in a finally block for normal settlement only (console/process stdout). Fields: `event`, `request_id`, `tenant_slug`, `method`, `route`, `status_code`, `duration_ms`. No req/res lifecycle listeners; no signal/shutdown/queue/flush; abrupt paths out of scope. Does not deploy; delivery/search/retention/abrupt-path/drill remain open.
 
 ## Slice 16M
 
@@ -54,7 +58,7 @@
 
 ## Slice 16J
 
-`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Header + ALS only. Does not deploy; does not add completion logging, lifecycle listeners, async log queue, or signal/shutdown ownership; request completion logs/delivery/search/retention/drill remain open.
+`16J_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Supersedes deferred 16D. Header + ALS only. Does not deploy; does not add lifecycle listeners, async log queue, or signal/shutdown ownership; delivery/search/retention/drill remain open (completion emission owned by 16N).
 
 ## Slice 16I
 
@@ -70,4 +74,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16M. Database schema, Hermes staging, staging Bicep, and 16H metric-alert module unchanged vs master. Staff API Stripe webhook claim helper + wiring are intentional 16M ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16N. Database schema, Hermes staging, staging Bicep, and 16H metric-alert module unchanged vs master. Staff API completion-log helper + createServer wiring are intentional 16N ownership.

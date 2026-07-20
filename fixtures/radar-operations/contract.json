@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16M",
-  "outcome_id": "16M_stripe_webhook_event_id_claim",
-  "master_basis": "49b4ccff673014b28047307514f91a508cc8c497",
-  "branch": "radar/slice-16m-stripe-event-claim",
+  "slice": "RADAR-16N",
+  "outcome_id": "16N_staff_api_request_completion_log",
+  "master_basis": "3e94498321cd26e64394984a5926d7a583226692",
+  "branch": "radar/slice-16n-request-completion-log",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Stripe webhook event-id claim before payment mutations — G05 source-partial",
+  "title": "Staff API safe synchronous normal-completion structured request logs — G01 source-partial",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "live_deploy_concurrency_replay_operator_dlq_drill",
+  "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_abrupt_path_drill",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -46,6 +46,10 @@
     "fixtures/radar-operations/slice16m-expected-contract.json",
     "scripts/lib/stripe-webhook-event-claim.js",
     "scripts/verify-radar-slice16m-stripe-event-claim.js",
+    "fixtures/radar-operations/slice16n-expected-contract.json",
+    "scripts/lib/staff-api-request-completion-log.js",
+    "scripts/lib/radar-slice16n-staff-request-completion-log.js",
+    "scripts/verify-radar-slice16n-staff-request-completion-log.js",
     "infra/azure/staging/main.bicep",
     "infra/azure/sunset-staging/main.bicep"
   ],
@@ -93,10 +97,10 @@
       "infra/azure/sunset-staging/main.bicep",
       "infra/azure/staging-staff-api-metric-alerts/"
     ],
-    "note": "16M may modify Staff API Stripe webhook claim helpers only; must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; concurrency/real-PG ambiguous-commit/replay/DLQ/drill remain open"
+    "note": "16N may modify Staff API completion-log helpers + createServer wiring only; must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; delivery/search/retention/abrupt-path/drill remain open"
   },
   "gates": [
-    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:radar-slice16n-staff-request-completion-log",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:radar-slice16h-staff-api-metric-alerts",
@@ -104,11 +108,12 @@
     "npm run verify:radar-slice16j-staff-request-correlation",
     "npm run verify:radar-slice16k-staff-api-healthz",
     "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16m-stripe-event-claim",
     "npm run verify:staff-auth-api",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 49b4ccff673014b28047307514f91a508cc8c497..HEAD"
+    "git diff --check 3e94498321cd26e64394984a5926d7a583226692..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -148,13 +153,21 @@
     "outcome_id": "16J_staff_api_request_correlation",
     "gate_id": "G01_correlation_structured_logs",
     "progress_class": "source_partial_progress_only",
-    "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
+    "does_not_implement": "lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
     "supersedes": "16D_staff_api_request_correlation"
   },
-  "correlation_completion_logs": "open",
+  "selected_16n": {
+    "outcome_id": "16N_staff_api_request_completion_log",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_abrupt_path_drill",
+    "builds_on": "16J_staff_api_request_correlation"
+  },
+  "correlation_completion_logs": "source_partial_via_16n",
   "correlation_delivery_proof": "open",
   "correlation_search_proof": "open",
   "correlation_retention": "open",
+  "correlation_abrupt_path_coverage": "open",
   "correlation_drill": "open",
   "selected_16k": {
     "outcome_id": "16K_staff_api_healthz_minimization",

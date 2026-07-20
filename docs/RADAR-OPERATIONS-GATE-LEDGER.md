@@ -1,47 +1,48 @@
-# RADAR Slice 16M — Operations gate ledger (Stripe webhook event-id claim source-partial)
+# RADAR Slice 16N — Operations gate ledger (Staff API request completion log source-partial)
 
-**Status:** source partial progress only (zero live deploy / mutation; concurrency / replay operator / DLQ / drill open)
-**Master basis:** `49b4ccff673014b28047307514f91a508cc8c497`
-**Branch:** `radar/slice-16m-stripe-event-claim`
+**Status:** source partial progress only (zero live deploy / mutation; delivery / search / retention / abrupt-path / drill open)
+**Master basis:** `3e94498321cd26e64394984a5926d7a583226692`
+**Branch:** `radar/slice-16n-request-completion-log`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
+**Builds on:** 16J `16J_staff_api_request_correlation` (ALS correlation)
 
 ## Outcome
 
-Add **source-only fail-closed Stripe webhook event-id claim** before booking-payment and addon_service payment mutations. Use existing `payment_events.stripe_event_id` UNIQUE. Claim inside the same transaction: `INSERT … ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`; zero rows → rollback + HTTP 200 idempotent; first claim → path-specific lock/reload → existing writes or distinct-event business skip → `processed=true` → COMMIT. **Addon has no pre-transaction already-paid shortcut** — matched addon events always claim under transaction. Pre-commit failures → full rollback + retryable 500. **COMMIT failure is ambiguous** → best-effort rollback + retryable 500 `outcome_unknown=true` (never claim definitely rolled back). Addon distinct events: after claim, `SELECT … FOR UPDATE` owned payment; if already paid, mark claimed event processed with `duplicate_business_outcome` and return HTTP 200 idempotent with `no_business_mutation`/`no_payment_or_service_rewrite` (never `no_db_write` — ledger claim is a DB write). Privacy-minimized payload only. **Do not deploy.** G05 remains `partial` (event-claim source-partial only). Real PostgreSQL contention / ambiguous-commit drill remains **open** (no isolated ephemeral PostgreSQL on this host).
+Add **safe synchronous normal-completion structured request logs** for Staff API (source only). At the single `createStaffQueryApiHttpServer` boundary: await the existing 16J ALS-wrapped handler and emit exactly one allowlisted JSON record in a `finally` block for normal handler settlement only, using the existing console/process stdout logger. **Do not** attach req/res finish/close/aborted/error listeners, install signals, change exit codes, queue/buffer/flush, or claim capture of abrupt process/socket termination. Existing router catch remains byte-identical. Logger failure is caught and must not alter response/handler rejection or process semantics. **Do not deploy.** G01 remains `partial`.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `scripts/lib/stripe-webhook-event-claim.js` | Claim / mark-processed / minimized payload helper |
-| `scripts/lib/stripe-webhook-payment-truth.js` | Lookup returns owned `hostel_id` (`client_id` alias) |
-| `scripts/staff-query-api.js` | Webhook booking + addon paths wire claim-before-mutation |
-| `scripts/verify-radar-slice16m-stripe-event-claim.js` | Offline RED/GREEN verifier |
-| `fixtures/radar-operations/slice16m-expected-contract.json` | Frozen independent contract |
-| `npm run verify:radar-slice16m-stripe-event-claim` | Gate |
+| `scripts/lib/staff-api-request-completion-log.js` | Allowlisted build/emit/assert helpers |
+| `scripts/staff-query-api.js` | createServer await+finally wire |
+| `scripts/lib/radar-slice16n-staff-request-completion-log.js` | Slice locks |
+| `scripts/verify-radar-slice16n-staff-request-completion-log.js` | Offline RED/GREEN verifier |
+| `fixtures/radar-operations/slice16n-expected-contract.json` | Frozen independent contract |
+| `npm run verify:radar-slice16n-staff-request-completion-log` | Gate |
 
-## Bounded contract
+## Bounded schema
 
-| Bound | Value |
-|-------|--------|
-| Paths | `booking_payment`, `addon_service` only |
-| Claim SQL | `ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id` |
-| Ownership column | `client_id` (001_init `hostel_id`) |
-| Duplicate (exact event id) | HTTP 200 `idempotent` `reason=stripe_event_id_already_claimed`; `no_db_write=true` (ROLLBACK — no durable write) |
-| Distinct-event already paid (addon) | Claim processed + `duplicate_business_outcome`; HTTP 200 `reason=duplicate_business_outcome`; `no_business_mutation=true` + `no_payment_or_service_rewrite=true` (never `no_db_write` — ledger claim is a DB write) |
-| Addon pre-tx already-paid shortcut | Removed — matched addon events always claim under transaction |
-| Pre-commit failure | ROLLBACK + HTTP 500 retryable |
-| COMMIT failure | AMBIGUOUS → best-effort ROLLBACK + HTTP 500 `outcome_unknown=true` (no secret/error details); retry via durable claim |
-| Payload | allowlisted non-PII identifiers/state only (+ `duplicate_business_outcome` marker) |
-| Forbidden | raw Stripe event/session/customer; email/phone/name/addresses/tokens |
-| Out of scope | ignored/unmatched/invalid events; DLQ; replay operator; deploy; real-PG contention drill |
+| Field | Rule |
+|-------|------|
+| `event` | always `staff_api_request_completed` |
+| `request_id` | from ALS (16J) |
+| `tenant_slug` | trusted construction binding only (else omit) |
+| `method` | allowlisted + uppercased |
+| `route` | normalized pathname only; no query/fragments; common UUID/numeric IDs replaced |
+| `status_code` | `res.statusCode` bounded integer |
+| `duration_ms` | round UP to 5ms; cap 300000 |
+
+## Exclusions (never logged)
+
+URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/token/key, stack/error text, response body.
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + concurrency + drill) |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + delivery + drill) |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
@@ -50,7 +51,7 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 
 | ID | Gate | Verdict |
 |----|------|---------|
-| G01 | Correlation / structured logs | `partial` (16J correlation source still partial) |
+| G01 | Correlation / structured logs | `partial` (16J + 16N source still partial) |
 | G02 | Readiness / dependencies | `partial` (16I readiness source still partial) |
 | G03 | Actionable tenant-aware alerts | `partial` (16H metric-alert source still partial) |
 | G04 | Webhook / payment / worker backlog | `partial` |
@@ -60,41 +61,39 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 | G08 | Retention / privacy | `partial` (16K healthz source still partial) |
 | G09 | Cost controls | `partial` (16B budget-threshold source still partial) |
 
-## G05 semantics (truthful)
+## G01 semantics (truthful)
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
-| Stripe event-id claim before mutations (source) | `partial` | booking + addon paths; same txn; addon FOR UPDATE lock/reload |
-| Schema UNIQUE `stripe_event_id` | present | 001_init (no new migration) |
-| Exact-ID conflict semantics | `partial` | ON CONFLICT DO NOTHING RETURNING; fake + source proven |
-| Addon distinct-event concurrency (fake) | `partial` | one business mutation; both claims processed; loser idempotent |
-| COMMIT ambiguity handling (source) | `partial` | `outcome_unknown=true`; fake pre-apply reject + modeled post-durable retry |
-| Live deploy of claim path | `open` | Not claimed |
-| Live concurrency proof | `open` | Not claimed |
-| Real PostgreSQL contention / ambiguous-commit drill | `open` | No isolated ephemeral PostgreSQL on this host |
-| Replay operator / stuck recovery | `open` | Not claimed |
-| DLQ | `open` | Not claimed |
-| Controlled replay drill | `open` | Not claimed |
-| All event types claimed | out of scope | Ignored/unmatched unchanged |
+| Request correlation (header + ALS) | `partial` | 16J source |
+| Normal-settlement completion log (source) | `partial` | 16N await+finally; allowlisted fields |
+| Lifecycle listeners for completion | absent by design | Explicitly not owned |
+| Live deploy | `open` | Not claimed |
+| Azure stdout / LAW delivery | `open` | Not claimed |
+| Searchable query | `open` | Not claimed |
+| Retention policy | `open` | Not claimed |
+| Abrupt process/socket path coverage | `open` / out of scope | Not claimed |
+| Controlled correlation drill | `open` | Not claimed |
 
-## Slice 16M progress
+## Slice 16N progress
 
-**ID:** `16M_stripe_webhook_event_id_claim`
-**Gate:** `G05_retry_replay_safety`
+**ID:** `16N_staff_api_request_completion_log`
+**Gate:** `G01_correlation_structured_logs`
 **Progress class:** `source_partial_progress_only`
-**Does not implement:** live deploy, concurrency proof, replay operator, DLQ, drill
+**Does not implement:** live deploy, Azure stdout delivery, searchable query, retention, abrupt-path coverage, drill
 
 ### Still open
 
-- Live deploy of Staff API image with event-id claim
-- Live concurrency proof under real Postgres UNIQUE contention
-- Real PostgreSQL contention / ambiguous-commit drill (no isolated ephemeral PostgreSQL on this host)
-- Replay operator / stuck `processed=false` recovery
-- DLQ for unprocessable webhook events
-- Controlled replay drill
+- Live deploy of Staff API image with completion logging
+- Azure stdout / LAW / App Insights delivery proof
+- Searchable query of completion records
+- Retention policy for completion records
+- Abrupt process/socket termination path coverage (explicitly out of scope)
+- End-to-end Meta → Hermes → Staff API → Stripe correlation drill
 
 ## Prior partial progress retained
 
+- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial event-id claim (not deployed)
 - **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial capacity alerts (not deployed)
 - **16K** `16K_staff_api_healthz_minimization` on G08 — source-partial healthz (not deployed)
 - **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation (not deployed)
@@ -104,4 +103,4 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16M. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API Stripe webhook claim helper + wiring are intentional 16M ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16N. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API completion-log helper + createServer wiring are intentional 16N ownership.

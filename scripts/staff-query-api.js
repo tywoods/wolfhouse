@@ -85,6 +85,9 @@ const {
   CORRELATION_HEADER_CANON,
 } = require('./lib/staff-api-request-correlation');
 const {
+  emitStaffApiRequestCompleted,
+} = require('./lib/staff-api-request-completion-log');
+const {
   HEALTHZ_PATH,
   handleStaffApiHealthz,
 } = require('./lib/staff-api-healthz');
@@ -46788,15 +46791,26 @@ function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
   // RADAR 16J — correlate every request at the HTTP boundary (ALS; no handler signature change).
   // Trusted tenant slug from construction-time ingress binding only (never request headers/query).
+  // RADAR 16N — await ALS-wrapped handler; emit one allowlisted completion record in finally
+  // for normal settlement only (no req/res lifecycle listeners / signal / flush ownership).
   const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
   return http.createServer((req, res) => {
-    runWithRequestCorrelation(req, res, async () => {
+    void runWithRequestCorrelation(req, res, async () => {
+      const startedAtMs = Date.now();
       try {
-        const handler = __staffQueryApiRequestHandlerOverride || router;
-        await handler(req, res);
-      } catch (err) {
-        // Do not expose stack trace to client
-        sendJSON(res, 500, { success: false, error: 'internal server error' });
+        try {
+          const handler = __staffQueryApiRequestHandlerOverride || router;
+          await handler(req, res);
+        } catch (err) {
+          // Do not expose stack trace to client
+          sendJSON(res, 500, { success: false, error: 'internal server error' });
+        }
+      } finally {
+        emitStaffApiRequestCompleted({
+          startedAtMs,
+          res,
+          trustedTenantSlug: ingressBinding.tenant_slug,
+        });
       }
     }, { ingressBinding });
   });
