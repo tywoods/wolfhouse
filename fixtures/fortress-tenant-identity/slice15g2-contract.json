@@ -1,0 +1,148 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15G2",
+  "outcome_id": "15G2_meta_authority_path_design_freeze",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "title": "Freeze complete Meta POST authority-path design for B02 before replacement",
+  "status": "design_frozen",
+  "supersedes": {
+    "slice": "FORTRESS-15G",
+    "branch": "fortress/slice-15g-meta-ingress-authority-policy",
+    "tip_sha": "50f87a1f115ef9ba0c06dc91cd3dfab59c3f7b2b",
+    "policy": "do_not_merge_do_not_modify",
+    "reason": "15G mixed incomplete implementation with design and required two corrective commits (pre-PG gate, location_id propagation). 15G2 freezes the audited design; a bounded replacement slice implements it cleanly from master."
+  },
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "owner_files_audit_only": [
+    "scripts/staff-query-api.js",
+    "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "scripts/lib/luna-guest-message-events-sql.js",
+    "scripts/lib/luna-owner-whatsapp-inbound.js",
+    "scripts/lib/meta-open-demo-inbound-adapter.js",
+    "scripts/lib/luna-open-phone-testing-gate.js",
+    "scripts/lib/client-channel-resolver.js",
+    "docs/MULTICLIENT-STAGING-ROUTING.md"
+  ],
+  "out_of_scope": [
+    "any runtime behavior change on master paths",
+    "creating or modifying scripts/lib/meta-whatsapp-ingress-authority.js",
+    "merging or amending deferred fortress/slice-15g-meta-ingress-authority-policy",
+    "enabling META_WHATSAPP_INGRESS_AUTHORITY on any runtime",
+    "creating or mounting live CLIENT_CHANNEL_ROUTING_FILE",
+    "editing Azure/Bicep/compose/deployment env",
+    "rewriting 15A historical B02 vulnerable verdict",
+    "deploy / cloud / database / Stripe / production WhatsApp operations",
+    "live Meta / WhatsApp / DB / network calls"
+  ],
+  "current_master_posture": {
+    "normalize_live_client_slug": "options.client_slug || DEFAULT_CLIENT_SLUG ('wolfhouse-somo')",
+    "location_id_on_normalized": false,
+    "shadow": "tenant_channel_shadow observe-only; does not override live client_slug",
+    "hard_block": false,
+    "pg_acquisition": "handleMetaWhatsAppWebhookPost always calls withPgClient after normalize on valid JSON",
+    "idempotency_key_shape": "luna:{client_slug}:{wa_message_id}:{send_kind}",
+    "b02_verdict_historical": "vulnerable"
+  },
+  "shared_authority_owner": {
+    "id": "processMetaWhatsAppWebhookPostEntry",
+    "module": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "http_caller": "handleMetaWhatsAppWebhookPost",
+    "http_module": "scripts/staff-query-api.js",
+    "policy_module_planned": "scripts/lib/meta-whatsapp-ingress-authority.js",
+    "enforcement_order": [
+      "normalizeMetaWhatsAppWebhook(body, { env, ... })",
+      "applyMetaWhatsAppIngressAuthority(normalized, { env })",
+      "if blocked → build authority-blocked HTTP envelope; acquired_pg=false; return (zero withPgClient / persistence / draft / send / owner / demo)",
+      "else → withPgClient(pg => processMetaWhatsAppWebhookInbound({ pg, env, body, normalized, signatureMeta }))"
+    ],
+    "why_shared": "Every post-normalize success branch (guest persist/send, owner Command Center, open demo, no-persistence fallback, duplicate/replay, blocked phone gate) is reached only after the same Staff API POST entry acquires PG today. Authority must gate that single choke point before pool/client acquisition so blocked identities cannot touch any branch."
+  },
+  "post_normalize_branch_ids": [
+    "BR_HTTP_ERROR_BODY_READ",
+    "BR_HTTP_ERROR_SIGNATURE",
+    "BR_HTTP_ERROR_INVALID_JSON",
+    "BR_INCOMPLETE_IDENTITY",
+    "BR_DUPLICATE_REPLAY",
+    "BR_NO_PERSISTENCE_FALLBACK",
+    "BR_OWNER_COMMAND_CENTER",
+    "BR_BLOCKED_PHONE_GATE",
+    "BR_OPEN_DEMO",
+    "BR_GUEST_PERSIST_DRAFT_SEND"
+  ],
+  "authoritative_identity_propagation_required": {
+    "fields": ["client_slug", "location_id"],
+    "surfaces": [
+      "normalized (live fields, not shadow-only)",
+      "buildInboundEventSeed / guest_message_events.client_slug + normalized JSON",
+      "buildDraftInputFromNormalized",
+      "buildMetaWebhookSendBody",
+      "buildMetaInboundIdempotencyKey (location-scoped when location_id present; legacy shape when absent)",
+      "owner Command Center send body + stored normalized",
+      "open-demo request body (must not hardcode conflicting wolfhouse-somo when authority active)",
+      "HTTP response.normalized + audit log client_slug"
+    ],
+    "registry_note": "Resolver registry client_slug for Wolfhouse is 'wolfhouse' with location_id 'wolfhouse-somo'; legacy DEFAULT_CLIENT_SLUG remains 'wolfhouse-somo'. Replacement must treat resolver client_slug+location_id as authoritative when policy active, and document alias risk."
+  },
+  "replacement_implementation_slice": {
+    "slice": "FORTRESS-15H",
+    "outcome_id": "15H_meta_ingress_authority_enforce_before_pg",
+    "boundary_id": "B02_meta_normalize_live_client_slug",
+    "basis": "implement from clean master using 15G2 frozen design; do not cherry-pick deferred 15G branch",
+    "bounded_scope": [
+      "Add scripts/lib/meta-whatsapp-ingress-authority.js (default-off)",
+      "Introduce processMetaWhatsAppWebhookPostEntry; wire handleMetaWhatsAppWebhookPost to it",
+      "Apply authority after normalize; block before withPgClient",
+      "Propagate trusted location_id through draft/send/idempotency builders",
+      "Offline RED/GREEN verifier proving zero PG on block + location propagation on known enabled path",
+      "15H overlay; leave 15A historical B02 vulnerable until live activation"
+    ],
+    "explicitly_excluded_from_15h": [
+      "runtime activation META_WHATSAPP_INGRESS_AUTHORITY=1",
+      "live CLIENT_CHANNEL_ROUTING_* mount",
+      "deploy/restart",
+      "rewriting 15A matrix verdict",
+      "open-demo booking-write / Stripe / Graph API enablement",
+      "non-Meta ingress paths"
+    ],
+    "acceptance_boundary": {
+      "must_pass": [
+        "enabled+routing+known phone_number_id → live client_slug+location_id authoritative through persistence seed, draft input, send body, idempotency key, response.normalized",
+        "enabled+routing+unknown|missing|ambiguous|conflicting → authority-blocked response with acquired_pg=false and zero withPgClient/persistence/draft/send/owner/demo calls",
+        "default-off → exact current shadow-only master behavior (legacy client_slug, no hard block, PG still acquired as today)",
+        "enabled+routing-absent → inactive shadow-only preserved (no hard block)",
+        "legacy idempotency key unchanged when location_id absent",
+        "location-scoped idempotency when location_id present",
+        "15A historical B02 artifacts unchanged",
+        "no deploy config edits; activation remains default-off"
+      ],
+      "must_not": [
+        "merge deferred 15G commits",
+        "enable policy on any runtime in-slice",
+        "acquire PG before authority decision when policy active+blocked",
+        "trust body/options client_slug over resolver when authority active",
+        "leave location_id only in tenant_channel_shadow when authority active+known"
+      ]
+    }
+  },
+  "artifacts": [
+    "fixtures/fortress-tenant-identity/slice15g2-contract.json",
+    "fixtures/fortress-tenant-identity/slice15g2-findings.md",
+    "fixtures/fortress-tenant-identity/slice15g2-attack-cases.json",
+    "fixtures/fortress-tenant-identity/slice15g2-branch-matrix.json",
+    "fixtures/fortress-tenant-identity/slice15g2-b02-design-overlay.json",
+    "fixtures/fortress-tenant-identity/slice15g2-evidence.json",
+    "scripts/verify-fortress-slice15g2-meta-authority-path-audit.js"
+  ],
+  "residual_risk": {
+    "summary": "Until 15H lands and an operator separately activates routing+authority, live B02 remains vulnerable (shadow-only; default wolfhouse-somo live slug). Deferred 15G must not be treated as mergeable remediation."
+  }
+}

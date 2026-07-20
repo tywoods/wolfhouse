@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15G2",
+  "outcome_id": "15G2_meta_authority_path_design_freeze",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
+  "route": "POST /staff/meta/whatsapp/webhook",
+  "http_owner": {
+    "symbol": "handleMetaWhatsAppWebhookPost",
+    "path": "scripts/staff-query-api.js",
+    "lines": "13468-13545"
+  },
+  "normalize_owner": {
+    "symbol": "normalizeMetaWhatsAppWebhook",
+    "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+    "lines": "195-251"
+  },
+  "inbound_owner": {
+    "symbol": "processMetaWhatsAppWebhookInbound",
+    "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "lines": "237-412"
+  },
+  "shared_authority_choke_point": {
+    "required_symbol": "processMetaWhatsAppWebhookPostEntry",
+    "required_module": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+    "enforcement": "before_withPgClient",
+    "present_on_master": false,
+    "master_gap": "handleMetaWhatsAppWebhookPost calls normalizeMetaWhatsAppWebhook then withPgClient(processMetaWhatsAppWebhookInbound) with no authority gate"
+  },
+  "pre_normalize_http_errors": [
+    {
+      "id": "BR_HTTP_ERROR_BODY_READ",
+      "when": "readBodyRaw throws",
+      "status": 400,
+      "acquires_pg": false,
+      "client_slug": null,
+      "location_id": null,
+      "persistence": false,
+      "draft": false,
+      "send": false,
+      "idempotency": null,
+      "response": "{ success:false, error: Failed to read... }"
+    },
+    {
+      "id": "BR_HTTP_ERROR_SIGNATURE",
+      "when": "META_APP_SECRET set and X-Hub-Signature-256 fails",
+      "status": 403,
+      "acquires_pg": false,
+      "client_slug": null,
+      "location_id": null,
+      "persistence": false,
+      "draft": false,
+      "send": false,
+      "idempotency": null,
+      "response": "{ success:false, error: signature_*, preview_only, no_write_performed }"
+    },
+    {
+      "id": "BR_HTTP_ERROR_INVALID_JSON",
+      "when": "JSON.parse fails",
+      "status": 400,
+      "acquires_pg": false,
+      "client_slug": null,
+      "location_id": null,
+      "persistence": false,
+      "draft": false,
+      "send": false,
+      "idempotency": null,
+      "response": "{ success:false, error: Invalid JSON payload }"
+    }
+  ],
+  "post_normalize_branches": [
+    {
+      "id": "BR_INCOMPLETE_IDENTITY",
+      "owner": "processMetaWhatsAppWebhookInbound",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "lines": "248-254",
+      "predicate": "!normalized.wa_message_id || !normalized.client_slug",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "normalized.client_slug (default wolfhouse-somo; almost always present)",
+        "location_id": null,
+        "persistence": false,
+        "draft": false,
+        "send": false,
+        "idempotency": null,
+        "response": "buildMetaWhatsAppWebhookPostResponse; draft_called=false"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "if_authority_blocked": "never reach this branch; return blocked envelope with acquired_pg=false",
+        "if_authority_known": "client_slug+location_id already authoritative on normalized before PG"
+      }
+    },
+    {
+      "id": "BR_DUPLICATE_REPLAY",
+      "owner": "processMetaWhatsAppWebhookInbound",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "lines": "256-277,289-300",
+      "predicate": "existing/inserted row processed → buildResponseFromStoredEvent or buildOwnerResponseFromStoredEvent",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "lookup key = normalized.client_slug (live default); stored row.normalized may embed shadow",
+        "location_id": "absent as live field; may appear only inside stored tenant_channel_shadow",
+        "persistence": "read-only replay",
+        "draft": "from stored event",
+        "send": "from stored send_* fields; duplicate:true",
+        "idempotency": "row.send_idempotency_key (legacy luna:{client}:{wamid}:{kind})",
+        "response": "idempotent_replay:true + guest_message_event_id"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "lookup_key": "authoritative client_slug after gate",
+        "note": "Replays of pre-authority rows may retain legacy slug; new authoritative inserts must store live location_id on normalized"
+      }
+    },
+    {
+      "id": "BR_NO_PERSISTENCE_FALLBACK",
+      "owner": "processWithoutPersistence",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "lines": "171-230,262-264,283-285",
+      "predicate": "guest_message_events table_missing on find or insert",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "normalized.client_slug live default",
+        "location_id": null,
+        "persistence": false,
+        "draft": "possible via nested owner/demo/guest branches",
+        "send": "possible via nested branches",
+        "idempotency": "nested branch dependent",
+        "response": "event_persisted:false; guest_message_event_id:null"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "nested_branches_inherit": "authoritative normalized.client_slug+location_id"
+      },
+      "nested_branch_ids": [
+        "BR_OWNER_COMMAND_CENTER",
+        "BR_BLOCKED_PHONE_GATE",
+        "BR_OPEN_DEMO",
+        "BR_GUEST_PERSIST_DRAFT_SEND"
+      ]
+    },
+    {
+      "id": "BR_OWNER_COMMAND_CENTER",
+      "owner": "processOwnerWhatsAppCommandCenterInbound | processOwnerWhatsAppCommandCenterWithoutPersistence",
+      "path": "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "lines": "via inbound-process 180-187,311-319",
+      "predicate": "shouldRouteActiveStaffPhoneToOwnerCommandCenter after lookupStaffPhoneAccess(client_slug, from)",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "normalized.client_slug for staff lookup + owner send body",
+        "location_id": "not passed to buildOwnerSendBody / buildMetaInboundIdempotencyKey",
+        "persistence": "updates guest_message_events when event_row present",
+        "draft": "Ask Luna / owner SQL answer",
+        "send": "send_kind=staff_reply; source=owner_whatsapp_command_center",
+        "idempotency": "luna:{client_slug}:{wa_message_id}:staff_reply",
+        "response": "owner flags on normalized; command_center payload"
+      },
+      "replacement_required": {
+        "staff_lookup_client_slug": "authoritative",
+        "send_body_client_slug": "authoritative",
+        "location_id": "propagate into normalized storage + idempotency when present",
+        "authority_gate_before_pg": true
+      }
+    },
+    {
+      "id": "BR_BLOCKED_PHONE_GATE",
+      "owner": "buildGuestPhoneGateBlockedMetaResponse",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js + luna-open-phone-testing-gate.js",
+      "lines": "102-118,190-197,322-329",
+      "predicate": "shouldBlockMetaGuestInboundAfterOpenDemo",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "normalized.client_slug (gate inspects client_slug/from)",
+        "location_id": null,
+        "persistence": "event_row may already exist from insert",
+        "draft": false,
+        "send": false,
+        "idempotency": null,
+        "response": "phone-gate extras; draft_called=false"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "gate_client_slug": "authoritative when policy active",
+        "note": "Phone gate is not a substitute for channel-identity authority"
+      }
+    },
+    {
+      "id": "BR_OPEN_DEMO",
+      "owner": "processMetaOpenDemoGuestInbound",
+      "path": "scripts/lib/meta-open-demo-inbound-adapter.js",
+      "lines": "via inbound-process 200-207,332-339; adapter buildOpenDemoRequestBodyFromMeta",
+      "predicate": "shouldRouteMetaInboundToOpenDemo",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "trim(normalized.client_slug) || hardcoded 'wolfhouse-somo' in buildOpenDemoRequestBodyFromMeta",
+        "location_id": "not mapped into open-demo body",
+        "persistence": "optional event_row decision updates",
+        "draft": "open-demo review path",
+        "send": "gated open-demo live reply / payment-link paths",
+        "idempotency": "open-demo internal (not Meta luna: key shape)",
+        "response": "Meta envelope + open-demo fields"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "client_slug": "authoritative normalized; remove conflicting hardcoded fallback when authority active",
+        "location_id": "include when present on normalized"
+      }
+    },
+    {
+      "id": "BR_GUEST_PERSIST_DRAFT_SEND",
+      "owner": "runDraftAndSendGate + buildInboundEventSeed + decision patch",
+      "path": "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "lines": "133-169,280-281,342-411",
+      "predicate": "default guest path after insert (or no-persistence nested guest path)",
+      "master": {
+        "acquires_pg": true,
+        "client_slug_source": "normalized.client_slug → seed.client_slug, draft input, send body, SQL WHERE client_slug",
+        "location_id": "absent; shadow may store resolver location_id only under tenant_channel_shadow",
+        "persistence": "insertGuestMessageEventInbound + update normalized JSON + updateGuestMessageEventDecisions",
+        "draft": "buildLunaGuestReplyDraft(buildDraftInputFromNormalized)",
+        "send": "evaluateGuestReplySendRouteWithPause(buildMetaWebhookSendBody)",
+        "idempotency": "luna:{client_slug}:{wa_message_id}:{send_kind}",
+        "response": "buildMetaWhatsAppWebhookPostResponse with draft/send/event_persisted"
+      },
+      "replacement_required": {
+        "authority_gate_before_pg": true,
+        "seed_client_slug": "authoritative",
+        "normalized.location_id": "live field when authority known",
+        "draft_input.location_id": "when present",
+        "send_body.location_id": "when present",
+        "idempotency": "luna:{client}:{location}:{wamid}:{kind} when location present; legacy when absent"
+      }
+    }
+  ],
+  "authority_surface_map": {
+    "persistence": ["buildInboundEventSeed.client_slug", "guest_message_events.normalized JSON", "SQL predicates client_slug + wa_message_id"],
+    "draft": ["buildDraftInputFromNormalized.client_slug", "buildDraftInputFromNormalized.location_id (required when present)"],
+    "send": ["buildMetaWebhookSendBody.client_slug", "buildMetaWebhookSendBody.location_id (required when present)", "owner buildOwnerSendBody.client_slug"],
+    "idempotency": ["buildMetaInboundIdempotencyKey", "decisionPatch.send_idempotency_key", "response.idempotency_key"],
+    "response": ["response.normalized.client_slug", "response.normalized.location_id", "audit log client_slug"]
+  }
+}

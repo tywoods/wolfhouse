@@ -1,0 +1,184 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15G2",
+  "description": "Offline RED/GREEN attack cases for Meta POST authority-path design freeze (B02). Fake IDs only — no live secrets, no network. Complements (does not rewrite) 15A attack-cases.json.",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "master_basis": "a684422903fec3093ac0bb7e13e50f674aec3b7a",
+  "cases": [
+    {
+      "id": "AC15G2_MASTER_PG_BEFORE_AUTHORITY",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Valid JSON Meta POST always acquires PG after normalize with no authority gate",
+      "input": {
+        "classifier": "master_post_entry",
+        "has_processMetaWhatsAppWebhookPostEntry": false,
+        "normalize_then_withPgClient": true
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "pg_before_authority"
+      }
+    },
+    {
+      "id": "AC15G2_SHADOW_SUNSET_LIVE_DEFAULT",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Sunset sample phone_number_id resolves in shadow while live client_slug stays wolfhouse-somo and location_id absent",
+      "input": {
+        "classifier": "normalize_shadow",
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE",
+        "allow_sample_fallback": true
+      },
+      "expect": {
+        "live_client_slug": "wolfhouse-somo",
+        "live_location_id": null,
+        "shadow_client_slug": "sunset",
+        "shadow_location_id": "sunset-somo"
+      }
+    },
+    {
+      "id": "AC15G2_UNKNOWN_NO_HARDBLOCK",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Unknown phone_number_id blocks only in shadow; live path continues under default slug",
+      "input": {
+        "classifier": "normalize_shadow",
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_UNKNOWN_SAMPLE",
+        "allow_sample_fallback": true
+      },
+      "expect": {
+        "live_client_slug": "wolfhouse-somo",
+        "shadow_blocked": true,
+        "hard_block": false
+      }
+    },
+    {
+      "id": "AC15G2_DRAFT_SEND_NO_LOCATION",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Draft/send builders omit location_id and use legacy idempotency even when shadow has location",
+      "input": {
+        "classifier": "builder_surface",
+        "normalized": {
+          "client_slug": "wolfhouse-somo",
+          "from": "34600000001",
+          "message_text": "Hola",
+          "wa_message_id": "wamid.SAMPLE_15G2",
+          "supported": true,
+          "location_id": null,
+          "tenant_channel_shadow": {
+            "client_slug": "sunset",
+            "location_id": "sunset-somo"
+          }
+        }
+      },
+      "expect": {
+        "draft_has_location_id": false,
+        "send_has_location_id": false,
+        "idempotency_key": "luna:wolfhouse-somo:wamid.SAMPLE_15G2:ask_missing_field"
+      }
+    },
+    {
+      "id": "AC15G2_OPEN_DEMO_HARDCODED_FALLBACK",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Open-demo adapter falls back to hardcoded wolfhouse-somo when client_slug empty",
+      "input": {
+        "classifier": "open_demo_fallback_source",
+        "source_path": "scripts/lib/meta-open-demo-inbound-adapter.js",
+        "pattern": "wolfhouse-somo"
+      },
+      "expect": {
+        "hardcoded_fallback_present": true
+      }
+    },
+    {
+      "id": "AC15G2_SHARED_OWNER_NAMED",
+      "color": "GREEN",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Design names single shared owner before PG for all post-normalize branches",
+      "input": {
+        "classifier": "design_contract",
+        "shared_owner_id": "processMetaWhatsAppWebhookPostEntry"
+      },
+      "expect": {
+        "enforcement": "before_withPgClient",
+        "covers_all_post_normalize_branches": true
+      }
+    },
+    {
+      "id": "AC15G2_REPLACEMENT_ACCEPTANCE_BOUNDED",
+      "color": "GREEN",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Replacement 15H acceptance requires zero PG on block and location propagation on known path",
+      "input": {
+        "classifier": "design_contract",
+        "replacement_slice": "FORTRESS-15H"
+      },
+      "expect": {
+        "must_include": [
+          "acquired_pg=false",
+          "location_id",
+          "default-off"
+        ],
+        "must_exclude": [
+          "merge deferred 15G",
+          "runtime activation"
+        ]
+      }
+    },
+    {
+      "id": "AC15G2_DEFERRED_15G_SUPERSEDED",
+      "color": "GREEN",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Deferred 15G tip is recorded as superseded non-merge source, not as live remediation",
+      "input": {
+        "classifier": "design_contract",
+        "deferred_branch": "fortress/slice-15g-meta-ingress-authority-policy",
+        "deferred_tip": "50f87a1f115ef9ba0c06dc91cd3dfab59c3f7b2b"
+      },
+      "expect": {
+        "policy": "do_not_merge_do_not_modify",
+        "runtime_behavior_changed_in_15g2": false
+      }
+    },
+    {
+      "id": "AC15G2_RESOLVER_STILL_FAIL_CLOSED",
+      "color": "GREEN",
+      "boundary_ids": ["B03_client_channel_resolver"],
+      "attack": "Resolver library still blocks unknown phone_number_id (design relies on B03)",
+      "input": {
+        "classifier": "resolver_blocked",
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_UNKNOWN_SAMPLE"
+      },
+      "expect": {
+        "blocked": true,
+        "reason": "unknown_channel_identity"
+      }
+    },
+    {
+      "id": "AC15G2_BRANCH_MATRIX_COMPLETE",
+      "color": "GREEN",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Branch matrix enumerates guest, owner, open-demo, no-persistence, replay, phone gate, and HTTP errors",
+      "input": {
+        "classifier": "branch_matrix"
+      },
+      "expect": {
+        "required_ids": [
+          "BR_GUEST_PERSIST_DRAFT_SEND",
+          "BR_OWNER_COMMAND_CENTER",
+          "BR_OPEN_DEMO",
+          "BR_NO_PERSISTENCE_FALLBACK",
+          "BR_DUPLICATE_REPLAY",
+          "BR_BLOCKED_PHONE_GATE",
+          "BR_HTTP_ERROR_SIGNATURE",
+          "BR_HTTP_ERROR_INVALID_JSON",
+          "BR_HTTP_ERROR_BODY_READ",
+          "BR_INCOMPLETE_IDENTITY"
+        ]
+      }
+    }
+  ]
+}
