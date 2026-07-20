@@ -10,8 +10,11 @@
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro",
+    "check": "astro check",
     "test": "vitest run",
-    "qa": "node qa/shot.mjs"
+    "verify:emitted": "node scripts/verify-emitted-metadata.mjs",
+    "qa": "node qa/shot.mjs",
+    "qa:install-browser": "playwright install chromium"
   },
   "dependencies": {
     "@astrojs/preact": "^6.0.1",
@@ -21,6 +24,7 @@
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",
+    "playwright": "1.61.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }

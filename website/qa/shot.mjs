@@ -41,7 +41,9 @@ async function autoScroll(page) {
 const browser = await chromium.launch();
 const errors = [];
 for (const vp of viewports) {
-  const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 2 });
+  // deviceScaleFactor 1 keeps full-page captures under Chromium's texture limit
+  // on this long marketing page; section crops still read clearly for QA.
+  const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, deviceScaleFactor: 1 });
   const page = await ctx.newPage();
   page.on('console', (m) => { if (m.type() === 'error') errors.push(`[${vp.name}] ${m.text()}`); });
   page.on('pageerror', (e) => errors.push(`[${vp.name}] PAGEERROR ${e.message}`));
