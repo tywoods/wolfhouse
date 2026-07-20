@@ -1,0 +1,600 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15A",
+  "title": "Tenant identity and confused-deputy boundary matrix",
+  "master_basis": "32b44930685450cb27ac519d052332be7b18150d",
+  "audit_only": true,
+  "live_mutation": false,
+  "classification_policy": "fail_closed_absence_is_unproven",
+  "tenants_in_scope": ["wolfhouse", "sunset"],
+  "verdicts_allowed": [
+    "proven_fail_closed",
+    "proven_isolated_by_runtime",
+    "unproven",
+    "vulnerable"
+  ],
+  "boundaries": [
+    {
+      "id": "B01_meta_whatsapp_signature_ingress",
+      "name": "Meta WhatsApp webhook signature / hub verify",
+      "chain": "Meta WhatsApp phone_number_id/webhook ingress",
+      "source_identity": "X-Hub-Signature-256 (when META_APP_SECRET set); hub.verify_token for GET",
+      "trusted_principal": "Meta app secret / verify token from env",
+      "untrusted_tenant_fields": ["body.entry[*].changes[*].value.metadata.phone_number_id", "display_phone_number", "from"],
+      "conflict_behavior": "Invalid verify token → 403. Missing app secret → signature verification skipped (skipped:true). Signature mismatch → verified:false.",
+      "db_scope_predicate": "none at signature layer",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "n/a",
+      "evidence": [
+        {
+          "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+          "lines": "41-106",
+          "symbols": ["verifyMetaHubChallenge", "verifyMetaHubSignature256"]
+        },
+        {
+          "path": "scripts/verify-meta-whatsapp-tenant-shadow.js",
+          "lines": "entire",
+          "symbols": []
+        }
+      ],
+      "tests": [
+        "scripts/verify-meta-whatsapp-tenant-shadow.js"
+      ],
+      "verdict": "unproven",
+      "verdict_rationale": "Signature skip when META_APP_SECRET absent is documented; production presence of secret not proven by offline tests. Fail-closed policy → unproven, not safe.",
+      "severity": "high",
+      "exploitability": "medium",
+      "blast_radius": "spoofed inbound WhatsApp events if secret unset"
+    },
+    {
+      "id": "B02_meta_normalize_live_client_slug",
+      "name": "Meta normalize live client_slug vs tenant_channel_shadow",
+      "chain": "Meta WhatsApp → tenant/location router",
+      "source_identity": "options.client_slug || DEFAULT_CLIENT_SLUG ('wolfhouse-somo'); shadow from phone_number_id",
+      "trusted_principal": "Deploy/runtime-supplied options.client_slug (legacy). Shadow is observe-only.",
+      "untrusted_tenant_fields": ["metadata.phone_number_id", "any body client_slug"],
+      "conflict_behavior": "Shadow may resolve sunset while live normalized.client_slug stays wolfhouse-somo. Unknown phone_number_id sets channel_resolution_blocked in shadow only; live path not rejected.",
+      "db_scope_predicate": "guest_message_events.normalized may store both live slug and tenant_channel_shadow",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "Wrong live tenant can draft/handle guest under wolfhouse default",
+      "evidence": [
+        {
+          "path": "scripts/lib/luna-meta-whatsapp-webhook.js",
+          "lines": "14-15,177-251",
+          "symbols": ["DEFAULT_CLIENT_SLUG", "normalizeMetaWhatsAppWebhook", "attachTenantChannelShadow"]
+        },
+        {
+          "path": "docs/MULTICLIENT-STAGING-ROUTING.md",
+          "lines": "15-54",
+          "symbols": []
+        }
+      ],
+      "tests": [
+        "scripts/verify-meta-whatsapp-tenant-shadow.js"
+      ],
+      "verdict": "vulnerable",
+      "verdict_rationale": "Code + docs prove shadow does not override live client_slug; hard blocking not enabled. Conflicting phone_number_id → wrong live tenant default.",
+      "severity": "high",
+      "exploitability": "medium",
+      "blast_radius": "cross-tenant guest handling on shared Meta ingress / shared Staff API"
+    },
+    {
+      "id": "B03_client_channel_resolver",
+      "name": "Channel resolver phone_number_id → client_slug+location_id",
+      "chain": "Tenant/location router",
+      "source_identity": "phone_number_id or email_to from routing map",
+      "trusted_principal": "config/clients/clients.json + channel routing map (sample or CLIENT_CHANNEL_ROUTING_*)",
+      "untrusted_tenant_fields": ["caller-supplied client_slug", "message text"],
+      "conflict_behavior": "Unknown identity → blocked unknown_channel_identity; never Wolfhouse fallback. Duplicate phone_number_id in map throws at build time. Location must belong to client in registry.",
+      "db_scope_predicate": "n/a (pure config)",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "blocked",
+      "evidence": [
+        {
+          "path": "scripts/lib/client-channel-resolver.js",
+          "lines": "20-23,77-91,155-171,259-356",
+          "symbols": ["BLOCKED_UNKNOWN", "validateRouteAgainstRegistry", "resolveInboundTenant", "resolveWhatsAppTenantShadow"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-tenant-resolution.js",
+        "scripts/verify-meta-whatsapp-tenant-shadow.js"
+      ],
+      "verdict": "proven_fail_closed",
+      "verdict_rationale": "Resolver library and offline verifiers prove unknown IDs blocked and registry ownership enforced.",
+      "severity": "info",
+      "exploitability": "low",
+      "blast_radius": "none when callers honor blocked"
+    },
+    {
+      "id": "B04_hermes_wolfhouse_fixed_runtime",
+      "name": "Hermes Wolfhouse fixed LUNA_CLIENT_SLUG runtime context",
+      "chain": "Hermes fixed runtime context/tool calls",
+      "source_identity": "LUNA_CLIENT_SLUG env (compose sets wolfhouse-somo)",
+      "trusted_principal": "Container env / Hermes role",
+      "untrusted_tenant_fields": ["tool args client_slug if any handler trusts body downstream"],
+      "conflict_behavior": "pause_gate / mirror skip when LUNA_CLIENT_SLUG missing (fail closed). Mirror never invents wolfhouse default.",
+      "db_scope_predicate": "Staff API calls carry runtime client_slug in payload",
+      "payment_secret_account_binding": "Staff API base URL from env (WOLFHOUSE_STAFF_API_BASE_URL)",
+      "cross_tenant_object_id_behavior": "Runtime-isolated if separate Hermes + token + Staff API; unproven if shared bot token accepts foreign slug",
+      "evidence": [
+        {
+          "path": "docker/hermes-staging/docker-compose.vm.yml",
+          "lines": "23-42",
+          "symbols": ["LUNA_CLIENT_SLUG"]
+        },
+        {
+          "path": "docker/hermes-staging/wolfhouse/pause_gate.py",
+          "lines": "35-37,138-141",
+          "symbols": ["_client_slug"]
+        },
+        {
+          "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+          "lines": "38,61-72,201-205",
+          "symbols": ["resolve_mirror_client_slug"]
+        }
+      ],
+      "tests": [
+        "docker/hermes-staging/wolfhouse/test_pause_gate.py",
+        "scripts/verify-luna-tenant-defaults.js"
+      ],
+      "verdict": "proven_isolated_by_runtime",
+      "verdict_rationale": "Hermes side binds tenant from env and fails closed when missing. Cross-tenant still depends on Staff API bot binding (B06/B07).",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "single Hermes instance"
+    },
+    {
+      "id": "B05_hermes_sunset_location_router",
+      "name": "Sunset Hermes phone_number_id → Somo vs Sardinero",
+      "chain": "Hermes fixed runtime context/tool calls",
+      "source_identity": "Meta phone_number_id matched to SUNSET_*_WHATSAPP_PHONE_NUMBER_ID env",
+      "trusted_principal": "Env mappings; HERMES_ROLE=sunset-luna gate",
+      "untrusted_tenant_fields": ["requested location_id overrides", "body location"],
+      "conflict_behavior": "Unknown or duplicate phone_number_id throws (fail closed). Mirror refuses inventing sunset-sardinero from Somo runtime.",
+      "db_scope_predicate": "location_id bound into tool context",
+      "payment_secret_account_binding": "n/a at router",
+      "cross_tenant_object_id_behavior": "Sardinero vs Somo confusion rejected when IDs unique",
+      "evidence": [
+        {
+          "path": "docker/hermes-staging/sunset_tenant_routing.py",
+          "lines": "39-56",
+          "symbols": ["resolve_location", "bind_gateway_location"]
+        },
+        {
+          "path": "scripts/lib/sunset-hermes-tenant-router.js",
+          "lines": "1-20",
+          "symbols": ["resolveSunsetPhoneNumberId"]
+        },
+        {
+          "path": "docker/hermes-staging/wolfhouse_whatsapp_mirror.py",
+          "lines": "65-72",
+          "symbols": ["resolve_mirror_location_id"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-sunset-bot-price-endpoints.js",
+        "scripts/verify-tenant-resolution.js"
+      ],
+      "verdict": "proven_fail_closed",
+      "verdict_rationale": "JS + Python routers throw on unknown phone_number_id; duplicate env IDs rejected.",
+      "severity": "info",
+      "exploitability": "low",
+      "blast_radius": "wrong Sunset school location if misconfigured env (ops), not guest-forgeable"
+    },
+    {
+      "id": "B06_staff_bot_auth_principal",
+      "name": "Staff API requireBotAuth principal",
+      "chain": "Staff API bot auth and request parsing",
+      "source_identity": "X-Luna-Bot-Token / Bearer vs LUNA_BOT_INTERNAL_TOKEN; else session cookie",
+      "trusted_principal": "Shared bot token → synthetic user {role:operator, staff_user_id:luna-bot-internal} with NO client_id/email",
+      "untrusted_tenant_fields": ["any client_slug in body/query/path after auth"],
+      "conflict_behavior": "Wrong token → 401 (no session fallthrough). Empty token disables bot path. Open mode when STAFF_AUTH_REQUIRED=false.",
+      "db_scope_predicate": "none at auth layer",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "Principal is cross-tenant capable; isolation deferred to handlers",
+      "evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "1163-1229",
+          "symbols": ["requireBotAuth"]
+        },
+        {
+          "path": "scripts/lib/staff-auth-config.js",
+          "lines": "78-205",
+          "symbols": ["validateStaffAuthConfig"]
+        },
+        {
+          "path": "scripts/lib/staff-portal-clients.js",
+          "lines": "298-324",
+          "symbols": ["getAccessibleClientSlugs", "userCanAccessClient"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-staff-auth-api.js",
+        "scripts/verify-crowsnest-auth.js"
+      ],
+      "verdict": "vulnerable",
+      "verdict_rationale": "Bot token principal has no tenant binding. getAccessibleClientSlugs returns ALL clients when user.email missing — so assertStaffClientAccess cannot constrain bot user.",
+      "severity": "high",
+      "exploitability": "high",
+      "blast_radius": "all tenants reachable by any holder of the shared bot token on that Staff API"
+    },
+    {
+      "id": "B07_staff_bot_body_client_slug",
+      "name": "Staff API bot handlers body/query client_slug trust",
+      "chain": "Staff API bot auth and request parsing",
+      "source_identity": "body.client_slug || body.client || DEFAULT_CLIENT ('wolfhouse-somo' hardcoded)",
+      "trusted_principal": "Intended: runtime DEFAULT_CLIENT_SLUG. Actual: many handlers treat body as trustedClientSlug.",
+      "untrusted_tenant_fields": ["body.client_slug", "body.client", "query.client", "query.client_slug"],
+      "conflict_behavior": "Sunset /staff/bot/sunset/* FORCE client_slug=sunset (body ignored). Generic /staff/bot/* trust body. Wolfhouse booking-create rejects trustedClientSlug≠wolfhouse-somo but still sources trustedClientSlug from body.",
+      "db_scope_predicate": "depends on handler SQL",
+      "payment_secret_account_binding": "payment link builders may inherit body-chosen trustedClientSlug",
+      "cross_tenant_object_id_behavior": "foreign client_slug accepted on trust_body handlers",
+      "evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "742,14745-14753,39227-39240",
+          "symbols": ["DEFAULT_CLIENT", "handleBotBookingCreate", "sunsetBotResolveLocation"]
+        },
+        {
+          "path": "scripts/lib/staff-bot-v2-routes.js",
+          "lines": "213,276,557,977,1300,1383",
+          "symbols": []
+        },
+        {
+          "path": "scripts/verify-sunset-bot-price-endpoints.js",
+          "lines": "9-12,67",
+          "symbols": []
+        }
+      ],
+      "tests": [
+        "scripts/verify-sunset-bot-price-endpoints.js",
+        "scripts/verify-sunset-bot-write-endpoints.js",
+        "scripts/verify-stage57b-staff-api-bot-routes.js"
+      ],
+      "verdict": "vulnerable",
+      "verdict_rationale": "Evidence proves asymmetric policy: Sunset forced, generic bot paths trust body. DEFAULT_CLIENT hardcoded ignoring DEFAULT_CLIENT_SLUG for most handlers.",
+      "severity": "high",
+      "exploitability": "high",
+      "blast_radius": "booking/read/write under wrong tenant when bot token + shared Staff API"
+    },
+    {
+      "id": "B08_staff_session_assert_client_access",
+      "name": "Portal/staff session assertStaffClientAccess",
+      "chain": "Portal staff auth/session",
+      "source_identity": "auth_sessions → staff_users.client_id → clients.slug",
+      "trusted_principal": "Session cookie hash → DB session row",
+      "untrusted_tenant_fields": ["query.client", "body.client_slug", "Host header (portal default uses allowlist/env)"],
+      "conflict_behavior": "assertStaffClientAccess → 403 client_access_denied when auth required and user cannot access slug. Login binds client from body.client joined to DB.",
+      "db_scope_predicate": "handlers that call assertStaffClientAccess before SQL",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "denied when assert called; unproven on handlers that skip assert",
+      "evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "969-978,1236-1344,41684-41705",
+          "symbols": ["assertStaffClientAccess", "handleLogin", "handleAuthSession"]
+        },
+        {
+          "path": "scripts/lib/staff-portal-clients.js",
+          "lines": "246-255,298-324",
+          "symbols": ["getSessionScopedClients", "userCanAccessClient"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-staff-tenant-scope.js",
+        "scripts/verify-staff-auth-api.js"
+      ],
+      "verdict": "proven_fail_closed",
+      "verdict_rationale": "Session endpoint scopes clients to login company; assertStaffClientAccess used on many staff routes. Caveat: coverage of every route is registry-based (B10).",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "staff portal data for allowed clients only when assert present"
+    },
+    {
+      "id": "B09_portal_host_vs_session_tenant",
+      "name": "Portal deploy host / DEFAULT_CLIENT_SLUG vs session mismatch",
+      "chain": "Portal staff auth/session",
+      "source_identity": "DEFAULT_CLIENT_SLUG env, else allowlisted staging host map, else wolfhouse-somo",
+      "trusted_principal": "Deployment env beats Host; Host only for exact allowlisted staging hostnames",
+      "untrusted_tenant_fields": ["Host", "X-Forwarded-Host", "localStorage staff_portal_client"],
+      "conflict_behavior": "Spoofed Host ignored when DEFAULT_CLIENT_SLUG set. Session clients limited to active login client.",
+      "db_scope_predicate": "session client_id",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "UI may show wrong default if localStorage stale — API must still assert",
+      "evidence": [
+        {
+          "path": "scripts/lib/staff-portal-clients.js",
+          "lines": "24-46,246-255",
+          "symbols": ["resolvePortalDeployClient", "STAGING_PORTAL_HOST_CLIENT", "getSessionScopedClients"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-sunset-portal-calendar-tenant.js",
+        "scripts/verify-staff-tenant-scope.js"
+      ],
+      "verdict": "proven_fail_closed",
+      "verdict_rationale": "Offline tests prove DEFAULT_CLIENT_SLUG beats Host spoofing; session scoped to login client.",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "portal UX confusion; API gated by session"
+    },
+    {
+      "id": "B10_db_tenant_scope_predicates",
+      "name": "DB client_slug / client_id / location_id SQL predicates",
+      "chain": "DB client_slug/client_id/location_id predicates",
+      "source_identity": "Resolved client_id/slug from auth or forced tenant",
+      "trusted_principal": "Handler-chosen scope params",
+      "untrusted_tenant_fields": ["raw object UUIDs without client predicate"],
+      "conflict_behavior": "staff-tenant-scope scanner + debt registry classifies hotspots; unclassified debt fails verifier",
+      "db_scope_predicate": "AND client_id / JOIN clients.slug / client_slug = $n (varies by query)",
+      "payment_secret_account_binding": "payment updates often AND client_id",
+      "cross_tenant_object_id_behavior": "object UUID alone is insufficient when scope present; residual debt tracked in registry",
+      "evidence": [
+        {
+          "path": "scripts/lib/staff-tenant-scope-hotspot.js",
+          "lines": "192-320,416-426",
+          "symbols": ["scanSqlScopeDebt", "assertDraftPaymentLinkClientScope"]
+        },
+        {
+          "path": "scripts/verify-staff-tenant-scope.js",
+          "lines": "1-50,187-220",
+          "symbols": []
+        },
+        {
+          "path": "scripts/fixtures/staff-tenant-scope-debt-registry.json",
+          "lines": "schema v2",
+          "symbols": []
+        }
+      ],
+      "tests": [
+        "scripts/verify-staff-tenant-scope.js",
+        "npm run verify:multiclient"
+      ],
+      "verdict": "proven_fail_closed",
+      "verdict_rationale": "verify:staff-tenant-scope + multiclient gates prove scoped payment-link SQL and classified debt registry. Residual grandfathered debt is explicit, not silent.",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "depends on unclassified debt — currently gated"
+    },
+    {
+      "id": "B11_stripe_checkout_creation_binding",
+      "name": "Stripe checkout / payment-link creation account+metadata",
+      "chain": "Stripe checkout/payment-link creation",
+      "source_identity": "trustedClientSlug + runtime STRIPE_SECRET_KEY",
+      "trusted_principal": "assertTrustedTenant(command); Stripe secret from env (one per Staff API runtime)",
+      "untrusted_tenant_fields": ["transportBody.client_slug", "client-supplied money fields"],
+      "conflict_behavior": "client_slug override rejected vs trustedClientSlug. Live keys blocked for staging. Money fields rejected.",
+      "db_scope_predicate": "payment row insert with client_id; updates WHERE id AND client_id",
+      "payment_secret_account_binding": "single STRIPE_SECRET_KEY per runtime — isolation by separate Staff API deploy",
+      "cross_tenant_object_id_behavior": "booking lookup joins clients.slug",
+      "evidence": [
+        {
+          "path": "scripts/lib/luna-front-desk-payment-link-service.js",
+          "lines": "98-154,336-346,673,905",
+          "symbols": ["assertTrustedTenant", "assertStripeRuntime"]
+        },
+        {
+          "path": "scripts/lib/sunset-stripe-payment-links.js",
+          "lines": "661-690,724-737",
+          "symbols": ["stripeEnv", "lockBookingForPaymentLink"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-staff-stripe-payment-link-api.js",
+        "scripts/verify-staff-bot-stripe-link-api.js"
+      ],
+      "verdict": "proven_isolated_by_runtime",
+      "verdict_rationale": "Code rejects body override vs trustedClientSlug and scopes SQL by client_id. Account isolation is one secret per runtime (architecture), not multi-account routing in-process.",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "wrong-tenant link if caller passes wrong trustedClientSlug (see B07)"
+    },
+    {
+      "id": "B12_stripe_webhook_signature",
+      "name": "Stripe webhook signature verification",
+      "chain": "Stripe webhook signature/tenant resolution",
+      "source_identity": "stripe-signature header + STRIPE_WEBHOOK_SECRET",
+      "trusted_principal": "Stripe webhook signing secret for this runtime",
+      "untrusted_tenant_fields": ["event payload metadata.client_slug", "metadata.payment_id"],
+      "conflict_behavior": "Missing secret → 503. Bad signature → 400. STRIPE_WEBHOOK_SKIP_VERIFY bypasses (dev only).",
+      "db_scope_predicate": "n/a at signature layer",
+      "payment_secret_account_binding": "one webhook secret per Staff API; mixed secrets across tenants not supported in-process",
+      "cross_tenant_object_id_behavior": "signature does not select tenant — only admits events for this Stripe account",
+      "evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "13509-13548",
+          "symbols": ["handleStripeWebhook"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-waterbottle-expired-hold-payment-truth.js",
+        "scripts/verify-sunset-stripe-payment-webhook.js"
+      ],
+      "verdict": "proven_isolated_by_runtime",
+      "verdict_rationale": "Fail-closed without secret; signature verified when configured. Tenant isolation relies on per-client Stripe account + runtime (architecture). Skip-verify is a footgun if enabled.",
+      "severity": "high",
+      "exploitability": "low",
+      "blast_radius": "forged payment truth if skip-verify or secret leak"
+    },
+    {
+      "id": "B13_stripe_webhook_payment_lookup",
+      "name": "Stripe webhook payment lookup by session id / metadata.payment_id",
+      "chain": "Stripe webhook signature/tenant resolution → booking/hold/payment lookup",
+      "source_identity": "session.id first; else metadata.payment_id UUID global lookup",
+      "trusted_principal": "Intended: stripe_checkout_session_id row. Fallback: metadata.payment_id without client predicate in WHERE.",
+      "untrusted_tenant_fields": ["session.metadata.payment_id", "session.metadata.client_slug"],
+      "conflict_behavior": "After Stripe signature verification admits the event, validateStripeBookingPaymentEvent rejects client_slug mismatch ONLY if metadata.client_slug is present. Missing client_slug on metadata-only path does not fail closed. Metadata is not an unauthenticated ingress — it arrives only inside a signed Stripe event (or STRIPE_WEBHOOK_SKIP_VERIFY footgun).",
+      "db_scope_predicate": "WHERE p.stripe_checkout_session_id=$1 OR WHERE p.id=$1::uuid (no client_id in lookup SQL)",
+      "payment_secret_account_binding": "webhook secret gates admission; lookup SQL is global within the admitted runtime DB",
+      "cross_tenant_object_id_behavior": "On a future shared DB/runtime, a signed event whose metadata.payment_id points at another tenant UUID can select that row. Today tenant-isolated DB + Stripe secret constrain direct cross-tenant reach.",
+      "evidence": [
+        {
+          "path": "scripts/lib/stripe-webhook-payment-truth.js",
+          "lines": "54-79,128-136",
+          "symbols": ["lookupPaymentForStripeSession", "validateStripeBookingPaymentEvent"]
+        },
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "13566-13572,13770-13786",
+          "symbols": ["handleStripeWebhook"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-waterbottle-expired-hold-payment-truth.js",
+        "fixtures/fortress-tenant-identity/attack-cases.json#AC_STRIPE_*"
+      ],
+      "verdict": "vulnerable",
+      "verdict_rationale": "Defense-in-depth / multi-client confused-deputy: metadata.payment_id fallback is a global UUID SELECT without client_id, and client_slug check is optional. Real vulnerable payment-truth boundary. Not a current unauthenticated exploit — Stripe signature verification plus tenant-isolated runtime/Stripe secret/database constrain direct exploitability.",
+      "severity": "high",
+      "exploitability": "low",
+      "upstream_isolation_documented": true,
+      "current_unauthenticated_exploit": false,
+      "exploit_preconditions": [
+        "Stripe webhook signature verifies (or STRIPE_WEBHOOK_SKIP_VERIFY enabled)",
+        "AND one of: trusted-server bug writing wrong payment_id into Checkout Session metadata; Stripe account compromise producing a misbound signed event; operator misconfiguration binding wrong session metadata; future shared DB/runtime across tenants"
+      ],
+      "blast_radius": "current: wrong payment/hold apply inside the already-admitted tenant-isolated runtime/DB if a signed event carries misbound metadata.payment_id. future SaaS shared DB/runtime: mark another tenant payment paid / promote hold via confused-deputy metadata.payment_id",
+      "current_blast_radius": "Wrong payment/hold apply inside the already-admitted tenant-isolated runtime/DB if a signed event carries misbound metadata.payment_id",
+      "future_saas_blast_radius": "Cross-tenant payment truth mutation on shared DB+Stripe when metadata.payment_id targets another tenant UUID without client predicate"
+    },
+    {
+      "id": "B14_stripe_locked_payment_identity",
+      "name": "Stripe payment-truth locked identity revalidation",
+      "chain": "Booking/hold/payment lookup callbacks",
+      "source_identity": "Locked payment row client_id + session.id / metadata.payment_id binding",
+      "trusted_principal": "DB lock for payment_id+client_id and booking_id+client_id",
+      "untrusted_tenant_fields": ["session metadata after initial lookup"],
+      "conflict_behavior": "CLIENT_MISMATCH / BOOKING_MISMATCH / METADATA_PAYMENT_ID_MISMATCH / BINDING_MISSING fail closed at apply time — but only after lookup already selected the row. Compounding control gap after B13, not an independent direct exploit path.",
+      "db_scope_predicate": "lockPaymentForStripePaymentTruth({paymentId, clientId})",
+      "payment_secret_account_binding": "uses pm.client_id from looked-up row",
+      "cross_tenant_object_id_behavior": "revalidation cannot fix wrong initial lookup if expectedClientId comes from that same row",
+      "evidence": [
+        {
+          "path": "scripts/lib/stripe-hold-promote-policy.js",
+          "lines": "112-223",
+          "symbols": ["lockPaymentForStripePaymentTruth", "validateLockedPaymentIdentityForStripeTruth"]
+        }
+      ],
+      "tests": [
+        "scripts/verify-waterbottle-expired-hold-payment-truth.js"
+      ],
+      "verdict": "unproven",
+      "verdict_rationale": "Compounding control gap (not an independent direct exploit): locked revalidation is strong for session/metadata consistency on the selected row, but expectedClientId is derived from the lookup result — does not independently re-resolve tenant. Amplifies B13 if lookup is poisoned. Absence of cross-tenant expectedClientId proof → unproven.",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "compounding only — inherits B13 if lookup poisoned; no standalone unauthenticated path"
+    },
+    {
+      "id": "B15_booking_hold_payment_callbacks",
+      "name": "Booking / hold / payment object lookup callbacks",
+      "chain": "Booking/hold/payment lookup callbacks",
+      "source_identity": "booking_code / payment_id / booking_id + client slug/id",
+      "trusted_principal": "Handler-resolved client scope",
+      "untrusted_tenant_fields": ["path UUIDs", "booking_code", "query.client"],
+      "conflict_behavior": "Many staff routes assert client access then JOIN clients.slug. Bot routes may trust body slug (B07). Short-link redirect uses query.client || DEFAULT_CLIENT_SLUG || wolfhouse-somo.",
+      "db_scope_predicate": "varies; payment short link includes client_slug",
+      "payment_secret_account_binding": "n/a",
+      "cross_tenant_object_id_behavior": "duplicate global booking_codes across tenants would be ambiguous — uniqueness not proven here",
+      "evidence": [
+        {
+          "path": "scripts/staff-query-api.js",
+          "lines": "937-945,1660-1670",
+          "symbols": ["LOOKUP_BOOKING_CODE_SQL", "payment short link clientSlug"]
+        },
+        {
+          "path": "scripts/lib/luna-front-desk-payment-link-service.js",
+          "lines": "308-346,552",
+          "symbols": []
+        }
+      ],
+      "tests": [
+        "scripts/verify-staff-tenant-scope.js",
+        "scripts/verify-staff-stripe-payment-link-api.js"
+      ],
+      "verdict": "unproven",
+      "verdict_rationale": "Mixed evidence: some lookups join client slug, others depend on caller. Global booking_code uniqueness across tenants not proven in this audit.",
+      "severity": "high",
+      "exploitability": "medium",
+      "blast_radius": "cross-tenant booking/payment read or mutate if unscoped UUID path exists"
+    }
+  ],
+  "findings_ranked": [
+    {
+      "rank": 1,
+      "boundary_id": "B13_stripe_webhook_payment_lookup",
+      "severity": "high",
+      "title": "Stripe webhook metadata.payment_id global UUID lookup without mandatory tenant predicate (defense-in-depth; constrained by signature + isolation)",
+      "evidence": "scripts/lib/stripe-webhook-payment-truth.js:54-79,128-136"
+    },
+    {
+      "rank": 2,
+      "boundary_id": "B06_staff_bot_auth_principal",
+      "severity": "high",
+      "title": "Bot token principal has no tenant binding; email-less user passes all client ACL",
+      "evidence": "scripts/staff-query-api.js:1200; scripts/lib/staff-portal-clients.js:298-300"
+    },
+    {
+      "rank": 3,
+      "boundary_id": "B07_staff_bot_body_client_slug",
+      "severity": "high",
+      "title": "Generic /staff/bot/* trusts body.client_slug; DEFAULT_CLIENT hardcoded wolfhouse-somo",
+      "evidence": "scripts/staff-query-api.js:742,14745-14753; scripts/lib/staff-bot-v2-routes.js"
+    },
+    {
+      "rank": 4,
+      "boundary_id": "B02_meta_normalize_live_client_slug",
+      "severity": "high",
+      "title": "Meta live client_slug ignores shadow resolution; unknown phone_number_id not hard-blocked",
+      "evidence": "scripts/lib/luna-meta-whatsapp-webhook.js:196-251; docs/MULTICLIENT-STAGING-ROUTING.md"
+    },
+    {
+      "rank": 5,
+      "boundary_id": "B01_meta_whatsapp_signature_ingress",
+      "severity": "high",
+      "title": "Meta signature verification skippable when META_APP_SECRET absent (unproven in prod)",
+      "evidence": "scripts/lib/luna-meta-whatsapp-webhook.js:77-83"
+    },
+    {
+      "rank": 6,
+      "boundary_id": "B15_booking_hold_payment_callbacks",
+      "severity": "high",
+      "title": "Booking/payment callback scoping inconsistent; global ID uniqueness unproven",
+      "evidence": "scripts/staff-query-api.js:1660-1670"
+    },
+    {
+      "rank": 7,
+      "boundary_id": "B12_stripe_webhook_signature",
+      "severity": "high",
+      "title": "STRIPE_WEBHOOK_SKIP_VERIFY bypass footgun; single secret per runtime",
+      "evidence": "scripts/staff-query-api.js:13522-13528"
+    },
+    {
+      "rank": 8,
+      "boundary_id": "B14_stripe_locked_payment_identity",
+      "severity": "medium",
+      "title": "Locked payment identity revalidation is a compounding control gap after B13 (not an independent direct exploit)",
+      "evidence": "scripts/lib/stripe-hold-promote-policy.js:169-217"
+    }
+  ],
+  "slice_15b_selection": {
+    "selected": true,
+    "outcome_id": "15B_stripe_metadata_payment_lookup_tenant_bind",
+    "boundary_id": "B13_stripe_webhook_payment_lookup",
+    "rationale": "Payment truth needs independent tenant binding: missing client predicate + optional metadata.client_slug is a real vulnerable confused-deputy boundary (severity high). Selected for 15B despite constrained current exploitability (Stripe signature + tenant-isolated runtime/secret/DB) because future SaaS shared DB expands blast radius; ownership surface is smallest and regression-testable offline.",
+    "owner_files": [
+      "scripts/lib/stripe-webhook-payment-truth.js",
+      "scripts/staff-query-api.js"
+    ],
+    "acceptance_tests": [
+      "RED: metadata-only lookup with payment_id belonging to other tenant client_slug must not select/apply",
+      "RED: metadata-only lookup missing metadata.client_slug must fail closed",
+      "RED: metadata.client_slug mismatch vs payment.client_slug must fail closed",
+      "GREEN: session.id authoritative match still applies when metadata.client_slug absent",
+      "GREEN: metadata-only path with matching payment_id + client_slug still allowed only within same tenant predicate"
+    ],
+    "out_of_scope_for_15a": "Do not implement behavior fix in 15A — selection only."
+  }
+}

@@ -1,0 +1,409 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15A",
+  "description": "Offline RED/GREEN attack cases for tenant identity / confused-deputy boundaries. Fake IDs only — no live secrets, no network.",
+  "cases": [
+    {
+      "id": "AC_WA_UNKNOWN_PHONE_NO_HARDBLOCK",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "wrong WhatsApp phone_number_id with routing enabled but hard block off",
+      "input": {
+        "classifier": "whatsapp_ingress",
+        "routing_config_enabled": true,
+        "hard_block_enabled": false,
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_UNKNOWN_SAMPLE",
+        "shadow_client_slug": null,
+        "channel_resolution_blocked": true,
+        "live_client_slug": "wolfhouse-somo"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "shadow_only"
+      }
+    },
+    {
+      "id": "AC_WA_SHADOW_SUNSET_LIVE_WOLFHOUSE",
+      "color": "RED",
+      "boundary_ids": ["B02_meta_normalize_live_client_slug"],
+      "attack": "Sunset phone_number_id resolves in shadow but live client_slug stays wolfhouse-somo",
+      "input": {
+        "classifier": "whatsapp_ingress",
+        "routing_config_enabled": true,
+        "hard_block_enabled": false,
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE",
+        "shadow_client_slug": "sunset",
+        "channel_resolution_blocked": false,
+        "live_client_slug": "wolfhouse-somo"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "live_client_slug_not_switched"
+      }
+    },
+    {
+      "id": "AC_WA_RESOLVER_UNKNOWN_BLOCKED",
+      "color": "GREEN",
+      "boundary_ids": ["B03_client_channel_resolver"],
+      "attack": "resolver library blocks unknown phone_number_id (never Wolfhouse fallback)",
+      "input": {
+        "classifier": "resolver_blocked",
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_UNKNOWN_SAMPLE"
+      },
+      "expect": {
+        "blocked": true,
+        "reason": "unknown_channel_identity"
+      }
+    },
+    {
+      "id": "AC_WA_RESOLVER_SUNSET_SOMO",
+      "color": "GREEN",
+      "boundary_ids": ["B03_client_channel_resolver", "B05_hermes_sunset_location_router"],
+      "attack": "sample Sunset Somo phone_number_id maps to sunset/sunset-somo",
+      "input": {
+        "classifier": "resolver_hit",
+        "phone_number_id": "WHATSAPP_PHONE_NUMBER_ID_SUNSET_SOMO_SAMPLE"
+      },
+      "expect": {
+        "blocked": false,
+        "client_slug": "sunset",
+        "location_id": "sunset-somo"
+      }
+    },
+    {
+      "id": "AC_SUNSET_SARDINERO_VS_SOMO",
+      "color": "GREEN",
+      "boundary_ids": ["B05_hermes_sunset_location_router"],
+      "attack": "Sardinero phone_number_id must not resolve to sunset-somo",
+      "input": {
+        "classifier": "sunset_location",
+        "phone_number_id": "PNID_SARDINERO_SAMPLE",
+        "routes": {
+          "PNID_SOMO_SAMPLE": "sunset-somo",
+          "PNID_SARDINERO_SAMPLE": "sunset-sardinero"
+        },
+        "requested_location_id": "sunset-somo"
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "ok": false,
+        "reason_includes": "location_override_rejected"
+      }
+    },
+    {
+      "id": "AC_SUNSET_UNKNOWN_PNID",
+      "color": "GREEN",
+      "boundary_ids": ["B05_hermes_sunset_location_router"],
+      "attack": "unknown Sunset phone_number_id fail closed",
+      "input": {
+        "classifier": "sunset_location",
+        "phone_number_id": "PNID_UNKNOWN",
+        "routes": {
+          "PNID_SOMO_SAMPLE": "sunset-somo"
+        }
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "ok": false,
+        "reason_includes": "unknown_sunset"
+      }
+    },
+    {
+      "id": "AC_BOT_TRUST_BODY_CROSS_TENANT",
+      "color": "RED",
+      "boundary_ids": ["B06_staff_bot_auth_principal", "B07_staff_bot_body_client_slug"],
+      "attack": "bot_token + body.client_slug=sunset on wolfhouse runtime (trust_body policy)",
+      "input": {
+        "classifier": "bot_override",
+        "auth_mode": "bot_token",
+        "handler_policy": "trust_body",
+        "body_client_slug": "sunset",
+        "runtime_client_slug": "wolfhouse-somo"
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "overrides_runtime"
+      }
+    },
+    {
+      "id": "AC_BOT_SUNSET_FORCE_TENANT",
+      "color": "GREEN",
+      "boundary_ids": ["B07_staff_bot_body_client_slug"],
+      "attack": "Sunset forced handler ignores forged body.client_slug=wolfhouse-somo",
+      "input": {
+        "classifier": "bot_override",
+        "auth_mode": "bot_token",
+        "handler_policy": "force_tenant",
+        "forced_client_slug": "sunset",
+        "body_client_slug": "wolfhouse-somo",
+        "runtime_client_slug": "sunset"
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "effective_client_slug": "sunset"
+      }
+    },
+    {
+      "id": "AC_BOT_FORGED_LOCATION_HEADER_BODY",
+      "color": "RED",
+      "boundary_ids": ["B07_staff_bot_body_client_slug"],
+      "attack": "conflicting tenant in body vs runtime default on trust_body path",
+      "input": {
+        "classifier": "bot_override",
+        "auth_mode": "bot_token",
+        "handler_policy": "trust_body",
+        "body_client_slug": "wolfhouse-somo",
+        "runtime_client_slug": "sunset"
+      },
+      "expect": {
+        "verdict": "vulnerable"
+      }
+    },
+    {
+      "id": "AC_PORTAL_SESSION_REQUEST_MISMATCH",
+      "color": "GREEN",
+      "boundary_ids": ["B08_staff_session_assert_client_access", "B09_portal_host_vs_session_tenant"],
+      "attack": "portal session sunset + request client wolfhouse-somo with assert → denied",
+      "input": {
+        "classifier": "portal_session",
+        "session_client_slug": "sunset",
+        "request_client_slug": "wolfhouse-somo",
+        "accessible_slugs": ["sunset"],
+        "assert_staff_client_access": true
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "ok": false,
+        "reason_includes": "client_access_denied"
+      }
+    },
+    {
+      "id": "AC_PORTAL_SESSION_NO_ASSERT",
+      "color": "RED",
+      "boundary_ids": ["B15_booking_hold_payment_callbacks"],
+      "attack": "session vs request mismatch without assertStaffClientAccess → unproven",
+      "input": {
+        "classifier": "portal_session",
+        "session_client_slug": "sunset",
+        "request_client_slug": "wolfhouse-somo",
+        "accessible_slugs": ["sunset"],
+        "assert_staff_client_access": false
+      },
+      "expect": {
+        "verdict": "unproven",
+        "reason_includes": "without_assert"
+      }
+    },
+    {
+      "id": "AC_STRIPE_META_OTHER_TENANT_PAYMENT_ID",
+      "color": "RED",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
+      "attack": "signed-event metadata.payment_id points at other-tenant payment UUID (no session binding; models shared-DB confused-deputy, not unauthenticated ingress)",
+      "input": {
+        "classifier": "stripe_metadata_binding",
+        "session": {
+          "id": "cs_test_ATTACKER_SESSION_SAMPLE",
+          "metadata": {
+            "payment_id": "11111111-1111-1111-1111-111111111111"
+          }
+        },
+        "payment": {
+          "payment_id": "11111111-1111-1111-1111-111111111111",
+          "client_slug": "sunset",
+          "stripe_checkout_session_id": null
+        }
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "missing_client_slug"
+      }
+    },
+    {
+      "id": "AC_STRIPE_META_CLIENT_SLUG_MISMATCH",
+      "color": "GREEN",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
+      "attack": "metadata.client_slug forged to wolfhouse while payment is sunset",
+      "input": {
+        "classifier": "stripe_metadata_binding",
+        "session": {
+          "id": "cs_test_MISMATCH_SAMPLE",
+          "metadata": {
+            "payment_id": "22222222-2222-2222-2222-222222222222",
+            "client_slug": "wolfhouse-somo"
+          }
+        },
+        "payment": {
+          "payment_id": "22222222-2222-2222-2222-222222222222",
+          "client_slug": "sunset",
+          "stripe_checkout_session_id": null
+        }
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "ok": false,
+        "reason_includes": "client_slug_mismatch"
+      }
+    },
+    {
+      "id": "AC_STRIPE_META_MATCHED_STILL_SHARED_DB_RISK",
+      "color": "RED",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
+      "attack": "signed-event metadata-only match with client_slug still relies on global UUID lookup (shared-DB risk)",
+      "input": {
+        "classifier": "stripe_metadata_binding",
+        "session": {
+          "id": "cs_test_MATCHED_SAMPLE",
+          "metadata": {
+            "payment_id": "33333333-3333-3333-3333-333333333333",
+            "client_slug": "sunset"
+          }
+        },
+        "payment": {
+          "payment_id": "33333333-3333-3333-3333-333333333333",
+          "client_slug": "sunset",
+          "stripe_checkout_session_id": null
+        }
+      },
+      "expect": {
+        "verdict": "vulnerable",
+        "reason_includes": "shared_db_risk"
+      }
+    },
+    {
+      "id": "AC_STRIPE_SESSION_AUTHORITATIVE_GREEN",
+      "color": "GREEN",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup", "B14_stripe_locked_payment_identity"],
+      "attack": "authoritative stripe_checkout_session_id match without metadata.client_slug",
+      "input": {
+        "classifier": "stripe_metadata_binding",
+        "session": {
+          "id": "cs_test_BOUND_SAMPLE",
+          "metadata": {
+            "payment_id": "44444444-4444-4444-4444-444444444444"
+          }
+        },
+        "payment": {
+          "payment_id": "44444444-4444-4444-4444-444444444444",
+          "client_slug": "wolfhouse-somo",
+          "stripe_checkout_session_id": "cs_test_BOUND_SAMPLE"
+        }
+      },
+      "expect": {
+        "verdict": "proven_fail_closed",
+        "ok": true,
+        "reason_includes": "session_id_authoritative"
+      }
+    },
+    {
+      "id": "AC_STRIPE_VALIDATE_HELPER_MISMATCH",
+      "color": "GREEN",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
+      "attack": "validateStripeBookingPaymentEvent flags metadata client_slug mismatch",
+      "input": {
+        "classifier": "stripe_validate_helper",
+        "pm": {
+          "payment_id": "55555555-5555-5555-5555-555555555555",
+          "client_slug": "sunset",
+          "payment_status": "pending",
+          "payment_kind": "deposit",
+          "currency": "EUR",
+          "amount_due_cents": 5000,
+          "stripe_checkout_session_id": null
+        },
+        "session": {
+          "id": "cs_test_VALIDATE_SAMPLE",
+          "payment_status": "paid",
+          "status": "complete",
+          "currency": "eur",
+          "amount_total": 5000,
+          "metadata": {
+            "payment_id": "55555555-5555-5555-5555-555555555555",
+            "client_slug": "wolfhouse-somo"
+          }
+        },
+        "eventType": "checkout.session.completed"
+      },
+      "expect": {
+        "reasons_include": "stripe_metadata_client_slug_mismatch"
+      }
+    },
+    {
+      "id": "AC_STRIPE_VALIDATE_HELPER_MISSING_SLUG_NO_REASON",
+      "color": "RED",
+      "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
+      "attack": "validate helper does NOT add client_slug reason when metadata.client_slug absent",
+      "input": {
+        "classifier": "stripe_validate_helper",
+        "pm": {
+          "payment_id": "66666666-6666-6666-6666-666666666666",
+          "client_slug": "sunset",
+          "payment_status": "pending",
+          "payment_kind": "deposit",
+          "currency": "EUR",
+          "amount_due_cents": 5000,
+          "stripe_checkout_session_id": null
+        },
+        "session": {
+          "id": "cs_test_NOSLUG_SAMPLE",
+          "payment_status": "paid",
+          "status": "complete",
+          "currency": "eur",
+          "amount_total": 5000,
+          "metadata": {
+            "payment_id": "66666666-6666-6666-6666-666666666666"
+          }
+        },
+        "eventType": "checkout.session.completed"
+      },
+      "expect": {
+        "reasons_exclude": "stripe_metadata_client_slug_mismatch",
+        "proves": "vulnerable_optional_client_slug_check"
+      }
+    },
+    {
+      "id": "AC_BOT_ACL_EMAILLESS_ALL_CLIENTS",
+      "color": "RED",
+      "boundary_ids": ["B06_staff_bot_auth_principal"],
+      "attack": "user without email gets all baseline client slugs from getAccessibleClientSlugs",
+      "input": {
+        "classifier": "bot_acl_emailless"
+      },
+      "expect": {
+        "includes_both": ["wolfhouse-somo", "sunset"]
+      }
+    },
+    {
+      "id": "AC_DUPLICATE_GLOBAL_LOCATION_IDS",
+      "color": "GREEN",
+      "boundary_ids": ["B03_client_channel_resolver", "B10_db_tenant_scope_predicates"],
+      "attack": "clients.json location_id globally unique (no Wolfhouse/Sunset collision)",
+      "input": {
+        "classifier": "registry_location_unique"
+      },
+      "expect": {
+        "unique": true,
+        "has_sunset_somo": true,
+        "has_sunset_sardinero": true,
+        "has_wolfhouse_somo": true
+      }
+    },
+    {
+      "id": "AC_HEADER_BODY_QUERY_CONFLICT_MODEL",
+      "color": "RED",
+      "boundary_ids": ["B07_staff_bot_body_client_slug"],
+      "attack": "model conflicting tenant fields: header runtime vs body vs query defaults",
+      "input": {
+        "classifier": "conflict_fields",
+        "header_runtime_client_slug": "sunset",
+        "body_client_slug": "wolfhouse-somo",
+        "query_client": "mirleft",
+        "path_client": null,
+        "handler_policy": "trust_body"
+      },
+      "expect": {
+        "effective_from": "body",
+        "verdict": "vulnerable"
+      }
+    }
+  ]
+}
