@@ -1,0 +1,128 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15J3",
+  "generated_at": "2026-07-20T10:50:00.000Z",
+  "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
+  "live_mutation": false,
+  "boundary_id": "B15_booking_hold_payment_callbacks",
+  "status": "remediated",
+  "outcome_id": "15J3_payment_uuid_callback_tenant_acl_no_prod_exports",
+  "guarded_routes": [
+    "POST /staff/payments/:payment_id/create-stripe-link",
+    "POST /staff/bot/payments/:payment_id/create-stripe-link",
+    "POST /staff/bookings/:booking_id/service-records/create-payment-link"
+  ],
+  "proof": {
+    "handler_invocation": "production_listener_http",
+    "router": "scripts/staff-query-api.js router + createStaffQueryApiHttpServer factory",
+    "auth": "real requireAuth session cookies + requireBotAuth X-Luna-Bot-Token middleware",
+    "boundaries_injected": "PG via setFortress15j3OfflineSeams.withPgClient; session via resolveSessionUser; ACL via canAccessClient seam (not STAFF_PORTAL_ACCESS_FILE); Stripe via Module._load patch only after dual-gate assert",
+    "dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 required for seam activation, listener/router/factory/counter test exports, and http.createServer",
+    "production_inert": "production, flag-only, and test-only imports expose ZERO seam/factory/counter/router/server test exports, createServerCalls=0 (subprocess http wrap), and Module._load identity unchanged; assertFortress15j3DualGate rejects before any Stripe patch",
+    "export_key_sets": "Object.keys(require(staff-query-api)) empty outside dual gate; full dual gate exports required test keys only",
+    "env_override_pin": "applyHarnessEnv strips NODE_ENV/STAFF_API_FORTRESS_OFFLINE_LISTENER overrides; createFortress15j3OfflineListener verifies dual gate before Stripe patch",
+    "uniform_404": "staff/bot foreign deny fingerprint === nonexistent UUID fingerprint (status/headers/body bytes)"
+  },
+  "red": {
+    "total": 7,
+    "passed": 7,
+    "cases": [
+      {
+        "id": "dual_gate_production_zero_test_exports_createServer_loader",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_flag_only_zero_test_exports_createServer_loader",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_test_only_zero_test_exports_createServer_loader",
+        "ok": true
+      },
+      {
+        "id": "staff_payment_foreign_and_nonexistent_identical_404_zero_writes",
+        "ok": true
+      },
+      {
+        "id": "bot_payment_foreign_and_nonexistent_identical_404_zero_writes",
+        "ok": true
+      },
+      {
+        "id": "bot_empty_bound_client_slug_denied_zero_query_mutation",
+        "ok": true
+      },
+      {
+        "id": "staff_service_records_foreign_and_nonexistent_identical_404_zero_writes",
+        "ok": true
+      }
+    ]
+  },
+  "green": {
+    "total": 15,
+    "passed": 15,
+    "cases": [
+      {
+        "id": "env_override_cannot_downgrade_node_env",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_full_listener_factory_createServer_calls_one",
+        "ok": true
+      },
+      {
+        "id": "main_module_cli_startup_uses_server_factory",
+        "ok": true
+      },
+      {
+        "id": "staff_same_tenant_payment_uuid_authorized",
+        "ok": true
+      },
+      {
+        "id": "staff_secondary_client_acl_authorized",
+        "ok": true
+      },
+      {
+        "id": "bot_same_tenant_payment_uuid_authorized",
+        "ok": true
+      },
+      {
+        "id": "staff_service_records_secondary_acl_authorized",
+        "ok": true
+      },
+      {
+        "id": "historical_15a_15i_unchanged",
+        "ok": true
+      },
+      {
+        "id": "staff_payment_not_found_no_acl_call_needed",
+        "ok": true
+      },
+      {
+        "id": "bot_null_bound_fails_before_lookup",
+        "ok": true
+      },
+      {
+        "id": "staff_booking_same_tenant_gate_ok",
+        "ok": true
+      },
+      {
+        "id": "staff_gate_deny_collapses_to_not_found_no_slug_leak",
+        "ok": true
+      },
+      {
+        "id": "production_node_env_seam_inert",
+        "ok": true
+      },
+      {
+        "id": "production_seam_set_inert_without_dual_gate",
+        "ok": true
+      },
+      {
+        "id": "no_acl_file_env_override_in_harness",
+        "ok": true
+      }
+    ]
+  },
+  "pass": 58,
+  "fail": 0
+}

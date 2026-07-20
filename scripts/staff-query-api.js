@@ -62,7 +62,31 @@ const STAFF_AUTH_HTTPS = STAFF_AUTH_CONFIG.authHttps;
 const STAFF_QUERY_API_BIND_HOST = STAFF_AUTH_CONFIG.bindHost;
 const LUNA_BOT_INTERNAL_TOKEN = STAFF_AUTH_CONFIG.botInternalToken;
 
-const { withPgClient }       = require('./lib/pg-connect');
+const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
+
+/** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
+let __fortress15j3OfflineSeams = null;
+
+function fortressOfflineListenerSeamsActive() {
+  return String(process.env.NODE_ENV || '').toLowerCase() === 'test'
+    && String(process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER || '').trim() === '1';
+}
+
+function setFortress15j3OfflineSeams(seams) {
+  if (!fortressOfflineListenerSeamsActive()) return;
+  __fortress15j3OfflineSeams = seams || null;
+}
+
+function getFortress15j3OfflineSeams() {
+  return fortressOfflineListenerSeamsActive() ? __fortress15j3OfflineSeams : null;
+}
+
+function withPgClient(fn) {
+  const seam = getFortress15j3OfflineSeams()
+    && getFortress15j3OfflineSeams().withPgClient;
+  const impl = typeof seam === 'function' ? seam : _withPgClientImpl;
+  return impl(fn);
+}
 const {
   parsePaymentShortLinkToken,
   resolvePaymentShortLinkRedirectFromDb,
@@ -85,6 +109,10 @@ const {
   handleBotGuestPaymentCreateLink: _handleBotGuestPaymentCreateLink,
   handleBotGuestPaymentStatus: _handleBotGuestPaymentStatus,
 } = require('./lib/staff-bot-v2-routes');
+const {
+  gateStaffPaymentUuidCallbackTenantAcl,
+  gateStaffBookingUuidCallbackTenantAcl,
+} = require('./lib/payment-uuid-callback-tenant-acl');
 const {
   buildServiceChargesDueFromContext,
   formatAddonServicePaymentLedgerLabel,
@@ -983,8 +1011,16 @@ function hasRole(userRole, minRole) {
   return (ROLE_RANK[userRole] || 0) >= (ROLE_RANK[minRole] || 0);
 }
 
+function staffClientAccessAllowed(user, clientSlug) {
+  const seam = getFortress15j3OfflineSeams();
+  if (seam && typeof seam.canAccessClient === 'function') {
+    return seam.canAccessClient(user, clientSlug);
+  }
+  return userCanAccessClient(user, clientSlug);
+}
+
 function assertStaffClientAccess(user, clientSlug, res) {
-  if (STAFF_AUTH_REQUIRED && user && !userCanAccessClient(user, clientSlug)) {
+  if (STAFF_AUTH_REQUIRED && user && !staffClientAccessAllowed(user, clientSlug)) {
     sendJSON(res, 403, {
       success: false,
       error: 'client_access_denied',
@@ -1073,6 +1109,14 @@ function clearSessionCookie(res) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function loadAuthSession(req) {
+  const seam = getFortress15j3OfflineSeams();
+  if (seam && typeof seam.resolveSessionUser === 'function') {
+    const seamUser = seam.resolveSessionUser(req);
+    if (seamUser !== undefined) {
+      return seamUser;
+    }
+  }
+
   const cookies  = parseCookies(req);
   const rawToken = cookies[COOKIE_NAME];
   if (!rawToken) return null;
@@ -14222,7 +14266,26 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     });
   }
 
-  // ── 3. Load Stripe SDK lazily (never crashes if require fails) ─────────────
+  // ── 3. Resolve object tenant (read-only) + staff ACL before Stripe/mutation ─
+  // FORTRESS 15J3 / B15: never trust path-UUID object slug alone as trustedClientSlug.
+  // Foreign ACL deny is normalized to the same 404 as a nonexistent UUID (no
+  // client_slug / amount / booking / checkout disclosure).
+  const tenantGate = await gateStaffPaymentUuidCallbackTenantAcl({
+    paymentId,
+    user,
+    withPgClient,
+    assertStaffClientAccess,
+    res,
+  });
+  if (tenantGate.error) {
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + tenantGate.error.message });
+  }
+  if (!tenantGate.ok) {
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
+  }
+  const clientSlug = tenantGate.clientSlug;
+
+  // ── 4. Load Stripe SDK lazily (only after ACL allow) ───────────────────────
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -14234,28 +14297,7 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
     });
   }
 
-  // ── 4. Resolve tenant + delegate to canonical payment-link service ────────
-  let clientSlug;
-  try {
-    const row = await withPgClient(async (pg) => {
-      const r = await pg.query(
-        `SELECT cl.slug AS client_slug
-           FROM payments p
-           JOIN clients cl ON cl.id = p.client_id
-          WHERE p.id = $1::uuid
-          LIMIT 1`,
-        [paymentId],
-      );
-      return r.rows[0] || null;
-    });
-    if (!row) {
-      return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-    }
-    clientSlug = row.client_slug;
-  } catch (err) {
-    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
-  }
-
+  // ── 5. Delegate to canonical payment-link service ──────────────────────────
   const built = buildPaymentLinkCommand({
     operation: PAYMENT_LINK_OPERATIONS.CREATE,
     channel: PAYMENT_LINK_CHANNELS.STAFF_PORTAL,
@@ -14419,6 +14461,31 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     }
   }
 
+  // FORTRESS 15J3 / B15: read-only booking tenant + assertStaffClientAccess before
+  // any payment INSERT / Stripe session (replaces weak primary-client-id equality).
+  // Foreign ACL deny → same uniform 404 as nonexistent booking UUID.
+  const bookingGate = await gateStaffBookingUuidCallbackTenantAcl({
+    bookingId,
+    user,
+    withPgClient,
+    assertStaffClientAccess,
+    res,
+  });
+  if (bookingGate.error) {
+    if (isMissingBookingServiceRecordsTable(bookingGate.error)) {
+      return sendJSON(res, 503, {
+        success: false,
+        error: 'booking_service_records table not available',
+        service_records_available: false,
+      });
+    }
+    return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + bookingGate.error.message });
+  }
+  if (!bookingGate.ok) {
+    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
+  }
+  const booking = bookingGate.booking;
+
   let stripe;
   try {
     stripe = require('stripe')(STRIPE_SECRET_KEY);
@@ -14426,38 +14493,20 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     return sendJSON(res, 500, { success: false, error: 'Failed to load Stripe SDK: ' + e.message, no_db_write: true });
   }
 
-  let booking;
   let rows;
   try {
-    const result = await withPgClient(async (pg) => {
-      const bk = await pg.query(
-        `SELECT b.id AS booking_id, b.booking_code, b.guest_name, b.client_id,
-                cl.slug AS client_slug
-           FROM bookings b
-           JOIN clients cl ON cl.id = b.client_id
-          WHERE b.id = $1`,
-        [bookingId],
-      );
-      if (!bk.rows[0]) return { booking: null, rows: [] };
-
-      if (user && user.client_id && bk.rows[0].client_id !== user.client_id) {
-        return { booking: bk.rows[0], rows: [], forbidden: true };
-      }
-
+    rows = await withPgClient(async (pg) => {
       const svc = await pg.query(
         `SELECT id, booking_id, service_type, service_date, status, payment_status,
                 amount_due_cents, amount_paid_cents, payment_id
            FROM booking_service_records
-          WHERE id = ANY($1::uuid[])`,
-        [serviceRecordIds],
+          WHERE id = ANY($1::uuid[])
+            AND booking_id = $2
+            AND client_slug = $3`,
+        [serviceRecordIds, bookingId, booking.client_slug],
       );
-      return { booking: bk.rows[0], rows: svc.rows, forbidden: false };
+      return svc.rows;
     });
-    booking = result.booking;
-    rows = result.rows;
-    if (result.forbidden) {
-      return sendJSON(res, 403, { success: false, error: 'Booking not accessible for this staff client.' });
-    }
   } catch (err) {
     if (isMissingBookingServiceRecordsTable(err)) {
       return sendJSON(res, 503, {
@@ -14469,9 +14518,6 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
 
-  if (!booking) {
-    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
-  }
   if (rows.length !== serviceRecordIds.length) {
     return sendJSON(res, 404, {
       success: false,
@@ -46571,19 +46617,32 @@ async function router(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Server
+// Server (factory — no http.createServer unless CLI main or dual-gated offline harness)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const server = http.createServer(async (req, res) => {
-  try {
-    await router(req, res);
-  } catch (err) {
-    // Do not expose stack trace to client
-    sendJSON(res, 500, { success: false, error: 'internal server error' });
-  }
-});
+let __staffQueryApiCreateServerCalls = 0;
 
-server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
+function createStaffQueryApiHttpServer() {
+  __staffQueryApiCreateServerCalls += 1;
+  return http.createServer(async (req, res) => {
+    try {
+      await router(req, res);
+    } catch (err) {
+      // Do not expose stack trace to client
+      sendJSON(res, 500, { success: false, error: 'internal server error' });
+    }
+  });
+}
+
+function shouldEagerCreateStaffQueryApiServer() {
+  return require.main === module || fortressOfflineListenerSeamsActive();
+}
+
+const server = shouldEagerCreateStaffQueryApiServer()
+  ? createStaffQueryApiHttpServer()
+  : null;
+
+if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
   console.log(`  Auth: ${STAFF_AUTH_REQUIRED ? 'REQUIRED (session cookie)' : 'OPTIONAL (STAFF_AUTH_REQUIRED=false — local/dev open mode)'}`);
   console.log(`  Write actions: ${STAFF_ACTIONS_ENABLED ? 'ENABLED (STAFF_ACTIONS_ENABLED=true)' : 'DISABLED'}`);
@@ -46667,7 +46726,26 @@ server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log('\nCtrl+C to stop.\n');
 });
 
-server.on('error', (err) => {
-  console.error(`Server error: ${err.message}`);
-  process.exit(1);
-});
+if (require.main === module) {
+  server.on('error', (err) => {
+    console.error(`Server error: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+// FORTRESS 15J3: ZERO seam/factory/counter/router/server test exports unless dual-gated.
+if (fortressOfflineListenerSeamsActive()) {
+  Object.assign(module.exports, {
+    setFortress15j3OfflineSeams,
+    getFortress15j3OfflineSeams,
+    fortressOfflineListenerSeamsActive,
+    createStaffQueryApiHttpServer,
+    getStaffQueryApiCreateServerCalls: () => __staffQueryApiCreateServerCalls,
+    router,
+    server,
+    COOKIE_NAME,
+    PAYMENT_STRIPE_LINK_RE,
+    BOT_PAYMENT_STRIPE_LINK_RE,
+    BOOKING_SERVICE_RECORDS_PAYMENT_LINK_RE,
+  });
+}
