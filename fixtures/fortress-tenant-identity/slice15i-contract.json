@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "outcome_id": "15I_payment_callback_boundary_reaudit",
+  "boundary_ids": [
+    "B14_stripe_locked_payment_identity",
+    "B15_booking_hold_payment_callbacks"
+  ],
+  "master_basis": "7ae3d75f7223a3aea0027b047f2537081fa7e1ee",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "title": "Re-audit frozen B14/B15 after merged tenant-bound Stripe payment lookup",
+  "status": "reaudit_complete",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "upstream_context": {
+    "b13_remediation_slice": "FORTRESS-15B",
+    "b13_overlay": "fixtures/fortress-tenant-identity/slice15b-b13-remediation-overlay.json",
+    "policy": "Do not assume B13 automatically closed B14/B15; re-prove each boundary from source inventory"
+  },
+  "owner_files_audit_only": [
+    "scripts/lib/stripe-hold-promote-policy.js",
+    "scripts/lib/stripe-webhook-payment-truth.js",
+    "scripts/lib/stripe-webhook-tenant-config.js",
+    "scripts/lib/stripe-payment-reconcile.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/luna-payment-short-link.js",
+    "scripts/lib/luna-front-desk-payment-link-service.js",
+    "scripts/lib/staff-bot-v2-routes.js",
+    "database/migrations/001_init.sql",
+    "database/migrations/003_rename_hostel_to_client.sql"
+  ],
+  "out_of_scope": [
+    "any runtime behavior change on master paths",
+    "rewriting 15A historical B14/B15 verdicts",
+    "deploy / cloud / database / Stripe / production WhatsApp operations",
+    "live Meta / WhatsApp / DB / Stripe / network calls",
+    "implementing the bounded remediation contract in this slice"
+  ],
+  "completeness_method": "source_derived_control_consumer_inventory",
+  "completeness_claim_narrowing": "Inventory covers every production caller of locked-payment revalidation apply and the booking/hold/payment callback surfaces named in the consumer matrix. Full AST exhaustiveness of staff-query-api.js is not claimed.",
+  "reaudit_verdicts": {
+    "B14_stripe_locked_payment_identity": {
+      "verdict": "proven_fail_closed",
+      "severity": "medium",
+      "summary": "Locked session/metadata/booking identity fail-closed and runs before already-paid idempotent shortcut; webhook/reconcile callers bind expectedClientSlug via B13 before apply. expectedClientId remains row-derived (tautological under FOR UPDATE client_id lock) but is not a standalone reproducible cross-tenant gap given inventoried callers."
+    },
+    "B15_booking_hold_payment_callbacks": {
+      "verdict": "vulnerable",
+      "severity": "high",
+      "summary": "Path-UUID payment/booking callbacks derive trustedClientSlug from global object lookup without assertStaffClientAccess (staff) or boundClientSlug compare (bot). Mixed slug-scoped SQL elsewhere does not close this confused-deputy surface."
+    }
+  },
+  "remediation_contract": {
+    "present": true,
+    "path": "fixtures/fortress-tenant-identity/slice15i-b15-remediation-contract.json",
+    "next_slice": "FORTRESS-15J",
+    "outcome_id": "15J_payment_uuid_callback_tenant_acl"
+  },
+  "gates": [
+    "npm run verify:fortress-slice15i-payment-callback-boundary-audit",
+    "npm run verify:fortress-tenant-identity-boundary-matrix",
+    "npm run verify:fortress-slice15b-stripe-payment-tenant-bind",
+    "npm run verify:waterbottle-expired-hold-payment-truth",
+    "npm run verify:sunset-stripe-payment-webhook",
+    "node scripts/verify-sunset-stripe-payment-reconcile.js",
+    "npm run verify:multiclient",
+    "npm run verify:migration-integrity",
+    "git diff --check"
+  ]
+}

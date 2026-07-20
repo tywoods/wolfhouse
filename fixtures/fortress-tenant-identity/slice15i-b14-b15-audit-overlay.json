@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "outcome_id": "15I_payment_callback_boundary_reaudit",
+  "boundary_ids": [
+    "B14_stripe_locked_payment_identity",
+    "B15_booking_hold_payment_callbacks"
+  ],
+  "status": "reaudited",
+  "historical_audit_unchanged": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "note": "15A matrix/doc retain pre-reaudit unproven verdicts for B14/B15 as historical audit. This overlay records post-15B source reaudit verdicts without rewriting 15A artifacts. B13 remediation is upstream context only — B14/B15 were re-proven independently via consumer inventory.",
+  "master_basis": "7ae3d75f7223a3aea0027b047f2537081fa7e1ee",
+  "master_basis_15a": "32b44930685450cb27ac519d052332be7b18150d",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "reaudit": {
+    "B14_stripe_locked_payment_identity": {
+      "historical_verdict": "unproven",
+      "reaudit_verdict": "proven_fail_closed",
+      "controls_proven": [
+        "lockPayment/lockBooking FOR UPDATE scoped by client_id",
+        "validateLockedPaymentIdentityForStripeTruth fail-closed codes (SESSION_REPLACED, METADATA_PAYMENT_ID_MISMATCH, BINDING_MISSING, BOOKING_MISMATCH, CLIENT_MISMATCH)",
+        "identity validation before already-paid idempotent shortcut",
+        "payment/booking/guest UPDATEs retain client_id predicates",
+        "webhook + reconcile require expectedClientSlug before lookup/validate/apply (B13 callers inventoried — not assumed)"
+      ],
+      "residual_non_blocking": "expectedClientId still copied from pm.client_id (lookup row); CLIENT_MISMATCH is tautological under the same client_id lock predicate. Independent slug→client_id re-resolve is absent at B14, but every production apply caller is source-proven to pass B13 tenant-bound lookup+validate first."
+    },
+    "B15_booking_hold_payment_callbacks": {
+      "historical_verdict": "unproven",
+      "reaudit_verdict": "vulnerable",
+      "controls_proven": [
+        "LOOKUP_BOOKING_CODE_SQL joins clients.slug",
+        "payment short-link DB SQL scopes by client slug",
+        "front-desk loadBookingRow/loadPaymentById require clientSlug",
+        "booking_code uniqueness is per-client (UNIQUE client_id, booking_code after hostel→client rename)"
+      ],
+      "reproducible_gap": "POST /staff/payments/:payment_id/create-stripe-link and bot twin derive trustedClientSlug from global WHERE p.id=$1::uuid without assertStaffClientAccess / boundClientSlug compare before Stripe mutation"
+    }
+  }
+}

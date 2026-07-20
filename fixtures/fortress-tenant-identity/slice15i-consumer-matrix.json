@@ -1,0 +1,253 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "description": "Source-derived consumer/attack inventory for locked-payment revalidation (B14) and booking/hold/payment callbacks (B15) after merged B13 tenant-bound Stripe payment lookup.",
+  "master_basis": "7ae3d75f7223a3aea0027b047f2537081fa7e1ee",
+  "completeness_method": "source_derived_control_consumer_inventory",
+  "b14_locked_payment_chain": {
+    "stages": [
+      {
+        "id": "INGRESS_STRIPE_SIGNATURE",
+        "module": "scripts/staff-query-api.js",
+        "symbol": "handleStripeWebhook",
+        "tenant_authority": "none yet; signature or STRIPE_WEBHOOK_SKIP_VERIFY",
+        "mutation": false
+      },
+      {
+        "id": "RESOLVE_EXPECTED_CLIENT_SLUG",
+        "module": "scripts/lib/stripe-webhook-tenant-config.js",
+        "symbol": "resolveStripeWebhookExpectedClientSlug",
+        "tenant_authority": "STRIPE_WEBHOOK_CLIENT_SLUG / DEFAULT_CLIENT_SLUG; fail closed missing/conflict",
+        "mutation": false
+      },
+      {
+        "id": "LOOKUP_PAYMENT_TENANT_BOUND",
+        "module": "scripts/lib/stripe-webhook-payment-truth.js",
+        "symbol": "lookupPaymentForStripeSession",
+        "tenant_authority": "expectedClientSlug parameterized AND cl.slug=$2 on session-id and metadata paths",
+        "mutation": false,
+        "b13_control": true
+      },
+      {
+        "id": "VALIDATE_EVENT_INDEPENDENT_SLUG",
+        "module": "scripts/lib/stripe-webhook-payment-truth.js",
+        "symbol": "validateStripeBookingPaymentEvent",
+        "tenant_authority": "pm.client_slug === expectedClientSlug independent of metadata",
+        "mutation": false,
+        "b13_control": true
+      },
+      {
+        "id": "BEGIN_XACT",
+        "module": "scripts/staff-query-api.js / scripts/lib/stripe-payment-reconcile.js",
+        "symbol": "pg.query('BEGIN')",
+        "tenant_authority": "inherits pm from prior stages",
+        "mutation": false
+      },
+      {
+        "id": "LOCK_BOOKING_CLIENT_ID",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "lockBookingForStripePaymentTruth",
+        "tenant_authority": "WHERE id=$1 AND client_id=$2 FOR UPDATE; clientId from pm.client_id",
+        "mutation": false
+      },
+      {
+        "id": "LOCK_PAYMENT_CLIENT_ID",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "lockPaymentForStripePaymentTruth",
+        "tenant_authority": "WHERE id=$1 AND client_id=$2 FOR UPDATE; clientId from pm.client_id",
+        "mutation": false
+      },
+      {
+        "id": "VALIDATE_LOCKED_IDENTITY",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "validateLockedPaymentIdentityForStripeTruth",
+        "expected_ids": {
+          "expectedBookingId": "pm.booking_id",
+          "expectedClientId": "pm.client_id"
+        },
+        "fail_closed_codes": [
+          "locked_payment_booking_mismatch",
+          "locked_payment_client_mismatch",
+          "locked_stripe_session_id_missing",
+          "locked_stripe_session_replaced",
+          "locked_stripe_metadata_payment_id_mismatch",
+          "locked_stripe_binding_missing"
+        ],
+        "before_already_paid_shortcut": true,
+        "mutation": false
+      },
+      {
+        "id": "IDEMPOTENT_ALREADY_PAID",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "applyStripeBookingPaymentTruthWrites",
+        "behavior": "if lockedPayment.payment_status==='paid' return idempotent after identity validation",
+        "mutation": false
+      },
+      {
+        "id": "MUTABLE_STATE_VALIDATE",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "validateLockedPaymentMutableStateForStripeTruth",
+        "mutation": false
+      },
+      {
+        "id": "MUTATE_PAYMENT_BOOKING_GUEST",
+        "module": "scripts/lib/stripe-hold-promote-policy.js",
+        "symbol": "applyStripeBookingPaymentTruthWrites UPDATEs",
+        "tenant_authority": "AND client_id predicates on payments/bookings/booking_guests",
+        "mutation": true,
+        "replay": "already_paid under lock → no second promote/auto-send"
+      },
+      {
+        "id": "RESPONSE_COMMIT",
+        "module": "scripts/staff-query-api.js / scripts/lib/stripe-payment-reconcile.js",
+        "behavior": "COMMIT on success; ROLLBACK on locked validation / lock miss; HTTP 200 idempotent or 422/500",
+        "mutation": false
+      }
+    ],
+    "production_apply_callers": [
+      {
+        "id": "CALLER_WEBHOOK",
+        "path": "scripts/staff-query-api.js#handleStripeWebhook",
+        "passes_expected_client_slug": true,
+        "order": "resolveSlug → lookup → validateEvent → BEGIN → apply"
+      },
+      {
+        "id": "CALLER_RECONCILE",
+        "path": "scripts/lib/stripe-payment-reconcile.js#reconcilePaidStripeSession",
+        "passes_expected_client_slug": true,
+        "order": "require meta.expectedClientSlug → lookup → validateEvent → BEGIN → apply"
+      }
+    ],
+    "boundary_verdict": "proven_fail_closed"
+  },
+  "b15_consumers": [
+    {
+      "id": "C_STRIPE_WEBHOOK_PAYMENT_TRUTH",
+      "ingress": "POST /staff/stripe/webhook (signature)",
+      "lookup": "lookupPaymentForStripeSession + locks",
+      "expected_tenant": "runtime STRIPE_WEBHOOK_CLIENT_SLUG",
+      "mutation": "payment/hold promote under lock",
+      "replay_idempotency": "already_paid / addon paid paths",
+      "response": "200 ignored|idempotent|applied; 422 validation; 503 tenant unconfigured",
+      "verdict": "proven_fail_closed",
+      "notes": "Owned primarily by B13+B14; included for end-to-end callback chain"
+    },
+    {
+      "id": "C_RECONCILE_PAID_SESSION",
+      "ingress": "operator/reconcile helpers with clientSlug",
+      "lookup": "lookupPaymentForStripeSession",
+      "expected_tenant": "meta.expectedClientSlug / opts.clientSlug",
+      "mutation": "same apply writes",
+      "replay_idempotency": "already_paid under lock",
+      "response": "reconcile result object",
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "id": "C_STAFF_PAYMENT_UUID_STRIPE_LINK",
+      "ingress": "POST /staff/payments/:payment_id/create-stripe-link (requireAuth operator)",
+      "lookup": "SELECT cl.slug FROM payments WHERE p.id=$1::uuid (global UUID)",
+      "expected_tenant": "derived from payment row → trustedClientSlug (NO assertStaffClientAccess)",
+      "mutation": "createPaymentLink / Stripe Checkout Session",
+      "replay_idempotency": "existing session returns idempotent URL",
+      "response": "200 checkout_url / 404 / 409",
+      "verdict": "vulnerable",
+      "evidence": {
+        "path": "scripts/staff-query-api.js",
+        "symbol": "handlePaymentCreateStripeLink",
+        "lines": "14190-14273"
+      }
+    },
+    {
+      "id": "C_BOT_PAYMENT_UUID_STRIPE_LINK",
+      "ingress": "POST /staff/bot/payments/:payment_id/create-stripe-link (requireBotAuth)",
+      "lookup": "SELECT cl.slug FROM payments WHERE p.id=$1::uuid (global UUID)",
+      "expected_tenant": "derived from payment row; boundClientSlug NOT compared",
+      "mutation": "createPaymentLink / Stripe Checkout Session",
+      "replay_idempotency": "existing session idempotent",
+      "response": "200 checkout_url / 404",
+      "verdict": "vulnerable",
+      "evidence": {
+        "path": "scripts/lib/staff-bot-v2-routes.js",
+        "symbol": "handleBotPaymentCreateStripeLink",
+        "lines": "718-795"
+      }
+    },
+    {
+      "id": "C_STAFF_SERVICE_RECORDS_PAYMENT_LINK",
+      "ingress": "POST /staff/bookings/:booking_id/service-records/create-payment-link",
+      "lookup": "SELECT booking WHERE b.id=$1 (global UUID)",
+      "expected_tenant": "weak user.client_id === booking.client_id only (not assertStaffClientAccess / multi-client ACL)",
+      "mutation": "addon payment + Stripe session",
+      "replay_idempotency": "service-record payment_id link",
+      "response": "200 / forbidden empty rows",
+      "verdict": "vulnerable",
+      "evidence": {
+        "path": "scripts/staff-query-api.js",
+        "symbol": "handleBookingServiceRecordsCreatePaymentLink",
+        "lines": "14369-14445"
+      }
+    },
+    {
+      "id": "C_STAFF_BOOKING_GENERATE_PAYMENT_LINK",
+      "ingress": "POST booking generate payment link (operator auth)",
+      "lookup": "EDIT_PREVIEW_BOOKING_BY_ID/CODE_SQL with body client_slug",
+      "expected_tenant": "body client_slug || DEFAULT_CLIENT; SQL scoped; NO assertStaffClientAccess in handler",
+      "mutation": "payment link create",
+      "replay_idempotency": "idempotency_key required",
+      "response": "200 / 404",
+      "verdict": "unproven",
+      "notes": "Slug-scoped SQL prevents cross-tenant UUID collision when slug wrong; missing ACL means authenticated operator can target any slug they name (shared-DB operator confuse). Adjacent to B08."
+    },
+    {
+      "id": "C_STAFF_BOOKING_CASH_PAYMENT",
+      "ingress": "POST booking record cash payment",
+      "lookup": "booking by id/code + client_slug",
+      "expected_tenant": "body client_slug; SQL joins clients.slug; NO assertStaffClientAccess in handler",
+      "mutation": "INSERT/UPDATE payments + booking paid amounts",
+      "replay_idempotency": "idempotency_key",
+      "response": "200 / 404",
+      "verdict": "unproven"
+    },
+    {
+      "id": "C_GUEST_PAY_SHORT_LINK",
+      "ingress": "GET /pay/:bookingCode (unauthenticated redirect)",
+      "lookup": "PAYMENT_SHORT_LINK_*_SQL WHERE c.slug=$1 AND booking_code",
+      "expected_tenant": "query.client || DEFAULT_CLIENT_SLUG || wolfhouse-somo",
+      "mutation": false,
+      "replay_idempotency": "n/a read-only redirect",
+      "response": "302 checkout / 404 / 200 paid HTML",
+      "verdict": "proven_isolated_by_runtime",
+      "notes": "SQL is slug-scoped; wrong default slug yields miss not cross-tenant hit. Guest chooses ?client=; booking_code unique per client_id."
+    },
+    {
+      "id": "C_LOOKUP_BOOKING_CODE_SQL",
+      "ingress": "preview preflight helpers",
+      "lookup": "LOOKUP_BOOKING_CODE_SQL joins clients.slug",
+      "expected_tenant": "caller-supplied clientSlug param",
+      "mutation": false,
+      "verdict": "proven_fail_closed"
+    },
+    {
+      "id": "C_FRONT_DESK_LOAD_PAYMENT_BY_ID",
+      "ingress": "payment-link service internals",
+      "lookup": "loadPaymentById(pg, paymentId, clientSlug) WHERE p.id AND cl.slug",
+      "expected_tenant": "command.trustedClientSlug via assertTrustedTenant",
+      "mutation": "create/cancel via service",
+      "verdict": "proven_fail_closed",
+      "notes": "Service is sound; staff/bot path-UUID callers that set trustedClientSlug from global lookup bypass the protection"
+    },
+    {
+      "id": "C_SCHEMA_BOOKING_CODE_UNIQUENESS",
+      "ingress": "n/a schema",
+      "lookup": "UNIQUE (client_id, booking_code) via 001_init + 003 rename",
+      "expected_tenant": "per-client uniqueness proven; global uniqueness absent by design",
+      "mutation": false,
+      "verdict": "proven_fail_closed",
+      "notes": "Closes 15A 'global booking_code uniqueness unproven' for per-tenant ambiguity when lookups include client predicate"
+    }
+  ],
+  "boundary_rollup": {
+    "B14_stripe_locked_payment_identity": "proven_fail_closed",
+    "B15_booking_hold_payment_callbacks": "vulnerable"
+  }
+}

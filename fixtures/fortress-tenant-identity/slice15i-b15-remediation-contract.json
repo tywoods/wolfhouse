@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15I",
+  "contract_kind": "bounded_remediation_design",
+  "status": "design_only_not_implemented",
+  "live_mutation": false,
+  "runtime_behavior_changed": false,
+  "next_implementation_slice": "FORTRESS-15J",
+  "outcome_id": "15J_payment_uuid_callback_tenant_acl",
+  "boundary_id": "B15_booking_hold_payment_callbacks",
+  "title": "Bind path-UUID payment/booking callbacks to expected tenant ACL before mutation",
+  "problem": "Authenticated ingress may supply only a payment_id or booking_id path UUID. Handlers currently SELECT the row globally, then treat the row's client_slug as trustedClientSlug without comparing to staff ACL or bot principal-bound tenant. On a shared DB this is a confused-deputy mutate path.",
+  "owner_files": [
+    "scripts/staff-query-api.js",
+    "scripts/lib/staff-bot-v2-routes.js"
+  ],
+  "in_scope_handlers": [
+    {
+      "id": "staff_payment_create_stripe_link",
+      "symbol": "handlePaymentCreateStripeLink",
+      "path": "POST /staff/payments/:payment_id/create-stripe-link",
+      "required_control": "After resolving payment.client_slug, assertStaffClientAccess(user, clientSlug) before createPaymentLink; optionally scope SELECT with accessible slug or fail closed on deny"
+    },
+    {
+      "id": "bot_payment_create_stripe_link",
+      "symbol": "handleBotPaymentCreateStripeLink",
+      "path": "POST /staff/bot/payments/:payment_id/create-stripe-link",
+      "required_control": "Require nonempty boundClientSlug; SELECT payment with AND cl.slug = boundClientSlug (or compare resolved slug === boundClientSlug and 403/404 on mismatch). Never trust object-derived slug alone."
+    },
+    {
+      "id": "staff_service_records_payment_link",
+      "symbol": "handleBookingServiceRecordsCreatePaymentLink",
+      "path": "POST /staff/bookings/:booking_id/service-records/create-payment-link",
+      "required_control": "Replace weak user.client_id equality with assertStaffClientAccess(user, booking.client_slug) after scoped lookup"
+    }
+  ],
+  "acceptance_tests": [
+    "RED: staff operator ACL={tenant-alpha} + other-tenant payment UUID → 403 client_access_denied; no Stripe session create; no payment UPDATE",
+    "RED: bot boundClientSlug=tenant-alpha + other-tenant payment UUID → 403/404; zero Stripe call; metadata_query does not leak cross-tenant existence beyond uniform miss",
+    "RED: staff service-records path with other-tenant booking UUID → 403 before payment insert",
+    "GREEN: staff operator with matching ACL + same-tenant payment UUID still creates checkout (idempotent path unchanged)",
+    "GREEN: bot boundClientSlug matching payment tenant still creates checkout",
+    "GREEN: historical 15A B15 unproven verdict unchanged; 15I overlay + 15J remediation overlay only"
+  ],
+  "out_of_scope": [
+    "guest GET /pay/:bookingCode short-link default client slug (separate guest surface; SQL already slug-scoped)",
+    "rewriting B14 locked-payment identity",
+    "changing Stripe webhook / B13 lookup",
+    "live Stripe / DB / deploy"
+  ],
+  "must_not": [
+    "derive trusted tenant solely from object row client_id/slug without ACL/principal compare",
+    "enable STRIPE_WEBHOOK_SKIP_VERIFY",
+    "hardcode wolfhouse-somo / sunset as authority"
+  ]
+}
