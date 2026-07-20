@@ -112,6 +112,54 @@ ok('F12 exactly one 15B selection', sel && sel.selected === true && sel.boundary
 ok('F13 15B owner files listed', Array.isArray(sel.owner_files) && sel.owner_files.length >= 1);
 ok('F14 15B acceptance tests listed', Array.isArray(sel.acceptance_tests) && sel.acceptance_tests.length >= 3);
 
+ok('F15 expected verdict counts preserved',
+  counts.proven_fail_closed === 5
+  && counts.proven_isolated_by_runtime === 3
+  && counts.unproven === 3
+  && counts.vulnerable === 4
+  && counts.total === 15);
+
+const b13 = matrix.boundaries.find((b) => b.id === 'B13_stripe_webhook_payment_lookup');
+const b14 = matrix.boundaries.find((b) => b.id === 'B14_stripe_locked_payment_identity');
+const b13Blob = JSON.stringify(b13 || {});
+ok('F16 B13 severity high not critical',
+  b13 && b13.severity === 'high' && b13.severity !== 'critical' && b13.verdict === 'vulnerable');
+ok('F17 B13 documents upstream isolation (signature + tenant-isolated runtime/secret/DB)',
+  b13
+  && b13.upstream_isolation_documented === true
+  && /signature/i.test(String(b13.verdict_rationale || ''))
+  && /tenant-isolated/i.test(String(b13.verdict_rationale || ''))
+  && Array.isArray(b13.exploit_preconditions)
+  && b13.exploit_preconditions.some((p) => /signature/i.test(String(p)))
+  && b13.exploit_preconditions.some((p) => /shared DB|trusted-server|account compromise|misbound/i.test(String(p))));
+ok('F18 B13 does not label current unauthenticated exploit',
+  b13
+  && b13.current_unauthenticated_exploit === false
+  && !/arbitrary unauthenticated/i.test(b13Blob)
+  && /not a current unauthenticated exploit/i.test(String(b13.verdict_rationale || ''))
+  && /not an unauthenticated ingress/i.test(String(b13.conflict_behavior || '')));
+ok('F19 B13 current vs future SaaS blast radius documented',
+  b13
+  && includesStr(b13.current_blast_radius, 'tenant-isolated')
+  && includesStr(b13.future_saas_blast_radius, 'Cross-tenant'));
+ok('F20 B14 compounding control gap (not independent direct exploit)',
+  b14
+  && b14.severity === 'medium'
+  && /compounding/i.test(String(b14.verdict_rationale || ''))
+  && /not an independent direct exploit/i.test(String(b14.verdict_rationale || '')));
+ok('F21 findings_ranked B13 high; B14 medium compounding',
+  Array.isArray(matrix.findings_ranked)
+  && matrix.findings_ranked[0]
+  && matrix.findings_ranked[0].boundary_id === 'B13_stripe_webhook_payment_lookup'
+  && matrix.findings_ranked[0].severity === 'high'
+  && matrix.findings_ranked.some((f) => f.boundary_id === 'B14_stripe_locked_payment_identity'
+    && f.severity === 'medium'
+    && /compounding/i.test(String(f.title || ''))));
+ok('F22 15B rationale cites payment truth independent tenant binding',
+  sel && /payment truth/i.test(String(sel.rationale || ''))
+  && /tenant binding/i.test(String(sel.rationale || ''))
+  && !/critical/i.test(String(sel.rationale || '')));
+
 // ── Secret scan fixtures + doc ──────────────────────────────────────────────
 console.log('\n── Secret-free scan ──');
 for (const rel of [
@@ -358,6 +406,22 @@ ok('D4 doc includes verdict counts section', /proven_fail_closed|Verdict counts/
 for (const v of VERDICTS) {
   ok(`D5 doc mentions verdict ${v}`, doc.includes(v));
 }
+ok('D6 doc classifies B13 high not critical',
+  /\*\*High — B13\*\*/.test(doc)
+  && /`vulnerable` \*\*\(high\)\*\*/.test(doc)
+  && !/\*\*Critical — B13\*\*/.test(doc)
+  && !/`vulnerable` \*\*\(critical\)\*\*/.test(doc));
+ok('D7 doc states B13 not unauthenticated / documents isolation preconditions',
+  /not a claim that arbitrary unauthenticated/i.test(doc)
+  && /tenant-isolated runtime/i.test(doc)
+  && /Stripe signature verification/i.test(doc)
+  && /future SaaS/i.test(doc));
+ok('D8 doc frames B14 as compounding control gap',
+  /\*\*Medium — B14\*\*/.test(doc)
+  && /Compounding control gap/i.test(doc)
+  && /not an independent direct exploit/i.test(doc));
+ok('D9 doc has no trailing whitespace lines',
+  !doc.split(/\n/).some((line) => /[ \t]+$/.test(line)));
 
 console.log(`\n── Verdict counts (matrix) ──`);
 console.log(`  proven_fail_closed:         ${counts.proven_fail_closed}`);
@@ -366,6 +430,8 @@ console.log(`  unproven:                   ${counts.unproven}`);
 console.log(`  vulnerable:                 ${counts.vulnerable}`);
 console.log(`  total boundaries:           ${counts.total}`);
 console.log(`  RED cases: ${redCount}  GREEN cases: ${greenCount}`);
+
+ok('Z1 assertion floor still 83+', pass >= 83);
 
 console.log(`\n── fortress-tenant-identity: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

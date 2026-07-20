@@ -198,7 +198,7 @@
       "id": "AC_STRIPE_META_OTHER_TENANT_PAYMENT_ID",
       "color": "RED",
       "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
-      "attack": "valid payment UUID from other tenant via metadata.payment_id (no session binding)",
+      "attack": "signed-event metadata.payment_id points at other-tenant payment UUID (no session binding; models shared-DB confused-deputy, not unauthenticated ingress)",
       "input": {
         "classifier": "stripe_metadata_binding",
         "session": {
@@ -248,7 +248,7 @@
       "id": "AC_STRIPE_META_MATCHED_STILL_SHARED_DB_RISK",
       "color": "RED",
       "boundary_ids": ["B13_stripe_webhook_payment_lookup"],
-      "attack": "metadata-only match with client_slug still relies on global UUID lookup",
+      "attack": "signed-event metadata-only match with client_slug still relies on global UUID lookup (shared-DB risk)",
       "input": {
         "classifier": "stripe_metadata_binding",
         "session": {

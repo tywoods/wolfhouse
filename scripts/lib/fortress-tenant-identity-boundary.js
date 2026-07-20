@@ -30,7 +30,9 @@ function isVerdict(v) {
  *
  * Authoritative session binding (stripe_checkout_session_id === session.id) is
  * safe regardless of metadata. Metadata-only binding without a matching
- * client_slug is a confused-deputy / cross-tenant risk on shared DB+Stripe.
+ * client_slug is a defense-in-depth / confused-deputy risk on shared DB+Stripe.
+ * Metadata reaches this path only after Stripe signature admission (not
+ * arbitrary unauthenticated input).
  *
  * @returns {{ ok: boolean, reason: string, verdict: string }}
  */

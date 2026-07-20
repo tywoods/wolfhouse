@@ -426,10 +426,10 @@
       "source_identity": "session.id first; else metadata.payment_id UUID global lookup",
       "trusted_principal": "Intended: stripe_checkout_session_id row. Fallback: metadata.payment_id without client predicate in WHERE.",
       "untrusted_tenant_fields": ["session.metadata.payment_id", "session.metadata.client_slug"],
-      "conflict_behavior": "validateStripeBookingPaymentEvent rejects client_slug mismatch ONLY if metadata.client_slug present. Missing client_slug on metadata-only path does not fail closed.",
+      "conflict_behavior": "After Stripe signature verification admits the event, validateStripeBookingPaymentEvent rejects client_slug mismatch ONLY if metadata.client_slug is present. Missing client_slug on metadata-only path does not fail closed. Metadata is not an unauthenticated ingress — it arrives only inside a signed Stripe event (or STRIPE_WEBHOOK_SKIP_VERIFY footgun).",
       "db_scope_predicate": "WHERE p.stripe_checkout_session_id=$1 OR WHERE p.id=$1::uuid (no client_id in lookup SQL)",
-      "payment_secret_account_binding": "webhook secret gates admission; lookup is global within DB",
-      "cross_tenant_object_id_behavior": "valid payment UUID from another tenant can be selected on shared DB when session id miss + metadata.payment_id set",
+      "payment_secret_account_binding": "webhook secret gates admission; lookup SQL is global within the admitted runtime DB",
+      "cross_tenant_object_id_behavior": "On a future shared DB/runtime, a signed event whose metadata.payment_id points at another tenant UUID can select that row. Today tenant-isolated DB + Stripe secret constrain direct cross-tenant reach.",
       "evidence": [
         {
           "path": "scripts/lib/stripe-webhook-payment-truth.js",
@@ -447,10 +447,18 @@
         "fixtures/fortress-tenant-identity/attack-cases.json#AC_STRIPE_*"
       ],
       "verdict": "vulnerable",
-      "verdict_rationale": "Code-grounded: metadata.payment_id fallback is a global UUID SELECT without client_id. client_slug check is optional. Highest money blast radius on shared DB+Stripe staging.",
-      "severity": "critical",
-      "exploitability": "medium",
-      "blast_radius": "mark another tenant payment paid / promote hold on shared DB"
+      "verdict_rationale": "Defense-in-depth / multi-client confused-deputy: metadata.payment_id fallback is a global UUID SELECT without client_id, and client_slug check is optional. Real vulnerable payment-truth boundary. Not a current unauthenticated exploit — Stripe signature verification plus tenant-isolated runtime/Stripe secret/database constrain direct exploitability.",
+      "severity": "high",
+      "exploitability": "low",
+      "upstream_isolation_documented": true,
+      "current_unauthenticated_exploit": false,
+      "exploit_preconditions": [
+        "Stripe webhook signature verifies (or STRIPE_WEBHOOK_SKIP_VERIFY enabled)",
+        "AND one of: trusted-server bug writing wrong payment_id into Checkout Session metadata; Stripe account compromise producing a misbound signed event; operator misconfiguration binding wrong session metadata; future shared DB/runtime across tenants"
+      ],
+      "blast_radius": "current: wrong payment/hold apply inside the already-admitted tenant-isolated runtime/DB if a signed event carries misbound metadata.payment_id. future SaaS shared DB/runtime: mark another tenant payment paid / promote hold via confused-deputy metadata.payment_id",
+      "current_blast_radius": "Wrong payment/hold apply inside the already-admitted tenant-isolated runtime/DB if a signed event carries misbound metadata.payment_id",
+      "future_saas_blast_radius": "Cross-tenant payment truth mutation on shared DB+Stripe when metadata.payment_id targets another tenant UUID without client predicate"
     },
     {
       "id": "B14_stripe_locked_payment_identity",
@@ -459,7 +467,7 @@
       "source_identity": "Locked payment row client_id + session.id / metadata.payment_id binding",
       "trusted_principal": "DB lock for payment_id+client_id and booking_id+client_id",
       "untrusted_tenant_fields": ["session metadata after initial lookup"],
-      "conflict_behavior": "CLIENT_MISMATCH / BOOKING_MISMATCH / METADATA_PAYMENT_ID_MISMATCH / BINDING_MISSING fail closed at apply time — but only after lookup already selected the row.",
+      "conflict_behavior": "CLIENT_MISMATCH / BOOKING_MISMATCH / METADATA_PAYMENT_ID_MISMATCH / BINDING_MISSING fail closed at apply time — but only after lookup already selected the row. Compounding control gap after B13, not an independent direct exploit path.",
       "db_scope_predicate": "lockPaymentForStripePaymentTruth({paymentId, clientId})",
       "payment_secret_account_binding": "uses pm.client_id from looked-up row",
       "cross_tenant_object_id_behavior": "revalidation cannot fix wrong initial lookup if expectedClientId comes from that same row",
@@ -474,10 +482,10 @@
         "scripts/verify-waterbottle-expired-hold-payment-truth.js"
       ],
       "verdict": "unproven",
-      "verdict_rationale": "Locked revalidation is strong for session/metadata consistency on the selected row, but expectedClientId is derived from the lookup result — does not independently re-resolve tenant. Absence of cross-tenant expectedClientId proof → unproven.",
-      "severity": "high",
-      "exploitability": "medium",
-      "blast_radius": "inherits B13 if lookup poisoned"
+      "verdict_rationale": "Compounding control gap (not an independent direct exploit): locked revalidation is strong for session/metadata consistency on the selected row, but expectedClientId is derived from the lookup result — does not independently re-resolve tenant. Amplifies B13 if lookup is poisoned. Absence of cross-tenant expectedClientId proof → unproven.",
+      "severity": "medium",
+      "exploitability": "low",
+      "blast_radius": "compounding only — inherits B13 if lookup poisoned; no standalone unauthenticated path"
     },
     {
       "id": "B15_booking_hold_payment_callbacks",
@@ -517,8 +525,8 @@
     {
       "rank": 1,
       "boundary_id": "B13_stripe_webhook_payment_lookup",
-      "severity": "critical",
-      "title": "Stripe webhook metadata.payment_id global UUID lookup without mandatory tenant predicate",
+      "severity": "high",
+      "title": "Stripe webhook metadata.payment_id global UUID lookup without mandatory tenant predicate (defense-in-depth; constrained by signature + isolation)",
       "evidence": "scripts/lib/stripe-webhook-payment-truth.js:54-79,128-136"
     },
     {
@@ -544,38 +552,38 @@
     },
     {
       "rank": 5,
-      "boundary_id": "B14_stripe_locked_payment_identity",
-      "severity": "high",
-      "title": "Locked payment identity revalidation cannot independently re-bind tenant after poisoned lookup",
-      "evidence": "scripts/lib/stripe-hold-promote-policy.js:169-217"
-    },
-    {
-      "rank": 6,
       "boundary_id": "B01_meta_whatsapp_signature_ingress",
       "severity": "high",
       "title": "Meta signature verification skippable when META_APP_SECRET absent (unproven in prod)",
       "evidence": "scripts/lib/luna-meta-whatsapp-webhook.js:77-83"
     },
     {
-      "rank": 7,
+      "rank": 6,
       "boundary_id": "B15_booking_hold_payment_callbacks",
       "severity": "high",
       "title": "Booking/payment callback scoping inconsistent; global ID uniqueness unproven",
       "evidence": "scripts/staff-query-api.js:1660-1670"
     },
     {
-      "rank": 8,
+      "rank": 7,
       "boundary_id": "B12_stripe_webhook_signature",
       "severity": "high",
       "title": "STRIPE_WEBHOOK_SKIP_VERIFY bypass footgun; single secret per runtime",
       "evidence": "scripts/staff-query-api.js:13522-13528"
+    },
+    {
+      "rank": 8,
+      "boundary_id": "B14_stripe_locked_payment_identity",
+      "severity": "medium",
+      "title": "Locked payment identity revalidation is a compounding control gap after B13 (not an independent direct exploit)",
+      "evidence": "scripts/lib/stripe-hold-promote-policy.js:169-217"
     }
   ],
   "slice_15b_selection": {
     "selected": true,
     "outcome_id": "15B_stripe_metadata_payment_lookup_tenant_bind",
     "boundary_id": "B13_stripe_webhook_payment_lookup",
-    "rationale": "Highest severity (critical money path), directly evidenced in code, smallest ownership surface (one lib + webhook caller validations), and regression-testable offline without live Stripe.",
+    "rationale": "Payment truth needs independent tenant binding: missing client predicate + optional metadata.client_slug is a real vulnerable confused-deputy boundary (severity high). Selected for 15B despite constrained current exploitability (Stripe signature + tenant-isolated runtime/secret/DB) because future SaaS shared DB expands blast radius; ownership surface is smallest and regression-testable offline.",
     "owner_files": [
       "scripts/lib/stripe-webhook-payment-truth.js",
       "scripts/staff-query-api.js"
