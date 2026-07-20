@@ -8,21 +8,23 @@
 
 ## Outcome
 
-Ship a **fail-closed operator harness** for a controlled ACA **database-readiness failure** and **exact restoration** (source only). Default mode is dry-run. Live mutation requires explicit `--tenant wolfhouse|sunset` plus `--apply` plus `--confirm` with the exact token `RADAR-16Q-READINESS-FAILURE-DRILL`. Pins staging RG/app/URL, env `WOLFHOUSE_DATABASE_URL`, and staging image SHA `594247f`. Does **not** claim the live dependency-failure traffic-shed drill is proven.
+Ship a **fail-closed operator harness** for a controlled ACA **database-readiness failure** and **exact restoration** (source only). Default mode is dry-run. Live mutation requires explicit `--tenant wolfhouse|sunset` plus `--apply` plus `--confirm` with the exact token `RADAR-16Q-READINESS-FAILURE-DRILL` (library apply also requires exact confirm). Pins staging subscription/account/tenant/resource ID/RG/app/FQDN, env `WOLFHOUSE_DATABASE_URL`, and **exact** image `…:594247f12a823e9b90140c56eb8645b057e1fd37` (not substring). Does **not** claim the live dependency-failure traffic-shed drill is proven.
 
 ## Harness contract (locked)
 
 | Item | Value |
 |------|-------|
-| Tenants | `wolfhouse` → `wh-staging-rg` / `wh-staging-staff-api` / `https://staff-staging.lunafrontdesk.com`; `sunset` → `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` / `https://sunset-staging.lunafrontdesk.com` |
+| Azure identity | subscription `6dfa56e7-…`; account `ty@wolfhouse.io`; AAD tenant lock pin; per-tenant resource ID/RG/app/FQDN; `--subscription` on every `az` |
+| Tenants | `wolfhouse` → `wh-staging-rg` / `wh-staging-staff-api` / `staff-staging.lunafrontdesk.com`; `sunset` → `luna-sunset-staging-rg` / `luna-sunset-staging-staff-api` / `sunset-staging.lunafrontdesk.com` |
 | Database env | `WOLFHOUSE_DATABASE_URL` (secretRef only at baseline) |
-| Image pin | staging SHA `594247f` |
+| Image pin | **exact** full image string (SHA `594247f12a823e9b…`); substring match refused |
 | Failure inject | change **only** that env from secretRef → unreachable non-secret PostgreSQL DSN |
-| Capture | live template/revisions/image/probes → temp **outside** repo |
-| Trap | cleanup/restore installed **before** mutation (SIGINT/error) |
-| Observe | failed revision Running / started=true / ready=false / restartCount=0 / not latest-ready; public old `/healthz`+`/readyz` stay 200 |
-| Restore | exact original template; wait healthy latest-ready; verify image/probes/env secretRef/endpoints |
-| Secrets | never read/print secret values; evidence redacted |
+| Mutation | every update marks **mutation-attempted before spawn**; cancellable async subprocess + hard timeout |
+| Capture | complete `properties.template` + ingress traffic revision/label/weight → temp **outside** repo; pre-revision name set |
+| Trap | abort on signal; block further forward mutation; await restoration before exit |
+| Observe | set-difference new revision only; revision-show + replica-list with explicit fields (no defaults); continuous traffic + `/healthz`/`/readyz` poll |
+| Restore | unconditional `finally` after any mutation attempt; bounded retries; traffic restore if drifted; clear restoration-required only after exact template/traffic/image/secretRef/endpoint verify |
+| Secrets / errors | never read/print secret values; evidence/errors allowlisted categories only |
 
 ## Artifacts
 

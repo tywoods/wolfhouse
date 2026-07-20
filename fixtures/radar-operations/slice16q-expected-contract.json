@@ -15,40 +15,61 @@
   "database_env": "WOLFHOUSE_DATABASE_URL",
   "image_sha_short": "594247f",
   "image_sha_full": "594247f12a823e9b90140c56eb8645b057e1fd37",
+  "image_equality": "exact_full_image_string_not_substring",
+  "subscription_id": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "azure_account_user": "ty@wolfhouse.io",
+  "azure_tenant_id": "c0ffeeee-16a0-4a11-8ccc-000000000016",
   "unreachable_dsn_policy": "non_secret_postgresql_to_127.0.0.1:1_only",
+  "mutation_attempted_before_spawn": true,
+  "subprocess": "cancellable_async_hard_timeout",
+  "restoration": "unconditional_finally_bounded_retries_exact_verify",
   "tenants": {
     "wolfhouse": {
       "resourceGroup": "wh-staging-rg",
       "containerApp": "wh-staging-staff-api",
+      "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.App/containerApps/wh-staging-staff-api",
       "publicBaseUrl": "https://staff-staging.lunafrontdesk.com",
-      "expectedSecretRef": "wolfhouse-database-url"
+      "fqdn": "staff-staging.lunafrontdesk.com",
+      "expectedSecretRef": "wolfhouse-database-url",
+      "expectedImage": "whstagingacr.azurecr.io/wh-staff-api:594247f12a823e9b90140c56eb8645b057e1fd37"
     },
     "sunset": {
       "resourceGroup": "luna-sunset-staging-rg",
       "containerApp": "luna-sunset-staging-staff-api",
+      "resourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.App/containerApps/luna-sunset-staging-staff-api",
       "publicBaseUrl": "https://sunset-staging.lunafrontdesk.com",
-      "expectedSecretRef": "sunset-database-url"
+      "fqdn": "sunset-staging.lunafrontdesk.com",
+      "expectedSecretRef": "sunset-database-url",
+      "expectedImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:594247f12a823e9b90140c56eb8645b057e1fd37"
     }
   },
   "cli": {
     "default_mode": "dry-run",
     "apply_requires": ["--tenant", "--apply", "--confirm exact token"],
-    "supported_tenants": ["wolfhouse", "sunset"]
+    "library_apply_requires_exact_confirm": true,
+    "supported_tenants": ["wolfhouse", "sunset"],
+    "az_subscription_flag_required": true
   },
   "refuse": [
     "production_hosts_or_rgs",
     "dirty_or_unsynced_repo",
     "wrong_master",
-    "wrong_image_sha",
+    "wrong_image_sha_or_substring",
+    "wrong_subscription_resource_fqdn",
     "missing_probes",
     "missing_or_plaintext_database_secretRef",
     "multi_revision_traffic",
     "ambiguous_latest_ready",
-    "apply_without_exact_confirm_token"
+    "apply_without_exact_confirm_token",
+    "library_apply_without_exact_confirm_token",
+    "absent_aca_revision_or_replica_fields"
   ],
   "observation_contract": {
     "failed_revision": {
-      "runningState": "Running",
+      "identification": "pre_revision_set_difference_only",
+      "revision_show_required": ["healthState", "degraded", "provisioningState", "runningState"],
+      "replica_list_required": ["runningState", "running", "started", "ready", "restartCount"],
+      "no_defaulting_absent_values": true,
       "started": true,
       "ready": false,
       "restartCount": 0,
@@ -56,13 +77,17 @@
     },
     "public_old_revision": {
       "healthz": 200,
-      "readyz": 200
+      "readyz": 200,
+      "traffic_target_weight_polled_continuously": true
     },
     "restore": {
       "exact_original_template": true,
+      "exact_ingress_traffic_revision_label_weight": true,
+      "containers_env_resources_scale_volumes_init_probes": true,
+      "traffic_restoration_if_drifted": true,
       "latest_ready_healthy": true,
-      "image_probes_secretRef_verified": true,
-      "endpoints_200": true
+      "image_secretRef_endpoints_verified": true,
+      "clear_restoration_required_only_after_exact_verify": true
     }
   },
   "still_open": [
@@ -74,7 +99,7 @@
   "final_controlled_drill": {
     "id": "16Q_DRILL_readiness_failure_traffic_shed_harness",
     "status": "source_only_harness_not_executed",
-    "pass_rule": "Offline RED/GREEN prove fail-closed refuses + narrow template + trap restore; ledger remains source-partial; no live apply in this slice"
+    "pass_rule": "Offline RED/GREEN prove fail-closed refuses + narrow template + trap restore + adversarial mutation/timeout/signal/restore paths; ledger remains source-partial; no live apply in this slice"
   },
   "artifacts": [
     "scripts/lib/radar-slice16q-readiness-failure-drill-harness.js",

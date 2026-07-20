@@ -40,7 +40,7 @@
 
 ## Slice 16Q
 
-`16Q_readiness_failure_drill_harness` — fail-closed operator harness for controlled ACA database-readiness failure + exact restoration. Default dry-run; `--apply` requires `--tenant wolfhouse|sunset` and exact confirm token. Pins staging RG/app/URL, `WOLFHOUSE_DATABASE_URL`, image SHA `594247f`. Captures template/revisions/image/probes outside repo; cleanup trap before mutation; narrow env-only failure template; observes failed revision Running/started=true/ready=false/restartCount=0 not latest-ready while public old health/ready stay 200; always restores exact original. Offline RED/GREEN covers refuse points + restoration. **Does not execute live** and does not claim live dependency-failure traffic-shed.
+`16Q_readiness_failure_drill_harness` — fail-closed operator harness for controlled ACA database-readiness failure + exact restoration. Default dry-run; `--apply` and library apply require exact confirm token. Pins subscription/account/tenant/resource ID/RG/app/FQDN, `WOLFHOUSE_DATABASE_URL`, exact image (not substring). Mutation-attempted before spawn; cancellable async `az` with hard timeouts + `--subscription`; signal aborts forward mutation and awaits restore; unconditional finally restore with bounded retries and exact template/traffic verify. Observes set-difference new revision via revision-show + replica-list (explicit fields; no defaults) while continuously polling traffic + public health/ready. Offline RED/GREEN covers refuse points + adversarial mutation/timeout/signal/restore paths. **Does not execute live** and does not claim live dependency-failure traffic-shed.
 
 ## Prior slices (retained)
 
