@@ -8,7 +8,7 @@
 
 ## Outcome
 
-Add **source-only fail-closed Stripe webhook event-id claim** before booking-payment and addon_service payment mutations. Use existing `payment_events.stripe_event_id` UNIQUE. Claim inside the same transaction: `INSERT … ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`; zero rows → rollback + HTTP 200 idempotent; first claim → existing writes → `processed=true` → COMMIT; any failure → full rollback + retryable 500. Privacy-minimized payload only. **Do not deploy.** G05 remains `partial` (event-claim source-partial only).
+Add **source-only fail-closed Stripe webhook event-id claim** before booking-payment and addon_service payment mutations. Use existing `payment_events.stripe_event_id` UNIQUE. Claim inside the same transaction: `INSERT … ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id`; zero rows → rollback + HTTP 200 idempotent; first claim → path-specific lock/reload → existing writes or distinct-event business skip → `processed=true` → COMMIT. Pre-commit failures → full rollback + retryable 500. **COMMIT failure is ambiguous** → best-effort rollback + retryable 500 `outcome_unknown=true` (never claim definitely rolled back). Addon distinct events: after claim, `SELECT … FOR UPDATE` owned payment; if already paid, mark claimed event processed with `duplicate_business_outcome` and return HTTP 200 idempotent (no payment/service rewrite). Privacy-minimized payload only. **Do not deploy.** G05 remains `partial` (event-claim source-partial only). Real PostgreSQL contention / ambiguous-commit drill remains **open** (no isolated ephemeral PostgreSQL on this host).
 
 ## Artifacts
 
@@ -28,11 +28,13 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 | Paths | `booking_payment`, `addon_service` only |
 | Claim SQL | `ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id` |
 | Ownership column | `client_id` (001_init `hostel_id`) |
-| Duplicate | HTTP 200 `idempotent` `reason=stripe_event_id_already_claimed` |
-| Failure | ROLLBACK + HTTP 500 (never ack after partial failure) |
-| Payload | allowlisted non-PII identifiers/state only |
+| Duplicate (exact event id) | HTTP 200 `idempotent` `reason=stripe_event_id_already_claimed` |
+| Distinct-event already paid (addon) | Claim processed + `duplicate_business_outcome`; HTTP 200 `reason=duplicate_business_outcome`; no payment/service rewrite |
+| Pre-commit failure | ROLLBACK + HTTP 500 retryable |
+| COMMIT failure | AMBIGUOUS → best-effort ROLLBACK + HTTP 500 `outcome_unknown=true` (no secret/error details); retry via durable claim |
+| Payload | allowlisted non-PII identifiers/state only (+ `duplicate_business_outcome` marker) |
 | Forbidden | raw Stripe event/session/customer; email/phone/name/addresses/tokens |
-| Out of scope | ignored/unmatched/invalid events; DLQ; replay operator; deploy |
+| Out of scope | ignored/unmatched/invalid events; DLQ; replay operator; deploy; real-PG contention drill |
 
 ## Verdict counts
 
@@ -61,10 +63,14 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 
 | Sub-control | Status | Notes |
 |-------------|--------|-------|
-| Stripe event-id claim before mutations (source) | `partial` | booking + addon paths; same txn |
+| Stripe event-id claim before mutations (source) | `partial` | booking + addon paths; same txn; addon FOR UPDATE lock/reload |
 | Schema UNIQUE `stripe_event_id` | present | 001_init (no new migration) |
+| Exact-ID conflict semantics | `partial` | ON CONFLICT DO NOTHING RETURNING; fake + source proven |
+| Addon distinct-event concurrency (fake) | `partial` | one business mutation; both claims processed; loser idempotent |
+| COMMIT ambiguity handling (source) | `partial` | `outcome_unknown=true`; fake pre-apply reject + modeled post-durable retry |
 | Live deploy of claim path | `open` | Not claimed |
 | Live concurrency proof | `open` | Not claimed |
+| Real PostgreSQL contention / ambiguous-commit drill | `open` | No isolated ephemeral PostgreSQL on this host |
 | Replay operator / stuck recovery | `open` | Not claimed |
 | DLQ | `open` | Not claimed |
 | Controlled replay drill | `open` | Not claimed |
@@ -81,6 +87,7 @@ Add **source-only fail-closed Stripe webhook event-id claim** before booking-pay
 
 - Live deploy of Staff API image with event-id claim
 - Live concurrency proof under real Postgres UNIQUE contention
+- Real PostgreSQL contention / ambiguous-commit drill (no isolated ephemeral PostgreSQL on this host)
 - Replay operator / stuck `processed=false` recovery
 - DLQ for unprocessable webhook events
 - Controlled replay drill

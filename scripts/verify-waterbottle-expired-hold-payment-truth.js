@@ -432,7 +432,7 @@ async function main() {
   assert('event-id claim before apply in webhook', /withStripeWebhookEventClaim[\s\S]{0,800}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('BEGIN before apply in reconcile', /await pg\.query\('BEGIN'\)[\s\S]{0,500}applyStripeBookingPaymentTruthWrites/.test(reconcileSrc));
   assert('webhook one withPgClient for BEGIN→helper→COMMIT/ROLLBACK',
-    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}(COMMIT|commitStripeWebhookEventTxnOrThrowUnknown)[\s\S]{0,600}ROLLBACK/.test(apiSrc));
   assert('reconcile one pg client for BEGIN→helper→COMMIT/ROLLBACK',
     /await pg\.query\('BEGIN'\)[\s\S]{0,2500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,500}ROLLBACK/.test(reconcileSrc));
   assert('webhook maps locked validation to HTTP 200 application rejection',

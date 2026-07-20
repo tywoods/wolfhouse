@@ -93,7 +93,7 @@
       "infra/azure/sunset-staging/main.bicep",
       "infra/azure/staging-staff-api-metric-alerts/"
     ],
-    "note": "16M may modify Staff API Stripe webhook claim helpers only; must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; concurrency/replay/DLQ/drill remain open"
+    "note": "16M may modify Staff API Stripe webhook claim helpers only; must not mutate DB schema, Hermes staging, staging Bicep, or 16H module; no live deploy; concurrency/real-PG ambiguous-commit/replay/DLQ/drill remain open"
   },
   "gates": [
     "npm run verify:radar-slice16m-stripe-event-claim",
@@ -208,6 +208,7 @@
   },
   "stripe_event_claim_live_deploy": "open",
   "stripe_event_claim_concurrency_proof": "open",
+  "stripe_event_claim_real_pg_contention_drill": "open",
   "stripe_event_claim_replay_operator": "open",
   "stripe_event_claim_dlq": "open",
   "stripe_event_claim_drill": "open"

@@ -269,7 +269,7 @@
       "name": "Retry / replay safety",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows → ROLLBACK + HTTP 200 idempotent; first claim → existing writes → mark processed=true → COMMIT; claim/write/processed failure → ROLLBACK + retryable 500. Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column → client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only — not deployed; live concurrency, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
+      "rationale": "16M adds source-only fail-closed Stripe webhook event-id claim before booking-payment and addon_service mutations: INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id inside the same existing transaction; zero rows → ROLLBACK + HTTP 200 idempotent (exact-id); first claim → addon FOR UPDATE lock/reload (or booking under-lock truth) → writes or distinct-event duplicate_business_outcome skip → mark processed=true → COMMIT; pre-commit claim/write/processed failure → ROLLBACK + retryable 500; COMMIT failure is AMBIGUOUS → best-effort ROLLBACK + retryable 500 outcome_unknown=true (never claim definitely rolled back; retry via durable stripe_event_id). Privacy-minimized payload (allowlisted non-PII only). Uses existing UNIQUE stripe_event_id (001_init hostel_id ownership column → client_id post-003). Signature verification, authoritative tenant gate, validation, locked money math, and distinct-event business idempotency preserved. Ignored/unmatched/invalid events unchanged (no claim). Source-partial only — not deployed; live concurrency, real-PG ambiguous-commit drill, replay operator, DLQ, and controlled drill remain open. Does not claim all event types.",
       "progress_class": "source_partial_progress_only",
       "source_evidence": [
         {
@@ -326,6 +326,7 @@
       "gaps": [
         "Staff API image with event-id claim not deployed",
         "Live concurrency proof under real Postgres UNIQUE contention open",
+        "Real PostgreSQL contention / ambiguous-commit drill open (no isolated ephemeral PostgreSQL on this host)",
         "Replay operator / stuck processed=false recovery open",
         "DLQ for unprocessable webhook events open",
         "Controlled replay drill open",
@@ -948,24 +949,26 @@
     ],
     "acceptance_criteria": [
       "Booking-payment and addon_service paths claim stripe_event_id inside same txn before mutations",
-      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows → 200 idempotent, no mutations",
-      "First event: mutations then mark processed=true before COMMIT",
-      "Claim/write/processed/commit failure rolls back both claim and mutations (retryable 500)",
+      "INSERT ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id; zero rows → 200 idempotent exact-id, no mutations",
+      "Addon: after claim, FOR UPDATE owned payment reload; already paid → processed + duplicate_business_outcome, no payment/service rewrite; ineligible → fail closed",
+      "First event winner: mutations then mark processed=true before COMMIT; only lock winner mutates",
+      "Pre-commit claim/write/processed failure → ROLLBACK + retryable 500",
+      "COMMIT failure → outcome_unknown=true retryable 500 (never claim definitely rolled back); retry via durable stripe_event_id",
       "Lookup returns owned hostel_id (client_id); payload allowlisted non-PII only",
       "Signature/tenant/validation/locked money math/business idempotency preserved",
-      "Offline fake-pg RED/GREEN proves order, replay, concurrency conflict, rollback+retry, cross-tenant/invalid no claim, canaries absent",
-      "Deploy/live concurrency/replay operator/DLQ/drill remain open"
+      "Offline fake-pg RED/GREEN proves order, exact-id replay, distinct-event concurrency, pre-commit rollback+retry, modeled post-durable ack-failure retry, ownership fail-closed, canaries absent",
+      "Deploy/live concurrency/real-PG ambiguous-commit drill/replay operator/DLQ/drill remain open"
     ],
     "final_controlled_drill": {
       "id": "16M_DRILL_stripe_event_claim_replay",
       "steps": [
         "Approved deploy of Staff API image with event-id claim (follow-on; not this commit)",
         "Deliver same Stripe event.id twice; prove second is HTTP 200 idempotent with zero mutations",
-        "Prove concurrent delivery permits one mutation path via UNIQUE conflict",
-        "Prove failure before COMMIT retries successfully",
+        "Prove concurrent distinct events on same addon payment: one business mutation, both claims processed",
+        "Prove pre-commit failure retries successfully; COMMIT ambiguity returns outcome_unknown and retry resolves via durable claim",
         "Freeze evidence JSON secret-free"
       ],
-      "pass_rule": "Live replay/concurrency proofs pass after approved deploy; no DLQ/operator claimed by this slice"
+      "pass_rule": "Live replay/concurrency proofs pass after approved deploy; no DLQ/operator claimed by this slice; real-PG ambiguous-commit drill remains open until proven"
     }
   }
 }

@@ -9,8 +9,15 @@
  * Contract (caller owns BEGIN/COMMIT/ROLLBACK on the same pg client):
  *   1. INSERT ... ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id
  *   2. zero rows → duplicate (caller rolls back; HTTP 200 idempotent)
- *   3. first claim → mutate → mark that row processed=true → caller COMMIT
- *   4. any claim/mutate/processed failure → caller ROLLBACK → retryable 500
+ *   3. first claim → (path-specific lock/reload) → mutate or distinct-event
+ *      business-idempotent skip → mark that row processed=true → caller COMMIT
+ *   4. claim/mutate/processed failure BEFORE commit attempt → caller ROLLBACK
+ *      → retryable 500
+ *   5. COMMIT rejection/failure is AMBIGUOUS: never claim the txn definitely
+ *      rolled back. Best-effort ROLLBACK, then retryable 500 with
+ *      outcome_unknown=true (no secret/error details). Retry resolves via the
+ *      durable stripe_event_id claim (idempotent if commit landed; can claim
+ *      if it did not).
  *
  * Payload is privacy-minimized: allowlisted non-PII identifiers/state only.
  * Never persist raw Stripe event/session/customer or email/phone/name/addresses/tokens.
@@ -33,6 +40,7 @@ const STRIPE_WEBHOOK_EVENT_PAYLOAD_ALLOWLIST = Object.freeze([
   'lookup_path',
   'livemode',
   'path',
+  'duplicate_business_outcome',
 ]);
 
 const FORBIDDEN_PAYLOAD_CANARIES = Object.freeze([
@@ -43,7 +51,7 @@ const FORBIDDEN_PAYLOAD_CANARIES = Object.freeze([
   'customer',
   'address',
   'addresses',
-  'customer',
+  'postal',
   'token',
   'client_secret',
   'payment_method',
@@ -77,12 +85,28 @@ RETURNING id`.replace(/\s+/g, ' ').trim();
 
 const MARK_PROCESSED_SQL = `
 UPDATE payment_events
-   SET processed = true
+   SET processed = true,
+       payload = CASE
+         WHEN $2::jsonb IS NULL THEN payload
+         ELSE COALESCE(payload, '{}'::jsonb) || $2::jsonb
+       END
  WHERE id = $1::uuid
    AND processed IS NOT TRUE
  RETURNING id`.replace(/\s+/g, ' ').trim();
 
+const LOCK_OWNED_PAYMENT_SQL = `
+SELECT id::text AS payment_id,
+       status::text AS payment_status,
+       payment_kind::text AS payment_kind,
+       client_id::text AS client_id
+  FROM payments
+ WHERE id = $1::uuid
+   AND client_id = $2::uuid
+ FOR UPDATE`.replace(/\s+/g, ' ').trim();
+
 const IDEMPOTENT_DUPLICATE_REASON = 'stripe_event_id_already_claimed';
+const IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON = 'duplicate_business_outcome';
+const COMMIT_OUTCOME_UNKNOWN_CODE = 'stripe_event_claim_commit_outcome_unknown';
 
 function trimStr(value) {
   return value == null ? '' : String(value).trim();
@@ -188,15 +212,23 @@ async function claimStripeWebhookEvent(pg, input) {
 
 /**
  * Mark only the claimed row processed=true (same transaction).
+ * Optional privacy-minimized payloadPatch (e.g. duplicate_business_outcome).
  */
-async function markStripeWebhookEventProcessed(pg, claimId) {
+async function markStripeWebhookEventProcessed(pg, claimId, payloadPatch) {
   if (!pg || typeof pg.query !== 'function') {
     const err = new Error('pg_client_required');
     err.code = 'pg_client_required';
     throw err;
   }
   const id = assertUuid('claim_id', claimId);
-  const result = await pg.query(MARK_PROCESSED_SQL, [id]);
+  let patchJson = null;
+  if (payloadPatch && typeof payloadPatch === 'object') {
+    const minimized = buildMinimizedStripeWebhookEventPayload(payloadPatch);
+    if (Object.keys(minimized).length > 0) {
+      patchJson = JSON.stringify(minimized);
+    }
+  }
+  const result = await pg.query(MARK_PROCESSED_SQL, [id, patchJson]);
   const updated = result && result.rows && result.rows[0] && result.rows[0].id
     ? String(result.rows[0].id)
     : null;
@@ -209,24 +241,65 @@ async function markStripeWebhookEventProcessed(pg, claimId) {
 }
 
 /**
+ * Lock/reload owned payment by payment_id + client_id (FOR UPDATE).
+ * Used by addon_service after event claim and before any business mutation.
+ */
+async function lockOwnedPaymentForAddonEventClaim(pg, input) {
+  if (!pg || typeof pg.query !== 'function') {
+    const err = new Error('pg_client_required');
+    err.code = 'pg_client_required';
+    throw err;
+  }
+  const paymentId = assertUuid('payment_id', input && (input.paymentId || input.payment_id));
+  const clientId = assertUuid('client_id', input && (input.clientId || input.client_id || input.hostelId || input.hostel_id));
+  const result = await pg.query(LOCK_OWNED_PAYMENT_SQL, [paymentId, clientId]);
+  return (result && result.rows && result.rows[0]) || null;
+}
+
+/**
  * Claim → mutate → mark processed. Caller must already be inside BEGIN.
  * Does not COMMIT or ROLLBACK. Duplicate → mutate is not called.
  *
- * @returns {{ duplicate: boolean, claimId: string|null, payload: object|null }}
+ * mutateFn may return `{ duplicate_business_outcome: string }` to skip business
+ * writes while still marking the claimed event processed with that marker.
+ *
+ * @returns {{
+ *   duplicate: boolean,
+ *   claimId: string|null,
+ *   payload: object|null,
+ *   duplicate_business_outcome: string|null,
+ * }}
  */
 async function withStripeWebhookEventClaim(pg, claimInput, mutateFn) {
   const claim = await claimStripeWebhookEvent(pg, claimInput);
   if (!claim.claimed) {
-    return { duplicate: true, claimId: null, payload: claim.payload };
+    return {
+      duplicate: true,
+      claimId: null,
+      payload: claim.payload,
+      duplicate_business_outcome: null,
+    };
   }
   if (typeof mutateFn !== 'function') {
     const err = new Error('mutate_fn_required');
     err.code = 'mutate_fn_required';
     throw err;
   }
-  await mutateFn(pg);
-  await markStripeWebhookEventProcessed(pg, claim.id);
-  return { duplicate: false, claimId: claim.id, payload: claim.payload };
+  const mutateResult = await mutateFn(pg);
+  const dbo = mutateResult && mutateResult.duplicate_business_outcome
+    ? trimStr(mutateResult.duplicate_business_outcome)
+    : '';
+  await markStripeWebhookEventProcessed(
+    pg,
+    claim.id,
+    dbo ? { duplicate_business_outcome: dbo } : null,
+  );
+  return {
+    duplicate: false,
+    claimId: claim.id,
+    payload: claim.payload,
+    duplicate_business_outcome: dbo || null,
+  };
 }
 
 function buildStripeEventClaimIdempotentBody(fields) {
@@ -247,16 +320,82 @@ function buildStripeEventClaimIdempotentBody(fields) {
   };
 }
 
+/**
+ * Distinct-event business idempotency (new stripe_event_id claimed+processed,
+ * payment already paid under lock — no payment/service rewrite).
+ */
+function buildStripeEventDistinctBusinessIdempotentBody(fields) {
+  const f = fields || {};
+  return {
+    success: true,
+    idempotent: true,
+    reason: IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON,
+    duplicate_business_outcome: f.duplicateBusinessOutcome
+      || f.duplicate_business_outcome
+      || 'payment_already_paid',
+    stripe_event_id: f.stripeEventId || f.stripe_event_id || null,
+    event_type: f.eventType || f.event_type || null,
+    payment_id: f.paymentId || f.payment_id || null,
+    booking_id: f.bookingId || f.booking_id || null,
+    booking_code: f.bookingCode || f.booking_code || null,
+    no_db_write: true,
+    no_confirmation_sent: true,
+    no_whatsapp: true,
+    no_n8n: true,
+  };
+}
+
+/**
+ * Retryable 500 body after COMMIT ambiguity. No secrets or error details.
+ * Retry: if commit landed, durable stripe_event_id claim → idempotent;
+ * if not, a fresh claim can proceed.
+ */
+function buildStripeEventClaimOutcomeUnknownBody() {
+  return {
+    success: false,
+    retryable: true,
+    outcome_unknown: true,
+  };
+}
+
+function isStripeEventClaimCommitOutcomeUnknown(err) {
+  return !!(err && (err.outcome_unknown === true || err.code === COMMIT_OUTCOME_UNKNOWN_CODE));
+}
+
+/**
+ * Attempt COMMIT. On failure: best-effort ROLLBACK, then throw outcome_unknown.
+ * Never asserts that a rejected COMMIT definitely rolled back.
+ */
+async function commitStripeWebhookEventTxnOrThrowUnknown(pg) {
+  try {
+    await pg.query('COMMIT');
+  } catch (_) {
+    try { await pg.query('ROLLBACK'); } catch (__){ /* best-effort */ }
+    const err = new Error(COMMIT_OUTCOME_UNKNOWN_CODE);
+    err.code = COMMIT_OUTCOME_UNKNOWN_CODE;
+    err.outcome_unknown = true;
+    throw err;
+  }
+}
+
 module.exports = {
   PAYMENT_EVENTS_OWNERSHIP_COLUMN,
   STRIPE_WEBHOOK_EVENT_PAYLOAD_ALLOWLIST,
   FORBIDDEN_PAYLOAD_CANARIES,
   CLAIM_INSERT_SQL,
   MARK_PROCESSED_SQL,
+  LOCK_OWNED_PAYMENT_SQL,
   IDEMPOTENT_DUPLICATE_REASON,
+  IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON,
+  COMMIT_OUTCOME_UNKNOWN_CODE,
   buildMinimizedStripeWebhookEventPayload,
   claimStripeWebhookEvent,
   markStripeWebhookEventProcessed,
+  lockOwnedPaymentForAddonEventClaim,
   withStripeWebhookEventClaim,
   buildStripeEventClaimIdempotentBody,
+  buildStripeEventDistinctBusinessIdempotentBody,
+  buildStripeEventClaimOutcomeUnknownBody,
+  isStripeEventClaimCommitOutcomeUnknown,
+  commitStripeWebhookEventTxnOrThrowUnknown,
 };

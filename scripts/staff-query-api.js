@@ -774,6 +774,11 @@ const {
 const {
   withStripeWebhookEventClaim,
   buildStripeEventClaimIdempotentBody,
+  buildStripeEventDistinctBusinessIdempotentBody,
+  buildStripeEventClaimOutcomeUnknownBody,
+  isStripeEventClaimCommitOutcomeUnknown,
+  commitStripeWebhookEventTxnOrThrowUnknown,
+  lockOwnedPaymentForAddonEventClaim,
 } = require('./lib/stripe-webhook-event-claim');
 const {
   applyStripeBookingPaymentTruthWrites,
@@ -13899,6 +13904,7 @@ async function handleStripeWebhook(req, res) {
     let serviceRecordsPaidCount = 0;
     let addonWarning = null;
     let addonDuplicateClaim = false;
+    let addonDistinctBusinessDuplicate = false;
 
     const pmMeta = (() => {
       const raw = pm.payment_metadata;
@@ -13928,6 +13934,27 @@ async function handleStripeWebhook(req, res) {
             livemode: event.livemode || false,
             path: 'addon_service',
           }, async () => {
+            // After claim, before any addon mutation: lock owned payment and reload.
+            const lockedPayment = await lockOwnedPaymentForAddonEventClaim(pg, {
+              paymentId: pm.payment_id,
+              clientId: pm.client_id,
+            });
+            if (!lockedPayment) {
+              const err = new Error('addon_payment_lock_miss');
+              err.code = 'addon_payment_lock_miss';
+              throw err;
+            }
+            if (lockedPayment.payment_kind !== 'addon_service') {
+              const err = new Error('addon_payment_kind_ineligible');
+              err.code = 'addon_payment_kind_ineligible';
+              throw err;
+            }
+            if (lockedPayment.payment_status === 'paid') {
+              // Distinct-event loser: claim stays, no payment/service rewrite.
+              return { duplicate_business_outcome: 'payment_already_paid' };
+            }
+
+            // Only the lock winner (eligible unpaid addon_service) may mutate.
             await pg.query(
               `UPDATE payments
                  SET status                   = 'paid'::payment_record_status,
@@ -13936,7 +13963,9 @@ async function handleStripeWebhook(req, res) {
                      stripe_payment_intent_id = $2,
                      metadata                 = metadata || $3::jsonb
                WHERE id = $4
-                 AND client_id = $5`,
+                 AND client_id = $5
+                 AND status IS DISTINCT FROM 'paid'::payment_record_status
+                 AND payment_kind = 'addon_service'::payment_kind`,
               [
                 newPmPaidCents,
                 session.payment_intent || null,
@@ -13988,6 +14017,7 @@ async function handleStripeWebhook(req, res) {
               );
               if (upd.rowCount > 0) serviceRecordsPaidCount++;
             }
+            return null;
           });
 
           if (claimOutcome.duplicate) {
@@ -13996,13 +14026,27 @@ async function handleStripeWebhook(req, res) {
             return;
           }
 
-          await pg.query('COMMIT');
+          if (claimOutcome.duplicate_business_outcome) {
+            addonDistinctBusinessDuplicate = true;
+          }
+
+          await commitStripeWebhookEventTxnOrThrowUnknown(pg);
         } catch (e) {
-          try { await pg.query('ROLLBACK'); } catch (_) {}
+          if (!isStripeEventClaimCommitOutcomeUnknown(e)) {
+            try { await pg.query('ROLLBACK'); } catch (_) {}
+          }
           throw e;
         }
       });
     } catch (dbErr) {
+      if (isStripeEventClaimCommitOutcomeUnknown(dbErr)) {
+        appendAuditLog({
+          ts: new Date().toISOString(), intent: 'webhook:stripe:commit_outcome_unknown',
+          category: 'stripe_webhook', payment_id: pm.payment_id,
+          outcome_unknown: true, addon_service: true,
+        });
+        return sendJSON(res, 500, buildStripeEventClaimOutcomeUnknownBody());
+      }
       appendAuditLog({
         ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',
         category: 'stripe_webhook', payment_id: pm.payment_id, error: dbErr.message,
@@ -14019,6 +14063,20 @@ async function handleStripeWebhook(req, res) {
           paymentId: pm.payment_id,
           bookingId: pm.booking_id,
           bookingCode: pm.booking_code,
+        }),
+        { addon_service_payment: true },
+      ));
+    }
+
+    if (addonDistinctBusinessDuplicate) {
+      return sendJSON(res, 200, Object.assign(
+        buildStripeEventDistinctBusinessIdempotentBody({
+          stripeEventId: event.id,
+          eventType,
+          paymentId: pm.payment_id,
+          bookingId: pm.booking_id,
+          bookingCode: pm.booking_code,
+          duplicateBusinessOutcome: 'payment_already_paid',
         }),
         { addon_service_payment: true },
       ));
@@ -14145,9 +14203,11 @@ async function handleStripeWebhook(req, res) {
           return;
         }
 
-        await pg.query('COMMIT');
+        await commitStripeWebhookEventTxnOrThrowUnknown(pg);
       } catch (e) {
-        try { await pg.query('ROLLBACK'); } catch (_) {}
+        if (!isStripeEventClaimCommitOutcomeUnknown(e)) {
+          try { await pg.query('ROLLBACK'); } catch (_) {}
+        }
         throw e;
       }
     });
@@ -14178,6 +14238,14 @@ async function handleStripeWebhook(req, res) {
         no_confirmation_sent: true,
         no_whatsapp: true,
       });
+    }
+    if (isStripeEventClaimCommitOutcomeUnknown(dbErr)) {
+      appendAuditLog({
+        ts: new Date().toISOString(), intent: 'webhook:stripe:commit_outcome_unknown',
+        category: 'stripe_webhook', payment_id: pm.payment_id,
+        outcome_unknown: true,
+      });
+      return sendJSON(res, 500, buildStripeEventClaimOutcomeUnknownBody());
     }
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:db_error',

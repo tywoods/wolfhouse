@@ -84,7 +84,7 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('webhook locked rejection is not HTTP 422',
     !/isLockedPaymentValidationError\(dbErr\)[\s\S]{0,500}sendJSON\(res,\s*422/.test(apiSrc));
   assert('webhook BEGIN→apply→COMMIT/ROLLBACK on one withPgClient',
-    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}COMMIT[\s\S]{0,400}ROLLBACK/.test(apiSrc));
+    /withPgClient\(async \(pg\) => \{[\s\S]{0,400}BEGIN[\s\S]{0,4500}applyStripeBookingPaymentTruthWrites[\s\S]{0,2000}(COMMIT|commitStripeWebhookEventTxnOrThrowUnknown)[\s\S]{0,600}ROLLBACK/.test(apiSrc));
 } else {
   assert('staff-query-api.js exists', false);
 }

@@ -16,23 +16,28 @@
     "order": [
       "BEGIN",
       "INSERT payment_events ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id",
-      "payment_or_booking_or_service_mutations",
-      "UPDATE payment_events SET processed=true WHERE id=claimed",
+      "addon_path: SELECT owned payment FOR UPDATE by payment_id+client_id and reload status/payment_kind",
+      "payment_or_booking_or_service_mutations_or_distinct_event_business_skip",
+      "UPDATE payment_events SET processed=true WHERE id=claimed (optional duplicate_business_outcome marker)",
       "COMMIT"
     ],
     "duplicate_zero_rows": "ROLLBACK + HTTP 200 idempotent reason=stripe_event_id_already_claimed",
-    "any_failure": "ROLLBACK claim+mutations + HTTP 500 retryable",
+    "exact_id_conflict": "ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id — zero rows means exact stripe_event_id already claimed; HTTP 200 idempotent reason=stripe_event_id_already_claimed; no business mutation",
+    "addon_distinct_event_already_paid": "After claim + FOR UPDATE reload, if payment already paid: do not rewrite payment/service; mark claimed event processed with privacy-safe duplicate_business_outcome; COMMIT; HTTP 200 idempotent reason=duplicate_business_outcome",
+    "addon_ineligible_under_lock": "If lock miss or payment_kind != addon_service → fail closed ROLLBACK + retryable 500",
+    "pre_commit_failure": "ROLLBACK claim+mutations + HTTP 500 retryable (mutation/processed/claim failures before commit attempt)",
+    "commit_failure": "AMBIGUOUS — never claim rejected COMMIT definitely rolled back. Best-effort ROLLBACK then HTTP 500 retryable outcome_unknown=true (no secret/error details). Retry resolves via durable stripe_event_id claim if commit landed, or can claim if it did not.",
     "ownership_column": "client_id",
     "ownership_alias": "hostel_id",
     "schema_unique": "payment_events.stripe_event_id UNIQUE (001_init; renamed hostel_id→client_id in 003)",
-    "payload": "allowlisted non-PII identifiers/state only; never raw Stripe event/session/customer/email/phone/name/addresses/tokens"
+    "payload": "allowlisted non-PII identifiers/state only; never raw Stripe event/session/customer/email/phone/name/addresses/tokens; duplicate_business_outcome marker allowed"
   },
   "compatibility": {
     "signature_verification": "preserved",
     "authoritative_tenant_gate": "preserved",
     "validation": "preserved",
     "locked_money_math": "preserved",
-    "distinct_event_business_idempotency": "preserved",
+    "distinct_event_business_idempotency": "preserved (addon: FOR UPDATE lock/reload; booking: existing under-lock already_paid)",
     "ignored_unmatched_invalid_events": "behaviorally unchanged (no claim)"
   },
   "paths": [
@@ -42,15 +47,17 @@
   "still_open": [
     "Live deploy of Staff API image with event-id claim",
     "Live concurrency proof under real Postgres UNIQUE contention",
+    "Real PostgreSQL contention / ambiguous-commit drill (no isolated ephemeral PostgreSQL on this host)",
     "Replay operator / stuck processed=false recovery",
     "DLQ for unprocessable webhook events",
     "Controlled replay drill across all event types",
     "Claim coverage for ignored/unmatched event types (explicitly out of scope)"
   ],
+  "stripe_event_claim_real_pg_contention_drill": "open",
   "final_controlled_drill": {
     "id": "16M_DRILL_stripe_event_claim_replay",
     "status": "open",
-    "pass_rule": "After approved Staff API deploy: same Stripe event.id replay returns HTTP 200 idempotent with zero payment/booking mutations; concurrent delivery permits one mutation path; failure before COMMIT retries successfully; no raw PII payload persistence"
+    "pass_rule": "After approved Staff API deploy: same Stripe event.id replay returns HTTP 200 idempotent with zero payment/booking mutations; concurrent distinct events on same addon payment permit one business mutation with both claims processed; COMMIT ambiguity returns outcome_unknown and retry resolves via durable claim; no raw PII payload persistence"
   },
   "artifacts": [
     "scripts/lib/stripe-webhook-event-claim.js",
