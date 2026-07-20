@@ -406,20 +406,41 @@ pass(
   pass('red-sql-semantics-token-change', !assertSqlSemanticsUnchanged(a, c).ok);
 }
 
-// Ledger reconcile RED + narrow legacy GREEN
+// Ledger reconcile RED + narrow legacy GREEN (Slice 14AD provenance-aware)
 {
+  const {
+    APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+    CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
+  } = require('./lib/migration-integrity');
   const forward = forwardEntries(manifest);
+  function row(e, extra) {
+    return {
+      id: e.id,
+      filename: e.filename,
+      checksum_sha256: e.sha256,
+      apply_order: e.order,
+      apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+      checksum_mode: MODE,
+      ...(extra || {}),
+    };
+  }
   const r = reconcileLedger(forward, [
-    {
-      id: forward[0].id,
-      filename: forward[0].filename,
-      checksum_sha256: 'f'.repeat(64),
-      apply_order: 1,
-    },
+    row(forward[0], { checksum_sha256: 'f'.repeat(64) }),
   ]);
   pass('red-ledger-checksum-mismatch', !r.ok && r.errors.some((e) => e.code === 'ledger_checksum_mismatch'));
+  const rNullKind = reconcileLedger(forward, [row(forward[0], { apply_kind: null })]);
+  pass('red-ledger-apply-kind-null', !rNullKind.ok && rNullKind.errors.some((e) => e.code === 'ledger_apply_kind_null'));
+  const rBadKind = reconcileLedger(forward, [row(forward[0], { apply_kind: 'fabricated_kind' })]);
+  pass('red-ledger-apply-kind-unknown', !rBadKind.ok && rBadKind.errors.some((e) => e.code === 'ledger_apply_kind_unknown'));
+  const rNullMode = reconcileLedger(forward, [row(forward[0], { checksum_mode: null })]);
+  pass('red-ledger-checksum-mode-null', !rNullMode.ok && rNullMode.errors.some((e) => e.code === 'ledger_checksum_mode_null'));
 }
 {
+  const {
+    APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
+  } = require('./lib/migration-integrity');
   const forward = forwardEntries(manifest);
   const r = reconcileLedger(forward, [
     {
@@ -427,11 +448,19 @@ pass(
       filename: forward[1].filename,
       checksum_sha256: forward[1].sha256,
       apply_order: 2,
+      apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+      checksum_mode: MODE,
     },
   ]);
   pass('red-ledger-partial-history', !r.ok && r.errors.some((e) => e.code === 'ledger_partial_history'));
 }
 {
+  const {
+    APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+    APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+    APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE,
+    CHECKSUM_MODE_CANONICAL_LF_V1: MODE,
+  } = require('./lib/migration-integrity');
   const forward = forwardEntries(manifest);
   const withLegacy = forward.find((e) => e.legacySha256);
   pass('green-legacy-sha-present-on-some-entries', Boolean(withLegacy));
@@ -448,6 +477,8 @@ pass(
       filename: e.filename,
       checksum_sha256: e.id === withLegacy.id ? e.legacySha256 : e.sha256,
       apply_order: e.order,
+      apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+      checksum_mode: MODE,
     }));
     const recon = reconcileLedger(forward, rowsLegacyPrefix);
     pass('green-ledger-reconcile-exact-legacy-prefix', recon.ok, JSON.stringify(recon.errors.slice(0, 2)));
@@ -457,8 +488,22 @@ pass(
       filename: e.filename,
       checksum_sha256: e.sha256,
       apply_order: e.order,
+      apply_kind: APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+      checksum_mode: MODE,
     }));
     pass('green-ledger-reconcile-canonical-writes', reconcileLedger(forward, rowsCanon).ok);
+
+    const rowsBaseline = forward.slice(0, 3).map((e, i) => ({
+      id: e.id,
+      filename: e.filename,
+      checksum_sha256: e.sha256,
+      apply_order: e.order,
+      apply_kind: i === 0
+        ? APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE
+        : APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
+      checksum_mode: MODE,
+    }));
+    pass('green-ledger-reconcile-baseline-kinds-as-applied', reconcileLedger(forward, rowsBaseline).ok);
   }
 }
 
