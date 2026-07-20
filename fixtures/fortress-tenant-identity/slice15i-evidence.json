@@ -81,7 +81,8 @@
       }
     ]
   },
-  "pass": 39,
+  "pass": 45,
   "fail": 0,
-  "remediation_next_gate": "FORTRESS-15J / 15J_payment_uuid_callback_tenant_acl"
+  "remediation_next_gate": "FORTRESS-15J / 15J_payment_uuid_callback_tenant_acl",
+  "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest/WhatsApp mutation; verifier does not rewrite this file"
 }

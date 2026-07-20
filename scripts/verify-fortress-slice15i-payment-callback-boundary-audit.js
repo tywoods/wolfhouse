@@ -6,6 +6,9 @@
  * Read-only reaudit of B14/B15 after merged B13 tenant-bound Stripe payment
  * lookup. No network, no live DB/Stripe/deploy. Does not change runtime
  * behavior and does not rewrite 15A historical artifacts.
+ *
+ * Deterministic: validates committed slice15i-evidence.json; never writes
+ * tracked evidence or timestamps (git status must stay clean).
  */
 
 const fs = require('fs');
@@ -104,6 +107,7 @@ const attacks = readJson(ATTACK_PATH);
 const remediation = readJson(REMEDIATION_PATH);
 const matrix = readJson(MATRIX_PATH);
 const findings = readText(FINDINGS_PATH);
+const committedEvidence = readJson(EVIDENCE_PATH);
 
 ok('F7 contract slice 15I + master_basis',
   contract.slice === 'FORTRESS-15I'
@@ -298,32 +302,53 @@ ok('Vulnerable B15 consumers named in matrix',
     'C_STAFF_SERVICE_RECORDS_PAYMENT_LINK',
   ].sort().join(','));
 
-// ── Evidence write ─────────────────────────────────────────────────────────
-const evidence = {
-  schema_version: 1,
-  slice: 'FORTRESS-15I',
-  generated_at: new Date().toISOString(),
-  master_basis: MASTER_BASIS,
-  live_mutation: false,
-  runtime_behavior_changed: false,
-  reaudit_verdicts: contract.reaudit_verdicts,
-  red: {
-    total: redResults.length,
-    passed: redResults.filter((r) => r.ok).length,
-    cases: redResults,
-  },
-  green: {
-    total: greenResults.length,
-    passed: greenResults.filter((r) => r.ok).length,
-    cases: greenResults,
-  },
-  pass,
-  fail,
-  remediation_next_gate: 'FORTRESS-15J / 15J_payment_uuid_callback_tenant_acl',
-};
+// ── Evidence: validate committed artifact; do not rewrite ───────────────────
+console.log('\n── Evidence (read-only) ──');
+ok('evidence exists (not rewritten by verifier)', fs.existsSync(EVIDENCE_PATH));
+ok('evidence slice + master_basis + reaudit verdicts',
+  committedEvidence.slice === 'FORTRESS-15I'
+  && committedEvidence.master_basis === MASTER_BASIS
+  && committedEvidence.live_mutation === false
+  && committedEvidence.runtime_behavior_changed === false
+  && committedEvidence.reaudit_verdicts
+  && committedEvidence.reaudit_verdicts.B14_stripe_locked_payment_identity
+  && committedEvidence.reaudit_verdicts.B14_stripe_locked_payment_identity.verdict === 'proven_fail_closed'
+  && committedEvidence.reaudit_verdicts.B15_booking_hold_payment_callbacks
+  && committedEvidence.reaudit_verdicts.B15_booking_hold_payment_callbacks.verdict === 'vulnerable'
+  && committedEvidence.remediation_next_gate
+    === 'FORTRESS-15J / 15J_payment_uuid_callback_tenant_acl');
 
-fs.writeFileSync(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`);
-ok('E evidence written', fs.existsSync(EVIDENCE_PATH));
+const runRedIds = redResults.map((r) => r.id);
+const runGreenIds = greenResults.map((r) => r.id);
+const evidenceRedIds = ((committedEvidence.red && committedEvidence.red.cases) || []).map((c) => c.id);
+const evidenceGreenIds = ((committedEvidence.green && committedEvidence.green.cases) || []).map((c) => c.id);
+
+ok('evidence RED ids match this run',
+  evidenceRedIds.length === runRedIds.length
+  && evidenceRedIds.every((id, i) => id === runRedIds[i])
+  && redResults.every((r) => r.ok)
+  && ((committedEvidence.red && committedEvidence.red.cases) || []).every((c) => c.ok === true)
+  && committedEvidence.red.total === 3
+  && committedEvidence.red.passed === 3);
+
+ok('evidence GREEN ids match this run',
+  evidenceGreenIds.length === runGreenIds.length
+  && evidenceGreenIds.every((id, i) => id === runGreenIds[i])
+  && greenResults.every((r) => r.ok)
+  && ((committedEvidence.green && committedEvidence.green.cases) || []).every((c) => c.ok === true)
+  && committedEvidence.green.total === 10
+  && committedEvidence.green.passed === 10);
+
+ok('verifier does not rewrite tracked evidence', (() => {
+  const src = fs.readFileSync(__filename, 'utf8');
+  const writeHits = src.match(/writeFileSync\s*\(\s*EVIDENCE_PATH/g) || [];
+  return writeHits.length === 0;
+})());
+
+// This check increments pass by 1; committed evidence.pass must equal the final console total.
+ok('evidence pass/fail totals match this run',
+  committedEvidence.pass === pass + 1
+  && committedEvidence.fail === fail);
 
 console.log(`\n── verify:fortress-slice15i-payment-callback-boundary-audit ${fail ? 'FAILED' : 'PASSED'} (pass=${pass} fail=${fail}) ──\n`);
 process.exit(fail ? 1 : 0);
