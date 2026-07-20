@@ -1,0 +1,45 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15E",
+  "generated_at": "2026-07-20T05:54:00.000Z",
+  "master_basis": "ff8c4ad4c19a8db2328760a65444319bcbd47532",
+  "live_mutation": false,
+  "red": {
+    "total": 9,
+    "passed": 9,
+    "cases": [
+      { "id": "missing_runtime_slug", "ok": true },
+      { "id": "conflicting_runtime_slugs", "ok": true },
+      { "id": "invalid_runtime_slug", "ok": true },
+      { "id": "unknown_runtime_slug", "ok": true },
+      { "id": "unbound_bot_acl_empty", "ok": true },
+      { "id": "bot_wolfhouse_denied_sunset", "ok": true },
+      { "id": "bot_sunset_denied_wolfhouse", "ok": true },
+      { "id": "route_wolfhouse_token_denied_sunset", "ok": true },
+      { "id": "route_sunset_token_denied_wolfhouse", "ok": true }
+    ]
+  },
+  "green": {
+    "total": 9,
+    "passed": 9,
+    "cases": [
+      { "id": "luna_bot_client_slug", "ok": true },
+      { "id": "default_client_slug_compat", "ok": true },
+      { "id": "bot_wolfhouse_allows_wolfhouse", "ok": true },
+      { "id": "bot_sunset_allows_sunset", "ok": true },
+      { "id": "staff_session_email_acl_preserved", "ok": true },
+      { "id": "requireBotAuth_static_bind", "ok": true },
+      { "id": "route_wolfhouse_token_allows_wolfhouse", "ok": true },
+      { "id": "route_sunset_token_allows_sunset", "ok": true },
+      { "id": "guarded_inventory_wired", "ok": true }
+    ]
+  },
+  "pass": 36,
+  "fail": 0,
+  "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest/WhatsApp mutation; verifier does not rewrite this file",
+  "residual_b07": {
+    "boundary_id": "B07_staff_bot_body_client_slug",
+    "summary": "Generic /staff/bot/* handlers may still trust body/query client_slug independently of the bound principal. 15E closes principal bind + force-tenant route dispatch ACL; body/query selection is unchanged."
+  },
+  "guarded_route_count": 12
+}

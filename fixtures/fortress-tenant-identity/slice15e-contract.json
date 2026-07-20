@@ -1,0 +1,111 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15E",
+  "outcome_id": "15E_staff_bot_auth_principal_tenant_bind",
+  "boundary_id": "B06_staff_bot_auth_principal",
+  "master_basis": "ff8c4ad4c19a8db2328760a65444319bcbd47532",
+  "live_mutation": false,
+  "title": "Bind internal bot authentication to one authoritative runtime tenant",
+  "status": "implemented",
+  "owner_files": [
+    "scripts/lib/staff-bot-principal-tenant-config.js",
+    "scripts/lib/staff-portal-clients.js",
+    "scripts/staff-query-api.js"
+  ],
+  "out_of_scope": [
+    "B07_staff_bot_body_client_slug — body/query client_slug trust unchanged",
+    "deploy / cloud / database / Stripe / WhatsApp / production operations"
+  ],
+  "api": {
+    "resolveStaffBotPrincipalClientSlug": {
+      "signature": "resolveStaffBotPrincipalClientSlug(env)",
+      "priority": ["LUNA_BOT_CLIENT_SLUG", "DEFAULT_CLIENT_SLUG nonempty compat"],
+      "fail_closed": [
+        "missing_runtime_client_slug",
+        "conflicting_runtime_client_slugs",
+        "invalid_runtime_client_slug"
+      ],
+      "no_hardcoded_tenants": true
+    },
+    "buildStaffBotAuthPrincipal": {
+      "signature": "buildStaffBotAuthPrincipal(env, { knownClientSlugs? })",
+      "principal": {
+        "role": "operator",
+        "staff_user_id": "luna-bot-internal",
+        "client_slug": "<resolved runtime tenant>"
+      },
+      "fail_closed_extra": ["unknown_runtime_client_slug"]
+    },
+    "getAccessibleClientSlugs": {
+      "bot_principal": "staff_user_id===luna-bot-internal → [bound client_slug] or [] if unbound; never all baseline",
+      "staff_session": "email ACL unchanged (explicit / all_clients_emails)"
+    },
+    "requireBotAuth": {
+      "on_valid_token": "buildStaffBotAuthPrincipal; 503 bot_principal_tenant_unconfigured on fail",
+      "on_session": "unchanged loadAuthSession path",
+      "body_query_tenant": "unchanged (B07)"
+    },
+    "dispatchStaffBotRouteWithEffectiveTenant": {
+      "signature": "dispatchStaffBotRouteWithEffectiveTenant({ user, authMode, effectiveClientSlug, staffAuthRequired, canAccessClient, handler, onDenied })",
+      "behavior": "Propagate principal into handler only when principal can access route effective tenant; on deny handler_called=false",
+      "open_mode": "staffAuthRequired=false / auth_mode=open / null user → allow (dev bypass preserved)",
+      "http_wrapper": "dispatchBotRouteWithEffectiveTenant in staff-query-api.js → 403 client_access_denied"
+    }
+  },
+  "guarded_route_inventory": {
+    "policy": "force_tenant_path",
+    "effective_tenant_source": "path-forced (not body/query)",
+    "routes": [
+      { "path": "/staff/bot/sunset/rental-price", "effective_client_slug": "sunset", "handler": "handleBotSunsetRentalPrice" },
+      { "path": "/staff/bot/sunset/full-day-addon", "effective_client_slug": "sunset", "handler": "handleBotSunsetFullDayAddon" },
+      { "path": "/staff/bot/sunset/private-lesson", "effective_client_slug": "sunset", "handler": "handleBotSunsetPrivateLesson" },
+      { "path": "/staff/bot/sunset/lesson-availability", "effective_client_slug": "sunset", "handler": "handleBotSunsetLessonAvailability" },
+      { "path": "/staff/bot/sunset/joinable-courses", "effective_client_slug": "sunset", "handler": "handleBotSunsetJoinableCourses" },
+      { "path": "/staff/bot/sunset/catalog", "effective_client_slug": "sunset", "handler": "handleBotSunsetCatalog" },
+      { "path": "/staff/bot/sunset/offering-quote", "effective_client_slug": "sunset", "handler": "handleBotSunsetOfferingQuote" },
+      { "path": "/staff/bot/sunset/lesson-quote", "effective_client_slug": "sunset", "handler": "handleBotSunsetLessonQuote" },
+      { "path": "/staff/bot/sunset/booking-create", "effective_client_slug": "sunset", "handler": "handleBotSunsetBookingCreate" },
+      { "path": "/staff/bot/sunset/payment-link", "effective_client_slug": "sunset", "handler": "handleBotSunsetPaymentLink" },
+      { "path": "/staff/bot/sunset/payment-status", "effective_client_slug": "sunset", "handler": "handleBotSunsetPaymentStatus" },
+      { "path": "/staff/bot/sunset/waiver-link", "effective_client_slug": "sunset", "handler": "handleBotSunsetWaiverLink" }
+    ],
+    "symmetric_gate_note": "Gate is tenant-agnostic; RED covers Wolfhouse-token→Sunset effective and Sunset-token→Wolfhouse effective with zero handler calls. Wolfhouse has no path-forced /staff/bot/wolfhouse/* inventory; body/query selection remains B07."
+  },
+  "rollout_env_requirement": {
+    "wolfhouse_staff_api": {
+      "LUNA_BOT_CLIENT_SLUG": "set to this deployment tenant slug (e.g. wolfhouse-somo)",
+      "DEFAULT_CLIENT_SLUG": "optional compat only when nonempty and equal; must not conflict"
+    },
+    "sunset_staff_api": {
+      "LUNA_BOT_CLIENT_SLUG": "set to this deployment tenant slug (e.g. sunset)",
+      "DEFAULT_CLIENT_SLUG": "optional compat only when nonempty and equal; must not conflict"
+    },
+    "note": "Each Staff API runtime that enables LUNA_BOT_INTERNAL_TOKEN must set LUNA_BOT_CLIENT_SLUG (or a consistent nonempty DEFAULT_CLIENT_SLUG). Missing/invalid/conflicting values fail closed with 503 on bot-token auth."
+  },
+  "red_case_ids": [
+    "RED_missing_runtime_slug",
+    "RED_conflicting_runtime_slugs",
+    "RED_invalid_runtime_slug",
+    "RED_unknown_runtime_slug",
+    "RED_unbound_bot_acl_empty",
+    "RED_bot_wolfhouse_denied_sunset",
+    "RED_bot_sunset_denied_wolfhouse",
+    "RED_route_wolfhouse_token_denied_sunset",
+    "RED_route_sunset_token_denied_wolfhouse"
+  ],
+  "green_case_ids": [
+    "GREEN_luna_bot_client_slug",
+    "GREEN_default_client_slug_compat",
+    "GREEN_bot_wolfhouse_allows_wolfhouse",
+    "GREEN_bot_sunset_allows_sunset",
+    "GREEN_staff_session_email_acl_preserved",
+    "GREEN_requireBotAuth_static_bind",
+    "GREEN_route_wolfhouse_token_allows_wolfhouse",
+    "GREEN_route_sunset_token_allows_sunset",
+    "GREEN_guarded_inventory_wired"
+  ],
+  "residual_risk": {
+    "boundary_id": "B07_staff_bot_body_client_slug",
+    "summary": "Generic /staff/bot/* handlers may still trust body/query client_slug independently of the bound principal. 15E closes principal bind + force-tenant route dispatch ACL; body/query selection is unchanged."
+  }
+}
