@@ -174,7 +174,7 @@ try {
     mustFail('extra hash', () => verifyContractHeadersInventoryEquivalence(tmpRoot));
   }
 
-  // 8) Extra header
+  // 8) Extra header in _headers only
   {
     const tmpRoot = join(tmp, 'site-header');
     cpSync(join(ROOT, 'security'), join(tmpRoot, 'security'), { recursive: true });
@@ -184,6 +184,48 @@ try {
     headers = headers.replace('X-Frame-Options: DENY', 'X-Frame-Options: DENY\n  X-Evil: 1');
     writeFileSync(headersPath, headers);
     mustFail('extra header', () => verifyContractHeadersInventoryEquivalence(tmpRoot));
+  }
+
+  // 8b) Extra header in contract only (must not be ignored)
+  {
+    const tmpRoot = join(tmp, 'site-contract-extra');
+    cpSync(join(ROOT, 'security'), join(tmpRoot, 'security'), { recursive: true });
+    cpSync(join(ROOT, 'public'), join(tmpRoot, 'public'), { recursive: true });
+    const contractPath = join(tmpRoot, CONTRACT_REL);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+    contract.headers['X-Uncommitted-Extra'] = { required: true, value: '1' };
+    writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    mustFail('contract-only extra header', () =>
+      verifyContractHeadersInventoryEquivalence(tmpRoot),
+    );
+  }
+
+  // 8c) Header present in contract but missing from _headers
+  {
+    const tmpRoot = join(tmp, 'site-contract-missing');
+    cpSync(join(ROOT, 'security'), join(tmpRoot, 'security'), { recursive: true });
+    cpSync(join(ROOT, 'public'), join(tmpRoot, 'public'), { recursive: true });
+    const headersPath = join(tmpRoot, HEADERS_REL);
+    let headers = readFileSync(headersPath, 'utf8');
+    headers = headers.replace(/\n\s*X-Frame-Options: DENY\s*/m, '\n');
+    writeFileSync(headersPath, headers);
+    mustFail('contract header missing from _headers', () =>
+      verifyContractHeadersInventoryEquivalence(tmpRoot),
+    );
+  }
+
+  // 8d) Non-CSP header value changed in contract only
+  {
+    const tmpRoot = join(tmp, 'site-contract-value');
+    cpSync(join(ROOT, 'security'), join(tmpRoot, 'security'), { recursive: true });
+    cpSync(join(ROOT, 'public'), join(tmpRoot, 'public'), { recursive: true });
+    const contractPath = join(tmpRoot, CONTRACT_REL);
+    const contract = JSON.parse(readFileSync(contractPath, 'utf8'));
+    contract.headers['X-Frame-Options'].value = 'SAMEORIGIN';
+    writeFileSync(contractPath, `${JSON.stringify(contract, null, 2)}\n`);
+    mustFail('contract/header value mismatch', () =>
+      verifyContractHeadersInventoryEquivalence(tmpRoot),
+    );
   }
 
   // 9) Extra directive

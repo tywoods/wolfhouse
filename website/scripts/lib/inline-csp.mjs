@@ -245,7 +245,8 @@ export function verifyDistAgainstInventory(rootDir, distDir = join(rootDir, 'dis
 
 /**
  * Contract CSP directives + _headers CSP + inventory hashes must be
- * bidirectionally canonical-equivalent with no extras.
+ * bidirectionally canonical-equivalent with no extras. Non-CSP header names
+ * and values must be an exact bidirectional set between contract and _headers.
  * @param {string} rootDir
  * @returns {{ ok: boolean, errors: string[] }}
  */
@@ -324,33 +325,33 @@ export function verifyContractHeadersInventoryEquivalence(rootDir) {
     errors.push('_headers CSP is not bidirectionally canonical-equivalent to contract directives');
   }
 
+  // Exact bidirectional header-name set between contract and _headers —
+  // reject missing/extra names on either side before any value checks.
   const headerMap = parseHeadersFile(headersText);
-  const requiredHeaderNames = [
-    'Content-Security-Policy',
-    'X-Content-Type-Options',
-    'Referrer-Policy',
-    'Permissions-Policy',
-    'Strict-Transport-Security',
-    'X-Frame-Options',
-  ];
-  for (const name of requiredHeaderNames) {
-    const expected = name === 'Content-Security-Policy'
-      ? null
-      : contract.headers?.[name]?.value;
-    if (!headerMap.has(name)) {
-      errors.push(`_headers missing header ${name}`);
-      continue;
-    }
-    if (expected != null && headerMap.get(name) !== expected) {
-      errors.push(`_headers ${name} value diverges from contract`);
+  const contractHeaderNames = Object.keys(contract.headers || {});
+  const headersFileNames = [...headerMap.keys()];
+  const contractNameSet = new Set(contractHeaderNames);
+  const headersNameSet = new Set(headersFileNames);
+
+  for (const name of contractHeaderNames) {
+    if (!headersNameSet.has(name)) {
+      errors.push(`contract has header ${name} missing from _headers`);
     }
   }
-  for (const name of headerMap.keys()) {
-    if (!requiredHeaderNames.includes(name)) {
-      errors.push(`_headers has extra header: ${name}`);
+  for (const name of headersFileNames) {
+    if (!contractNameSet.has(name)) {
+      errors.push(`_headers has extra header not in contract: ${name}`);
     }
-    if (name !== 'Content-Security-Policy' && !contract.headers?.[name]) {
-      errors.push(`_headers header ${name} not present in contract`);
+  }
+
+  // Value checks only after name-set comparison; CSP compared canonically above.
+  for (const name of contractHeaderNames) {
+    if (!headersNameSet.has(name)) continue;
+    if (name === 'Content-Security-Policy') continue;
+    const expected = contract.headers[name]?.value;
+    const actual = headerMap.get(name);
+    if (expected != null && actual !== expected) {
+      errors.push(`_headers ${name} value diverges from contract`);
     }
   }
 
