@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure + 16M Stripe event-id claim source-partial)
+# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz + 16L capacity-pressure + 16M Stripe event-id claim + 16O Stripe webhook error minimization source-partial)
 
-**Master basis (16M):** `49b4ccff673014b28047307514f91a508cc8c497`
+**Master basis (16O):** `3e94498321cd26e64394984a5926d7a583226692`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -32,13 +32,17 @@
 6. **G01 correlation / structured logs — partial (source only via 16J)**
    Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
-7. **G08 retention / privacy — partial (source only via 16K)**
-   Public Staff API `/healthz` minimized in source to `{status:ok,service:staff-api}` (no auth/stage/provider/model/key/config/tenant/note). **Not deployed** — live `/healthz` still exposes detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
+7. **G08 retention / privacy — partial (source only via 16O + 16K)**
+   Public Stripe webhook error bodies minimized in source (SDK unavailable / missing webhook secret → `stripe_webhook_unavailable` retryable 500; raw-body stream/oversize/abort → `invalid_webhook_request` 400; invalid/missing/malformed signature → `invalid_stripe_signature` 400 with stable message; allowlisted audit reasons only). Prior 16K public `/healthz` minimized to `{status:ok,service:staff-api}`. **Not deployed** — live webhook error bodies and `/healthz` still expose detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
 
 ## Other partial notes
 
 - **G04 backlog:** handlers/jobs exist; backlog metrics missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
+
+## Slice 16O
+
+`16O_stripe_webhook_error_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Generic fail-closed public Stripe webhook error responses for all pre-verification failures (raw-body read, missing webhook secret, SDK load, signature verification); no raw exception/signature/secret/payload/tenant/env leakage; request ID retained; zero DB on those paths. Does not deploy; does not change tenant binding, 16M claim logic, skip_verify=false, or ignored/unmatched behavior; deploy/privacy drill remain open.
 
 ## Slice 16M
 
@@ -70,4 +74,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16M. Database schema, Hermes staging, staging Bicep, and 16H metric-alert module unchanged vs master. Staff API Stripe webhook claim helper + wiring are intentional 16M ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16O. Database schema, Hermes staging, staging Bicep, and 16H metric-alert module unchanged vs master. Staff API Stripe webhook public-error helper + wiring are intentional 16O ownership.

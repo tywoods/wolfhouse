@@ -781,6 +781,16 @@ const {
   lockOwnedPaymentForAddonEventClaim,
 } = require('./lib/stripe-webhook-event-claim');
 const {
+  buildInvalidStripeSignatureBody,
+  buildInvalidWebhookRequestBody,
+  buildStripeWebhookUnavailableBody,
+  buildStripeWebhookPublicErrorAudit,
+  AUDIT_REASON_SDK_LOAD_FAILED,
+  AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED,
+  AUDIT_REASON_BODY_READ_FAILED,
+  AUDIT_REASON_WEBHOOK_SECRET_UNAVAILABLE,
+} = require('./lib/stripe-webhook-public-errors');
+const {
   applyStripeBookingPaymentTruthWrites,
   isLockedPaymentValidationError,
 } = require('./lib/stripe-hold-promote-policy');
@@ -2336,13 +2346,35 @@ function readBodyRaw(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let total = 0;
+    let settled = false;
+    const fail = (err) => {
+      if (settled) return;
+      settled = true;
+      reject(err);
+    };
+    const succeed = (buf) => {
+      if (settled) return;
+      settled = true;
+      resolve(buf);
+    };
     req.on('data', (chunk) => {
+      if (settled) return;
       total += chunk.length;
-      if (total > limit) { req.destroy(new Error('body too large')); return; }
+      if (total > limit) {
+        // Reject without destroying the socket so the handler can still send a
+        // bounded public 400 (RADAR 16O). Drain remaining data to free the socket.
+        req.resume();
+        fail(new Error('body too large'));
+        return;
+      }
       chunks.push(chunk);
     });
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
+    req.on('end', () => {
+      if (settled) return;
+      succeed(Buffer.concat(chunks));
+    });
+    req.on('aborted', () => fail(new Error('request aborted')));
+    req.on('error', fail);
   });
 }
 
@@ -13678,7 +13710,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
 // Verification:
 //   STRIPE_WEBHOOK_SKIP_VERIFY=true  → skip sig check (local fixture testing ONLY)
 //   STRIPE_WEBHOOK_SKIP_VERIFY=false → always verify (production default)
-//   Missing STRIPE_WEBHOOK_SECRET + verify required → 503, no DB write
+//   Missing STRIPE_WEBHOOK_SECRET + verify required → 500 stripe_webhook_unavailable, no DB write
 //
 // Supported events:
 //   checkout.session.completed → marks payment paid, updates booking amounts
@@ -13734,9 +13766,22 @@ async function handleStripeWebhook(req, res) {
   // ── 1. Read raw body (must be Buffer for Stripe signature verification) ────
   let rawBody;
   try {
+    // Declared Content-Length oversize → fail closed before streaming (RADAR 16O).
+    const declaredLen = parseInt(String(req.headers['content-length'] || ''), 10);
+    if (Number.isFinite(declaredLen) && declaredLen > 102400) {
+      throw new Error('body too large');
+    }
+    // Offline dual-gate may inject a body-read rejection without tearing the socket.
+    const seamBody = getFortress15j3OfflineSeams()
+      && getFortress15j3OfflineSeams().forceBodyReadError;
+    if (typeof seamBody === 'function') {
+      seamBody();
+    }
     rawBody = await readBodyRaw(req, 102400);
-  } catch (e) {
-    return sendJSON(res, 400, { success: false, error: 'Failed to read request body: ' + e.message });
+  } catch (_bodyReadErr) {
+    // RADAR 16O — stream/oversize/abort: generic bounded 400; no e.message / raw detail.
+    appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_BODY_READ_FAILED));
+    return sendJSON(res, 400, buildInvalidWebhookRequestBody());
   }
 
   // ── 2. Signature verification ─────────────────────────────────────────────
@@ -13750,23 +13795,35 @@ async function handleStripeWebhook(req, res) {
     }
   } else {
     if (!STRIPE_WEBHOOK_SECRET) {
-      return sendJSON(res, 503, {
-        success: false,
-        error:   'STRIPE_WEBHOOK_SECRET not configured. Set it in env before enabling webhook verification.',
-        no_db_write: true,
-      });
+      // RADAR 16O — generic retryable 500; never name env/config in the public body.
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_WEBHOOK_SECRET_UNAVAILABLE));
+      return sendJSON(res, 500, buildStripeWebhookUnavailableBody());
     }
     const sig = req.headers['stripe-signature'];
     if (!sig) {
-      return sendJSON(res, 400, { success: false, error: 'Missing stripe-signature header' });
+      // RADAR 16O — generic public body; allowlisted audit reason only (no signature/body/raw error).
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED));
+      return sendJSON(res, 400, buildInvalidStripeSignatureBody());
     }
     let stripe;
-    try { stripe = require('stripe')(STRIPE_SECRET_KEY || 'sk_test_placeholder'); }
-    catch (e) { return sendJSON(res, 500, { success: false, error: 'Stripe SDK load failed: ' + e.message }); }
+    try {
+      // Offline dual-gate may inject loadStripe to prove SDK-unavailable path without Module._load patch.
+      const seamLoad = getFortress15j3OfflineSeams()
+        && getFortress15j3OfflineSeams().loadStripe;
+      if (typeof seamLoad === 'function') {
+        stripe = seamLoad(STRIPE_SECRET_KEY || 'sk_test_placeholder');
+      } else {
+        stripe = require('stripe')(STRIPE_SECRET_KEY || 'sk_test_placeholder');
+      }
+    } catch (_sdkLoadErr) {
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SDK_LOAD_FAILED));
+      return sendJSON(res, 500, buildStripeWebhookUnavailableBody());
+    }
     try {
       event = stripe.webhooks.constructEvent(rawBody, sig, STRIPE_WEBHOOK_SECRET);
-    } catch (e) {
-      return sendJSON(res, 400, { success: false, error: 'Webhook signature verification failed: ' + e.message });
+    } catch (_sigVerifyErr) {
+      appendAuditLog(buildStripeWebhookPublicErrorAudit(AUDIT_REASON_SIGNATURE_VERIFICATION_FAILED));
+      return sendJSON(res, 400, buildInvalidStripeSignatureBody());
     }
   }
 

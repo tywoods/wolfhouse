@@ -370,12 +370,13 @@ ok('C3 secret-free artifacts', sec.ok, sec.detail);
 const headBranch = execSync('git rev-parse --abbrev-ref HEAD', {
   cwd: ROOT, encoding: 'utf8',
 }).trim();
-// Successor 16M may own HEAD while 16L source remains frozen on its master basis.
+// Successor 16M/16O may own HEAD while 16L source remains frozen on its master basis.
 const allowedBranches = new Set([
   BRANCH,
   'radar/slice-16m-stripe-event-claim',
+  'radar/slice-16o-stripe-webhook-error-minimization',
 ]);
-ok('C4 branch pin (16L or successor 16M)', allowedBranches.has(headBranch), headBranch);
+ok('C4 branch pin (16L or successor 16M/16O)', allowedBranches.has(headBranch), headBranch);
 
 const h16Diff = execSync(`git diff --name-only ${MASTER} -- ${H16_DIR}`, {
   cwd: ROOT, encoding: 'utf8',

@@ -455,10 +455,12 @@ ok('B01 PostEntry is post-admit consumer',
 console.log('\n── B12 Stripe webhook signature ──');
 
 green('AC15K_B12_MISSING_SECRET_503',
-  /STRIPE_WEBHOOK_SECRET not configured/.test(stripeFn)
-  && /no_db_write:\s*true/.test(stripeFn)
-  && /sendJSON\(res,\s*503/.test(stripeFn)
-  && stripeFn.indexOf('STRIPE_WEBHOOK_SECRET not configured')
+  (/webhook_secret_unavailable/.test(stripeFn)
+    || /AUDIT_REASON_WEBHOOK_SECRET_UNAVAILABLE/.test(stripeFn))
+  && /buildStripeWebhookUnavailableBody/.test(stripeFn)
+  && /sendJSON\(res,\s*500,\s*buildStripeWebhookUnavailableBody\(\)/.test(stripeFn)
+  && !/STRIPE_WEBHOOK_SECRET not configured/.test(stripeFn)
+  && stripeFn.indexOf('!STRIPE_WEBHOOK_SECRET')
     < stripeFn.indexOf('resolveStripeWebhookExpectedClientSlug'));
 
 green('AC15K_B12_RAW_BODY_BEFORE_CONSTRUCT', (() => {
