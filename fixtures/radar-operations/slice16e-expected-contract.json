@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16E",
+  "outcome_id": "16E_staff_api_aca_traffic_rollback_runbook",
+  "gate_id": "G07_rollback_incident_runbooks",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16e-staff-api-rollback-runbook",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "liveRollbackEnabled": false,
+  "liveExecuteEnabled": false,
+  "allowedMutation": "traffic_weight",
+  "forbiddenMutations": [
+    "image",
+    "env",
+    "secrets",
+    "scaling",
+    "database",
+    "db",
+    "restart",
+    "delete",
+    "revision_create",
+    "revision_deactivate",
+    "containerapp_update",
+    "bicep_deploy"
+  ],
+  "confirmationPrefix": "I-CONFIRM-TRAFFIC-ROLLBACK",
+  "open_drill": "16E_DRILL_live_rollback_restore",
+  "resourceGroups": [
+    "wh-staging-rg",
+    "luna-sunset-staging-rg"
+  ],
+  "apps": [
+    {
+      "resourceGroup": "wh-staging-rg",
+      "containerApp": "wh-staging-staff-api",
+      "imageRepository": "whstagingacr.azurecr.io/wh-staff-api"
+    },
+    {
+      "resourceGroup": "luna-sunset-staging-rg",
+      "containerApp": "luna-sunset-staging-staff-api",
+      "imageRepository": "whstagingacr.azurecr.io/luna-sunset-staff-api"
+    }
+  ],
+  "required_red_names": [
+    "wrong_subscription",
+    "wrong_resource_group",
+    "wrong_app",
+    "production_marker",
+    "mutable_tag",
+    "cross_app_revision",
+    "unhealthy_target",
+    "missing_confirmation",
+    "extra_mutation",
+    "non_100_target_weights",
+    "failed_verification"
+  ],
+  "required_green_names": [
+    "green_plan_wh-staging-staff-api",
+    "green_plan_luna-sunset-staging-staff-api"
+  ],
+  "sample_inventory_rels": [
+    "fixtures/radar-operations/slice16e-sample-inventory.wh.json",
+    "fixtures/radar-operations/slice16e-sample-inventory.sunset.json"
+  ],
+  "plan_fixture_rel": "fixtures/radar-operations/slice16e-rollback-plans.json",
+  "runbook_rel": "docs/RADAR-16E-STAFF-API-ROLLBACK-RUNBOOK.md",
+  "zero_live_mutation": true
+}

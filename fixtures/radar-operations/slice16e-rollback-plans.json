@@ -1,0 +1,127 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16E",
+  "outcome_id": "16E_staff_api_aca_traffic_rollback_runbook",
+  "gate_id": "G07_rollback_incident_runbooks",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16e-staff-api-rollback-runbook",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "liveRollbackEnabled": false,
+  "liveExecuteEnabled": false,
+  "allowedMutation": "traffic_weight",
+  "forbiddenMutations": [
+    "image",
+    "env",
+    "secrets",
+    "scaling",
+    "database",
+    "db",
+    "restart",
+    "delete",
+    "revision_create",
+    "revision_deactivate",
+    "containerapp_update",
+    "bicep_deploy"
+  ],
+  "open_drill": "16E_DRILL_live_rollback_restore",
+  "apps": [
+    {
+      "resourceGroup": "wh-staging-rg",
+      "containerApp": "wh-staging-staff-api",
+      "imageRepository": "whstagingacr.azurecr.io/wh-staff-api",
+      "currentRevisionName": "wh-staging-staff-api--rev-current",
+      "targetRevisionName": "wh-staging-staff-api--rev-target",
+      "targetImage": "whstagingacr.azurecr.io/wh-staff-api:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "targetImageSha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "confirmationToken": "I-CONFIRM-TRAFFIC-ROLLBACK:wh-staging-staff-api:wh-staging-staff-api--rev-target",
+      "mutations": [
+        {
+          "kind": "traffic_weight"
+        }
+      ],
+      "inventory": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "wh-staging-rg",
+        "containerApp": "wh-staging-staff-api",
+        "revisions": [
+          {
+            "name": "wh-staging-staff-api--rev-current",
+            "containerApp": "wh-staging-staff-api",
+            "active": true,
+            "runningState": "Running",
+            "healthState": "Healthy",
+            "image": "whstagingacr.azurecr.io/wh-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "name": "wh-staging-staff-api--rev-target",
+            "containerApp": "wh-staging-staff-api",
+            "active": true,
+            "runningState": "Running",
+            "healthState": "Healthy",
+            "image": "whstagingacr.azurecr.io/wh-staff-api:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+          }
+        ],
+        "traffic": [
+          {
+            "revisionName": "wh-staging-staff-api--rev-current",
+            "weight": 100
+          },
+          {
+            "revisionName": "wh-staging-staff-api--rev-target",
+            "weight": 0
+          }
+        ]
+      }
+    },
+    {
+      "resourceGroup": "luna-sunset-staging-rg",
+      "containerApp": "luna-sunset-staging-staff-api",
+      "imageRepository": "whstagingacr.azurecr.io/luna-sunset-staff-api",
+      "currentRevisionName": "luna-sunset-staging-staff-api--rev-current",
+      "targetRevisionName": "luna-sunset-staging-staff-api--rev-target",
+      "targetImage": "whstagingacr.azurecr.io/luna-sunset-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "targetImageSha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "confirmationToken": "I-CONFIRM-TRAFFIC-ROLLBACK:luna-sunset-staging-staff-api:luna-sunset-staging-staff-api--rev-target",
+      "mutations": [
+        {
+          "kind": "traffic_weight"
+        }
+      ],
+      "inventory": {
+        "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+        "resourceGroup": "luna-sunset-staging-rg",
+        "containerApp": "luna-sunset-staging-staff-api",
+        "revisions": [
+          {
+            "name": "luna-sunset-staging-staff-api--rev-current",
+            "containerApp": "luna-sunset-staging-staff-api",
+            "active": true,
+            "runningState": "Running",
+            "healthState": "Healthy",
+            "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          },
+          {
+            "name": "luna-sunset-staging-staff-api--rev-target",
+            "containerApp": "luna-sunset-staging-staff-api",
+            "active": true,
+            "runningState": "Running",
+            "healthState": "Healthy",
+            "image": "whstagingacr.azurecr.io/luna-sunset-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+          }
+        ],
+        "traffic": [
+          {
+            "revisionName": "luna-sunset-staging-staff-api--rev-current",
+            "weight": 100
+          },
+          {
+            "revisionName": "luna-sunset-staging-staff-api--rev-target",
+            "weight": 0
+          }
+        ]
+      }
+    }
+  ],
+  "zero_live_mutation": true
+}

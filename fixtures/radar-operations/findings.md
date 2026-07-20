@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold partial progress)
+# RADAR findings (16A freeze + 16B budget-threshold + 16E Staff API rollback source-partial)
 
-**Master basis (16B):** `5a8b08d395e11c51baf928b918016d5dd5bb4afe`
+**Master basis (16E):** `acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -25,12 +25,16 @@
 - **G02 readiness:** `/healthz` is static ok; ACA probes empty/null; scale-to-zero on Wolfhouse staff API.
 - **G01 logs:** JSONL audit + LAW destination exist; no correlation ID / tenant-structured access log.
 - **G04/G05 backlog + replay:** handlers/jobs/idempotency keys exist; backlog metrics and full replay proof missing.
-- **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
+- **G07 runbooks:** 16E adds fail-closed staging Staff API ACA traffic-weight rollback runbook/preflight (source-partial). Live rollback/restore drill and PHASE-7.4 PG restore drill remain open. PG backup 7d, geo-redundant off.
 
-## Slice 16B
+## Slice 16E
+
+`16E_staff_api_aca_traffic_rollback_runbook` on **G07_rollback_incident_runbooks** — progress class `source_partial_progress_only`. Does not execute live rollback. Open drill: `16E_DRILL_live_rollback_restore`.
+
+## Slice 16B (still partial)
 
 `16B_staging_rg_cost_budget_threshold` on **G09_cost_controls** — progress class `budget_threshold_partial_progress_only`. Does not implement anomaly detection.
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16B. Module is Incremental-only and structurally limited to action groups + consumption budgets.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16E. Preflight plans traffic-weight change only and hard-disables live execute.

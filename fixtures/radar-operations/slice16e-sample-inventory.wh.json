@@ -1,0 +1,33 @@
+{
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroup": "wh-staging-rg",
+  "containerApp": "wh-staging-staff-api",
+  "revisions": [
+    {
+      "name": "wh-staging-staff-api--rev-current",
+      "containerApp": "wh-staging-staff-api",
+      "active": true,
+      "runningState": "Running",
+      "healthState": "Healthy",
+      "image": "whstagingacr.azurecr.io/wh-staff-api:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    },
+    {
+      "name": "wh-staging-staff-api--rev-target",
+      "containerApp": "wh-staging-staff-api",
+      "active": true,
+      "runningState": "Running",
+      "healthState": "Healthy",
+      "image": "whstagingacr.azurecr.io/wh-staff-api:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  ],
+  "traffic": [
+    {
+      "revisionName": "wh-staging-staff-api--rev-current",
+      "weight": 100
+    },
+    {
+      "revisionName": "wh-staging-staff-api--rev-target",
+      "weight": 0
+    }
+  ]
+}

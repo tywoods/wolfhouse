@@ -21,7 +21,7 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '5a8b08d395e11c51baf928b918016d5dd5bb4afe';
+const MASTER_BASIS = 'acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -294,6 +294,20 @@ ok('F43 git range diff --check clean vs master basis', rangeCheck.ok, rangeCheck
 ok('F44 contract gates pin range diff --check',
   Array.isArray(contract.gates)
   && contract.gates.some((g) => g === `git diff --check ${MASTER_BASIS}..HEAD`));
+
+const g07 = matrix.gates.find((g) => g.id === 'G07_rollback_incident_runbooks');
+ok('F45 G07 partial source-partial via 16E',
+  g07
+  && g07.verdict === 'partial'
+  && g07.progress_class === 'source_partial_progress_only'
+  && /16E/.test(g07.rationale)
+  && matrix.slice_16e_selection
+  && matrix.slice_16e_selection.outcome_id === '16E_staff_api_aca_traffic_rollback_runbook'
+  && matrix.slice_16e_selection.gate_id === 'G07_rollback_incident_runbooks'
+  && matrix.slice_16e_selection.progress_class === 'source_partial_progress_only'
+  && matrix.slice_16e_selection.open_drill === '16E_DRILL_live_rollback_restore'
+  && contract.selected_16e
+  && contract.selected_16e.outcome_id === '16E_staff_api_aca_traffic_rollback_runbook');
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);

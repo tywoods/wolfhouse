@@ -1,28 +1,29 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "outcome_id": "16B_staging_rg_cost_budget_threshold",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16E",
+  "outcome_id": "16E_staff_api_aca_traffic_rollback_runbook",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16e-staff-api-rollback-runbook",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Standalone staging ActualCost budget-threshold module (partial progress; not anomaly detection)",
-  "progress_class": "budget_threshold_partial_progress_only",
-  "does_not_implement": "anomaly_detection",
-  "notification_delivery_proof": "open",
+  "title": "Fail-closed staging Staff API ACA traffic-weight rollback runbook/preflight (source-partial; do not execute)",
+  "progress_class": "source_partial_progress_only",
+  "gate_id": "G07_rollback_incident_runbooks",
+  "open_drill": "16E_DRILL_live_rollback_restore",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "docs/RADAR-16E-STAFF-API-ROLLBACK-RUNBOOK.md",
     "fixtures/radar-operations/gate-matrix.json",
     "fixtures/radar-operations/live-inventory.json",
     "fixtures/radar-operations/contract.json",
     "fixtures/radar-operations/findings.md",
-    "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
-    "fixtures/radar-operations/slice16b-expected-contract.json",
-    "infra/azure/staging-cost-budgets/",
-    "scripts/lib/radar-slice16b-staging-cost-budgets.js",
-    "scripts/verify-radar-slice16b-staging-cost-budgets.js",
-    "scripts/preflight-radar-slice16b-staging-cost-budgets.js",
-    "scripts/verify-radar-slice16a-operations-gate-ledger.js"
+    "fixtures/radar-operations/slice16e-expected-contract.json",
+    "fixtures/radar-operations/slice16e-rollback-plans.json",
+    "scripts/lib/radar-slice16e-staff-api-rollback.js",
+    "scripts/preflight-radar-slice16e-staff-api-rollback.js",
+    "scripts/verify-radar-slice16e-staff-api-rollback.js",
+    "scripts/verify-radar-slice16a-operations-gate-ledger.js",
+    "scripts/verify-radar-slice16b-staging-cost-budgets.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -39,6 +40,12 @@
     "progress_class": "budget_threshold_partial_progress_only",
     "does_not_implement": "anomaly_detection"
   },
+  "selected_16e": {
+    "outcome_id": "16E_staff_api_aca_traffic_rollback_runbook",
+    "gate_id": "G07_rollback_incident_runbooks",
+    "progress_class": "source_partial_progress_only",
+    "open_drill": "16E_DRILL_live_rollback_restore"
+  },
   "costs_mtd_usd_frozen": {
     "wh-staging-rg": 65.1200802322302,
     "luna-sunset-staging-rg": 16.9118980752688,
@@ -50,6 +57,15 @@
     "wh-staging-rg": { "amountUsd": 120, "thresholds": [80, 100] },
     "luna-sunset-staging-rg": { "amountUsd": 40, "thresholds": [80, 100] }
   },
+  "rollback_scope_locked": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "apps": [
+      { "resourceGroup": "wh-staging-rg", "containerApp": "wh-staging-staff-api" },
+      { "resourceGroup": "luna-sunset-staging-rg", "containerApp": "luna-sunset-staging-staff-api" }
+    ],
+    "allowedMutation": "traffic_weight",
+    "liveRollbackEnabled": false
+  },
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
       "scripts/staff-query-api.js",
@@ -58,15 +74,15 @@
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16B may add standalone staging-cost-budgets module + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; live deploy hard-disabled"
+    "note": "16E adds rollback runbook/preflight/fixtures/verifiers only; must not modify Staff API/Hermes/DB/main.bicep; live rollback hard-disabled"
   },
   "gates": [
-    "az bicep build --file infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16e-staff-api-rollback",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
+    "git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD"
   ]
 }

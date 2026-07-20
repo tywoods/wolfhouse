@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16B",
-  "title": "RADAR operations gate ledger (16B budget-threshold partial progress)",
-  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
-  "branch": "radar/slice-16b-staging-cost-budgets",
+  "slice": "RADAR-16E",
+  "title": "RADAR operations gate ledger (16E Staff API ACA traffic rollback source-partial)",
+  "master_basis": "acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b",
+  "branch": "radar/slice-16e-staff-api-rollback-runbook",
   "audit_only": true,
   "live_mutation": false,
   "classification_policy": "fail_closed_absence_is_not_safe",
@@ -268,36 +268,59 @@
       "name": "Rollback / incident runbooks",
       "verdict": "partial",
       "severity": "high",
-      "rationale": "Written rollback/cutover runbooks and a backup/restore plan exist. PHASE-7.4 explicitly states restore drill not executed. Live PG flexible servers have 7-day backup retention (geo-redundant disabled). No proven recent restore drill evidence artifact.",
+      "progress_class": "source_partial_progress_only",
+      "rationale": "16E adds a fail-closed staging-only Azure Container Apps Staff API traffic-weight rollback runbook/preflight for wh-staging-rg/wh-staging-staff-api and luna-sunset-staging-rg/luna-sunset-staging-staff-api. Requires explicit current and target revision names, immutable full-SHA target image, healthy target revision, and human confirmation token. Plans traffic change only after read-only preflight proves same app/RG, active/healthy target, image SHA match, and captured traffic snapshot. Rollback mode changes traffic weights only — never image/env/secrets/scaling/DB/restart/delete — and emits a secret-free rollback record plus exact restore plan. Source-partial only; live rollback/restore drill remains open. PHASE-7.4 PG restore drill still not executed. Live PG flexible servers have 7-day backup retention (geo-redundant disabled).",
       "source_evidence": [
+        {
+          "path": "docs/RADAR-16E-STAFF-API-ROLLBACK-RUNBOOK.md",
+          "lines": "1-80",
+          "symbols": [],
+          "note": "Staging Staff API ACA traffic-weight rollback contract"
+        },
+        {
+          "path": "scripts/lib/radar-slice16e-staff-api-rollback.js",
+          "lines": "1-80",
+          "symbols": ["evaluateRollbackRequest", "assertExactStagingScope"],
+          "note": "Fail-closed scope + traffic-only plan evaluator"
+        },
+        {
+          "path": "scripts/preflight-radar-slice16e-staff-api-rollback.js",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "CLI preflight; rejects --live/--execute; azureCalls=0"
+        },
+        {
+          "path": "fixtures/radar-operations/slice16e-expected-contract.json",
+          "lines": "1-40",
+          "symbols": [],
+          "note": "Frozen 16E contract + RED/GREEN names"
+        },
         {
           "path": "docs/clients/wolfhouse/LIVE-ROLLBACK-RUNBOOK.md",
           "lines": "1-60",
           "symbols": [],
-          "note": "Image-tag rollback principles; preserve DB/payments"
+          "note": "Prior image-tag rollback principles; preserve DB/payments"
         },
         {
           "path": "docs/PHASE-7.4-BACKUP-RESTORE-ROLLBACK-PLAN.md",
           "lines": "1-8",
           "symbols": [],
           "note": "Status: planning; no restore drill executed"
-        },
-        {
-          "path": "docs/sunset/SUNSET-PORTAL-SLICE-1-STAGING-APPROVAL-PACKET.md",
-          "lines": "275-295",
-          "symbols": [],
-          "note": "Sunset staging cleanup/rollback section"
         }
       ],
       "live_evidence": [
         {
           "ref": "live-inventory.json#postgres_backups",
           "note": "All three flexible servers backupRetentionDays=7 geoRedundant=Disabled"
+        },
+        {
+          "ref": "live-inventory.json#container_apps",
+          "note": "Both staging Staff API container apps Running (revision inventory for live drill still open)"
         }
       ],
       "gaps": [
-        "Restore drill not executed / not evidenced",
-        "No single staging incident commander runbook covering both RGs",
+        "Live rollback/restore drill not executed (16E_DRILL_live_rollback_restore open)",
+        "PHASE-7.4 PG restore drill not executed / not evidenced",
         "Geo-redundant backup disabled on staging PG"
       ]
     },
@@ -466,6 +489,53 @@
         "Leave anomaly detection unmet"
       ],
       "pass_rule": "Both RG budgets listed Enabled with thresholds + proven notification delivery; no container restart/deploy/DB write; anomaly detection still absent"
+    }
+  },
+  "slice_16e_selection": {
+    "selected": true,
+    "implemented_partial": true,
+    "outcome_id": "16E_staff_api_aca_traffic_rollback_runbook",
+    "gate_id": "G07_rollback_incident_runbooks",
+    "progress_class": "source_partial_progress_only",
+    "title": "Fail-closed staging Staff API ACA traffic-weight rollback runbook/preflight — source partial only",
+    "owner_files": [
+      "docs/RADAR-16E-STAFF-API-ROLLBACK-RUNBOOK.md",
+      "scripts/lib/radar-slice16e-staff-api-rollback.js",
+      "scripts/preflight-radar-slice16e-staff-api-rollback.js",
+      "scripts/verify-radar-slice16e-staff-api-rollback.js",
+      "fixtures/radar-operations/slice16e-expected-contract.json",
+      "fixtures/radar-operations/slice16e-rollback-plans.json"
+    ],
+    "out_of_scope_for_16e": [
+      "Live traffic mutation / rollback execute",
+      "Live restore drill proof",
+      "Image/env/secret/scaling/DB mutation",
+      "Production RGs or apps",
+      "PHASE-7.4 Postgres restore drill",
+      "Staff API / Hermes runtime code change"
+    ],
+    "acceptance_criteria": [
+      "Exact subscription + two staging Staff API app/RG pairs only",
+      "Require current + target revision names, immutable full-SHA target image, healthy target, human confirmation token",
+      "Plan traffic change only after read-only preflight proofs",
+      "Rollback mode mutates traffic weights only",
+      "Emit secret-free rollback record + exact restore plan",
+      "RED suite covers wrong sub/RG/app, production markers, mutable tags, cross-app revision, unhealthy target, missing confirmation, extra mutation, non-100 target weights, failed verification",
+      "GREEN secret-free plans for both staging Staff APIs",
+      "Live rollback/restore drill remains open"
+    ],
+    "open_drill": "16E_DRILL_live_rollback_restore",
+    "final_controlled_drill": {
+      "id": "16E_DRILL_live_rollback_restore",
+      "steps": [
+        "Capture live revision list + traffic snapshot (read-only) for one staging Staff API",
+        "Run 16E preflight against live inventory export; confirm plan + restore record",
+        "With explicit human confirmation, set target revision traffic weight=100 only",
+        "Verify health + traffic; then restore prior traffic weights exactly",
+        "Prove no image/env/secret/scaling/DB/restart/delete occurred",
+        "Leave PHASE-7.4 PG restore drill unmet"
+      ],
+      "pass_rule": "Traffic-only rollback and restore proven on staging with secret-free evidence; no other mutation surfaces touched"
     }
   },
   "final_controlled_drill_16a": {
