@@ -1,0 +1,23 @@
+---
+import Layout from '../layouts/Layout.astro';
+import Header from '../components/Header.astro';
+import Hero from '../components/Hero.astro';
+import DemoSection from '../components/DemoSection.astro';
+import Footer from '../components/Footer.astro';
+---
+<Layout path="/">
+  <Header slot="header" />
+
+  <Hero />
+  <DemoSection />
+
+  <!-- Sections below are built in follow-up slices; anchor keeps nav/CTAs valid. -->
+  <section id="lead" class="section">
+    <div class="container">
+      <h2>Show me Luna for my business</h2>
+      <p class="lead">Lead capture form — coming in the next slice.</p>
+    </div>
+  </section>
+
+  <Footer slot="footer" />
+</Layout>

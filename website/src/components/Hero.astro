@@ -1,0 +1,49 @@
+---
+// Outcome-led hero. States the value in one line, shows the guest↔ops idea
+// immediately via the mini proof strip, and offers both CTAs above the fold.
+---
+<section id="top" class="hero night">
+  <div class="hero__glow" aria-hidden="true"></div>
+  <div class="container hero__inner">
+    <p class="eyebrow eyebrow--moon" data-animate>AI WhatsApp front desk</p>
+    <h1 class="hero__title" data-animate>
+      Turn WhatsApp enquiries into <span class="hero__accent">organised bookings.</span>
+    </h1>
+    <p class="lead hero__lead" data-animate>
+      Luna answers your guests on WhatsApp, checks your real availability, explains your
+      packages, and collects what's needed — one clear question at a time. Your team sees
+      everything and steps in only when a human is truly needed.
+    </p>
+    <div class="hero__cta" data-animate>
+      <a href="#lead" class="btn btn--primary">See Luna for my business</a>
+      <a href="#demo" class="btn btn--ghost-night">Try the live demo ↓</a>
+    </div>
+
+    <ul class="hero__proof" data-animate>
+      <li><span aria-hidden="true">💬</span> Guest chats naturally on WhatsApp</li>
+      <li><span aria-hidden="true">◷</span> Luna checks real availability &amp; prices</li>
+      <li><span aria-hidden="true">✓</span> You get a structured, ready booking</li>
+    </ul>
+  </div>
+</section>
+
+<style>
+  .hero { position: relative; overflow: hidden; padding-block: clamp(3.5rem, 2rem + 7vw, 7rem); }
+  .hero__glow {
+    position: absolute; inset: -30% 20% auto -10%; height: 60vh;
+    background: radial-gradient(ellipse at 30% 20%, rgba(183,179,236,0.25), transparent 60%),
+                radial-gradient(ellipse at 80% 10%, rgba(224,122,95,0.18), transparent 55%);
+    filter: blur(10px); pointer-events: none;
+  }
+  .hero__inner { position: relative; max-width: 900px; }
+  .hero__title { font-size: var(--step-5); margin-top: var(--space-s); max-width: 16ch; }
+  .hero__accent { color: var(--terracotta-400); font-style: italic; }
+  .hero__lead { margin-top: var(--space-m); font-size: var(--step-1); }
+  .hero__cta { display: flex; flex-wrap: wrap; gap: 0.8rem; margin-top: var(--space-l); }
+  .hero__proof {
+    display: flex; flex-wrap: wrap; gap: var(--space-m); margin-top: var(--space-xl);
+    list-style: none; padding: 0; color: var(--night-muted); font-size: var(--step--1);
+  }
+  .hero__proof li { display: flex; align-items: center; gap: 0.5rem; }
+  .hero__proof span { font-size: 1rem; }
+</style>
