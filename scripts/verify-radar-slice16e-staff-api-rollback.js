@@ -3,9 +3,10 @@
 /**
  * verify:radar-slice16e-staff-api-rollback — RADAR Slice 16E
  *
- * Offline RED/GREEN gate for staging-only ACA Staff API traffic-weight
- * rollback runbook/preflight. Independent of lib RED generators for the
- * primary suite (re-evaluates via evaluateRollbackRequest + CLI spawn).
+ * Independent offline gate. Does NOT import LOCKS, APP_PLANS, buildSecretFreePlans,
+ * buildPlannedTraffic, buildRestorePlan, or lib RED generators as oracles.
+ * Frozen expected contract owns identity/capture/traffic truth values.
+ * Exercises evaluateRollbackRequest + capture/argv APIs with adversarial REDs.
  * No network, no Azure mutation, no real secrets.
  */
 
@@ -25,10 +26,11 @@ const RUNBOOK_REL = 'docs/RADAR-16E-STAFF-API-ROLLBACK-RUNBOOK.md';
 
 const {
   evaluateRollbackRequest,
-  expectedConfirmationToken,
-  ALLOWED_MUTATION,
-  APP_PLANS,
-  SUBSCRIPTION_ID,
+  captureLiveInventory,
+  buildLiveCaptureArgvPlan,
+  buildTrafficSetArgv,
+  assertArgvReadOnlyCapture,
+  assertSafeArgvTokens,
 } = require('./lib/radar-slice16e-staff-api-rollback');
 
 const SECRET_PATTERNS = [
@@ -78,9 +80,13 @@ function deepClone(v) {
   return JSON.parse(JSON.stringify(v));
 }
 
-function reqFromPlanApp(app) {
+function confirmToken(prefix, containerApp, targetRevisionName) {
+  return `${prefix}:${containerApp}:${targetRevisionName}`;
+}
+
+function reqFromPlanApp(app, expected) {
   return {
-    subscriptionId: SUBSCRIPTION_ID,
+    subscriptionId: expected.subscriptionId,
     resourceGroup: app.resourceGroup,
     containerApp: app.containerApp,
     currentRevisionName: app.currentRevisionName,
@@ -88,7 +94,7 @@ function reqFromPlanApp(app) {
     targetImage: app.targetImage,
     targetImageSha: app.targetImageSha,
     confirmationToken: app.confirmationToken,
-    mutations: [{ kind: ALLOWED_MUTATION }],
+    mutations: [{ kind: expected.allowedMutation }],
     inventory: deepClone(app.inventory),
     mode: 'plan',
   };
@@ -124,7 +130,6 @@ function spawnPreflight(argvExtra) {
   function tryParseReport(text) {
     const trimmed = String(text || '').trim();
     if (!trimmed || !trimmed.includes('azureCalls')) return null;
-    // Refusal: one-line JSON. Success: pretty JSON then a PASS trailer line.
     const candidates = [trimmed, ...trimmed.split(/\r?\n/).map((l) => l.trim())];
     const start = trimmed.indexOf('{');
     const end = trimmed.lastIndexOf('}');
@@ -148,7 +153,19 @@ function spawnPreflight(argvExtra) {
   return { status: result.status, combined, report, azureCalls };
 }
 
-console.log('verify:radar-slice16e-staff-api-rollback — RADAR Slice 16E\n');
+function withTargetRev(base, patch) {
+  return {
+    ...base,
+    inventory: {
+      ...base.inventory,
+      revisions: base.inventory.revisions.map((rev) => (
+        rev.name === base.targetRevisionName ? { ...rev, ...patch } : rev
+      )),
+    },
+  };
+}
+
+console.log('verify:radar-slice16e-staff-api-rollback — RADAR Slice 16E (independent)\n');
 
 const expected = readJson(CONTRACT_REL);
 ok('L1 frozen contract shape',
@@ -160,11 +177,18 @@ ok('L1 frozen contract shape',
   && expected.gate_id === 'G07_rollback_incident_runbooks'
   && expected.progress_class === 'source_partial_progress_only'
   && expected.liveRollbackEnabled === false
+  && expected.liveExecuteEnabled === false
+  && expected.liveCaptureExecuteEnabled === false
   && expected.allowedMutation === 'traffic_weight'
+  && expected.requiredHealthState === 'Healthy'
+  && expected.requiredRunningState === 'Running'
+  && expected.requiredProvisioningState === 'Provisioned'
+  && Array.isArray(expected.captureStepIds)
+  && expected.captureStepIds.length === 4
   && Array.isArray(expected.apps)
   && expected.apps.length === 2
   && Array.isArray(expected.required_red_names)
-  && expected.required_red_names.length >= 11);
+  && expected.required_red_names.length >= 30);
 
 const plan = readJson(PLAN_REL);
 ok('L2 plan fixture pins',
@@ -187,14 +211,40 @@ for (let i = 0; i < expected.apps.length; i += 1) {
     && got.resourceGroup === want.resourceGroup
     && got.containerApp === want.containerApp
     && got.imageRepository === want.imageRepository);
+  ok(`L4b app[${i}] provisioningState exact`,
+    got
+    && got.inventory
+    && got.inventory.revisions.every((r) => r.provisioningState === expected.requiredProvisioningState)
+    && got.inventory.revisions.every((r) => r.runningState === expected.requiredRunningState)
+    && got.inventory.revisions.every((r) => r.healthState === expected.requiredHealthState)
+    && got.inventory.revisions.every((r) => r.active === true));
 }
 
 const whApp = plan.apps.find((a) => a.containerApp === 'wh-staging-staff-api');
 const sunApp = plan.apps.find((a) => a.containerApp === 'luna-sunset-staging-staff-api');
+const whRepo = expected.apps[0].imageRepository;
+
+{
+  const importMatch = readText(VERIFY_REL).match(
+    /const\s*\{([^}]+)\}\s*=\s*require\('\.\/lib\/radar-slice16e-staff-api-rollback'\)/,
+  );
+  const imported = importMatch ? importMatch[1] : '';
+  ok('L4c verifier does not import LOCKS/APP_PLANS builders as oracle',
+    importMatch
+    && !/\bLOCKS\b/.test(imported)
+    && !/\bAPP_PLANS\b/.test(imported)
+    && !/\bSUBSCRIPTION_ID\b/.test(imported)
+    && !/\bbuildSecretFreePlans\b/.test(imported)
+    && !/\bbuildPlannedTraffic\b/.test(imported)
+    && !/\bbuildRestorePlan\b/.test(imported)
+    && !/\brunRedCases\b/.test(imported)
+    && !/\bexpectedConfirmationToken\b/.test(imported),
+    imported.slice(0, 200));
+}
 
 // --- GREEN plans ---
 for (const app of [whApp, sunApp]) {
-  const result = evaluateRollbackRequest(reqFromPlanApp(app));
+  const result = evaluateRollbackRequest(reqFromPlanApp(app, expected));
   const good = result.ok
     && result.record
     && result.record.secretFree === true
@@ -204,14 +254,18 @@ for (const app of [whApp, sunApp]) {
     && result.restorePlan.mode === 'restore_prior_traffic_weights'
     && Array.isArray(result.plannedTraffic)
     && result.plannedTraffic.some((t) => t.revisionName === app.targetRevisionName && t.weight === 100)
-    && result.trafficSnapshotBefore.some((t) => t.revisionName === app.currentRevisionName && t.weight === 100);
+    && result.trafficSnapshotBefore.some((t) => t.revisionName === app.currentRevisionName && t.weight === 100)
+    && Array.isArray(result.rollbackTrafficSetArgv)
+    && result.rollbackTrafficSetArgv.includes('--revision-weight')
+    && Array.isArray(result.restoreTrafficSetArgv)
+    && result.restoreTrafficSetArgv[4] === 'set';
   pushGreen(`green_plan_${app.containerApp}`, good,
     good ? null : `errors=${result.errors.join(',')}`);
 }
 
-// --- RED suite (independent cases; do not call lib runRedCases) ---
+// --- RED suite (adversarial; independent of lib generators) ---
 {
-  const base = reqFromPlanApp(whApp);
+  const base = reqFromPlanApp(whApp, expected);
 
   let r = evaluateRollbackRequest({
     ...base,
@@ -225,44 +279,23 @@ for (const app of [whApp, sunApp]) {
   r = evaluateRollbackRequest({ ...base, containerApp: 'wh-staging-hermes' });
   pushRed('wrong_app', !r.ok && r.errors.includes('wrong_app'));
 
-  r = evaluateRollbackRequest({
-    ...base,
-    resourceGroup: 'wh-prod-rg',
-  });
+  r = evaluateRollbackRequest({ ...base, resourceGroup: 'wh-prod-rg' });
   pushRed('production_marker',
     !r.ok
     && (r.errors.includes('production_marker_rejected') || r.errors.includes('wrong_resource_group')));
 
   r = evaluateRollbackRequest({
     ...base,
-    targetImage: `${APP_PLANS['wh-staging-staff-api'].imageRepository}:latest`,
+    targetImage: `${whRepo}:latest`,
   });
   pushRed('mutable_tag', !r.ok && r.errors.includes('mutable_tag_rejected'));
 
-  r = evaluateRollbackRequest({
-    ...base,
-    inventory: {
-      ...base.inventory,
-      revisions: base.inventory.revisions.map((rev) => (
-        rev.name === base.targetRevisionName
-          ? { ...rev, containerApp: 'luna-sunset-staging-staff-api' }
-          : rev
-      )),
-    },
-  });
+  r = evaluateRollbackRequest(withTargetRev(base, {
+    containerApp: 'luna-sunset-staging-staff-api',
+  }));
   pushRed('cross_app_revision', !r.ok && r.errors.includes('cross_app_revision'));
 
-  r = evaluateRollbackRequest({
-    ...base,
-    inventory: {
-      ...base.inventory,
-      revisions: base.inventory.revisions.map((rev) => (
-        rev.name === base.targetRevisionName
-          ? { ...rev, healthState: 'Unhealthy' }
-          : rev
-      )),
-    },
-  });
+  r = evaluateRollbackRequest(withTargetRev(base, { healthState: 'Unhealthy' }));
   pushRed('unhealthy_target', !r.ok && r.errors.includes('unhealthy_target'));
 
   r = evaluateRollbackRequest({ ...base, confirmationToken: '' });
@@ -285,6 +318,300 @@ for (const app of [whApp, sunApp]) {
 
   r = evaluateRollbackRequest({ ...base, inventory: null });
   pushRed('failed_verification', !r.ok && r.errors.includes('failed_verification'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, subscriptionId: '' },
+  });
+  pushRed('missing_inventory_subscription',
+    !r.ok && r.errors.includes('missing_inventory_subscription'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, resourceGroup: '' },
+  });
+  pushRed('missing_inventory_resource_group',
+    !r.ok && r.errors.includes('missing_inventory_resource_group'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, containerApp: '' },
+  });
+  pushRed('missing_inventory_container_app',
+    !r.ok && r.errors.includes('missing_inventory_container_app'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      subscriptionId: '11111111-1111-1111-1111-111111111111',
+    },
+  });
+  pushRed('inventory_subscription_mismatch',
+    !r.ok && r.errors.includes('inventory_subscription_mismatch'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, resourceGroup: 'luna-sunset-staging-rg' },
+  });
+  pushRed('inventory_resource_group_mismatch',
+    !r.ok && r.errors.includes('inventory_resource_group_mismatch'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, containerApp: 'luna-sunset-staging-staff-api' },
+  });
+  pushRed('inventory_container_app_mismatch',
+    !r.ok && r.errors.includes('inventory_container_app_mismatch'));
+
+  r = evaluateRollbackRequest(withTargetRev(base, { containerApp: '' }));
+  pushRed('missing_target_ownership', !r.ok && r.errors.includes('missing_target_ownership'));
+
+  r = evaluateRollbackRequest(withTargetRev(base, { image: '' }));
+  pushRed('missing_target_image', !r.ok && r.errors.includes('missing_target_image'));
+
+  // Prove OR-fallback is gone: Running/Provisioned/Healthy alone must not satisfy active.
+  r = evaluateRollbackRequest(withTargetRev(base, {
+    active: false,
+    runningState: 'Running',
+    provisioningState: 'Provisioned',
+    healthState: 'Healthy',
+  }));
+  pushRed('target_not_active',
+    !r.ok && r.errors.includes('target_not_active'));
+
+  r = evaluateRollbackRequest(withTargetRev(base, { runningState: 'RunningAtMaxScale' }));
+  pushRed('target_not_running', !r.ok && r.errors.includes('target_not_running'));
+
+  r = evaluateRollbackRequest(withTargetRev(base, { provisioningState: 'Pending' }));
+  pushRed('target_not_provisioned', !r.ok && r.errors.includes('target_not_provisioned'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [{ latestRevision: true, weight: 100 }],
+    },
+  });
+  pushRed('unsupported_traffic_snapshot_latest',
+    !r.ok && r.errors.includes('unsupported_traffic_snapshot'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [{ label: 'production', weight: 100 }],
+    },
+  });
+  pushRed('unsupported_traffic_snapshot_label',
+    !r.ok && r.errors.includes('unsupported_traffic_snapshot'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: { ...base.inventory, traffic: 'not-an-array' },
+  });
+  pushRed('malformed_traffic', !r.ok && r.errors.includes('malformed_traffic'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [
+        { revisionName: base.currentRevisionName, weight: 50 },
+        { revisionName: base.currentRevisionName, weight: 50 },
+      ],
+    },
+  });
+  pushRed('duplicate_traffic_revision',
+    !r.ok && r.errors.includes('duplicate_traffic_revision'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [
+        { revisionName: base.currentRevisionName, weight: Number.NaN },
+        { revisionName: base.targetRevisionName, weight: 100 },
+      ],
+    },
+  });
+  pushRed('non_finite_traffic_weight',
+    !r.ok && r.errors.includes('non_finite_traffic_weight'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [
+        { revisionName: base.currentRevisionName, weight: 40 },
+        { revisionName: base.targetRevisionName, weight: 40 },
+      ],
+    },
+  });
+  pushRed('non_100_traffic_weights',
+    !r.ok && r.errors.includes('non_100_traffic_weights'));
+
+  r = evaluateRollbackRequest({
+    ...base,
+    inventory: {
+      ...base.inventory,
+      traffic: [
+        { revisionName: 'evil;rm -rf', weight: 100 },
+      ],
+    },
+  });
+  pushRed('shell_metacharacter_revision',
+    !r.ok && r.errors.includes('shell_metacharacter_rejected'));
+
+  {
+    const evil = buildTrafficSetArgv({
+      resourceGroup: whApp.resourceGroup,
+      containerApp: whApp.containerApp,
+      traffic: [{ revisionName: 'rev$(reboot)', weight: 100 }],
+      mode: 'rollback',
+    });
+    pushRed('argv_expansion_rejected',
+      !evil.ok
+      && (evil.errors.includes('argv_expansion_rejected')
+        || evil.errors.includes('shell_metacharacter_rejected')));
+  }
+
+  {
+    const noRunner = captureLiveInventory({
+      subscriptionId: expected.subscriptionId,
+      resourceGroup: whApp.resourceGroup,
+      containerApp: whApp.containerApp,
+    });
+    pushRed('live_capture_runner_required',
+      !noRunner.ok
+      && noRunner.errors.includes('live_capture_runner_required')
+      && noRunner.executed === false
+      && noRunner.azureCalls === 0);
+  }
+
+  {
+    const mut = assertArgvReadOnlyCapture([
+      'az', 'containerapp', 'ingress', 'traffic', 'set',
+      '-g', whApp.resourceGroup, '-n', whApp.containerApp,
+      '--revision-weight', 'x=100',
+    ]);
+    pushRed('capture_mutation_argv_rejected',
+      !mut.ok && mut.errors.includes('capture_mutation_argv_rejected'));
+  }
+}
+
+// Capture argv contract + injectable runner GREEN
+{
+  const planCap = buildLiveCaptureArgvPlan({
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+  });
+  const ids = planCap.ok ? planCap.steps.map((s) => s.id) : [];
+  const argvOk = planCap.ok
+    && ids.join(',') === expected.captureStepIds.join(',')
+    && planCap.shell === false
+    && planCap.mutationExecution === false
+    && planCap.steps.every((s) => {
+      const ro = assertArgvReadOnlyCapture(s.argv);
+      const safe = assertSafeArgvTokens(s.argv);
+      return ro.ok && safe.ok && s.argv[0] === 'az' && !s.argv.includes('set');
+    });
+
+  const fakeByStep = {
+    account_show: JSON.stringify({ id: expected.subscriptionId }),
+    containerapp_show: JSON.stringify({ name: whApp.containerApp }),
+    revision_list: JSON.stringify(whApp.inventory.revisions.map((rev) => ({
+      name: rev.name,
+      properties: {
+        active: rev.active,
+        runningState: rev.runningState,
+        healthState: rev.healthState,
+        provisioningState: rev.provisioningState,
+        template: { containers: [{ image: rev.image }] },
+      },
+    }))),
+    ingress_traffic_show: JSON.stringify(whApp.inventory.traffic),
+  };
+  let runnerCalls = 0;
+  const captured = captureLiveInventory({
+    subscriptionId: expected.subscriptionId,
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+  }, {
+    runner: (argv) => {
+      runnerCalls += 1;
+      const step = planCap.steps.find((s) => s.argv.join('\0') === argv.join('\0'));
+      if (!step) throw new Error(`unexpected argv ${argv.join(' ')}`);
+      return { stdout: fakeByStep[step.id] };
+    },
+  });
+  pushGreen('green_capture_injectable_runner',
+    argvOk
+    && captured.ok
+    && captured.executed === false
+    && captured.shell === false
+    && captured.mutationExecution === false
+    && runnerCalls === 4
+    && captured.inventory
+    && captured.inventory.subscriptionId === expected.subscriptionId
+    && captured.inventory.containerApp === whApp.containerApp
+    && Array.isArray(captured.inventory.traffic)
+    && captured.inventory.traffic.reduce((s, t) => s + t.weight, 0) === 100,
+    captured.ok ? null : `errors=${(captured.errors || []).join(',')}`);
+}
+
+{
+  const rb = buildTrafficSetArgv({
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    traffic: [
+      { revisionName: whApp.targetRevisionName, weight: 100 },
+      { revisionName: whApp.currentRevisionName, weight: 0 },
+    ],
+    mode: 'rollback',
+  });
+  const rs = buildTrafficSetArgv({
+    resourceGroup: whApp.resourceGroup,
+    containerApp: whApp.containerApp,
+    traffic: whApp.inventory.traffic,
+    mode: 'restore',
+  });
+  pushGreen('green_traffic_set_argv_rollback_restore',
+    rb.ok && rs.ok
+    && rb.executed === false && rs.executed === false
+    && rb.argv[0] === 'az'
+    && rb.argv.includes('set')
+    && rb.argv.includes('--revision-weight')
+    && rb.argv.includes(`${whApp.targetRevisionName}=100`)
+    && rs.argv.includes(`${whApp.currentRevisionName}=100`)
+    && !rb.argv.some((t) => /[;&|`$]/.test(t)),
+    rb.ok ? null : `rb=${rb.errors.join(',')}`);
+}
+
+{
+  const base = reqFromPlanApp(whApp, expected);
+  const inv = deepClone(base.inventory);
+  inv.traffic = [
+    {
+      revisionName: whApp.currentRevisionName,
+      weight: 100,
+      latestRevision: true,
+      label: 'active',
+    },
+    { revisionName: whApp.targetRevisionName, weight: 0 },
+  ];
+  const r = evaluateRollbackRequest({ ...base, inventory: inv });
+  const preserved = r.ok
+    && r.trafficSnapshotBefore.some((t) => (
+      t.revisionName === whApp.currentRevisionName
+      && t.latestRevision === true
+      && t.label === 'active'
+      && t.weight === 100
+    ))
+    && Array.isArray(r.restoreTrafficSetArgv)
+    && r.restoreTrafficSetArgv.includes(`${whApp.currentRevisionName}=100`);
+  pushGreen('green_preserve_latest_with_revision_name', preserved,
+    preserved ? null : `errors=${r.errors.join(',')}`);
 }
 
 for (const name of expected.required_red_names) {
@@ -352,10 +679,11 @@ for (const app of [whApp, sunApp]) {
     '--target-revision', app.targetRevisionName,
     '--target-image', app.targetImage,
     '--target-image-sha', app.targetImageSha,
-    '--confirm', expectedConfirmationToken({
-      containerApp: app.containerApp,
-      targetRevisionName: app.targetRevisionName,
-    }),
+    '--confirm', confirmToken(
+      expected.confirmationPrefix,
+      app.containerApp,
+      app.targetRevisionName,
+    ),
     '--inventory-json', invRel,
   ]);
   const good = r.status === 0
@@ -378,6 +706,16 @@ ok('L7 preflight has no Azure dispatch',
   && /forbidden_flag/.test(preflightSrc)
   && /--live/.test(preflightSrc)
   && /--execute/.test(preflightSrc));
+
+const libSrc = readText(LIB_REL);
+ok('L7b lib capture uses no shell and hard-disables live execute',
+  /buildLiveCaptureArgvPlan/.test(libSrc)
+  && /captureLiveInventory/.test(libSrc)
+  && /buildTrafficSetArgv/.test(libSrc)
+  && /liveCaptureExecuteEnabled:\s*false/.test(libSrc)
+  && !/execSync\(/.test(libSrc)
+  && !/spawnSync\(['"]az['"]/.test(libSrc)
+  && !/shell:\s*true/.test(libSrc));
 
 const runbook = readText(RUNBOOK_REL);
 ok('L8 runbook traffic-only + confirmation + both apps + open drill',

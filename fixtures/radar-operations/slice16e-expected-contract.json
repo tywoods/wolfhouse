@@ -9,6 +9,7 @@
   "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
   "liveRollbackEnabled": false,
   "liveExecuteEnabled": false,
+  "liveCaptureExecuteEnabled": false,
   "allowedMutation": "traffic_weight",
   "forbiddenMutations": [
     "image",
@@ -26,6 +27,15 @@
   ],
   "confirmationPrefix": "I-CONFIRM-TRAFFIC-ROLLBACK",
   "open_drill": "16E_DRILL_live_rollback_restore",
+  "requiredHealthState": "Healthy",
+  "requiredRunningState": "Running",
+  "requiredProvisioningState": "Provisioned",
+  "captureStepIds": [
+    "account_show",
+    "containerapp_show",
+    "revision_list",
+    "ingress_traffic_show"
+  ],
   "resourceGroups": [
     "wh-staging-rg",
     "luna-sunset-staging-rg"
@@ -53,11 +63,35 @@
     "missing_confirmation",
     "extra_mutation",
     "non_100_target_weights",
-    "failed_verification"
+    "failed_verification",
+    "missing_inventory_subscription",
+    "missing_inventory_resource_group",
+    "missing_inventory_container_app",
+    "inventory_subscription_mismatch",
+    "inventory_resource_group_mismatch",
+    "inventory_container_app_mismatch",
+    "missing_target_ownership",
+    "missing_target_image",
+    "target_not_active",
+    "target_not_running",
+    "target_not_provisioned",
+    "unsupported_traffic_snapshot_latest",
+    "unsupported_traffic_snapshot_label",
+    "malformed_traffic",
+    "duplicate_traffic_revision",
+    "non_finite_traffic_weight",
+    "non_100_traffic_weights",
+    "shell_metacharacter_revision",
+    "argv_expansion_rejected",
+    "live_capture_runner_required",
+    "capture_mutation_argv_rejected"
   ],
   "required_green_names": [
     "green_plan_wh-staging-staff-api",
-    "green_plan_luna-sunset-staging-staff-api"
+    "green_plan_luna-sunset-staging-staff-api",
+    "green_capture_injectable_runner",
+    "green_traffic_set_argv_rollback_restore",
+    "green_preserve_latest_with_revision_name"
   ],
   "sample_inventory_rels": [
     "fixtures/radar-operations/slice16e-sample-inventory.wh.json",

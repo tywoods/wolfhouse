@@ -45,15 +45,21 @@ Never image, env, secrets, scaling, database, restart, delete, revision create/d
 ## Preflight proofs (read-only; plan only after all pass)
 
 1. Subscription / RG / app match the locked staging pair
-2. Target revision belongs to the **same** app and RG (reject cross-app revision)
-3. Target revision is **active** and **Healthy**
-4. Target revision image matches the supplied full SHA (reject mutable tags such as `latest`)
-5. Current ingress traffic snapshot is captured
-6. Planned weights put **100%** on the target revision (reject non-100 target weights)
-7. Mutations list is traffic-weight only (reject extra mutation)
-8. Confirmation token matches
+2. Inventory carries exact subscription / RG / app identity (no missing fields)
+3. Target revision ownership `containerApp` equals the request app (reject cross-app / missing ownership)
+4. Target revision is exactly `active=true`, `healthState=Healthy`, `runningState=Running`, `provisioningState=Provisioned` (no OR fallbacks)
+5. Target revision image is present and equals the supplied immutable full-SHA image (no missing-image fallback)
+6. Traffic entries are unique by `revisionName`, finite nonnegative weights totaling **100**
+7. `latestRevision` / labels are preserved only when a concrete `revisionName` makes exact `--revision-weight` restore representable; otherwise refuse `unsupported_traffic_snapshot`
+8. Planned weights put **100%** on the target revision
+9. Mutations list is traffic-weight only (reject extra mutation)
+10. Confirmation token matches
 
-On success the preflight emits a **secret-free rollback record** plus an **exact restore plan** (reapply the captured pre-rollback traffic weights).
+On success the preflight emits a **secret-free rollback record**, structured traffic-set argv (builder only — not executed), plus an **exact restore plan**.
+
+## Read-only live inventory capture (eventual operator use)
+
+Exact argv only (no shell): `az account show`, `az containerapp show`, `az containerapp revision list`, `az containerapp ingress traffic show`. Capture accepts an injectable runner for tests; this slice does **not** execute live capture or mutation.
 
 ## Offline preflight (no Azure calls)
 
