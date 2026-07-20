@@ -1,0 +1,136 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16S",
+  "outcome_id": "16S_request_completion_log_live_evidence",
+  "gate_ids_touched": [
+    "G01_correlation_structured_logs"
+  ],
+  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
+  "branch": "radar/slice-16s-request-log-live-evidence",
+  "audit_only": true,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "progress_class": "partial_live_proven_evidence_only",
+  "title": "Reconcile dual-staging 16R completion-log delivery/search/retention evidence (bounded; no overclaims)",
+  "image_sha_short": "1bf9695",
+  "image_sha_full": "1bf9695264250680c41c3e7f82baba97300001a0",
+  "observed_facts": {
+    "deploy": {
+      "image_sha_full": "1bf9695264250680c41c3e7f82baba97300001a0",
+      "image_sha_short": "1bf9695",
+      "wolfhouse": {
+        "app": "wh-staging-staff-api",
+        "revision": "wh-staging-staff-api--0000517",
+        "revision_suffix": "0000517",
+        "latest_equals_latest_ready": true,
+        "public_healthz_status": 200
+      },
+      "sunset": {
+        "app": "luna-sunset-staging-staff-api",
+        "revision": "luna-sunset-staging-staff-api--0000277",
+        "revision_suffix": "0000277",
+        "latest_equals_latest_ready": true,
+        "public_healthz_status": 200
+      }
+    },
+    "aca_env_logging": {
+      "logs_destination": "log-analytics"
+    },
+    "law_workspaces": {
+      "wolfhouse": {
+        "customer_id": "43ae26dd-4a82-4a91-b744-5e1f94a2ae8f",
+        "workspace_name": "wh-staging-logs",
+        "retention_days": 30
+      },
+      "sunset": {
+        "customer_id": "552489bf-8e57-48df-8413-6e775caaa7d0",
+        "workspace_name": "luna-sunset-staging-logs",
+        "retention_days": 30
+      }
+    },
+    "completion_search": {
+      "table": "ContainerAppConsoleLogs_CL",
+      "query_by": "request_id",
+      "wolfhouse": {
+        "request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000001",
+        "match_count": 1,
+        "TimeGenerated": "2026-07-20T23:32:38.0049767Z",
+        "record": {
+          "event": "staff_api_request_completion",
+          "request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000001",
+          "method": "GET",
+          "route": "/healthz",
+          "status_code": 200,
+          "status_class": "2xx",
+          "duration_ms": 5,
+          "outcome": "completed"
+        }
+      },
+      "sunset": {
+        "request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000002",
+        "tenant_slug": "sunset",
+        "match_count": 1,
+        "TimeGenerated": "2026-07-20T23:32:54.8551295Z",
+        "record": {
+          "event": "staff_api_request_completion",
+          "request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000002",
+          "tenant_slug": "sunset",
+          "method": "GET",
+          "route": "/healthz",
+          "status_code": 200,
+          "status_class": "2xx",
+          "duration_ms": 5,
+          "outcome": "completed"
+        }
+      }
+    }
+  },
+  "claims_allowed": [
+    "exact_sha_1bf9695_images_latest_equals_latest_ready_both_tenants",
+    "wolfhouse_revision_wh_staging_staff_api_0000517",
+    "sunset_revision_luna_sunset_staging_staff_api_0000277",
+    "public_healthz_200_both_tenants",
+    "aca_env_logs_destination_log_analytics",
+    "law_workspaces_customer_ids_and_retention_30",
+    "container_app_console_logs_cl_search_by_request_id_match_count_1",
+    "bounded_completion_healthz_200_2xx_duration_5_completed"
+  ],
+  "explicitly_not_claimed": [
+    "end_to_end_meta_hermes_staff_stripe_correlation_drill",
+    "concurrent_isolation",
+    "abort_error_outcomes_in_law",
+    "production",
+    "any_gate_verdict_proven",
+    "g02_g09_score_changes",
+    "human_inbox_receipt",
+    "organic_metric_alert_firing"
+  ],
+  "gate_progress_updates": {
+    "G01_correlation_structured_logs": {
+      "progress_class": "partial_live_proven",
+      "verdict": "partial",
+      "live_proven": [
+        "exact_sha_1bf9695_deployed_wh_0000517_sunset_0000277",
+        "aca_env_logs_destination_log_analytics",
+        "law_delivery_ContainerAppConsoleLogs_CL",
+        "search_by_supplied_request_id_match_count_1_both_tenants",
+        "retention_30_both_workspaces",
+        "bounded_completion_fields_healthz_200_2xx_duration_5_completed"
+      ],
+      "still_open": [
+        "end_to_end_Meta_Hermes_Staff_API_Stripe_correlation_drill"
+      ]
+    }
+  },
+  "gates_unchanged": [
+    "G02_readiness_dependencies",
+    "G03_actionable_tenant_aware_alerts",
+    "G04_webhook_payment_worker_backlog",
+    "G05_retry_replay_safety",
+    "G06_scaling_capacity",
+    "G07_rollback_incident_runbooks",
+    "G08_retention_privacy",
+    "G09_cost_controls"
+  ],
+  "lock_hash": "6b00889c65ea6ca6c244f596b0c1f8405a19864ac5bcac6e6e345e9e917a72ae"
+}

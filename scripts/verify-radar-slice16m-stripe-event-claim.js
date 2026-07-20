@@ -550,14 +550,15 @@ ok('C1 contract slice/branch/master',
   && contract.master_basis === MASTER
   && contract.gate_id === 'G05_retry_replay_safety'
   && contract.progress_class === 'source_partial_progress_only');
-// Successor 16O/16P/16R may own HEAD while 16M source remains frozen on its master basis.
+// Successor 16O/16P/16R/16S may own HEAD while 16M source remains frozen on its master basis.
 const allowedBranches = new Set([
   BRANCH,
   'radar/slice-16o-stripe-webhook-error-minimization',
   'radar/slice-16p-live-drill-evidence',
   'radar/slice-16r-request-completion-log',
+  'radar/slice-16s-request-log-live-evidence',
 ]);
-ok('C2 HEAD branch matches (16M or successor 16O/16P/16R)', allowedBranches.has(branch), `head=${branch}`);
+ok('C2 HEAD branch matches (16M or successor 16O/16P/16R/16S)', allowedBranches.has(branch), `head=${branch}`);
 ok('C3 ownership column is client_id (hostel rename)',
   PAYMENT_EVENTS_OWNERSHIP_COLUMN === 'client_id'
   && /INSERT INTO payment_events[\s\S]*client_id/.test(CLAIM_INSERT_SQL));

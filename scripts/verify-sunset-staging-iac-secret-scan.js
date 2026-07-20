@@ -42,6 +42,8 @@ const DISCOVERY_PATHSPECS = [
   'scripts/lib/staff-api-request-completion-log.js',
   'scripts/lib/radar-slice16r-staff-request-completion-log.js',
   'scripts/verify-radar-slice16r-staff-request-completion-log.js',
+  'scripts/lib/radar-slice16s-request-log-live-evidence.js',
+  'scripts/verify-radar-slice16s-request-log-live-evidence.js',
   'scripts/lib/staff-api-healthz.js',
   'scripts/lib/radar-slice16k-staff-api-healthz.js',
   'scripts/verify-radar-slice16k-staff-api-healthz.js',

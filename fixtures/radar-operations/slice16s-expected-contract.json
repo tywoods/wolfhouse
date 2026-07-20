@@ -1,0 +1,117 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16S",
+  "outcome_id": "16S_request_completion_log_live_evidence",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "partial_live_proven_evidence_only",
+  "master_basis": "1bf9695264250680c41c3e7f82baba97300001a0",
+  "branch": "radar/slice-16s-request-log-live-evidence",
+  "live_deploy": false,
+  "live_mutation": false,
+  "this_slice_deploys": false,
+  "title": "Record dual-staging 16R completion-log delivery/search/retention evidence — G01 partial_live_proven; E2E drill remains open",
+  "evidence_fixture": "fixtures/radar-operations/slice16s-request-log-live-evidence.json",
+  "builds_on": {
+    "outcome_id": "16R_staff_api_request_completion_log",
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "required_observed": {
+    "image_sha_full": "1bf9695264250680c41c3e7f82baba97300001a0",
+    "image_sha_short": "1bf9695",
+    "wolfhouse_app": "wh-staging-staff-api",
+    "wolfhouse_revision": "wh-staging-staff-api--0000517",
+    "wolfhouse_request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000001",
+    "wolfhouse_time_generated": "2026-07-20T23:32:38.0049767Z",
+    "sunset_app": "luna-sunset-staging-staff-api",
+    "sunset_revision": "luna-sunset-staging-staff-api--0000277",
+    "sunset_request_id": "aaaaaaaa-bbbb-4ccc-8ddd-16a000000002",
+    "sunset_tenant": "sunset",
+    "sunset_time_generated": "2026-07-20T23:32:54.8551295Z",
+    "route": "/healthz",
+    "status_code": 200,
+    "status_class": "2xx",
+    "duration_ms": 5,
+    "outcome": "completed",
+    "match_count": 1,
+    "table": "ContainerAppConsoleLogs_CL",
+    "logs_destination": "log-analytics",
+    "wolfhouse_law_customer_id": "43ae26dd-4a82-4a91-b744-5e1f94a2ae8f",
+    "wolfhouse_law_workspace": "wh-staging-logs",
+    "wolfhouse_retention_days": 30,
+    "sunset_law_customer_id": "552489bf-8e57-48df-8413-6e775caaa7d0",
+    "sunset_law_workspace": "luna-sunset-staging-logs",
+    "sunset_retention_days": 30,
+    "latest_equals_latest_ready": true,
+    "public_healthz_status": 200
+  },
+  "forbidden_claim_tokens": [
+    "end_to_end",
+    "meta_hermes_staff_stripe",
+    "concurrent_isolation",
+    "abort_error",
+    "production",
+    "verdict proven",
+    "gate_verdict_proven",
+    "human inbox",
+    "organic metric alert"
+  ],
+  "must_not_claim_as_proven": [
+    "end_to_end_meta_hermes_staff_stripe_correlation_drill",
+    "concurrent_isolation",
+    "abort_error_outcomes_in_law",
+    "production",
+    "any_gate_verdict_proven",
+    "G01_full_proven",
+    "g02_g09_score_changes"
+  ],
+  "verdict_policy": {
+    "proven": 0,
+    "partial": 9,
+    "absent": 0,
+    "note": "G01 upgrades to partial_live_proven only; verdict stays partial because E2E correlation drill remains open; other gate scores unchanged"
+  },
+  "still_open": [
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill",
+    "Concurrent isolation proof in LAW",
+    "Abort/error completion outcomes searchable in LAW",
+    "Production scope (forbidden)"
+  ],
+  "final_controlled_drill": {
+    "id": "16S_DRILL_completion_log_delivery_search_retention",
+    "status": "partial_delivery_search_retention_proven",
+    "pass_rule": "Dual-staging exact-SHA revisions emit exactly one searchable allowlisted staff_api_request_completion per supplied request_id in ContainerAppConsoleLogs_CL; LAW retention 30 both workspaces; ACA logsDestination=log-analytics; G01 remains partial until E2E Meta→Hermes→Staff→Stripe drill closes; proven count stays 0; no deploy by this slice"
+  },
+  "artifacts": [
+    "fixtures/radar-operations/slice16s-request-log-live-evidence.json",
+    "fixtures/radar-operations/slice16s-expected-contract.json",
+    "scripts/lib/radar-slice16s-request-log-live-evidence.js",
+    "scripts/verify-radar-slice16s-request-log-live-evidence.js",
+    "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
+    "fixtures/radar-operations/gate-matrix.json",
+    "fixtures/radar-operations/contract.json",
+    "fixtures/radar-operations/findings.md"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16s-request-log-live-evidence",
+    "npm run verify:radar-slice16r-staff-request-completion-log",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 1bf9695264250680c41c3e7f82baba97300001a0..HEAD"
+  ],
+  "zero_mutation_proof": {
+    "runtime_paths_unchanged": [
+      "database/",
+      "docker/hermes-staging/",
+      "scripts/staff-query-api.js",
+      "scripts/lib/staff-api-request-completion-log.js",
+      "scripts/lib/stripe-webhook-public-errors.js",
+      "infra/azure/staging/main.bicep",
+      "infra/azure/sunset-staging/main.bicep",
+      "infra/azure/staging-staff-api-metric-alerts/",
+      "infra/azure/staging-cost-budgets/"
+    ],
+    "note": "16S is evidence reconciliation only; records prior operator 16R live delivery/search/retention; does not deploy or mutate runtime"
+  }
+}
