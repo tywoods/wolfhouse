@@ -18,7 +18,7 @@
     "readiness": {
       "path": "/readyz",
       "depends_on_postgres": true,
-      "check": "bounded_readonly_select_1_via_existing_pool",
+      "check": "bounded_readonly_select_1_via_dedicated_max1_readiness_pool",
       "sql": "SELECT 1",
       "timeout_ms": 2500,
       "success": { "http_status": 200, "body": { "status": "ready" } },

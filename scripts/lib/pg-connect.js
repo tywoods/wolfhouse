@@ -60,11 +60,45 @@ async function withPgClient(fn) {
 }
 
 /**
- * Close the shared pool and clear keep-alive. Safe when never opened or already closed.
- * Staff API must not call this — long-lived servers keep the pool warm.
- * One-shot CLIs (e.g. hold-expiry) should call this in finally so the process can exit.
+ * Bound pool.end so shutdown never waits forever on a hung end().
+ * @param {{ end: Function } | null | undefined} ending
+ * @param {number} timeoutMs
+ * @returns {Promise<void>}
  */
-async function closePgPool() {
+function endPgPoolBounded(ending, timeoutMs) {
+  if (!ending || typeof ending.end !== 'function') {
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = () => {
+      if (settled) return;
+      settled = true;
+      resolve();
+    };
+    try {
+      const result = ending.end(done);
+      if (result && typeof result.then === 'function') {
+        result.then(done, done);
+      }
+    } catch (_) {
+      done();
+      return;
+    }
+    if (Number.isFinite(timeoutMs) && timeoutMs >= 0) {
+      const timer = setTimeout(done, timeoutMs);
+      if (timer && typeof timer.unref === 'function') timer.unref();
+    }
+  });
+}
+
+/**
+ * Close the shared pool and clear keep-alive. Safe when never opened or already closed.
+ * One-shot CLIs (e.g. hold-expiry) should call this in finally so the process can exit.
+ * Staff API graceful shutdown may pass { timeoutMs } so pool.end cannot hang forever.
+ * @param {{ timeoutMs?: number }} [opts]
+ */
+async function closePgPool(opts = {}) {
   if (keepAliveTimer) {
     clearInterval(keepAliveTimer);
     keepAliveTimer = null;
@@ -72,6 +106,13 @@ async function closePgPool() {
   if (!pool) return;
   const ending = pool;
   pool = null;
+  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0
+    ? opts.timeoutMs
+    : null;
+  if (timeoutMs != null) {
+    await endPgPoolBounded(ending, timeoutMs);
+    return;
+  }
   await ending.end();
 }
 
@@ -94,6 +135,7 @@ module.exports = {
   getPool,
   withPgClient,
   closePgPool,
+  endPgPoolBounded,
   _setPoolForTests,
   _getPoolForTests,
 };

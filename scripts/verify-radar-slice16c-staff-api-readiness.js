@@ -5,13 +5,16 @@
  *
  * Offline RED/GREEN gate for Staff API /readyz + ACA probes (Wolfhouse + Sunset).
  * Runtime proofs use real createStaffQueryApiHttpServer/router (fortress dual-gate),
- * not a synthetic listener. No live deploy, no Azure mutation, no real secrets.
+ * dedicated readiness Pool (pg 8.21) with a fake Client, and real signal handlers.
+ * No live deploy, no Azure mutation, no real secrets.
  */
 
 const fs = require('fs');
 const http = require('http');
 const path = require('path');
+const { EventEmitter } = require('events');
 const { execFileSync } = require('child_process');
+const { Pool } = require('pg');
 
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16c-staff-api-readiness');
@@ -106,6 +109,9 @@ function listen(server) {
 
 function closeServer(server) {
   return new Promise((resolve) => {
+    try {
+      if (typeof server.closeAllConnections === 'function') server.closeAllConnections();
+    } catch (_) { /* ignore */ }
     server.close(() => resolve());
   });
 }
@@ -158,109 +164,217 @@ function applyMinimalStaffApiEnv() {
 }
 
 /**
- * Instrumented withPgClient behaviors for real-router proofs.
- * Tracks pending acquires, checked-out clients, active queries, and late work.
+ * Fake Client that participates in real pg-pool connect/queue/release wrapping.
+ * Honors connectionTimeoutMillis (via pool) and query_timeout (client-side).
  */
-function createInstrumentedWithPgClient(behavior, tracker) {
-  const t = tracker || {
-    pendingAcquires: 0,
-    checkedOut: 0,
-    activeQueries: 0,
-    lateWorkAfterTimeout: 0,
-    acquireStarts: 0,
-    queryStarts: 0,
-    releases: 0,
+function createFakeClientClass(shared) {
+  const state = shared || {
+    connectCalls: 0,
+    queryCalls: 0,
+    endCalls: 0,
+    destroyCalls: 0,
+    releaseWithErr: 0,
+    releaseClean: 0,
+    hungQuery: false,
+    connectError: null,
+    queryError: null,
+    hangConnect: false,
+    hangEnd: false,
+    constructed: 0,
   };
 
-  async function withPgClient(fn) {
-    t.acquireStarts += 1;
-    t.pendingAcquires += 1;
-    try {
-      if (behavior === 'missing') {
-        return undefined;
-      }
-      if (behavior === 'error') {
-        const err = new Error([
-          'ECONNREFUSED',
-          ' ',
-          'pass',
-          'word',
-          '=',
-          'supersecret',
-          ' ',
-          'postgres',
-          ':',
-          '/',
-          '/',
-          'wolf:hunter2@db:5432/wolfhouse',
-        ].join(''));
-        err.stack = 'Error: boom\n    at Object.query (fake.js:1:1)';
-        throw err;
-      }
-      if (behavior === 'ok' || behavior === 'hung_query' || behavior === 'slow_acquire') {
-        if (behavior === 'slow_acquire') {
-          await new Promise((r) => setTimeout(r, readiness.READINESS_TIMEOUT_MS + 800));
-        }
-        t.pendingAcquires -= 1;
-        t.checkedOut += 1;
-        /** @type {{ _destroyed: boolean, _rejectQuery: ((err: Error) => void) | null, connection: object, query: Function }} */
-        const client = {
-          _destroyed: false,
-          _rejectQuery: null,
-          connection: {
-            stream: {
-              destroy() {
-                client._destroyed = true;
-                if (typeof client._rejectQuery === 'function') {
-                  const reject = client._rejectQuery;
-                  client._rejectQuery = null;
-                  reject(new Error('readiness_query_cancelled'));
-                }
-              },
-            },
+  class FakeClient extends EventEmitter {
+    constructor(opts = {}) {
+      super();
+      state.constructed += 1;
+      this.options = opts;
+      this._queryable = true;
+      this._ending = false;
+      this._connected = false;
+      this._queryTimeoutTimer = null;
+      this.connection = {
+        stream: {
+          destroy: () => {
+            state.destroyCalls += 1;
+            this._queryable = false;
+            this._ending = true;
           },
-          query: async (sql) => {
-            t.queryStarts += 1;
-            t.activeQueries += 1;
-            try {
-              if (behavior === 'hung_query') {
-                await new Promise((resolve, reject) => {
-                  client._rejectQuery = reject;
-                  const timer = setTimeout(resolve, readiness.READINESS_TIMEOUT_MS + 2000);
-                  const prevDestroy = client.connection.stream.destroy.bind(client.connection.stream);
-                  client.connection.stream.destroy = () => {
-                    clearTimeout(timer);
-                    prevDestroy();
-                  };
-                });
-              }
-              if (client._destroyed) throw new Error('readiness_query_cancelled');
-              if (sql !== readiness.READINESS_SQL) {
-                throw new Error(`unexpected sql ${sql}`);
-              }
-              return { rows: [{ '?column?': 1 }] };
-            } finally {
-              t.activeQueries -= 1;
-              client._rejectQuery = null;
+        },
+      };
+    }
+
+    isConnected() {
+      return this._connected;
+    }
+
+    unref() { /* pool allowExitOnIdle */ }
+
+    connect(cb) {
+      state.connectCalls += 1;
+      if (state.hangConnect) {
+        // Never connects — pool connectionTimeoutMillis must tear down.
+        return;
+      }
+      if (state.connectError) {
+        const err = state.connectError;
+        process.nextTick(() => cb(err));
+        return;
+      }
+      this._connected = true;
+      this._queryable = true;
+      process.nextTick(() => cb(null));
+    }
+
+    query(sqlConfig, values, cb) {
+      state.queryCalls += 1;
+      let text = sqlConfig;
+      let callback = cb;
+      if (typeof sqlConfig === 'object' && sqlConfig !== null) {
+        text = sqlConfig.text;
+        callback = typeof values === 'function' ? values : cb;
+      } else if (typeof values === 'function') {
+        callback = values;
+      }
+
+      const queryTimeout = this.options.query_timeout
+        || (this.options.connectionParameters && this.options.connectionParameters.query_timeout)
+        || 0;
+
+      const run = () => {
+        if (state.queryError) {
+          const err = state.queryError;
+          if (callback) callback(err);
+          return Promise.reject(err);
+        }
+        if (text !== readiness.READINESS_SQL && text !== 'SELECT 1') {
+          const err = new Error(`unexpected sql ${text}`);
+          if (callback) callback(err);
+          return Promise.reject(err);
+        }
+        const result = { rows: [{ '?column?': 1 }] };
+        if (callback) callback(null, result);
+        return Promise.resolve(result);
+      };
+
+      if (state.hungQuery) {
+        return new Promise((resolve, reject) => {
+          const finishErr = (err) => {
+            if (this._queryTimeoutTimer) {
+              clearTimeout(this._queryTimeoutTimer);
+              this._queryTimeoutTimer = null;
             }
-          },
-        };
-        try {
-          return await fn(client);
-        } finally {
-          t.checkedOut -= 1;
-          t.releases += 1;
-        }
+            if (callback) callback(err);
+            reject(err);
+          };
+          if (queryTimeout > 0) {
+            this._queryTimeoutTimer = setTimeout(() => {
+              finishErr(new Error('Query read timeout'));
+            }, queryTimeout);
+          }
+          // Intentionally never resolves on success path while hung.
+          this.once('_forceFail', finishErr);
+        });
       }
-      throw new Error(`unknown behavior ${behavior}`);
-    } catch (err) {
-      t.pendingAcquires = Math.max(0, t.pendingAcquires - 1);
-      throw err;
+
+      if (queryTimeout > 0 && state.slowQueryMs && state.slowQueryMs > queryTimeout) {
+        return new Promise((resolve, reject) => {
+          this._queryTimeoutTimer = setTimeout(() => {
+            const err = new Error('Query read timeout');
+            if (callback) callback(err);
+            reject(err);
+          }, queryTimeout);
+        });
+      }
+
+      return run();
+    }
+
+    end(cb) {
+      state.endCalls += 1;
+      this._ending = true;
+      this._queryable = false;
+      if (state.hangEnd) {
+        return;
+      }
+      if (typeof cb === 'function') process.nextTick(cb);
     }
   }
 
-  withPgClient._tracker = t;
-  return withPgClient;
+  FakeClient._state = state;
+  return FakeClient;
+}
+
+/**
+ * Real pg.Pool with FakeClient — exercises actual queue/timeout/release behavior.
+ */
+function createFakeClientReadinessPool(overrides = {}) {
+  const shared = overrides.shared || createFakeClientClass()._state;
+  // reset counters if reusing factory defaults
+  if (!overrides.shared) {
+    Object.assign(shared, {
+      connectCalls: 0,
+      queryCalls: 0,
+      endCalls: 0,
+      destroyCalls: 0,
+      releaseWithErr: 0,
+      releaseClean: 0,
+      constructed: 0,
+      hungQuery: !!overrides.hungQuery,
+      hangConnect: !!overrides.hangConnect,
+      hangEnd: !!overrides.hangEnd,
+      connectError: overrides.connectError || null,
+      queryError: overrides.queryError || null,
+      slowQueryMs: overrides.slowQueryMs || 0,
+    });
+  } else {
+    if (overrides.hungQuery != null) shared.hungQuery = overrides.hungQuery;
+    if (overrides.hangConnect != null) shared.hangConnect = overrides.hangConnect;
+    if (overrides.hangEnd != null) shared.hangEnd = overrides.hangEnd;
+    if (overrides.connectError !== undefined) shared.connectError = overrides.connectError;
+    if (overrides.queryError !== undefined) shared.queryError = overrides.queryError;
+  }
+  const FakeClient = createFakeClientClass(shared);
+  const timeoutMs = overrides.timeoutMs != null ? overrides.timeoutMs : 200;
+  const pool = new Pool(readiness.readinessPoolOptions(timeoutMs, {
+    Client: FakeClient,
+    // No real connection string — FakeClient never dials the network.
+    host: '127.0.0.1',
+    port: 1,
+    database: 'radar16c_fake',
+    user: 'radar16c',
+    password: 'x',
+  }));
+
+  // Wrap release via pool 'release' event to count destroy vs idle returns.
+  pool.on('release', (err) => {
+    if (err) shared.releaseWithErr += 1;
+    else shared.releaseClean += 1;
+  });
+
+  return { pool, shared, FakeClient };
+}
+
+/** Separate application pool stand-in to prove readiness never consumes it. */
+function createAppPoolProbe() {
+  const stats = { connectCalls: 0, waitingPeak: 0 };
+  const FakeClient = createFakeClientClass();
+  const pool = new Pool({
+    Client: FakeClient,
+    max: 2,
+    connectionTimeoutMillis: 5000,
+    host: '127.0.0.1',
+    port: 1,
+    database: 'app_fake',
+    user: 'app',
+    password: 'x',
+  });
+  const origConnect = pool.connect.bind(pool);
+  pool.connect = (...args) => {
+    stats.connectCalls += 1;
+    stats.waitingPeak = Math.max(stats.waitingPeak, pool.waitingCount);
+    return origConnect(...args);
+  };
+  return { pool, stats };
 }
 
 function bicepBuild(rel) {
@@ -320,7 +434,7 @@ function mutateLivenessToReadyz(text) {
   return text.replace(block, swapped);
 }
 
-async function withRealStaffApiServer(withPgClientImpl, fn) {
+async function withRealStaffApiServer(seams, fn) {
   const saved = {
     NODE_ENV: process.env.NODE_ENV,
     STAFF_RUNTIME_PROFILE: process.env.STAFF_RUNTIME_PROFILE,
@@ -332,20 +446,24 @@ async function withRealStaffApiServer(withPgClientImpl, fn) {
   };
   applyMinimalStaffApiEnv();
   clearStaffApiCache();
-  // Re-require readiness after cache clear so staff-query-api gets fresh copy
   delete require.cache[require.resolve('./lib/staff-api-readiness')];
   const api = require('./staff-query-api');
+  const readinessMod = require('./lib/staff-api-readiness');
   if (typeof api.createStaffQueryApiHttpServer !== 'function') {
     throw new Error('createStaffQueryApiHttpServer not exported — dual-gate inactive');
   }
-  api.setFortress15j3OfflineSeams({ withPgClient: withPgClientImpl });
+  api.setFortress15j3OfflineSeams(seams || null);
+  if (seams && seams.readinessPool) {
+    readinessMod._setReadinessPoolForTests(seams.readinessPool);
+  }
   const server = api.createStaffQueryApiHttpServer();
   const port = await listen(server);
   try {
-    return await fn({ api, server, port });
+    return await fn({ api, server, port, readinessMod });
   } finally {
     await closeServer(server);
     api.setFortress15j3OfflineSeams(null);
+    readinessMod._resetReadinessPoolStateForTests();
     clearStaffApiCache();
     for (const [k, v] of Object.entries(saved)) {
       if (v === undefined) delete process.env[k];
@@ -360,6 +478,7 @@ const contract = readJson(CONTRACT_REL);
 const probeFixture = readJson(PROBE_FIXTURE_REL);
 const apiSrc = readText(locks.STAFF_API_REL);
 const readinessSrc = readText(locks.READINESS_LIB_REL);
+const pgConnectSrc = readText('scripts/lib/pg-connect.js');
 const whBicep = readText(locks.WOLFHOUSE_BICEP_REL);
 const sunsetBicep = readText(locks.SUNSET_BICEP_REL);
 
@@ -383,9 +502,10 @@ ok('C3 readiness SQL locked to SELECT 1',
   readiness.READINESS_SQL === 'SELECT 1'
   && /const READINESS_SQL = 'SELECT 1'/.test(readinessSrc));
 
-ok('C4 staff-query-api wires /readyz before /healthz',
+ok('C4 staff-query-api wires /readyz before /healthz via readiness pool',
   /pathname === READYZ_PATH/.test(apiSrc)
   && /handleStaffApiReadyz\(res, sendJSON, withPgClient/.test(apiSrc)
+  && /getReadinessPool|readinessPool/.test(apiSrc)
   && apiSrc.indexOf("pathname === READYZ_PATH") < apiSrc.indexOf("pathname === '/healthz'")
   && /require\('\.\/lib\/staff-api-readiness'\)/.test(apiSrc));
 
@@ -407,20 +527,31 @@ ok('C6 readiness lib never returns error details',
   && !/err\.stack/.test(readinessSrc)
   && !/JSON\.stringify\(err/.test(readinessSrc));
 
-ok('C6b no Promise.race — cancellable readiness operation',
-  !/\bPromise\.race\s*\(/.test(readinessSrc)
-  && /function createReadinessOperation/.test(readinessSrc)
-  && /function acquirePoolClientBounded/.test(readinessSrc)
-  && /function cancel\(/.test(readinessSrc)
+ok('C6b public pg 8.21 only — no private queue/connection splice',
+  !/pool\._pendingQueue/.test(readinessSrc)
+  && !/_pendingQueue\.splice/.test(readinessSrc)
+  && !/pool\._clients/.test(readinessSrc)
+  && !/pool\._idle/.test(readinessSrc)
+  && /connectionTimeoutMillis/.test(readinessSrc)
+  && /query_timeout/.test(readinessSrc)
+  && /statement_timeout/.test(readinessSrc)
+  && /max:\s*1/.test(readinessSrc)
+  && /function createReadinessPool/.test(readinessSrc)
+  && /client\.release\(err\)/.test(readinessSrc)
+  && !/\bPromise\.race\s*\(/.test(readinessSrc)
   && !/createReadyzTestListener/.test(readinessSrc));
 
-ok('C6c graceful SIGTERM/SIGINT lifecycle present',
+ok('C6c graceful SIGTERM/SIGINT lifecycle present (bounded)',
   /function attachStaffQueryApiLifecycle/.test(apiSrc)
   && /process\.on\('SIGTERM'/.test(apiSrc)
   && /process\.on\('SIGINT'/.test(apiSrc)
+  && /closeReadinessPool/.test(apiSrc)
   && /closePgPool/.test(apiSrc)
+  && /closeIdleConnections|closeIdleConnections/.test(apiSrc)
+  && /closeAllConnections|forceCloseRemainingConnections|socket\.destroy/.test(apiSrc)
   && /installSignalHandlers/.test(apiSrc)
-  && /require\.main === module[\s\S]*attachStaffQueryApiLifecycle/.test(apiSrc));
+  && /require\.main === module[\s\S]*attachStaffQueryApiLifecycle/.test(apiSrc)
+  && /endPgPoolBounded|timeoutMs/.test(pgConnectSrc));
 
 const whProbe = locks.validateBicepProbeContract(whBicep);
 const sunProbe = locks.validateBicepProbeContract(sunsetBicep);
@@ -444,123 +575,165 @@ ok('C11 npm script registered',
 // ── RED ─────────────────────────────────────────────────────────────────────
 
 (async () => {
-  // RED: missing pool / withPgClient
+  // pg-pool unrefs connectionTimeoutMillis timers; keep the event loop alive for
+  // offline saturation proofs that rely solely on those public timeouts.
+  const keepAlive = setInterval(() => {}, 1000);
+
+  // RED: missing pool
   {
-    const r = await readiness.checkPostgresReadiness(null);
+    readiness._resetReadinessPoolStateForTests();
+    readiness._setReadinessPoolForTests(null);
+    // Force closed so getReadinessPool returns null
+    await readiness.closeReadinessPool({ timeoutMs: 10 });
+    const r = await readiness.checkPostgresReadiness(null, { getPool: () => null });
     red('missing_pool', r.ok === false);
-    const r2 = await readiness.checkPostgresReadiness(undefined);
-    red('missing_pool_undefined', r2.ok === false);
+    readiness._resetReadinessPoolStateForTests();
   }
 
-  // RED: DB error → not-ready, no leak (real server)
+  // RED: DB connect error → not-ready, no leak (real server + readiness pool path)
   {
-    const withPg = createInstrumentedWithPgClient('error');
-    await withRealStaffApiServer(withPg, async ({ port }) => {
-      const res = await httpGet(port, '/readyz');
-      red('db_error_503',
-        res.statusCode === 503
-        && JSON.parse(res.body).status === 'not-ready'
-        && !bodyHasSensitiveLeak(res.body, ['supersecret', 'hunter2']));
+    const { pool, shared } = createFakeClientReadinessPool({
+      timeoutMs: 300,
+      connectError: new Error([
+        'ECONNREFUSED',
+        ' password=supersecret ',
+        'postgres',
+        '://wolf:hunter2@db:5432/wolfhouse',
+      ].join('')),
     });
-  }
-
-  // RED: hung query → timeout cancels + cleanup (real server)
-  {
-    const tracker = {
-      pendingAcquires: 0,
-      checkedOut: 0,
-      activeQueries: 0,
-      lateWorkAfterTimeout: 0,
-      acquireStarts: 0,
-      queryStarts: 0,
-      releases: 0,
-    };
-    const withPg = createInstrumentedWithPgClient('hung_query', tracker);
-    await withRealStaffApiServer(withPg, async ({ port }) => {
-      const started = Date.now();
-      const res = await httpGet(port, '/readyz', readiness.READINESS_TIMEOUT_MS + 3000);
-      const elapsed = Date.now() - started;
-      // Allow release to settle
-      await new Promise((r) => setTimeout(r, 100));
-      red('hung_query_cancel_cleanup',
-        res.statusCode === 503
-        && JSON.parse(res.body).status === 'not-ready'
-        && elapsed < readiness.READINESS_TIMEOUT_MS + 1500
-        && tracker.checkedOut === 0
-        && tracker.activeQueries === 0
-        && tracker.releases >= 1
-        && !bodyHasSensitiveLeak(res.body),
-        `elapsed=${elapsed} checkedOut=${tracker.checkedOut} active=${tracker.activeQueries} releases=${tracker.releases}`);
-    });
-  }
-
-  // RED: pool saturation / acquisition timeout — pending waiter removed
-  {
-    const satPool = {
-      _pendingQueue: [],
-      get waitingCount() { return this._pendingQueue.length; },
-      checkedOut: 0,
-      lateReleases: 0,
-      connect(cb) {
-        const item = { callback: cb, timedOut: false };
-        satPool._pendingQueue.push(item);
-        // Never resolves unless someone pulses — timeout must remove waiter
-      },
-    };
-    const started = Date.now();
-    const r = await readiness.checkPostgresReadiness(null, {
-      timeoutMs: 200,
-      pool: satPool,
-    });
-    const elapsed = Date.now() - started;
-    await new Promise((r2) => setTimeout(r2, 50));
-    red('pool_saturation_acquire_timeout',
-      r.ok === false
-      && elapsed < 800
-      && satPool._pendingQueue.length === 0
-      && satPool.waitingCount === 0
-      && satPool.checkedOut === 0,
-      `elapsed=${elapsed} pending=${satPool._pendingQueue.length} waiting=${satPool.waitingCount}`);
-  }
-
-  // RED: repeated timeouts must not accumulate pending/probe tasks or exhaust pool
-  {
-    const satPool = {
-      _pendingQueue: [],
-      get waitingCount() { return this._pendingQueue.length; },
-      checkedOut: 0,
-      connectCalls: 0,
-      connect(cb) {
-        this.connectCalls += 1;
-        const item = { callback: cb, timedOut: false };
-        this._pendingQueue.push(item);
-      },
-    };
-    for (let i = 0; i < 8; i += 1) {
-      await readiness.checkPostgresReadiness(null, { timeoutMs: 80, pool: satPool });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ port }) => {
+        const res = await httpGet(port, '/readyz');
+        red('db_error_503',
+          res.statusCode === 503
+          && JSON.parse(res.body).status === 'not-ready'
+          && !bodyHasSensitiveLeak(res.body, ['supersecret', 'hunter2'])
+          && shared.connectCalls >= 1);
+      });
+    } finally {
+      await readiness.endPoolBounded(pool, 200);
     }
-    await new Promise((r2) => setTimeout(r2, 30));
-    red('repeated_timeout_no_pool_exhaustion',
-      satPool._pendingQueue.length === 0
-      && satPool.waitingCount === 0
-      && satPool.checkedOut === 0
-      && satPool.connectCalls === 8,
-      `pending=${satPool._pendingQueue.length} calls=${satPool.connectCalls}`);
+  }
+
+  // RED: hung query → query_timeout + release(err) destroy once (real pool path)
+  {
+    const { pool, shared } = createFakeClientReadinessPool({
+      timeoutMs: 150,
+      hungQuery: true,
+    });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ port }) => {
+        const started = Date.now();
+        const res = await httpGet(port, '/readyz', 4000);
+        const elapsed = Date.now() - started;
+        await new Promise((r) => setTimeout(r, 50));
+        red('hung_query_cancel_cleanup',
+          res.statusCode === 503
+          && JSON.parse(res.body).status === 'not-ready'
+          && elapsed < 2000
+          && shared.releaseWithErr >= 1
+          && pool.waitingCount === 0
+          && pool.totalCount === 0
+          && !bodyHasSensitiveLeak(res.body),
+          `elapsed=${elapsed} releaseWithErr=${shared.releaseWithErr} total=${pool.totalCount} waiting=${pool.waitingCount}`);
+      });
+    } finally {
+      await readiness.endPoolBounded(pool, 200);
+    }
+  }
+
+  // RED: late acquire after connectionTimeout — waiter removed by public pool behavior
+  {
+    const { pool, shared } = createFakeClientReadinessPool({ timeoutMs: 120 });
+    const held = await pool.connect();
+    try {
+      const started = Date.now();
+      const r = await readiness.checkPostgresReadiness(null, { pool, timeoutMs: 120 });
+      const elapsed = Date.now() - started;
+      // Late release of held client must not leave a pending timed-out waiter
+      held.release();
+      await new Promise((r2) => setTimeout(r2, 30));
+      red('pool_saturation_acquire_timeout',
+        r.ok === false
+        && elapsed < 800
+        && pool.waitingCount === 0
+        && pool.idleCount === 1
+        && pool.totalCount === 1,
+        `elapsed=${elapsed} waiting=${pool.waitingCount} idle=${pool.idleCount} total=${pool.totalCount} connects=${shared.connectCalls}`);
+    } finally {
+      try { held.release(); } catch (_) { /* may already be released */ }
+      await readiness.endPoolBounded(pool, 200);
+    }
+  }
+
+  // RED: repeated saturation — no waiter accumulation; application pool untouched
+  {
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 80 });
+    const app = createAppPoolProbe();
+    const held = await pool.connect();
+    const appBefore = {
+      connect: app.stats.connectCalls,
+      waiting: app.pool.waitingCount,
+      total: app.pool.totalCount,
+    };
+    try {
+      for (let i = 0; i < 8; i += 1) {
+        await readiness.checkPostgresReadiness(null, { pool, timeoutMs: 80 });
+      }
+      await new Promise((r2) => setTimeout(r2, 30));
+      red('repeated_timeout_no_pool_exhaustion',
+        pool.waitingCount === 0
+        && app.stats.connectCalls === appBefore.connect
+        && app.pool.waitingCount === appBefore.waiting
+        && app.pool.totalCount === appBefore.total,
+        `readyWaiting=${pool.waitingCount} appConnect=${app.stats.connectCalls} appWaiting=${app.pool.waitingCount}`);
+    } finally {
+      try { held.release(); } catch (_) { /* ignore */ }
+      await readiness.endPoolBounded(pool, 200);
+      await readiness.endPoolBounded(app.pool, 200);
+    }
+  }
+
+  // RED: late acquire after timeout preserves healthy idle client
+  {
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 100 });
+    const held = await pool.connect();
+    const pending = readiness.checkPostgresReadiness(null, { pool, timeoutMs: 100 });
+    await new Promise((r) => setTimeout(r, 130));
+    const r = await pending;
+    held.release();
+    await new Promise((r2) => setTimeout(r2, 40));
+    // Healthy client returned to idle — not destroyed by late timed-out waiter
+    const healthy = await readiness.checkPostgresReadiness(null, { pool, timeoutMs: 200 });
+    red('late_acquire_healthy_client_preserved',
+      r.ok === false
+      && healthy.ok === true
+      && pool.idleCount === 1
+      && pool.totalCount === 1
+      && pool.waitingCount === 0,
+      `idle=${pool.idleCount} total=${pool.totalCount} healthy=${healthy.ok}`);
+    await readiness.endPoolBounded(pool, 200);
   }
 
   // RED: sensitive error leakage via checkPostgresReadiness return shape
   {
-    const r = await readiness.checkPostgresReadiness(createInstrumentedWithPgClient('error'));
+    const { pool } = createFakeClientReadinessPool({
+      timeoutMs: 200,
+      connectError: new Error('ECONNREFUSED password=supersecret'),
+    });
+    const r = await readiness.checkPostgresReadiness(null, { pool });
     red('no_sensitive_fields_on_result',
       r.ok === false
       && Object.keys(r).length === 1
       && !('error' in r)
       && !('message' in r)
       && !('stack' in r));
+    await readiness.endPoolBounded(pool, 200);
   }
 
   // RED: DML/DDL query changes rejected
   {
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 200 });
     const badSqls = [
       'INSERT INTO t VALUES (1)',
       'UPDATE t SET x=1',
@@ -574,13 +747,11 @@ ok('C11 npm script registered',
     let allRejected = true;
     for (const sql of badSqls) {
       const gate = readiness.assertReadOnlyReadinessSql(sql);
-      const check = await readiness.checkPostgresReadiness(
-        createInstrumentedWithPgClient('ok'),
-        { sql },
-      );
+      const check = await readiness.checkPostgresReadiness(null, { pool, sql });
       if (gate.ok || check.ok) allRejected = false;
     }
     red('dml_ddl_query_rejected', allRejected);
+    await readiness.endPoolBounded(pool, 200);
   }
 
   // RED: swapped paths in source would fail static contract
@@ -642,62 +813,154 @@ ok('C11 npm script registered',
 
   // ── GREEN ─────────────────────────────────────────────────────────────────
 
-  // GREEN: real createStaffQueryApiHttpServer success + healthz independence
+  // GREEN: real createStaffQueryApiHttpServer + readiness pool path success
   {
-    await withRealStaffApiServer(createInstrumentedWithPgClient('ok'), async ({ port, api }) => {
-      const ready = await httpGet(port, '/readyz');
-      const live = await httpGet(port, '/healthz');
-      green('real_listener_readyz_200',
-        ready.statusCode === 200
-        && JSON.parse(ready.body).status === 'ready'
-        && !bodyHasSensitiveLeak(ready.body)
-        && typeof api.createStaffQueryApiHttpServer === 'function'
-        && typeof api.router === 'function');
-      green('real_listener_healthz_200_static',
-        live.statusCode === 200
-        && JSON.parse(live.body).status === 'ok'
-        && !bodyHasSensitiveLeak(live.body));
-    });
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 500 });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ port, api }) => {
+        const ready = await httpGet(port, '/readyz');
+        const live = await httpGet(port, '/healthz');
+        green('real_listener_readyz_200',
+          ready.statusCode === 200
+          && JSON.parse(ready.body).status === 'ready'
+          && !bodyHasSensitiveLeak(ready.body)
+          && typeof api.createStaffQueryApiHttpServer === 'function'
+          && typeof api.router === 'function'
+          && pool.idleCount === 1
+          && pool.totalCount === 1);
+        green('real_listener_healthz_200_static',
+          live.statusCode === 200
+          && JSON.parse(live.body).status === 'ok'
+          && !bodyHasSensitiveLeak(live.body));
+      });
+    } finally {
+      await readiness.endPoolBounded(pool, 200);
+    }
   }
 
-  // GREEN: shutdown with in-flight readiness — drain + close pool exactly once
+  // GREEN: shutdown with hanging pool.end — bounded close
   {
     let closeCalls = 0;
-    const tracker = {
-      pendingAcquires: 0,
-      checkedOut: 0,
-      activeQueries: 0,
-      lateWorkAfterTimeout: 0,
-      acquireStarts: 0,
-      queryStarts: 0,
-      releases: 0,
-    };
-    const withPg = createInstrumentedWithPgClient('hung_query', tracker);
-    await withRealStaffApiServer(withPg, async ({ api, server, port }) => {
-      const life = api.attachStaffQueryApiLifecycle(server, {
-        drainMs: 500,
-        closePool: async () => { closeCalls += 1; },
-        log: () => {},
-      });
-      const inflight = httpGet(port, '/readyz', readiness.READINESS_TIMEOUT_MS + 4000);
-      await new Promise((r) => setTimeout(r, 50));
-      await life.shutdown('test');
-      await life.shutdown('test-again'); // exactly-once pool close
-      let inflightStatus = null;
-      try {
-        const res = await inflight;
-        inflightStatus = res.statusCode;
-      } catch (_) {
-        inflightStatus = 'closed';
-      }
-      await new Promise((r) => setTimeout(r, 100));
-      green('shutdown_inflight_readiness_cleanup',
-        closeCalls === 1
-        && life.isShuttingDown() === true
-        && tracker.checkedOut === 0
-        && (inflightStatus === 503 || inflightStatus === 'closed' || inflightStatus === 200),
-        `closeCalls=${closeCalls} checkedOut=${tracker.checkedOut} inflight=${inflightStatus}`);
+    let closeStarted = 0;
+    const { pool, shared } = createFakeClientReadinessPool({
+      timeoutMs: 300,
+      hangEnd: true,
     });
+    // Warm a client so end() has work that can hang
+    await readiness.checkPostgresReadiness(null, { pool, timeoutMs: 300 });
+    shared.hangEnd = true;
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ api, server, port }) => {
+        const life = api.attachStaffQueryApiLifecycle(server, {
+          drainMs: 100,
+          poolCloseTimeoutMs: 150,
+          closePool: async () => {
+            closeCalls += 1;
+            closeStarted = Date.now();
+            await readiness.endPoolBounded(pool, 150);
+          },
+          log: () => {},
+        });
+        const started = Date.now();
+        await life.shutdown('test');
+        await life.shutdown('test-again');
+        const elapsed = Date.now() - started;
+        green('shutdown_inflight_readiness_cleanup',
+          closeCalls === 1
+          && life.isShuttingDown() === true
+          && elapsed < 1500,
+          `closeCalls=${closeCalls} elapsed=${elapsed}`);
+        void port;
+      });
+    } finally {
+      shared.hangEnd = false;
+      await readiness.endPoolBounded(pool, 200);
+    }
+  }
+
+  // GREEN: keep-alive / active sockets force-closed at drain deadline
+  {
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 400 });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ api, server, port }) => {
+        const life = api.attachStaffQueryApiLifecycle(server, {
+          drainMs: 80,
+          poolCloseTimeoutMs: 100,
+          closePool: async () => {},
+          log: () => {},
+        });
+        const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+        const hold = await new Promise((resolve, reject) => {
+          const req = http.request({
+            host: '127.0.0.1',
+            port,
+            path: '/healthz',
+            method: 'GET',
+            agent,
+            headers: { Connection: 'keep-alive' },
+          }, (res) => {
+            res.resume();
+            res.on('end', () => resolve({ req, socket: req.socket }));
+          });
+          req.on('error', reject);
+          req.end();
+        });
+        await new Promise((r) => setTimeout(r, 20));
+        const socketsBefore = life.getTrackedSocketCount();
+        const started = Date.now();
+        await life.shutdown('keepalive-test');
+        await new Promise((r) => setTimeout(r, 30));
+        const elapsed = Date.now() - started;
+        const socketsAfter = life.getTrackedSocketCount();
+        agent.destroy();
+        green('shutdown_keepalive_sockets_force_closed',
+          socketsBefore >= 1
+          && socketsAfter === 0
+          && elapsed < 1000
+          && life.isShuttingDown() === true,
+          `before=${socketsBefore} after=${socketsAfter} elapsed=${elapsed}`);
+        void hold;
+      });
+    } finally {
+      await readiness.endPoolBounded(pool, 200);
+    }
+  }
+
+  // GREEN: actual SIGTERM/SIGINT install + removal + duplicate idempotent
+  {
+    const { pool } = createFakeClientReadinessPool({ timeoutMs: 400 });
+    try {
+      await withRealStaffApiServer({ readinessPool: pool }, async ({ api, server }) => {
+        let closeCalls = 0;
+        const life = api.attachStaffQueryApiLifecycle(server, {
+          drainMs: 50,
+          poolCloseTimeoutMs: 100,
+          closePool: async () => { closeCalls += 1; },
+          log: () => {},
+        });
+        const remove = life.installSignalHandlers();
+        const termCountBefore = process.listenerCount('SIGTERM');
+        const intCountBefore = process.listenerCount('SIGINT');
+        process.emit('SIGTERM');
+        await new Promise((r) => setTimeout(r, 120));
+        process.emit('SIGTERM');
+        process.emit('SIGINT');
+        await new Promise((r) => setTimeout(r, 80));
+        remove();
+        const termCountAfter = process.listenerCount('SIGTERM');
+        const intCountAfter = process.listenerCount('SIGINT');
+        green('signal_handlers_duplicate_idempotent',
+          closeCalls === 1
+          && termCountBefore >= 1
+          && intCountBefore >= 1
+          && termCountAfter === termCountBefore - 1
+          && intCountAfter === intCountBefore - 1
+          && life.isShuttingDown() === true,
+          `closeCalls=${closeCalls} term ${termCountBefore}->${termCountAfter} int ${intCountBefore}->${intCountAfter}`);
+      });
+    } finally {
+      await readiness.endPoolBounded(pool, 200);
+    }
   }
 
   {
@@ -758,6 +1021,7 @@ ok('C11 npm script registered',
     'hung_query_cancel_cleanup',
     'pool_saturation_acquire_timeout',
     'repeated_timeout_no_pool_exhaustion',
+    'late_acquire_healthy_client_preserved',
     'no_sensitive_fields_on_result',
     'dml_ddl_query_rejected',
     'paths_not_swapped_in_source',
@@ -772,6 +1036,8 @@ ok('C11 npm script registered',
     'real_listener_readyz_200',
     'real_listener_healthz_200_static',
     'shutdown_inflight_readiness_cleanup',
+    'shutdown_keepalive_sockets_force_closed',
+    'signal_handlers_duplicate_idempotent',
     'compiled_wolfhouse_bicep_has_probes',
     'compiled_sunset_bicep_has_probes',
   ];
@@ -786,6 +1052,8 @@ ok('C11 npm script registered',
     { cwd: ROOT, encoding: 'utf8' },
   ).trim();
   ok('C15 no database/hermes mutation vs master', forbiddenDiff === '', forbiddenDiff);
+
+  clearInterval(keepAlive);
 
   console.log(`\nRED: ${redResults.filter((r) => r.ok).length}/${redResults.length}  GREEN: ${greenResults.filter((r) => r.ok).length}/${greenResults.length}`);
   console.log(`Result: ${pass} passed, ${fail} failed`);

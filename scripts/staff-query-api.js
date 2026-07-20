@@ -73,12 +73,14 @@ const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(pr
 
 const {
   withPgClient: _withPgClientImpl,
-  getPool: _getPgPool,
   closePgPool,
 } = require('./lib/pg-connect');
 const {
   READYZ_PATH,
   handleStaffApiReadyz,
+  getReadinessPool,
+  closeReadinessPool,
+  READINESS_POOL_CLOSE_TIMEOUT_MS,
 } = require('./lib/staff-api-readiness');
 
 /** FORTRESS 15J3 offline listener harness — inject PG/session/ACL boundaries only when dual-gated. */
@@ -46628,14 +46630,13 @@ async function router(req, res) {
     return handleConversationDetail(convIdMatch[1], parsed.query, res, auth.user);
   }
 
-  // RADAR 16C: /readyz = dependency readiness (bounded read-only Postgres via pool).
+  // RADAR 16C: /readyz = dependency readiness via dedicated max-1 readiness pool.
   // /healthz stays static liveness — must not touch Postgres (ACA liveness/startup).
   if (pathname === READYZ_PATH) {
-    // Prefer pool-bounded acquire/cancel when not on the fortress offline seam;
-    // seam tests inject withPgClient and must keep that path.
-    const readinessOpts = fortressOfflineListenerSeamsActive()
-      ? {}
-      : { getPool: _getPgPool };
+    const seam = getFortress15j3OfflineSeams();
+    const readinessOpts = (seam && seam.readinessPool)
+      ? { pool: seam.readinessPool }
+      : { getPool: getReadinessPool };
     return handleStaffApiReadyz(res, sendJSON, withPgClient, readinessOpts);
   }
 
@@ -46678,16 +46679,21 @@ function shouldEagerCreateStaffQueryApiServer() {
 
 /** RADAR 16C — bound how long SIGTERM/SIGINT waits for in-flight HTTP to finish. */
 const STAFF_API_SHUTDOWN_DRAIN_MS = Number(process.env.STAFF_API_SHUTDOWN_DRAIN_MS || 10000);
+/** RADAR 16C — bound application pool.end during graceful shutdown. */
+const STAFF_API_POOL_CLOSE_TIMEOUT_MS = Number(
+  process.env.STAFF_API_POOL_CLOSE_TIMEOUT_MS || READINESS_POOL_CLOSE_TIMEOUT_MS,
+);
 
 /**
- * Graceful lifecycle for a Staff API HTTP server: stop accepting, drain in-flight
- * (bounded), close shared PG pool + keepalive exactly once. Safe to call repeatedly.
- * Importing this module does NOT attach signals or close the pool (one-shot CLIs
- * that only require() staff-query-api stay unaffected).
+ * Graceful lifecycle for a Staff API HTTP server:
+ * track sockets → stop accepts → close idle → force-close at deadline →
+ * close readiness + application pools once (bounded). Duplicate SIGTERM/SIGINT
+ * is idempotent. Importing this module does NOT attach signals or close pools.
  *
  * @param {import('http').Server} httpServer
  * @param {{
  *   drainMs?: number,
+ *   poolCloseTimeoutMs?: number,
  *   closePool?: () => Promise<void>,
  *   onAfterClose?: () => void,
  *   log?: (msg: string) => void,
@@ -46697,12 +46703,46 @@ function attachStaffQueryApiLifecycle(httpServer, opts = {}) {
   const drainMs = Number.isFinite(opts.drainMs) && opts.drainMs >= 0
     ? opts.drainMs
     : STAFF_API_SHUTDOWN_DRAIN_MS;
-  const closePool = typeof opts.closePool === 'function' ? opts.closePool : closePgPool;
+  const poolCloseTimeoutMs = Number.isFinite(opts.poolCloseTimeoutMs) && opts.poolCloseTimeoutMs >= 0
+    ? opts.poolCloseTimeoutMs
+    : STAFF_API_POOL_CLOSE_TIMEOUT_MS;
   const log = typeof opts.log === 'function' ? opts.log : ((msg) => console.log(msg));
   let shuttingDown = false;
   /** @type {Promise<void> | null} */
   let shutdownPromise = null;
-  let poolClosed = false;
+  let poolsClosed = false;
+  /** @type {Set<import('net').Socket>} */
+  const sockets = new Set();
+
+  function trackSocket(socket) {
+    sockets.add(socket);
+    socket.on('close', () => { sockets.delete(socket); });
+  }
+
+  httpServer.on('connection', trackSocket);
+  httpServer.on('secureConnection', trackSocket);
+
+  async function defaultClosePools() {
+    await closeReadinessPool({ timeoutMs: poolCloseTimeoutMs });
+    await closePgPool({ timeoutMs: poolCloseTimeoutMs });
+  }
+
+  const closePool = typeof opts.closePool === 'function' ? opts.closePool : defaultClosePools;
+
+  function closeIdleConnections() {
+    if (typeof httpServer.closeIdleConnections === 'function') {
+      try { httpServer.closeIdleConnections(); } catch (_) { /* ignore */ }
+    }
+  }
+
+  function forceCloseRemainingConnections() {
+    if (typeof httpServer.closeAllConnections === 'function') {
+      try { httpServer.closeAllConnections(); } catch (_) { /* ignore */ }
+    }
+    for (const socket of sockets) {
+      try { socket.destroy(); } catch (_) { /* ignore */ }
+    }
+  }
 
   async function shutdown(reason) {
     if (shutdownPromise) return shutdownPromise;
@@ -46711,22 +46751,37 @@ function attachStaffQueryApiLifecycle(httpServer, opts = {}) {
       log(`Staff API shutting down (${reason || 'signal'})…`);
       await new Promise((resolve) => {
         let settled = false;
+        /** @type {ReturnType<typeof setTimeout> | null} */
+        let drainTimer = null;
         const done = () => {
           if (settled) return;
           settled = true;
+          if (drainTimer) {
+            clearTimeout(drainTimer);
+            drainTimer = null;
+          }
+          // Always force-close leftovers (keep-alive / active) at end of drain phase.
+          forceCloseRemainingConnections();
           resolve();
         };
         try {
-          httpServer.close(done);
+          httpServer.close(() => {
+            done();
+          });
         } catch (_) {
           done();
           return;
         }
-        const drainTimer = setTimeout(done, drainMs);
+        // Drop keep-alive/idle sockets early so drain can finish.
+        closeIdleConnections();
+        drainTimer = setTimeout(() => {
+          forceCloseRemainingConnections();
+          done();
+        }, drainMs);
         if (drainTimer && typeof drainTimer.unref === 'function') drainTimer.unref();
       });
-      if (!poolClosed) {
-        poolClosed = true;
+      if (!poolsClosed) {
+        poolsClosed = true;
         try {
           await closePool();
         } catch (_) {
@@ -46765,6 +46820,7 @@ function attachStaffQueryApiLifecycle(httpServer, opts = {}) {
     shutdown,
     installSignalHandlers,
     isShuttingDown: () => shuttingDown,
+    getTrackedSocketCount: () => sockets.size,
   };
 }
 
