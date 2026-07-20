@@ -5,7 +5,7 @@ const year = new Date().getFullYear();
 <footer class="site-footer night">
   <div class="container site-footer__inner">
     <div class="site-footer__brand">
-      <a href="#top" class="brand" aria-label="Luna Front Desk home">
+      <a href="#top" class="brand">
         <span class="brand__moon" aria-hidden="true"></span>
         <span class="brand__name">Luna<span>Front&nbsp;Desk</span></span>
       </a>
@@ -13,14 +13,14 @@ const year = new Date().getFullYear();
     </div>
     <nav class="site-footer__links" aria-label="Footer">
       <div>
-        <h4>Product</h4>
+        <h3>Product</h3>
         <a href="#demo">Live demo</a>
         <a href="#how">How it works</a>
         <a href="#who">Who it's for</a>
         <a href="#trust">Trust &amp; control</a>
       </div>
       <div>
-        <h4>Company</h4>
+        <h3>Company</h3>
         <a href={`mailto:${site.contactEmail}`}>Contact</a>
         <a href="#lead">Request a demo</a>
       </div>
@@ -39,7 +39,7 @@ const year = new Date().getFullYear();
     .site-footer__brand p { color: var(--night-muted); font-size: var(--step--1); }
     .site-footer__brand .brand__name { color: var(--night-text); }
     .site-footer__links { display: flex; gap: var(--space-xl); }
-    .site-footer__links h4 { color: var(--night-text); font-family: var(--font-sans); font-size: var(--step--1); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--space-s); }
+    .site-footer__links h3 { color: var(--night-text); font-family: var(--font-sans); font-weight: 600; font-size: var(--step--1); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: var(--space-s); }
     .site-footer__links a { display: block; color: var(--night-muted); font-size: var(--step--1); padding-block: 0.28rem; }
     .site-footer__links a:hover { color: var(--night-text); }
     .site-footer__legal { display: flex; flex-wrap: wrap; gap: var(--space-m); justify-content: space-between; margin-top: var(--space-xl); padding-top: var(--space-m); border-top: 1px solid var(--night-border); color: var(--night-muted); font-size: var(--step--1); }

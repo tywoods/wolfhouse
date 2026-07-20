@@ -54,12 +54,12 @@ p { text-wrap: pretty; }
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--terracotta-600);
+  color: var(--terracotta-text);
   display: inline-flex;
   align-items: center;
   gap: var(--space-2xs);
 }
-.eyebrow--accent { color: var(--seaglass-600); }
+.eyebrow--accent { color: var(--seaglass-text); }
 .eyebrow--moon { color: var(--moon-300); }
 
 .lead { font-size: var(--step-1); color: var(--text-muted); max-width: var(--prose-max); }
@@ -75,8 +75,8 @@ p { text-wrap: pretty; }
 }
 .btn:hover { transform: translateY(-2px); }
 .btn:active { transform: translateY(0); }
-.btn--primary { background: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow-m); }
-.btn--primary:hover { background: var(--terracotta-600); box-shadow: var(--shadow-l); }
+.btn--primary { background: var(--primary); color: var(--primary-ink); box-shadow: var(--shadow-m); font-weight: 700; }
+.btn--primary:hover { background: var(--primary-hover); box-shadow: var(--shadow-l); }
 .btn--ghost { background: transparent; color: var(--ink-900); border-color: var(--sand-300); }
 .btn--ghost:hover { border-color: var(--ink-700); background: rgba(20, 19, 43, 0.03); }
 .btn--on-night { background: var(--moon-200); color: var(--ink-900); }

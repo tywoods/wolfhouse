@@ -38,10 +38,16 @@
   --border: var(--sand-200);
   --text: #211f38;
   --text-muted: #6b6784;
-  --text-faint: #948fa8;
+  --text-faint: #6c6787;
   --primary: var(--terracotta-500);
-  --primary-ink: #ffffff;
+  --primary-hover: var(--terracotta-400); /* lighter on hover — pairs with dark ink label for AA */
+  --primary-ink: #1a1206; /* dark ink on terracotta → ~5:1 contrast (AA) */
   --accent: var(--seaglass-600);
+
+  /* AA-safe accent colours for SMALL text on the light sand canvas (the vivid
+     brand accents above are for fills/large text only). */
+  --terracotta-text: #a8432a;
+  --seaglass-text: #2f7263;
 
   /* --- Semantic (dark / night surfaces, e.g. hero, ops panel) ------------ */
   --night-bg: var(--ink-900);
