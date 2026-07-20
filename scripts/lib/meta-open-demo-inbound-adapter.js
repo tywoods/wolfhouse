@@ -45,6 +45,9 @@ function buildOpenDemoGuestEmailFromPhone(phone) {
 
 /**
  * Map normalized Meta webhook fields to n8n-shaped open-demo body.
+ * When ingress authority is active, never fall back to a hardcoded conflicting
+ * wolfhouse-somo slug — use post-authority normalized.client_slug only.
+ * Propagates location_id when present.
  */
 function buildOpenDemoRequestBodyFromMeta(normalized) {
   const n = normalized || {};
@@ -60,9 +63,17 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     }
   }
 
-  return {
+  const ia = n.ingress_authority;
+  const authorityActive = !!(ia && ia.active === true);
+  let clientSlug = trimStr(n.client_slug);
+  if (!clientSlug && !authorityActive) {
+    // Legacy default-off / routing-absent posture only.
+    clientSlug = 'wolfhouse-somo';
+  }
+
+  const body = {
     source: META_OPEN_DEMO_SOURCE,
-    client_slug: trimStr(n.client_slug) || 'wolfhouse-somo',
+    client_slug: clientSlug,
     channel: 'whatsapp',
     phone_number_id: n.phone_number_id != null ? trimStr(n.phone_number_id) : null,
     receiving_whatsapp_number: n.receiving_whatsapp_number != null
@@ -77,6 +88,11 @@ function buildOpenDemoRequestBodyFromMeta(normalized) {
     inbound_message_id: n.wa_message_id,
     received_at: receivedAt || new Date().toISOString(),
   };
+  const locationId = trimStr(n.location_id);
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 /**

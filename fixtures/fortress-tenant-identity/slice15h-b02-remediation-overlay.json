@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15H",
+  "boundary_id": "B02_meta_normalize_live_client_slug",
+  "status": "remediated_source_default_off",
+  "historical_audit_unchanged": true,
+  "preserves_deferred_15g": true,
+  "historical_artifacts": [
+    "fixtures/fortress-tenant-identity/boundary-matrix.json",
+    "fixtures/fortress-tenant-identity/attack-cases.json",
+    "docs/FORTRESS-TENANT-IDENTITY-BOUNDARY-MATRIX.md"
+  ],
+  "note": "15A matrix/doc retain pre-fix vulnerable verdict for B02 as historical audit. This overlay records the 15H source-only ingress authority enforcement (pre-PG PostEntry, location propagation, replay compare/reject/fill, structured error identity, tenant-wide owner reads) without rewriting 15A artifacts. Deferred 15G tip is superseded and must not be merged. Live remediation requires a separate explicit activation (env + routing) — not part of 15H.",
+  "remediation": {
+    "outcome_id": "15H_meta_ingress_authority_enforce_before_pg",
+    "design_freeze": "FORTRESS-15G2",
+    "owner_files": [
+      "scripts/lib/meta-whatsapp-ingress-authority.js",
+      "scripts/lib/luna-meta-whatsapp-webhook.js",
+      "scripts/lib/luna-meta-whatsapp-inbound-process.js",
+      "scripts/lib/luna-owner-whatsapp-inbound.js",
+      "scripts/lib/meta-open-demo-inbound-adapter.js",
+      "scripts/staff-query-api.js"
+    ],
+    "controls": [
+      "META_WHATSAPP_INGRESS_AUTHORITY default-off",
+      "processMetaWhatsAppWebhookPostEntry applies authority before withPgClient",
+      "PostEntry returns effective post-authority normalized for HTTP audit",
+      "when enabled + routing present: known phone_number_id → resolver client_slug/location_id authoritative through persistence/draft/send/idempotency/response/owner/open-demo/gate/replay/terminal",
+      "unknown/missing/ambiguous/conflicting → acquired_pg=false and zero pool/inbound/persist/draft/send/owner/demo",
+      "REPLAY_IDENTITY_COMPARE_REJECT_FILL without history rewrite",
+      "ERROR_IDENTITY_STRUCTURED_EFFECTIVE_NORMALIZED for HTTP failure audit/response",
+      "owner reads remain tenant-wide by client_slug; location_id propagates to storage/idempotency only",
+      "open-demo does not apply conflicting wolfhouse-somo hardcoded fallback when authority active",
+      "disabled or routing-absent → exact prior shadow-only live behavior",
+      "no deployment config / live routing-file edits in this slice"
+    ]
+  },
+  "activation_gap": {
+    "code_ready": true,
+    "runtime_enabled": false,
+    "routing_file_mounted": false,
+    "required_for_live_close": [
+      "Set META_WHATSAPP_INGRESS_AUTHORITY=1 on target runtime(s)",
+      "Provide CLIENT_CHANNEL_ROUTING_FILE or CLIENT_CHANNEL_ROUTING_JSON with verified phone_number_id map",
+      "Operator sign-off that shadow observations match expected tenants",
+      "Separate deploy/restart — not performed in 15H"
+    ]
+  },
+  "master_basis_15a": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "master_basis_15g2": "9a09f479f1a65fec45557cf2c94c5e9628b902dc",
+  "master_basis_15h": "9a09f479f1a65fec45557cf2c94c5e9628b902dc",
+  "live_mutation": false
+}

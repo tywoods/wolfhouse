@@ -10,6 +10,9 @@
 const crypto = require('crypto');
 
 const { resolveWhatsAppTenantShadow } = require('./client-channel-resolver');
+const {
+  applyMetaWhatsAppIngressAuthority,
+} = require('./meta-whatsapp-ingress-authority');
 
 const DEFAULT_CLIENT_SLUG = 'wolfhouse-somo';
 const DEFAULT_META_WHATSAPP_VERIFY_TOKEN = 'wolfhouse_verify_token';
@@ -188,6 +191,18 @@ function attachTenantChannelShadow(normalized, options = {}) {
 }
 
 /**
+ * Shadow attachment + optional FORTRESS 15H ingress authority policy.
+ * Authority is default-off; when inactive, live fields stay shadow-only.
+ */
+function finalizeNormalizedMetaWhatsApp(normalized, options = {}) {
+  const withShadow = attachTenantChannelShadow(normalized, options);
+  return applyMetaWhatsAppIngressAuthority(withShadow, {
+    env: options.env,
+    registry: options.registry,
+  });
+}
+
+/**
  * Normalize Meta WhatsApp webhook POST body.
  * @param {object} body - parsed JSON webhook payload
  * @param {{ client_slug?: string, env?: object, allowSampleFallback?: boolean, routingLoad?: object, channelConfig?: object }} [options]
@@ -206,7 +221,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
   const inbound = findFirstInboundMessage(body || {});
 
   if (!inbound) {
-    return attachTenantChannelShadow({
+    return finalizeNormalizedMetaWhatsApp({
       client_slug: clientSlug,
       channel: 'whatsapp',
       phone_number_id: null,
@@ -232,7 +247,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
     unsupportedReason = 'missing_text_body';
   }
 
-  return attachTenantChannelShadow({
+  return finalizeNormalizedMetaWhatsApp({
     client_slug: clientSlug,
     channel: 'whatsapp',
     phone_number_id: inbound.phone_number_id,
@@ -252,6 +267,7 @@ function normalizeMetaWhatsAppWebhook(body, options = {}) {
 
 /**
  * Build Luna guest-reply-draft input from normalized Meta webhook fields.
+ * Propagates trusted normalized.location_id when present (FORTRESS 15H).
  */
 function buildDraftInputFromNormalized(normalized) {
   if (!normalized || normalized.supported !== true || !normalized.message_text) {
@@ -268,6 +284,10 @@ function buildDraftInputFromNormalized(normalized) {
   if (normalized.profile_name) {
     input.guest_name = normalized.profile_name;
   }
+  const locationId = trimStr(normalized.location_id);
+  if (locationId) {
+    input.location_id = locationId;
+  }
   return input;
 }
 
@@ -281,9 +301,18 @@ function resolveMetaWebhookSendKind(nextAction) {
 
 /**
  * Stable idempotency key for Meta inbound → send gate.
+ * When location_id is present (enabled-authority scope), include it.
+ * When absent, preserve legacy `luna:{client}:{wamid}:{send_kind}` keys.
  */
-function buildMetaInboundIdempotencyKey(clientSlug, waMessageId, sendKind) {
-  return `luna:${trimStr(clientSlug) || DEFAULT_CLIENT_SLUG}:${trimStr(waMessageId)}:${sendKind}`;
+function buildMetaInboundIdempotencyKey(clientSlug, waMessageId, sendKind, locationId) {
+  const slug = trimStr(clientSlug) || DEFAULT_CLIENT_SLUG;
+  const wamid = trimStr(waMessageId);
+  const kind = trimStr(sendKind);
+  const loc = trimStr(locationId);
+  if (loc) {
+    return `luna:${slug}:${loc}:${wamid}:${kind}`;
+  }
+  return `luna:${slug}:${wamid}:${kind}`;
 }
 
 /**
@@ -305,9 +334,11 @@ function shouldAttemptMetaWebhookSend(draft, normalized) {
 
 /**
  * Build internal guest-reply-send evaluator input from Meta draft context.
+ * Propagates trusted normalized.location_id when present (FORTRESS 15H).
  */
 function buildMetaWebhookSendBody(normalized, draft, sendKind) {
-  return {
+  const locationId = trimStr(normalized && normalized.location_id);
+  const body = {
     client_slug: normalized.client_slug,
     to: normalized.from,
     suggested_reply: draft.suggested_reply,
@@ -317,10 +348,15 @@ function buildMetaWebhookSendBody(normalized, draft, sendKind) {
       normalized.client_slug,
       normalized.wa_message_id,
       sendKind,
+      locationId || null,
     ),
     source: 'meta_whatsapp_webhook',
     draft,
   };
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 /**
@@ -404,4 +440,5 @@ module.exports = {
   findFirstInboundMessage,
   resolveMetaWhatsAppTenantShadow,
   attachTenantChannelShadow,
+  finalizeNormalizedMetaWhatsApp,
 };

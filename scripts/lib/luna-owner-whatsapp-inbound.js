@@ -69,12 +69,14 @@ function buildOwnerDraftFromAskLuna(askResult) {
 }
 
 function buildOwnerSendBody(normalized, draft) {
+  const locationId = trimStr(normalized && normalized.location_id);
   const idempotencyKey = buildMetaInboundIdempotencyKey(
     normalized.client_slug,
     normalized.wa_message_id,
     OWNER_SEND_KIND,
+    locationId || null,
   );
-  return {
+  const body = {
     client_slug: normalized.client_slug,
     to: normalized.from,
     suggested_reply: draft.suggested_reply,
@@ -84,6 +86,10 @@ function buildOwnerSendBody(normalized, draft) {
     source: 'owner_whatsapp_command_center',
     draft,
   };
+  if (locationId) {
+    body.location_id = locationId;
+  }
+  return body;
 }
 
 function buildOwnerWebhookResponse(normalized, signatureMeta, options = {}) {
@@ -119,8 +125,42 @@ function buildOwnerWebhookResponse(normalized, signatureMeta, options = {}) {
 }
 
 function buildOwnerResponseFromStoredEvent(row, signatureMeta, replayMeta = {}) {
+  const {
+    resolveReplayNormalizedIdentity,
+  } = require('./meta-whatsapp-ingress-authority');
+
+  let baseNormalized = row.normalized || {};
+  if (replayMeta.authoritative_normalized) {
+    const identity = resolveReplayNormalizedIdentity(
+      baseNormalized,
+      replayMeta.authoritative_normalized,
+    );
+    if (!identity.ok) {
+      const conflictResponse = buildMetaWhatsAppWebhookPostResponse(
+        replayMeta.authoritative_normalized,
+        signatureMeta,
+        { draft_called: false, send_attempted: false, event_persisted: true },
+      );
+      return {
+        ...conflictResponse,
+        success: false,
+        duplicate: true,
+        idempotent_replay: false,
+        replay_identity_rejected: true,
+        blocked_reasons: [identity.reason || 'replay_identity_conflict'],
+        guest_flow_skipped: true,
+        owner_luna_route: true,
+        draft_called: false,
+        send_attempted: false,
+        no_write_performed: true,
+        guest_message_event_id: row.id,
+      };
+    }
+    baseNormalized = identity.response_normalized;
+  }
+
   const normalized = enrichNormalizedForOwnerRoute(
-    row.normalized || {},
+    baseNormalized,
     {
       role: (row.normalized && row.normalized.staff_role) || 'owner',
     },
@@ -382,6 +422,7 @@ async function processOwnerWhatsAppCommandCenterWithoutPersistence(input) {
 module.exports = {
   lookupStaffPhoneAccess,
   buildOwnerRouteFlags,
+  buildOwnerSendBody,
   isOwnerLunaStoredEvent,
   buildOwnerResponseFromStoredEvent,
   processOwnerWhatsAppCommandCenterInbound,
