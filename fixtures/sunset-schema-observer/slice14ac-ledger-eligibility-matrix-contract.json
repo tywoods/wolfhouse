@@ -1,0 +1,62 @@
+{
+  "kind": "slice14ac-ledger-eligibility-matrix-contract",
+  "slice": "14AC",
+  "masterShaBasis": "0b92b7eff718f928ccb590d287830d4d104c37c4",
+  "applicationName": "wh-sunset-ledger-eligibility",
+  "expectedProductSchemaByteSha256": "cb74742b5e9d02a6cf478eb334e677532ba3ea88a89c93ee10a254f9264071d5",
+  "productFingerprintExpected": "120ee75f11428db59524561bd943f23130111a34e0834c54cef61ba8bf594d18",
+  "manifestHash": "99549bacdcb46a5f714b17a4d32abd2bc2554fbd1bb4f0d78f33e71d1c7f9f8e",
+  "checksumMode": "canonical_lf_v1",
+  "forwardCount": 39,
+  "requiredRed": [
+    "default_path_zero_http_and_clients",
+    "missing_prove_flag_zero_clients",
+    "missing_ledger_eligibility_env_zero_clients",
+    "wrong_exact_targets_zero_clients",
+    "forbidden_argv_dsn_sql_drop_dml_zero_clients",
+    "zero_drift_missing_fails",
+    "ledger_present_fails",
+    "checksum_drift_fails",
+    "partial_ambiguous_effect_fails",
+    "unproven_dml_fails",
+    "unproven_comment_fails",
+    "unproven_rename_fails",
+    "dec006_failures_fail_closed",
+    "gap_noncontiguous_prefix_fails",
+    "mislabel_executed_runner_fails",
+    "expected_bytes_change_fails",
+    "dec006_020_applicable_mismatch_blocked",
+    "dec006_020_duplicate_slug_blocked",
+    "dec006_020_wrong_values_blocked"
+  ],
+  "requiredGreen": [
+    "forward_count_39_canonical_lf_v1",
+    "cli_gates_exact_targets",
+    "cli_default_disabled",
+    "locks_identity_vault_secret_pg_tls_application_name",
+    "global_live_apply_remains_false",
+    "never_labels_executed_by_canonical_runner",
+    "design_ledger_ddl_extensions_additive_only",
+    "contiguous_prefix_algorithm",
+    "dec006_018_019_pass_with_metadata",
+    "dec006_020_zero_applicable_vacuously_complete",
+    "dec006_020_all_positive_matching_eligible",
+    "offline_injected_authority_same_target"
+  ],
+  "locks": {
+    "postgresHost": "luna-sunset-staging-pg-app.postgres.database.azure.com",
+    "database": "sunset_staging",
+    "sslmode": "verify-full",
+    "applicationName": "wh-sunset-ledger-eligibility",
+    "containerAppName": "luna-sunset-staging-staff-api",
+    "keyVaultName": "luna-sunset-staging-kv",
+    "secretName": "sunset-database-url"
+  },
+  "gates": {
+    "envLedgerEligibility": "SUNSET_PHASE_D_LEDGER_ELIGIBILITY",
+    "cliProve": "--prove-ledger-eligibility-matrix",
+    "defaultDisabled": true,
+    "liveApplyRemainsFalse": true
+  },
+  "verifyNeverRerunsLive": true
+}

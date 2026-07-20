@@ -868,3 +868,5 @@ Role contract: `LOGIN` + `NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOREPLIC
 *FOUNDATION Slice 14Y — apply five residual indexes (baseline 11→6; schema mutation only; zero data/ledger) — 2026-07-19*
 *FOUNDATION Slice 14Z — apply tenant_surf_pack_rules_updated_by_fkey (baseline 6→5; schema mutation only; zero data/ledger) — 2026-07-19*
 *FOUNDATION Slice 14AA — apply tenant_surf_pack_rules_updated_at (baseline 5→4; schema mutation only; zero data/ledger) — 2026-07-19*
+*FOUNDATION Slice 14AB — Azure PG15 pgcrypto compatibility normalization (baseline 4→0; presentation only; zero mutation) — 2026-07-19*
+*FOUNDATION Slice 14AC — ledger bootstrap eligibility matrix (39 forwards; 020 tenant-scoped vacuous DML eligible; prefix may reach 39; design-only ledger DDL; zero mutation) — 2026-07-20*
