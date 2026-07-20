@@ -57,6 +57,9 @@ const REQUIRED_RED = [
   'gap_noncontiguous_prefix_fails',
   'mislabel_executed_runner_fails',
   'expected_bytes_change_fails',
+  'dec006_020_applicable_mismatch_blocked',
+  'dec006_020_duplicate_slug_blocked',
+  'dec006_020_wrong_values_blocked',
 ];
 
 const REQUIRED_GREEN = [
@@ -69,7 +72,8 @@ const REQUIRED_GREEN = [
   'design_ledger_ddl_extensions_additive_only',
   'contiguous_prefix_algorithm',
   'dec006_018_019_pass_with_metadata',
-  'dec006_020_requires_aggregate_for_current_state',
+  'dec006_020_zero_applicable_vacuously_complete',
+  'dec006_020_all_positive_matching_eligible',
   'offline_injected_authority_same_target',
 ];
 
@@ -165,7 +169,7 @@ function main() {
     && Boolean(pkg.scripts['verify:sunset-schema-slice14ac'])
     && Boolean(pkg.scripts['phase-d:ledger-eligibility']));
 
-  pass('prove-offline-ran', evidence.offline.red.length >= 16 && evidence.offline.green.length >= 11);
+  pass('prove-offline-ran', evidence.offline.red.length >= 19 && evidence.offline.green.length >= 12);
 
   const proveRun = spawnSync('node', [provePath], {
     cwd: ROOT,
@@ -186,6 +190,19 @@ function main() {
 
   pass('prove-has-offline-env-guard', proveSrc.includes('SUNSET_SLICE14AC_PROOF_OFFLINE'));
 
+  const libSrc = fs.readFileSync(libPath, 'utf8');
+  pass('020-tenant-scoped-dml-sql',
+    libSrc.includes('020-tenant-scoped-dml-rows')
+    && libSrc.includes('applicable_rows')
+    && libSrc.includes('mismatching_rows')
+    && libSrc.includes('tenant_scoped_dml_vacuously_complete')
+    && !libSrc.includes('020-aggregate-population-optional'));
+  pass('020-eval-uses-vacuous-reason',
+    /tenant_scoped_dml_vacuously_complete/.test(libSrc)
+    && /evaluate020TenantScopedDml/.test(libSrc));
+  pass('020-no-zero-aggregate-assignment',
+    !/blockedReason\s*=\s*'unproven_dml_zero_aggregate'/.test(libSrc));
+
   const live = evidence.liveOutcome;
   if (live) {
     pass('live-same-target-readonly', live.ok === true
@@ -199,6 +216,22 @@ function main() {
       && live.eligibilityMatrix.forwardCount === EXPECTED_FORWARD_COUNT);
     pass('findings-live-zero-drift', findings.includes('remaining mismatch: **0**')
       || findings.includes('ledger_eligibility_matrix_live_ok_zero_drift'));
+    if (live.migration020) {
+      pass('live-020-vacuous-or-matched',
+        (live.migration020.applicable_rows === 0
+          && live.migration020.mismatching_rows === 0
+          && live.migration020.eligibilityReason === 'tenant_scoped_dml_vacuously_complete')
+        || (live.migration020.applicable_rows > 0
+          && live.migration020.mismatching_rows === 0
+          && live.migration020.eligibilityReason === 'tenant_scoped_dml_matched'));
+    }
+  }
+
+  if (evidence.superseded14acCapture) {
+    pass('superseded-capture-recorded',
+      evidence.superseded14acCapture.generatedAt != null
+      && evidence.superseded14acCapture.result != null
+      && String(evidence.superseded14acCapture.correctionReason || '').includes('applicable_rows'));
   }
 
   if (failed > 0) {

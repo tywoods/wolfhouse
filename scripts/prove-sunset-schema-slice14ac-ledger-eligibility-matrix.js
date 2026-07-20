@@ -34,7 +34,12 @@ const {
   CLASSIFICATION_ELIGIBLE_STRUCTURAL,
   CLASSIFICATION_ELIGIBLE_CURRENT_STATE,
   CLASSIFICATION_BLOCKED_BY_PREFIX,
+  CLASSIFICATION_BLOCKED_UNPROVEN,
   APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER,
+  ELIGIBILITY_REASON_VACUOUS,
+  ELIGIBILITY_REASON_MATCHED,
+  BLOCKED_REASON_DML_MISMATCH,
+  BLOCKED_REASON_AMBIGUOUS_SLUG,
   evaluateLedgerEligibilityGates,
   exactLedgerEligibilityArgv,
   ledgerEligibilityEnv,
@@ -84,6 +89,9 @@ const REQUIRED_RED = [
   'gap_noncontiguous_prefix_fails',
   'mislabel_executed_runner_fails',
   'expected_bytes_change_fails',
+  'dec006_020_applicable_mismatch_blocked',
+  'dec006_020_duplicate_slug_blocked',
+  'dec006_020_wrong_values_blocked',
 ];
 
 const REQUIRED_GREEN = [
@@ -96,11 +104,20 @@ const REQUIRED_GREEN = [
   'design_ledger_ddl_extensions_additive_only',
   'contiguous_prefix_algorithm',
   'dec006_018_019_pass_with_metadata',
-  'dec006_020_requires_aggregate_for_current_state',
+  'dec006_020_zero_applicable_vacuously_complete',
+  'dec006_020_all_positive_matching_eligible',
   'offline_injected_authority_same_target',
 ];
 
-function buildOfflineTargetedResults(aggregateRows) {
+function buildOfflineTargetedResults(dml) {
+  const row = {
+    client_slug_count: dml.client_slug_count != null ? dml.client_slug_count : 0,
+    applicable_rows: dml.applicable_rows != null ? dml.applicable_rows : 0,
+    mismatching_rows: dml.mismatching_rows != null ? dml.mismatching_rows : 0,
+    duplicate_room_code_count: dml.duplicate_room_code_count != null
+      ? dml.duplicate_room_code_count
+      : 0,
+  };
   return {
     'dec006:018-col-nullability': [{ is_nullable: 'YES' }],
     'dec006:018-no-conflicting-check': [{ cnt: 0 }],
@@ -120,7 +137,7 @@ function buildOfflineTargetedResults(aggregateRows) {
       { column_name: 'often_used_by_operator' },
       { column_name: 'room_type' },
     ],
-    'dec006:020-aggregate-population-optional': [{ matching_rows: aggregateRows }],
+    'dec006:020-tenant-scoped-dml-rows': [row],
   };
 }
 
@@ -297,7 +314,7 @@ async function main() {
     blockedReason: 'dec006_required_checks_failed',
   }));
   red.push(redClassify('gap_noncontiguous_prefix_fails', 'gap-noncontiguous', {
-    firstBlocker: { id: '020_wolfhouse_room_gender_metadata', apply_order: 19 },
+    firstBlocker: { id: 'synthetic_blocker', apply_order: 19 },
     maxPrefixCount: 18,
     expectedPrefixCount: 39,
     forwardCount: 39,
@@ -310,6 +327,80 @@ async function main() {
     name: 'expected_bytes_change_fails',
     ok: expectedByteSha === EXPECTED_BYTE_SHA,
   });
+
+  {
+    const mismatchMatrix = buildEligibilityMatrixFromManifest({
+      liveSnapshot: expected.snapshot,
+      targetedResults: buildOfflineTargetedResults({
+        client_slug_count: 1,
+        applicable_rows: 10,
+        mismatching_rows: 3,
+        duplicate_room_code_count: 0,
+      }),
+    });
+    const evalMismatch = mismatchMatrix.evaluations.find((e) => e.id.includes('020'));
+    red.push({
+      name: 'dec006_020_applicable_mismatch_blocked',
+      ok: evalMismatch.classification === CLASSIFICATION_BLOCKED_UNPROVEN
+        && evalMismatch.blockedReason === BLOCKED_REASON_DML_MISMATCH
+        && evalMismatch.migration020Dml
+        && evalMismatch.migration020Dml.applicable_rows === 10
+        && evalMismatch.migration020Dml.mismatching_rows === 3,
+      detail: {
+        classification: evalMismatch.classification,
+        blockedReason: evalMismatch.blockedReason,
+        applicable_rows: evalMismatch.migration020Dml && evalMismatch.migration020Dml.applicable_rows,
+        mismatching_rows: evalMismatch.migration020Dml && evalMismatch.migration020Dml.mismatching_rows,
+      },
+    });
+  }
+
+  {
+    const dupMatrix = buildEligibilityMatrixFromManifest({
+      liveSnapshot: expected.snapshot,
+      targetedResults: buildOfflineTargetedResults({
+        client_slug_count: 2,
+        applicable_rows: 0,
+        mismatching_rows: 0,
+        duplicate_room_code_count: 0,
+      }),
+    });
+    const evalDup = dupMatrix.evaluations.find((e) => e.id.includes('020'));
+    red.push({
+      name: 'dec006_020_duplicate_slug_blocked',
+      ok: evalDup.classification === CLASSIFICATION_BLOCKED_UNPROVEN
+        && evalDup.blockedReason === BLOCKED_REASON_AMBIGUOUS_SLUG,
+      detail: {
+        classification: evalDup.classification,
+        blockedReason: evalDup.blockedReason,
+      },
+    });
+  }
+
+  {
+    const wrongMatrix = buildEligibilityMatrixFromManifest({
+      liveSnapshot: expected.snapshot,
+      targetedResults: buildOfflineTargetedResults({
+        client_slug_count: 1,
+        applicable_rows: 10,
+        mismatching_rows: 10,
+        duplicate_room_code_count: 0,
+      }),
+    });
+    const evalWrong = wrongMatrix.evaluations.find((e) => e.id.includes('020'));
+    red.push({
+      name: 'dec006_020_wrong_values_blocked',
+      ok: evalWrong.classification === CLASSIFICATION_BLOCKED_UNPROVEN
+        && evalWrong.blockedReason === BLOCKED_REASON_DML_MISMATCH
+        && evalWrong.migration020Dml
+        && evalWrong.migration020Dml.mismatching_rows === 10,
+      detail: {
+        classification: evalWrong.classification,
+        blockedReason: evalWrong.blockedReason,
+        mismatching_rows: evalWrong.migration020Dml && evalWrong.migration020Dml.mismatching_rows,
+      },
+    });
+  }
 
   {
     const loaded = loadCanonicalForwards();
@@ -359,11 +450,21 @@ async function main() {
     ok: PHASE_D_LIVE_APPLY_ENABLED === false,
   });
 
-  const offlineTargetedAgg0 = buildOfflineTargetedResults(0);
-  const offlineTargetedAgg1 = buildOfflineTargetedResults(10);
+  const offlineTargetedVacuous = buildOfflineTargetedResults({
+    client_slug_count: 0,
+    applicable_rows: 0,
+    mismatching_rows: 0,
+    duplicate_room_code_count: 0,
+  });
+  const offlineTargetedMatched = buildOfflineTargetedResults({
+    client_slug_count: 1,
+    applicable_rows: 10,
+    mismatching_rows: 0,
+    duplicate_room_code_count: 0,
+  });
   const offlineMatrix = buildEligibilityMatrixFromManifest({
     liveSnapshot: expected.snapshot,
-    targetedResults: offlineTargetedAgg0,
+    targetedResults: offlineTargetedVacuous,
   });
   if (!offlineMatrix.ok) {
     throw new Error(`offline matrix build failed: ${JSON.stringify(offlineMatrix)}`);
@@ -387,19 +488,42 @@ async function main() {
     },
   });
 
+  green.push({
+    name: 'dec006_020_zero_applicable_vacuously_complete',
+    ok: eval020.classification === CLASSIFICATION_ELIGIBLE_CURRENT_STATE
+      && eval020.eligibilityReason === ELIGIBILITY_REASON_VACUOUS
+      && eval020.migration020Dml
+      && eval020.migration020Dml.applicable_rows === 0
+      && eval020.migration020Dml.mismatching_rows === 0
+      && offlineMatrix.firstBlocker == null,
+    detail: {
+      classification: eval020.classification,
+      eligibilityReason: eval020.eligibilityReason,
+      applicable_rows: eval020.migration020Dml && eval020.migration020Dml.applicable_rows,
+      mismatching_rows: eval020.migration020Dml && eval020.migration020Dml.mismatching_rows,
+      maxPrefixCount: offlineMatrix.maxPrefixCount,
+      firstBlocker: offlineMatrix.firstBlocker,
+    },
+  });
+
   {
-    const matrixAgg1 = buildEligibilityMatrixFromManifest({
+    const matrixMatched = buildEligibilityMatrixFromManifest({
       liveSnapshot: expected.snapshot,
-      targetedResults: offlineTargetedAgg1,
+      targetedResults: offlineTargetedMatched,
     });
-    const eval020Agg1 = matrixAgg1.evaluations.find((e) => e.id.includes('020'));
+    const eval020Matched = matrixMatched.evaluations.find((e) => e.id.includes('020'));
     green.push({
-      name: 'dec006_020_requires_aggregate_for_current_state',
-      ok: eval020.blockedReason === 'unproven_dml_zero_aggregate'
-        && eval020Agg1.classification === CLASSIFICATION_ELIGIBLE_CURRENT_STATE,
+      name: 'dec006_020_all_positive_matching_eligible',
+      ok: eval020Matched.classification === CLASSIFICATION_ELIGIBLE_CURRENT_STATE
+        && eval020Matched.eligibilityReason === ELIGIBILITY_REASON_MATCHED
+        && eval020Matched.migration020Dml
+        && eval020Matched.migration020Dml.applicable_rows === 10
+        && eval020Matched.migration020Dml.mismatching_rows === 0,
       detail: {
-        aggregate0: eval020.blockedReason,
-        aggregatePositive: eval020Agg1.classification,
+        classification: eval020Matched.classification,
+        eligibilityReason: eval020Matched.eligibilityReason,
+        applicable_rows: eval020Matched.migration020Dml && eval020Matched.migration020Dml.applicable_rows,
+        mismatching_rows: eval020Matched.migration020Dml && eval020Matched.migration020Dml.mismatching_rows,
       },
     });
   }
@@ -470,10 +594,14 @@ async function main() {
 
   let liveOutcome = null;
   let previousLive = null;
+  let superseded14acCapture = null;
   if (fs.existsSync(EVIDENCE_PATH)) {
     try {
       const prev = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'));
       if (prev && prev.liveOutcome) previousLive = prev.liveOutcome;
+      if (prev && prev.superseded14acCapture) {
+        superseded14acCapture = prev.superseded14acCapture;
+      }
     } catch (_) { /* ignore */ }
   }
 
@@ -497,7 +625,7 @@ async function main() {
         remainingMismatchCount: 0,
         ledgerAbsent: true,
         liveSnapshot: expected.snapshot,
-        targetedResults: offlineTargetedAgg0,
+        targetedResults: offlineTargetedVacuous,
         errors: [],
       },
     });
@@ -505,11 +633,72 @@ async function main() {
     green.push({
       name: 'offline_injected_authority_same_target',
       ok: inj.ok === true && inj.sameTarget === true && inj.realPostgresCall !== true,
-      detail: { code: inj.code, sameTarget: inj.sameTarget, maxPrefixCount: inj.maxPrefixCount },
+      detail: {
+        code: inj.code,
+        sameTarget: inj.sameTarget,
+        maxPrefixCount: inj.maxPrefixCount,
+        firstBlocker: inj.firstBlocker || null,
+      },
     });
   }
 
   if (wantLive) {
+    const priorForSupersession = previousLive || (
+      fs.existsSync(EVIDENCE_PATH)
+        ? (() => {
+          try {
+            const prev = JSON.parse(fs.readFileSync(EVIDENCE_PATH, 'utf8'));
+            return prev && prev.liveOutcome ? prev.liveOutcome : null;
+          } catch (_) {
+            return null;
+          }
+        })()
+        : null
+    );
+    if (priorForSupersession && !superseded14acCapture) {
+      const findingsPrev = fs.existsSync(FINDINGS_PATH)
+        ? fs.readFileSync(FINDINGS_PATH, 'utf8')
+        : '';
+      const generatedMatch = findingsPrev.match(/\*\*Generated:\*\*\s*`([^`]+)`/);
+      const ORIGINAL_WRONG_020_CAPTURE_GENERATED_AT = '2026-07-20T00:11:26.615Z';
+      let generatedAt = priorForSupersession.generatedAt
+        || (generatedMatch ? generatedMatch[1] : null)
+        || null;
+      // Honest history: first 14AC live lacked liveOutcome.generatedAt and used findings
+      // Generated 2026-07-20T00:11:26.615Z with unproven_dml_zero_aggregate @ prefix 18.
+      if (
+        !priorForSupersession.generatedAt
+        && priorForSupersession.firstBlocker
+        && priorForSupersession.firstBlocker.blockedReason === 'unproven_dml_zero_aggregate'
+        && priorForSupersession.maxPrefixCount === 18
+      ) {
+        generatedAt = ORIGINAL_WRONG_020_CAPTURE_GENERATED_AT;
+      }
+      superseded14acCapture = {
+        generatedAt,
+        result: {
+          ok: priorForSupersession.ok === true,
+          code: priorForSupersession.code || null,
+          firstBlocker: priorForSupersession.firstBlocker || null,
+          maxPrefixCount: priorForSupersession.maxPrefixCount,
+          maxPrefixOrder: priorForSupersession.maxPrefixOrder,
+          proposedLedgerRowCount: priorForSupersession.proposedLedgerRowCount,
+          classificationCounts: priorForSupersession.eligibilitySummary
+            && priorForSupersession.eligibilitySummary.classificationCounts
+            ? priorForSupersession.eligibilitySummary.classificationCounts
+            : null,
+          remainingMismatchCount: priorForSupersession.remainingMismatchCount,
+        },
+        correctionReason: [
+          'migration-020 zero matching_rows aggregate incorrectly treated',
+          'tenant-scoped vacuous DML (slug=wolfhouse-somo, R1..R10) as unproven_dml_zero_aggregate;',
+          'replaced with applicable_rows/mismatching_rows against exact VALUES;',
+          'applicable_rows=0 AND mismatching_rows=0 is eligible_verified_current_state_baseline',
+          `(${ELIGIBILITY_REASON_VACUOUS})`,
+        ].join(' '),
+      };
+    }
+
     resetLedgerEligibilityCounters();
     const result = await executeLedgerEligibility({
       env: {
@@ -522,9 +711,13 @@ async function main() {
     });
     leakScan(result, secrets);
     const matrix = result.eligibilityMatrix || null;
+    const eval020Live = matrix && Array.isArray(matrix.evaluations)
+      ? matrix.evaluations.find((e) => e.id && e.id.includes('020'))
+      : null;
     liveOutcome = {
       ok: result.ok === true,
       code: result.code,
+      generatedAt: new Date().toISOString(),
       sameTarget: result.sameTarget === true,
       sessionReadOnly: result.sessionReadOnly === true,
       transactionReadOnly: result.transactionReadOnly === true,
@@ -548,6 +741,22 @@ async function main() {
       proposedLedgerRowCount: result.proposedLedgerRowCount != null
         ? result.proposedLedgerRowCount
         : ((matrix && matrix.proposedLedgerRows) || []).length,
+      migration020: eval020Live
+        ? {
+          classification: eval020Live.classification,
+          apply_kind: eval020Live.apply_kind,
+          blockedReason: eval020Live.blockedReason,
+          eligibilityReason: eval020Live.eligibilityReason,
+          applicable_rows: eval020Live.migration020Dml
+            && eval020Live.migration020Dml.applicable_rows,
+          mismatching_rows: eval020Live.migration020Dml
+            && eval020Live.migration020Dml.mismatching_rows,
+          client_slug_count: eval020Live.migration020Dml
+            && eval020Live.migration020Dml.client_slug_count,
+          duplicate_room_code_count: eval020Live.migration020Dml
+            && eval020Live.migration020Dml.duplicate_room_code_count,
+        }
+        : null,
       eligibilitySummary: summarizeMatrix(matrix),
       eligibilityMatrix: matrix
         ? {
@@ -562,8 +771,10 @@ async function main() {
             classification: e.classification,
             apply_kind: e.apply_kind,
             blockedReason: e.blockedReason,
+            eligibilityReason: e.eligibilityReason || null,
             effectSummary: e.effectSummary,
             dec006: e.dec006,
+            migration020Dml: e.migration020Dml || null,
           })),
           proposedLedgerRows: matrix.proposedLedgerRows || [],
         }
@@ -624,6 +835,7 @@ async function main() {
     }
     : offlineMatrix;
 
+  const offlineSummary = summarizeMatrix(offlineMatrix);
   const evidence = {
     kind: 'slice14ac-ledger-eligibility-matrix-evidence',
     slice: '14AC',
@@ -649,7 +861,18 @@ async function main() {
       maxPrefixOrder: offlineMatrix.maxPrefixOrder,
       firstBlocker: offlineMatrix.firstBlocker,
       proposedLedgerRowCount: offlineMatrix.proposedLedgerRows.length,
-      note: 'Offline fixture uses DEC-006 aggregate 0 (Sunset-likely); first blocker 020 at prefix 18',
+      classificationCounts: offlineSummary.classificationCounts,
+      migration020: {
+        applicable_rows: eval020.migration020Dml && eval020.migration020Dml.applicable_rows,
+        mismatching_rows: eval020.migration020Dml && eval020.migration020Dml.mismatching_rows,
+        eligibilityReason: eval020.eligibilityReason,
+        classification: eval020.classification,
+      },
+      note: [
+        'Offline fixture uses DEC-006 applicable_rows=0/mismatching_rows=0 (Sunset-likely vacuous tenant-scoped DML);',
+        '020 is eligible_verified_current_state_baseline with tenant_scoped_dml_vacuously_complete;',
+        'prefix extends only while later migrations remain independently proven',
+      ].join(' '),
     },
     eligibilitySummary: {
       forwardCount: matrixForEvidence.forwardCount,
@@ -657,10 +880,14 @@ async function main() {
       maxPrefixOrder: matrixForEvidence.maxPrefixOrder,
       firstBlocker: matrixForEvidence.firstBlocker,
       proposedLedgerRowCount: (matrixForEvidence.proposedLedgerRows || []).length,
+      classificationCounts: liveBlock && liveBlock.eligibilitySummary
+        ? liveBlock.eligibilitySummary.classificationCounts
+        : offlineSummary.classificationCounts,
     },
     proposedLedgerRows: matrixForEvidence.proposedLedgerRows || [],
     ledgerDdlDesign,
     liveOutcome: liveBlock,
+    superseded14acCapture: superseded14acCapture || null,
     secretHandlingProof: {
       leakScanPassed: true,
       fakeCredentialsUsed: true,
@@ -709,7 +936,7 @@ async function main() {
     `**Canonical fingerprint (unchanged):** \`${CANON_FP}\``,
     `**Expected bytes (unchanged):** \`${EXPECTED_BYTE_SHA}\``,
     `**Manifest hash (unchanged):** \`${MANIFEST_HASH}\``,
-    `**Generated:** ${new Date().toISOString()}`,
+    `**Generated:** \`${new Date().toISOString()}\``,
     '',
     '## What this slice does',
     '',
@@ -720,7 +947,8 @@ async function main() {
     '- Observer must reach `remainingMismatchCount === 0` under merged 14AB normalizations',
     '- `schema_migration_ledger` must be absent before bootstrap',
     '- DEC-006 targeted SELECT evidence for migrations 018–020',
-    '- Contiguous prefix algorithm; first offline blocker likely **020** at prefix **18** (aggregate 0)',
+    '- Migration 020 uses tenant-scoped `applicable_rows`/`mismatching_rows` (not zero-aggregate-as-unproven)',
+    '- Contiguous prefix algorithm; vacuous 020 on isolated Sunset is eligible, not a blocker',
     '',
     '## Offline gates',
     '',
@@ -733,9 +961,25 @@ async function main() {
     `- maxPrefixCount: **${offlineMatrix.maxPrefixCount}**`,
     `- firstBlocker: ${JSON.stringify(offlineMatrix.firstBlocker)}`,
     `- proposedLedgerRows: **${offlineMatrix.proposedLedgerRows.length}**`,
+    `- 020 applicable_rows/mismatching_rows: **${eval020.migration020Dml && eval020.migration020Dml.applicable_rows}** / **${eval020.migration020Dml && eval020.migration020Dml.mismatching_rows}**`,
+    `- 020 eligibilityReason: \`${eval020.eligibilityReason}\``,
     '',
   ];
+  if (superseded14acCapture) {
+    findingsLines.push(
+      '## Superseded prior 14AC capture',
+      '',
+      `generatedAt: \`${superseded14acCapture.generatedAt}\``,
+      `result: ${JSON.stringify(superseded14acCapture.result)}`,
+      `correctionReason: ${superseded14acCapture.correctionReason}`,
+      '',
+    );
+  }
   if (liveBlock) {
+    const liveCounts = liveBlock.eligibilitySummary
+      && liveBlock.eligibilitySummary.classificationCounts
+      ? liveBlock.eligibilitySummary.classificationCounts
+      : null;
     findingsLines.push(
       '## Live',
       '',
@@ -745,9 +989,35 @@ async function main() {
       `remaining mismatch: **${liveBlock.remainingMismatchCount}**`,
       `ledger absent: **${liveBlock.ledgerAbsent === true || (liveBlock.ledgerGate && liveBlock.ledgerGate.ok === true)}**`,
       `matrix forwardCount: **${(liveBlock.eligibilityMatrix && liveBlock.eligibilityMatrix.forwardCount) || offlineMatrix.forwardCount}**`,
-      `maxPrefixCount: **${(liveBlock.eligibilityMatrix && liveBlock.eligibilityMatrix.maxPrefixCount) != null
+      `maxPrefixCount / Order: **${(liveBlock.eligibilityMatrix && liveBlock.eligibilityMatrix.maxPrefixCount) != null
         ? liveBlock.eligibilityMatrix.maxPrefixCount
-        : offlineMatrix.maxPrefixCount}**`,
+        : offlineMatrix.maxPrefixCount}** / **${(liveBlock.eligibilityMatrix && liveBlock.eligibilityMatrix.maxPrefixOrder) != null
+        ? liveBlock.eligibilityMatrix.maxPrefixOrder
+        : offlineMatrix.maxPrefixOrder}**`,
+      `proposedLedgerRows: **${(liveBlock.proposedLedgerRows && liveBlock.proposedLedgerRows.length)
+        || liveBlock.proposedLedgerRowCount
+        || 0}**`,
+      `firstBlocker: ${JSON.stringify(liveBlock.firstBlocker || null)}`,
+      liveBlock.migration020
+        ? `020 applicable/mismatching: **${liveBlock.migration020.applicable_rows}** / **${liveBlock.migration020.mismatching_rows}** (\`${liveBlock.migration020.eligibilityReason || liveBlock.migration020.blockedReason}\`)`
+        : '020: (see eligibilityMatrix evaluations)',
+      '',
+      '### Prefix-aware eligibility counts',
+      '',
+      '| Classification | Count |',
+      '|---|---|',
+      liveCounts
+        ? `| eligible verified structural | **${liveCounts.eligible_verified_structural_baseline || 0}** |`
+        : '| eligible verified structural | n/a |',
+      liveCounts
+        ? `| eligible verified current-state | **${liveCounts.eligible_verified_current_state_baseline || 0}** |`
+        : '| eligible verified current-state | n/a |',
+      liveCounts
+        ? `| blocked unproven | **${liveCounts.blocked_unproven || 0}** |`
+        : '| blocked unproven | n/a |',
+      liveCounts
+        ? `| blocked by prefix | **${liveCounts.blocked_by_prefix || 0}** |`
+        : '| blocked by prefix | n/a |',
       '',
       'Mutation flags: schemaMutation=false; dataMutation=false; ledgerWritten=false; kvMutation=false.',
       '',

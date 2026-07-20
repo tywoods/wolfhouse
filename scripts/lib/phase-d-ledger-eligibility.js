@@ -135,9 +135,33 @@ const DEC006_RESOLUTION_REQUIREMENTS = Object.freeze({
   ]),
   '020_wolfhouse_room_gender_metadata': Object.freeze([
     { id: '020-columns-present', required: true, weak: false },
-    { id: '020-aggregate-population-optional', required: false, weak: true },
+    { id: '020-tenant-scoped-dml-rows', required: false, weak: true },
   ]),
 });
+
+const MIGRATION_020_EXPECTED_ROOM_VALUES = Object.freeze([
+  Object.freeze(['R1', 'Flexible', 'mixed', false, false]),
+  Object.freeze(['R2', 'Male preferred', 'male_only', false, false]),
+  Object.freeze(['R3', 'Flexible', 'matrimonial_or_mixed', true, false]),
+  Object.freeze(['R4', 'Male preferred', 'male_only', false, false]),
+  Object.freeze(['R5', 'Female preferred', 'female_only', false, false]),
+  Object.freeze(['R6', 'Private', 'matrimonial_private_couple', true, false]),
+  Object.freeze(['R7', 'Flexible', 'operator_surfweek', false, true]),
+  Object.freeze(['R8', 'Female preferred', 'female_only', false, false]),
+  Object.freeze(['R9', 'Flexible', 'operator_surfweek', false, true]),
+  Object.freeze(['R10', 'Flexible', 'operator_surfweek', false, true]),
+]);
+
+const MIGRATION_020_ROOM_CODES = Object.freeze(
+  MIGRATION_020_EXPECTED_ROOM_VALUES.map((row) => row[0]),
+);
+
+const ELIGIBILITY_REASON_VACUOUS = 'tenant_scoped_dml_vacuously_complete';
+const ELIGIBILITY_REASON_MATCHED = 'tenant_scoped_dml_matched';
+const BLOCKED_REASON_DML_MISMATCH = 'tenant_scoped_dml_mismatch';
+const BLOCKED_REASON_AMBIGUOUS_SLUG = 'ambiguous_client_slug';
+const BLOCKED_REASON_ROOM_MULTIPLICITY = 'unexpected_room_code_multiplicity';
+const BLOCKED_REASON_QUERY_AMBIGUITY = 'query_ambiguity';
 
 const DEC006_PROOF_SQL = Object.freeze({
   '018-col-nullability': [
@@ -188,13 +212,18 @@ const DEC006_PROOF_SQL = Object.freeze({
     "AND c.column_name IN ('gender_strategy','room_type','can_be_matrimonial','often_used_by_operator')",
     'ORDER BY c.column_name',
   ].join(' '),
-  '020-aggregate-population-optional': [
-    'SELECT COUNT(*) AS matching_rows',
-    'FROM rooms r',
-    'JOIN clients c ON r.client_id = c.id',
+  '020-tenant-scoped-dml-rows': [
+    'SELECT',
+    "(SELECT COUNT(*) FROM clients c WHERE c.slug = 'wolfhouse-somo') AS client_slug_count,",
+    '(SELECT COUNT(*) FROM rooms r JOIN clients c ON r.client_id = c.id',
     "WHERE c.slug = 'wolfhouse-somo'",
-    "AND (r.room_code, r.gender_strategy, r.room_type, r.can_be_matrimonial, r.often_used_by_operator) IN (",
-    "VALUES ('R1','Flexible','mixed',FALSE,FALSE),",
+    "AND r.room_code IN ('R1','R2','R3','R4','R5','R6','R7','R8','R9','R10')) AS applicable_rows,",
+    '(SELECT COUNT(*) FROM rooms r JOIN clients c ON r.client_id = c.id',
+    "WHERE c.slug = 'wolfhouse-somo'",
+    "AND r.room_code IN ('R1','R2','R3','R4','R5','R6','R7','R8','R9','R10')",
+    'AND NOT EXISTS (',
+    'SELECT 1 FROM (VALUES',
+    "('R1','Flexible','mixed',FALSE,FALSE),",
     "('R2','Male preferred','male_only',FALSE,FALSE),",
     "('R3','Flexible','matrimonial_or_mixed',TRUE,FALSE),",
     "('R4','Male preferred','male_only',FALSE,FALSE),",
@@ -203,7 +232,20 @@ const DEC006_PROOF_SQL = Object.freeze({
     "('R7','Flexible','operator_surfweek',FALSE,TRUE),",
     "('R8','Female preferred','female_only',FALSE,FALSE),",
     "('R9','Flexible','operator_surfweek',FALSE,TRUE),",
-    "('R10','Flexible','operator_surfweek',FALSE,TRUE))",
+    "('R10','Flexible','operator_surfweek',FALSE,TRUE)",
+    ') AS v(room_code, gender_strategy, room_type, can_be_matrimonial, often_used_by_operator)',
+    'WHERE v.room_code = r.room_code',
+    'AND v.gender_strategy IS NOT DISTINCT FROM r.gender_strategy',
+    'AND v.room_type IS NOT DISTINCT FROM r.room_type',
+    'AND v.can_be_matrimonial IS NOT DISTINCT FROM r.can_be_matrimonial',
+    'AND v.often_used_by_operator IS NOT DISTINCT FROM r.often_used_by_operator',
+    ')) AS mismatching_rows,',
+    '(SELECT COUNT(*) FROM (',
+    'SELECT r.room_code FROM rooms r JOIN clients c ON r.client_id = c.id',
+    "WHERE c.slug = 'wolfhouse-somo'",
+    "AND r.room_code IN ('R1','R2','R3','R4','R5','R6','R7','R8','R9','R10')",
+    'GROUP BY r.room_code HAVING COUNT(*) > 1',
+    ') d) AS duplicate_room_code_count',
   ].join(' '),
 });
 
@@ -1128,13 +1170,133 @@ function evaluateDec006Check(checkId, rows) {
       return ['gender_strategy', 'room_type', 'can_be_matrimonial', 'often_used_by_operator']
         .every((c) => cols.has(c));
     }
-    case '020-aggregate-population-optional': {
-      const row = data[0] || {};
-      return Number(row.matching_rows || 0) > 0;
+    case '020-tenant-scoped-dml-rows': {
+      return evaluate020TenantScopedDml(data[0] || {}).ok === true;
     }
     default:
       return false;
   }
+}
+
+function coerceNonNegativeInt(value) {
+  if (value == null || value === '') return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || !Number.isInteger(n) || n < 0) return null;
+  return n;
+}
+
+/**
+ * Migration 020 DML is tenant-scoped to clients.slug='wolfhouse-somo' and R1..R10.
+ * Zero applicable rows on isolated Sunset is vacuously complete (safe to skip), not unproven.
+ */
+function evaluate020TenantScopedDml(row) {
+  const raw = row || {};
+  const clientSlugCount = coerceNonNegativeInt(raw.client_slug_count);
+  const applicableRows = coerceNonNegativeInt(raw.applicable_rows);
+  const mismatchingRows = coerceNonNegativeInt(raw.mismatching_rows);
+  const duplicateRoomCodeCount = coerceNonNegativeInt(
+    raw.duplicate_room_code_count != null ? raw.duplicate_room_code_count : 0,
+  );
+
+  if (
+    clientSlugCount == null
+    || applicableRows == null
+    || mismatchingRows == null
+    || duplicateRoomCodeCount == null
+  ) {
+    return {
+      ok: false,
+      reason: BLOCKED_REASON_QUERY_AMBIGUITY,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (clientSlugCount > 1) {
+    return {
+      ok: false,
+      reason: BLOCKED_REASON_AMBIGUOUS_SLUG,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (duplicateRoomCodeCount > 0) {
+    return {
+      ok: false,
+      reason: BLOCKED_REASON_ROOM_MULTIPLICITY,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (applicableRows > 0 && clientSlugCount !== 1) {
+    return {
+      ok: false,
+      reason: BLOCKED_REASON_QUERY_AMBIGUITY,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (mismatchingRows > 0) {
+    return {
+      ok: false,
+      reason: BLOCKED_REASON_DML_MISMATCH,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (applicableRows === 0 && mismatchingRows === 0) {
+    return {
+      ok: true,
+      reason: ELIGIBILITY_REASON_VACUOUS,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  if (applicableRows > 0 && mismatchingRows === 0) {
+    return {
+      ok: true,
+      reason: ELIGIBILITY_REASON_MATCHED,
+      applicable_rows: applicableRows,
+      mismatching_rows: mismatchingRows,
+      client_slug_count: clientSlugCount,
+      duplicate_room_code_count: duplicateRoomCodeCount,
+    };
+  }
+
+  return {
+    ok: false,
+    reason: BLOCKED_REASON_QUERY_AMBIGUITY,
+    applicable_rows: applicableRows,
+    mismatching_rows: mismatchingRows,
+    client_slug_count: clientSlugCount,
+    duplicate_room_code_count: duplicateRoomCodeCount,
+  };
+}
+
+function extractTargetedRows(targetedResults, checkId) {
+  const results = targetedResults || {};
+  let rows = results[`dec006:${checkId}`] != null
+    ? results[`dec006:${checkId}`]
+    : results[checkId];
+  if (rows && !Array.isArray(rows) && Array.isArray(rows.rows)) rows = rows.rows;
+  return Array.isArray(rows) ? rows : null;
 }
 
 function evaluateTargetedProof(descriptor, targetedResults) {
@@ -1176,6 +1338,8 @@ function evaluateMigrationEligibility(ctx) {
   let blockedReason = null;
   let classification = CLASSIFICATION_BLOCKED_UNPROVEN;
   let applyKind = null;
+  let eligibilityReason = null;
+  let migration020Dml = null;
 
   if (opts.forbiddenApplyKind === APPLY_KIND_EXECUTED_BY_CANONICAL_RUNNER) {
     return {
@@ -1246,18 +1410,41 @@ function evaluateMigrationEligibility(ctx) {
       : 'partial_effect_unproven';
     classification = CLASSIFICATION_BLOCKED_UNPROVEN;
   } else if (entry.id === '020_wolfhouse_room_gender_metadata') {
-    const agg = dec006.optionalChecks.find((c) => c.id === '020-aggregate-population-optional');
-    if (agg && agg.pass === true) {
+    const dmlRows = extractTargetedRows(targetedResults, '020-tenant-scoped-dml-rows');
+    if (dmlRows == null) {
+      migration020Dml = {
+        ok: false,
+        reason: BLOCKED_REASON_QUERY_AMBIGUITY,
+        applicable_rows: null,
+        mismatching_rows: null,
+      };
+    } else if (dmlRows.length !== 1) {
+      migration020Dml = {
+        ok: false,
+        reason: BLOCKED_REASON_QUERY_AMBIGUITY,
+        applicable_rows: null,
+        mismatching_rows: null,
+        result_row_count: dmlRows.length,
+      };
+    } else {
+      migration020Dml = evaluate020TenantScopedDml(dmlRows[0]);
+    }
+    const dmlCheck = dec006.optionalChecks.find((c) => c.id === '020-tenant-scoped-dml-rows');
+    if (dmlCheck) dmlCheck.pass = migration020Dml.ok === true;
+    if (migration020Dml.ok === true) {
       classification = CLASSIFICATION_ELIGIBLE_CURRENT_STATE;
       applyKind = APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE;
       blockedReason = null;
+      eligibilityReason = migration020Dml.reason;
       usedCurrentStateAlias = true;
-    } else if (hasDataMutation && (!agg || agg.pass !== true)) {
-      blockedReason = 'unproven_dml_zero_aggregate';
-      classification = CLASSIFICATION_BLOCKED_UNPROVEN;
+      if (!evidenceRefs.includes('dec006:020-tenant-scoped-dml-rows')) {
+        evidenceRefs.push('dec006:020-tenant-scoped-dml-rows');
+      }
     } else {
-      blockedReason = 'unproven_dml_zero_aggregate';
+      blockedReason = migration020Dml.reason || BLOCKED_REASON_QUERY_AMBIGUITY;
       classification = CLASSIFICATION_BLOCKED_UNPROVEN;
+      applyKind = null;
+      eligibilityReason = null;
     }
   } else if (DEC006_MIGRATION_IDS.includes(entry.id)) {
     // 018/019: catalog-proven nullability/column metadata → structural baseline
@@ -1305,6 +1492,8 @@ function evaluateMigrationEligibility(ctx) {
     classification,
     apply_kind: applyKind,
     blockedReason,
+    eligibilityReason,
+    migration020Dml: entry.id === '020_wolfhouse_room_gender_metadata' ? migration020Dml : null,
     dec006: DEC006_MIGRATION_IDS.includes(entry.id) ? dec006 : null,
     effectSummary: summarizeEffects(effects),
     evidenceRefs,
@@ -1348,7 +1537,9 @@ function computeContiguousPrefix(evaluations) {
         apply_kind: ev.apply_kind,
         checksum_mode: CHECKSUM_MODE_CANONICAL_LF_V1,
         evidence_ref: (ev.evidenceRefs && ev.evidenceRefs[0]) || `eligibility:${ev.id}`,
-        provenance_notes: `Slice 14AC verified bootstrap; never executed_by_canonical_runner (${ev.apply_kind})`,
+        provenance_notes: ev.eligibilityReason
+          ? `Slice 14AC verified bootstrap; never executed_by_canonical_runner (${ev.apply_kind}; ${ev.eligibilityReason})`
+          : `Slice 14AC verified bootstrap; never executed_by_canonical_runner (${ev.apply_kind})`,
       });
     }
     evaluationsWithPrefix.push({ ...ev, prefixStatus });
@@ -1503,7 +1694,11 @@ function classifyFromEvidence(scenario, ctx) {
       }
       return { ok: true, code: 'effects_complete' };
     case 'unproven-dml':
-      if (context.blockedReason === 'unproven_dml' || context.blockedReason === 'unproven_dml_zero_aggregate') {
+      if (
+        context.blockedReason === 'unproven_dml'
+        || context.blockedReason === 'unproven_dml_zero_aggregate'
+        || context.blockedReason === BLOCKED_REASON_DML_MISMATCH
+      ) {
         return { ok: false, code: context.blockedReason, failClosed: true };
       }
       return { ok: true, code: 'dml_proven_or_absent' };
@@ -2124,6 +2319,14 @@ module.exports = {
   DEC006_MIGRATION_IDS,
   DEC006_RESOLUTION_REQUIREMENTS,
   DEC006_PROOF_SQL,
+  MIGRATION_020_EXPECTED_ROOM_VALUES,
+  MIGRATION_020_ROOM_CODES,
+  ELIGIBILITY_REASON_VACUOUS,
+  ELIGIBILITY_REASON_MATCHED,
+  BLOCKED_REASON_DML_MISMATCH,
+  BLOCKED_REASON_AMBIGUOUS_SLUG,
+  BLOCKED_REASON_ROOM_MULTIPLICITY,
+  BLOCKED_REASON_QUERY_AMBIGUITY,
   LEDGER_ABSENT_SQL,
   APPLY_KIND_VERIFIED_STRUCTURAL_BASELINE,
   APPLY_KIND_VERIFIED_CURRENT_STATE_BASELINE,
@@ -2148,6 +2351,7 @@ module.exports = {
   executeLedgerEligibility,
   assertSelectOnlySql,
   evaluateDec006Check,
+  evaluate020TenantScopedDml,
   snapshotHasCatalogMatch,
   resetLedgerEligibilityCounters,
   getLedgerEligibilityCounters,

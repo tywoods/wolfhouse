@@ -24,7 +24,10 @@
     "dec006_failures_fail_closed",
     "gap_noncontiguous_prefix_fails",
     "mislabel_executed_runner_fails",
-    "expected_bytes_change_fails"
+    "expected_bytes_change_fails",
+    "dec006_020_applicable_mismatch_blocked",
+    "dec006_020_duplicate_slug_blocked",
+    "dec006_020_wrong_values_blocked"
   ],
   "requiredGreen": [
     "forward_count_39_canonical_lf_v1",
@@ -36,7 +39,8 @@
     "design_ledger_ddl_extensions_additive_only",
     "contiguous_prefix_algorithm",
     "dec006_018_019_pass_with_metadata",
-    "dec006_020_requires_aggregate_for_current_state",
+    "dec006_020_zero_applicable_vacuously_complete",
+    "dec006_020_all_positive_matching_eligible",
     "offline_injected_authority_same_target"
   ],
   "locks": {

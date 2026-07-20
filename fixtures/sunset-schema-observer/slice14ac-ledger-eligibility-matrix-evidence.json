@@ -111,6 +111,33 @@
       {
         "name": "expected_bytes_change_fails",
         "ok": true
+      },
+      {
+        "name": "dec006_020_applicable_mismatch_blocked",
+        "ok": true,
+        "detail": {
+          "classification": "blocked_unproven",
+          "blockedReason": "tenant_scoped_dml_mismatch",
+          "applicable_rows": 10,
+          "mismatching_rows": 3
+        }
+      },
+      {
+        "name": "dec006_020_duplicate_slug_blocked",
+        "ok": true,
+        "detail": {
+          "classification": "blocked_unproven",
+          "blockedReason": "ambiguous_client_slug"
+        }
+      },
+      {
+        "name": "dec006_020_wrong_values_blocked",
+        "ok": true,
+        "detail": {
+          "classification": "blocked_unproven",
+          "blockedReason": "tenant_scoped_dml_mismatch",
+          "mismatching_rows": 10
+        }
       }
     ],
     "green": [
@@ -145,11 +172,25 @@
         }
       },
       {
-        "name": "dec006_020_requires_aggregate_for_current_state",
+        "name": "dec006_020_zero_applicable_vacuously_complete",
         "ok": true,
         "detail": {
-          "aggregate0": "unproven_dml_zero_aggregate",
-          "aggregatePositive": "eligible_verified_current_state_baseline"
+          "classification": "eligible_verified_current_state_baseline",
+          "eligibilityReason": "tenant_scoped_dml_vacuously_complete",
+          "applicable_rows": 0,
+          "mismatching_rows": 0,
+          "maxPrefixCount": 39,
+          "firstBlocker": null
+        }
+      },
+      {
+        "name": "dec006_020_all_positive_matching_eligible",
+        "ok": true,
+        "detail": {
+          "classification": "eligible_verified_current_state_baseline",
+          "eligibilityReason": "tenant_scoped_dml_matched",
+          "applicable_rows": 10,
+          "mismatching_rows": 0
         }
       },
       {
@@ -170,33 +211,44 @@
         "detail": {
           "code": "ledger_eligibility_matrix_ok",
           "sameTarget": true,
-          "maxPrefixCount": 18
+          "maxPrefixCount": 39,
+          "firstBlocker": null
         }
       }
     ]
   },
   "offlineMatrix": {
     "forwardCount": 39,
-    "maxPrefixCount": 18,
-    "maxPrefixOrder": 18,
-    "firstBlocker": {
-      "id": "020_wolfhouse_room_gender_metadata",
-      "apply_order": 19,
-      "blockedReason": "unproven_dml_zero_aggregate"
+    "maxPrefixCount": 39,
+    "maxPrefixOrder": 39,
+    "firstBlocker": null,
+    "proposedLedgerRowCount": 39,
+    "classificationCounts": {
+      "eligible_verified_structural_baseline": 34,
+      "eligible_verified_current_state_baseline": 5,
+      "blocked_unproven": 0,
+      "blocked_by_prefix": 0
     },
-    "proposedLedgerRowCount": 18,
-    "note": "Offline fixture uses DEC-006 aggregate 0 (Sunset-likely); first blocker 020 at prefix 18"
+    "migration020": {
+      "applicable_rows": 0,
+      "mismatching_rows": 0,
+      "eligibilityReason": "tenant_scoped_dml_vacuously_complete",
+      "classification": "eligible_verified_current_state_baseline"
+    },
+    "note": "Offline fixture uses DEC-006 applicable_rows=0/mismatching_rows=0 (Sunset-likely vacuous tenant-scoped DML); 020 is eligible_verified_current_state_baseline with tenant_scoped_dml_vacuously_complete; prefix extends only while later migrations remain independently proven"
   },
   "eligibilitySummary": {
     "forwardCount": 39,
-    "maxPrefixCount": 18,
-    "maxPrefixOrder": 18,
-    "firstBlocker": {
-      "id": "020_wolfhouse_room_gender_metadata",
-      "apply_order": 19,
-      "blockedReason": "unproven_dml_zero_aggregate"
-    },
-    "proposedLedgerRowCount": 18
+    "maxPrefixCount": 39,
+    "maxPrefixOrder": 39,
+    "firstBlocker": null,
+    "proposedLedgerRowCount": 39,
+    "classificationCounts": {
+      "eligible_verified_structural_baseline": 34,
+      "eligible_verified_current_state_baseline": 5,
+      "blocked_unproven": 0,
+      "blocked_by_prefix": 0
+    }
   },
   "proposedLedgerRows": [
     {
@@ -378,6 +430,216 @@
       "checksum_mode": "canonical_lf_v1",
       "evidence_ref": "dec006:019-column-present",
       "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "020_wolfhouse_room_gender_metadata",
+      "filename": "020_wolfhouse_room_gender_metadata.sql",
+      "checksum_sha256": "be99c96f4fc4ad00cd0e3216deb8fcaeec57431774c9a261f366fff9ac9b0ca0",
+      "apply_order": 19,
+      "apply_kind": "verified_current_state_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "dec006:020-columns-present",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline; tenant_scoped_dml_vacuously_complete)"
+    },
+    {
+      "id": "021_sunset_admin_business_config",
+      "filename": "021_sunset_admin_business_config.sql",
+      "checksum_sha256": "70f2b2ac87fb798da50bfc0b190c588d0d005d493ad99b0195e603d0b6b0fb17",
+      "apply_order": 20,
+      "apply_kind": "verified_current_state_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.tenant_price_rules",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+    },
+    {
+      "id": "024_booking_guests",
+      "filename": "024_booking_guests.sql",
+      "checksum_sha256": "720e19cd677e3446f1fc4b158baa7f6714e10011d961dc6d5493719ca2493580",
+      "apply_order": 21,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.booking_guests",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "026_tenant_surf_pack_rules",
+      "filename": "026_tenant_surf_pack_rules.sql",
+      "checksum_sha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+      "apply_order": 22,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.tenant_surf_pack_rules",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "027_wolfhouse_staff_whatsapp_numbers",
+      "filename": "027_wolfhouse_staff_whatsapp_numbers.sql",
+      "checksum_sha256": "58ff363c4a58fadbb15f37b11e021044ab1999b9a439b76e6e63d1ea03678f05",
+      "apply_order": 23,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.wolfhouse_staff_whatsapp_numbers",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "028_tenant_services",
+      "filename": "028_tenant_services.sql",
+      "checksum_sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+      "apply_order": 24,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.tenant_services",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "029_booking_service_records_generic_type",
+      "filename": "029_booking_service_records_generic_type.sql",
+      "checksum_sha256": "0d4ca6b0b8fbf175c7f9ae881c8da4f152575c237786e064f611a3fd6189f831",
+      "apply_order": 25,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:constraints:public.booking_service_records.booking_service_records_service_type_check",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "030_tenant_house_notes",
+      "filename": "030_tenant_house_notes.sql",
+      "checksum_sha256": "7470006cce19e088a5080b8d90fadd93b2da6e4b94a7d8afad11199875302425",
+      "apply_order": 26,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.tenant_house_notes",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "030_booking_service_records_slot_reservations",
+      "filename": "030_booking_service_records_slot_reservations.sql",
+      "checksum_sha256": "c69d788fec3acc248dcc5990c7465e54aeea30882ff66671050c236ff9c111ac",
+      "apply_order": 27,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.booking_service_records.service_time_local",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "031_customers",
+      "filename": "031_customers.sql",
+      "checksum_sha256": "f8a9f1ce3504a2a4d3ea429813fbbe4622b84e6305518a7bd1711fe93002a04c",
+      "apply_order": 28,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.customers",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "032_client_notification_settings",
+      "filename": "032_client_notification_settings.sql",
+      "checksum_sha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+      "apply_order": 29,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.client_notification_settings",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "033_tenant_private_lesson_rules",
+      "filename": "033_tenant_private_lesson_rules.sql",
+      "checksum_sha256": "a95143a378fc0f4f541934cc977437d71982ed4b8573ad5d6334db29ea27ddc4",
+      "apply_order": 30,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.tenant_private_lesson_rules",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "033_staff_automated_notifications",
+      "filename": "033_staff_automated_notifications.sql",
+      "checksum_sha256": "4e8aa6d4ee3f4dd919a73989ea72b246e7ed16b4eb057f55383297235fbbaa62",
+      "apply_order": 31,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.staff_automated_notifications",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "034_customers_crm_tags",
+      "filename": "034_customers_crm_tags.sql",
+      "checksum_sha256": "d129d88e9a00740c67181c70a2d88e657399abe7bf2e7e0c675ac28b770cc78a",
+      "apply_order": 32,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.customers.crm_tags",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "035_customer_message_templates",
+      "filename": "035_customer_message_templates.sql",
+      "checksum_sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+      "apply_order": 33,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.customer_message_templates",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "036_sunset_waivers",
+      "filename": "036_sunset_waivers.sql",
+      "checksum_sha256": "ae2211d5fd50cebdb7b0c0ea019a429283c610707c7e2cce7e97e321b2a32845",
+      "apply_order": 34,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:tables:public.waiver_form_requests",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "037_sunset_group_waivers",
+      "filename": "037_sunset_group_waivers.sql",
+      "checksum_sha256": "9b39335b556355d0622ef7d2e2adc89dcdf6869444fce10549b977fe854d8a88",
+      "apply_order": 35,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.waiver_form_requests.request_mode",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "038_sunset_payment_link_idempotency",
+      "filename": "038_sunset_payment_link_idempotency.sql",
+      "checksum_sha256": "2aa8322caba74853e232f8e0d1de8ec3b6ab39572986885b4172bdb44139de1f",
+      "apply_order": 36,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:indexes:public.payments.payments_sunset_authoritative_intent_unique",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "039_sunset_admin_location_aware_rules",
+      "filename": "039_sunset_admin_location_aware_rules.sql",
+      "checksum_sha256": "b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3",
+      "apply_order": 37,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.tenant_price_rules.location_id",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "040_tenant_services_saas_catalog_columns",
+      "filename": "040_tenant_services_saas_catalog_columns.sql",
+      "checksum_sha256": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+      "apply_order": 38,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:columns:public.tenant_services.weekdays",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+    },
+    {
+      "id": "041_notification_surfpack_convergence",
+      "filename": "041_notification_surfpack_convergence.sql",
+      "checksum_sha256": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
+      "apply_order": 39,
+      "apply_kind": "verified_structural_baseline",
+      "checksum_mode": "canonical_lf_v1",
+      "evidence_ref": "catalog:indexes:public.client_notification_events.idx_client_notification_events_client_created",
+      "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
     }
   ],
   "ledgerDdlDesign": {
@@ -406,6 +668,7 @@
   "liveOutcome": {
     "ok": true,
     "code": "ledger_eligibility_matrix_ok",
+    "generatedAt": "2026-07-20T00:20:29.517Z",
     "sameTarget": true,
     "sessionReadOnly": true,
     "transactionReadOnly": true,
@@ -429,29 +692,31 @@
       "method": "snapshot_tables"
     },
     "ledgerAbsent": true,
-    "firstBlocker": {
-      "id": "020_wolfhouse_room_gender_metadata",
-      "apply_order": 19,
-      "blockedReason": "unproven_dml_zero_aggregate"
+    "firstBlocker": null,
+    "maxPrefixCount": 39,
+    "maxPrefixOrder": 39,
+    "proposedLedgerRowCount": 39,
+    "migration020": {
+      "classification": "eligible_verified_current_state_baseline",
+      "apply_kind": "verified_current_state_baseline",
+      "blockedReason": null,
+      "eligibilityReason": "tenant_scoped_dml_vacuously_complete",
+      "applicable_rows": 0,
+      "mismatching_rows": 0,
+      "client_slug_count": 0,
+      "duplicate_room_code_count": 0
     },
-    "maxPrefixCount": 18,
-    "maxPrefixOrder": 18,
-    "proposedLedgerRowCount": 18,
     "eligibilitySummary": {
       "forwardCount": 39,
-      "maxPrefixCount": 18,
-      "maxPrefixOrder": 18,
-      "firstBlocker": {
-        "id": "020_wolfhouse_room_gender_metadata",
-        "apply_order": 19,
-        "blockedReason": "unproven_dml_zero_aggregate"
-      },
-      "proposedLedgerRowCount": 18,
+      "maxPrefixCount": 39,
+      "maxPrefixOrder": 39,
+      "firstBlocker": null,
+      "proposedLedgerRowCount": 39,
       "classificationCounts": {
-        "eligible_verified_structural_baseline": 15,
-        "eligible_verified_current_state_baseline": 3,
-        "blocked_unproven": 1,
-        "blocked_by_prefix": 20
+        "eligible_verified_structural_baseline": 34,
+        "eligible_verified_current_state_baseline": 5,
+        "blocked_unproven": 0,
+        "blocked_by_prefix": 0
       },
       "effectTotals": {
         "extensions": 1,
@@ -471,14 +736,10 @@
     },
     "eligibilityMatrix": {
       "forwardCount": 39,
-      "maxPrefixCount": 18,
-      "maxPrefixOrder": 18,
-      "firstBlocker": {
-        "id": "020_wolfhouse_room_gender_metadata",
-        "apply_order": 19,
-        "blockedReason": "unproven_dml_zero_aggregate"
-      },
-      "proposedLedgerRowCount": 18,
+      "maxPrefixCount": 39,
+      "maxPrefixOrder": 39,
+      "firstBlocker": null,
+      "proposedLedgerRowCount": 39,
       "evaluations": [
         {
           "id": "001_init",
@@ -486,6 +747,7 @@
           "classification": "eligible_verified_current_state_baseline",
           "apply_kind": "verified_current_state_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "extensions": 1,
             "enums": 16,
@@ -497,7 +759,8 @@
             "weakCount": 0,
             "strongCount": 84
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "003_rename_hostel_to_client",
@@ -505,6 +768,7 @@
           "classification": "eligible_verified_current_state_baseline",
           "apply_kind": "verified_current_state_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "renames": 1,
             "drops": 3,
@@ -514,7 +778,8 @@
             "weakCount": 6,
             "strongCount": 3
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "002_package_pricing",
@@ -522,6 +787,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -534,7 +800,8 @@
             "weakCount": 3,
             "strongCount": 7
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "004_payment_schema_phase2",
@@ -542,6 +809,7 @@
           "classification": "eligible_verified_current_state_baseline",
           "apply_kind": "verified_current_state_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "enums": 1,
             "drops": 2,
@@ -554,7 +822,8 @@
             "weakCount": 11,
             "strongCount": 7
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "005_payment_intent_unique_partial",
@@ -562,6 +831,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "drops": 2,
             "indexes": 1,
@@ -569,7 +839,8 @@
             "weakCount": 3,
             "strongCount": 1
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "006_confirmation_sent_at",
@@ -577,6 +848,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "indexes": 1,
@@ -584,7 +856,8 @@
             "weakCount": 1,
             "strongCount": 2
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "007_add_addon_orders",
@@ -592,6 +865,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 7,
             "columns": 7,
@@ -600,7 +874,8 @@
             "weakCount": 0,
             "strongCount": 52
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "008_add_staff_handoffs",
@@ -608,6 +883,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 2,
             "columns": 2,
@@ -616,7 +892,8 @@
             "weakCount": 0,
             "strongCount": 24
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "009_auth_staff_users",
@@ -624,6 +901,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 2,
             "columns": 2,
@@ -632,7 +910,8 @@
             "weakCount": 0,
             "strongCount": 18
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "010_booking_service_records",
@@ -640,6 +919,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -649,7 +929,8 @@
             "weakCount": 6,
             "strongCount": 7
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "011_service_payment_linkage",
@@ -657,6 +938,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "comments": 2,
@@ -664,7 +946,8 @@
             "weakCount": 2,
             "strongCount": 2
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "012_bot_pause_states",
@@ -672,6 +955,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -681,7 +965,8 @@
             "weakCount": 6,
             "strongCount": 9
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "013_guest_message_sends",
@@ -689,6 +974,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -698,7 +984,8 @@
             "weakCount": 1,
             "strongCount": 5
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "014_guest_message_events",
@@ -706,6 +993,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -715,7 +1003,8 @@
             "weakCount": 1,
             "strongCount": 6
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "016_staff_phone_access",
@@ -723,6 +1012,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -732,7 +1022,8 @@
             "weakCount": 1,
             "strongCount": 6
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "017_booking_transfers",
@@ -740,6 +1031,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -749,7 +1041,8 @@
             "weakCount": 2,
             "strongCount": 8
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "018_booking_service_records_nullable_service_date",
@@ -757,6 +1050,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "comments": 1,
@@ -781,7 +1075,8 @@
                 "pass": true
               }
             ]
-          }
+          },
+          "migration020Dml": null
         },
         {
           "id": "019_bookings_language",
@@ -789,6 +1084,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "defaults": 1,
@@ -809,14 +1105,16 @@
               }
             ],
             "optionalChecks": []
-          }
+          },
+          "migration020Dml": null
         },
         {
           "id": "020_wolfhouse_room_gender_metadata",
           "apply_order": 19,
-          "classification": "blocked_unproven",
-          "apply_kind": null,
-          "blockedReason": "unproven_dml_zero_aggregate",
+          "classification": "eligible_verified_current_state_baseline",
+          "apply_kind": "verified_current_state_baseline",
+          "blockedReason": null,
+          "eligibilityReason": "tenant_scoped_dml_vacuously_complete",
           "effectSummary": {
             "data_mutations": 1,
             "weakCount": 1,
@@ -832,10 +1130,18 @@
             ],
             "optionalChecks": [
               {
-                "id": "020-aggregate-population-optional",
-                "pass": false
+                "id": "020-tenant-scoped-dml-rows",
+                "pass": true
               }
             ]
+          },
+          "migration020Dml": {
+            "ok": true,
+            "reason": "tenant_scoped_dml_vacuously_complete",
+            "applicable_rows": 0,
+            "mismatching_rows": 0,
+            "client_slug_count": 0,
+            "duplicate_room_code_count": 0
           }
         },
         {
@@ -844,6 +1150,7 @@
           "classification": "eligible_verified_current_state_baseline",
           "apply_kind": "verified_current_state_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 4,
             "columns": 4,
@@ -853,7 +1160,8 @@
             "weakCount": 6,
             "strongCount": 27
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "024_booking_guests",
@@ -861,6 +1169,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 2,
@@ -870,7 +1179,8 @@
             "weakCount": 3,
             "strongCount": 7
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "026_tenant_surf_pack_rules",
@@ -878,6 +1188,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -887,7 +1198,8 @@
             "weakCount": 1,
             "strongCount": 5
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "027_wolfhouse_staff_whatsapp_numbers",
@@ -895,6 +1207,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -903,7 +1216,8 @@
             "weakCount": 3,
             "strongCount": 3
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "028_tenant_services",
@@ -911,6 +1225,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -919,7 +1234,8 @@
             "weakCount": 1,
             "strongCount": 3
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "029_booking_service_records_generic_type",
@@ -927,6 +1243,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "drops": 1,
             "constraints": 1,
@@ -934,7 +1251,8 @@
             "weakCount": 2,
             "strongCount": 1
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "030_tenant_house_notes",
@@ -942,6 +1260,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -949,7 +1268,8 @@
             "weakCount": 1,
             "strongCount": 2
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "030_booking_service_records_slot_reservations",
@@ -957,13 +1277,15 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "indexes": 1,
             "weakCount": 0,
             "strongCount": 2
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "031_customers",
@@ -971,6 +1293,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 3,
@@ -982,7 +1305,8 @@
             "weakCount": 7,
             "strongCount": 9
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "032_client_notification_settings",
@@ -990,6 +1314,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 2,
             "columns": 2,
@@ -998,7 +1323,8 @@
             "weakCount": 4,
             "strongCount": 9
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "033_tenant_private_lesson_rules",
@@ -1006,6 +1332,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -1015,7 +1342,8 @@
             "weakCount": 1,
             "strongCount": 5
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "033_staff_automated_notifications",
@@ -1023,6 +1351,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 2,
             "columns": 2,
@@ -1031,7 +1360,8 @@
             "weakCount": 4,
             "strongCount": 9
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "034_customers_crm_tags",
@@ -1039,6 +1369,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 1,
             "defaults": 1,
@@ -1046,7 +1377,8 @@
             "weakCount": 0,
             "strongCount": 3
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "035_customer_message_templates",
@@ -1054,6 +1386,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 1,
             "columns": 1,
@@ -1062,7 +1395,8 @@
             "weakCount": 1,
             "strongCount": 3
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "036_sunset_waivers",
@@ -1070,6 +1404,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "tables": 2,
             "columns": 2,
@@ -1080,7 +1415,8 @@
             "weakCount": 5,
             "strongCount": 14
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "037_sunset_group_waivers",
@@ -1088,6 +1424,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 2,
             "defaults": 1,
@@ -1098,7 +1435,8 @@
             "weakCount": 5,
             "strongCount": 8
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "038_sunset_payment_link_idempotency",
@@ -1106,6 +1444,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "drops": 1,
             "indexes": 1,
@@ -1113,7 +1452,8 @@
             "weakCount": 2,
             "strongCount": 1
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "039_sunset_admin_location_aware_rules",
@@ -1121,6 +1461,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 7,
             "data_mutations": 3,
@@ -1129,7 +1470,8 @@
             "weakCount": 10,
             "strongCount": 10
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "040_tenant_services_saas_catalog_columns",
@@ -1137,6 +1479,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "columns": 8,
             "defaults": 4,
@@ -1144,7 +1487,8 @@
             "weakCount": 4,
             "strongCount": 12
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         },
         {
           "id": "041_notification_surfpack_convergence",
@@ -1152,6 +1496,7 @@
           "classification": "eligible_verified_structural_baseline",
           "apply_kind": "verified_structural_baseline",
           "blockedReason": null,
+          "eligibilityReason": null,
           "effectSummary": {
             "indexes": 4,
             "constraints": 1,
@@ -1159,7 +1504,8 @@
             "weakCount": 0,
             "strongCount": 6
           },
-          "dec006": null
+          "dec006": null,
+          "migration020Dml": null
         }
       ],
       "proposedLedgerRows": [
@@ -1341,6 +1687,216 @@
           "apply_kind": "verified_structural_baseline",
           "checksum_mode": "canonical_lf_v1",
           "evidence_ref": "dec006:019-column-present",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "020_wolfhouse_room_gender_metadata",
+          "filename": "020_wolfhouse_room_gender_metadata.sql",
+          "checksum_sha256": "be99c96f4fc4ad00cd0e3216deb8fcaeec57431774c9a261f366fff9ac9b0ca0",
+          "apply_order": 19,
+          "apply_kind": "verified_current_state_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "dec006:020-columns-present",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline; tenant_scoped_dml_vacuously_complete)"
+        },
+        {
+          "id": "021_sunset_admin_business_config",
+          "filename": "021_sunset_admin_business_config.sql",
+          "checksum_sha256": "70f2b2ac87fb798da50bfc0b190c588d0d005d493ad99b0195e603d0b6b0fb17",
+          "apply_order": 20,
+          "apply_kind": "verified_current_state_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.tenant_price_rules",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+        },
+        {
+          "id": "024_booking_guests",
+          "filename": "024_booking_guests.sql",
+          "checksum_sha256": "720e19cd677e3446f1fc4b158baa7f6714e10011d961dc6d5493719ca2493580",
+          "apply_order": 21,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.booking_guests",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "026_tenant_surf_pack_rules",
+          "filename": "026_tenant_surf_pack_rules.sql",
+          "checksum_sha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+          "apply_order": 22,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.tenant_surf_pack_rules",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "027_wolfhouse_staff_whatsapp_numbers",
+          "filename": "027_wolfhouse_staff_whatsapp_numbers.sql",
+          "checksum_sha256": "58ff363c4a58fadbb15f37b11e021044ab1999b9a439b76e6e63d1ea03678f05",
+          "apply_order": 23,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.wolfhouse_staff_whatsapp_numbers",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "028_tenant_services",
+          "filename": "028_tenant_services.sql",
+          "checksum_sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+          "apply_order": 24,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.tenant_services",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "029_booking_service_records_generic_type",
+          "filename": "029_booking_service_records_generic_type.sql",
+          "checksum_sha256": "0d4ca6b0b8fbf175c7f9ae881c8da4f152575c237786e064f611a3fd6189f831",
+          "apply_order": 25,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:constraints:public.booking_service_records.booking_service_records_service_type_check",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "030_tenant_house_notes",
+          "filename": "030_tenant_house_notes.sql",
+          "checksum_sha256": "7470006cce19e088a5080b8d90fadd93b2da6e4b94a7d8afad11199875302425",
+          "apply_order": 26,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.tenant_house_notes",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "030_booking_service_records_slot_reservations",
+          "filename": "030_booking_service_records_slot_reservations.sql",
+          "checksum_sha256": "c69d788fec3acc248dcc5990c7465e54aeea30882ff66671050c236ff9c111ac",
+          "apply_order": 27,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.booking_service_records.service_time_local",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "031_customers",
+          "filename": "031_customers.sql",
+          "checksum_sha256": "f8a9f1ce3504a2a4d3ea429813fbbe4622b84e6305518a7bd1711fe93002a04c",
+          "apply_order": 28,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.customers",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "032_client_notification_settings",
+          "filename": "032_client_notification_settings.sql",
+          "checksum_sha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+          "apply_order": 29,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.client_notification_settings",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "033_tenant_private_lesson_rules",
+          "filename": "033_tenant_private_lesson_rules.sql",
+          "checksum_sha256": "a95143a378fc0f4f541934cc977437d71982ed4b8573ad5d6334db29ea27ddc4",
+          "apply_order": 30,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.tenant_private_lesson_rules",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "033_staff_automated_notifications",
+          "filename": "033_staff_automated_notifications.sql",
+          "checksum_sha256": "4e8aa6d4ee3f4dd919a73989ea72b246e7ed16b4eb057f55383297235fbbaa62",
+          "apply_order": 31,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.staff_automated_notifications",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "034_customers_crm_tags",
+          "filename": "034_customers_crm_tags.sql",
+          "checksum_sha256": "d129d88e9a00740c67181c70a2d88e657399abe7bf2e7e0c675ac28b770cc78a",
+          "apply_order": 32,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.customers.crm_tags",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "035_customer_message_templates",
+          "filename": "035_customer_message_templates.sql",
+          "checksum_sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+          "apply_order": 33,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.customer_message_templates",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "036_sunset_waivers",
+          "filename": "036_sunset_waivers.sql",
+          "checksum_sha256": "ae2211d5fd50cebdb7b0c0ea019a429283c610707c7e2cce7e97e321b2a32845",
+          "apply_order": 34,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:tables:public.waiver_form_requests",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "037_sunset_group_waivers",
+          "filename": "037_sunset_group_waivers.sql",
+          "checksum_sha256": "9b39335b556355d0622ef7d2e2adc89dcdf6869444fce10549b977fe854d8a88",
+          "apply_order": 35,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.waiver_form_requests.request_mode",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "038_sunset_payment_link_idempotency",
+          "filename": "038_sunset_payment_link_idempotency.sql",
+          "checksum_sha256": "2aa8322caba74853e232f8e0d1de8ec3b6ab39572986885b4172bdb44139de1f",
+          "apply_order": 36,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:indexes:public.payments.payments_sunset_authoritative_intent_unique",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "039_sunset_admin_location_aware_rules",
+          "filename": "039_sunset_admin_location_aware_rules.sql",
+          "checksum_sha256": "b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3",
+          "apply_order": 37,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.tenant_price_rules.location_id",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "040_tenant_services_saas_catalog_columns",
+          "filename": "040_tenant_services_saas_catalog_columns.sql",
+          "checksum_sha256": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+          "apply_order": 38,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:columns:public.tenant_services.weekdays",
+          "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+        },
+        {
+          "id": "041_notification_surfpack_convergence",
+          "filename": "041_notification_surfpack_convergence.sql",
+          "checksum_sha256": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
+          "apply_order": 39,
+          "apply_kind": "verified_structural_baseline",
+          "checksum_mode": "canonical_lf_v1",
+          "evidence_ref": "catalog:indexes:public.client_notification_events.idx_client_notification_events_client_created",
           "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
         }
       ]
@@ -1525,6 +2081,216 @@
         "checksum_mode": "canonical_lf_v1",
         "evidence_ref": "dec006:019-column-present",
         "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "020_wolfhouse_room_gender_metadata",
+        "filename": "020_wolfhouse_room_gender_metadata.sql",
+        "checksum_sha256": "be99c96f4fc4ad00cd0e3216deb8fcaeec57431774c9a261f366fff9ac9b0ca0",
+        "apply_order": 19,
+        "apply_kind": "verified_current_state_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "dec006:020-columns-present",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline; tenant_scoped_dml_vacuously_complete)"
+      },
+      {
+        "id": "021_sunset_admin_business_config",
+        "filename": "021_sunset_admin_business_config.sql",
+        "checksum_sha256": "70f2b2ac87fb798da50bfc0b190c588d0d005d493ad99b0195e603d0b6b0fb17",
+        "apply_order": 20,
+        "apply_kind": "verified_current_state_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.tenant_price_rules",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_current_state_baseline)"
+      },
+      {
+        "id": "024_booking_guests",
+        "filename": "024_booking_guests.sql",
+        "checksum_sha256": "720e19cd677e3446f1fc4b158baa7f6714e10011d961dc6d5493719ca2493580",
+        "apply_order": 21,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.booking_guests",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "026_tenant_surf_pack_rules",
+        "filename": "026_tenant_surf_pack_rules.sql",
+        "checksum_sha256": "8923551f385bda87e649b567fd47153ed94014029ac5138176beff7e58512496",
+        "apply_order": 22,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.tenant_surf_pack_rules",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "027_wolfhouse_staff_whatsapp_numbers",
+        "filename": "027_wolfhouse_staff_whatsapp_numbers.sql",
+        "checksum_sha256": "58ff363c4a58fadbb15f37b11e021044ab1999b9a439b76e6e63d1ea03678f05",
+        "apply_order": 23,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.wolfhouse_staff_whatsapp_numbers",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "028_tenant_services",
+        "filename": "028_tenant_services.sql",
+        "checksum_sha256": "f9972026a236b21c87442429e1b34e6951adca3e81cc84a88e82d538fa62e240",
+        "apply_order": 24,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.tenant_services",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "029_booking_service_records_generic_type",
+        "filename": "029_booking_service_records_generic_type.sql",
+        "checksum_sha256": "0d4ca6b0b8fbf175c7f9ae881c8da4f152575c237786e064f611a3fd6189f831",
+        "apply_order": 25,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:constraints:public.booking_service_records.booking_service_records_service_type_check",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "030_tenant_house_notes",
+        "filename": "030_tenant_house_notes.sql",
+        "checksum_sha256": "7470006cce19e088a5080b8d90fadd93b2da6e4b94a7d8afad11199875302425",
+        "apply_order": 26,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.tenant_house_notes",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "030_booking_service_records_slot_reservations",
+        "filename": "030_booking_service_records_slot_reservations.sql",
+        "checksum_sha256": "c69d788fec3acc248dcc5990c7465e54aeea30882ff66671050c236ff9c111ac",
+        "apply_order": 27,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.booking_service_records.service_time_local",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "031_customers",
+        "filename": "031_customers.sql",
+        "checksum_sha256": "f8a9f1ce3504a2a4d3ea429813fbbe4622b84e6305518a7bd1711fe93002a04c",
+        "apply_order": 28,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.customers",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "032_client_notification_settings",
+        "filename": "032_client_notification_settings.sql",
+        "checksum_sha256": "b3788bd58ce6c6e158857dd56237fa5ff3be0fe4d1afe0f1e5f5c1acdbc4995d",
+        "apply_order": 29,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.client_notification_settings",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "033_tenant_private_lesson_rules",
+        "filename": "033_tenant_private_lesson_rules.sql",
+        "checksum_sha256": "a95143a378fc0f4f541934cc977437d71982ed4b8573ad5d6334db29ea27ddc4",
+        "apply_order": 30,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.tenant_private_lesson_rules",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "033_staff_automated_notifications",
+        "filename": "033_staff_automated_notifications.sql",
+        "checksum_sha256": "4e8aa6d4ee3f4dd919a73989ea72b246e7ed16b4eb057f55383297235fbbaa62",
+        "apply_order": 31,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.staff_automated_notifications",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "034_customers_crm_tags",
+        "filename": "034_customers_crm_tags.sql",
+        "checksum_sha256": "d129d88e9a00740c67181c70a2d88e657399abe7bf2e7e0c675ac28b770cc78a",
+        "apply_order": 32,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.customers.crm_tags",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "035_customer_message_templates",
+        "filename": "035_customer_message_templates.sql",
+        "checksum_sha256": "924f1293cca214eeee18080c50fd4c63fc078011939f98af804993c5b9ced565",
+        "apply_order": 33,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.customer_message_templates",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "036_sunset_waivers",
+        "filename": "036_sunset_waivers.sql",
+        "checksum_sha256": "ae2211d5fd50cebdb7b0c0ea019a429283c610707c7e2cce7e97e321b2a32845",
+        "apply_order": 34,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:tables:public.waiver_form_requests",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "037_sunset_group_waivers",
+        "filename": "037_sunset_group_waivers.sql",
+        "checksum_sha256": "9b39335b556355d0622ef7d2e2adc89dcdf6869444fce10549b977fe854d8a88",
+        "apply_order": 35,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.waiver_form_requests.request_mode",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "038_sunset_payment_link_idempotency",
+        "filename": "038_sunset_payment_link_idempotency.sql",
+        "checksum_sha256": "2aa8322caba74853e232f8e0d1de8ec3b6ab39572986885b4172bdb44139de1f",
+        "apply_order": 36,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:indexes:public.payments.payments_sunset_authoritative_intent_unique",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "039_sunset_admin_location_aware_rules",
+        "filename": "039_sunset_admin_location_aware_rules.sql",
+        "checksum_sha256": "b34d8886bc832db61e8fc67e333a655ab5976d35d1817f2b62ddfaf61682c2a3",
+        "apply_order": 37,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.tenant_price_rules.location_id",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "040_tenant_services_saas_catalog_columns",
+        "filename": "040_tenant_services_saas_catalog_columns.sql",
+        "checksum_sha256": "880cdee1865d6dbaef212a22506b9ee9278d750eb5b8ff0aa6d08148ac3dcddd",
+        "apply_order": 38,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:columns:public.tenant_services.weekdays",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
+      },
+      {
+        "id": "041_notification_surfpack_convergence",
+        "filename": "041_notification_surfpack_convergence.sql",
+        "checksum_sha256": "3b639a23f5fdd753d63b5ff1b81d01a1875c1ee19e08ea361a2647e20dcb7d09",
+        "apply_order": 39,
+        "apply_kind": "verified_structural_baseline",
+        "checksum_mode": "canonical_lf_v1",
+        "evidence_ref": "catalog:indexes:public.client_notification_events.idx_client_notification_events_client_created",
+        "provenance_notes": "Slice 14AC verified bootstrap; never executed_by_canonical_runner (verified_structural_baseline)"
       }
     ],
     "liveMutation": false,
@@ -1532,6 +2298,30 @@
     "dataMutation": false,
     "ledgerWritten": false,
     "verifyNeverRerunsLive": true
+  },
+  "superseded14acCapture": {
+    "generatedAt": "2026-07-20T00:11:26.615Z",
+    "result": {
+      "ok": true,
+      "code": "ledger_eligibility_matrix_ok",
+      "firstBlocker": {
+        "id": "020_wolfhouse_room_gender_metadata",
+        "apply_order": 19,
+        "blockedReason": "unproven_dml_zero_aggregate"
+      },
+      "maxPrefixCount": 18,
+      "maxPrefixOrder": 18,
+      "proposedLedgerRowCount": 18,
+      "classificationCounts": {
+        "eligible_verified_structural_baseline": 15,
+        "eligible_verified_current_state_baseline": 3,
+        "blocked_unproven": 1,
+        "blocked_by_prefix": 20
+      },
+      "remainingMismatchCount": 0
+    },
+    "correctionReason": "migration-020 zero matching_rows aggregate incorrectly treated tenant-scoped vacuous DML (slug=wolfhouse-somo, R1..R10) as unproven_dml_zero_aggregate; replaced with applicable_rows/mismatching_rows against exact VALUES; applicable_rows=0 AND mismatching_rows=0 is eligible_verified_current_state_baseline (tenant_scoped_dml_vacuously_complete)",
+    "note": "Original Slice 14AC live capture at commit 1e5714ff1854e6dedb1eef35c713a101baaa5605; findings Generated timestamp is authoritative for that capture."
   },
   "secretHandlingProof": {
     "leakScanPassed": true,
