@@ -1,6 +1,6 @@
-# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation source-partial)
+# RADAR findings (16A freeze + 16B budget-threshold + 16H metric-alert + 16I readiness + 16J correlation + 16K healthz source-partial)
 
-**Master basis (16J):** `d9d297e8d28b499316fdcb89ff7954ebb4cdae06`
+**Master basis (16K):** `0d7340865d34804562c0e955a6276cfeff90560d`
 **Policy:** absence is not safe (`proven` | `partial` | `absent`).
 
 ## Verdict rollup
@@ -26,11 +26,17 @@
 4. **G01 correlation / structured logs — partial (source only via 16J)**
    Staff API request correlation middleware added (UUIDv4 accept/generate, ALS, response header; header + context only). **No completion logging / lifecycle listeners.** **Not deployed** — request completion logs, LAW/App Insights delivery + search, retention, and correlation drill remain open. Supersedes deferred 16D (no async log queue; no signal/shutdown ownership).
 
+5. **G08 retention / privacy — partial (source only via 16K)**
+   Public Staff API `/healthz` minimized in source to `{status:ok,service:staff-api}` (no auth/stage/provider/model/key/config/tenant/note). **Not deployed** — live `/healthz` still exposes detailed fields. LAW/App Insights retention remain proven live. Log-retention/PII redaction proof and privacy drill remain open.
+
 ## Other partial notes
 
 - **G04/G05 backlog + replay:** handlers/jobs/idempotency keys exist; backlog metrics and full replay proof missing.
 - **G07 runbooks:** docs present; PHASE-7.4 restore drill not executed; PG backup 7d, geo-redundant off.
-- **G08 retention / privacy:** LAW/App Insights retention proven live; correlation completion retention still open.
+
+## Slice 16K
+
+`16K_staff_api_healthz_minimization` on **G08_retention_privacy** — progress class `source_partial_progress_only`. Does not deploy; does not change `/readyz` or authenticated diagnostics; live deploy / log-retention proof / privacy drill remain open.
 
 ## Slice 16J
 
@@ -50,4 +56,4 @@
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16J. Database, Hermes staging, and staging Bicep unchanged vs master. Staff API correlation middleware is intentional 16J ownership.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16K. Database, Hermes staging, and staging Bicep unchanged vs master. Staff API public `/healthz` minimization is intentional 16K ownership.

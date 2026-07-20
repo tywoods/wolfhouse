@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16J",
-  "outcome_id": "16J_staff_api_request_correlation",
-  "master_basis": "d9d297e8d28b499316fdcb89ff7954ebb4cdae06",
-  "branch": "radar/slice-16j-request-correlation",
+  "slice": "RADAR-16K",
+  "outcome_id": "16K_staff_api_healthz_minimization",
+  "master_basis": "0d7340865d34804562c0e955a6276cfeff90560d",
+  "branch": "radar/slice-16k-healthz-minimization",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Staff API request correlation (UUIDv4 + ALS header/context only) \u2014 G01 source-partial; supersedes deferred 16D",
+  "title": "Staff API /healthz minimization (generic public schema) \u2014 G08 source-partial",
   "progress_class": "source_partial_progress_only",
-  "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
+  "does_not_implement": "live_deploy_log_retention_privacy_drill",
   "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -35,7 +35,11 @@
     "fixtures/radar-operations/slice16j-expected-contract.json",
     "scripts/lib/staff-api-request-correlation.js",
     "scripts/lib/radar-slice16j-staff-request-correlation.js",
-    "scripts/verify-radar-slice16j-staff-request-correlation.js"
+    "scripts/verify-radar-slice16j-staff-request-correlation.js",
+    "fixtures/radar-operations/slice16k-expected-contract.json",
+    "scripts/lib/staff-api-healthz.js",
+    "scripts/lib/radar-slice16k-staff-api-healthz.js",
+    "scripts/verify-radar-slice16k-staff-api-healthz.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -80,21 +84,22 @@
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16J may modify Staff API correlation wiring only; must not mutate DB schema, Hermes staging, or staging Bicep; no live deploy; completion logs/delivery/search/retention/drill open"
+    "note": "16K may modify Staff API public /healthz body only; must not mutate DB schema, Hermes staging, or staging Bicep; no live deploy; log-retention/privacy drill open"
   },
   "gates": [
-    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
     "npm run verify:radar-slice16a-operations-gate-ledger",
     "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:radar-slice16h-staff-api-metric-alerts",
     "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
     "npm run verify:staff-auth-api",
     "az bicep build --file infra/azure/staging/main.bicep",
     "az bicep build --file infra/azure/sunset-staging/main.bicep",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check d9d297e8d28b499316fdcb89ff7954ebb4cdae06..HEAD"
+    "git diff --check 0d7340865d34804562c0e955a6276cfeff90560d..HEAD"
   ],
   "alert_fire_drill": "open",
   "selected_16h": {
@@ -141,5 +146,14 @@
   "correlation_delivery_proof": "open",
   "correlation_search_proof": "open",
   "correlation_retention": "open",
-  "correlation_drill": "open"
+  "correlation_drill": "open",
+  "selected_16k": {
+    "outcome_id": "16K_staff_api_healthz_minimization",
+    "gate_id": "G08_retention_privacy",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_log_retention_privacy_drill"
+  },
+  "healthz_live_deploy": "open",
+  "healthz_log_retention": "open",
+  "healthz_privacy_drill": "open"
 }

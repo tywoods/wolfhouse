@@ -376,7 +376,7 @@ After Phase D–J, **before any pilot activity**, all of the following must hold
 
 | # | Test | Expected result | Status |
 |---|---|---|---|
-| S1 | `curl -I https://staff-staging.lunafrontdesk.com/healthz` | HTTPS 200; `{ "status": "ok", "auth_enabled": true }` | NOT_STARTED |
+| S1 | `curl -I https://staff-staging.lunafrontdesk.com/healthz` | HTTPS 200; `{ "status": "ok", "service": "staff-api" }` (minimized; no auth/stage/provider fields) | NOT_STARTED |
 | S2 | `curl -I https://staff-staging.lunafrontdesk.com/staff/ui` | HTTPS 200 | NOT_STARTED |
 | S3 | `curl https://staff-staging.lunafrontdesk.com/staff/intents` | 200; returns intent registry JSON | NOT_STARTED |
 | S4 | `curl https://staff-staging.lunafrontdesk.com/staff/conversations` | 200; returns `[]` or rows | NOT_STARTED |

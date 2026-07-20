@@ -180,7 +180,7 @@ az deployment group create \
 
 After a successful deployment, verify each item before declaring staging ready:
 
-- [ ] `GET https://staff-staging.lunafrontdesk.com/healthz` returns `{ "status": "ok", "auth_enabled": true }`
+- [ ] `GET https://staff-staging.lunafrontdesk.com/healthz` returns `{ "status": "ok", "service": "staff-api" }` (no auth/stage/provider fields; AI diagnostics via authenticated `GET /staff/ask-luna/ai-status`)
 - [ ] `GET https://staff-staging.lunafrontdesk.com/staff/ui` returns 200
 - [ ] `GET https://staff-staging.lunafrontdesk.com/staff/intents` returns the registry list
 - [ ] `GET https://staff-staging.lunafrontdesk.com/staff/conversations` returns 200 (empty OK)

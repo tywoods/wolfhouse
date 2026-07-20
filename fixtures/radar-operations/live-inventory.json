@@ -202,7 +202,10 @@
       "service": "wolfhouse-staff-query-api",
       "auth_enabled": true,
       "stage": "7.7b",
-      "dependency_fields_present": false
+      "dependency_fields_present": false,
+      "observed_live_detail_fields": true,
+      "source_target_schema": { "status": "ok", "service": "staff-api" },
+      "note": "Live still detailed until Staff API deploy; 16K source minimizes to source_target_schema"
     },
     "sunset-staging.lunafrontdesk.com": {
       "path": "/healthz",
@@ -211,7 +214,10 @@
       "service": "wolfhouse-staff-query-api",
       "auth_enabled": true,
       "stage": "7.7b",
-      "dependency_fields_present": false
+      "dependency_fields_present": false,
+      "observed_live_detail_fields": true,
+      "source_target_schema": { "status": "ok", "service": "staff-api" },
+      "note": "Live still detailed until Staff API deploy; 16K source minimizes to source_target_schema"
     }
   }
 }

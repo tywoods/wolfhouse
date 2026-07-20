@@ -543,13 +543,18 @@ ok('C4 staff-query-api wires /readyz before /healthz via readiness pool',
   /pathname === READYZ_PATH/.test(apiSrc)
   && /handleStaffApiReadyz\(res, sendJSON, withPgClient/.test(apiSrc)
   && /getReadinessPool|readinessPool/.test(apiSrc)
-  && apiSrc.indexOf('pathname === READYZ_PATH') < apiSrc.indexOf("pathname === '/healthz'")
+  && apiSrc.indexOf('pathname === READYZ_PATH') < apiSrc.indexOf('pathname === HEALTHZ_PATH')
   && /require\('\.\/lib\/staff-api-readiness'\)/.test(apiSrc));
 
 ok('C5 /healthz remains static (no readiness/pg in healthz block)', (() => {
-  const i = apiSrc.indexOf("pathname === '/healthz'");
+  // 16K routes via HEALTHZ_PATH + handleStaffApiHealthz (still DB-independent).
+  const marker = /pathname === HEALTHZ_PATH/.test(apiSrc)
+    ? 'pathname === HEALTHZ_PATH'
+    : "pathname === '/healthz'";
+  const i = apiSrc.indexOf(marker);
   const block = apiSrc.slice(i, i + 600);
-  return /status:\s*'ok'/.test(block)
+  return i >= 0
+    && (/handleStaffApiHealthz/.test(block) || /status:\s*'ok'/.test(block))
     && !/handleStaffApiReadyz/.test(block)
     && !/checkPostgresReadiness/.test(block)
     && !/withPgClient/.test(block)
@@ -781,13 +786,14 @@ ok('C11 npm script registered',
   }
 
   {
-    const healthIdx = apiSrc.indexOf("pathname === '/healthz'");
+    const healthIdx = apiSrc.indexOf('pathname === HEALTHZ_PATH');
     const healthBlock = apiSrc.slice(healthIdx, healthIdx + 500);
     const readyIdx = apiSrc.indexOf('pathname === READYZ_PATH');
     const readyBlock = apiSrc.slice(readyIdx, readyIdx + 350);
     const swappedHealthUsesReady = /handleStaffApiReadyz|checkPostgresReadiness|SELECT 1/.test(healthBlock);
     const readyUsesStaticOk = /status:\s*'ok'/.test(readyBlock) && !/handleStaffApiReadyz/.test(readyBlock);
-    red('paths_not_swapped_in_source', !swappedHealthUsesReady && !readyUsesStaticOk);
+    red('paths_not_swapped_in_source',
+      healthIdx >= 0 && !swappedHealthUsesReady && !readyUsesStaticOk);
 
     const liveSwap = mutateLivenessToReadyz(whBicep);
     const liveCheck = locks.validateBicepProbeContract(liveSwap);
