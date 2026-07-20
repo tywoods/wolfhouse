@@ -323,6 +323,9 @@ function buildStripeEventClaimIdempotentBody(fields) {
 /**
  * Distinct-event business idempotency (new stripe_event_id claimed+processed,
  * payment already paid under lock — no payment/service rewrite).
+ *
+ * Truthful flags: ledger claim+processed IS a DB write, so never claim
+ * no_db_write. Use no_business_mutation + no_payment_or_service_rewrite.
  */
 function buildStripeEventDistinctBusinessIdempotentBody(fields) {
   const f = fields || {};
@@ -338,7 +341,8 @@ function buildStripeEventDistinctBusinessIdempotentBody(fields) {
     payment_id: f.paymentId || f.payment_id || null,
     booking_id: f.bookingId || f.booking_id || null,
     booking_code: f.bookingCode || f.booking_code || null,
-    no_db_write: true,
+    no_business_mutation: true,
+    no_payment_or_service_rewrite: true,
     no_confirmation_sent: true,
     no_whatsapp: true,
     no_n8n: true,

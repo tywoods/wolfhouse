@@ -42,7 +42,7 @@
 
 ## Slice 16M
 
-`16M_stripe_webhook_event_id_claim` on **G05_retry_replay_safety** — progress class `source_partial_progress_only`. Addon path locks owned payment FOR UPDATE after claim; distinct-event already-paid → `duplicate_business_outcome` idempotent (no rewrite). COMMIT failure returns `outcome_unknown=true` (never claimed definitely rolled back). Does not deploy; does not add replay operator/DLQ; does not claim ignored event types; deploy/live concurrency/real-PG ambiguous-commit drill/replay/DLQ/drill remain open.
+`16M_stripe_webhook_event_id_claim` on **G05_retry_replay_safety** — progress class `source_partial_progress_only`. Addon path has no pre-transaction already-paid shortcut; every matched addon event claims under transaction, locks owned payment FOR UPDATE after claim; distinct-event already-paid → processed ledger + `duplicate_business_outcome` with `no_business_mutation`/`no_payment_or_service_rewrite` (not `no_db_write`). Exact-ID retry → `stripe_event_id_already_claimed`. COMMIT failure returns `outcome_unknown=true` (never claimed definitely rolled back). Does not deploy; does not add replay operator/DLQ; does not claim ignored event types; deploy/live concurrency/real-PG ambiguous-commit drill/replay/DLQ/drill remain open.
 
 ## Slice 16L
 

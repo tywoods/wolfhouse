@@ -22,8 +22,9 @@
       "COMMIT"
     ],
     "duplicate_zero_rows": "ROLLBACK + HTTP 200 idempotent reason=stripe_event_id_already_claimed",
-    "exact_id_conflict": "ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id — zero rows means exact stripe_event_id already claimed; HTTP 200 idempotent reason=stripe_event_id_already_claimed; no business mutation",
-    "addon_distinct_event_already_paid": "After claim + FOR UPDATE reload, if payment already paid: do not rewrite payment/service; mark claimed event processed with privacy-safe duplicate_business_outcome; COMMIT; HTTP 200 idempotent reason=duplicate_business_outcome",
+    "exact_id_conflict": "ON CONFLICT (stripe_event_id) DO NOTHING RETURNING id — zero rows means exact stripe_event_id already claimed; ROLLBACK + HTTP 200 idempotent reason=stripe_event_id_already_claimed; no_db_write=true (no durable write from this request)",
+    "addon_no_pre_transaction_already_paid_shortcut": "Matched addon_service events never early-return on stale lookup already-paid; always BEGIN → claim → FOR UPDATE reload → exact-id or under-lock distinct-business → mark processed → COMMIT",
+    "addon_distinct_event_already_paid": "After claim + FOR UPDATE reload, if payment already paid: do not rewrite payment/service; mark claimed event processed with privacy-safe duplicate_business_outcome; COMMIT; HTTP 200 idempotent reason=duplicate_business_outcome; no_business_mutation=true + no_payment_or_service_rewrite=true (never no_db_write — ledger claim is a DB write)",
     "addon_ineligible_under_lock": "If lock miss or payment_kind != addon_service → fail closed ROLLBACK + retryable 500",
     "pre_commit_failure": "ROLLBACK claim+mutations + HTTP 500 retryable (mutation/processed/claim failures before commit attempt)",
     "commit_failure": "AMBIGUOUS — never claim rejected COMMIT definitely rolled back. Best-effort ROLLBACK then HTTP 500 retryable outcome_unknown=true (no secret/error details). Retry resolves via durable stripe_event_id claim if commit landed, or can claim if it did not.",

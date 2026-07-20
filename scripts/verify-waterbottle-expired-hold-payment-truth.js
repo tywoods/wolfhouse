@@ -470,8 +470,11 @@ async function main() {
     && LOCKED_PAYMENT_VALIDATION_CODES.BINDING_MISSING === 'locked_stripe_binding_missing');
 
   console.log('\n[wb2-wiring] no pre-transaction paid booking shortcut');
-  assert('webhook addon paid shortcut preserved',
-    /pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'/.test(apiSrc));
+  assert('webhook no pre-tx addon paid shortcut',
+    !/pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'[\s\S]{0,400}Add-on payment already marked paid/.test(apiSrc)
+    && !/Idempotency — addon_service already paid/.test(apiSrc));
+  assert('webhook addon under-lock already-paid path retained',
+    /lockOwnedPaymentForAddonEventClaim[\s\S]{0,900}lockedPayment\.payment_status === 'paid'[\s\S]{0,200}duplicate_business_outcome/.test(apiSrc));
   assert('webhook no pre-tx booking paid idempotent return',
     !/if \(pm\.payment_status === 'paid'\)[\s\S]{0,1200}Payment already marked paid \(idempotent — no double-count\)/.test(apiSrc));
   assert('reconcile no pre-tx already_paid short-circuit before validate',

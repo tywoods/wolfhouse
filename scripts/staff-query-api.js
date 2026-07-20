@@ -13848,46 +13848,11 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 5. Idempotency — addon_service already paid (separate path; not booking-payment truth) ──
-  if (pm.payment_status === 'paid' && pm.payment_kind === 'addon_service') {
-      let svcPaidCount = 0;
-      try {
-        svcPaidCount = await withPgClient(async (pg) => {
-          const r = await pg.query(
-            `SELECT COUNT(*)::int AS n FROM booking_service_records
-              WHERE payment_id = $1
-                AND client_slug = $2
-                AND payment_status = 'paid'`,
-            [pm.payment_id, pm.client_slug],
-          );
-          return r.rows[0].n;
-        });
-      } catch (_) { /* count optional on idempotent replay */ }
-      appendAuditLog({
-        ts: new Date().toISOString(), intent: 'webhook:stripe:idempotent',
-        category: 'stripe_webhook', payment_id: pm.payment_id, booking_id: pm.booking_id,
-        addon_service: true,
-      });
-      return sendJSON(res, 200, {
-        success:                        true,
-        idempotent:                     true,
-        addon_service_payment:          true,
-        service_records_paid_count:     svcPaidCount,
-        no_booking_payment_status_change: true,
-        no_confirmation_sent:           true,
-        no_whatsapp:                    true,
-        no_n8n:                         true,
-        event_type:                     eventType,
-        payment_id:                     pm.payment_id,
-        booking_id:                     pm.booking_id,
-        booking_code:                   pm.booking_code,
-        amount_paid_cents:              Number(pm.pm_amount_paid || 0),
-        payment_status:                 'paid',
-        message:                        'Add-on payment already marked paid (idempotent — no double-count)',
-    });
-  }
+  // Addon already-paid is NOT short-circuited here. Matched addon_service events
+  // always enter BEGIN → stripe_event_id claim → FOR UPDATE reload → exact-id
+  // conflict or under-lock distinct-business handling → mark processed → COMMIT.
 
-  // ── 6. Validate currency ──────────────────────────────────────────────────
+  // ── 5. Validate currency ──────────────────────────────────────────────────
   if ((pm.currency || '').toUpperCase() !== 'EUR') {
     return sendJSON(res, 422, {
       success: false,
@@ -13895,9 +13860,10 @@ async function handleStripeWebhook(req, res) {
     });
   }
 
-  // ── 6b. Add-on service payment (Stage 8.8.21) ─────────────────────────────
+  // ── 6. Add-on service payment (Stage 8.8.21) ───────────────────────────────
   // Separate Checkout for mid-stay / Luna add-ons. Marks payment + linked service
   // rows only — never mutates booking deposit/full payment truth.
+  // Always claims under transaction (no pre-tx already-paid shortcut).
   if (pm.payment_kind === 'addon_service') {
     const stripePaidCents = Number(session.amount_total || pm.amount_due_cents || 0);
     const newPmPaidCents  = stripePaidCents;

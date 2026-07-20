@@ -475,6 +475,20 @@ async function runAddonServiceRouteTxn(pg, claimInput, opts) {
   }
 }
 
+/**
+ * Public-handler model of handleStripeWebhook addon path after payment lookup.
+ * Intentionally has NO pre-transaction already-paid early return: stale lookup
+ * status=paid still enters BEGIN → claim → FOR UPDATE → exact-id / DBO → COMMIT.
+ */
+async function runAddonPublicHandler(pg, lookupPm, claimInput) {
+  // Mirror public handler: matched addon_service always proceeds past lookup.
+  if (lookupPm.payment_kind !== 'addon_service') {
+    return { status: 422, body: { success: false, error: 'not_addon' } };
+  }
+  // Deliberately ignore lookupPm.payment_status === 'paid' here (no shortcut).
+  return runAddonServiceRouteTxn(pg, claimInput);
+}
+
 function claimBase(overrides) {
   return Object.assign({
     hostelId: uuid(),
@@ -612,6 +626,18 @@ red('reject_addon_mutation_without_lock_reload',
   && /FOR UPDATE/.test(LOCK_OWNED_PAYMENT_SQL)
   && /payment_status === 'paid'/.test(blocks.addon)
   && /duplicate_business_outcome/.test(blocks.addon));
+red('reject_pre_transaction_addon_already_paid_shortcut',
+  !/pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'[\s\S]{0,500}Add-on payment already marked paid/.test(apiSrc)
+  && !/Idempotency — addon_service already paid/.test(apiSrc)
+  && /Addon already-paid is NOT short-circuited/.test(apiSrc)
+  && /withStripeWebhookEventClaim/.test(blocks.addon)
+  && /lockOwnedPaymentForAddonEventClaim/.test(blocks.addon));
+red('reject_distinct_event_response_claiming_no_db_write',
+  /no_business_mutation:\s*true/.test(libSrc)
+  && /no_payment_or_service_rewrite:\s*true/.test(libSrc)
+  && !/function buildStripeEventDistinctBusinessIdempotentBody[\s\S]*?no_db_write:\s*true/.test(libSrc)
+  && /no_db_write:\s*true/.test(libSrc) // exact-id body may still use no_db_write truthfully
+  && /function buildStripeEventClaimIdempotentBody[\s\S]*?no_db_write:\s*true/.test(libSrc));
 
 // ── Payload canary REDs ─────────────────────────────────────────────────────
 console.log('\n── Payload privacy REDs ──');
@@ -1085,7 +1111,9 @@ console.log('\n── Route transactional sequencing ──');
       && dbo.idempotent === true
       && dbo.reason === IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON
       && dbo.duplicate_business_outcome === 'payment_already_paid'
-      && dbo.no_db_write === true);
+      && dbo.no_business_mutation === true
+      && dbo.no_payment_or_service_rewrite === true
+      && dbo.no_db_write === undefined);
     const unk = buildStripeEventClaimOutcomeUnknownBody();
     green('outcome_unknown_body_has_no_secrets',
       unk.success === false
@@ -1117,6 +1145,118 @@ console.log('\n── Route transactional sequencing ──');
     && /isStripeEventClaimCommitOutcomeUnknown[\s\S]{0,300}buildStripeEventClaimOutcomeUnknownBody/.test(blocks.booking));
   green('db_errors_still_retryable_500',
     /sendJSON\(res,\s*500,\s*\{\s*success:\s*false,\s*error:\s*'DB update failed:/.test(apiSrc));
+
+  // ── Public-handler proofs (no pre-tx shortcut; truthful response flags) ──
+  console.log('\n── Public-handler addon path ──');
+  {
+    const paymentId = uuid();
+    const clientId = uuid();
+    const bookingId = uuid();
+    const ledger = {
+      events: new Map(),
+      paymentsMutations: 0,
+      serviceMutations: 0,
+      bookingMutations: 0,
+      payments: new Map([[paymentId, {
+        payment_status: 'paid',
+        payment_kind: 'addon_service',
+        client_id: clientId,
+      }]]),
+    };
+    // Stale/initial lookup already paid — must still claim+lock+process.
+    const lookupPm = {
+      payment_id: paymentId,
+      booking_id: bookingId,
+      payment_status: 'paid',
+      payment_kind: 'addon_service',
+      client_id: clientId,
+      hostel_id: clientId,
+    };
+    const evtNew = claimBase({
+      path: 'addon_service',
+      paymentKind: 'addon_service',
+      paymentId,
+      bookingId,
+      hostelId: clientId,
+      stripeEventId: `evt_pub_new_${uuid().slice(0, 8)}`,
+      paymentStatusBefore: 'paid',
+    });
+    const pg1 = makeFakeTxnPg({ ledger });
+    const first = await runAddonPublicHandler(pg1, lookupPm, evtNew);
+    const texts1 = pg1.state.queries.map((q) => q.text);
+    const claimIdx = texts1.findIndex((t) => /INSERT INTO payment_events/i.test(t));
+    const lockIdx = texts1.findIndex((t) => /FROM payments/i.test(t) && /FOR UPDATE/i.test(t));
+    const procIdx = texts1.findIndex((t) => /UPDATE payment_events/i.test(t) && /processed/i.test(t));
+    const payMutIdx = texts1.findIndex((t) => /UPDATE payments\b/i.test(t) && !/payment_events/i.test(t));
+    const svcMutIdx = texts1.findIndex((t) => /UPDATE booking_service_records/i.test(t));
+    green('public_handler_already_paid_lookup_new_event_claims_locks_processes',
+      first.status === 200
+      && first.duplicate_business_outcome === 'payment_already_paid'
+      && first.body.reason === IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON
+      && first.body.no_business_mutation === true
+      && first.body.no_payment_or_service_rewrite === true
+      && first.body.no_db_write === undefined
+      && claimIdx >= 0
+      && lockIdx > claimIdx
+      && procIdx > lockIdx
+      && payMutIdx < 0
+      && svcMutIdx < 0
+      && ledger.events.has(evtNew.stripeEventId)
+      && ledger.events.get(evtNew.stripeEventId).processed === true
+      && ledger.paymentsMutations === 0
+      && ledger.serviceMutations === 0);
+
+    // Same event after durable ack failure → exact-ID reason (no second write).
+    const mutAfterFirst = ledger.paymentsMutations;
+    const svcAfterFirst = ledger.serviceMutations;
+    const pg2 = makeFakeTxnPg({ ledger });
+    const retrySame = await runAddonPublicHandler(pg2, lookupPm, evtNew);
+    green('public_handler_same_event_after_durable_ack_failure_exact_id_reason',
+      retrySame.status === 200
+      && retrySame.duplicate === true
+      && retrySame.body.reason === IDEMPOTENT_DUPLICATE_REASON
+      && retrySame.body.no_db_write === true
+      && ledger.paymentsMutations === mutAfterFirst
+      && ledger.serviceMutations === svcAfterFirst
+      && pg2.state.rolledBack === true);
+
+    // Distinct event after prior commit: own processed ledger row, no business mutation.
+    const evtDistinct = claimBase({
+      path: 'addon_service',
+      paymentKind: 'addon_service',
+      paymentId,
+      bookingId,
+      hostelId: clientId,
+      stripeEventId: `evt_pub_dbo_${uuid().slice(0, 8)}`,
+      paymentStatusBefore: 'paid',
+    });
+    const pg3 = makeFakeTxnPg({ ledger });
+    const distinct = await runAddonPublicHandler(pg3, lookupPm, evtDistinct);
+    green('public_handler_distinct_event_after_paid_records_processed_no_business_mutation',
+      distinct.status === 200
+      && distinct.duplicate_business_outcome === 'payment_already_paid'
+      && distinct.body.reason === IDEMPOTENT_DISTINCT_EVENT_BUSINESS_REASON
+      && distinct.body.no_business_mutation === true
+      && distinct.body.no_payment_or_service_rewrite === true
+      && distinct.body.no_db_write === undefined
+      && ledger.events.has(evtDistinct.stripeEventId)
+      && ledger.events.get(evtDistinct.stripeEventId).processed === true
+      && ledger.events.get(evtDistinct.stripeEventId).payload.duplicate_business_outcome === 'payment_already_paid'
+      && ledger.paymentsMutations === mutAfterFirst
+      && ledger.serviceMutations === svcAfterFirst);
+    red('public_handler_distinct_event_response_never_claims_no_db_write',
+      distinct.body.no_db_write !== true
+      && !Object.prototype.hasOwnProperty.call(distinct.body, 'no_db_write')
+      && first.body.no_db_write !== true
+      && !Object.prototype.hasOwnProperty.call(first.body, 'no_db_write'));
+  }
+
+  ok('C12a contract documents no_business_mutation for distinct-event',
+    /no_business_mutation/.test(JSON.stringify(contract.transaction_contract))
+    && /no_payment_or_service_rewrite/.test(JSON.stringify(contract.transaction_contract))
+    && /no pre-transaction already-paid shortcut|addon_no_pre_transaction/.test(
+      JSON.stringify(contract.transaction_contract),
+    ));
 
   // Contract still_open / commit semantics
   ok('C8 still_open lists deploy/live/concurrency/replay/DLQ/drill',

@@ -60,8 +60,13 @@ if (fs.existsSync(STAFF_API_PATH)) {
       .includes('amountDueCents')
     || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'luna-booking-payment-totals.js'), 'utf8')
       .includes('amountDueCents'));
-  assert('idempotent already-paid branch', apiSrc.includes("pm.payment_status === 'paid'"));
+  assert('idempotent already-paid under lock (no pre-tx shortcut)',
+    /lockedPayment\.payment_status === 'paid'/.test(apiSrc)
+    || /paymentTruthResult && paymentTruthResult\.already_paid/.test(apiSrc)
+    || /already_paid/.test(apiSrc));
   assert('under-lock already_paid idempotent path', apiSrc.includes('already_paid') && apiSrc.includes('under_lock'));
+  assert('no pre-tx addon already-paid early return',
+    !/pm\.payment_status === 'paid' && pm\.payment_kind === 'addon_service'[\s\S]{0,500}Add-on payment already marked paid/.test(apiSrc));
   assert('BEGIN before payment-truth apply',
     /await pg\.query\('BEGIN'\)[\s\S]{0,1200}applyStripeBookingPaymentTruthWrites/.test(apiSrc));
   assert('event-id claim before payment-truth apply',
