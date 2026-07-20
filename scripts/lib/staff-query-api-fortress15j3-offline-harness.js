@@ -175,7 +175,9 @@ function clearStaffApiCache() {
   for (const key of keys) {
     if (/staff-query-api\.js$/.test(key)
       || /staff-auth-config\.js$/.test(key)
-      || /staff-portal-clients\.js$/.test(key)) {
+      || /staff-portal-clients\.js$/.test(key)
+      || /meta-whatsapp-signature-config\.js$/.test(key)
+      || /luna-meta-whatsapp-webhook\.js$/.test(key)) {
       delete require.cache[key];
     }
   }
@@ -214,13 +216,14 @@ function applyHarnessEnv(overrides) {
     STAFF_API_FORTRESS_OFFLINE_LISTENER: '1',
   };
   for (const k of Object.keys(process.env)) {
-    if (/^STAFF_|^LUNA_BOT_|^STRIPE_|^BOT_/.test(k)) delete process.env[k];
+    if (/^STAFF_|^LUNA_BOT_|^STRIPE_|^BOT_|^META_/.test(k)) delete process.env[k];
   }
   const safeOverrides = { ...(overrides || {}) };
   delete safeOverrides.NODE_ENV;
   delete safeOverrides.STAFF_API_FORTRESS_OFFLINE_LISTENER;
   Object.assign(process.env, base, safeOverrides);
   process.env.NODE_ENV = 'test';
+  process.env.STAFF_RUNTIME_PROFILE = process.env.STAFF_RUNTIME_PROFILE || 'test';
   process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
 }
 
@@ -323,11 +326,18 @@ async function closeHarness(harness) {
   });
 }
 
-async function httpRequest(port, { method, path: reqPath, headers, body }) {
-  const payload = body == null ? '' : JSON.stringify(body);
+async function httpRequest(port, { method, path: reqPath, headers, body, rawBody }) {
+  let payloadBuf = null;
+  if (rawBody != null) {
+    payloadBuf = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(String(rawBody), 'utf8');
+  } else if (body != null) {
+    payloadBuf = Buffer.from(JSON.stringify(body), 'utf8');
+  }
   const hdrs = { ...(headers || {}) };
-  if (payload && !hdrs['Content-Type']) hdrs['Content-Type'] = 'application/json';
-  if (payload) hdrs['Content-Length'] = Buffer.byteLength(payload);
+  if (payloadBuf && !hdrs['Content-Type'] && rawBody == null) {
+    hdrs['Content-Type'] = 'application/json';
+  }
+  if (payloadBuf) hdrs['Content-Length'] = payloadBuf.length;
 
   return new Promise((resolve, reject) => {
     const req = http.request({
@@ -352,7 +362,7 @@ async function httpRequest(port, { method, path: reqPath, headers, body }) {
       });
     });
     req.on('error', reject);
-    if (payload) req.write(payload);
+    if (payloadBuf) req.write(payloadBuf);
     req.end();
   });
 }

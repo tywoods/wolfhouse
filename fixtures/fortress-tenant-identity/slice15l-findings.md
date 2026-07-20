@@ -9,7 +9,9 @@
 
 ## Outcome
 
-Meta WhatsApp hub **POST** rejects before JSON parse / `processMetaWhatsAppWebhookPostEntry` / PG when `META_APP_SECRET` is missing, `X-Hub-Signature-256` is missing/malformed, or HMAC mismatches. Valid raw-body HMAC proceeds to PostEntry (B02 authority remains default-off). Hub **GET** has no hardcoded verify-token default and fails closed when `META_WHATSAPP_VERIFY_TOKEN` is absent or mismatched. Staging/sunset Staff API Bicep declare Key Vault secretRefs for `meta-app-secret` / `meta-whatsapp-verify-token` and pin `META_WEBHOOK_SKIP_VERIFY=false`. Startup refuses missing required Meta signature config under staging/production and refuses skip-verify there.
+Meta WhatsApp hub **POST** rejects before JSON parse / `processMetaWhatsAppWebhookPostEntry` / PG when `META_APP_SECRET` is missing, `X-Hub-Signature-256` is missing/malformed, or HMAC mismatches. Valid raw-body HMAC proceeds to PostEntry (B02 authority remains default-off). Hub **GET** has no hardcoded verify-token default and fails closed when `META_WHATSAPP_VERIFY_TOKEN` is absent or mismatched. Staging/sunset Staff API Bicep declare Key Vault secretRefs for `meta-app-secret` / `meta-whatsapp-verify-token` and pin `META_WEBHOOK_SKIP_VERIFY=false`.
+
+Runtime profile classification is fail-closed across **both** `NODE_ENV` and `STAFF_RUNTIME_PROFILE`: if either signal is staging/production, Meta secrets are required and skip is refused; contradictory signals (including weaker preview/ci/local against staging/prod or against each other) refuse startup; unknown profiles remain fail-closed for skip; explicit local/test requires consistent signals. External HTTP failure bodies use frozen generic status semantics (`signature_verification_unavailable` / `signature_verification_failed` / `hub_verify_failed`); detailed reason codes stay on helpers + audit only.
 
 ## Guarded routes
 

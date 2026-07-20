@@ -67,6 +67,7 @@ const LUNA_BOT_INTERNAL_TOKEN = STAFF_AUTH_CONFIG.botInternalToken;
 const {
   applyMetaWhatsAppSignatureConfigOrExit,
   decideMetaWhatsAppWebhookPostAdmit,
+  EXTERNAL_GET_FAILED,
 } = require('./lib/meta-whatsapp-signature-config');
 const META_WHATSAPP_SIGNATURE_CONFIG = applyMetaWhatsAppSignatureConfigOrExit(process.env);
 
@@ -13513,7 +13514,8 @@ async function handleBotBookingCreateFromPlan(req, res, user, authMode) {
 function handleMetaWhatsAppWebhookGet(query, res) {
   const result = verifyMetaHubChallenge(query, process.env);
   if (!result.ok) {
-    return sendJSON(res, result.status, { success: false, error: result.error });
+    // Detailed reason stays on result.error for internal callers; external body is generic.
+    return sendJSON(res, result.status, { success: false, error: EXTERNAL_GET_FAILED });
   }
   return sendPlainText(res, result.status, result.challenge);
 }
@@ -13528,6 +13530,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
   }
 
   // FORTRESS 15L — fail-closed Meta HMAC before JSON parse / PostEntry / PG.
+  // Detailed admit.error is audit-only; external body uses frozen generic status semantics.
   const sigHeader = req.headers['x-hub-signature-256'];
   const sigResult = verifyMetaHubSignature256(rawBody, sigHeader, process.env);
   const admit = decideMetaWhatsAppWebhookPostAdmit(sigResult, process.env);
@@ -13543,7 +13546,7 @@ async function handleMetaWhatsAppWebhookPost(req, res) {
     });
     return sendJSON(res, admit.status, {
       success: false,
-      error: admit.error || 'signature_verification_failed',
+      error: admit.external_error || 'signature_verification_failed',
       preview_only: true,
       no_write_performed: true,
     });

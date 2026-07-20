@@ -4,9 +4,12 @@
  * FORTRESS 15L — Meta WhatsApp hub signature / verify-token config (fail-closed).
  *
  * Pure validator — no Staff API monolith import, no network, no secret values logged.
- * Staging/production profiles require META_APP_SECRET + META_WHATSAPP_VERIFY_TOKEN
- * and refuse META_WEBHOOK_SKIP_VERIFY=true. Local/test may skip verify only when
- * META_WEBHOOK_SKIP_VERIFY is exactly 'true'.
+ *
+ * Runtime profile classification checks BOTH NODE_ENV and STAFF_RUNTIME_PROFILE:
+ * - if either indicates staging/production → require Meta secrets and refuse skip
+ * - contradictory signals refuse startup (never classify down to preview/ci/local)
+ * - unknown/empty profiles remain fail-closed for skip
+ * - explicit local/test requires consistent local/test signals
  */
 
 const LOCAL_TEST_PROFILES = new Set(['development', 'dev', 'test', 'local']);
@@ -18,6 +21,12 @@ const META_SKIP_VERIFY_VAR = 'META_WEBHOOK_SKIP_VERIFY';
 const RUNTIME_PROFILE_VAR = 'STAFF_RUNTIME_PROFILE';
 const NODE_ENV_VAR = 'NODE_ENV';
 
+/** Frozen external POST failure strings (detailed codes stay on admit.error / audit). */
+const EXTERNAL_POST_UNAVAILABLE = 'signature_verification_unavailable';
+const EXTERNAL_POST_FAILED = 'signature_verification_failed';
+/** Frozen external GET failure string (detailed codes stay on verifyMetaHubChallenge). */
+const EXTERNAL_GET_FAILED = 'hub_verify_failed';
+
 function rawEnv(env, key) {
   if (!env || !Object.prototype.hasOwnProperty.call(env, key)) return undefined;
   return env[key];
@@ -28,6 +37,23 @@ function asTrimmedString(value) {
   return String(value).trim();
 }
 
+/**
+ * Classify one env signal into a fail-closed kind.
+ * @returns {{ kind: 'empty'|'local_test'|'staging_or_production'|'unknown', value: string }}
+ */
+function classifyRuntimeSignal(raw) {
+  const trimmed = asTrimmedString(raw);
+  if (!trimmed) return { kind: 'empty', value: '' };
+  const value = trimmed.toLowerCase();
+  if (LOCAL_TEST_PROFILES.has(value)) return { kind: 'local_test', value };
+  if (STAGING_OR_PROD_PROFILES.has(value)) return { kind: 'staging_or_production', value };
+  return { kind: 'unknown', value };
+}
+
+/**
+ * Prefer explicit STAFF_RUNTIME_PROFILE, else NODE_ENV (reporting only).
+ * Admission / startup use classifyRuntimeSignals — never trust this alone.
+ */
 function resolveRuntimeProfile(env) {
   const explicit = asTrimmedString(rawEnv(env, RUNTIME_PROFILE_VAR));
   if (explicit) return explicit.toLowerCase();
@@ -36,12 +62,57 @@ function resolveRuntimeProfile(env) {
   return '';
 }
 
+/**
+ * Fail-closed classification across NODE_ENV + STAFF_RUNTIME_PROFILE.
+ * @returns {{
+ *   runtimeProfile: string,
+ *   nodeEnvSignal: { kind: string, value: string },
+ *   staffProfileSignal: { kind: string, value: string },
+ *   localTestProfile: boolean,
+ *   stagingOrProduction: boolean,
+ *   contradictory: boolean,
+ *   unknownProfile: boolean,
+ * }}
+ */
+function classifyRuntimeSignals(env) {
+  const e = env || {};
+  const nodeEnvSignal = classifyRuntimeSignal(rawEnv(e, NODE_ENV_VAR));
+  const staffProfileSignal = classifyRuntimeSignal(rawEnv(e, RUNTIME_PROFILE_VAR));
+  const present = [nodeEnvSignal, staffProfileSignal].filter((s) => s.kind !== 'empty');
+  const kinds = new Set(present.map((s) => s.kind));
+
+  const stagingOrProduction = present.some((s) => s.kind === 'staging_or_production')
+    || nodeEnvSignal.kind === 'staging_or_production'
+    || staffProfileSignal.kind === 'staging_or_production';
+
+  // Distinct non-empty kinds (e.g. production+test, staging+preview, test+ci) refuse.
+  const contradictory = kinds.size > 1;
+
+  const localTestProfile = !contradictory
+    && present.length > 0
+    && present.every((s) => s.kind === 'local_test');
+
+  const unknownProfile = !stagingOrProduction
+    && !localTestProfile
+    && (present.length === 0 || present.some((s) => s.kind === 'unknown'));
+
+  return {
+    runtimeProfile: resolveRuntimeProfile(e),
+    nodeEnvSignal,
+    staffProfileSignal,
+    localTestProfile,
+    stagingOrProduction,
+    contradictory,
+    unknownProfile,
+  };
+}
+
 function isLocalTestProfile(profile) {
-  return LOCAL_TEST_PROFILES.has(profile);
+  return LOCAL_TEST_PROFILES.has(String(profile || '').toLowerCase());
 }
 
 function isStagingOrProductionProfile(profile) {
-  return STAGING_OR_PROD_PROFILES.has(profile);
+  return STAGING_OR_PROD_PROFILES.has(String(profile || '').toLowerCase());
 }
 
 function isMetaWebhookSkipVerify(env) {
@@ -59,6 +130,8 @@ function pushError(errors, variable, message) {
  *   runtimeProfile: string,
  *   localTestProfile: boolean,
  *   stagingOrProduction: boolean,
+ *   contradictory: boolean,
+ *   unknownProfile: boolean,
  *   skipVerify: boolean,
  *   metaAppSecretConfigured: boolean,
  *   metaVerifyTokenConfigured: boolean,
@@ -68,26 +141,41 @@ function pushError(errors, variable, message) {
 function validateMetaWhatsAppSignatureConfig(env) {
   const e = env || {};
   const errors = [];
-  const runtimeProfile = resolveRuntimeProfile(e);
-  const localTestProfile = isLocalTestProfile(runtimeProfile);
-  const stagingOrProduction = isStagingOrProductionProfile(runtimeProfile);
+  const classified = classifyRuntimeSignals(e);
+  const {
+    runtimeProfile,
+    localTestProfile,
+    stagingOrProduction,
+    contradictory,
+    unknownProfile,
+  } = classified;
   const skipVerify = isMetaWebhookSkipVerify(e);
   const appSecret = asTrimmedString(rawEnv(e, META_APP_SECRET_VAR)) || '';
   const verifyToken = asTrimmedString(rawEnv(e, META_VERIFY_TOKEN_VAR)) || '';
 
+  if (contradictory) {
+    pushError(
+      errors,
+      RUNTIME_PROFILE_VAR,
+      `contradictory ${NODE_ENV_VAR}/${RUNTIME_PROFILE_VAR} signals refuse startup `
+        + '(cannot classify down to preview/ci/local when another signal is stronger or divergent)',
+    );
+  }
+
+  // Either signal staging/production → secrets required + skip refused.
   if (skipVerify && stagingOrProduction) {
     pushError(
       errors,
       META_SKIP_VERIFY_VAR,
-      'must not be true under staging/production profiles (local/test only)',
+      'must not be true when NODE_ENV or STAFF_RUNTIME_PROFILE is staging/production',
     );
-  }
-  if (skipVerify && !localTestProfile && !stagingOrProduction) {
-    // Unknown/empty profile with skip requested — refuse (fail closed).
+  } else if (skipVerify && !localTestProfile) {
+    // Unknown/empty/contradictory — refuse skip (fail closed).
     pushError(
       errors,
       META_SKIP_VERIFY_VAR,
-      'requires an explicit local/test runtime profile (development|dev|test|local)',
+      'requires consistent explicit local/test signals on NODE_ENV and STAFF_RUNTIME_PROFILE '
+        + '(development|dev|test|local); unknown/preview/ci/empty refuse skip',
     );
   }
   if (stagingOrProduction) {
@@ -108,6 +196,8 @@ function validateMetaWhatsAppSignatureConfig(env) {
     runtimeProfile,
     localTestProfile,
     stagingOrProduction,
+    contradictory,
+    unknownProfile,
     skipVerify,
     metaAppSecretConfigured: appSecret.length > 0,
     metaVerifyTokenConfigured: verifyToken.length > 0,
@@ -146,14 +236,23 @@ function applyMetaWhatsAppSignatureConfigOrExit(env, options) {
 }
 
 /**
+ * Map admit status → frozen external error string (15K-compatible status semantics).
+ * Detailed codes remain on `error` for audit/internal use only.
+ */
+function externalMetaWhatsAppPostFailureError(status) {
+  return status === 503 ? EXTERNAL_POST_UNAVAILABLE : EXTERNAL_POST_FAILED;
+}
+
+/**
  * HTTP admit decision for Meta POST after verifyMetaHubSignature256.
  * Admit only when verified:true, or when skip-verify is explicitly true
- * (startup already refused skip under staging/production).
+ * (startup already refused skip under staging/production / unknown / contradiction).
  *
  * @returns {{
  *   admit: boolean,
  *   status: number,
  *   error: string|null,
+ *   external_error: string|null,
  *   skipped: boolean,
  * }}
  */
@@ -164,6 +263,7 @@ function decideMetaWhatsAppWebhookPostAdmit(sigResult, env) {
       admit: true,
       status: 200,
       error: null,
+      external_error: null,
       skipped: true,
     };
   }
@@ -172,6 +272,7 @@ function decideMetaWhatsAppWebhookPostAdmit(sigResult, env) {
       admit: true,
       status: 200,
       error: null,
+      external_error: null,
       skipped: false,
     };
   }
@@ -181,6 +282,7 @@ function decideMetaWhatsAppWebhookPostAdmit(sigResult, env) {
     admit: false,
     status,
     error,
+    external_error: externalMetaWhatsAppPostFailureError(status),
     skipped: false,
   };
 }
@@ -190,6 +292,9 @@ module.exports = {
   formatMetaWhatsAppSignatureConfigErrors,
   applyMetaWhatsAppSignatureConfigOrExit,
   decideMetaWhatsAppWebhookPostAdmit,
+  externalMetaWhatsAppPostFailureError,
+  classifyRuntimeSignals,
+  classifyRuntimeSignal,
   isMetaWebhookSkipVerify,
   resolveRuntimeProfile,
   isLocalTestProfile,
@@ -197,4 +302,7 @@ module.exports = {
   META_APP_SECRET_VAR,
   META_VERIFY_TOKEN_VAR,
   META_SKIP_VERIFY_VAR,
+  EXTERNAL_POST_UNAVAILABLE,
+  EXTERNAL_POST_FAILED,
+  EXTERNAL_GET_FAILED,
 };
