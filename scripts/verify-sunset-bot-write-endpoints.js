@@ -57,8 +57,13 @@ for (const [r, h] of [
   ['/staff/bot/sunset/waiver-link', 'handleBotSunsetWaiverLink'],
 ]) {
   const idx = staffApiSrc.indexOf(`pathname === '${r}'`);
-  const block = staffApiSrc.slice(idx, idx + 400);
-  ok(/requireBotAuth\(req, res\)/.test(block) && block.includes(h), `route ${r} → requireBotAuth + ${h}`);
+  const block = staffApiSrc.slice(idx, idx + 600);
+  ok(
+    /requireBotAuth\(req, res\)/.test(block)
+      && /dispatchBotRouteWithEffectiveTenant\s*\(\s*auth\s*,\s*res\s*,\s*SUNSET_CLIENT_SLUG/.test(block)
+      && block.includes(h),
+    `route ${r} → requireBotAuth + tenant dispatch + ${h}`,
+  );
 }
 
 console.log('\n── B. Handlers force sunset tenant + gated by feature flags ──');

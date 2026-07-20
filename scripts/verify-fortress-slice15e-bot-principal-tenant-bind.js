@@ -4,7 +4,8 @@
  * verify:fortress-slice15e-bot-principal-tenant-bind — FORTRESS Slice 15E
  *
  * Offline RED/GREEN tests for authoritative Staff API bot-token principal
- * tenant binding (closes B06). No network, no live DB/Stripe/WhatsApp/deploy.
+ * tenant binding + force-tenant route dispatch ACL (closes B06). No network,
+ * no live DB/Stripe/WhatsApp/deploy. Does not rewrite tracked evidence.
  */
 
 const fs = require('fs');
@@ -23,6 +24,7 @@ const DOC_PATH = path.join(ROOT, 'docs', 'FORTRESS-TENANT-IDENTITY-BOUNDARY-MATR
 const {
   resolveStaffBotPrincipalClientSlug,
   buildStaffBotAuthPrincipal,
+  dispatchStaffBotRouteWithEffectiveTenant,
   BOT_STAFF_USER_ID,
 } = require('./lib/staff-bot-principal-tenant-config');
 const {
@@ -64,6 +66,24 @@ function readJson(p) {
   return JSON.parse(fs.readFileSync(p, 'utf8'));
 }
 
+function runDispatch(user, effectiveClientSlug) {
+  let handlerCalls = 0;
+  let denied = null;
+  const out = dispatchStaffBotRouteWithEffectiveTenant({
+    user,
+    authMode: 'bot_token',
+    effectiveClientSlug,
+    staffAuthRequired: true,
+    canAccessClient: userCanAccessClient,
+    onDenied: (gate) => { denied = gate; },
+    handler: ({ user: u }) => {
+      handlerCalls += 1;
+      return { saw_user_id: u && u.staff_user_id, saw_slug: u && u.client_slug };
+    },
+  });
+  return { out, handlerCalls, denied };
+}
+
 const TENANT_WH = 'wolfhouse-somo';
 const TENANT_SU = 'sunset';
 const BASELINE = listBaselineClients().map((c) => c.slug);
@@ -84,6 +104,7 @@ const botConfigSrc = fs.readFileSync(
   path.join(ROOT, 'scripts', 'lib', 'staff-bot-principal-tenant-config.js'),
   'utf8',
 );
+const committedEvidence = readJson(EVIDENCE_PATH);
 
 ok('contract slice 15E + B06',
   contract.slice === 'FORTRESS-15E'
@@ -108,6 +129,11 @@ ok('config module has no hardcoded tenant slug literals',
   !/wolfhouse-somo/.test(botConfigSrc)
   && !/'sunset'/.test(botConfigSrc)
   && !/"sunset"/.test(botConfigSrc));
+
+const inventory = (contract.guarded_route_inventory && contract.guarded_route_inventory.routes) || [];
+ok('guarded inventory has 12 sunset force-tenant routes',
+  inventory.length === 12
+  && inventory.every((r) => r.effective_client_slug === TENANT_SU && String(r.path).startsWith('/staff/bot/sunset/')));
 
 // ── Config RED/GREEN ────────────────────────────────────────────────────────
 console.log('\n── Config resolve ──');
@@ -224,7 +250,71 @@ green('requireBotAuth_static_bind', (() => {
   const noLegacyUnboundReturn = !/user:\s*\{\s*role:\s*'operator',\s*staff_user_id:\s*'luna-bot-internal'\s*\}/.test(staffApi);
   const botAclGuard = /staff_user_id === 'luna-bot-internal'/.test(portalClients)
     || /staff_user_id === "luna-bot-internal"/.test(portalClients);
-  return hasBuild && has503 && hasClientSlugOnPrincipal && noLegacyUnboundReturn && botAclGuard;
+  const hasDispatch = /dispatchBotRouteWithEffectiveTenant/.test(staffApi)
+    && /dispatchStaffBotRouteWithEffectiveTenant/.test(botConfigSrc);
+  return hasBuild && has503 && hasClientSlugOnPrincipal && noLegacyUnboundReturn && botAclGuard && hasDispatch;
+})());
+
+// ── Route-level dispatch RED/GREEN ──────────────────────────────────────────
+console.log('\n── Route dispatch ACL ──');
+
+red('route_wolfhouse_token_denied_sunset', (() => {
+  // Every inventory route forces sunset — Wolfhouse principal must not invoke.
+  return inventory.every((route) => {
+    const { out, handlerCalls, denied } = runDispatch(botWh, route.effective_client_slug);
+    return out.ok === false
+      && out.handler_called === false
+      && handlerCalls === 0
+      && denied
+      && denied.reason === 'bot_principal_tenant_denied';
+  });
+})());
+
+red('route_sunset_token_denied_wolfhouse', (() => {
+  // Symmetric gate: Sunset principal denied when effective tenant is Wolfhouse.
+  const { out, handlerCalls, denied } = runDispatch(botSu, TENANT_WH);
+  return out.ok === false
+    && out.handler_called === false
+    && handlerCalls === 0
+    && denied
+    && denied.reason === 'bot_principal_tenant_denied'
+    && denied.effective_client_slug === TENANT_WH;
+})());
+
+green('route_wolfhouse_token_allows_wolfhouse', (() => {
+  const { out, handlerCalls } = runDispatch(botWh, TENANT_WH);
+  return out.ok === true
+    && out.handler_called === true
+    && handlerCalls === 1
+    && out.result
+    && out.result.saw_user_id === BOT_STAFF_USER_ID
+    && out.result.saw_slug === TENANT_WH;
+})());
+
+green('route_sunset_token_allows_sunset', (() => {
+  return inventory.every((route) => {
+    const { out, handlerCalls } = runDispatch(botSu, route.effective_client_slug);
+    return out.ok === true
+      && out.handler_called === true
+      && handlerCalls === 1
+      && out.result
+      && out.result.saw_slug === TENANT_SU;
+  });
+})());
+
+green('guarded_inventory_wired', (() => {
+  // Each inventory path: requireBotAuth then dispatchBotRouteWithEffectiveTenant
+  // with SUNSET_CLIENT_SLUG before the named handler — never bare handler(req,res).
+  return inventory.every((route) => {
+    const idx = staffApi.indexOf(`pathname === '${route.path}'`);
+    if (idx < 0) return false;
+    const block = staffApi.slice(idx, idx + 550);
+    const hasAuth = /requireBotAuth\s*\(\s*req\s*,\s*res\s*\)/.test(block);
+    const hasDispatch = /dispatchBotRouteWithEffectiveTenant\s*\(\s*auth\s*,\s*res\s*,\s*SUNSET_CLIENT_SLUG/.test(block);
+    const hasHandler = block.includes(route.handler);
+    const noBareDiscard = !new RegExp(`return\\s+${route.handler}\\s*\\(\\s*req\\s*,\\s*res\\s*\\)`).test(block);
+    return hasAuth && hasDispatch && hasHandler && noBareDiscard;
+  });
 })());
 
 ok('owner files present',
@@ -251,33 +341,47 @@ for (const text of scanTargets) {
 }
 ok('secret-free scan clean on 15E artifacts', secretHits === 0, `hits=${secretHits}`);
 
-// ── Evidence write ──────────────────────────────────────────────────────────
-const evidence = {
-  schema_version: 1,
-  slice: 'FORTRESS-15E',
-  generated_at: new Date().toISOString(),
-  master_basis: contract.master_basis,
-  live_mutation: false,
-  red: {
-    total: redResults.length,
-    passed: redResults.filter((r) => r.ok).length,
-    cases: redResults,
-  },
-  green: {
-    total: greenResults.length,
-    passed: greenResults.filter((r) => r.ok).length,
-    cases: greenResults,
-  },
-  pass,
-  fail,
-  gates_note: 'offline only; zero live Stripe/DB/payment/deploy/guest/WhatsApp mutation',
-  residual_b07: contract.residual_risk,
-};
-fs.writeFileSync(EVIDENCE_PATH, `${JSON.stringify(evidence, null, 2)}\n`);
-ok('evidence written', fs.existsSync(EVIDENCE_PATH));
+// ── Evidence: validate committed artifact; do not rewrite ───────────────────
+console.log('\n── Evidence (read-only) ──');
+ok('evidence exists (not rewritten by verifier)', fs.existsSync(EVIDENCE_PATH));
+ok('evidence slice + residual B07',
+  committedEvidence.slice === 'FORTRESS-15E'
+  && committedEvidence.live_mutation === false
+  && committedEvidence.residual_b07
+  && committedEvidence.residual_b07.boundary_id === 'B07_staff_bot_body_client_slug');
 
-ok('RED floor', redResults.length >= 6 && redResults.every((r) => r.ok));
-ok('GREEN floor', greenResults.length >= 5 && greenResults.every((r) => r.ok));
+const expectedRedIds = (contract.red_case_ids || []).map((id) => id.replace(/^RED_/, ''));
+const expectedGreenIds = (contract.green_case_ids || []).map((id) => id.replace(/^GREEN_/, ''));
+const runRedIds = redResults.map((r) => r.id);
+const runGreenIds = greenResults.map((r) => r.id);
+const evidenceRedIds = ((committedEvidence.red && committedEvidence.red.cases) || []).map((c) => c.id);
+const evidenceGreenIds = ((committedEvidence.green && committedEvidence.green.cases) || []).map((c) => c.id);
+
+ok('evidence RED ids match contract + this run',
+  expectedRedIds.length === runRedIds.length
+  && expectedRedIds.every((id, i) => id === runRedIds[i])
+  && evidenceRedIds.length === runRedIds.length
+  && evidenceRedIds.every((id, i) => id === runRedIds[i])
+  && redResults.every((r) => r.ok)
+  && ((committedEvidence.red && committedEvidence.red.cases) || []).every((c) => c.ok === true));
+
+ok('evidence GREEN ids match contract + this run',
+  expectedGreenIds.length === runGreenIds.length
+  && expectedGreenIds.every((id, i) => id === runGreenIds[i])
+  && evidenceGreenIds.length === runGreenIds.length
+  && evidenceGreenIds.every((id, i) => id === runGreenIds[i])
+  && greenResults.every((r) => r.ok)
+  && ((committedEvidence.green && committedEvidence.green.cases) || []).every((c) => c.ok === true));
+
+ok('verifier does not rewrite tracked evidence', (() => {
+  const src = fs.readFileSync(__filename, 'utf8');
+  // Reject any write to the committed evidence path (allow this negative assertion only).
+  const writeHits = src.match(/writeFileSync\s*\(\s*EVIDENCE_PATH/g) || [];
+  return writeHits.length === 0;
+})());
+
+ok('RED floor', redResults.length >= 9 && redResults.every((r) => r.ok));
+ok('GREEN floor', greenResults.length >= 8 && greenResults.every((r) => r.ok));
 
 console.log(`\n── fortress-slice15e: ${pass} passed, ${fail} failed ──`);
 if (fail > 0) process.exit(1);

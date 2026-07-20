@@ -239,7 +239,11 @@ if (has15eRemediation) {
     && overlay15e.status === 'remediated'
     && /buildStaffBotAuthPrincipal/.test(staffApi)
     && /bot_principal_tenant_unconfigured/.test(staffApi)
-    && /auth_mode:\s*'bot_token'/.test(staffApi));
+    && /auth_mode:\s*'bot_token'/.test(staffApi)
+    && /dispatchBotRouteWithEffectiveTenant/.test(staffApi)
+    && /dispatchStaffBotRouteWithEffectiveTenant/.test(
+      fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'staff-bot-principal-tenant-config.js'), 'utf8')
+    ));
   ok('E getAccessibleClientSlugs binds luna-bot-internal to client_slug',
     /staff_user_id === 'luna-bot-internal'/.test(portalClients)
     && /client_slug/.test(portalClients)

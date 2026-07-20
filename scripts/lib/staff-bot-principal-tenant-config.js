@@ -134,6 +134,126 @@ function isStaffBotInternalPrincipal(user) {
   return !!(user && user.staff_user_id === BOT_STAFF_USER_ID);
 }
 
+/**
+ * Gate a tenant-specific bot route: principal must access the route's effective
+ * tenant before any handler runs. Does not select body/query tenant (B07).
+ * Open/dev mode (no staff auth / null user / auth_mode=open) preserves prior bypass.
+ *
+ * @param {{
+ *   user?: object|null,
+ *   authMode?: string|null,
+ *   effectiveClientSlug?: string|null,
+ *   staffAuthRequired?: boolean,
+ *   canAccessClient?: (user: object, clientSlug: string) => boolean,
+ * }} input
+ * @returns {{
+ *   ok: boolean,
+ *   reason: string,
+ *   invoke_handler: boolean,
+ *   effective_client_slug: string|null,
+ * }}
+ */
+function evaluateStaffBotRouteTenantGate(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const staffAuthRequired = !!src.staffAuthRequired;
+  const authMode = src.authMode == null ? '' : String(src.authMode).trim();
+  const effective = trimSlug(src.effectiveClientSlug);
+  const user = src.user || null;
+  const canAccess = typeof src.canAccessClient === 'function'
+    ? src.canAccessClient
+    : null;
+
+  if (!staffAuthRequired || authMode === 'open' || !user) {
+    return {
+      ok: true,
+      reason: 'open_auth_bypass',
+      invoke_handler: true,
+      effective_client_slug: effective || null,
+    };
+  }
+
+  if (!effective) {
+    return {
+      ok: false,
+      reason: 'missing_effective_client_slug',
+      invoke_handler: false,
+      effective_client_slug: null,
+    };
+  }
+
+  if (!canAccess || !canAccess(user, effective)) {
+    return {
+      ok: false,
+      reason: 'bot_principal_tenant_denied',
+      invoke_handler: false,
+      effective_client_slug: effective,
+    };
+  }
+
+  return {
+    ok: true,
+    reason: 'principal_tenant_allowed',
+    invoke_handler: true,
+    effective_client_slug: effective,
+  };
+}
+
+/**
+ * Common bot-route dispatch boundary: propagate principal into handler only when
+ * the gate allows the route's effective tenant. On denial, handler is never called.
+ *
+ * @param {{
+ *   user?: object|null,
+ *   authMode?: string|null,
+ *   effectiveClientSlug?: string|null,
+ *   staffAuthRequired?: boolean,
+ *   canAccessClient?: (user: object, clientSlug: string) => boolean,
+ *   handler: (ctx: { user: object|null, authMode: string|null }) => *,
+ *   onDenied?: (gate: object) => void,
+ * }} input
+ * @returns {{
+ *   ok: boolean,
+ *   handler_called: boolean,
+ *   reason: string,
+ *   effective_client_slug: string|null,
+ *   result: *|null,
+ * }}
+ */
+function dispatchStaffBotRouteWithEffectiveTenant(input) {
+  const src = input && typeof input === 'object' ? input : {};
+  const gate = evaluateStaffBotRouteTenantGate(src);
+  if (!gate.invoke_handler) {
+    if (typeof src.onDenied === 'function') src.onDenied(gate);
+    return {
+      ok: false,
+      handler_called: false,
+      reason: gate.reason,
+      effective_client_slug: gate.effective_client_slug,
+      result: null,
+    };
+  }
+  if (typeof src.handler !== 'function') {
+    return {
+      ok: false,
+      handler_called: false,
+      reason: 'missing_handler',
+      effective_client_slug: gate.effective_client_slug,
+      result: null,
+    };
+  }
+  const result = src.handler({
+    user: src.user || null,
+    authMode: src.authMode == null ? null : src.authMode,
+  });
+  return {
+    ok: true,
+    handler_called: true,
+    reason: gate.reason,
+    effective_client_slug: gate.effective_client_slug,
+    result,
+  };
+}
+
 module.exports = {
   BOT_STAFF_USER_ID,
   BOT_ROLE,
@@ -142,4 +262,6 @@ module.exports = {
   resolveStaffBotPrincipalClientSlug,
   buildStaffBotAuthPrincipal,
   isStaffBotInternalPrincipal,
+  evaluateStaffBotRouteTenantGate,
+  dispatchStaffBotRouteWithEffectiveTenant,
 };

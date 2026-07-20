@@ -275,6 +275,7 @@ const {
 } = require('./lib/staff-portal-clients');
 const {
   buildStaffBotAuthPrincipal,
+  dispatchStaffBotRouteWithEffectiveTenant,
 } = require('./lib/staff-bot-principal-tenant-config');
 const {
   resolveTenantBusinessConfig,
@@ -1253,6 +1254,28 @@ async function requireBotAuth(req, res) {
   }
 
   return { ok: true, user, auth_mode: 'session' };
+}
+
+// FORTRESS 15E — common bot-route dispatch: require principal access to the
+// route's effective tenant before handler execution. Propagates auth.user into
+// the handler callback. Body/query tenant selection is unchanged (B07).
+function dispatchBotRouteWithEffectiveTenant(auth, res, effectiveClientSlug, handler) {
+  return dispatchStaffBotRouteWithEffectiveTenant({
+    user: auth && auth.user,
+    authMode: auth && auth.auth_mode,
+    effectiveClientSlug,
+    staffAuthRequired: STAFF_AUTH_REQUIRED,
+    canAccessClient: userCanAccessClient,
+    onDenied: (gate) => {
+      sendJSON(res, 403, {
+        success: false,
+        error: 'client_access_denied',
+        client_slug: gate.effective_client_slug || effectiveClientSlug,
+        reason: gate.reason || 'bot_principal_tenant_denied',
+      });
+    },
+    handler: ({ user, authMode }) => handler(user, authMode),
+  });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -45191,6 +45214,7 @@ async function router(req, res) {
 
   // ── Sunset Luna READ-ONLY price/availability bot endpoints (Phase 1) ────────
   // Forced client_slug=sunset; location whitelist; no writes, no money.
+  // FORTRESS 15E: principal must access effective tenant before handler runs.
   if (pathname === '/staff/bot/sunset/rental-price') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -45198,7 +45222,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetRentalPrice(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetRentalPrice(req, res));
   }
   if (pathname === '/staff/bot/sunset/full-day-addon') {
     if (method !== 'POST') {
@@ -45207,7 +45232,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetFullDayAddon(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetFullDayAddon(req, res));
   }
   if (pathname === '/staff/bot/sunset/private-lesson') {
     if (method !== 'POST') {
@@ -45216,7 +45242,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetPrivateLesson(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetPrivateLesson(req, res));
   }
   if (pathname === '/staff/bot/sunset/lesson-availability') {
     if (method !== 'POST') {
@@ -45225,7 +45252,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetLessonAvailability(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetLessonAvailability(req, res));
   }
   if (pathname === '/staff/bot/sunset/joinable-courses') {
     if (method !== 'POST') {
@@ -45234,7 +45262,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetJoinableCourses(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetJoinableCourses(req, res));
   }
   if (pathname === '/staff/bot/sunset/catalog') {
     if (method !== 'POST') {
@@ -45243,7 +45272,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetCatalog(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetCatalog(req, res));
   }
   if (pathname === '/staff/bot/sunset/offering-quote') {
     if (method !== 'POST') {
@@ -45252,7 +45282,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetOfferingQuote(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetOfferingQuote(req, res));
   }
   if (pathname === '/staff/bot/sunset/lesson-quote') {
     if (method !== 'POST') {
@@ -45261,12 +45292,14 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetLessonQuote(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetLessonQuote(req, res));
   }
 
   // ── Sunset Luna WRITE / MONEY bot endpoints (Phase 2) ──────────────────────
   // Forced client_slug=sunset; location whitelist; behind feature flags; test
   // Stripe keys only (sk_live_ blocked in the reusable creator). No WhatsApp.
+  // FORTRESS 15E: principal must access effective tenant before handler runs.
   if (pathname === '/staff/bot/sunset/booking-create') {
     if (method !== 'POST') {
       res.writeHead(405, { Allow: 'POST' });
@@ -45274,7 +45307,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetBookingCreate(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetBookingCreate(req, res));
   }
   if (pathname === '/staff/bot/sunset/payment-link') {
     if (method !== 'POST') {
@@ -45283,7 +45317,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetPaymentLink(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetPaymentLink(req, res));
   }
   if (pathname === '/staff/bot/sunset/payment-status') {
     if (method !== 'POST') {
@@ -45292,7 +45327,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetPaymentStatus(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetPaymentStatus(req, res));
   }
   if (pathname === '/staff/bot/sunset/waiver-link') {
     if (method !== 'POST') {
@@ -45301,7 +45337,8 @@ async function router(req, res) {
     }
     const auth = await requireBotAuth(req, res);
     if (!auth.ok) return;
-    return handleBotSunsetWaiverLink(req, res);
+    return dispatchBotRouteWithEffectiveTenant(auth, res, SUNSET_CLIENT_SLUG, () =>
+      handleBotSunsetWaiverLink(req, res));
   }
 
   // ── Luna owner-only business intelligence over WhatsApp (sender-phone gated) ─

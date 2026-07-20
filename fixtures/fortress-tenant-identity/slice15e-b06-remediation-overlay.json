@@ -22,6 +22,7 @@
       "LUNA_BOT_CLIENT_SLUG preferred; nonempty DEFAULT_CLIENT_SLUG compat; conflict/missing/invalid/unknown → fail closed (503)",
       "getAccessibleClientSlugs for luna-bot-internal returns only bound slug (or [] if unbound) — never all baseline clients",
       "staff-session email ACL unchanged; session login client_slug is not an all-clients bypass for bots",
+      "tenant-specific force-tenant /staff/bot/sunset/* routes dispatch through dispatchBotRouteWithEffectiveTenant — principal must access effective tenant before handler; cross-tenant → 403 and zero handler calls",
       "bot route body/query tenant handling unchanged (B07)"
     ]
   },
