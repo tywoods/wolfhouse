@@ -1,9 +1,13 @@
 # RADAR Slice 16E — Staging Staff API ACA traffic-weight rollback runbook
 
-**Status:** source partial progress only — **do not execute** live rollback in this slice  
-**Master basis:** `acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b`  
-**Branch:** `radar/slice-16e-staff-api-rollback-runbook`  
-**Gate:** `G07_rollback_incident_runbooks` (source-partial)  
+**Status:** source partial progress only — **do not execute** live rollback in this slice
+
+**Master basis:** `acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b`
+
+**Branch:** `radar/slice-16e-staff-api-rollback-runbook`
+
+**Gate:** `G07_rollback_incident_runbooks` (source-partial)
+
 **Open drill:** `16E_DRILL_live_rollback_restore` (live rollback + restore still open)
 
 ## Locked Azure scope
