@@ -265,14 +265,14 @@ function createFortress15j2OfflineListener(opts) {
     },
   });
 
-  const server = http.createServer(async (req, res) => {
-    try {
-      await api.router(req, res);
-    } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ success: false, error: 'internal server error' }));
-    }
-  });
+  const server = api.server;
+  if (!server || typeof server.listen !== 'function') {
+    const err = new Error(
+      'FORTRESS 15J2 dual-gated require must export factory-built server from staff-query-api',
+    );
+    err.code = 'FORTRESS_15J2_DUAL_GATE';
+    throw err;
+  }
 
   return {
     api,

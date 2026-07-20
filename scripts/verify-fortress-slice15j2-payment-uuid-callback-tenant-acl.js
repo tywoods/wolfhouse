@@ -48,6 +48,7 @@ const {
   fortress15j2DualGateActive,
 } = require('./lib/staff-query-api-fortress15j2-offline-harness');
 const Module = require('module');
+const { spawnSync } = require('child_process');
 
 const MASTER_BASIS = '6d9f0e99c6c00d9831710c392ec3ac41dcef811b';
 const TENANT_ALPHA = 'wolfhouse-somo';
@@ -198,6 +199,9 @@ ok('F10 dual-gate offline listener seam (router export + fail-closed inject)',
   /STAFF_API_FORTRESS_OFFLINE_LISTENER/.test(apiSrc)
   && /fortressOfflineListenerSeamsActive/.test(apiSrc)
   && /NODE_ENV/.test(apiSrc)
+  && /createStaffQueryApiHttpServer/.test(apiSrc)
+  && /shouldEagerCreateStaffQueryApiServer/.test(apiSrc)
+  && /getStaffQueryApiCreateServerCalls/.test(apiSrc)
   && /if \(fortressOfflineListenerSeamsActive\(\)\)/.test(apiSrc)
   && /setFortress15j2OfflineSeams/.test(apiSrc)
   && /canAccessClient/.test(apiSrc)
@@ -205,6 +209,7 @@ ok('F10 dual-gate offline listener seam (router export + fail-closed inject)',
   && /createFortress15j2OfflineListener/.test(harnessSrc)
   && /assertFortress15j2DualGate/.test(harnessSrc)
   && /delete safeOverrides\.NODE_ENV/.test(harnessSrc)
+  && /api\.server/.test(harnessSrc)
   && !/STAFF_PORTAL_ACCESS_FILE/.test(harnessSrc)
   && !/\bnew\s+Function\s*\(/.test(readText(path.join(ROOT, 'scripts/verify-fortress-slice15j2-payment-uuid-callback-tenant-acl.js'))));
 
@@ -407,6 +412,34 @@ const draftPaymentsDb = [
     }
   }
 
+  function createServerCalls(apiMod) {
+    return typeof apiMod.getStaffQueryApiCreateServerCalls === 'function'
+      ? apiMod.getStaffQueryApiCreateServerCalls()
+      : -1;
+  }
+
+  function probeMainModuleCliStartup() {
+    const apiScript = path.join(ROOT, 'scripts/staff-query-api.js');
+    const r = spawnSync(process.execPath, [apiScript], {
+      cwd: ROOT,
+      env: {
+        ...process.env,
+        NODE_ENV: 'development',
+        STAFF_RUNTIME_PROFILE: 'development',
+        STAFF_AUTH_REQUIRED: 'false',
+        STAFF_AUTH_ALLOW_OPEN: 'true',
+        STAFF_AUTH_HTTPS: 'false',
+        STAFF_QUERY_API_PORT: '0',
+        STAFF_QUERY_API_HOST: '127.0.0.1',
+        LUNA_BOT_INTERNAL_TOKEN: 'fortress15j2_bot_token_offline_test_01',
+      },
+      timeout: 4000,
+      encoding: 'utf8',
+    });
+    const out = `${r.stdout || ''}${r.stderr || ''}`;
+    return /Wolfhouse staff query API/i.test(out);
+  }
+
   // ── RED: production — listener exports absent, dual gate rejects before Stripe patch
   {
     const saved = snapshotStaffApiEnv();
@@ -422,6 +455,7 @@ const draftPaymentsDb = [
       red('dual_gate_production_listener_export_and_stripe_patch_inert',
         !listenerExportsPresent(apiProd)
         && apiProd.fortressOfflineListenerSeamsActive() === false
+        && createServerCalls(apiProd) === 0
         && gateTry.threw
         && !gateTry.stripePatched);
     } finally {
@@ -445,6 +479,7 @@ const draftPaymentsDb = [
       red('dual_gate_flag_only_listener_export_and_stripe_patch_inert',
         !listenerExportsPresent(apiFlagOnly)
         && apiFlagOnly.fortressOfflineListenerSeamsActive() === false
+        && createServerCalls(apiFlagOnly) === 0
         && gateTry.threw
         && !gateTry.stripePatched);
     } finally {
@@ -468,6 +503,7 @@ const draftPaymentsDb = [
       red('dual_gate_test_only_listener_export_and_stripe_patch_inert',
         !listenerExportsPresent(apiTestOnly)
         && apiTestOnly.fortressOfflineListenerSeamsActive() === false
+        && createServerCalls(apiTestOnly) === 0
         && gateTry.threw
         && !gateTry.stripePatched);
     } finally {
@@ -488,10 +524,17 @@ const draftPaymentsDb = [
         && process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER === '1'
         && fortress15j2DualGateActive()
         && listenerExportsPresent(harness.api));
+      green('dual_gate_full_listener_factory_createServer_calls_one',
+        createServerCalls(harness.api) === 1
+        && harness.server === harness.api.server
+        && typeof harness.server.listen === 'function');
     } finally {
       await closeHarness(harness);
     }
   }
+
+  green('main_module_cli_startup_uses_server_factory',
+    probeMainModuleCliStartup());
 
   console.log('\n── Production listener RED/GREEN (uniform 404 + zero writes) ──');
 

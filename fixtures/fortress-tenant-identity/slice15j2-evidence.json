@@ -14,11 +14,11 @@
   ],
   "proof": {
     "handler_invocation": "production_listener_http",
-    "router": "scripts/staff-query-api.js router + http.createServer",
+    "router": "scripts/staff-query-api.js router + createStaffQueryApiHttpServer factory",
     "auth": "real requireAuth session cookies + requireBotAuth X-Luna-Bot-Token middleware",
     "boundaries_injected": "PG via setFortress15j2OfflineSeams.withPgClient; session via resolveSessionUser; ACL via canAccessClient seam (not STAFF_PORTAL_ACCESS_FILE); Stripe via Module._load patch",
-    "dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 required for seam activation and listener/router test exports",
-    "production_inert": "production, flag-only, and test-only gate failures leave listener exports absent, seams null, and Module._load unpatchable before assertFortress15j2DualGate rejection",
+    "dual_gate": "NODE_ENV=test AND STAFF_API_FORTRESS_OFFLINE_LISTENER=1 required for seam activation, listener/router test exports, and http.createServer",
+    "production_inert": "production, flag-only, and test-only gate failures leave listener exports absent, seams null, createServerCalls=0, and Module._load unpatchable before assertFortress15j2DualGate rejection",
     "env_override_pin": "applyHarnessEnv strips NODE_ENV/STAFF_API_FORTRESS_OFFLINE_LISTENER overrides; createFortress15j2OfflineListener verifies dual gate before Stripe patch",
     "uniform_404": "staff/bot foreign deny fingerprint === nonexistent UUID fingerprint (status/headers/body bytes)"
   },
@@ -57,11 +57,19 @@
     ]
   },
   "green": {
-    "total": 13,
-    "passed": 13,
+    "total": 15,
+    "passed": 15,
     "cases": [
       {
         "id": "env_override_cannot_downgrade_node_env",
+        "ok": true
+      },
+      {
+        "id": "dual_gate_full_listener_factory_createServer_calls_one",
+        "ok": true
+      },
+      {
+        "id": "main_module_cli_startup_uses_server_factory",
         "ok": true
       },
       {
@@ -114,6 +122,6 @@
       }
     ]
   },
-  "pass": 56,
+  "pass": 58,
   "fail": 0
 }

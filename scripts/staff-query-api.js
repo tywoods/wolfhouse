@@ -46616,17 +46616,30 @@ async function router(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Server
+// Server (factory — no http.createServer unless CLI main or dual-gated offline harness)
 // ─────────────────────────────────────────────────────────────────────────────
 
-const server = http.createServer(async (req, res) => {
-  try {
-    await router(req, res);
-  } catch (err) {
-    // Do not expose stack trace to client
-    sendJSON(res, 500, { success: false, error: 'internal server error' });
-  }
-});
+let __staffQueryApiCreateServerCalls = 0;
+
+function createStaffQueryApiHttpServer() {
+  __staffQueryApiCreateServerCalls += 1;
+  return http.createServer(async (req, res) => {
+    try {
+      await router(req, res);
+    } catch (err) {
+      // Do not expose stack trace to client
+      sendJSON(res, 500, { success: false, error: 'internal server error' });
+    }
+  });
+}
+
+function shouldEagerCreateStaffQueryApiServer() {
+  return require.main === module || fortressOfflineListenerSeamsActive();
+}
+
+const server = shouldEagerCreateStaffQueryApiServer()
+  ? createStaffQueryApiHttpServer()
+  : null;
 
 if (require.main === module) server.listen(PORT, STAFF_QUERY_API_BIND_HOST, () => {
   console.log(`\nWolfhouse staff query API + UI (Stage 7.7b) running on http://${STAFF_QUERY_API_BIND_HOST}:${PORT}`);
@@ -46722,6 +46735,8 @@ if (require.main === module) {
 module.exports.setFortress15j2OfflineSeams = setFortress15j2OfflineSeams;
 module.exports.getFortress15j2OfflineSeams = getFortress15j2OfflineSeams;
 module.exports.fortressOfflineListenerSeamsActive = fortressOfflineListenerSeamsActive;
+module.exports.createStaffQueryApiHttpServer = createStaffQueryApiHttpServer;
+module.exports.getStaffQueryApiCreateServerCalls = () => __staffQueryApiCreateServerCalls;
 
 if (fortressOfflineListenerSeamsActive()) {
   Object.assign(module.exports, {
