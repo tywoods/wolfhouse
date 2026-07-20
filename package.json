@@ -443,6 +443,7 @@
     "verify:fortress-slice15b-stripe-payment-tenant-bind": "node scripts/verify-fortress-slice15b-stripe-payment-tenant-bind.js",
     "verify:fortress-slice15c-sunset-stripe-rollout-preflight": "node scripts/verify-fortress-slice15c-sunset-stripe-rollout-preflight.js",
     "verify:fortress-slice15d-sunset-stripe-deploy": "node scripts/verify-fortress-slice15d-sunset-stripe-deploy.js",
+    "verify:fortress-slice15e-bot-principal-tenant-bind": "node scripts/verify-fortress-slice15e-bot-principal-tenant-bind.js",
     "verify:staff-tenant-scope": "node scripts/verify-staff-tenant-scope.js",
     "verify:staff-whatsapp-notifications": "node scripts/verify-staff-whatsapp-notifications.js",
     "verify:staff-automated-notification-ui": "node scripts/verify-staff-automated-notification-ui.js",

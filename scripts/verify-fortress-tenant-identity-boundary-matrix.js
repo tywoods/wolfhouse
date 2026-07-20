@@ -193,9 +193,6 @@ const metaWh = fs.readFileSync(path.join(ROOT, 'scripts/lib/luna-meta-whatsapp-w
 const portalClients = fs.readFileSync(path.join(ROOT, 'scripts/lib/staff-portal-clients.js'), 'utf8');
 const channelResolver = fs.readFileSync(path.join(ROOT, 'scripts/lib/client-channel-resolver.js'), 'utf8');
 
-ok('E requireBotAuth returns luna-bot-internal without client_id',
-  /staff_user_id:\s*'luna-bot-internal'/.test(staffApi)
-  && /auth_mode:\s*'bot_token'/.test(staffApi));
 ok('E DEFAULT_CLIENT hardcoded wolfhouse-somo',
   /const DEFAULT_CLIENT\s*=\s*'wolfhouse-somo'/.test(staffApi));
 ok('E handleBotBookingCreate trustedClientSlug from body',
@@ -228,13 +225,37 @@ if (has15bRemediation) {
   ok('E validateStripeBookingPaymentEvent optional client_slug check',
     /if \(metaClientSlug && metaClientSlug !== pm\.client_slug\)/.test(stripeTruth));
 }
+
+// B06 live-code evidence: historical 15A audit stays frozen. When Slice 15E
+// remediation overlay exists, assert remediating patterns instead of unbound bot.
+const remediation15eOverlayPath = path.join(FIXTURE_DIR, 'slice15e-b06-remediation-overlay.json');
+const has15eRemediation = fs.existsSync(remediation15eOverlayPath);
+if (has15eRemediation) {
+  const overlay15e = readJson(remediation15eOverlayPath);
+  ok('E B06 remediated via 15E overlay (historical matrix untouched)',
+    overlay15e
+    && overlay15e.boundary_id === 'B06_staff_bot_auth_principal'
+    && overlay15e.historical_audit_unchanged === true
+    && overlay15e.status === 'remediated'
+    && /buildStaffBotAuthPrincipal/.test(staffApi)
+    && /bot_principal_tenant_unconfigured/.test(staffApi)
+    && /auth_mode:\s*'bot_token'/.test(staffApi));
+  ok('E getAccessibleClientSlugs binds luna-bot-internal to client_slug',
+    /staff_user_id === 'luna-bot-internal'/.test(portalClients)
+    && /client_slug/.test(portalClients)
+    && /if \(!user\.email\) return all/.test(portalClients));
+} else {
+  ok('E requireBotAuth returns luna-bot-internal without client_id',
+    /staff_user_id:\s*'luna-bot-internal'/.test(staffApi)
+    && /auth_mode:\s*'bot_token'/.test(staffApi));
+  ok('E getAccessibleClientSlugs returns all when !user.email',
+    /if \(!user \|\| !user\.email\) return all/.test(portalClients));
+}
 ok('E Meta DEFAULT_CLIENT_SLUG wolfhouse-somo',
   /DEFAULT_CLIENT_SLUG = 'wolfhouse-somo'/.test(metaWh));
 ok('E Meta attachTenantChannelShadow does not overwrite client_slug',
   /tenant_channel_shadow: shadow/.test(metaWh)
   && /client_slug: clientSlug/.test(metaWh));
-ok('E getAccessibleClientSlugs returns all when !user.email',
-  /if \(!user \|\| !user\.email\) return all/.test(portalClients));
 ok('E resolver never Wolfhouse fallback on unknown',
   /never Wolfhouse/.test(channelResolver)
   && /unknown_channel_identity/.test(channelResolver));
@@ -348,9 +369,17 @@ for (const c of casesDoc.cases) {
       }
 
       case 'bot_acl_emailless': {
+        // Historical RED fixture proves pre-15E unbound bot got all clients.
+        // With 15E overlay, live code must fail closed (empty) for unbound bot.
         const slugs = getAccessibleClientSlugs({ role: 'operator', staff_user_id: 'luna-bot-internal' });
         const need = expect.includes_both || [];
-        ok(label, need.every((s) => slugs.includes(s)), JSON.stringify(slugs));
+        if (has15eRemediation) {
+          ok(label,
+            Array.isArray(slugs) && slugs.length === 0,
+            JSON.stringify(slugs));
+        } else {
+          ok(label, need.every((s) => slugs.includes(s)), JSON.stringify(slugs));
+        }
         break;
       }
 

@@ -297,7 +297,18 @@ function normalizeEmail(email) {
 
 function getAccessibleClientSlugs(user) {
   const all = listBaselineClients().map((c) => c.slug);
-  if (!user || !user.email) return all;
+  if (!user) return all;
+
+  // FORTRESS 15E — internal bot principal is bound to one runtime tenant.
+  // Never expand email-less bot access to all baseline clients (closes B06).
+  // Staff-session ACL below is unchanged (sessions carry email + login client_slug).
+  if (user.staff_user_id === 'luna-bot-internal') {
+    const bound = String(user.client_slug || '').trim();
+    if (!bound) return [];
+    return all.filter((slug) => slug === bound);
+  }
+
+  if (!user.email) return all;
   const email = normalizeEmail(user.email);
   const cfg = readAccessConfig();
   const explicit = cfg.client_access && cfg.client_access[email];

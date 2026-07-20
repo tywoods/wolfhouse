@@ -264,6 +264,7 @@ const {
   getAccessibleClients,
   getSessionScopedClients,
   userCanAccessClient,
+  listBaselineClients,
   resolveStaffRole,
   canUseOwnerInsights,
   buildClientProfilesMap,
@@ -272,6 +273,9 @@ const {
   STAFF_PORTAL_DEV_TAB_IDS,
   resolvePortalDeployClient,
 } = require('./lib/staff-portal-clients');
+const {
+  buildStaffBotAuthPrincipal,
+} = require('./lib/staff-bot-principal-tenant-config');
 const {
   resolveTenantBusinessConfig,
   resolveTenantBusinessConfigAsync,
@@ -1172,6 +1176,8 @@ async function requireOwnerInsightsAuth(req, res) {
 //   1. STAFF_AUTH_REQUIRED=false → open (local/dev), auth_mode='open'
 //   2. Valid X-Luna-Bot-Token or Authorization: Bearer header matching
 //      LUNA_BOT_INTERNAL_TOKEN → auth_mode='bot_token'
+//      FORTRESS 15E: bot principal carries authoritative runtime client_slug
+//      (LUNA_BOT_CLIENT_SLUG / DEFAULT_CLIENT_SLUG). Missing/invalid/conflict → 503.
 //   3. Otherwise → delegate to normal session cookie auth → auth_mode='session'
 //
 // Safe defaults:
@@ -1181,6 +1187,7 @@ async function requireOwnerInsightsAuth(req, res) {
 //   - Token NEVER echoed in any response.
 //   - Token auth ONLY called from /staff/bot/* router blocks.
 //     Normal staff endpoints use requireAuth exclusively.
+//   - Body/query client_slug handling is unchanged (B07).
 // ─────────────────────────────────────────────────────────────────────────────
 
 async function requireBotAuth(req, res) {
@@ -1203,7 +1210,20 @@ async function requireBotAuth(req, res) {
       const match = configBuf.length === providedBuf.length &&
         crypto.timingSafeEqual(configBuf, providedBuf);
       if (match) {
-        return { ok: true, user: { role: 'operator', staff_user_id: 'luna-bot-internal' }, auth_mode: 'bot_token' };
+        // FORTRESS 15E — bind bot principal to one authoritative runtime tenant.
+        const knownSlugs = listBaselineClients().map((c) => c.slug);
+        const principal = buildStaffBotAuthPrincipal(process.env, {
+          knownClientSlugs: knownSlugs,
+        });
+        if (!principal.ok || !principal.user) {
+          sendJSON(res, 503, {
+            success: false,
+            error: 'bot_principal_tenant_unconfigured',
+            reason: principal.reason || 'missing_runtime_client_slug',
+          });
+          return { ok: false };
+        }
+        return { ok: true, user: principal.user, auth_mode: 'bot_token' };
       }
       // Token provided but wrong → 401 immediately (do not fall through to session)
       sendJSON(res, 401, {
