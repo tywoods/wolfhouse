@@ -1,55 +1,71 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16A",
-  "outcome_id": "16A_operations_gate_ledger",
-  "master_basis": "28a30a688baa637e1bcb549d9b585cb5917942d1",
-  "branch": "radar/slice-16a-gate-ledger",
+  "slice": "RADAR-16B",
+  "outcome_id": "16B_staging_rg_cost_budget_threshold",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16b-staging-cost-budgets",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Freeze RADAR operations gate ledger from code + staging live evidence; select one 16B gate",
+  "title": "Standalone staging ActualCost budget-threshold module (partial progress; not anomaly detection)",
+  "progress_class": "budget_threshold_partial_progress_only",
+  "does_not_implement": "anomaly_detection",
+  "notification_delivery_proof": "open",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
     "fixtures/radar-operations/gate-matrix.json",
     "fixtures/radar-operations/live-inventory.json",
     "fixtures/radar-operations/contract.json",
     "fixtures/radar-operations/findings.md",
+    "fixtures/radar-operations/slice16b-budget-threshold-plan.json",
+    "infra/azure/staging-cost-budgets/",
+    "scripts/lib/radar-slice16b-staging-cost-budgets.js",
+    "scripts/verify-radar-slice16b-staging-cost-budgets.js",
+    "scripts/preflight-radar-slice16b-staging-cost-budgets.js",
     "scripts/verify-radar-slice16a-operations-gate-ledger.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
-    "partial": 7,
-    "absent": 2,
+    "partial": 8,
+    "absent": 1,
     "total": 9
   },
   "critical_absent_gates": [
-    "G03_actionable_tenant_aware_alerts",
-    "G09_cost_anomaly_detection"
+    "G03_actionable_tenant_aware_alerts"
   ],
   "selected_16b": {
-    "outcome_id": "16B_staging_rg_cost_budget_anomaly",
-    "gate_id": "G09_cost_anomaly_detection"
+    "outcome_id": "16B_staging_rg_cost_budget_threshold",
+    "gate_id": "G09_cost_controls",
+    "progress_class": "budget_threshold_partial_progress_only",
+    "does_not_implement": "anomaly_detection"
   },
   "costs_mtd_usd_frozen": {
     "wh-staging-rg": 65.1200802322302,
     "luna-sunset-staging-rg": 16.9118980752688,
     "combined": 82.031978307499
   },
+  "budget_plan_locked": {
+    "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+    "deploymentMode": "Incremental",
+    "wh-staging-rg": { "amountUsd": 120, "thresholds": [80, 100] },
+    "luna-sunset-staging-rg": { "amountUsd": 40, "thresholds": [80, 100] }
+  },
   "zero_mutation_proof": {
     "runtime_paths_unchanged": [
       "scripts/staff-query-api.js",
-      "scripts/lib/",
       "docker/hermes-staging/",
       "database/",
       "infra/azure/staging/main.bicep",
       "infra/azure/sunset-staging/main.bicep"
     ],
-    "note": "16A commit may only add ledger/docs/fixtures/verifier/npm script; must not modify runtime behavior sources listed above"
+    "note": "16B may add standalone staging-cost-budgets module + radar fixtures/verifiers; must not modify Staff API/Hermes/DB/main.bicep wiring; live deploy hard-disabled"
   },
   "gates": [
+    "az bicep build --file infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
     "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
     "npm run verify:sunset-staging-iac-secret-scan",
     "npm run verify:migration-integrity",
     "npm run verify:sunset-staging-iac-diff-check",
-    "git diff --check 28a30a688baa637e1bcb549d9b585cb5917942d1..HEAD"
+    "git diff --check 5a8b08d395e11c51baf928b918016d5dd5bb4afe..HEAD"
   ]
 }

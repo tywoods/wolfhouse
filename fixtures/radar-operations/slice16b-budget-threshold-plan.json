@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16B",
+  "outcome_id": "16B_staging_rg_cost_budget_threshold",
+  "gate_id": "G09_cost_controls",
+  "progress_class": "budget_threshold_partial_progress_only",
+  "does_not_implement": "anomaly_detection",
+  "master_basis": "5a8b08d395e11c51baf928b918016d5dd5bb4afe",
+  "branch": "radar/slice-16b-staging-cost-budgets",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "deploymentMode": "Incremental",
+  "liveDeployEnabled": false,
+  "anomalyDetectionClaimed": false,
+  "notification_delivery_proof": "open",
+  "resourceTypesAllowed": [
+    "Microsoft.Insights/actionGroups",
+    "Microsoft.Consumption/budgets"
+  ],
+  "bicepModuleRel": "infra/azure/staging-cost-budgets/rg-budget-threshold.bicep",
+  "budgets": [
+    {
+      "resourceGroup": "wh-staging-rg",
+      "budgetName": "wh-staging-rg-monthly-actualcost",
+      "amountUsd": 120,
+      "category": "Cost",
+      "timeGrain": "Monthly",
+      "budgetStartDate": "2026-07-01",
+      "thresholds": [
+        {
+          "percent": 80,
+          "enabled": true,
+          "thresholdType": "Actual",
+          "operator": "GreaterThan"
+        },
+        {
+          "percent": 100,
+          "enabled": true,
+          "thresholdType": "Actual",
+          "operator": "GreaterThan"
+        }
+      ],
+      "actionGroupName": "wh-staging-ops-budget-ag",
+      "actionGroupShortName": "whStgBudAg",
+      "opsEmailParam": "opsNotifyEmail",
+      "opsEmailInGit": false,
+      "parametersExampleRel": "infra/azure/staging-cost-budgets/parameters.wh-staging.example.json"
+    },
+    {
+      "resourceGroup": "luna-sunset-staging-rg",
+      "budgetName": "luna-sunset-staging-rg-monthly-actualcost",
+      "amountUsd": 40,
+      "category": "Cost",
+      "timeGrain": "Monthly",
+      "budgetStartDate": "2026-07-01",
+      "thresholds": [
+        {
+          "percent": 80,
+          "enabled": true,
+          "thresholdType": "Actual",
+          "operator": "GreaterThan"
+        },
+        {
+          "percent": 100,
+          "enabled": true,
+          "thresholdType": "Actual",
+          "operator": "GreaterThan"
+        }
+      ],
+      "actionGroupName": "luna-sunset-staging-ops-budget-ag",
+      "actionGroupShortName": "sunStgBudAg",
+      "opsEmailParam": "opsNotifyEmail",
+      "opsEmailInGit": false,
+      "parametersExampleRel": "infra/azure/staging-cost-budgets/parameters.luna-sunset-staging.example.json"
+    }
+  ],
+  "zero_live_mutation": true
+}
