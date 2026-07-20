@@ -85,6 +85,9 @@ const {
   CORRELATION_HEADER_CANON,
 } = require('./lib/staff-api-request-correlation');
 const {
+  attachStaffApiRequestCompletion,
+} = require('./lib/staff-api-request-completion-log');
+const {
   HEALTHZ_PATH,
   handleStaffApiHealthz,
 } = require('./lib/staff-api-healthz');
@@ -46839,15 +46842,29 @@ function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
 }
 
 /**
- * @param {{ ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown } }} [options]
+ * @param {{
+ *   ingressBinding?: { tenant_slug?: unknown, tenantSlug?: unknown, client_slug?: unknown, clientSlug?: unknown },
+ *   completionLogger?: ((record: object) => void) | null,
+ * }} [options]
  */
 function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
   // RADAR 16J — correlate every request at the HTTP boundary (ALS; no handler signature change).
   // Trusted tenant slug from construction-time ingress binding only (never request headers/query).
+  // RADAR 16R — extend 16J context with exactly-one finish/close/error completion record
+  // (no duplicate correlation middleware; listeners removed on settle — no growth).
   const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
+  const completionLogger = options && typeof options.completionLogger === 'function'
+    ? options.completionLogger
+    : null;
   return http.createServer((req, res) => {
-    runWithRequestCorrelation(req, res, async () => {
+    void runWithRequestCorrelation(req, res, async () => {
+      attachStaffApiRequestCompletion(req, res, {
+        startedAtMs: Date.now(),
+        trustedTenantSlug: ingressBinding.tenant_slug,
+        rawUrl: req && req.url,
+        logger: completionLogger,
+      });
       try {
         const handler = __staffQueryApiRequestHandlerOverride || router;
         await handler(req, res);

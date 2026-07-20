@@ -4,7 +4,8 @@
  * verify:radar-slice16j-staff-request-correlation — RADAR Slice 16J
  *
  * Offline RED/GREEN gate for Staff API HTTP request correlation
- * (header + AsyncLocalStorage only). No completion logging.
+ * (header + AsyncLocalStorage only). Completion logging is owned by 16R
+ * (allowlisted staff_api_request_completion); 16J still proves header+ALS.
  * GREEN proofs use real createStaffQueryApiHttpServer (fortress dual-gate).
  * No live deploy, no Azure mutation, no real secrets.
  */
@@ -60,7 +61,7 @@ const REQUIRED_GREEN = [
   'listener_4xx',
   'listener_5xx',
   'listener_sensitive_canaries_absent',
-  'listener_no_completion_console',
+  'listener_completion_allowlisted_only',
   'listener_no_exit_mutation',
 ];
 
@@ -166,6 +167,7 @@ function clearStaffApiCache() {
       || /staff-auth-config\.js$/.test(key)
       || /staff-portal-clients\.js$/.test(key)
       || /staff-api-request-correlation\.js$/.test(key)
+      || /staff-api-request-completion-log\.js$/.test(key)
       || /staff-api-readiness\.js$/.test(key)
       || /pg-connect\.js$/.test(key)) {
       delete require.cache[key];
@@ -789,25 +791,58 @@ async function main() {
       }),
     });
     const httpConsoleSlice = consoleCalls.slice(beforeHttpConsole);
-    const leakyConsole = httpConsoleSlice.some((line) =>
-      line.includes('sk_' + 'live_')
-      || line.includes('alice@')
-      || line.includes('hunter2')
-      || line.includes('guest_phone')
-      || line.includes('staff_api_http_request_complete')
-      || line.includes('"duration_ms"')
-      || line.includes('"request_id"'));
+    const completionLines = httpConsoleSlice.filter((line) =>
+      line.includes('staff_api_request_completion'));
+    const leakyConsole = httpConsoleSlice.some((line) => {
+      // Allowlisted 16R completion records may include request_id/duration_ms.
+      if (line.includes('staff_api_request_completion')) {
+        return line.includes('sk_' + 'live_')
+          || line.includes('alice@')
+          || line.includes('hunter2')
+          || line.includes('guest_phone')
+          || line.includes('Bearer eyJ')
+          || line.includes('?token=')
+          || line.includes('"email"')
+          || line.includes('"phone"')
+          || line.includes('"headers"')
+          || line.includes('"body"')
+          || line.includes('"query"');
+      }
+      return line.includes('sk_' + 'live_')
+        || line.includes('alice@')
+        || line.includes('hunter2')
+        || line.includes('guest_phone')
+        || line.includes('staff_api_http_request_complete');
+    });
     green('listener_sensitive_canaries_absent',
       canaryRes.headers['x-request-id'] === 'aaaaaaaa-bbbb-4ccc-8ddd-666666666666'
       && !leakyConsole,
       JSON.stringify({ hdr: canaryRes.headers['x-request-id'], consoleN: httpConsoleSlice.length }));
 
-    green('listener_no_completion_console',
-      !httpConsoleSlice.some((line) =>
-        line.includes('staff_api_http_request_complete')
-        || (line.includes('"request_id"') && line.includes('"duration_ms"'))
-        || line.includes('"event":"staff_api')),
-      JSON.stringify(httpConsoleSlice.slice(0, 5)));
+    // 16R owns completion emission; 16J proves records are allowlisted (or absent).
+    let completionOk = true;
+    for (const line of completionLines) {
+      const idx = String(line).indexOf('{');
+      if (idx < 0) { completionOk = false; break; }
+      try {
+        const obj = JSON.parse(String(line).slice(idx));
+        if (obj.event !== 'staff_api_request_completion') { completionOk = false; break; }
+        const keys = Object.keys(obj);
+        const allowed = new Set([
+          'event', 'request_id', 'tenant_slug', 'method', 'route',
+          'status_code', 'status_class', 'duration_ms', 'outcome',
+        ]);
+        if (keys.some((k) => !allowed.has(k))) { completionOk = false; break; }
+        if (String(obj.route || '').includes('?')) { completionOk = false; break; }
+      } catch (_) {
+        completionOk = false;
+        break;
+      }
+    }
+    green('listener_completion_allowlisted_only',
+      completionOk
+      && !httpConsoleSlice.some((line) => line.includes('staff_api_http_request_complete')),
+      JSON.stringify({ completionN: completionLines.length, sample: completionLines.slice(0, 2) }));
 
     unwrapConsole();
 
@@ -846,17 +881,18 @@ async function main() {
   ok('C10 all GREEN passed', greenResults.every((r) => r.ok),
     JSON.stringify(greenResults.filter((r) => !r.ok)));
 
-  ok('C11 drill + completion logs remain open',
+  ok('C11 drill + delivery/search/retention remain open (completion owned by 16R)',
     contract.final_controlled_drill
     && contract.final_controlled_drill.status === 'open'
     && contract.final_controlled_drill.id === '16J_DRILL_correlation_log_query'
     && Array.isArray(contract.still_open)
-    && contract.still_open.some((s) => /completion logs/i.test(s)));
+    && contract.still_open.some((s) => /delivery|search|retention|deploy|drill/i.test(s))
+    && !contract.still_open.some((s) => /^Request completion logs/i.test(s)));
 
   ok('C12 npm script registered',
     /verify:radar-slice16j-staff-request-correlation/.test(readText('package.json')));
 
-  ok('C13 completion logging locked off',
+  ok('C13 16J outcome remains header+ALS (completion owned by follow-on slice)',
     contract.event_context_contract.completion_logging === false
     && contract.event_context_contract.one_record_completion_claim === false
     && !/DURATION_MS_BUCKET/.test(locksSrc));

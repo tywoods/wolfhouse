@@ -21,14 +21,14 @@
 4. **Retention/search** — log retention / PII redaction / LAW search not claimed.
 5. **Dependency failure** — healthy /readyz observed; failure traffic-shed drill open.
 6. **Real-PG contention** — 16M concurrency drill open.
-7. **Completion logging** — 16J/16N completion logs remain open.
+7. **Completion logging delivery** — 16R adds source-partial completion records; deploy/delivery/search/retention remain open.
 8. **Production** — staging-only; production forbidden.
 
 ## Gate progress after 16P (truthful)
 
 | Gate | progress_class | Live-proven (bounded) | Still open |
 |------|----------------|----------------------|------------|
-| G01 | source_partial | — | completion logging, delivery/search/retention |
+| G01 | source_partial | — | 16R source completion records; deploy/delivery/search/retention |
 | G02 | partial_live_proven | health/ready after deploy + rollforward | dependency-failure drill |
 | G03 | partial_live_proven | AG test API Email Status=Succeeded / Complete | human inbox; organic alert fire |
 | G04 | partial | — | backlog metrics / DLQ |

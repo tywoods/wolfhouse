@@ -1,14 +1,14 @@
 {
   "schema_version": 1,
-  "slice": "RADAR-16P",
-  "outcome_id": "16P_live_drill_evidence_reconciliation",
-  "master_basis": "594247f12a823e9b90140c56eb8645b057e1fd37",
-  "branch": "radar/slice-16p-live-drill-evidence",
+  "slice": "RADAR-16R",
+  "outcome_id": "16R_staff_api_request_completion_log",
+  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
+  "branch": "radar/slice-16r-request-completion-log",
   "audit_only": true,
   "live_mutation": false,
-  "title": "Reconcile bounded 16O live-drill evidence \u2014 G02/G03/G07/G08/G09 partial/live-proven",
-  "progress_class": "partial_live_proven_evidence_only",
-  "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging",
+  "title": "Staff API one bounded request-completion record per HTTP request \u2014 G01 source-partial",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_drill",
   "notification_delivery_proof": "partial_ag_test_api_email_status_only",
   "artifacts": [
     "docs/RADAR-OPERATIONS-GATE-LEDGER.md",
@@ -55,7 +55,11 @@
     "fixtures/radar-operations/slice16p-live-drill-evidence.json",
     "fixtures/radar-operations/slice16p-expected-contract.json",
     "scripts/lib/radar-slice16p-live-drill-evidence.js",
-    "scripts/verify-radar-slice16p-live-drill-evidence.js"
+    "scripts/verify-radar-slice16p-live-drill-evidence.js",
+    "fixtures/radar-operations/slice16r-expected-contract.json",
+    "scripts/lib/staff-api-request-completion-log.js",
+    "scripts/lib/radar-slice16r-staff-request-completion-log.js",
+    "scripts/verify-radar-slice16r-staff-request-completion-log.js"
   ],
   "expected_verdict_counts": {
     "proven": 0,
@@ -157,7 +161,7 @@
     "does_not_implement": "completion_logs_lifecycle_listeners_async_queue_signal_shutdown_live_deploy_delivery_search_retention_drill",
     "supersedes": "16D_staff_api_request_correlation"
   },
-  "correlation_completion_logs": "open",
+  "correlation_completion_logs": "source_partial_via_16R",
   "correlation_delivery_proof": "open",
   "correlation_search_proof": "open",
   "correlation_retention": "open",
@@ -231,5 +235,12 @@
     "gate_id": "G08_retention_privacy",
     "progress_class": "partial_live_proven_evidence_only",
     "does_not_implement": "human_inbox_organic_alert_production_abrupt_retention_search_dependency_failure_real_pg_completion_logging"
+  },
+  "selected_16r": {
+    "outcome_id": "16R_staff_api_request_completion_log",
+    "gate_id": "G01_correlation_structured_logs",
+    "progress_class": "source_partial_progress_only",
+    "does_not_implement": "live_deploy_azure_stdout_delivery_search_retention_drill",
+    "builds_on": "16J_staff_api_request_correlation"
   }
 }

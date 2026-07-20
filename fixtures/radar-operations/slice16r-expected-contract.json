@@ -1,0 +1,123 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16R",
+  "outcome_id": "16R_staff_api_request_completion_log",
+  "gate_id": "G01_correlation_structured_logs",
+  "progress_class": "source_partial_progress_only",
+  "master_basis": "06b7a3f2173863afa81bfc557cd31cbd3e80d6c1",
+  "branch": "radar/slice-16r-request-completion-log",
+  "live_deploy": false,
+  "live_mutation": false,
+  "title": "Staff API one bounded request-completion record per HTTP request on finish/close/error — source partial; extends 16J ALS",
+  "builds_on": {
+    "outcome_id": "16J_staff_api_request_correlation",
+    "gate_id": "G01_correlation_structured_logs"
+  },
+  "event_schema": {
+    "event": "staff_api_request_completion",
+    "fields_only": [
+      "event",
+      "request_id",
+      "tenant_slug",
+      "method",
+      "route",
+      "status_code",
+      "status_class",
+      "duration_ms",
+      "outcome"
+    ],
+    "request_id": "from_ALS_16J_supplied_or_generated",
+    "tenant_slug": "trusted_construction_binding_only_else_omit",
+    "method": "allowlisted_uppercased",
+    "route": "fail_closed_allowlisted_static_before_typed_ids_strict_uuid_digits_typed_only_no_broad_20plus_classifier_segment_aware_bound_optional_:truncated_else_:redacted_or_/:unmatched_no_query_fragment",
+    "status_code": "res.statusCode_bounded_integer",
+    "status_class": "0xx_1xx_2xx_3xx_4xx_5xx_from_status_code",
+    "duration_ms": {
+      "bucket_ms": 5,
+      "round": "ceil_up",
+      "cap_ms": 300000,
+      "type": "integer"
+    },
+    "outcome": ["completed", "client_aborted", "server_error"]
+  },
+  "emission_contract": {
+    "boundary": "createStaffQueryApiHttpServer",
+    "extends": "16J_runWithRequestCorrelation_ALS",
+    "mechanism": "res_finish_close_error_and_req_error_settlement_exactly_once",
+    "exactly_one_record_per_real_http_request": true,
+    "logger": "existing_console_process_stdout",
+    "req_res_lifecycle_listeners": true,
+    "lifecycle_listener_growth": false,
+    "listeners_removed_on_settle": true,
+    "duplicate_middleware": false,
+    "signal_shutdown_handlers": false,
+    "exit_code_mutation": false,
+    "async_log_queue": false,
+    "buffer_flush": false,
+    "logger_failure_must_not_alter_response_or_rejection": true,
+    "logger_failure_must_not_recurse": true,
+    "router_catch_byte_identical": true
+  },
+  "exclusions": [
+    "url_query",
+    "raw_url",
+    "headers",
+    "body",
+    "guest",
+    "customer",
+    "name",
+    "phone",
+    "email",
+    "auth",
+    "cookie",
+    "token",
+    "key",
+    "stack",
+    "error_text",
+    "response_body",
+    "ip",
+    "user_agent",
+    "stripe_signature",
+    "stripe_payload",
+    "secrets",
+    "db_error",
+    "exception"
+  ],
+  "still_open": [
+    "Live deploy of Staff API image with completion logging",
+    "Azure stdout / LAW / App Insights delivery proof",
+    "Searchable query of completion records in LAW/App Insights",
+    "Retention policy for completion records",
+    "End-to-end Meta → Hermes → Staff API → Stripe correlation drill"
+  ],
+  "final_controlled_drill": {
+    "id": "16R_DRILL_completion_log_search",
+    "status": "open",
+    "pass_rule": "After approved deploy: known X-Request-Id traffic produces searchable allowlisted staff_api_request_completion records in LAW/App Insights; concurrent isolation; abort/error outcomes observable; no PII fields"
+  },
+  "artifacts": [
+    "scripts/lib/staff-api-request-completion-log.js",
+    "scripts/staff-query-api.js",
+    "scripts/lib/radar-slice16r-staff-request-completion-log.js",
+    "scripts/verify-radar-slice16r-staff-request-completion-log.js",
+    "fixtures/radar-operations/slice16r-expected-contract.json"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16r-staff-request-completion-log",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16o-stripe-webhook-error-minimization",
+    "npm run verify:radar-slice16m-stripe-event-claim",
+    "npm run verify:staff-auth-api",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check 06b7a3f2173863afa81bfc557cd31cbd3e80d6c1..HEAD"
+  ],
+  "protected_paths_unchanged": [
+    "database/",
+    "docker/hermes-staging/",
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "infra/azure/staging-staff-api-metric-alerts"
+  ]
+}

@@ -55,7 +55,6 @@
     ]
   },
   "still_open": [
-    "Request completion logs (structured completion records)",
     "Live deploy of Staff API image with correlation middleware",
     "Log Analytics / App Insights delivery + search proof",
     "Retention policy for correlation completion records",
@@ -64,7 +63,7 @@
   "final_controlled_drill": {
     "id": "16J_DRILL_correlation_log_query",
     "status": "open",
-    "pass_rule": "After approved deploy + completion logging follow-on: known X-Request-Id traffic; prove searchable correlation in LAW/App Insights with safe fields only; prove concurrent requests do not bleed context"
+    "pass_rule": "After approved deploy + 16R completion logging follow-on: known X-Request-Id traffic; prove searchable correlation in LAW/App Insights with safe fields only; prove concurrent requests do not bleed context"
   },
   "artifacts": [
     "scripts/lib/staff-api-request-correlation.js",

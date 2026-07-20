@@ -1,102 +1,106 @@
-# RADAR Slice 16P — Operations gate ledger (live-drill evidence reconciliation)
+# RADAR Slice 16R — Operations gate ledger (Staff API request-completion log source-partial)
 
-**Status:** partial/live-proven evidence only (this slice does **not** deploy; records prior operator-observed 16O live drill)
-**Master basis:** `594247f12a823e9b90140c56eb8645b057e1fd37`
-**Branch:** `radar/slice-16p-live-drill-evidence`
+**Status:** source partial progress only (zero live deploy / mutation; delivery / search / retention / drill open)
+**Master basis:** `06b7a3f2173863afa81bfc557cd31cbd3e80d6c1`
+**Branch:** `radar/slice-16r-request-completion-log`
 **Azure scope (locked):** subscription `6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9`; RGs `wh-staging-rg`, `luna-sunset-staging-rg`
 **Classifier policy:** absence of evidence is `absent`, never “safe”
+**Builds on:** 16J `16J_staff_api_request_correlation` (ALS correlation)
 
 ## Outcome
 
-Reconcile **bounded operator-observed facts** from the completed 16O live drill into a secret-free evidence fixture and upgrade gate `progress_class` to `partial_live_proven` only where those facts support. **Do not deploy in this slice.** Verdict `proven` remains **0**. Explicitly do **not** claim human inbox receipt, organic metric alert firing, production, abrupt paths, retention/search, dependency failure, real-PG contention, or completion logging.
-
-## Operator-observed facts (locked)
-
-| Fact | Value |
-|------|-------|
-| Image SHA | `594247f` (`594247f12a823e9b90140c56eb8645b057e1fd37`) |
-| Wolfhouse deploy revision | `0000514` |
-| Sunset deploy revision | `0000274` |
-| Observed on deploy | health/ready; malformed / missing / oversize generic webhook responses |
-| Wolfhouse rollback → rollforward | `0000515` → `0000516` |
-| Sunset rollback → rollforward | `0000275` → `0000276` |
-| After rollforward | health/readiness passed; final image `594247f` |
-| AG test API Wolfhouse | Email Status=`Succeeded`, state=`Complete`; sent `2026-07-20T21:35:00.5549824Z`; completed `2026-07-20T21:38:26.1342044Z` |
-| AG test API Sunset | Email Status=`Succeeded`, state=`Complete`; sent `2026-07-20T21:39:53.8402179Z`; completed `2026-07-20T21:43:16.2619454Z` |
+Add **one bounded Staff API request-completion record per real HTTP request** (source only). Extend existing 16J request context/correlation (no duplicate middleware). At `createStaffQueryApiHttpServer`, inside the ALS wrapper, attach finish/close/error settlement listeners and emit exactly one allowlisted JSON record (`event=staff_api_request_completion`) via the existing console/process stdout logger. Listeners are removed on settle (no lifecycle listener growth). Fields: `request_id`, `method`, `route` (fail-closed template), `status_code`, `status_class`, integer bounded `duration_ms`, `outcome` (`completed`|`client_aborted`|`server_error`), optional trusted `tenant_slug`. Never log headers/query/body/cookies/auth/IP/UA/PII/Stripe signature/payload/secrets/DB errors/exception text/stack. Logger failure must never alter HTTP behavior or recurse. Existing router catch remains byte-identical. Auth/webhook/16M semantics preserved. **Do not deploy.** G01 remains `partial`.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `fixtures/radar-operations/slice16p-live-drill-evidence.json` | Bounded locked evidence + `lock_hash` |
-| `fixtures/radar-operations/slice16p-expected-contract.json` | Independent contract |
-| `scripts/verify-radar-slice16p-live-drill-evidence.js` | Offline RED/GREEN; rejects altered/overstated evidence |
-| `npm run verify:radar-slice16p-live-drill-evidence` | Gate |
+| `scripts/lib/staff-api-request-completion-log.js` | Allowlisted build/attach/emit/assert helpers |
+| `scripts/staff-query-api.js` | createServer wire inside 16J ALS |
+| `scripts/lib/radar-slice16r-staff-request-completion-log.js` | Slice locks |
+| `scripts/verify-radar-slice16r-staff-request-completion-log.js` | Offline RED/GREEN verifier |
+| `fixtures/radar-operations/slice16r-expected-contract.json` | Frozen independent contract |
+| `npm run verify:radar-slice16r-staff-request-completion-log` | Gate |
+
+## Bounded schema
+
+| Field | Rule |
+|-------|------|
+| `event` | always `staff_api_request_completion` |
+| `request_id` | from ALS (16J supplied/generated UUIDv4) |
+| `tenant_slug` | trusted construction binding only (else omit) |
+| `method` | allowlisted + uppercased |
+| `route` | fail-closed allowlisted static / `:id` / `:redacted` / `:truncated` / `/:unmatched`; no query/fragment |
+| `status_code` | `res.statusCode` bounded integer |
+| `status_class` | `0xx`–`5xx` from status_code |
+| `duration_ms` | integer; ceil to 5ms; cap 300000 |
+| `outcome` | `completed` \| `client_aborted` \| `server_error` |
+
+## Exclusions (never logged)
+
+URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/token/key, IP/UA, Stripe signature/payload/secrets, stack/error text, DB errors, exception text, response body.
 
 ## Verdict counts
 
 | Verdict | Count | Meaning |
 |---------|------:|---------|
-| `proven` | 0 | Control fully evidenced end-to-end (incl. full drills) — **none** |
+| `proven` | 0 | Control fully evidenced end-to-end (incl. live deploy + delivery + drill) |
 | `partial` | 9 | Some code and/or live evidence; gaps remain |
 | `absent` | 0 | No safe control evidenced |
 | **total** | **9** | Matrix gates |
 
 ## Matrix (summary)
 
-| ID | Gate | Verdict / progress |
-|----|------|-------------------|
-| G01 | Correlation / structured logs | `partial` / source_partial (completion logging open) |
-| G02 | Readiness / dependencies | `partial` / **partial_live_proven** (healthy path) |
-| G03 | Actionable tenant-aware alerts | `partial` / **partial_live_proven** (AG test API only) |
+| ID | Gate | Verdict |
+|----|------|---------|
+| G01 | Correlation / structured logs | `partial` (16J + 16R source still partial) |
+| G02 | Readiness / dependencies | `partial` (16I + 16P healthy path) |
+| G03 | Actionable tenant-aware alerts | `partial` (16H + 16P AG test) |
 | G04 | Webhook / payment / worker backlog | `partial` |
-| G05 | Retry / replay safety | `partial` / source_partial (16M event-id claim / stripe_event_id; real-PG open) |
-| G06 | Scaling / capacity | `partial` / source_partial (16L capacity-pressure CpuPercentage/MemoryPercentage; organic fire open) |
-| G07 | Rollback / incident runbooks | `partial` / **partial_live_proven** (revision rollback/rollforward) |
-| G08 | Retention / privacy | `partial` / **partial_live_proven** (deploy + malformed/missing/oversize) |
-| G09 | Cost controls | `partial` / **partial_live_proven** (AG test API only; anomaly absent) |
+| G05 | Retry / replay safety | `partial` (16M source still partial) |
+| G06 | Scaling / capacity | `partial` (16L source still partial) |
+| G07 | Rollback / incident runbooks | `partial` (16P rollforward) |
+| G08 | Retention / privacy | `partial` (16K/16O + 16P) |
+| G09 | Cost controls | `partial` (16B + 16P AG test) |
 
-## Explicitly not claimed
+## G01 semantics (truthful)
 
-- human inbox receipt
-- organic metric alert firing
-- production
-- abrupt paths
-- retention/search
-- dependency failure
-- real-PG contention
-- completion logging
+| Sub-control | Status | Notes |
+|-------------|--------|-------|
+| Request correlation (header + ALS) | `partial` | 16J source |
+| Request-completion log (source) | `partial` | 16R finish/close/error exactly-once |
+| Lifecycle listener growth | absent by design | Removed on settle |
+| Live deploy | `open` | Not claimed |
+| Azure stdout / LAW delivery | `open` | Not claimed |
+| Searchable query | `open` | Not claimed |
+| Retention policy | `open` | Not claimed |
+| Controlled correlation drill | `open` | Not claimed |
 
-## Slice 16P progress
+## Slice 16R progress
 
-**ID:** `16P_live_drill_evidence_reconciliation`
-**Primary gate:** `G08_retention_privacy` (also updates G02/G03/G07/G09)
-**Progress class:** `partial_live_proven_evidence_only`
-**Does not implement:** human inbox, organic alert fire, production, abrupt paths, retention/search, dependency failure, real-PG contention, completion logging, any `proven` gate verdict
+**ID:** `16R_staff_api_request_completion_log`
+**Gate:** `G01_correlation_structured_logs`
+**Progress class:** `source_partial_progress_only`
+**Does not implement:** live deploy, Azure stdout delivery, searchable query, retention, drill
 
 ### Still open
 
-- Human inbox receipt of AG test emails
-- Organic metric alert firing
-- Abrupt webhook paths; SDK/secret live inject
-- Log retention / PII redaction / retention search
-- Controlled dependency-failure readiness drill
-- Real PostgreSQL contention drill
-- Request completion logging
-- Postgres restore drill
-- Budget resource live-list; anomaly detection
+- Live deploy of Staff API image with completion logging
+- Azure stdout / LAW / App Insights delivery proof
+- Searchable query of completion records
+- Retention policy for completion records
+- End-to-end Meta → Hermes → Staff API → Stripe correlation drill
 
 ## Prior partial progress retained
 
-- **16O** `16O_stripe_webhook_error_minimization` — live deploy + partial privacy probe via 16P
-- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial (real-PG open)
-- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial (organic fire open)
-- **16K** `16K_staff_api_healthz_minimization` on G08 — health observed via 16P
-- **16J** `16J_staff_api_request_correlation` on G01 — source-partial (completion logging open)
-- **16I** `16I_staff_api_readiness_dependencies` on G02 — healthy path via 16P
-- **16H** `16H_staff_api_metric_alerts` on G03 — AG test API via 16P
-- **16B** `16B_staging_rg_cost_budget_threshold` on G09 — AG test API via 16P; anomaly absent
+- **16P** live-drill evidence reconciliation — partial/live-proven on selected gates
+- **16O** `16O_stripe_webhook_error_minimization` on G08
+- **16M** `16M_stripe_webhook_event_id_claim` on G05 — source-partial
+- **16L** `16L_staff_api_capacity_pressure_alerts` on G06 — source-partial
+- **16K** `16K_staff_api_healthz_minimization` on G08
+- **16J** `16J_staff_api_request_correlation` on G01 — source-partial correlation
+- **16I** / **16H** / **16B** — prior partials retained
 
 ## Zero-mutation (this slice)
 
-No deploy/restart/DB/secret/guest/payment/production mutation in 16P. Database, Hermes staging, Staff API runtime, staging Bicep, 16H metric-alert module, and 16B budget module must remain unchanged vs master basis `594247f`.
+No deploy/restart/DB/secret/guest/payment/production mutation in 16R. Database, Hermes staging, staging Bicep, and 16H metric-alert module must remain unchanged vs master basis. Staff API completion-log helper + createServer wiring are intentional 16R ownership.
