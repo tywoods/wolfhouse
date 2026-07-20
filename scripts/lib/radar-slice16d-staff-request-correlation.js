@@ -54,6 +54,12 @@ const MUST_NOT_EMIT = Object.freeze([
   'error_message',
 ]);
 
+const ROUTE_CLASSIFIER = 'finite_route_template';
+const UNKNOWN_ROUTE_CLASS = 'unknown';
+const COMPLETION_SINK = 'bounded_async_queue';
+const TENANT_LOCATION_RULE = 'optional_immutable_process_runtime_scope_at_construction_else_omit';
+const SYNTHETIC_NO_RESPONSE_STATUS = 0;
+
 module.exports = {
   MASTER_BASIS,
   SLICE,
@@ -69,6 +75,11 @@ module.exports = {
   OWNED_RELS,
   EVENT_ALLOWED_KEYS,
   MUST_NOT_EMIT,
+  ROUTE_CLASSIFIER,
+  UNKNOWN_ROUTE_CLASS,
+  COMPLETION_SINK,
+  TENANT_LOCATION_RULE,
+  SYNTHETIC_NO_RESPONSE_STATUS,
   rootJoin(...parts) {
     const path = require('path');
     return path.join(__dirname, '..', '..', ...parts);

@@ -28,7 +28,7 @@
       "verdict": "partial",
       "severity": "high",
       "progress_class": "source_partial_progress_only",
-      "rationale": "16D adds Staff API HTTP-boundary request correlation: strict bounded X-Request-Id (or crypto-random), response echo, AsyncLocalStorage propagation without handler signature changes, and exactly-one structured completion event (correlation_id, method, route_class, status, duration_ms, authoritative client_slug/location_id when bound, error_class). Source-partial only — not deployed; Log Analytics/App Insights query proof and end-to-end Meta→Hermes→Staff→Stripe correlation remain open.",
+      "rationale": "16D adds Staff API HTTP-boundary request correlation: strict bounded singleton X-Request-Id (or crypto-random; array/duplicate/ambiguous rejected), immutable response echo across setHeader/writeHead forms, AsyncLocalStorage propagation without handler signature changes, finite route-template classifier (unknown→one class), exactly-one structured completion on finish/close/request-abort/request-error/response-error via bounded async sink queue, optional immutable process/runtime scope at construction else omit tenant fields. Source-partial only — not deployed; Log Analytics/App Insights query proof and end-to-end Meta→Hermes→Staff→Stripe correlation remain open.",
       "source_evidence": [
         {
           "path": "scripts/lib/staff-api-request-correlation.js",
@@ -503,13 +503,16 @@
       "Emitting raw URL/query/body/headers/guest/credentials/tokens/stack/error messages"
     ],
     "acceptance_criteria": [
-      "Every request accepts only strict bounded X-Request-Id or generates crypto-random ID",
-      "Correlation ID returned on every response",
+      "Every request accepts only strict bounded singleton X-Request-Id or generates crypto-random ID; array/duplicate/ambiguous rejected",
+      "Correlation ID immutable on every response (setHeader + all writeHead forms including raw arrays)",
       "AsyncLocalStorage propagation without handler signature changes",
-      "Exactly one structured completion event with allowed fields only",
-      "Tenant/location only when bound from already-authoritative runtime",
-      "RED: injection/oversize/unicode IDs, secret/query leakage, forged tenant, concurrent bleed, aborted, double completion, raw route cardinality",
-      "GREEN: real listener concurrency/error/404",
+      "Exactly one structured completion event on finish/close/request-abort/request-error/response-error",
+      "Finite route-template classifier; unknown routes collapse to one class; never emit unmatched raw path segments",
+      "Optional immutable process/runtime scope validated once at server construction; otherwise omit client_slug/location_id",
+      "Bounded async sink queue cannot delay response completion; serialization/write errors caught",
+      "Abort classification preserved; synthetic status/error_class when no response completed",
+      "Throw-after-headers terminates without changing established response bytes",
+      "Independent real-socket RED/GREEN (no exported safety assertion as oracle)",
       "G01 remains partial; deployment + log-query proof open"
     ],
     "final_controlled_drill": {

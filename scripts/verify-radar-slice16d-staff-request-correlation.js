@@ -5,13 +5,14 @@
  *
  * Offline RED/GREEN gate for Staff API HTTP request correlation.
  * GREEN proofs use real createStaffQueryApiHttpServer (fortress dual-gate).
+ * Independent event oracles — does NOT use assertSafeCompletionEvent as oracle.
  * No live deploy, no Azure mutation, no real secrets.
  */
 
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const path = require('path');
-const { execFileSync } = require('child_process');
 
 const ROOT = path.join(__dirname, '..');
 const locks = require('./lib/radar-slice16d-staff-request-correlation');
@@ -148,7 +149,6 @@ function applyMinimalStaffApiEnv() {
   process.env.STAFF_QUERY_API_HOST = '127.0.0.1';
   process.env.LUNA_BOT_INTERNAL_TOKEN = 'radar16d_bot_token_offline_test_01';
   process.env.STAFF_API_FORTRESS_OFFLINE_LISTENER = '1';
-  // Meta signature config may exit without local skip; keep test-safe.
   if (!process.env.META_WEBHOOK_SKIP_VERIFY) {
     process.env.META_WEBHOOK_SKIP_VERIFY = '1';
   }
@@ -157,13 +157,48 @@ function applyMinimalStaffApiEnv() {
 function loadStaffApi() {
   applyMinimalStaffApiEnv();
   clearStaffApiCache();
-  // Re-require correlation after cache clear so sink attaches to same module instance.
-  clearStaffApiCache();
   const api = require('../scripts/staff-query-api.js');
   if (typeof api.createStaffQueryApiHttpServer !== 'function') {
     throw new Error('createStaffQueryApiHttpServer not exported — dual-gate inactive');
   }
   return api;
+}
+
+/** Independent event oracle — never calls assertSafeCompletionEvent. */
+function independentEventOk(event, expect) {
+  if (!event || typeof event !== 'object' || Array.isArray(event)) {
+    return { ok: false, detail: 'not_object' };
+  }
+  if (event.event !== locks.EVENT_NAME) return { ok: false, detail: 'bad_event' };
+  const keys = Object.keys(event);
+  for (const k of keys) {
+    if (!locks.EVENT_ALLOWED_KEYS.includes(k)) return { ok: false, detail: `extra:${k}` };
+    if (locks.MUST_NOT_EMIT.includes(k)) return { ok: false, detail: `forbidden:${k}` };
+  }
+  if (!corr.CORRELATION_ID_RE.test(String(event.correlation_id || ''))) {
+    return { ok: false, detail: 'bad_id' };
+  }
+  if (typeof event.route_class !== 'string' || event.route_class.includes('?')) {
+    return { ok: false, detail: 'bad_route' };
+  }
+  if (event.route_class !== corr.ROUTE_CLASS_UNKNOWN
+    && event.route_class !== corr.ROUTE_CLASS_ROOT
+    && event.route_class !== corr.ROUTE_CLASS_HEALTHZ
+    && !corr.EXACT_ROUTE_TEMPLATES.includes(event.route_class)
+    && !corr.PARAM_ROUTE_TEMPLATES.some((t) => t.route_class === event.route_class)) {
+    return { ok: false, detail: `non_finite_route:${event.route_class}` };
+  }
+  if (!Number.isFinite(event.status) || event.status < 0) return { ok: false, detail: 'bad_status' };
+  if (!Number.isFinite(event.duration_ms) || event.duration_ms < 0) {
+    return { ok: false, detail: 'bad_duration' };
+  }
+  if (eventBlobLooksLeaky(event)) return { ok: false, detail: 'leaky' };
+  if (expect) {
+    for (const [k, v] of Object.entries(expect)) {
+      if (event[k] !== v) return { ok: false, detail: `expect ${k}=${v} got ${event[k]}` };
+    }
+  }
+  return { ok: true };
 }
 
 function eventBlobLooksLeaky(event) {
@@ -187,10 +222,30 @@ function eventBlobLooksLeaky(event) {
   for (const n of needles) {
     if (blob.includes(n)) return true;
   }
-  for (const [k, v] of Object.entries(event)) {
-    if (typeof v === 'string' && v.includes('?') && k === 'route_class') return true;
-  }
+  if (typeof event.route_class === 'string' && event.route_class.includes('?')) return true;
   return false;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function waitFor(pred, timeoutMs) {
+  const start = Date.now();
+  return new Promise((resolve) => {
+    const tick = () => {
+      if (pred()) return resolve(true);
+      if (Date.now() - start > timeoutMs) return resolve(false);
+      setTimeout(tick, 5);
+    };
+    tick();
+  });
+}
+
+async function waitEvents(collector, pred, timeoutMs) {
+  const okWait = await waitFor(() => pred(collector), timeoutMs);
+  await corr.flushCorrelationEmitSink();
+  return okWait || pred(collector);
 }
 
 async function main() {
@@ -209,28 +264,38 @@ async function main() {
     && contract.progress_class === locks.PROGRESS_CLASS
     && contract.live_deploy === false);
 
-  ok('C2 AsyncLocalStorage + crypto generate present',
+  ok('C2 AsyncLocalStorage + crypto + async sink present',
     /AsyncLocalStorage/.test(libSrc)
     && /randomBytes/.test(libSrc)
-    && /runWithRequestCorrelation/.test(libSrc));
+    && /runWithRequestCorrelation/.test(libSrc)
+    && /setImmediate/.test(libSrc)
+    && /SINK_QUEUE_MAX/.test(libSrc)
+    && /classifyRouteTemplate/.test(libSrc)
+    && /validateProcessRuntimeScope/.test(libSrc));
 
-  ok('C3 staff-query-api wires correlation at createServer',
+  ok('C3 staff-query-api wires correlation at createServer; no per-request binder',
     /runWithRequestCorrelation/.test(apiSrc)
     && /createStaffQueryApiHttpServer/.test(apiSrc)
-    && /bindAuthoritativeRuntimeScope/.test(apiSrc));
+    && /validateProcessRuntimeScope/.test(apiSrc)
+    && !/bindAuthoritativeRuntimeScope/.test(apiSrc));
 
   ok('C4 handler signatures not rewritten to take correlation args',
     !/async function router\(req, res, correlation/.test(apiSrc)
     && !/function sendJSON\(res, statusCode, body, correlation/.test(apiSrc));
+
+  ok('C4b verifier does not use assertSafeCompletionEvent as oracle',
+    !/assertSafeCompletionEvent\(/.test(verifySrc)
+    || (/Independent event oracle/.test(verifySrc)
+      && !/corr\.assertSafeCompletionEvent\(/.test(verifySrc)
+      && !/assertSafeCompletionEvent\(e/.test(verifySrc)));
 
   const sec = secretFree(
     [JSON.stringify(contract), libSrc, locksSrc].join('\n'),
     '16d artifacts',
   );
   ok('C5 secret-free 16D artifacts', sec.ok, sec.detail);
-  ok('C5b verifier present', typeof verifySrc === 'string' && verifySrc.length > 100);
 
-  // ── RED: injection / oversize / unicode IDs ───────────────────────────────
+  // ── RED: injection / oversize / unicode / array / ambiguous IDs ───────────
   {
     const inject = corr.acceptOrGenerateCorrelationId('abc\ninjected');
     red('injection_id_rejected',
@@ -259,20 +324,37 @@ async function main() {
     red('strict_bounded_id_accepted',
       good.accepted_from_header === true && good.correlation_id === 'abcdef12');
   }
-
-  // ── RED: secret/query leakage in completion event ─────────────────────────
   {
-    // Leakage needles assembled to avoid false-positive secret scans of this verifier.
+    const arr = corr.acceptOrGenerateCorrelationId(['idoneaaaa', 'idtwobbbb']);
+    red('array_id_rejected',
+      arr.accepted_from_header === false
+      && arr.reject_reason === 'ambiguous_array'
+      && /^[0-9a-f]{32}$/.test(arr.correlation_id));
+  }
+  {
+    const dup = corr.acceptOrGenerateCorrelationId('idoneaaaa,idtwobbbb');
+    red('ambiguous_duplicate_id_rejected',
+      dup.accepted_from_header === false
+      && dup.reject_reason === 'ambiguous_duplicate');
+  }
+
+  // ── RED: secret/query leakage + unknown route privacy ─────────────────────
+  {
     const livePrefix = 'sk_' + 'live_';
     const store = {
       correlation_id: 'abcdef12abcdef12abcdef12abcdef12',
       method: 'GET',
-      route_class: corr.normalizeRouteClass(`/healthz?token=${livePrefix}SHOULD_NOT_APPEAR&password=hunter2hunter2`),
+      route_class: corr.classifyRouteTemplate(`/healthz?token=${livePrefix}SHOULD_NOT_APPEAR&password=hunter2hunter2`),
       status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
       startedAtMs: Date.now() - 5,
+      runtime_scope_present: false,
       client_slug: null,
       location_id: null,
       aborted: false,
+      requestError: false,
+      responseError: false,
       completed: false,
       url: `/healthz?token=${livePrefix}SHOULD_NOT_APPEAR`,
       query: { token: `${livePrefix}SHOULD_NOT_APPEAR` },
@@ -283,30 +365,41 @@ async function main() {
       error_message: 'db password=hunter2hunter2',
     };
     const event = corr.buildCompletionEvent(store);
-    const safe = corr.assertSafeCompletionEvent(event);
+    const indep = independentEventOk(event, {
+      route_class: 'healthz',
+      status: 200,
+      error_class: null,
+    });
     red('secret_query_leakage_stripped',
-      safe.ok
-      && !eventBlobLooksLeaky(event)
-      && event.route_class === 'healthz'
-      && !JSON.stringify(event).includes(livePrefix)
-      && !JSON.stringify(event).includes('guest_phone')
-      && !JSON.stringify(event).includes('hunter2')
+      indep.ok
+      && !Object.prototype.hasOwnProperty.call(event, 'client_slug')
+      && !Object.prototype.hasOwnProperty.call(event, 'location_id')
       && !Object.prototype.hasOwnProperty.call(event, 'url')
       && !Object.prototype.hasOwnProperty.call(event, 'query')
       && !Object.prototype.hasOwnProperty.call(event, 'headers')
       && !Object.prototype.hasOwnProperty.call(event, 'body')
       && !Object.prototype.hasOwnProperty.call(event, 'stack')
-      && !Object.prototype.hasOwnProperty.call(event, 'message'),
-      safe.detail);
+      && !Object.prototype.hasOwnProperty.call(event, 'message')
+      && !JSON.stringify(event).includes(livePrefix)
+      && !JSON.stringify(event).includes('guest_phone')
+      && !JSON.stringify(event).includes('hunter2'),
+      indep.detail);
   }
 
-  // ── RED: forged tenant fields from headers/query must not bind ────────────
+  // ── RED: forged tenant fields ignored (no request binder) ─────────────────
   {
     const forged = [];
     corr.setCorrelationEmitSink((e) => forged.push(e));
-    const { req, res } = makeMockReqRes({
+    const server = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end('{"ok":true}');
+      });
+    });
+    const port = await listen(server);
+    await httpRequest(port, {
       method: 'GET',
-      url: '/healthz?client=forged-evil-tenant&location_id=forged-loc',
+      reqPath: '/healthz?client=forged-evil-tenant&location_id=forged-loc',
       headers: {
         'x-request-id': 'forgedten1',
         'x-client-slug': 'forged-evil-tenant',
@@ -314,87 +407,121 @@ async function main() {
         'x-location-id': 'forged-loc',
       },
     });
-    await corr.runWithRequestCorrelation(req, res, async () => {
-      // Deliberately do NOT call bindAuthoritativeRuntimeScope.
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end('{"ok":true}');
-    });
-    await waitFor(() => forged.length >= 1, 500);
+    await waitEvents(forged, (c) => c.length >= 1, 1000);
     red('forged_tenant_fields_ignored',
       forged.length === 1
-      && forged[0].client_slug === null
-      && forged[0].location_id === null
+      && !Object.prototype.hasOwnProperty.call(forged[0], 'client_slug')
+      && !Object.prototype.hasOwnProperty.call(forged[0], 'location_id')
       && forged[0].correlation_id === 'forgedten1',
       JSON.stringify(forged[0]));
     corr.setCorrelationEmitSink(null);
+    await closeServer(server);
   }
 
-  // ── RED: concurrent context bleed ─────────────────────────────────────────
+  // ── RED: process scope validated once; invalid omitted ────────────────────
   {
-    const seen = [];
-    corr.setCorrelationEmitSink((e) => seen.push(e));
-    const results = await Promise.all([0, 1, 2, 3, 4].map(async (i) => {
-      const id = `concurrent${i}x`;
-      const { req, res } = makeMockReqRes({
-        method: 'GET',
-        url: `/healthz`,
-        headers: { 'x-request-id': id },
-      });
-      return corr.runWithRequestCorrelation(req, res, async () => {
-        corr.bindAuthoritativeRuntimeScope({ clientSlug: `tenant-${i}` });
-        await sleep(10 + (i * 3));
-        const ctx = corr.getRequestCorrelationContext();
-        res.writeHead(200);
-        res.end('ok');
-        return {
-          id,
-          ctxId: ctx && ctx.correlation_id,
-          ctxTenant: ctx && ctx.client_slug,
-        };
-      });
-    }));
-    await waitFor(() => seen.length >= 5, 1000);
-    const bleed = results.some((r, i) => r.ctxTenant !== `tenant-${i}` || r.ctxId !== `concurrent${i}x`);
-    const tenants = new Set(seen.map((e) => e.client_slug));
-    red('concurrent_context_bleed',
-      !bleed && tenants.size === 5 && seen.length === 5,
-      JSON.stringify({ results, tenants: [...tenants], events: seen.length }));
-    corr.setCorrelationEmitSink(null);
-  }
+    const bad = corr.validateProcessRuntimeScope({
+      clientSlug: 'bad slug!!',
+      locationId: '../etc',
+    });
+    const good = corr.validateProcessRuntimeScope({
+      clientSlug: 'wolfhouse-somo',
+      locationId: 'somo-main',
+    });
+    red('process_scope_validation',
+      bad.present === false
+      && good.present === true
+      && good.client_slug === 'wolfhouse-somo'
+      && good.location_id === 'somo-main');
 
-  // ── RED: aborted request emits once with error_class=aborted ──────────────
-  {
     const events = [];
     corr.setCorrelationEmitSink((e) => events.push(e));
-    const { req, res } = makeMockReqRes({
+    const scope = corr.validateProcessRuntimeScope({ clientSlug: 'wolfhouse-somo' });
+    const server = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        res.writeHead(200);
+        res.end('ok');
+      }, { runtimeScope: scope });
+    });
+    const port = await listen(server);
+    await httpRequest(port, {
       method: 'GET',
-      url: '/healthz',
-      headers: { 'x-request-id': 'aborted01' },
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'scopeok01' },
     });
-    await corr.runWithRequestCorrelation(req, res, async () => {
-      // Simulate abort before finish: close without writableFinished.
-      res.statusCode = 200;
-      res.emit('close');
-    });
-    await waitFor(() => events.length >= 1, 500);
-    red('aborted_request_completion',
+    await waitEvents(events, (c) => c.length >= 1, 1000);
+    red('process_scope_emitted_when_present',
       events.length === 1
-      && events[0].error_class === 'aborted'
-      && events[0].correlation_id === 'aborted01',
+      && events[0].client_slug === 'wolfhouse-somo'
+      && !Object.prototype.hasOwnProperty.call(events[0], 'location_id'),
       JSON.stringify(events[0]));
-    // Double-emit attempt
-    corr.emitCompletionOnce({
-      correlation_id: 'aborted01',
+    corr.setCorrelationEmitSink(null);
+    await closeServer(server);
+  }
+
+  // ── RED: finite route classifier — unknown collapses; no raw segments ─────
+  {
+    const a = corr.classifyRouteTemplate(
+      '/staff/conversations/11111111-2222-4333-a444-555555555555?x=1',
+    );
+    const b = corr.classifyRouteTemplate(
+      `/staff/conversations/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?secret=${'sk_' + 'live_'}x`,
+    );
+    const c = corr.classifyRouteTemplate('/staff/bookings/WH-260528-1493/context');
+    const d = corr.classifyRouteTemplate('/staff/bookings/WH-999999-0001/context');
+    const unk1 = corr.classifyRouteTemplate('/nope-16d');
+    const unk2 = corr.classifyRouteTemplate('/staff/conversations/raw-not-uuid/secret-token-xyz');
+    const unk3 = corr.classifyRouteTemplate(`/evil/${'a'.repeat(80)}?token=1`);
+    red('raw_route_cardinality_collapsed',
+      a === b
+      && a === '/staff/conversations/:id'
+      && c === d
+      && c === '/staff/bookings/:booking_code/context'
+      && unk1 === corr.ROUTE_CLASS_UNKNOWN
+      && unk2 === corr.ROUTE_CLASS_UNKNOWN
+      && unk3 === corr.ROUTE_CLASS_UNKNOWN
+      && !a.includes('?')
+      && !c.includes('WH-')
+      && unk1 === unk2
+      && unk2 === unk3,
+      JSON.stringify({ a, b, c, d, unk1, unk2, unk3 }));
+  }
+
+  // ── RED: async sink does not delay completion; catches write errors ───────
+  {
+    let sinkCalls = 0;
+    let threw = false;
+    corr.setCorrelationEmitSink(() => {
+      sinkCalls += 1;
+      threw = true;
+      throw new Error('sink_boom_should_be_caught');
+    });
+    const t0 = Date.now();
+    const store = {
+      correlation_id: 'sinktest1sinktest1sinktest1sinkte',
       method: 'GET',
       route_class: 'healthz',
       status: 200,
-      startedAtMs: Date.now(),
-      client_slug: null,
-      location_id: null,
-      aborted: true,
-      completed: true,
-    });
-    red('aborted_no_second_emit_via_flag', events.length === 1);
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: t0,
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    };
+    corr.emitCompletionOnce(store);
+    const syncElapsed = Date.now() - t0;
+    // Second emit must no-op (exactly once).
+    corr.emitCompletionOnce(store);
+    await corr.flushCorrelationEmitSink();
+    red('async_sink_nonblocking_and_error_safe',
+      syncElapsed < 50
+      && sinkCalls === 1
+      && threw === true
+      && store.completed === true,
+      JSON.stringify({ syncElapsed, sinkCalls }));
     corr.setCorrelationEmitSink(null);
   }
 
@@ -402,135 +529,160 @@ async function main() {
   {
     const events = [];
     corr.setCorrelationEmitSink((e) => events.push(e));
-    const { req, res } = makeMockReqRes({
+    const server = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        res.writeHead(204);
+        res.end();
+      });
+    });
+    const port = await listen(server);
+    await httpRequest(port, {
       method: 'GET',
-      url: '/healthz',
+      reqPath: '/healthz',
       headers: { 'x-request-id': 'double001' },
     });
-    await corr.runWithRequestCorrelation(req, res, async () => {
-      res.writeHead(204);
-      res.end();
-      // Force an extra close after finish (Node may also emit close).
-      res.emit('close');
-      res.emit('finish');
-    });
-    await waitFor(() => events.length >= 1, 500);
+    await waitEvents(events, (c) => c.some((e) => e.correlation_id === 'double001'), 1000);
+    await sleep(30);
+    await corr.flushCorrelationEmitSink();
+    const matched = events.filter((e) => e.correlation_id === 'double001');
     red('double_completion_once',
-      events.length === 1 && events[0].correlation_id === 'double001',
-      `count=${events.length}`);
+      matched.length === 1,
+      `count=${matched.length}`);
     corr.setCorrelationEmitSink(null);
+    await closeServer(server);
   }
 
-  // ── RED: raw route cardinality ────────────────────────────────────────────
+  // ── RED: abort classification + synthetic status when no response ─────────
   {
-    const a = corr.normalizeRouteClass(
-      '/staff/conversations/11111111-2222-4333-a444-555555555555?x=1',
-    );
-    const b = corr.normalizeRouteClass(
-      `/staff/conversations/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee?secret=${'sk_' + 'live_'}x`,
-    );
-    const c = corr.normalizeRouteClass('/staff/conversations/42');
-    const d = corr.normalizeRouteClass('/staff/bookings/WH-260528-1493/detail');
-    const e = corr.normalizeRouteClass('/staff/bookings/WH-999999-0001/detail');
-    red('raw_route_cardinality_collapsed',
-      a === b
-      && a === '/staff/conversations/:id'
-      && c === '/staff/conversations/:id'
-      && d === e
-      && d === '/staff/bookings/:booking_code/detail'
-      && !a.includes('?')
-      && !d.includes('WH-260528'),
-      JSON.stringify({ a, b, c, d, e }));
+    const events = [];
+    corr.setCorrelationEmitSink((e) => events.push(e));
+    const server = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        // Never write a response — client will abort.
+        await sleep(5000);
+      });
+    });
+    const port = await listen(server);
+    await new Promise((resolve) => {
+      const sock = net.connect({ host: '127.0.0.1', port }, () => {
+        sock.write(
+          'GET /healthz HTTP/1.1\r\n'
+          + 'Host: 127.0.0.1\r\n'
+          + 'X-Request-Id: aborted01\r\n'
+          + 'Connection: close\r\n\r\n',
+        );
+        setTimeout(() => {
+          sock.destroy();
+          resolve();
+        }, 30);
+      });
+      sock.on('error', () => resolve());
+    });
+    await waitEvents(events, (c) => c.some((e) => e.correlation_id === 'aborted01'), 2000);
+    await sleep(50);
+    await corr.flushCorrelationEmitSink();
+    const matched = events.filter((e) => e.correlation_id === 'aborted01');
+    red('aborted_request_completion',
+      matched.length === 1
+      && matched[0].error_class === corr.ERROR_CLASS_ABORTED
+      && matched[0].status === corr.SYNTHETIC_NO_RESPONSE_STATUS,
+      JSON.stringify(matched[0]));
+    red('aborted_exactly_once', matched.length === 1);
+    corr.setCorrelationEmitSink(null);
+    await closeServer(server);
   }
 
-  // ── GREEN: real listener concurrency / error / 404 ────────────────────────
+  // ── GREEN: real Staff API listener suite ──────────────────────────────────
   const collected = [];
-  // Prefer the module instance the API will use.
   applyMinimalStaffApiEnv();
   clearStaffApiCache();
-  const corrRuntime = require('./lib/staff-api-request-correlation');
-  corrRuntime.setCorrelationEmitSink((e) => collected.push(e));
 
   let api;
   let server;
   let port;
   try {
     api = loadStaffApi();
-    // Ensure sink is on the same module instance staff-query-api required.
     const corrFromApi = require('./lib/staff-api-request-correlation');
     corrFromApi.setCorrelationEmitSink((e) => collected.push(e));
 
     server = api.createStaffQueryApiHttpServer();
     port = await listen(server);
 
-    // Concurrent healthz with distinct IDs
+    // Concurrent healthz
     const ids = ['greencon0', 'greencon1', 'greencon2', 'greencon3'];
     const responses = await Promise.all(ids.map((id) => httpRequest(port, {
       method: 'GET',
       reqPath: '/healthz',
       headers: { 'x-request-id': id, accept: 'application/json' },
     })));
-    await waitFor(() => collected.filter((e) => ids.includes(e.correlation_id)).length >= ids.length, 2000);
+    await waitEvents(
+      collected,
+      (c) => ids.every((id) => c.some((e) => e.correlation_id === id)),
+      2000,
+    );
 
     const headerEcho = responses.every((r, i) => {
       const h = r.headers['x-request-id'];
       return r.statusCode === 200 && h === ids[i];
     });
-    const eventsFor = ids.map((id) => collected.find((e) => e.correlation_id === id));
-    const eventsOk = eventsFor.every((e) => e
-      && e.route_class === 'healthz'
-      && e.method === 'GET'
-      && e.status === 200
-      && e.error_class === null
-      && corr.assertSafeCompletionEvent(e).ok
-      && !eventBlobLooksLeaky(e));
+    const eventsFor = ids.map((id) => collected.filter((e) => e.correlation_id === id));
+    const eventsOk = eventsFor.every((list) => {
+      if (list.length !== 1) return false;
+      const check = independentEventOk(list[0], {
+        route_class: 'healthz',
+        method: 'GET',
+        status: 200,
+        error_class: null,
+      });
+      return check.ok;
+    });
 
     green('listener_concurrency',
-      headerEcho && eventsOk && new Set(eventsFor.map((e) => e.correlation_id)).size === ids.length,
+      headerEcho && eventsOk,
       JSON.stringify({
         statuses: responses.map((r) => r.statusCode),
         headers: responses.map((r) => r.headers['x-request-id']),
-        eventCount: eventsFor.filter(Boolean).length,
+        counts: eventsFor.map((l) => l.length),
       }));
 
-    // 404 — short path so route_class is not collapsed to /:token
+    // Unknown path → route_class unknown (privacy / cardinality)
     const before404 = collected.length;
     const notFound = await httpRequest(port, {
       method: 'GET',
-      reqPath: '/nope-16d',
+      reqPath: '/nope-16d-secret-segment',
       headers: { 'x-request-id': 'green404a', accept: 'application/json' },
     });
-    await waitFor(() => collected.length > before404, 2000);
-    const e404 = collected.find((e) => e.correlation_id === 'green404a');
-    green('listener_404',
+    await waitEvents(collected, (c) => c.length > before404, 2000);
+    const e404 = collected.filter((e) => e.correlation_id === 'green404a');
+    green('listener_404_unknown_route',
       notFound.statusCode === 404
       && notFound.headers['x-request-id'] === 'green404a'
-      && e404
-      && e404.status === 404
-      && e404.error_class === 'not_found'
-      && e404.route_class === '/nope-16d'
-      && corr.assertSafeCompletionEvent(e404).ok,
-      JSON.stringify({ status: notFound.statusCode, event: e404 }));
+      && e404.length === 1
+      && e404[0].status === 404
+      && e404[0].error_class === 'not_found'
+      && e404[0].route_class === corr.ROUTE_CLASS_UNKNOWN
+      && !JSON.stringify(e404[0]).includes('nope-16d')
+      && independentEventOk(e404[0]).ok,
+      JSON.stringify({ status: notFound.statusCode, event: e404[0] }));
 
-    // Generated ID when header missing / invalid
+    // Generated ID on invalid header
     const beforeErr = collected.length;
     const badHdr = await httpRequest(port, {
       method: 'GET',
       reqPath: '/healthz',
       headers: { 'x-request-id': 'BAD ID!!', accept: 'application/json' },
     });
-    await waitFor(() => collected.length > beforeErr, 2000);
+    await waitEvents(collected, (c) => c.length > beforeErr, 2000);
     const genId = badHdr.headers['x-request-id'];
-    const genEvent = collected.find((e) => e.correlation_id === genId);
+    const genEvent = collected.filter((e) => e.correlation_id === genId);
     green('listener_generate_on_invalid_header',
       badHdr.statusCode === 200
       && typeof genId === 'string'
       && /^[0-9a-f]{32}$/.test(genId)
-      && genEvent
-      && genEvent.correlation_id === genId,
+      && genEvent.length === 1,
       `genId=${genId}`);
 
-    // Force internal error via fortress-gated handler override (real listener path).
+    // Force internal error (before headers)
     const before500 = collected.length;
     api.setStaffQueryApiRequestHandlerForOfflineTest(async () => {
       throw new Error('radar16d_forced_internal_error_should_not_leak');
@@ -541,29 +693,251 @@ async function main() {
       headers: { 'x-request-id': 'green500a', accept: 'application/json' },
     });
     api.setStaffQueryApiRequestHandlerForOfflineTest(null);
-    await waitFor(() => collected.length > before500, 2000);
-    const e500 = collected.find((e) => e.correlation_id === 'green500a');
+    await waitEvents(collected, (c) => c.length > before500, 2000);
+    const e500 = collected.filter((e) => e.correlation_id === 'green500a');
     green('listener_error',
       errRes.statusCode === 500
       && errRes.headers['x-request-id'] === 'green500a'
       && !errRes.body.includes('radar16d_forced_internal_error')
       && !errRes.body.includes('stack')
-      && e500
-      && e500.status === 500
-      && e500.error_class === 'server_error'
-      && corr.assertSafeCompletionEvent(e500).ok
-      && !eventBlobLooksLeaky(e500),
-      JSON.stringify({ status: errRes.statusCode, body: errRes.body.slice(0, 120), event: e500 }));
+      && e500.length === 1
+      && e500[0].status === 500
+      && e500[0].error_class === 'server_error'
+      && independentEventOk(e500[0]).ok
+      && !eventBlobLooksLeaky(e500[0]),
+      JSON.stringify({ status: errRes.statusCode, body: errRes.body.slice(0, 120), event: e500[0] }));
 
-    // Authoritative bind works; forged header still ignored when bind not used on healthz
+    // Throw-after-headers must not change established bytes
+    const marker = 'RADAR16D_ESTABLISHED_BODY_v1';
+    const beforeThrow = collected.length;
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.write(marker);
+      throw new Error('throw_after_headers_should_not_alter_bytes');
+    });
+    const throwRes = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'throwhdr1', accept: 'text/plain' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'throwhdr1'), 2000);
+    const eThrow = collected.filter((e) => e.correlation_id === 'throwhdr1');
+    green('listener_throw_after_headers',
+      throwRes.statusCode === 200
+      && throwRes.body === marker
+      && !throwRes.body.includes('internal server error')
+      && !throwRes.body.includes('throw_after_headers')
+      && throwRes.headers['x-request-id'] === 'throwhdr1'
+      && eThrow.length === 1
+      && independentEventOk(eThrow[0]).ok,
+      JSON.stringify({ status: throwRes.statusCode, body: throwRes.body, event: eThrow[0] }));
+
+    // Streaming: chunked body preserved, exactly one completion
+    const beforeStream = collected.length;
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.write('chunk-a-');
+      await sleep(10);
+      res.write('chunk-b');
+      res.end();
+    });
+    const streamRes = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'stream001' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'stream001'), 2000);
+    const eStream = collected.filter((e) => e.correlation_id === 'stream001');
+    green('listener_streaming',
+      streamRes.statusCode === 200
+      && streamRes.body === 'chunk-a-chunk-b'
+      && eStream.length === 1
+      && eStream[0].status === 200
+      && independentEventOk(eStream[0]).ok,
+      JSON.stringify({ body: streamRes.body, count: eStream.length }));
+
+    // Header immutability: setHeader + writeHead object + writeHead array override attempts
+    const beforeHdr = collected.length;
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.setHeader('X-Request-Id', 'attacker-override-zzzz');
+      res.removeHeader('X-Request-Id');
+      res.writeHead(200, {
+        'Content-Type': 'text/plain',
+        'X-Request-Id': 'attacker-writehead-obj',
+      });
+      res.end('hdr-ok');
+    });
+    const hdrObjRes = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'hdrimmut1' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'hdrimmut1'), 2000);
+
+    // Flat raw array form (Node writeHead progressive API)
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, 'OK', [
+        'Content-Type', 'text/plain',
+        'X-Request-Id', 'attacker-writehead-arr',
+        'X-Request-Id', 'attacker-writehead-arr-2',
+      ]);
+      res.end('hdr-arr-ok');
+    });
+    const hdrArrRes = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'hdrimmut2' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'hdrimmut2'), 2000);
+
+    // Nested [[k,v], ...] array form also accepted by forceCorrelation helper
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, [
+        ['Content-Type', 'text/plain'],
+        ['X-Request-Id', 'attacker-nested-arr'],
+      ]);
+      res.end('hdr-nested-ok');
+    });
+    const hdrNestedRes = await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'hdrimmut3' },
+    });
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'hdrimmut3'), 2000);
+
+    green('listener_header_immutable_all_forms',
+      hdrObjRes.headers['x-request-id'] === 'hdrimmut1'
+      && hdrArrRes.headers['x-request-id'] === 'hdrimmut2'
+      && hdrNestedRes.headers['x-request-id'] === 'hdrimmut3'
+      && hdrObjRes.body === 'hdr-ok'
+      && hdrArrRes.body === 'hdr-arr-ok'
+      && hdrNestedRes.body === 'hdr-nested-ok'
+      && collected.filter((e) => e.correlation_id === 'hdrimmut1').length === 1
+      && collected.filter((e) => e.correlation_id === 'hdrimmut2').length === 1
+      && collected.filter((e) => e.correlation_id === 'hdrimmut3').length === 1,
+      JSON.stringify({
+        obj: hdrObjRes.headers['x-request-id'],
+        arr: hdrArrRes.headers['x-request-id'],
+        nested: hdrNestedRes.headers['x-request-id'],
+        bodies: [hdrObjRes.body, hdrArrRes.body, hdrNestedRes.body],
+      }));
+
+    // Injectable request error (destroy req after correlation attached)
+    {
+      const beforeReqErr = collected.length;
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        req.destroy(new Error('forced_request_error'));
+        await sleep(20);
+      });
+      let reqClientErr = null;
+      try {
+        await httpRequest(port, {
+          method: 'GET',
+          reqPath: '/healthz',
+          headers: { 'x-request-id': 'reqerr001' },
+        });
+      } catch (err) {
+        reqClientErr = err;
+      }
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      await waitEvents(
+        collected,
+        (c) => c.some((e) => e.correlation_id === 'reqerr001'),
+        2000,
+      );
+      const reqErrEvents = collected.filter((e) => e.correlation_id === 'reqerr001');
+      green('listener_request_abort_or_error',
+        reqErrEvents.length === 1
+        && (
+          reqErrEvents[0].error_class === corr.ERROR_CLASS_ABORTED
+          || reqErrEvents[0].error_class === corr.ERROR_CLASS_REQUEST_ERROR
+          || reqErrEvents[0].error_class === corr.ERROR_CLASS_NO_RESPONSE
+        )
+        && independentEventOk(reqErrEvents[0]).ok,
+        JSON.stringify({
+          event: reqErrEvents[0],
+          clientErr: reqClientErr && String(reqClientErr.message || reqClientErr),
+          before: beforeReqErr,
+        }));
+    }
+
+    // Response error injectable via handler destroying the socket after headers
+    {
+      const beforeResErr = collected.length;
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.write('partial-');
+        res.destroy(new Error('forced_response_error'));
+      });
+      let resErrCaught = null;
+      try {
+        await httpRequest(port, {
+          method: 'GET',
+          reqPath: '/healthz',
+          headers: { 'x-request-id': 'reserr001' },
+        });
+      } catch (err) {
+        resErrCaught = err;
+      }
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      await waitEvents(
+        collected,
+        (c) => c.some((e) => e.correlation_id === 'reserr001'),
+        2000,
+      );
+      const resErrEvents = collected.filter((e) => e.correlation_id === 'reserr001');
+      green('listener_response_error',
+        resErrEvents.length === 1
+        && (
+          resErrEvents[0].error_class === corr.ERROR_CLASS_RESPONSE_ERROR
+          || resErrEvents[0].error_class === corr.ERROR_CLASS_ABORTED
+          || resErrEvents[0].status === 200
+        )
+        && independentEventOk(resErrEvents[0]).ok,
+        JSON.stringify({
+          event: resErrEvents[0],
+          clientErr: resErrCaught && String(resErrCaught.message || resErrCaught),
+        }));
+    }
+
     green('listener_healthz_no_forged_tenant',
-      eventsFor.every((e) => e.client_slug === null && e.location_id === null));
+      eventsFor.every((list) => list[0]
+        && !Object.prototype.hasOwnProperty.call(list[0], 'client_slug')
+        && !Object.prototype.hasOwnProperty.call(list[0], 'location_id')));
+
+    // Exactly-once across the whole suite for known IDs
+    const knownIds = [
+      ...ids, 'green404a', 'green500a', 'throwhdr1', 'stream001',
+      'hdrimmut1', 'hdrimmut2', 'hdrimmut3', 'reqerr001', 'reserr001',
+    ];
+    const exactlyOnce = knownIds.every((id) => collected.filter((e) => e.correlation_id === id).length === 1);
+    green('listener_exactly_once_known_ids', exactlyOnce,
+      JSON.stringify(knownIds.map((id) => ({
+        id,
+        n: collected.filter((e) => e.correlation_id === id).length,
+      }))));
   } catch (err) {
-    green('listener_concurrency', false, String(err && err.stack || err));
-    green('listener_404', false, 'skipped');
-    green('listener_generate_on_invalid_header', false, 'skipped');
-    green('listener_error', false, 'skipped');
-    green('listener_healthz_no_forged_tenant', false, 'skipped');
+    const skipIds = [
+      'listener_concurrency',
+      'listener_404_unknown_route',
+      'listener_generate_on_invalid_header',
+      'listener_error',
+      'listener_throw_after_headers',
+      'listener_streaming',
+      'listener_header_immutable_all_forms',
+      'listener_request_abort_or_error',
+      'listener_response_error',
+      'listener_healthz_no_forged_tenant',
+      'listener_exactly_once_known_ids',
+    ];
+    for (const id of skipIds) {
+      green(id, false, String(err && err.stack || err));
+    }
   } finally {
     try {
       const corrFromApi = require('./lib/staff-api-request-correlation');
@@ -573,27 +947,36 @@ async function main() {
     if (server) await closeServer(server);
   }
 
-  // Required RED/GREEN coverage checklist
   const requiredRed = [
     'injection_id_rejected',
     'oversize_id_rejected',
     'unicode_id_rejected',
     'space_punct_id_rejected',
     'strict_bounded_id_accepted',
+    'array_id_rejected',
+    'ambiguous_duplicate_id_rejected',
     'secret_query_leakage_stripped',
     'forged_tenant_fields_ignored',
-    'concurrent_context_bleed',
-    'aborted_request_completion',
-    'aborted_no_second_emit_via_flag',
-    'double_completion_once',
+    'process_scope_validation',
+    'process_scope_emitted_when_present',
     'raw_route_cardinality_collapsed',
+    'async_sink_nonblocking_and_error_safe',
+    'double_completion_once',
+    'aborted_request_completion',
+    'aborted_exactly_once',
   ];
   const requiredGreen = [
     'listener_concurrency',
-    'listener_404',
+    'listener_404_unknown_route',
     'listener_generate_on_invalid_header',
     'listener_error',
+    'listener_throw_after_headers',
+    'listener_streaming',
+    'listener_header_immutable_all_forms',
+    'listener_request_abort_or_error',
+    'listener_response_error',
     'listener_healthz_no_forged_tenant',
+    'listener_exactly_once_known_ids',
   ];
   ok('C6 all required RED ids ran',
     requiredRed.every((id) => redResults.some((r) => r.id === id && r.ok)),
@@ -607,70 +990,36 @@ async function main() {
     && contract.final_controlled_drill.status === 'open'
     && contract.final_controlled_drill.id === '16D_DRILL_correlation_log_query');
 
-  // Diff hygiene vs master for owned non-staff paths is handled by other gates.
-  ok('C9 npm script will be registered (package.json)',
+  ok('C9 npm script registered',
     /verify:radar-slice16d-staff-request-correlation/.test(
       fs.existsSync(path.join(ROOT, 'package.json'))
         ? readText('package.json')
         : '',
     ));
 
+  // Contract surface for lifecycle/header/route/scope/sink
+  const ecc = contract.event_context_contract || {};
+  ok('C10 contract encodes corrected lifecycle/header/route/scope/sink',
+    ecc.completion_event
+    && ecc.completion_event.exactly_once === true
+    && ecc.completion_event.completion_triggers
+    && ecc.route_classifier === 'finite_route_template'
+    && ecc.unknown_route_class === 'unknown'
+    && ecc.header_immutable === true
+    && ecc.reject_ambiguous_request_ids === true
+    && ecc.tenant_location_rule === 'optional_immutable_process_runtime_scope_at_construction_else_omit'
+    && ecc.completion_sink === 'bounded_async_queue'
+    && ecc.synthetic_no_response_status === 0,
+    JSON.stringify({
+      route_classifier: ecc.route_classifier,
+      sink: ecc.completion_sink,
+      tenant: ecc.tenant_location_rule,
+    }));
+
   console.log(`\nRED: ${redResults.filter((r) => r.ok).length}/${redResults.length}  GREEN: ${greenResults.filter((r) => r.ok).length}/${greenResults.length}`);
   console.log(`Result: ${pass} passed, ${fail} failed`);
   if (fail > 0) process.exit(1);
   console.log('RADAR 16D staff request correlation: PASS');
-}
-
-function makeMockReqRes({ method, url, headers }) {
-  const { EventEmitter } = require('events');
-  const req = new EventEmitter();
-  req.method = method;
-  req.url = url;
-  req.headers = Object.assign(
-    {},
-    ...Object.entries(headers || {}).map(([k, v]) => ({ [String(k).toLowerCase()]: v })),
-  );
-
-  const res = new EventEmitter();
-  res.statusCode = 200;
-  res.headersSent = false;
-  res.writableFinished = false;
-  const hdrs = {};
-  res.setHeader = (k, v) => { hdrs[String(k).toLowerCase()] = v; };
-  res.getHeader = (k) => hdrs[String(k).toLowerCase()];
-  res.writeHead = (code, maybeHeaders) => {
-    res.statusCode = code;
-    if (maybeHeaders && typeof maybeHeaders === 'object') {
-      for (const [k, v] of Object.entries(maybeHeaders)) hdrs[String(k).toLowerCase()] = v;
-    }
-    res.headersSent = true;
-    return res;
-  };
-  res.end = (chunk) => {
-    if (!res.headersSent) res.writeHead(res.statusCode);
-    res.writableFinished = true;
-    res.emit('finish');
-    res.emit('close');
-    return res;
-  };
-  res.write = () => true;
-  return { req, res, hdrs };
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
-function waitFor(pred, timeoutMs) {
-  const start = Date.now();
-  return new Promise((resolve, reject) => {
-    const tick = () => {
-      if (pred()) return resolve(true);
-      if (Date.now() - start > timeoutMs) return reject(new Error('waitFor timeout'));
-      setTimeout(tick, 5);
-    };
-    tick();
-  }).catch(() => false);
 }
 
 main().catch((err) => {

@@ -15,13 +15,28 @@
       "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$",
       "min_len": 8,
       "max_len": 128,
-      "on_reject": "generate_cryptographically_random_hex_32"
+      "on_reject": "generate_cryptographically_random_hex_32",
+      "reject_array_duplicate_ambiguous": true
     },
+    "header_immutable": true,
+    "reject_ambiguous_request_ids": true,
     "propagation": "AsyncLocalStorage",
     "handler_signatures_unchanged": true,
+    "route_classifier": "finite_route_template",
+    "unknown_route_class": "unknown",
+    "synthetic_no_response_status": 0,
+    "completion_sink": "bounded_async_queue",
+    "tenant_location_rule": "optional_immutable_process_runtime_scope_at_construction_else_omit",
     "completion_event": {
       "event": "staff_api_http_request_complete",
       "exactly_once": true,
+      "completion_triggers": [
+        "finish",
+        "close",
+        "request_abort",
+        "request_error",
+        "response_error"
+      ],
       "fields": [
         "event",
         "correlation_id",
@@ -33,7 +48,11 @@
         "location_id",
         "error_class"
       ],
-      "tenant_location_rule": "only_when_bound_from_already_authoritative_runtime",
+      "client_slug_location_id": "omit_unless_process_runtime_scope_present",
+      "error_class_rules": {
+        "aborted_preserved": true,
+        "when_no_response_completed": "synthetic_status_0_plus_bounded_error_class"
+      },
       "must_not_include": [
         "raw_url",
         "query",
@@ -49,7 +68,8 @@
     "preserves": [
       "existing_response_bodies",
       "existing_error_behavior",
-      "streaming_no_body_buffer"
+      "streaming_no_body_buffer",
+      "throw_after_headers_no_byte_change"
     ]
   },
   "still_open": [

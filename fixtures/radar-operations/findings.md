@@ -29,7 +29,7 @@
 
 ## Slice 16D
 
-`16D_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Strict `X-Request-Id`, ALS propagation, one safe completion event. Does not claim live log-query proof.
+`16D_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Strict singleton `X-Request-Id` (reject ambiguous), immutable echo, ALS, finite route-template classifier, exactly-one completion via bounded async sink, optional construction-time process scope only. Does not claim live log-query proof.
 
 ## Zero-mutation (this slice)
 

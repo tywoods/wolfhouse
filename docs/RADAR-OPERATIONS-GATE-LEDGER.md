@@ -8,40 +8,46 @@
 
 ## Outcome
 
-Establish **safe request correlation at the Staff API HTTP boundary** (source only). For every request: accept only a strict bounded `X-Request-Id` or generate a cryptographically random ID; return it on the response; propagate via AsyncLocalStorage without changing handler signatures; emit exactly one structured completion event. **Do not deploy.** G01 remains `partial` — deployment and log-query proof stay open.
+Establish **safe request correlation at the Staff API HTTP boundary** (source only). For every request: accept only a strict bounded singleton `X-Request-Id` or generate a cryptographically random ID (reject array/duplicate/ambiguous); return it immutably on the response; propagate via AsyncLocalStorage without changing handler signatures; emit exactly one structured completion event on finish/close/request-abort/request-error/response-error via a bounded async sink. **Do not deploy.** G01 remains `partial` — deployment and log-query proof stay open.
 
 ## Artifacts
 
 | Path | Role |
 |------|------|
-| `scripts/lib/staff-api-request-correlation.js` | ID accept/generate, ALS, route class, completion event |
-| `scripts/staff-query-api.js` | HTTP boundary wire + authoritative tenant bind |
+| `scripts/lib/staff-api-request-correlation.js` | ID accept/generate, ALS, finite route templates, async sink, completion event |
+| `scripts/staff-query-api.js` | HTTP boundary wire + optional construction-time process scope |
 | `scripts/lib/radar-slice16d-staff-request-correlation.js` | Locks |
-| `scripts/verify-radar-slice16d-staff-request-correlation.js` | RED/GREEN offline verifier |
+| `scripts/verify-radar-slice16d-staff-request-correlation.js` | RED/GREEN offline verifier (independent oracle) |
 | `fixtures/radar-operations/slice16d-expected-contract.json` | Event/context contract |
 | `npm run verify:radar-slice16d-staff-request-correlation` | Gate |
 
 ## Event / context contract
 
-**Header:** `X-Request-Id` — accept `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$` (8–128 ASCII) else generate 32-char hex.
+**Header:** `X-Request-Id` — accept `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$` (8–128 ASCII) else generate 32-char hex. Array/duplicate/ambiguous rejected. Immutable across `setHeader` and every `writeHead` form (including raw arrays).
 
 **Propagation:** `AsyncLocalStorage` (no handler signature changes).
 
-**Completion event** (`staff_api_http_request_complete`), exactly once:
+**Route class:** finite route-template classifier; unknown → `unknown` (never emit unmatched raw path segments).
+
+**Scope:** optional immutable process/runtime scope validated once at server construction; otherwise omit `client_slug` / `location_id`. No per-request tenant binder.
+
+**Completion sink:** bounded async queue (cannot delay response completion; catches serialization/write errors).
+
+**Completion event** (`staff_api_http_request_complete`), exactly once on finish/close/request-abort/request-error/response-error:
 
 | Field | Rule |
 |-------|------|
 | `correlation_id` | Accepted or generated ID |
 | `method` | HTTP method |
-| `route_class` | Normalized low-cardinality path (IDs collapsed) |
-| `status` | HTTP status |
+| `route_class` | Finite template or `unknown` |
+| `status` | HTTP status, or synthetic `0` when no response completed |
 | `duration_ms` | Elapsed |
-| `client_slug` / `location_id` | Only when bound from already-authoritative runtime |
-| `error_class` | Status/abort class — never message/stack |
+| `client_slug` / `location_id` | Only when process scope present; else omitted |
+| `error_class` | Abort preserved; bounded class for request/response/no-response; never message/stack |
 
 **Must not include:** raw URL/query/body/headers, guest data, credentials, tokens, stack, error message.
 
-Preserves existing response/error bodies and streaming (no body buffering).
+Preserves existing response/error bodies, streaming (no body buffering), and throw-after-headers (no established byte change).
 
 ## Verdict counts
 
@@ -86,7 +92,7 @@ Preserves existing response/error bodies and streaming (no body buffering).
 
 ### Final controlled drill (remaining)
 
-`16D_DRILL_correlation_log_query` — after approved deploy: known `X-Request-Id` traffic; prove one completion event per request in LAW/App Insights with `route_class` (not raw URL) and no secret/guest leakage; prove concurrent requests do not bleed context.
+`16D_DRILL_correlation_log_query` — after approved deploy: known `X-Request-Id` traffic; prove one completion event per request in LAW/App Insights with route_class (not raw URL) and no secret/guest leakage; prove concurrent requests do not bleed context.
 
 ## Gates
 

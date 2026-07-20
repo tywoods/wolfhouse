@@ -75,7 +75,7 @@ const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
 
 const {
   runWithRequestCorrelation,
-  bindAuthoritativeRuntimeScope,
+  validateProcessRuntimeScope,
   getRequestCorrelationContext,
   CORRELATION_HEADER_CANON,
 } = require('./lib/staff-api-request-correlation');
@@ -1203,8 +1203,6 @@ async function requireAuth(req, res, minRole) {
     return { ok: false };
   }
 
-  // RADAR 16D — bind only already-authoritative session tenant (never from headers/query).
-  bindAuthoritativeRuntimeScope({ clientSlug: user.client_slug });
   return { ok: true, user: { ...user, role: resolveStaffRole(user) } };
 }
 
@@ -1293,8 +1291,6 @@ async function requireBotAuth(req, res) {
           });
           return { ok: false };
         }
-        // RADAR 16D — authoritative bot principal tenant only.
-        bindAuthoritativeRuntimeScope({ clientSlug: principal.user.client_slug });
         return { ok: true, user: principal.user, auth_mode: 'bot_token' };
       }
       // Token provided but wrong → 401 immediately (do not fall through to session)
@@ -1324,8 +1320,6 @@ async function requireBotAuth(req, res) {
     return { ok: false };
   }
 
-  // RADAR 16D — authoritative session tenant only.
-  bindAuthoritativeRuntimeScope({ clientSlug: user.client_slug });
   return { ok: true, user, auth_mode: 'session' };
 }
 
@@ -46661,8 +46655,14 @@ function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
   __staffQueryApiRequestHandlerOverride = typeof handler === 'function' ? handler : null;
 }
 
-function createStaffQueryApiHttpServer() {
+/**
+ * @param {{ runtimeScope?: { clientSlug?: unknown, locationId?: unknown, client_slug?: unknown, location_id?: unknown } }} [options]
+ *   Optional immutable process/runtime scope validated once at construction.
+ *   Per-request tenant/location binding is intentionally not supported.
+ */
+function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
+  const runtimeScope = validateProcessRuntimeScope(options && options.runtimeScope);
   // RADAR 16D — correlate every request at the HTTP boundary (ALS; no handler signature change).
   return http.createServer((req, res) => {
     runWithRequestCorrelation(req, res, async () => {
@@ -46670,12 +46670,17 @@ function createStaffQueryApiHttpServer() {
         const handler = __staffQueryApiRequestHandlerOverride || router;
         await handler(req, res);
       } catch (err) {
-        // Do not expose stack trace to client
+        // Do not expose stack trace to client.
+        // Throw-after-headers: terminate safely without changing established response bytes.
         if (!res.headersSent) {
           sendJSON(res, 500, { success: false, error: 'internal server error' });
+        } else {
+          try {
+            if (!res.writableEnded) res.end();
+          } catch (_) { /* ignore */ }
         }
       }
-    });
+    }, { runtimeScope });
   });
 }
 
@@ -46789,9 +46794,9 @@ if (fortressOfflineListenerSeamsActive()) {
     setStaffQueryApiRequestHandlerForOfflineTest,
     router,
     server,
-    bindAuthoritativeRuntimeScope,
     getRequestCorrelationContext,
     CORRELATION_HEADER_CANON,
+    validateProcessRuntimeScope,
     COOKIE_NAME,
     PAYMENT_STRIPE_LINK_RE,
     BOT_PAYMENT_STRIPE_LINK_RE,
