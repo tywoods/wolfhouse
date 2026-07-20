@@ -1,0 +1,122 @@
+{
+  "schema_version": 1,
+  "slice": "RADAR-16L",
+  "outcome_id": "16L_staff_api_capacity_pressure_alerts",
+  "gate_id": "G06_scaling_capacity",
+  "progress_class": "source_partial_progress_only",
+  "does_not_implement": "live_deploy_alert_fire_autoscaling_load_backpressure_slo",
+  "master_basis": "c01e08d3b0039840ced37ae5a8e04fdd2384aba2",
+  "branch": "radar/slice-16l-capacity-pressure-alerts",
+  "title": "Staff API capacity-pressure metric alerts (CPU/Memory Average >80) — G06 source-partial",
+  "subscriptionId": "6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9",
+  "resourceGroups": ["wh-staging-rg", "luna-sunset-staging-rg"],
+  "metricNamespace": "Microsoft.App/containerApps",
+  "windowSize": "PT15M",
+  "evaluationFrequency": "PT5M",
+  "severity": 2,
+  "timeAggregation": "Average",
+  "operator": "GreaterThan",
+  "threshold": 80,
+  "criterionType": "StaticThresholdCriterion",
+  "alertsEnabled": true,
+  "alertCriteriaODataType": "Microsoft.Azure.Monitor.SingleResourceMultipleMetricCriteria",
+  "opsActionGroupParam": "opsActionGroupResourceId",
+  "referencedActionGroupSource": "RADAR-16B",
+  "liveDeployEnabled": false,
+  "execution_claim": false,
+  "zero_live_mutation": true,
+  "still_open": [
+    "Live deploy of capacity-pressure alerts to Wolfhouse + Sunset staging",
+    "Actual alert firing / notification delivery",
+    "Sustained load / soak proof",
+    "Response-time / capacity SLO",
+    "Backpressure behavior proof",
+    "Autoscaling rules"
+  ],
+  "final_controlled_drill": {
+    "id": "16L_DRILL_capacity_pressure_alert_fire",
+    "status": "open",
+    "pass_rule": "After approved Incremental deploy: both tenants have CpuPercentage and MemoryPercentage Average >80 alerts enabled (PT15M/PT5M severity 2) scoped to Staff API and wired to owned 16B ops AG; fire/delivery proven without claiming load/SLO/backpressure"
+  },
+  "protected_paths_unchanged": [
+    "staffApi scale minReplicas/maxReplicas",
+    "ingress/traffic",
+    "STAFF_AUTH_* env",
+    "PostgreSQL flexible server resources",
+    "infra/azure/staging-staff-api-metric-alerts (16H)"
+  ],
+  "apps": [
+    {
+      "tenantSlug": "wolfhouse",
+      "resourceGroup": "wh-staging-rg",
+      "bicepRel": "infra/azure/staging/main.bicep",
+      "opsActionGroupName": "wh-staging-ops-budget-ag",
+      "opsActionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/wh-staging-rg/providers/Microsoft.Insights/actionGroups/wh-staging-ops-budget-ag",
+      "alerts": [
+        {
+          "name": "wolfhouse-staff-api-cpu-pressure",
+          "metricName": "CpuPercentage"
+        },
+        {
+          "name": "wolfhouse-staff-api-memory-pressure",
+          "metricName": "MemoryPercentage"
+        }
+      ]
+    },
+    {
+      "tenantSlug": "sunset",
+      "resourceGroup": "luna-sunset-staging-rg",
+      "bicepRel": "infra/azure/sunset-staging/main.bicep",
+      "opsActionGroupName": "luna-sunset-staging-ops-budget-ag",
+      "opsActionGroupResourceId": "/subscriptions/6dfa56e7-6ca9-49b9-9b32-0c46f704a3b9/resourceGroups/luna-sunset-staging-rg/providers/Microsoft.Insights/actionGroups/luna-sunset-staging-ops-budget-ag",
+      "alerts": [
+        {
+          "name": "sunset-staff-api-cpu-pressure",
+          "metricName": "CpuPercentage"
+        },
+        {
+          "name": "sunset-staff-api-memory-pressure",
+          "metricName": "MemoryPercentage"
+        }
+      ]
+    }
+  ],
+  "compiled": {
+    "capacityAlertCountPerTenant": 2,
+    "variables": {
+      "radar16lAlertSeverity": 2,
+      "radar16lWindowSize": "PT15M",
+      "radar16lEvaluationFrequency": "PT5M",
+      "radar16lAlertsEnabled": true,
+      "radar16lMetricNamespace": "Microsoft.App/containerApps",
+      "radar16lTimeAggregation": "Average",
+      "radar16lCapacityOperator": "GreaterThan",
+      "radar16lCapacityThreshold": 80,
+      "radar16lCpuMetricName": "CpuPercentage",
+      "radar16lMemoryMetricName": "MemoryPercentage"
+    }
+  },
+  "artifacts": [
+    "infra/azure/staging/main.bicep",
+    "infra/azure/sunset-staging/main.bicep",
+    "fixtures/radar-operations/slice16l-capacity-alert-plan.json",
+    "fixtures/radar-operations/slice16l-expected-contract.json",
+    "scripts/verify-radar-slice16l-staff-api-capacity-alerts.js"
+  ],
+  "gates": [
+    "npm run verify:radar-slice16l-staff-api-capacity-alerts",
+    "npm run verify:radar-slice16a-operations-gate-ledger",
+    "npm run verify:radar-slice16b-staging-cost-budgets",
+    "npm run verify:radar-slice16h-staff-api-metric-alerts",
+    "npm run verify:radar-slice16i-staff-api-readiness",
+    "npm run verify:radar-slice16j-staff-request-correlation",
+    "npm run verify:radar-slice16k-staff-api-healthz",
+    "npm run verify:staff-auth-api",
+    "az bicep build --file infra/azure/staging/main.bicep",
+    "az bicep build --file infra/azure/sunset-staging/main.bicep",
+    "npm run verify:sunset-staging-iac-secret-scan",
+    "npm run verify:migration-integrity",
+    "npm run verify:sunset-staging-iac-diff-check",
+    "git diff --check c01e08d3b0039840ced37ae5a8e04fdd2384aba2..HEAD"
+  ]
+}

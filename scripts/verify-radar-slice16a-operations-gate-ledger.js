@@ -21,8 +21,8 @@ const CONTRACT_PATH = path.join(FIXTURE_DIR, 'contract.json');
 const FINDINGS_PATH = path.join(FIXTURE_DIR, 'findings.md');
 const DOC_PATH = path.join(ROOT, 'docs', 'RADAR-OPERATIONS-GATE-LEDGER.md');
 
-const MASTER_BASIS = '0d7340865d34804562c0e955a6276cfeff90560d';
-const BRANCH_16K = 'radar/slice-16k-healthz-minimization';
+const MASTER_BASIS = 'c01e08d3b0039840ced37ae5a8e04fdd2384aba2';
+const BRANCH_16L = 'radar/slice-16l-capacity-pressure-alerts';
 const VERDICTS = new Set(['proven', 'partial', 'absent']);
 const REQUIRED_GATE_IDS = [
   'G01_correlation_structured_logs',
@@ -106,13 +106,12 @@ function secretFree(text, label) {
 }
 
 function runtimePathsUnchanged() {
-  // 16K owns Staff API public /healthz body only; 16A freeze still
-  // requires database/, Hermes staging, and staging Bicep remain untouched.
+  // 16L owns Wolfhouse/Sunset staging Bicep capacity alerts; 16A freeze still
+  // requires database/, Hermes staging, and 16H metric-alert module untouched.
   const paths = [
     'database/',
     'docker/hermes-staging/',
-    'infra/azure/staging/main.bicep',
-    'infra/azure/sunset-staging/main.bicep',
+    'infra/azure/staging-staff-api-metric-alerts/',
   ];
   try {
     const out = execSync(
@@ -338,11 +337,11 @@ const blob = [
 const sec = secretFree(blob, 'fixtures+doc');
 ok('F32 secret-free fixtures and doc', sec.ok, sec.detail);
 
-ok('F33 doc mentions selected 16K id', /16K_staff_api_healthz_minimization/.test(doc));
+ok('F33 doc mentions selected 16L id', /16L_staff_api_capacity_pressure_alerts/.test(doc));
 ok('F34 doc mentions verdict counts', /proven.*0/i.test(doc) && /partial.*9/i.test(doc) && /absent.*0/i.test(doc));
-ok('F35 findings lists G01/G02/G03/G08/G09 partial',
-  /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
-  && /16K/.test(findings));
+ok('F35 findings lists G01/G02/G03/G06/G08/G09 partial',
+  /G01/.test(findings) && /G02/.test(findings) && /G03/.test(findings) && /G06/.test(findings) && /G08/.test(findings) && /G09/.test(findings) && /partial/i.test(findings)
+  && /16L/.test(findings));
 
 ok('F36 healthz source cite present', pathExists('scripts/staff-query-api.js'));
 ok('F37 capture cost script present (read-only helper)',
@@ -351,7 +350,7 @@ ok('F38 payment_events unique stripe_event_id migration present',
   /stripe_event_id\s+TEXT UNIQUE/.test(readText(path.join(ROOT, 'database/migrations/001_init.sql'))));
 
 const rt = runtimePathsUnchanged();
-ok('F39 zero-mutation: database/Hermes/Bicep unchanged vs master basis (16K may touch staff-api healthz)', rt.ok, rt.detail);
+ok('F39 zero-mutation: database/Hermes/16H unchanged vs master basis (16L may touch staging bicep)', rt.ok, rt.detail);
 
 ok('F40 16A final controlled drill frozen',
   matrix.final_controlled_drill_16a
@@ -375,14 +374,14 @@ ok('F46 readiness lib present', pathExists('scripts/lib/staff-api-readiness.js')
 ok('F47 16I verifier script present',
   pathExists('scripts/verify-radar-slice16i-staff-api-readiness.js'));
 
-const slice16kContract = readJson(path.join(FIXTURE_DIR, 'slice16k-expected-contract.json'));
+const slice16lContract = readJson(path.join(FIXTURE_DIR, 'slice16l-expected-contract.json'));
 const headBranch = currentBranch();
-ok('F48 gate-matrix branch pin equals 16K contract + HEAD',
-  matrix.branch === BRANCH_16K
-  && contract.branch === BRANCH_16K
-  && slice16kContract.branch === BRANCH_16K
-  && headBranch === BRANCH_16K,
-  `matrix=${matrix.branch} contract=${contract.branch} slice16k=${slice16kContract.branch} head=${headBranch}`);
+ok('F48 gate-matrix branch pin equals 16L contract + HEAD',
+  matrix.branch === BRANCH_16L
+  && contract.branch === BRANCH_16L
+  && slice16lContract.branch === BRANCH_16L
+  && headBranch === BRANCH_16L,
+  `matrix=${matrix.branch} contract=${contract.branch} slice16l=${slice16lContract.branch} head=${headBranch}`);
 
 const mustNot = Array.isArray(matrix.must_not) ? matrix.must_not : [];
 const hasStaleSourceForbid = mustNot.some((m) =>
@@ -395,20 +394,33 @@ ok('F49 must_not forbids live/deployed mutation, not blanket source change',
 
 const g01 = matrix.gates.find((g) => g.id === 'G01_correlation_structured_logs');
 const g08 = matrix.gates.find((g) => g.id === 'G08_retention_privacy');
+const g06forF50 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
 const runtimeDiff = staffApiRuntimeDiffVsMaster();
+const bicepDiff = execSync(
+  `git diff --name-only ${MASTER_BASIS} -- infra/azure/staging/main.bicep infra/azure/sunset-staging/main.bicep`,
+  { cwd: ROOT, encoding: 'utf8' },
+).trim().split(/\n/).filter(Boolean);
 const g08CitesRuntime = g08
   && Array.isArray(g08.source_evidence)
   && g08.source_evidence.some((ev) =>
     ev.path === 'scripts/lib/staff-api-healthz.js'
     || ev.path === 'scripts/staff-query-api.js');
-ok('F50 must_not does not contradict changed runtime source or G08 evidence',
+const g06CitesBicep = g06forF50
+  && Array.isArray(g06forF50.source_evidence)
+  && g06forF50.source_evidence.some((ev) =>
+    ev.path === 'infra/azure/staging/main.bicep'
+    || ev.path === 'infra/azure/sunset-staging/main.bicep');
+ok('F50 must_not does not contradict changed staging bicep or G06/G08 evidence',
   !hasStaleSourceForbid
   && hasLiveDeployedForbid
   && g08CitesRuntime
-  && runtimeDiff.includes('scripts/staff-query-api.js')
+  && g06CitesBicep
+  && runtimeDiff.length === 0
+  && bicepDiff.includes('infra/azure/staging/main.bicep')
+  && bicepDiff.includes('infra/azure/sunset-staging/main.bicep')
   && pathExists('scripts/lib/staff-api-healthz.js')
   && matrix.live_mutation === false,
-  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} stale=${hasStaleSourceForbid}`);
+  `runtimeDiff=${runtimeDiff.join(',') || '(none)'} bicepDiff=${bicepDiff.join(',')} stale=${hasStaleSourceForbid}`);
 
 ok('F51 G01 partial source-partial via 16J',
   g01 && g01.verdict === 'partial'
@@ -466,6 +478,43 @@ ok('F66 16K leaves deploy/retention/drill open',
   /live_deploy/.test(String(sel16k.does_not_implement || ''))
   && /open/i.test(String(contract.healthz_live_deploy || ''))
   && /open/i.test(String(contract.healthz_privacy_drill || '')));
+
+const g06 = matrix.gates.find((g) => g.id === 'G06_scaling_capacity');
+ok('F67 G06 partial source-partial via 16L',
+  g06 && g06.verdict === 'partial'
+  && g06.progress_class === 'source_partial_progress_only'
+  && /16L/.test(g06.rationale)
+  && /CpuPercentage/i.test(g06.rationale)
+  && /MemoryPercentage/i.test(g06.rationale));
+ok('F68 16L verifier script present',
+  pathExists('scripts/verify-radar-slice16l-staff-api-capacity-alerts.js'));
+ok('F69 capacity plan + contract fixtures present',
+  pathExists('fixtures/radar-operations/slice16l-capacity-alert-plan.json')
+  && pathExists('fixtures/radar-operations/slice16l-expected-contract.json'));
+
+const sel16l = matrix.slice_16l_selection;
+ok('F70 exactly one 16L selection',
+  sel16l && sel16l.selected === true
+  && sel16l.outcome_id === '16L_staff_api_capacity_pressure_alerts'
+  && sel16l.gate_id === 'G06_scaling_capacity'
+  && sel16l.progress_class === 'source_partial_progress_only');
+ok('F71 contract selected_16l matches',
+  contract.selected_16l
+  && contract.selected_16l.outcome_id === '16L_staff_api_capacity_pressure_alerts'
+  && contract.selected_16l.gate_id === 'G06_scaling_capacity');
+ok('F72 16L final controlled drill present',
+  sel16l.final_controlled_drill
+  && sel16l.final_controlled_drill.id === '16L_DRILL_capacity_pressure_alert_fire');
+ok('F73 16L acceptance criteria finite (>=4)',
+  Array.isArray(sel16l.acceptance_criteria) && sel16l.acceptance_criteria.length >= 4);
+ok('F74 16L leaves deploy/load/SLO/backpressure open',
+  /live_deploy/.test(String(sel16l.does_not_implement || ''))
+  && /backpressure/i.test(String(sel16l.does_not_implement || ''))
+  && /open/i.test(String(contract.capacity_live_deploy || ''))
+  && /open/i.test(String(contract.capacity_backpressure || ''))
+  && /open/i.test(String(contract.capacity_slo || '')));
+ok('F75 doc mentions G06 capacity-pressure',
+  /G06/.test(doc) && /capacity-pressure|CpuPercentage/i.test(doc));
 
 console.log(`\nResult: ${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
