@@ -56,7 +56,9 @@ const MUST_NOT_EMIT = Object.freeze([
 
 const ROUTE_CLASSIFIER = 'finite_route_template';
 const UNKNOWN_ROUTE_CLASS = 'unknown';
-const COMPLETION_SINK = 'bounded_async_queue';
+const COMPLETION_SINK = 'fifo_one_at_a_time_async_queue';
+const OVERFLOW_ACCOUNTING = 'mandatory_structured_drop_count';
+const SHUTDOWN_FLUSH = 'server_close_and_process_signals_idempotent';
 const TENANT_LOCATION_RULE = 'optional_immutable_process_runtime_scope_at_construction_else_omit';
 const SYNTHETIC_NO_RESPONSE_STATUS = 0;
 
@@ -78,6 +80,8 @@ module.exports = {
   ROUTE_CLASSIFIER,
   UNKNOWN_ROUTE_CLASS,
   COMPLETION_SINK,
+  OVERFLOW_ACCOUNTING,
+  SHUTDOWN_FLUSH,
   TENANT_LOCATION_RULE,
   SYNTHETIC_NO_RESPONSE_STATUS,
   rootJoin(...parts) {

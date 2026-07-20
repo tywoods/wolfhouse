@@ -76,6 +76,7 @@ const { withPgClient: _withPgClientImpl } = require('./lib/pg-connect');
 const {
   runWithRequestCorrelation,
   validateProcessRuntimeScope,
+  attachCorrelationFlushToServer,
   getRequestCorrelationContext,
   CORRELATION_HEADER_CANON,
 } = require('./lib/staff-api-request-correlation');
@@ -46659,12 +46660,13 @@ function setStaffQueryApiRequestHandlerForOfflineTest(handler) {
  * @param {{ runtimeScope?: { clientSlug?: unknown, locationId?: unknown, client_slug?: unknown, location_id?: unknown } }} [options]
  *   Optional immutable process/runtime scope validated once at construction.
  *   Per-request tenant/location binding is intentionally not supported.
+ *   Entry points re-validate + freeze scope (invalid tokens rejected/omitted).
  */
 function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
   const runtimeScope = validateProcessRuntimeScope(options && options.runtimeScope);
   // RADAR 16D — correlate every request at the HTTP boundary (ALS; no handler signature change).
-  return http.createServer((req, res) => {
+  const server = http.createServer((req, res) => {
     runWithRequestCorrelation(req, res, async () => {
       try {
         const handler = __staffQueryApiRequestHandlerOverride || router;
@@ -46682,6 +46684,12 @@ function createStaffQueryApiHttpServer(options) {
       }
     }, { runtimeScope });
   });
+  // Bounded correlation flush on server.close; process hooks only for CLI main
+  // (idempotent — no duplicate SIGTERM/SIGINT/beforeExit handlers).
+  attachCorrelationFlushToServer(server, {
+    installProcessHooks: require.main === module,
+  });
+  return server;
 }
 
 function shouldEagerCreateStaffQueryApiServer() {

@@ -16,7 +16,13 @@
  * - Route class via finite route-template classifier only; unknown → one class.
  * - Optional immutable process/runtime scope validated once at server construction;
  *   otherwise omit client_slug / location_id. No per-request tenant binder.
- * - Completion logging via bounded async sink queue (never delays response path).
+ * - Completion logging via one-at-a-time FIFO async delivery queue (never delays
+ *   response path). Destination sink is captured per event; promise sinks are
+ *   awaited; rejections/throws are caught. Never synchronously drains many events.
+ * - Bounded overflow retains the queue bound and emits mandatory structured
+ *   overflow accounting with drop count (no silent loss).
+ * - Bounded flush hooks for server.close + SIGTERM/SIGINT/beforeExit (idempotent,
+ *   no duplicate handlers).
  * - Must never emit raw URL/query/body/headers, guest data, credentials,
  *   tokens, stack traces, or error messages.
  * - Preserve existing response/error behavior and streaming (no body buffering).
@@ -33,9 +39,14 @@ const CORRELATION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$/;
 const CORRELATION_ID_MAX_LEN = 128;
 const GENERATED_ID_BYTES = 16;
 const EVENT_NAME = 'staff_api_http_request_complete';
+/** Structured accounting when the bounded delivery queue drops events. */
+const OVERFLOW_EVENT_NAME = 'staff_api_correlation_delivery_overflow';
 
 /** Explicit synthetic status when no HTTP response status was established. */
 const SYNTHETIC_NO_RESPONSE_STATUS = 0;
+
+/** Default bound for flushCorrelationEmitSink / shutdown flush. */
+const DEFAULT_FLUSH_TIMEOUT_MS = 2000;
 
 const ROUTE_CLASS_UNKNOWN = 'unknown';
 const ROUTE_CLASS_ROOT = 'root';
@@ -366,12 +377,27 @@ const PARAM_ROUTE_TEMPLATES = Object.freeze([
 
 const als = new AsyncLocalStorage();
 
-/** @type {(event: object) => void} */
+/** @type {(event: object) => void | Promise<void>} */
 let emitSink = defaultEmitSink;
 
-/** @type {object[]} */
-const sinkQueue = [];
-let sinkDrainScheduled = false;
+/**
+ * One-at-a-time FIFO delivery queue. Each item captures its destination sink
+ * at enqueue time so later sink replacement cannot redirect queued events.
+ * @type {{ event: object, sink: Function }[]}
+ */
+const deliveryQueue = [];
+/** @deprecated alias retained for verifier introspection */
+const sinkQueue = deliveryQueue;
+
+let deliveryInFlight = false;
+let deliveryPumpScheduled = false;
+/** Drops since last overflow accounting emission (never silently forgotten). */
+let pendingOverflowDrops = 0;
+
+const CORR_SERVER_CLOSE_FLAG = Symbol.for('wh.radar16d.correlationCloseWrapped');
+
+/** @type {{ remove: () => void, handler: Function } | null} */
+let processShutdownHooks = null;
 
 function defaultEmitSink(event) {
   // Stay quiet under NODE_ENV=test unless a verifier installs a sink.
@@ -382,7 +408,8 @@ function defaultEmitSink(event) {
 
 /**
  * Test/harness override for completion emission. Pass null to restore default.
- * @param {((event: object) => void) | null} fn
+ * Already-queued events keep the sink captured at enqueue time.
+ * @param {((event: object) => void | Promise<void>) | null} fn
  */
 function setCorrelationEmitSink(fn) {
   emitSink = typeof fn === 'function' ? fn : defaultEmitSink;
@@ -510,9 +537,11 @@ function normalizeRouteClass(pathnameOrUrl) {
  * @returns {string|null}
  */
 function classifyErrorClassFromStore(store) {
-  if (store.aborted) return ERROR_CLASS_ABORTED;
-  if (store.requestError) return ERROR_CLASS_REQUEST_ERROR;
+  // Response-stream errors win when established (may co-occur with socket reset).
   if (store.responseError) return ERROR_CLASS_RESPONSE_ERROR;
+  // Intentional request failure (ALS-marked) wins over close/abort.
+  if (store.requestError) return ERROR_CLASS_REQUEST_ERROR;
+  if (store.aborted) return ERROR_CLASS_ABORTED;
   if (!store.responseCompleted) return ERROR_CLASS_NO_RESPONSE;
   const code = Number(store.status);
   if (!Number.isFinite(code) || code < 400) return null;
@@ -584,12 +613,22 @@ function getRequestCorrelationContext() {
 }
 
 /**
- * Build the completion event. Omits client_slug/location_id when no process scope.
+ * Sole lifecycle completion-event constructor (exactly-once path uses this once).
+ * Omits client_slug/location_id when no validated process scope.
  * Strips any forbidden keys defensively.
  * @param {object} store
  * @returns {object}
  */
 function buildCompletionEvent(store) {
+  return createLifecycleCompletionEvent(store);
+}
+
+/**
+ * Exact lifecycle event creation — single definition used by emitCompletionOnce.
+ * @param {object} store
+ * @returns {object}
+ */
+function createLifecycleCompletionEvent(store) {
   const durationMs = Math.max(0, Date.now() - (store.startedAtMs || Date.now()));
   const responseCompleted = !!store.responseCompleted;
   let status;
@@ -636,67 +675,252 @@ function buildCompletionEvent(store) {
   return out;
 }
 
-function drainSinkQueue() {
-  sinkDrainScheduled = false;
-  while (sinkQueue.length > 0) {
-    const event = sinkQueue.shift();
-    try {
-      // Catch serialization failures before handing to sink.
-      JSON.stringify(event);
-    } catch (_) {
-      continue;
+/**
+ * Structured overflow accounting — mandatory when bounded queue drops.
+ * @param {number} droppedCount
+ * @returns {object}
+ */
+function buildOverflowAccountingEvent(droppedCount) {
+  return {
+    event: OVERFLOW_EVENT_NAME,
+    dropped_count: Math.max(0, Number(droppedCount) || 0),
+    queue_max: SINK_QUEUE_MAX,
+  };
+}
+
+/**
+ * Deliver one queued item to its captured sink. Awaits promises; catches rejects.
+ * @param {{ event: object, sink: Function }} item
+ * @returns {Promise<void>}
+ */
+async function deliverCapturedItem(item) {
+  try {
+    JSON.stringify(item.event);
+  } catch (_) {
+    return;
+  }
+  try {
+    const result = item.sink(item.event);
+    if (result != null && typeof result.then === 'function') {
+      await result;
     }
-    try {
-      emitSink(event);
-    } catch (_) {
-      // Never let logging break anything; queue continues.
+  } catch (_) {
+    // Never let logging break anything; queue continues on next pump tick.
+  }
+}
+
+/**
+ * Pump at most one delivery per turn — never synchronously drains many events.
+ * @returns {Promise<void>}
+ */
+async function pumpDeliveryOnce() {
+  if (deliveryInFlight) return;
+  deliveryInFlight = true;
+  try {
+    if (deliveryQueue.length > 0) {
+      const item = deliveryQueue.shift();
+      await deliverCapturedItem(item);
+      return;
+    }
+    if (pendingOverflowDrops > 0) {
+      const dropped = pendingOverflowDrops;
+      pendingOverflowDrops = 0;
+      const overflowEvent = buildOverflowAccountingEvent(dropped);
+      // Overflow accounting uses the current sink (ops must see drop counts).
+      await deliverCapturedItem({ event: overflowEvent, sink: emitSink });
+    }
+  } finally {
+    deliveryInFlight = false;
+    if (deliveryQueue.length > 0 || pendingOverflowDrops > 0) {
+      scheduleDeliveryPump();
     }
   }
 }
 
-function scheduleSinkDrain() {
-  if (sinkDrainScheduled) return;
-  sinkDrainScheduled = true;
-  setImmediate(drainSinkQueue);
+function scheduleDeliveryPump() {
+  if (deliveryPumpScheduled) return;
+  if (deliveryInFlight) return;
+  if (deliveryQueue.length === 0 && pendingOverflowDrops === 0) return;
+  deliveryPumpScheduled = true;
+  setImmediate(() => {
+    deliveryPumpScheduled = false;
+    void pumpDeliveryOnce();
+  });
 }
 
 /**
- * Enqueue completion for async emit. Bounded; never blocks the response path.
+ * Enqueue completion for async FIFO delivery. Bounded; never blocks the response path.
+ * Destination sink is captured per event. Overflow increments mandatory accounting.
  * @param {object} event
  */
 function enqueueCompletionEvent(event) {
-  if (sinkQueue.length >= SINK_QUEUE_MAX) {
-    sinkQueue.shift();
+  const capturedSink = emitSink;
+  if (deliveryQueue.length >= SINK_QUEUE_MAX) {
+    deliveryQueue.shift();
+    pendingOverflowDrops += 1;
   }
-  sinkQueue.push(event);
-  scheduleSinkDrain();
+  deliveryQueue.push({ event, sink: capturedSink });
+  scheduleDeliveryPump();
 }
 
 /**
- * Emit at most once per request store (async sink — does not delay caller).
+ * Emit at most once per request store (async FIFO — does not delay caller).
+ * Lifecycle event is created exactly once here via createLifecycleCompletionEvent.
  * @param {object} store
  */
 function emitCompletionOnce(store) {
   if (!store || store.completed) return;
   store.completed = true;
-  const event = buildCompletionEvent(store);
+  const event = createLifecycleCompletionEvent(store);
   enqueueCompletionEvent(event);
 }
 
 /**
- * Test helper: flush async sink queue (resolves after drain).
- * @returns {Promise<void>}
+ * Bounded flush of the FIFO delivery queue (and any pending overflow accounting).
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<{
+ *   flushed: boolean,
+ *   timed_out: boolean,
+ *   remaining: number,
+ *   pending_overflow_drops: number,
+ *   elapsed_ms: number,
+ * }>}
  */
-function flushCorrelationEmitSink() {
+function flushCorrelationEmitSink(opts) {
+  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0
+    ? opts.timeoutMs
+    : DEFAULT_FLUSH_TIMEOUT_MS;
+  const started = Date.now();
   return new Promise((resolve) => {
-    scheduleSinkDrain();
-    setImmediate(() => {
-      if (sinkQueue.length > 0) {
-        drainSinkQueue();
+    const tick = () => {
+      const idle = deliveryQueue.length === 0
+        && !deliveryInFlight
+        && pendingOverflowDrops === 0
+        && !deliveryPumpScheduled;
+      if (idle) {
+        resolve({
+          flushed: true,
+          timed_out: false,
+          remaining: 0,
+          pending_overflow_drops: 0,
+          elapsed_ms: Date.now() - started,
+        });
+        return;
       }
-      setImmediate(resolve);
-    });
+      if (Date.now() - started >= timeoutMs) {
+        resolve({
+          flushed: false,
+          timed_out: true,
+          remaining: deliveryQueue.length,
+          pending_overflow_drops: pendingOverflowDrops,
+          elapsed_ms: Date.now() - started,
+        });
+        return;
+      }
+      scheduleDeliveryPump();
+      setImmediate(tick);
+    };
+    scheduleDeliveryPump();
+    setImmediate(tick);
   });
+}
+
+/**
+ * Install SIGTERM/SIGINT/beforeExit flush hooks once (idempotent — no duplicates).
+ * beforeExit is idle-safe: it must not schedule work when the queue is empty,
+ * or Node will never exit (beforeExit ↔ setImmediate loop).
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {{ remove: () => void }}
+ */
+function installCorrelationProcessShutdownHooks(opts) {
+  if (processShutdownHooks) return processShutdownHooks;
+  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0
+    ? opts.timeoutMs
+    : DEFAULT_FLUSH_TIMEOUT_MS;
+  let beforeExitArmed = false;
+  const signalHandler = () => {
+    const force = setTimeout(() => {
+      process.exit(process.exitCode || 0);
+    }, Math.max(50, timeoutMs + 50));
+    if (force && typeof force.unref === 'function') force.unref();
+    void flushCorrelationEmitSink({ timeoutMs }).finally(() => {
+      process.exit(process.exitCode || 0);
+    });
+  };
+  const beforeExitHandler = () => {
+    if (beforeExitArmed) return;
+    if (deliveryQueue.length === 0 && !deliveryInFlight && pendingOverflowDrops === 0) {
+      return;
+    }
+    beforeExitArmed = true;
+    void flushCorrelationEmitSink({ timeoutMs });
+  };
+  process.on('SIGTERM', signalHandler);
+  process.on('SIGINT', signalHandler);
+  process.on('beforeExit', beforeExitHandler);
+  processShutdownHooks = {
+    handler: signalHandler,
+    beforeExitHandler,
+    remove() {
+      if (!processShutdownHooks) return;
+      process.removeListener('SIGTERM', signalHandler);
+      process.removeListener('SIGINT', signalHandler);
+      process.removeListener('beforeExit', beforeExitHandler);
+      processShutdownHooks = null;
+    },
+  };
+  return processShutdownHooks;
+}
+
+/**
+ * Remove process shutdown hooks if installed (test seam; no-op when absent).
+ */
+function uninstallCorrelationProcessShutdownHooks() {
+  if (processShutdownHooks) processShutdownHooks.remove();
+}
+
+/**
+ * Wrap server.close to flush the delivery queue first; optionally install process hooks.
+ * Close wrap is once-per-server; process hooks are process-global and idempotent.
+ * @param {import('http').Server} httpServer
+ * @param {{ timeoutMs?: number, installProcessHooks?: boolean }} [opts]
+ * @returns {{ uninstallProcessHooks: () => void, flush: () => Promise<object> }}
+ */
+function attachCorrelationFlushToServer(httpServer, opts) {
+  const timeoutMs = opts && Number.isFinite(opts.timeoutMs) && opts.timeoutMs >= 0
+    ? opts.timeoutMs
+    : DEFAULT_FLUSH_TIMEOUT_MS;
+  const installProcessHooks = !!(opts && opts.installProcessHooks);
+
+  if (httpServer && !httpServer[CORR_SERVER_CLOSE_FLAG]) {
+    httpServer[CORR_SERVER_CLOSE_FLAG] = true;
+    const origClose = httpServer.close.bind(httpServer);
+    httpServer.close = function correlationFlushClose(callback) {
+      const cb = typeof callback === 'function' ? callback : null;
+      flushCorrelationEmitSink({ timeoutMs }).finally(() => {
+        try {
+          origClose(cb || (() => {}));
+        } catch (err) {
+          if (cb) cb(err);
+        }
+      });
+      return httpServer;
+    };
+  }
+
+  if (installProcessHooks) {
+    installCorrelationProcessShutdownHooks({ timeoutMs });
+  }
+
+  return {
+    uninstallProcessHooks: uninstallCorrelationProcessShutdownHooks,
+    flush: () => flushCorrelationEmitSink({ timeoutMs }),
+  };
+}
+
+/** @deprecated sync drain removed — kept name routes to one-at-a-time pump for tests. */
+function drainSinkQueue() {
+  scheduleDeliveryPump();
 }
 
 function isCorrelationHeaderName(name) {
@@ -779,6 +1003,33 @@ function attachResponseCorrelation(req, res, store) {
     };
   }
 
+  if (typeof res.addTrailers === 'function') {
+    const origAddTrailers = res.addTrailers.bind(res);
+    res.addTrailers = function addTrailersCorrelated(headers) {
+      if (headers == null) return origAddTrailers(headers);
+      if (Array.isArray(headers)) {
+        return origAddTrailers(forceCorrelationInHeaderArray(headers, store.correlation_id));
+      }
+      if (typeof headers === 'object') {
+        return origAddTrailers(forceCorrelationInHeaderObject(headers, store.correlation_id));
+      }
+      return origAddTrailers(headers);
+    };
+  }
+
+  if (typeof res.writeEarlyHints === 'function') {
+    const origWriteEarlyHints = res.writeEarlyHints.bind(res);
+    res.writeEarlyHints = function writeEarlyHintsCorrelated(hints) {
+      if (hints == null || typeof hints !== 'object') {
+        return origWriteEarlyHints(hints);
+      }
+      if (Array.isArray(hints)) {
+        return origWriteEarlyHints(forceCorrelationInHeaderArray(hints, store.correlation_id));
+      }
+      return origWriteEarlyHints(forceCorrelationInHeaderObject(hints, store.correlation_id));
+    };
+  }
+
   let inWriteHead = false;
   if (typeof res.removeHeader === 'function') {
     const origRemoveHeader = res.removeHeader.bind(res);
@@ -856,6 +1107,18 @@ function attachResponseCorrelation(req, res, store) {
     emitCompletionOnce(store);
   };
 
+  // Capture response destroy(err) before close so response_error wins over aborted.
+  if (typeof res.destroy === 'function') {
+    const origResDestroy = res.destroy.bind(res);
+    res.destroy = function destroyResCorrelated(err) {
+      if (err) {
+        store.responseError = true;
+        markResponseCompletedFromRes();
+      }
+      return origResDestroy(err);
+    };
+  }
+
   res.on('finish', () => {
     store.aborted = false;
     markResponseCompletedFromRes();
@@ -865,7 +1128,9 @@ function attachResponseCorrelation(req, res, store) {
   res.on('close', () => {
     // close without finish → client abort / connection drop
     if (!res.writableFinished) {
-      store.aborted = true;
+      if (!store.requestError && !store.responseError) {
+        store.aborted = true;
+      }
       if (store.statusCaptured) {
         store.responseCompleted = true;
       }
@@ -875,25 +1140,34 @@ function attachResponseCorrelation(req, res, store) {
 
   res.on('error', () => {
     store.responseError = true;
-    if (!store.statusCaptured) {
+    if (store.statusCaptured) {
+      store.responseCompleted = true;
+    } else if (!store.responseCompleted) {
       store.responseCompleted = false;
     }
     complete();
   });
 
   req.on('aborted', () => {
-    store.aborted = true;
+    if (!store.requestError && !store.responseError) {
+      store.aborted = true;
+    }
     complete();
   });
 
   req.on('error', () => {
-    store.requestError = true;
+    // Client disconnect / reset → aborted unless the handler marked requestError
+    // on the ALS store (intentional request failure).
+    if (!store.requestError && !store.responseError) {
+      store.aborted = true;
+    }
     complete();
   });
 }
 
 /**
  * Run handler inside ALS request scope. Does not alter handler arity/signature.
+ * runtimeScope is always re-validated + frozen here (reject/omit invalid tokens).
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
  * @param {(req: import('http').IncomingMessage, res: import('http').ServerResponse) => *} handler
@@ -909,9 +1183,8 @@ function runWithRequestCorrelation(req, res, handler, opts) {
   const method = String((req && req.method) || 'GET').toUpperCase();
   const routeClass = classifyRouteTemplate(req && req.url);
 
-  const scope = opts && opts.runtimeScope && typeof opts.runtimeScope === 'object'
-    ? opts.runtimeScope
-    : { client_slug: null, location_id: null, present: false };
+  // Every exported entry that accepts scope re-validates — never trust caller flags.
+  const scope = validateProcessRuntimeScope(opts && opts.runtimeScope);
 
   const store = {
     correlation_id: accepted.correlation_id,
@@ -1017,9 +1290,11 @@ module.exports = {
   CORRELATION_ID_RE,
   CORRELATION_ID_MAX_LEN,
   EVENT_NAME,
+  OVERFLOW_EVENT_NAME,
   EVENT_ALLOWED_KEYS,
   FORBIDDEN_EVENT_KEYS,
   SYNTHETIC_NO_RESPONSE_STATUS,
+  DEFAULT_FLUSH_TIMEOUT_MS,
   ROUTE_CLASS_UNKNOWN,
   ROUTE_CLASS_ROOT,
   ROUTE_CLASS_HEALTHZ,
@@ -1042,14 +1317,22 @@ module.exports = {
   validateProcessRuntimeScope,
   getRequestCorrelationContext,
   buildCompletionEvent,
+  createLifecycleCompletionEvent,
+  buildOverflowAccountingEvent,
   emitCompletionOnce,
   enqueueCompletionEvent,
   attachResponseCorrelation,
   runWithRequestCorrelation,
   setCorrelationEmitSink,
   flushCorrelationEmitSink,
+  installCorrelationProcessShutdownHooks,
+  uninstallCorrelationProcessShutdownHooks,
+  attachCorrelationFlushToServer,
   assertSafeCompletionEvent,
   // Exposed for verifier unit proofs only (not an oracle).
   _als: als,
   _sinkQueue: sinkQueue,
+  _deliveryQueue: deliveryQueue,
+  _getPendingOverflowDrops: () => pendingOverflowDrops,
+  _getDeliveryInFlight: () => deliveryInFlight,
 };

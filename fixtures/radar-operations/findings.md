@@ -29,7 +29,7 @@
 
 ## Slice 16D
 
-`16D_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Strict singleton `X-Request-Id` (reject ambiguous), immutable echo, ALS, finite route-template classifier, exactly-one completion via bounded async sink, optional construction-time process scope only. Does not claim live log-query proof.
+`16D_staff_api_request_correlation` on **G01_correlation_structured_logs** — progress class `source_partial_progress_only`. Strict singleton `X-Request-Id` (reject ambiguous / duplicate wire lines), immutable echo (incl. `addTrailers`/`writeEarlyHints`), ALS, finite route-template classifier, exactly-one completion via FIFO one-at-a-time async delivery with overflow accounting + shutdown flush, optional construction/entry-validated process scope only. Does not claim live log-query proof. Legacy npm alias `verify:staff-api` remains **absent**.
 
 ## Zero-mutation (this slice)
 

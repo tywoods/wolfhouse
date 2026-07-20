@@ -8,7 +8,7 @@
 
 ## Outcome
 
-Establish **safe request correlation at the Staff API HTTP boundary** (source only). For every request: accept only a strict bounded singleton `X-Request-Id` or generate a cryptographically random ID (reject array/duplicate/ambiguous); return it immutably on the response; propagate via AsyncLocalStorage without changing handler signatures; emit exactly one structured completion event on finish/close/request-abort/request-error/response-error via a bounded async sink. **Do not deploy.** G01 remains `partial` — deployment and log-query proof stay open.
+Establish **safe request correlation at the Staff API HTTP boundary** (source only). For every request: accept only a strict bounded singleton `X-Request-Id` or generate a cryptographically random ID (reject array/duplicate/ambiguous); return it immutably on the response (including `addTrailers` / `writeEarlyHints`); propagate via AsyncLocalStorage without changing handler signatures; emit exactly one structured completion event on finish/close/request-abort/request-error/response-error via a one-at-a-time FIFO async delivery queue with mandatory overflow accounting and bounded flush on server close / SIGTERM / SIGINT / beforeExit. **Do not deploy.** G01 remains `partial` — deployment and log-query proof stay open.
 
 ## Artifacts
 
@@ -23,17 +23,17 @@ Establish **safe request correlation at the Staff API HTTP boundary** (source on
 
 ## Event / context contract
 
-**Header:** `X-Request-Id` — accept `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$` (8–128 ASCII) else generate 32-char hex. Array/duplicate/ambiguous rejected. Immutable across `setHeader` and every `writeHead` form (including raw arrays).
+**Header:** `X-Request-Id` — accept `^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$` (8–128 ASCII) else generate 32-char hex. Array/duplicate/ambiguous rejected (including duplicate wire header lines). Immutable across `setHeader`, `appendHeader`, `removeHeader`, every `writeHead` form, `addTrailers`, and `writeEarlyHints`.
 
 **Propagation:** `AsyncLocalStorage` (no handler signature changes).
 
 **Route class:** finite route-template classifier; unknown → `unknown` (never emit unmatched raw path segments).
 
-**Scope:** optional immutable process/runtime scope validated once at server construction; otherwise omit `client_slug` / `location_id`. No per-request tenant binder.
+**Scope:** optional immutable process/runtime scope validated (and frozen) at every exported entry that accepts it; invalid tokens rejected/omitted. Otherwise omit `client_slug` / `location_id`. No per-request tenant binder.
 
-**Completion sink:** bounded async queue (cannot delay response completion; catches serialization/write errors).
+**Completion delivery:** one-at-a-time FIFO async queue; destination sink captured per event; promise sinks awaited; rejections/throws caught; never synchronously drains many events. Bounded overflow emits mandatory structured accounting (`staff_api_correlation_delivery_overflow` with `dropped_count`) — no silent loss. Bounded flush on `server.close` and idempotent SIGTERM/SIGINT/beforeExit hooks (no duplicate handlers).
 
-**Completion event** (`staff_api_http_request_complete`), exactly once on finish/close/request-abort/request-error/response-error:
+**Completion event** (`staff_api_http_request_complete`), exactly once on finish/close/request-abort/request-error/response-error (single `createLifecycleCompletionEvent` constructor):
 
 | Field | Rule |
 |-------|------|
@@ -107,6 +107,8 @@ npm run verify:migration-integrity
 npm run verify:sunset-staging-iac-diff-check
 git diff --check acf3397dda44b1a9132f7dcbe9a8b059ecee0b1b..HEAD
 ```
+
+**Legacy npm target:** `verify:staff-api` is **absent** (not registered in `package.json`). Gates use `verify:staff-auth-api` (and payment fortress 15J3). Do not invent the missing alias.
 
 ## Zero-live / zero-runtime proof
 

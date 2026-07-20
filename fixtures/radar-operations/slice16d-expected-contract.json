@@ -25,8 +25,18 @@
     "route_classifier": "finite_route_template",
     "unknown_route_class": "unknown",
     "synthetic_no_response_status": 0,
-    "completion_sink": "bounded_async_queue",
+    "completion_sink": "fifo_one_at_a_time_async_queue",
+    "overflow_accounting": "mandatory_structured_drop_count",
+    "shutdown_flush": "server_close_and_process_signals_idempotent",
     "tenant_location_rule": "optional_immutable_process_runtime_scope_at_construction_else_omit",
+    "header_apis_protected": [
+      "setHeader",
+      "appendHeader",
+      "removeHeader",
+      "writeHead",
+      "addTrailers",
+      "writeEarlyHints"
+    ],
     "completion_event": {
       "event": "staff_api_http_request_complete",
       "exactly_once": true,

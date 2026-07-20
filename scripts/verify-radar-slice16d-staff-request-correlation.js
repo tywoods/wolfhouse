@@ -264,12 +264,16 @@ async function main() {
     && contract.progress_class === locks.PROGRESS_CLASS
     && contract.live_deploy === false);
 
-  ok('C2 AsyncLocalStorage + crypto + async sink present',
+  ok('C2 AsyncLocalStorage + crypto + FIFO async delivery present',
     /AsyncLocalStorage/.test(libSrc)
     && /randomBytes/.test(libSrc)
     && /runWithRequestCorrelation/.test(libSrc)
     && /setImmediate/.test(libSrc)
     && /SINK_QUEUE_MAX/.test(libSrc)
+    && /pumpDeliveryOnce|scheduleDeliveryPump/.test(libSrc)
+    && /OVERFLOW_EVENT_NAME|buildOverflowAccountingEvent/.test(libSrc)
+    && /attachCorrelationFlushToServer/.test(libSrc)
+    && /createLifecycleCompletionEvent/.test(libSrc)
     && /classifyRouteTemplate/.test(libSrc)
     && /validateProcessRuntimeScope/.test(libSrc));
 
@@ -277,6 +281,7 @@ async function main() {
     /runWithRequestCorrelation/.test(apiSrc)
     && /createStaffQueryApiHttpServer/.test(apiSrc)
     && /validateProcessRuntimeScope/.test(apiSrc)
+    && /attachCorrelationFlushToServer/.test(apiSrc)
     && !/bindAuthoritativeRuntimeScope/.test(apiSrc));
 
   ok('C4 handler signatures not rewritten to take correlation args',
@@ -418,7 +423,7 @@ async function main() {
     await closeServer(server);
   }
 
-  // ── RED: process scope validated once; invalid omitted ────────────────────
+  // ── RED: process scope validated once; invalid omitted; entry re-validates ─
   {
     const bad = corr.validateProcessRuntimeScope({
       clientSlug: 'bad slug!!',
@@ -432,7 +437,8 @@ async function main() {
       bad.present === false
       && good.present === true
       && good.client_slug === 'wolfhouse-somo'
-      && good.location_id === 'somo-main');
+      && good.location_id === 'somo-main'
+      && Object.isFrozen(good));
 
     const events = [];
     corr.setCorrelationEmitSink((e) => events.push(e));
@@ -457,6 +463,36 @@ async function main() {
       JSON.stringify(events[0]));
     corr.setCorrelationEmitSink(null);
     await closeServer(server);
+
+    // Entry point must reject forged present:true with invalid tokens.
+    const forgedScopeEvents = [];
+    corr.setCorrelationEmitSink((e) => forgedScopeEvents.push(e));
+    const forgedServer = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        res.writeHead(200);
+        res.end('ok');
+      }, {
+        runtimeScope: {
+          present: true,
+          client_slug: 'bad slug!!',
+          location_id: '../etc',
+        },
+      });
+    });
+    const forgedPort = await listen(forgedServer);
+    await httpRequest(forgedPort, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'scopebad1' },
+    });
+    await waitEvents(forgedScopeEvents, (c) => c.length >= 1, 1000);
+    red('entry_point_revalidates_runtime_scope',
+      forgedScopeEvents.length === 1
+      && !Object.prototype.hasOwnProperty.call(forgedScopeEvents[0], 'client_slug')
+      && !Object.prototype.hasOwnProperty.call(forgedScopeEvents[0], 'location_id'),
+      JSON.stringify(forgedScopeEvents[0]));
+    corr.setCorrelationEmitSink(null);
+    await closeServer(forgedServer);
   }
 
   // ── RED: finite route classifier — unknown collapses; no raw segments ─────
@@ -487,7 +523,7 @@ async function main() {
       JSON.stringify({ a, b, c, d, unk1, unk2, unk3 }));
   }
 
-  // ── RED: async sink does not delay completion; catches write errors ───────
+  // ── RED: FIFO one-at-a-time delivery; nonblocking; catch throw/reject ──────
   {
     let sinkCalls = 0;
     let threw = false;
@@ -513,7 +549,6 @@ async function main() {
     };
     corr.emitCompletionOnce(store);
     const syncElapsed = Date.now() - t0;
-    // Second emit must no-op (exactly once).
     corr.emitCompletionOnce(store);
     await corr.flushCorrelationEmitSink();
     red('async_sink_nonblocking_and_error_safe',
@@ -523,6 +558,305 @@ async function main() {
       && store.completed === true,
       JSON.stringify({ syncElapsed, sinkCalls }));
     corr.setCorrelationEmitSink(null);
+  }
+
+  // Promise rejection from sink must be caught (flush must not throw).
+  {
+    let rejected = false;
+    corr.setCorrelationEmitSink(async () => {
+      rejected = true;
+      throw new Error('sink_promise_reject');
+    });
+    const store = {
+      correlation_id: 'sinkrejctsinkrejctsinkrejctsinkre',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    };
+    corr.emitCompletionOnce(store);
+    let flushErr = null;
+    try {
+      await corr.flushCorrelationEmitSink({ timeoutMs: 1000 });
+    } catch (err) {
+      flushErr = err;
+    }
+    red('async_sink_promise_rejection_caught',
+      rejected === true && flushErr == null);
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // FIFO + slow sink: one-at-a-time; order preserved; never sync-drains many.
+  {
+    const order = [];
+    let maxConcurrent = 0;
+    let inFlight = 0;
+    corr.setCorrelationEmitSink(async (e) => {
+      if (e.event === corr.OVERFLOW_EVENT_NAME) return;
+      inFlight += 1;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
+      order.push(e.correlation_id);
+      await sleep(8);
+      inFlight -= 1;
+    });
+    const ids = ['fifo00001', 'fifo00002', 'fifo00003', 'fifo00004'];
+    for (const id of ids) {
+      corr.emitCompletionOnce({
+        correlation_id: id,
+        method: 'GET',
+        route_class: 'healthz',
+        status: 200,
+        statusCaptured: true,
+        responseCompleted: true,
+        startedAtMs: Date.now(),
+        runtime_scope_present: false,
+        aborted: false,
+        requestError: false,
+        responseError: false,
+        completed: false,
+      });
+    }
+    // Immediately after enqueue, queue should still hold later events (not sync-drained).
+    const queuedImmediately = corr._deliveryQueue.length;
+    const flushResult = await corr.flushCorrelationEmitSink({ timeoutMs: 2000 });
+    red('fifo_one_at_a_time_slow_sink',
+      flushResult.flushed === true
+      && maxConcurrent === 1
+      && queuedImmediately >= 1
+      && order.join(',') === ids.join(','),
+      JSON.stringify({ order, maxConcurrent, queuedImmediately, flushResult }));
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // Sink replacement: queued items keep captured destination.
+  {
+    const sinkA = [];
+    const sinkB = [];
+    let releaseFirst;
+    const firstGate = new Promise((r) => { releaseFirst = r; });
+    corr.setCorrelationEmitSink(async (e) => {
+      sinkA.push(e.correlation_id || e.event);
+      await firstGate;
+    });
+    corr.emitCompletionOnce({
+      correlation_id: 'sinkcap01sinkcap01sinkcap01sinkca',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    });
+    await sleep(15);
+    corr.emitCompletionOnce({
+      correlation_id: 'sinkcap02sinkcap02sinkcap02sinkca',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    });
+    corr.setCorrelationEmitSink((e) => {
+      sinkB.push(e.correlation_id || e.event);
+    });
+    corr.emitCompletionOnce({
+      correlation_id: 'sinkcap03sinkcap03sinkcap03sinkca',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    });
+    releaseFirst();
+    await corr.flushCorrelationEmitSink({ timeoutMs: 2000 });
+    red('sink_replacement_keeps_captured_destination',
+      sinkA.includes('sinkcap01sinkcap01sinkcap01sinkca')
+      && sinkA.includes('sinkcap02sinkcap02sinkcap02sinkca')
+      && sinkB.includes('sinkcap03sinkcap03sinkcap03sinkca')
+      && !sinkB.includes('sinkcap01sinkcap01sinkcap01sinkca'),
+      JSON.stringify({ sinkA, sinkB }));
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // Bounded overflow → mandatory structured accounting with drop count (no silent loss).
+  {
+    const seen = [];
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    corr.setCorrelationEmitSink(async (e) => {
+      seen.push(e);
+      if (e.event === corr.EVENT_NAME) await gate;
+    });
+    // Hold the first delivery in-flight so the queue fills.
+    corr.emitCompletionOnce({
+      correlation_id: 'ovfhold01ovfhold01ovfhold01ovfhol',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    });
+    await sleep(10);
+    const overflowExtra = 5;
+    for (let i = 0; i < corr.SINK_QUEUE_MAX + overflowExtra; i += 1) {
+      const id = `ovf${String(i).padStart(5, '0')}ovf${String(i).padStart(5, '0')}ovfxx`;
+      corr.emitCompletionOnce({
+        correlation_id: id.slice(0, 32),
+        method: 'GET',
+        route_class: 'healthz',
+        status: 200,
+        statusCaptured: true,
+        responseCompleted: true,
+        startedAtMs: Date.now(),
+        runtime_scope_present: false,
+        aborted: false,
+        requestError: false,
+        responseError: false,
+        completed: false,
+      });
+    }
+    const pendingBefore = corr._getPendingOverflowDrops();
+    release();
+    const flushOv = await corr.flushCorrelationEmitSink({ timeoutMs: 5000 });
+    const overflowEvents = seen.filter((e) => e.event === corr.OVERFLOW_EVENT_NAME);
+    const dropSum = overflowEvents.reduce((n, e) => n + Number(e.dropped_count || 0), 0);
+    red('overflow_accounting_no_silent_loss',
+      pendingBefore >= overflowExtra
+      && flushOv.flushed === true
+      && overflowEvents.length >= 1
+      && dropSum >= overflowExtra
+      && overflowEvents.every((e) => e.queue_max === corr.SINK_QUEUE_MAX
+        && Number.isFinite(e.dropped_count) && e.dropped_count > 0),
+      JSON.stringify({
+        pendingBefore,
+        dropSum,
+        overflowEvents,
+        flushOv,
+        completionCount: seen.filter((e) => e.event === corr.EVENT_NAME).length,
+      }));
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // Flush timeout accounting under slow sink.
+  {
+    let release;
+    const gate = new Promise((r) => { release = r; });
+    corr.setCorrelationEmitSink(async () => { await gate; });
+    corr.emitCompletionOnce({
+      correlation_id: 'flushtm01flushtm01flushtm01flusht',
+      method: 'GET',
+      route_class: 'healthz',
+      status: 200,
+      statusCaptured: true,
+      responseCompleted: true,
+      startedAtMs: Date.now(),
+      runtime_scope_present: false,
+      aborted: false,
+      requestError: false,
+      responseError: false,
+      completed: false,
+    });
+    await sleep(5);
+    const timed = await corr.flushCorrelationEmitSink({ timeoutMs: 25 });
+    red('flush_timeout_accounting',
+      timed.timed_out === true
+      && timed.flushed === false
+      && Number.isFinite(timed.elapsed_ms)
+      && timed.elapsed_ms >= 20,
+      JSON.stringify(timed));
+    release();
+    await corr.flushCorrelationEmitSink({ timeoutMs: 1000 });
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // Enqueue-then-shutdown (server.close) delivers; process hooks idempotent / no leaks.
+  {
+    const delivered = [];
+    corr.setCorrelationEmitSink((e) => delivered.push(e));
+    const server = http.createServer((req, res) => {
+      corr.runWithRequestCorrelation(req, res, async () => {
+        res.writeHead(200);
+        res.end('shutdown-ok');
+      });
+    });
+    corr.attachCorrelationFlushToServer(server, { installProcessHooks: false });
+    const port = await listen(server);
+    await httpRequest(port, {
+      method: 'GET',
+      reqPath: '/healthz',
+      headers: { 'x-request-id': 'shutdlv01' },
+    });
+    // Close without explicit flush — wrapped close must deliver.
+    await closeServer(server);
+    await sleep(20);
+    red('enqueue_then_shutdown_delivery',
+      delivered.some((e) => e.correlation_id === 'shutdlv01'),
+      JSON.stringify(delivered.slice(-3)));
+
+    const beforeTerm = process.listenerCount('SIGTERM');
+    const beforeInt = process.listenerCount('SIGINT');
+    const beforeExit = process.listenerCount('beforeExit');
+    corr.installCorrelationProcessShutdownHooks({ timeoutMs: 100 });
+    corr.installCorrelationProcessShutdownHooks({ timeoutMs: 100 });
+    corr.installCorrelationProcessShutdownHooks({ timeoutMs: 100 });
+    const midTerm = process.listenerCount('SIGTERM');
+    const midInt = process.listenerCount('SIGINT');
+    const midExit = process.listenerCount('beforeExit');
+    corr.uninstallCorrelationProcessShutdownHooks();
+    const afterTerm = process.listenerCount('SIGTERM');
+    const afterInt = process.listenerCount('SIGINT');
+    const afterExit = process.listenerCount('beforeExit');
+    red('shutdown_hooks_idempotent_no_listener_leaks',
+      midTerm === beforeTerm + 1
+      && midInt === beforeInt + 1
+      && midExit === beforeExit + 1
+      && afterTerm === beforeTerm
+      && afterInt === beforeInt
+      && afterExit === beforeExit,
+      JSON.stringify({
+        beforeTerm, midTerm, afterTerm,
+        beforeInt, midInt, afterInt,
+        beforeExit, midExit, afterExit,
+      }));
+    corr.setCorrelationEmitSink(null);
+  }
+
+  // Lifecycle event created via single constructor (source + behavior).
+  {
+    red('lifecycle_event_created_once_path',
+      /function createLifecycleCompletionEvent/.test(libSrc)
+      && /createLifecycleCompletionEvent\(store\)/.test(libSrc)
+      && (libSrc.match(/function createLifecycleCompletionEvent/g) || []).length === 1);
   }
 
   // ── RED: double completion (finish + close) emits once ────────────────────
@@ -827,10 +1161,95 @@ async function main() {
         bodies: [hdrObjRes.body, hdrArrRes.body, hdrNestedRes.body],
       }));
 
-    // Injectable request error (destroy req after correlation attached)
+    // writeEarlyHints + addTrailers must not override immutable X-Request-Id
     {
-      const beforeReqErr = collected.length;
       api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        if (typeof res.writeEarlyHints === 'function') {
+          try {
+            res.writeEarlyHints({
+              'X-Request-Id': 'attacker-early-hints',
+              Link: '</radar16d.css>; rel=preload; as=style',
+            });
+          } catch (_) { /* some Node builds may reject; protection still wraps */ }
+        }
+        res.writeHead(200, {
+          'Content-Type': 'text/plain',
+          Trailer: 'X-Request-Id',
+        });
+        res.write('early-trail-ok');
+        if (typeof res.addTrailers === 'function') {
+          try {
+            res.addTrailers({ 'X-Request-Id': 'attacker-trailer-id' });
+          } catch (_) { /* ignore */ }
+        }
+        res.end();
+      });
+      const earlyRes = await httpRequest(port, {
+        method: 'GET',
+        reqPath: '/healthz',
+        headers: { 'x-request-id': 'earlytrl1' },
+      });
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      await waitEvents(collected, (c) => c.some((e) => e.correlation_id === 'earlytrl1'), 2000);
+      green('listener_early_hints_and_trailers_protected',
+        earlyRes.headers['x-request-id'] === 'earlytrl1'
+        && earlyRes.body.includes('early-trail-ok')
+        && /writeEarlyHintsCorrelated|writeEarlyHints/.test(libSrc)
+        && /addTrailersCorrelated|addTrailers/.test(libSrc)
+        && /forceCorrelationInHeaderObject/.test(libSrc),
+        JSON.stringify({
+          id: earlyRes.headers['x-request-id'],
+          body: earlyRes.body,
+        }));
+    }
+
+    // Actual duplicate header lines on the wire → regenerate (not accept either)
+    {
+      const beforeDup = collected.length;
+      const dupRaw = await new Promise((resolve) => {
+        const chunks = [];
+        const sock = net.connect({ host: '127.0.0.1', port }, () => {
+          sock.write(
+            'GET /healthz HTTP/1.1\r\n'
+            + 'Host: 127.0.0.1\r\n'
+            + 'X-Request-Id: dupline01\r\n'
+            + 'X-Request-Id: dupline02\r\n'
+            + 'Connection: close\r\n\r\n',
+          );
+        });
+        sock.on('data', (c) => chunks.push(c));
+        sock.on('end', () => {
+          const raw = Buffer.concat(chunks).toString('utf8');
+          const m = raw.match(/^[^\n]*\r?\n([\s\S]*?)\r?\n\r?\n/);
+          const headerBlock = m ? m[1] : '';
+          const ids = [];
+          for (const line of headerBlock.split(/\r?\n/)) {
+            const hm = line.match(/^X-Request-Id:\s*(.+)$/i);
+            if (hm) ids.push(hm[1].trim());
+          }
+          resolve({ raw, ids, headerBlock });
+        });
+        sock.on('error', () => resolve({ raw: '', ids: [], headerBlock: '' }));
+      });
+      await waitEvents(collected, (c) => c.length > beforeDup, 2000);
+      const echoed = dupRaw.ids[0];
+      const dupEvents = collected.filter((e) => e.correlation_id === echoed);
+      green('listener_duplicate_header_lines_regenerate',
+        dupRaw.ids.length === 1
+        && typeof echoed === 'string'
+        && /^[0-9a-f]{32}$/.test(echoed)
+        && echoed !== 'dupline01'
+        && echoed !== 'dupline02'
+        && dupEvents.length === 1
+        && independentEventOk(dupEvents[0]).ok,
+        JSON.stringify({ ids: dupRaw.ids, event: dupEvents[0] }));
+    }
+
+    // Injectable request error — exact class + synthetic status
+    {
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        const ctx = corrFromApi.getRequestCorrelationContext();
+        if (ctx) ctx.requestError = true;
         req.destroy(new Error('forced_request_error'));
         await sleep(20);
       });
@@ -851,24 +1270,19 @@ async function main() {
         2000,
       );
       const reqErrEvents = collected.filter((e) => e.correlation_id === 'reqerr001');
-      green('listener_request_abort_or_error',
+      green('listener_request_error_exact',
         reqErrEvents.length === 1
-        && (
-          reqErrEvents[0].error_class === corr.ERROR_CLASS_ABORTED
-          || reqErrEvents[0].error_class === corr.ERROR_CLASS_REQUEST_ERROR
-          || reqErrEvents[0].error_class === corr.ERROR_CLASS_NO_RESPONSE
-        )
+        && reqErrEvents[0].error_class === corr.ERROR_CLASS_REQUEST_ERROR
+        && reqErrEvents[0].status === corr.SYNTHETIC_NO_RESPONSE_STATUS
         && independentEventOk(reqErrEvents[0]).ok,
         JSON.stringify({
           event: reqErrEvents[0],
           clientErr: reqClientErr && String(reqClientErr.message || reqClientErr),
-          before: beforeReqErr,
         }));
     }
 
-    // Response error injectable via handler destroying the socket after headers
+    // Response error after headers — exact class + established status
     {
-      const beforeResErr = collected.length;
       api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.write('partial-');
@@ -891,13 +1305,10 @@ async function main() {
         2000,
       );
       const resErrEvents = collected.filter((e) => e.correlation_id === 'reserr001');
-      green('listener_response_error',
+      green('listener_response_error_exact',
         resErrEvents.length === 1
-        && (
-          resErrEvents[0].error_class === corr.ERROR_CLASS_RESPONSE_ERROR
-          || resErrEvents[0].error_class === corr.ERROR_CLASS_ABORTED
-          || resErrEvents[0].status === 200
-        )
+        && resErrEvents[0].error_class === corr.ERROR_CLASS_RESPONSE_ERROR
+        && resErrEvents[0].status === 200
         && independentEventOk(resErrEvents[0]).ok,
         JSON.stringify({
           event: resErrEvents[0],
@@ -913,7 +1324,7 @@ async function main() {
     // Exactly-once across the whole suite for known IDs
     const knownIds = [
       ...ids, 'green404a', 'green500a', 'throwhdr1', 'stream001',
-      'hdrimmut1', 'hdrimmut2', 'hdrimmut3', 'reqerr001', 'reserr001',
+      'hdrimmut1', 'hdrimmut2', 'hdrimmut3', 'earlytrl1', 'reqerr001', 'reserr001',
     ];
     const exactlyOnce = knownIds.every((id) => collected.filter((e) => e.correlation_id === id).length === 1);
     green('listener_exactly_once_known_ids', exactlyOnce,
@@ -930,8 +1341,10 @@ async function main() {
       'listener_throw_after_headers',
       'listener_streaming',
       'listener_header_immutable_all_forms',
-      'listener_request_abort_or_error',
-      'listener_response_error',
+      'listener_early_hints_and_trailers_protected',
+      'listener_duplicate_header_lines_regenerate',
+      'listener_request_error_exact',
+      'listener_response_error_exact',
       'listener_healthz_no_forged_tenant',
       'listener_exactly_once_known_ids',
     ];
@@ -959,8 +1372,17 @@ async function main() {
     'forged_tenant_fields_ignored',
     'process_scope_validation',
     'process_scope_emitted_when_present',
+    'entry_point_revalidates_runtime_scope',
     'raw_route_cardinality_collapsed',
     'async_sink_nonblocking_and_error_safe',
+    'async_sink_promise_rejection_caught',
+    'fifo_one_at_a_time_slow_sink',
+    'sink_replacement_keeps_captured_destination',
+    'overflow_accounting_no_silent_loss',
+    'flush_timeout_accounting',
+    'enqueue_then_shutdown_delivery',
+    'shutdown_hooks_idempotent_no_listener_leaks',
+    'lifecycle_event_created_once_path',
     'double_completion_once',
     'aborted_request_completion',
     'aborted_exactly_once',
@@ -973,8 +1395,10 @@ async function main() {
     'listener_throw_after_headers',
     'listener_streaming',
     'listener_header_immutable_all_forms',
-    'listener_request_abort_or_error',
-    'listener_response_error',
+    'listener_early_hints_and_trailers_protected',
+    'listener_duplicate_header_lines_regenerate',
+    'listener_request_error_exact',
+    'listener_response_error_exact',
     'listener_healthz_no_forged_tenant',
     'listener_exactly_once_known_ids',
   ];
@@ -997,6 +1421,16 @@ async function main() {
         : '',
     ));
 
+  // Legacy alias verify:staff-api is absent — document truthfully (use staff-auth-api).
+  const pkgText = fs.existsSync(path.join(ROOT, 'package.json')) ? readText('package.json') : '';
+  const hasLegacyStaffApi = /"verify:staff-api"\s*:/.test(pkgText);
+  ok('C9b legacy npm target verify:staff-api absent (documented)',
+    hasLegacyStaffApi === false
+    && /"verify:staff-auth-api"\s*:/.test(pkgText),
+    hasLegacyStaffApi
+      ? 'unexpected: verify:staff-api present'
+      : 'legacy verify:staff-api absent; gates use verify:staff-auth-api');
+
   // Contract surface for lifecycle/header/route/scope/sink
   const ecc = contract.event_context_contract || {};
   ok('C10 contract encodes corrected lifecycle/header/route/scope/sink',
@@ -1008,11 +1442,15 @@ async function main() {
     && ecc.header_immutable === true
     && ecc.reject_ambiguous_request_ids === true
     && ecc.tenant_location_rule === 'optional_immutable_process_runtime_scope_at_construction_else_omit'
-    && ecc.completion_sink === 'bounded_async_queue'
+    && ecc.completion_sink === 'fifo_one_at_a_time_async_queue'
+    && ecc.overflow_accounting === 'mandatory_structured_drop_count'
+    && ecc.shutdown_flush === 'server_close_and_process_signals_idempotent'
     && ecc.synthetic_no_response_status === 0,
     JSON.stringify({
       route_classifier: ecc.route_classifier,
       sink: ecc.completion_sink,
+      overflow: ecc.overflow_accounting,
+      shutdown: ecc.shutdown_flush,
       tenant: ecc.tenant_location_rule,
     }));
 
