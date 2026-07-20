@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const http = require('http');
+const net = require('net');
 const path = require('path');
 const { execSync } = require('child_process');
 
@@ -49,6 +50,10 @@ const REQUIRED_RED = [
   'raw_url_query_body_header_error_redacted',
   'duplicate_finish_close_exactly_one',
   'missing_record_without_settlement',
+  'unit_abort_destroyed_premature_client_aborted',
+  'unit_transport_error_without_abort_server_error',
+  'unit_abort_close_error_finish_race_one',
+  'abort_greens_require_real_tcp_http',
   'logger_throw_swallowed',
   'stale_module_logger_injection_cannot_satisfy_green',
   'no_process_handlers_installed',
@@ -71,6 +76,7 @@ const REQUIRED_GREEN = [
   'listener_duration_bounds',
   'listener_client_aborted_outcome',
   'listener_streaming_abort',
+  'listener_abort_race_exactly_one',
   'listener_duplicate_finish_close_one',
   'listener_server_error_outcome',
   'listener_logger_throw_http_unchanged',
@@ -121,6 +127,35 @@ function secretFree(text, label) {
     if (re.test(text)) return { ok: false, detail: `${label} matched ${re}` };
   }
   return { ok: true };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Abort an in-flight HTTP/1.1 request via a real TCP socket destroy.
+ * @param {number} port
+ * @param {{ reqPath?: string, requestId: string, destroyAfterMs?: number }} opts
+ */
+function tcpAbortRequest(port, opts) {
+  const reqPath = (opts && opts.reqPath) || '/healthz';
+  const requestId = opts && opts.requestId;
+  const destroyAfterMs = (opts && opts.destroyAfterMs) || 40;
+  return new Promise((resolve) => {
+    const sock = net.connect(port, '127.0.0.1', () => {
+      sock.write(
+        `GET ${reqPath} HTTP/1.1\r\nHost: 127.0.0.1\r\n`
+        + `x-request-id: ${requestId}\r\nConnection: close\r\n\r\n`,
+      );
+      setTimeout(() => {
+        try { sock.destroy(); } catch (_) { /* ignore */ }
+      }, destroyAfterMs);
+    });
+    sock.on('data', () => {});
+    sock.on('error', () => {});
+    sock.on('close', () => resolve());
+  });
 }
 
 function listen(server) {
@@ -343,9 +378,15 @@ async function main() {
     && /\.on\(\s*['"]finish['"]/.test(libSrc)
     && /\.on\(\s*['"]close['"]/.test(libSrc)
     && /\.on\(\s*['"]error['"]/.test(libSrc)
+    && /\.on\(\s*['"]aborted['"]/.test(libSrc)
+    && /snapshotClientAborted|req\.aborted|readableAborted/.test(libSrc)
     && /removeListener/.test(libSrc)
-    && !/\.on\(\s*['"]aborted['"]/.test(libSrc)
+    && /removeListener\(\s*['"]aborted['"]/.test(libSrc)
+    && !/writableEnded\s*===\s*false\s*&&\s*(?:res\.)?destroyed/.test(libSrc)
     && contract.emission_contract.req_res_lifecycle_listeners === true
+    && contract.emission_contract.incoming_message_aborted_listener === true
+    && contract.emission_contract.client_abort_priority_over_destroyed_writableEnded === true
+    && contract.emission_contract.application_5xx_outcome === 'completed'
     && contract.emission_contract.lifecycle_listener_growth === false
     && contract.emission_contract.listeners_removed_on_settle === true
     && contract.emission_contract.duplicate_middleware === false);
@@ -675,6 +716,143 @@ async function main() {
       // no finish/close/error
     });
     red('missing_record_without_settlement', records.length === 0, JSON.stringify(records));
+  }
+
+  // RED unit (supplementary): premature close with destroyed=!writableEnded + abort bits
+  // must be client_aborted (EventEmitter-only — not sufficient for GREEN).
+  {
+    const records = [];
+    const { EventEmitter } = require('events');
+    const req = new EventEmitter();
+    req.method = 'GET';
+    req.url = '/healthz';
+    req.headers = { 'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-ab0d00000001' };
+    req.aborted = false;
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.setHeader = () => {};
+    res.writableEnded = false;
+    res.destroyed = true;
+    await corr.runWithRequestCorrelation(req, res, async () => {
+      const handle = completion.attachStaffApiRequestCompletion(req, res, {
+        startedAtMs: Date.now() - 20,
+        trustedTenantSlug: 'wolfhouse-somo',
+        rawUrl: '/healthz',
+        logger: (r) => records.push(r),
+      });
+      req.aborted = true;
+      req.readableAborted = true;
+      req.emit('aborted');
+      // Error may settle first; later error emits must not throw (listener already removed).
+      try { req.emit('error', new Error('aborted')); } catch (_) { /* settled */ }
+      try { res.emit('error', new Error('premature close')); } catch (_) { /* settled */ }
+      res.emit('close');
+      void handle;
+    });
+    red('unit_abort_destroyed_premature_client_aborted',
+      records.length === 1
+      && records[0].outcome === 'client_aborted'
+      && completion.assertSafeRequestCompletedRecord(records[0]).ok
+      && corr.countLifecycleListeners(req).aborted === 0
+      && corr.countLifecycleListeners(res).close === 0
+      && corr.countLifecycleListeners(res).error === 0
+      && corr.countLifecycleListeners(req).error === 0,
+      JSON.stringify(records));
+  }
+
+  // RED unit (supplementary): genuine transport error without client abort → server_error
+  {
+    const records = [];
+    const { EventEmitter } = require('events');
+    const req = new EventEmitter();
+    req.method = 'GET';
+    req.url = '/healthz';
+    req.headers = { 'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-ab0d00000002' };
+    req.aborted = false;
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.setHeader = () => {};
+    res.writableEnded = false;
+    res.destroyed = false;
+    await corr.runWithRequestCorrelation(req, res, async () => {
+      completion.attachStaffApiRequestCompletion(req, res, {
+        startedAtMs: Date.now() - 15,
+        trustedTenantSlug: 'wolfhouse-somo',
+        rawUrl: '/healthz',
+        logger: (r) => records.push(r),
+      });
+      res.emit('error', new Error('radar16r_transport_only'));
+      res.emit('close');
+    });
+    red('unit_transport_error_without_abort_server_error',
+      records.length === 1
+      && records[0].outcome === 'server_error'
+      && !JSON.stringify(records[0]).includes('radar16r_transport_only')
+      && completion.assertSafeRequestCompletedRecord(records[0]).ok,
+      JSON.stringify(records));
+  }
+
+  // RED unit (supplementary): aborted+close+error+finish race → exactly one + cleanup
+  {
+    const records = [];
+    const { EventEmitter } = require('events');
+    const req = new EventEmitter();
+    req.method = 'GET';
+    req.url = '/healthz';
+    req.headers = { 'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-ab0d00000003' };
+    req.aborted = false;
+    const res = new EventEmitter();
+    res.statusCode = 200;
+    res.setHeader = () => {};
+    await corr.runWithRequestCorrelation(req, res, async () => {
+      completion.attachStaffApiRequestCompletion(req, res, {
+        startedAtMs: Date.now() - 10,
+        trustedTenantSlug: 'wolfhouse-somo',
+        rawUrl: '/healthz',
+        logger: (r) => records.push(r),
+      });
+      req.aborted = true;
+      req.emit('aborted');
+      res.emit('close');
+      // Post-settle lifecycle noise (Node often fires error after close); must not throw
+      // or emit a second record.
+      try { req.emit('error', new Error('aborted')); } catch (_) { /* settled */ }
+      try { res.emit('error', new Error('close')); } catch (_) { /* settled */ }
+      res.emit('finish');
+      res.emit('close');
+    });
+    const lcReq = corr.countLifecycleListeners(req);
+    const lcRes = corr.countLifecycleListeners(res);
+    red('unit_abort_close_error_finish_race_one',
+      records.length === 1
+      && records[0].outcome === 'client_aborted'
+      && lcReq.aborted === 0
+      && lcReq.error === 0
+      && lcRes.finish === 0
+      && lcRes.close === 0
+      && lcRes.error === 0,
+      JSON.stringify({ records, lcReq, lcRes }));
+  }
+
+  {
+    const verifySrc = readText('scripts/verify-radar-slice16r-staff-request-completion-log.js');
+    // Assemble markers so this RED block does not contain the search literals.
+    const fence = ['RADAR16R', 'TCP_ABORT', 'GREEN_PROOFS'].join('_');
+    const endNeedle = ['green(', "'listener_duplicate_finish_close_one'"].join('');
+    const start = verifySrc.lastIndexOf(fence);
+    const end = verifySrc.lastIndexOf(endNeedle);
+    const abortGreenSlice = (start >= 0 && end > start)
+      ? verifySrc.slice(start, end)
+      : '';
+    red('abort_greens_require_real_tcp_http',
+      abortGreenSlice.length > 0
+      && /tcpAbortRequest\(/.test(abortGreenSlice)
+      && /net\.connect/.test(verifySrc)
+      && /sock\.destroy/.test(verifySrc)
+      && /req\.aborted|readableAborted/.test(abortGreenSlice)
+      && /createStaffQueryApiHttpServer/.test(verifySrc)
+      && !/new EventEmitter\(/.test(abortGreenSlice),
+      `start=${start} end=${end} len=${abortGreenSlice.length}`);
   }
 
   red('no_duplicate_correlation_middleware',
@@ -1198,63 +1376,141 @@ async function main() {
         && r.duration_ms <= 300000)
       && liveCompletion.bucketDurationMs(300001) === 300000);
 
-    // Client abort: close without finish → client_aborted (real res listeners)
+    // RADAR16R_TCP_ABORT_GREEN_PROOFS — real TCP/HTTP only (EventEmitter aborts insufficient).
+    // Inject a deterministic slow/streaming handler; abort client before completion;
+    // observe Node req.aborted / res.destroyed / !writableEnded; exactly one client_aborted.
     {
-      const abortRecords = [];
-      const { EventEmitter } = require('events');
-      const reqA = new EventEmitter();
-      reqA.method = 'GET';
-      reqA.url = '/healthz';
-      reqA.headers = { 'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000001' };
-      const resA = new EventEmitter();
-      resA.statusCode = 200;
-      resA.setHeader = () => {};
-      await corr.runWithRequestCorrelation(reqA, resA, async () => {
-        completion.attachStaffApiRequestCompletion(reqA, resA, {
-          startedAtMs: Date.now() - 25,
-          trustedTenantSlug: 'wolfhouse-somo',
-          rawUrl: '/healthz',
-          logger: (r) => abortRecords.push(r),
+      mark = consoleCalls.length;
+      const idAbort = 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000001';
+      const observed = {
+        abortedEvent: false,
+        atClose: null,
+      };
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        req.on('aborted', () => {
+          observed.abortedEvent = true;
         });
-        // Simulate client disconnect: close without finish.
-        resA.emit('close');
+        res.on('close', () => {
+          observed.atClose = {
+            req_aborted: req.aborted === true,
+            req_readableAborted: req.readableAborted === true,
+            res_destroyed: res.destroyed === true,
+            writableEnded: res.writableEnded === true,
+          };
+        });
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.write('partial-');
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          req.on('aborted', () => { clearTimeout(t); resolve(); });
+        });
       });
+      await tcpAbortRequest(port, { requestId: idAbort, destroyAfterMs: 40 });
+      let abortRecords = takeRecordsSince(mark);
+      for (let i = 0; i < 40 && abortRecords.length < 1; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(25);
+        abortRecords = takeRecordsSince(mark);
+      }
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      const atClose = observed.atClose || {};
       green('listener_client_aborted_outcome',
         abortRecords.length === 1
         && abortRecords[0].outcome === 'client_aborted'
-        && abortRecords[0].request_id === 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000001'
-        && completion.assertSafeRequestCompletedRecord(abortRecords[0]).ok,
-        JSON.stringify(abortRecords));
+        && abortRecords[0].request_id === idAbort
+        && observed.abortedEvent === true
+        && atClose.req_aborted === true
+        && atClose.res_destroyed === true
+        && atClose.writableEnded === false
+        && liveCompletion.assertSafeRequestCompletedRecord(abortRecords[0]).ok,
+        JSON.stringify({ n: abortRecords.length, rec: abortRecords[0], observed }));
     }
 
-    // Streaming abort: wrote body then close without finish → client_aborted
+    // Partial streaming then client socket destroy → client_aborted (exactly one)
     {
-      const streamRecords = [];
-      const { EventEmitter } = require('events');
-      const reqS = new EventEmitter();
-      reqS.method = 'GET';
-      reqS.url = '/healthz';
-      reqS.headers = { 'x-request-id': 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000002' };
-      const resS = new EventEmitter();
-      resS.statusCode = 200;
-      resS.setHeader = () => {};
-      resS.writableEnded = false;
-      await corr.runWithRequestCorrelation(reqS, resS, async () => {
-        completion.attachStaffApiRequestCompletion(reqS, resS, {
-          startedAtMs: Date.now() - 40,
-          trustedTenantSlug: 'wolfhouse-somo',
-          rawUrl: '/healthz',
-          logger: (r) => streamRecords.push(r),
+      mark = consoleCalls.length;
+      const idStream = 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000002';
+      const streamObs = { abortedEvent: false, wrote: false, atClose: null };
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        req.on('aborted', () => { streamObs.abortedEvent = true; });
+        res.on('close', () => {
+          streamObs.atClose = {
+            req_aborted: req.aborted === true,
+            res_destroyed: res.destroyed === true,
+            writableEnded: res.writableEnded === true,
+          };
         });
-        // Partial write then peer reset (no finish).
-        resS.emit('close');
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.write('stream-chunk-1-');
+        streamObs.wrote = true;
+        await new Promise((resolve) => {
+          const t = setTimeout(resolve, 8000);
+          req.on('aborted', () => { clearTimeout(t); resolve(); });
+        });
       });
+      await tcpAbortRequest(port, { requestId: idStream, destroyAfterMs: 60 });
+      let streamRecords = takeRecordsSince(mark);
+      for (let i = 0; i < 40 && streamRecords.length < 1; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(25);
+        streamRecords = takeRecordsSince(mark);
+      }
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      const atClose = streamObs.atClose || {};
       green('listener_streaming_abort',
         streamRecords.length === 1
         && streamRecords[0].outcome === 'client_aborted'
-        && streamRecords[0].request_id === 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000002'
-        && completion.assertSafeRequestCompletedRecord(streamRecords[0]).ok,
-        JSON.stringify(streamRecords));
+        && streamRecords[0].request_id === idStream
+        && streamObs.wrote === true
+        && streamObs.abortedEvent === true
+        && atClose.req_aborted === true
+        && atClose.res_destroyed === true
+        && atClose.writableEnded === false
+        && liveCompletion.assertSafeRequestCompletedRecord(streamRecords[0]).ok,
+        JSON.stringify({ n: streamRecords.length, rec: streamRecords[0], streamObs }));
+    }
+
+    // Real TCP abort race (aborted+close+error naturally) → one record + listener cleanup.
+    // Handler must not attach extra lifecycle listeners so cleanup proof is honest.
+    {
+      mark = consoleCalls.length;
+      const idRace = 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000004';
+      let raceReq = null;
+      let raceRes = null;
+      api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+        raceReq = req;
+        raceRes = res;
+        res.writeHead(200, { 'Content-Type': 'text/plain' });
+        res.write('race-partial-');
+        await sleep(500);
+      });
+      await tcpAbortRequest(port, { requestId: idRace, destroyAfterMs: 35 });
+      let raceRecords = takeRecordsSince(mark);
+      for (let i = 0; i < 40 && raceRecords.length < 1; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await sleep(25);
+        raceRecords = takeRecordsSince(mark);
+      }
+      // Allow settle cleanup to run before counting listeners.
+      await sleep(50);
+      api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+      const lcReq = raceReq ? corr.countLifecycleListeners(raceReq) : null;
+      const lcRes = raceRes ? corr.countLifecycleListeners(raceRes) : null;
+      green('listener_abort_race_exactly_one',
+        raceRecords.length === 1
+        && raceRecords[0].outcome === 'client_aborted'
+        && raceRecords[0].request_id === idRace
+        && lcReq
+        && lcRes
+        && lcReq.aborted === 0
+        && lcReq.error === 0
+        && lcRes.close === 0
+        && lcRes.error === 0
+        // Node may retain an internal bound resOnFinish; completion's finish listener must be gone
+        // (close/error already 0 proves settle cleanup ran; finish count must not grow past Node's).
+        && lcRes.finish <= 1
+        && liveCompletion.assertSafeRequestCompletedRecord(raceRecords[0]).ok,
+        JSON.stringify({ n: raceRecords.length, rec: raceRecords[0], lcReq, lcRes }));
     }
 
     // Real HTTP finish+close path already proven by 2xx — reaffirm exactly one
@@ -1262,7 +1518,7 @@ async function main() {
       rec2xx.length === 1
       && rec2xx[0].outcome === 'completed');
 
-    // Response error settlement → server_error
+    // Response error settlement → server_error (unit supplement; no client abort bits)
     {
       const errRecords = [];
       const idErr = 'aaaaaaaa-bbbb-4ccc-8ddd-ab0700000003';
@@ -1271,6 +1527,7 @@ async function main() {
       reqE.method = 'GET';
       reqE.url = '/healthz';
       reqE.headers = { 'x-request-id': idErr };
+      reqE.aborted = false;
       const resE = new EventEmitter();
       resE.statusCode = 500;
       resE.setHeader = () => {};
@@ -1432,6 +1689,7 @@ async function main() {
         && afterSettle.finish === 0
         && afterSettle.close === 0
         && afterSettle.error === 0
+        && afterSettle.aborted === 0
         && afterProc.SIGTERM === beforeProc.SIGTERM
         && afterProc.SIGINT === beforeProc.SIGINT
         && afterProc.beforeExit === beforeProc.beforeExit

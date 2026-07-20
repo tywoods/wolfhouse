@@ -4,9 +4,9 @@
  * Staff API request completion log (RADAR 16R) — one record per HTTP request.
  *
  * Extends 16J ALS correlation (getRequestContext / request id) without duplicating
- * middleware. Attaches finish/close/error settlement listeners and emits exactly
- * one allowlisted JSON record via the existing console/process stdout logger.
- * Listeners are removed on settle so lifecycle listener counts do not grow.
+ * middleware. Attaches finish/close/error/aborted settlement listeners and emits
+ * exactly one allowlisted JSON record via the existing console/process stdout
+ * logger. Listeners are removed on settle so lifecycle listener counts do not grow.
  *
  * Route field is fail-closed / low-cardinality: only immutable allowlisted static
  * vocabulary (verified from router) plus exact placeholders `:id` / `:redacted`
@@ -15,6 +15,16 @@
  * cuts a segment, percent sequence, UTF-8 character, or placeholder.
  *
  * Outcomes: completed | client_aborted | server_error.
+ *
+ * Outcome semantics (settlement):
+ * - completed — ServerResponse 'finish' (application completed the response),
+ *   including intentional application-written 5xx. Not a transport failure.
+ * - client_aborted — IncomingMessage 'aborted' and/or req.aborted/readableAborted
+ *   snapshot, or premature 'close' without 'finish' after peer abort. Peer abort
+ *   wins even when res.destroyed===true and writableEnded===false (Node's normal
+ *   premature-close shape) and even when abort also sets req.errored.
+ * - server_error — req/res transport 'error' without client-abort evidence.
+ *
  * Never logs headers/query/body/cookies/auth/IP/UA/PII/Stripe/secrets/DB errors
  * or exception text/stack. Logger failure never alters HTTP behavior or recurses.
  *
@@ -646,8 +656,25 @@ function emitStaffApiRequestCompleted(fields) {
 }
 
 /**
- * Attach finish/close/error settlement listeners. Emits exactly once, then removes
- * listeners so counts do not grow across requests. Must be called inside 16J ALS.
+ * True when IncomingMessage shows peer abort (event flag or Node abort bits).
+ * @param {import('http').IncomingMessage|null|undefined} req
+ * @param {boolean} sawClientAbort
+ * @returns {boolean}
+ */
+function snapshotClientAborted(req, sawClientAbort) {
+  if (sawClientAbort) return true;
+  if (!req) return false;
+  return req.aborted === true || req.readableAborted === true;
+}
+
+/**
+ * Attach finish/close/error/aborted settlement listeners. Emits exactly once, then
+ * removes listeners so counts do not grow across requests. Must be called inside
+ * 16J ALS.
+ *
+ * Listens to IncomingMessage 'aborted' and snapshots req.aborted/readableAborted
+ * so premature ServerResponse 'close' after peer abort settles as client_aborted
+ * even when res.destroyed===true and writableEnded===false.
  *
  * @param {import('http').IncomingMessage} req
  * @param {import('http').ServerResponse} res
@@ -679,6 +706,7 @@ function attachStaffApiRequestCompletion(req, res, opts = {}) {
 
   let settled = false;
   let sawFinish = false;
+  let sawClientAbort = false;
   let sawServerError = false;
 
   function cleanup() {
@@ -686,6 +714,7 @@ function attachStaffApiRequestCompletion(req, res, opts = {}) {
     try { if (res && typeof res.removeListener === 'function') res.removeListener('close', onClose); } catch (_) {}
     try { if (res && typeof res.removeListener === 'function') res.removeListener('error', onResError); } catch (_) {}
     try { if (req && typeof req.removeListener === 'function') req.removeListener('error', onReqError); } catch (_) {}
+    try { if (req && typeof req.removeListener === 'function') req.removeListener('aborted', onAborted); } catch (_) {}
   }
 
   function settle(outcome) {
@@ -708,33 +737,52 @@ function attachStaffApiRequestCompletion(req, res, opts = {}) {
     });
   }
 
+  function prematureOutcome() {
+    // Peer abort takes priority over destroyed/!writableEnded/errored side-effects.
+    if (snapshotClientAborted(req, sawClientAbort)) {
+      return OUTCOME_CLIENT_ABORTED;
+    }
+    if (sawServerError || (res && res.errored) || (req && req.errored)) {
+      return OUTCOME_SERVER_ERROR;
+    }
+    // Premature close without finish and without transport error → client abort.
+    return OUTCOME_CLIENT_ABORTED;
+  }
+
+  function onAborted() {
+    sawClientAbort = true;
+  }
+
   function onFinish() {
     sawFinish = true;
-    settle(sawServerError ? OUTCOME_SERVER_ERROR : OUTCOME_COMPLETED);
+    // Application-completed responses (incl. intentional 5xx) remain completed.
+    settle(OUTCOME_COMPLETED);
   }
 
   function onClose() {
     if (sawFinish) {
-      settle(sawServerError ? OUTCOME_SERVER_ERROR : OUTCOME_COMPLETED);
+      settle(OUTCOME_COMPLETED);
       return;
     }
-    const errored = !!(sawServerError
-      || (res && res.errored)
-      || (req && req.errored)
-      || (res && res.writableEnded === false && res.destroyed));
-    if (errored) {
-      settle(OUTCOME_SERVER_ERROR);
-      return;
-    }
-    settle(OUTCOME_CLIENT_ABORTED);
+    settle(prematureOutcome());
   }
 
   function onResError() {
+    if (snapshotClientAborted(req, sawClientAbort)) {
+      settle(OUTCOME_CLIENT_ABORTED);
+      return;
+    }
     sawServerError = true;
     settle(OUTCOME_SERVER_ERROR);
   }
 
   function onReqError() {
+    // Client abort often surfaces as req 'error' with aborted/ECONNRESET after
+    // 'aborted' (req.aborted already true). Prefer client_aborted in that case.
+    if (snapshotClientAborted(req, sawClientAbort)) {
+      settle(OUTCOME_CLIENT_ABORTED);
+      return;
+    }
     sawServerError = true;
     settle(OUTCOME_SERVER_ERROR);
   }
@@ -746,6 +794,7 @@ function attachStaffApiRequestCompletion(req, res, opts = {}) {
       res.on('error', onResError);
     }
     if (req && typeof req.on === 'function') {
+      req.on('aborted', onAborted);
       req.on('error', onReqError);
     }
   } catch (_) {
@@ -882,6 +931,7 @@ module.exports = {
   normalizeCompletionRoute,
   buildRequestCompletedRecord,
   emitStaffApiRequestCompleted,
+  snapshotClientAborted,
   attachStaffApiRequestCompletion,
   setCompletionLogger,
   defaultCompletionLogger,

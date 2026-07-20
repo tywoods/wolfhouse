@@ -46851,8 +46851,9 @@ function createStaffQueryApiHttpServer(options) {
   __staffQueryApiCreateServerCalls += 1;
   // RADAR 16J — correlate every request at the HTTP boundary (ALS; no handler signature change).
   // Trusted tenant slug from construction-time ingress binding only (never request headers/query).
-  // RADAR 16R — extend 16J context with exactly-one finish/close/error completion record
-  // (no duplicate correlation middleware; listeners removed on settle — no growth).
+  // RADAR 16R — extend 16J context with exactly-one finish/close/error/aborted
+  // completion record (no duplicate correlation middleware; listeners removed on
+  // settle — no growth). Client abort wins over destroyed/!writableEnded.
   const ingressBinding = resolveTrustedIngressBinding(options && options.ingressBinding);
   const completionLogger = options && typeof options.completionLogger === 'function'
     ? options.completionLogger

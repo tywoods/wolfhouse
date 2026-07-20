@@ -36,6 +36,16 @@ Add **one bounded Staff API request-completion record per real HTTP request** (s
 | `duration_ms` | integer; ceil to 5ms; cap 300000 |
 | `outcome` | `completed` \| `client_aborted` \| `server_error` |
 
+### Outcome semantics
+
+| Outcome | When |
+|---------|------|
+| `completed` | ServerResponse `finish` — application completed the response, **including intentional application-written 5xx**. Not a transport failure. |
+| `client_aborted` | IncomingMessage `aborted` and/or `req.aborted`/`readableAborted` snapshot, or premature `close` without `finish` after peer abort. **Wins** even when `res.destroyed===true` and `writableEnded===false` (Node’s normal premature-close shape) and even when abort also sets `req.errored`. |
+| `server_error` | req/res transport `error` **without** client-abort evidence. |
+
+GREEN abort proofs use real TCP/HTTP (`net.connect` + client `socket.destroy`) against `createStaffQueryApiHttpServer` with an injected slow/streaming handler. EventEmitter-only abort simulations are unit supplements only — not sufficient for GREEN.
+
 ## Exclusions (never logged)
 
 URL query, raw URL, headers, body, guest/customer/name/phone/email, auth/cookie/token/key, IP/UA, Stripe signature/payload/secrets, stack/error text, DB errors, exception text, response body.
