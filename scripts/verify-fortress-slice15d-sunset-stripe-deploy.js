@@ -25,9 +25,12 @@ const {
   IMAGE_DIGEST,
   DEPLOY_SEQUENCE_15D,
   FORBIDDEN_MUTATION_SURFACE,
+  PROHIBITED_PRODUCTION_SCOPE_QUERIES,
+  INSTRUCTION_DEVIATION_15D,
   sha256Hex,
   evaluatePostDeployInventory,
   evaluateCostDeltaVs15c,
+  evaluateProductionQueryDisclosure,
   assertBicepDeclaresWebhookSlug,
   fixturePaths,
 } = require('./lib/fortress-slice15d-sunset-stripe-deploy');
@@ -91,11 +94,18 @@ const inventoryHash = sha256Hex(inventoryRaw);
 ok('F6 contract slice', contract.slice === 'FORTRESS-15D');
 ok('F7 outcome id', contract.outcome_id === '15D_sunset_staging_staff_api_sha_rollout');
 ok('F8 master_basis exact', contract.master_basis === MASTER_BASIS);
-ok('F9 wolfhouse prod untouched',
-  contract.wolfhouse_production_queried === false
+const prodDisclosure = evaluateProductionQueryDisclosure({
+  contract, evidence, inventory, findings,
+});
+ok('F9 production query boundary disclosed (403 probes are queries)',
+  prodDisclosure.ok
+  && contract.wolfhouse_production_queried === true
+  && evidence.wolfhouse_production_queried === true
+  && inventory.wolfhouse_production_queried === true
   && contract.wolfhouse_production_modified === false
-  && inventory.wolfhouse_production_queried === false
-  && inventory.wolfhouse_production_modified === false);
+  && evidence.wolfhouse_production_modified === false
+  && inventory.wolfhouse_production_modified === false,
+  JSON.stringify(prodDisclosure.failures));
 ok('F10 zero DB/Stripe/secrets/RBAC/network mutation',
   contract.database_mutated === false
   && contract.stripe_account_mutated === false
@@ -241,6 +251,38 @@ green('cost_delta_documented',
   const leaks = scanSecretFreeText(`${inventoryRaw}\n${synthetic}\n`);
   red('secret_leakage_in_inventory', leaks.includes('sk_live'));
 }
+{
+  const badContract = clone(contract);
+  badContract.wolfhouse_production_queried = false;
+  const r = evaluateProductionQueryDisclosure({
+    contract: badContract,
+    evidence,
+    inventory,
+    findings,
+  });
+  red('false_no_query_claim_with_prod_probes',
+    !r.ok && r.failures.some((f) => f.code === 'false_no_query_claim_with_prod_probes'));
+}
+{
+  const badEvidence = clone(evidence);
+  badEvidence.prohibited_production_scope_queries = [];
+  const r = evaluateProductionQueryDisclosure({
+    contract,
+    evidence: badEvidence,
+    inventory,
+    findings,
+  });
+  red('missing_production_query_disclosure',
+    !r.ok && r.failures.some((f) => f.code === 'missing_production_query_disclosure'));
+}
+
+green('production_query_disclosure_complete',
+  prodDisclosure.ok
+  && PROHIBITED_PRODUCTION_SCOPE_QUERIES.length === 2
+  && evidence.scope_fail_closed_probes['wh-prod-rg'] === 403
+  && evidence.scope_fail_closed_probes['wolfhouse-prod-rg'] === 403
+  && contract.boundaryCompliance.noProductionQueryBoundaryPassed === false
+  && contract.boundaryCompliance.instructionDeviation === INSTRUCTION_DEVIATION_15D);
 
 ok('C1 findings cite master SHA', findings.includes(MASTER_BASIS));
 ok('C2 findings cite active revision', findings.includes(ACTIVE_REVISION));
@@ -254,6 +296,13 @@ ok('C5 verifier offline (no https/child_process)',
   && !/spawnSync\s*\(/.test(fs.readFileSync(__filename, 'utf8')));
 ok('C6 forbidden surfaces listed',
   FORBIDDEN_MUTATION_SURFACE.every((s) => contract.forbidden_surfaces.includes(s)));
+ok('C7 findings disclose instructionDeviation / 403 prod probes',
+  /instructionDeviation/i.test(findings)
+  && findings.includes('wh-prod-rg')
+  && findings.includes('wolfhouse-prod-rg')
+  && findings.includes('403')
+  && !/\*\*Wolfhouse production:\*\*[^\n]*not queried/i.test(findings)
+  && !/prod untouched/i.test(findings));
 
 console.log(`\n${pass} passed, ${fail} failed (RED ${redResults.length}, GREEN ${greenResults.length})`);
 if (fail) process.exit(1);
