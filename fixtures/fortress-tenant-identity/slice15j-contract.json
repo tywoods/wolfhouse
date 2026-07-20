@@ -18,7 +18,7 @@
       "id": "staff_payment_create_stripe_link",
       "symbol": "handlePaymentCreateStripeLink",
       "path": "POST /staff/payments/:payment_id/create-stripe-link",
-      "control": "gateStaffPaymentUuidCallbackTenantAcl → assertStaffClientAccess before createPaymentLink"
+      "control": "gateStaffPaymentUuidCallbackTenantAcl → assertStaffClientAccess (silent) → uniform 404 or createPaymentLink"
     },
     {
       "id": "bot_payment_create_stripe_link",
@@ -30,7 +30,7 @@
       "id": "staff_service_records_payment_link",
       "symbol": "handleBookingServiceRecordsCreatePaymentLink",
       "path": "POST /staff/bookings/:booking_id/service-records/create-payment-link",
-      "control": "gateStaffBookingUuidCallbackTenantAcl → assertStaffClientAccess before payment INSERT/Stripe"
+      "control": "gateStaffBookingUuidCallbackTenantAcl → assertStaffClientAccess (silent) → uniform 404 or payment INSERT/Stripe"
     }
   ],
   "out_of_scope": [

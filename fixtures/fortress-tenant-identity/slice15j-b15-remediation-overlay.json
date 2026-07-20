@@ -23,10 +23,10 @@
       "scripts/lib/staff-bot-v2-routes.js"
     ],
     "controls": [
-      "staff payment UUID: read-only payment.client_slug lookup then assertStaffClientAccess before Stripe SDK / createPaymentLink",
+      "staff payment UUID: read-only payment.client_slug lookup then assertStaffClientAccess (canonical ACL, silent sink) before Stripe SDK / createPaymentLink; foreign deny normalized to same uniform 404 as nonexistent UUID",
       "bot payment UUID: require nonempty boundClientSlug; SELECT payment AND cl.slug = boundClientSlug; 403 if unbound; 404 uniform miss on cross-tenant; trustedClientSlug = bound",
-      "staff service-records booking UUID: read-only booking.client_slug then assertStaffClientAccess before payment INSERT / Stripe (replaces weak user.client_id equality; preserves secondary-client staff ACL)",
-      "fail closed without disclosing foreign object payment/booking details beyond canonical client_access_denied / uniform 404",
+      "staff service-records booking UUID: read-only booking.client_slug then assertStaffClientAccess (silent) before payment INSERT / Stripe; foreign deny ≡ nonexistent 404 (preserves secondary-client staff ACL)",
+      "fail closed with no foreign client_slug / amount / booking / checkout disclosure on staff deny paths",
       "guest short links, B13 webhook lookup, B14 locked-payment identity unchanged"
     ]
   },

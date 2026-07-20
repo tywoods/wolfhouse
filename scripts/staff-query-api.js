@@ -14228,6 +14228,8 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
 
   // ── 3. Resolve object tenant (read-only) + staff ACL before Stripe/mutation ─
   // FORTRESS 15J / B15: never trust path-UUID object slug alone as trustedClientSlug.
+  // Foreign ACL deny is normalized to the same 404 as a nonexistent UUID (no
+  // client_slug / amount / booking / checkout disclosure).
   const tenantGate = await gateStaffPaymentUuidCallbackTenantAcl({
     paymentId,
     user,
@@ -14238,12 +14240,8 @@ async function handlePaymentCreateStripeLink(paymentId, req, res, user) {
   if (tenantGate.error) {
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + tenantGate.error.message });
   }
-  if (tenantGate.not_found) {
-    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
-  }
   if (!tenantGate.ok) {
-    // assertStaffClientAccess already sent 403 client_access_denied
-    return;
+    return sendJSON(res, 404, { success: false, error: 'Payment record not found.' });
   }
   const clientSlug = tenantGate.clientSlug;
 
@@ -14425,6 +14423,7 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
 
   // FORTRESS 15J / B15: read-only booking tenant + assertStaffClientAccess before
   // any payment INSERT / Stripe session (replaces weak primary-client-id equality).
+  // Foreign ACL deny → same uniform 404 as nonexistent booking UUID.
   const bookingGate = await gateStaffBookingUuidCallbackTenantAcl({
     bookingId,
     user,
@@ -14442,12 +14441,8 @@ async function handleBookingServiceRecordsCreatePaymentLink(bookingId, req, res,
     }
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + bookingGate.error.message });
   }
-  if (bookingGate.not_found) {
-    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
-  }
   if (!bookingGate.ok) {
-    // assertStaffClientAccess already sent 403 client_access_denied
-    return;
+    return sendJSON(res, 404, { success: false, error: 'Booking not found.' });
   }
   const booking = bookingGate.booking;
 

@@ -7,7 +7,7 @@
 
 ## Outcome
 
-Bind the three path-UUID payment-link callbacks to staff ACL or bot-principal tenant **before** any Stripe session create or payment/DB mutation. Object tenant comes from a read-only lookup; trusted tenant requires canonical `assertStaffClientAccess` (staff) or nonempty `boundClientSlug` match (bot). Fail closed without disclosing foreign object details beyond canonical deny / uniform miss.
+Bind the three path-UUID payment-link callbacks to staff ACL or bot-principal tenant **before** any Stripe session create or payment/DB mutation. Object tenant comes from a read-only lookup; trusted tenant requires canonical `assertStaffClientAccess` (staff) or nonempty `boundClientSlug` match (bot). Staff foreign-object denials are **indistinguishable** from nonexistent UUIDs: same uniform 404 body (no `client_slug`, existence oracle, amount, booking, or checkout detail). Canonical ACL still runs internally; its 403 body is swallowed before the HTTP response.
 
 ## Historical artifacts unchanged
 
@@ -19,9 +19,9 @@ Bind the three path-UUID payment-link callbacks to staff ACL or bot-principal te
 
 | Handler | Route | Control |
 |---------|-------|---------|
-| `handlePaymentCreateStripeLink` | `POST /staff/payments/:payment_id/create-stripe-link` | `gateStaffPaymentUuidCallbackTenantAcl` → `assertStaffClientAccess` before `createPaymentLink` |
+| `handlePaymentCreateStripeLink` | `POST /staff/payments/:payment_id/create-stripe-link` | `gateStaffPaymentUuidCallbackTenantAcl` → `assertStaffClientAccess` (silent) → uniform 404 or `createPaymentLink` |
 | `handleBotPaymentCreateStripeLink` | `POST /staff/bot/payments/:payment_id/create-stripe-link` | `gateBotPaymentUuidCallbackTenantAcl` (bound slug + scoped SELECT) before `createPaymentLink` |
-| `handleBookingServiceRecordsCreatePaymentLink` | `POST /staff/bookings/:booking_id/service-records/create-payment-link` | `gateStaffBookingUuidCallbackTenantAcl` → `assertStaffClientAccess` before payment INSERT/Stripe |
+| `handleBookingServiceRecordsCreatePaymentLink` | `POST /staff/bookings/:booking_id/service-records/create-payment-link` | `gateStaffBookingUuidCallbackTenantAcl` → `assertStaffClientAccess` (silent) → uniform 404 or payment INSERT/Stripe |
 
 ## Preserved
 
@@ -29,9 +29,10 @@ Bind the three path-UUID payment-link callbacks to staff ACL or bot-principal te
 - Same-tenant bot access when `boundClientSlug` matches
 - Existing success/idempotent response shapes after ACL allow
 - Open-mode staff (`STAFF_AUTH_REQUIRED=false`) still skips ACL deny inside `assertStaffClientAccess`
+- Bot unbound principal still 403 `client_access_denied` (no object probe)
 
 ## Residual risk
 
 - Other booking/hold/payment callbacks outside these three routes were inventoried by 15I as mixed/slug-scoped and remain out of scope
-- `assertStaffClientAccess` 403 body may include `client_slug` (canonical staff ACL semantics elsewhere) — does not return foreign payment/booking fields
+- Staff uniform 404 on cross-tenant UUID does not distinguish missing vs wrong-tenant (intentional; closes existence oracle)
 - Bot uniform 404 on cross-tenant UUID does not distinguish missing vs wrong-tenant (intentional)

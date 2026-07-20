@@ -6,10 +6,36 @@
  *
  * Read-only object-tenant lookup → principal compare → fail closed.
  * Never derive trusted tenant solely from the object row without ACL/principal match.
+ *
+ * Staff foreign-object deny is normalized to the same uniform 404 shape as a
+ * nonexistent UUID (no client_slug / existence / amount / booking / checkout
+ * disclosure). Canonical assertStaffClientAccess still runs internally; its
+ * 403 body is swallowed so the HTTP response stays indistinguishable.
  */
 
 function trimSlug(v) {
   return String(v == null ? '' : v).trim();
+}
+
+/** Uniform staff/bot payment miss body (foreign deny ≡ nonexistent). */
+const UNIFORM_PAYMENT_NOT_FOUND_BODY = Object.freeze({
+  success: false,
+  error: 'Payment record not found.',
+});
+
+/** Uniform staff booking miss body (foreign deny ≡ nonexistent). */
+const UNIFORM_BOOKING_NOT_FOUND_BODY = Object.freeze({
+  success: false,
+  error: 'Booking not found.',
+});
+
+/** Sink res so assertStaffClientAccess can run without writing a distinguishable 403. */
+function makeSilentAclRes() {
+  return {
+    writeHead() {},
+    setHeader() {},
+    end() {},
+  };
 }
 
 /** Read-only payment tenant lookup (global by payment UUID). */
@@ -43,7 +69,7 @@ SELECT b.id AS booking_id, b.booking_code, b.guest_name, b.client_id,
 
 /**
  * Staff: resolve payment object tenant (read-only), then assertStaffClientAccess
- * before any mutation. Returns { ok, clientSlug } or { ok:false, denied|not_found }.
+ * before any mutation. Denied foreign objects collapse to not_found (no slug leak).
  */
 async function gateStaffPaymentUuidCallbackTenantAcl({
   paymentId,
@@ -65,8 +91,10 @@ async function gateStaffPaymentUuidCallbackTenantAcl({
     return { ok: false, not_found: true };
   }
   const clientSlug = trimSlug(row.client_slug);
-  if (!assertStaffClientAccess(user, clientSlug, res)) {
-    return { ok: false, denied: true, clientSlug };
+  // Canonical ACL (may attempt 403+client_slug on sink). Never expose that body.
+  const aclRes = res && res.__allowAclDenyBody ? res : makeSilentAclRes();
+  if (!assertStaffClientAccess(user, clientSlug, aclRes)) {
+    return { ok: false, not_found: true };
   }
   return { ok: true, clientSlug };
 }
@@ -103,7 +131,7 @@ async function gateBotPaymentUuidCallbackTenantAcl({
 /**
  * Staff service-records: resolve booking object tenant (read-only), then
  * assertStaffClientAccess (canonical ACL — preserves secondary-client staff).
- * Replaces weak user.client_id equality.
+ * Foreign deny → not_found (no booking/slug disclosure on the wire).
  */
 async function gateStaffBookingUuidCallbackTenantAcl({
   bookingId,
@@ -125,8 +153,9 @@ async function gateStaffBookingUuidCallbackTenantAcl({
     return { ok: false, not_found: true };
   }
   const clientSlug = trimSlug(row.client_slug);
-  if (!assertStaffClientAccess(user, clientSlug, res)) {
-    return { ok: false, denied: true, clientSlug, booking: row };
+  const aclRes = res && res.__allowAclDenyBody ? res : makeSilentAclRes();
+  if (!assertStaffClientAccess(user, clientSlug, aclRes)) {
+    return { ok: false, not_found: true };
   }
   return { ok: true, clientSlug, booking: row };
 }
@@ -142,11 +171,7 @@ async function runStaffPaymentUuidCallbackWithTenantAcl(opts) {
       opts.onDbError && opts.onDbError(gate.error);
       return { ...gate, mutated: false };
     }
-    if (gate.not_found) {
-      opts.onNotFound && opts.onNotFound();
-      return { ...gate, mutated: false };
-    }
-    // denied: assertStaffClientAccess already wrote the response
+    opts.onNotFound && opts.onNotFound();
     return { ...gate, mutated: false };
   }
   if (typeof opts.onAuthorizedMutation === 'function') {
@@ -186,10 +211,7 @@ async function runStaffBookingUuidCallbackWithTenantAcl(opts) {
       opts.onDbError && opts.onDbError(gate.error);
       return { ...gate, mutated: false };
     }
-    if (gate.not_found) {
-      opts.onNotFound && opts.onNotFound();
-      return { ...gate, mutated: false };
-    }
+    opts.onNotFound && opts.onNotFound();
     return { ...gate, mutated: false };
   }
   if (typeof opts.onAuthorizedMutation === 'function') {
@@ -201,6 +223,9 @@ async function runStaffBookingUuidCallbackWithTenantAcl(opts) {
 
 module.exports = {
   trimSlug,
+  makeSilentAclRes,
+  UNIFORM_PAYMENT_NOT_FOUND_BODY,
+  UNIFORM_BOOKING_NOT_FOUND_BODY,
   PAYMENT_TENANT_LOOKUP_SQL,
   PAYMENT_TENANT_LOOKUP_BOUND_SQL,
   BOOKING_TENANT_LOOKUP_SQL,

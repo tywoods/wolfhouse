@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "slice": "FORTRESS-15J",
-  "generated_at": "2026-07-20T08:45:00.000Z",
+  "generated_at": "2026-07-20T09:00:00.000Z",
   "master_basis": "6d9f0e99c6c00d9831710c392ec3ac41dcef811b",
   "live_mutation": false,
   "boundary_id": "B15_booking_hold_payment_callbacks",
@@ -12,16 +12,22 @@
     "POST /staff/bot/payments/:payment_id/create-stripe-link",
     "POST /staff/bookings/:booking_id/service-records/create-payment-link"
   ],
+  "proof": {
+    "handler_invocation": "production_http_handlers",
+    "staff_handlers": "compiled from scripts/staff-query-api.js source",
+    "bot_handler": "require scripts/lib/staff-bot-v2-routes.js handleBotPaymentCreateStripeLink",
+    "uniform_404": "staff foreign deny fingerprint === nonexistent UUID fingerprint"
+  },
   "red": {
     "total": 4,
     "passed": 4,
     "cases": [
       {
-        "id": "staff_cross_tenant_payment_uuid_denied_zero_writes",
+        "id": "staff_payment_foreign_and_nonexistent_identical_404_zero_writes",
         "ok": true
       },
       {
-        "id": "bot_cross_tenant_payment_uuid_uniform_miss_zero_writes",
+        "id": "bot_payment_foreign_and_nonexistent_identical_404_zero_writes",
         "ok": true
       },
       {
@@ -29,14 +35,14 @@
         "ok": true
       },
       {
-        "id": "staff_service_records_cross_tenant_booking_denied_before_insert",
+        "id": "staff_service_records_foreign_and_nonexistent_identical_404_zero_writes",
         "ok": true
       }
     ]
   },
   "green": {
-    "total": 8,
-    "passed": 8,
+    "total": 9,
+    "passed": 9,
     "cases": [
       {
         "id": "staff_same_tenant_payment_uuid_authorized",
@@ -69,9 +75,13 @@
       {
         "id": "staff_booking_same_tenant_gate_ok",
         "ok": true
+      },
+      {
+        "id": "staff_gate_deny_collapses_to_not_found_no_slug_leak",
+        "ok": true
       }
     ]
   },
-  "pass": 36,
+  "pass": 38,
   "fail": 0
 }

@@ -818,9 +818,14 @@ async function handleBotPaymentCreateStripeLink(paymentId, req, res, user, authM
     }),
   };
 
+  // Optional ctx.createPaymentLink preserves production default; verifiers may spy.
+  const createPaymentLinkFn = typeof ctx.createPaymentLink === 'function'
+    ? ctx.createPaymentLink
+    : createPaymentLink;
+
   let result;
   try {
-    result = await withPgClient(async (pg) => createPaymentLink(pg, built.command, execOpts));
+    result = await withPgClient(async (pg) => createPaymentLinkFn(pg, built.command, execOpts));
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'payment link creation failed', detail: err.message });
   }
