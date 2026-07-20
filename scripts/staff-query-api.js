@@ -705,6 +705,9 @@ const {
   bookingMetadataPatchForStripePayment,
 } = require('./lib/stripe-webhook-payment-truth');
 const {
+  resolveStripeWebhookExpectedClientSlug,
+} = require('./lib/stripe-webhook-tenant-config');
+const {
   applyStripeBookingPaymentTruthWrites,
   isLockedPaymentValidationError,
 } = require('./lib/stripe-hold-promote-policy');
@@ -885,6 +888,9 @@ function applyBotAddonPaymentLinkFields(target, ctx, checkoutUrl, stripeSessionI
 //   Required unless STRIPE_WEBHOOK_SKIP_VERIFY=true.
 // STRIPE_WEBHOOK_SKIP_VERIFY: ONLY for local/dev fixture testing. Never true in production.
 //   Default false — production always verifies signatures.
+// STRIPE_WEBHOOK_CLIENT_SLUG: authoritative tenant for webhook payment lookup (FORTRESS 15B).
+//   Prefer this over DEFAULT_CLIENT_SLUG. Both set and conflicting → fail closed (no DB write).
+//   Neither set → fail closed (no DB write). Never hardcode tenant; set per deployment.
 const STRIPE_WEBHOOK_SECRET      = process.env.STRIPE_WEBHOOK_SECRET      || null;
 const STRIPE_WEBHOOK_SKIP_VERIFY = process.env.STRIPE_WEBHOOK_SKIP_VERIFY === 'true';
 const STAFF_OPERATOR_TOKEN   = process.env.STAFF_OPERATOR_TOKEN  || '';
@@ -13566,13 +13572,50 @@ async function handleStripeWebhook(req, res) {
   const sessionId      = session.id;
   const metaPaymentId  = session.metadata && session.metadata.payment_id;
 
-  // ── 4. Look up payment + booking from DB (session id is authoritative) ────
-  let pm;
+  // ── 3b. Authoritative deployment tenant (FORTRESS 15B) — before any payment DB ─
+  const tenantBind = resolveStripeWebhookExpectedClientSlug(process.env);
+  if (!tenantBind.ok || !tenantBind.client_slug) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:tenant_unconfigured',
+      category: 'stripe_webhook', event_type: eventType,
+      reason: tenantBind.reason, no_db_write: true,
+    });
+    return sendJSON(res, 503, {
+      success: false,
+      error: 'Stripe webhook tenant not configured',
+      reason: tenantBind.reason,
+      no_db_write: true,
+    });
+  }
+  const expectedClientSlug = tenantBind.client_slug;
+
+  // ── 4. Look up payment + booking from DB (session id authoritative inside tenant) ─
+  let lookup;
   try {
-    pm = await withPgClient(async (pg) => lookupPaymentForStripeSession(pg, session));
+    lookup = await withPgClient(async (pg) => lookupPaymentForStripeSession(pg, session, expectedClientSlug));
   } catch (err) {
     return sendJSON(res, 500, { success: false, error: 'DB fetch failed: ' + err.message });
   }
+
+  if (!lookup || !lookup.ok) {
+    appendAuditLog({
+      ts: new Date().toISOString(), intent: 'webhook:stripe:lookup_rejected',
+      category: 'stripe_webhook', event_type: eventType,
+      session_id: sessionId,
+      reason: (lookup && lookup.reason) || 'lookup_rejected',
+      queried: !!(lookup && lookup.queried),
+      no_db_write: true,
+    });
+    return sendJSON(res, 200, {
+      success: true,
+      ignored: true,
+      reason: (lookup && lookup.reason) || 'lookup_rejected',
+      session_id: sessionId,
+      no_db_write: true,
+    });
+  }
+
+  const pm = lookup.payment;
 
   // No matching payment — log and return 200 (don't error; Stripe retries on non-2xx)
   if (!pm) {
@@ -13580,6 +13623,7 @@ async function handleStripeWebhook(req, res) {
       ts: new Date().toISOString(), intent: 'webhook:stripe:no_match',
       category: 'stripe_webhook', event_type: eventType,
       session_id: sessionId, meta_payment_id: metaPaymentId || null,
+      expected_client_slug: expectedClientSlug,
     });
     return sendJSON(res, 200, {
       success: true, ignored: true,
@@ -13767,7 +13811,7 @@ async function handleStripeWebhook(req, res) {
     return sendJSON(res, 200, addonBody);
   }
 
-  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType);
+  const validationReasons = validateStripeBookingPaymentEvent(pm, session, eventType, expectedClientSlug);
   if (validationReasons.length > 0) {
     appendAuditLog({
       ts: new Date().toISOString(), intent: 'webhook:stripe:validation_failed',

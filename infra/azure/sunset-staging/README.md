@@ -159,6 +159,7 @@ Secrets are **not** created by Bicep. Expected secret **names:** `sunset-databas
 | `STAFF_AUTH_REQUIRED` | `true` |
 | `STAFF_AUTH_HTTPS` | `true` |
 | `STRIPE_WEBHOOK_SKIP_VERIFY` | `false` |
+| `STRIPE_WEBHOOK_CLIENT_SLUG` | **Required for FORTRESS 15B** — set to this deployment’s tenant slug (`sunset`). Prefer over `DEFAULT_CLIENT_SLUG`. If both are set they must match; missing/conflicting → webhook fail-closed (`no_db_write`). Same requirement on Wolfhouse Staff API with its tenant slug. |
 
 ---
 

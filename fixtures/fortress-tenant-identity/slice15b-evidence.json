@@ -1,0 +1,86 @@
+{
+  "schema_version": 1,
+  "slice": "FORTRESS-15B",
+  "generated_at": "2026-07-20T01:15:28.723Z",
+  "master_basis": "8ed81111b9a67a656dee0b7dbd5a46ab91ca125c",
+  "live_mutation": false,
+  "red": {
+    "total": 11,
+    "passed": 11,
+    "cases": [
+      {
+        "id": "missing_runtime_slug",
+        "ok": true
+      },
+      {
+        "id": "conflicting_runtime_slugs",
+        "ok": true
+      },
+      {
+        "id": "caller_omits_slug",
+        "ok": true
+      },
+      {
+        "id": "metadata_fallback_missing_slug",
+        "ok": true
+      },
+      {
+        "id": "metadata_fallback_mismatched_slug",
+        "ok": true
+      },
+      {
+        "id": "other_tenant_uuid",
+        "ok": true
+      },
+      {
+        "id": "same_uuid_wrong_expected_tenant",
+        "ok": true
+      },
+      {
+        "id": "session_id_other_tenant",
+        "ok": true
+      },
+      {
+        "id": "returned_row_client_mismatch",
+        "ok": true
+      },
+      {
+        "id": "no_query_on_rejected_fallback",
+        "ok": true
+      },
+      {
+        "id": "reconcile_omission",
+        "ok": true
+      }
+    ]
+  },
+  "green": {
+    "total": 5,
+    "passed": 5,
+    "cases": [
+      {
+        "id": "session_id_absent_metadata_slug",
+        "ok": true
+      },
+      {
+        "id": "same_tenant_metadata_fallback",
+        "ok": true
+      },
+      {
+        "id": "addon_same_tenant",
+        "ok": true
+      },
+      {
+        "id": "idempotent_same_tenant",
+        "ok": true
+      },
+      {
+        "id": "payment_truth_locked_hold_paths",
+        "ok": true
+      }
+    ]
+  },
+  "pass": 39,
+  "fail": 0,
+  "gates_note": "offline only; zero live Stripe/DB/payment/deploy/guest mutation"
+}

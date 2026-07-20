@@ -46,8 +46,14 @@ if (fs.existsSync(STAFF_API_PATH)) {
   assert('handleStripeWebhook handler', apiSrc.includes('async function handleStripeWebhook('));
   assert('checkout.session.completed supported', apiSrc.includes('STRIPE_BOOKING_PAYMENT_EVENT_TYPES'));
   assert('async_payment_succeeded supported', fs.readFileSync(TRUTH_PATH, 'utf8').includes("'checkout.session.async_payment_succeeded'"));
-  assert('lookupPaymentForStripeSession helper wired', apiSrc.includes('lookupPaymentForStripeSession(pg, session)'));
-  assert('validateStripeBookingPaymentEvent wired', apiSrc.includes('validateStripeBookingPaymentEvent(pm, session, eventType)'));
+  assert('lookupPaymentForStripeSession helper wired',
+    /lookupPaymentForStripeSession\(pg,\s*session,\s*expectedClientSlug\)/.test(apiSrc));
+  assert('validateStripeBookingPaymentEvent wired',
+    /validateStripeBookingPaymentEvent\(pm,\s*session,\s*eventType,\s*expectedClientSlug\)/.test(apiSrc));
+  assert('resolveStripeWebhookExpectedClientSlug wired', apiSrc.includes('resolveStripeWebhookExpectedClientSlug'));
+  assert('STRIPE_WEBHOOK_CLIENT_SLUG documented', apiSrc.includes('STRIPE_WEBHOOK_CLIENT_SLUG'));
+  assert('tenant fail-closed before DB',
+    /resolveStripeWebhookExpectedClientSlug[\s\S]{0,600}no_db_write:\s*true/.test(apiSrc));
   assert('amountDueCents passed to derive',
     apiSrc.includes('amountDueCents: pm.amount_due_cents')
     || fs.readFileSync(path.join(ROOT, 'scripts', 'lib', 'stripe-hold-promote-policy.js'), 'utf8')
@@ -130,32 +136,49 @@ const baseSession = {
   metadata: { payment_id: 'pay-1', client_slug: 'sunset' },
 };
 
-assert('valid Sunset session passes validation', validateStripeBookingPaymentEvent(basePm, baseSession, 'checkout.session.completed').length === 0);
+assert('valid Sunset session passes validation', validateStripeBookingPaymentEvent(basePm, baseSession, 'checkout.session.completed', 'sunset').length === 0);
 assert('wrong tenant rejected', validateStripeBookingPaymentEvent(
   basePm,
   { ...baseSession, metadata: { payment_id: 'pay-1', client_slug: 'wolfhouse-somo' } },
   'checkout.session.completed',
+  'sunset',
 ).includes('stripe_metadata_client_slug_mismatch'));
+assert('expected slug mismatch rejected independently', validateStripeBookingPaymentEvent(
+  basePm,
+  baseSession,
+  'checkout.session.completed',
+  'wolfhouse-somo',
+).includes('payment_client_slug_mismatch'));
 assert('wrong currency rejected', validateStripeBookingPaymentEvent(
   { ...basePm, currency: 'USD' },
   baseSession,
   'checkout.session.completed',
+  'sunset',
 ).includes('payment_currency_not_eur'));
 assert('wrong amount rejected', validateStripeBookingPaymentEvent(
   basePm,
   { ...baseSession, amount_total: 100 },
   'checkout.session.completed',
+  'sunset',
 ).includes('stripe_amount_mismatch'));
 assert('unpaid session rejected', validateStripeBookingPaymentEvent(
   basePm,
   { ...baseSession, payment_status: 'unpaid' },
   'checkout.session.completed',
+  'sunset',
 ).includes('stripe_session_not_paid'));
 assert('already-paid pm skips validation errors', validateStripeBookingPaymentEvent(
   { ...basePm, payment_status: 'paid' },
   { ...baseSession, payment_status: 'unpaid' },
   'checkout.session.completed',
+  'sunset',
 ).length === 0);
+assert('missing expected slug rejected', validateStripeBookingPaymentEvent(
+  basePm,
+  baseSession,
+  'checkout.session.completed',
+  '',
+).includes('expected_client_slug_required'));
 
 const sunsetPaidPatch = bookingMetadataPatchForStripePayment({ client_slug: 'sunset' }, 'paid');
 assert('Sunset stripe paid sets link method', sunsetPaidPatch && sunsetPaidPatch.sunset_payment_method === 'link');
@@ -278,21 +301,59 @@ console.log('\n[7] stripe-webhook-payment-truth.js — payment lookup');
 
 (async () => {
   const rows = [{ payment_id: 'pay-1', stripe_checkout_session_id: 'cs_test_abc', client_slug: 'sunset' }];
+  const queries = [];
   const mockPg = {
     query: async (sql, params) => {
-      if (sql.includes('WHERE p.stripe_checkout_session_id')) {
-        return { rows: params[0] === 'cs_test_abc' ? rows : [] };
+      queries.push({ sql, params });
+      if (sql.includes('WHERE p.stripe_checkout_session_id') && sql.includes('cl.slug = $2')) {
+        return {
+          rows: params[0] === 'cs_test_abc' && params[1] === 'sunset' ? rows : [],
+        };
       }
-      if (sql.includes('WHERE p.id = $1')) {
-        return { rows: params[0] === 'pay-stale' ? [{ payment_id: 'pay-stale', client_slug: 'sunset' }] : [] };
+      if (sql.includes('WHERE p.id = $1') && sql.includes('cl.slug = $2')) {
+        return {
+          rows: params[0] === 'pay-stale' && params[1] === 'sunset'
+            ? [{ payment_id: 'pay-stale', client_slug: 'sunset' }]
+            : [],
+        };
       }
       return { rows: [] };
     },
   };
-  const bySession = await lookupPaymentForStripeSession(mockPg, { id: 'cs_test_abc', metadata: { payment_id: 'pay-stale' } });
-  assert('lookup prefers stripe_checkout_session_id over stale metadata payment_id', bySession && bySession.payment_id === 'pay-1');
-  const byMeta = await lookupPaymentForStripeSession(mockPg, { id: 'cs_unknown', metadata: { payment_id: 'pay-stale' } });
-  assert('lookup falls back to metadata payment_id', byMeta && byMeta.payment_id === 'pay-stale');
+  const bySession = await lookupPaymentForStripeSession(
+    mockPg,
+    { id: 'cs_test_abc', metadata: { payment_id: 'pay-stale' } },
+    'sunset',
+  );
+  assert('lookup prefers stripe_checkout_session_id over stale metadata payment_id',
+    bySession.ok && bySession.payment && bySession.payment.payment_id === 'pay-1');
+  assert('session-id SQL includes tenant slug param',
+    queries[0] && queries[0].params[1] === 'sunset' && /cl\.slug = \$2/.test(queries[0].sql));
+
+  queries.length = 0;
+  const byMeta = await lookupPaymentForStripeSession(
+    mockPg,
+    { id: 'cs_unknown', metadata: { payment_id: 'pay-stale', client_slug: 'sunset' } },
+    'sunset',
+  );
+  assert('lookup falls back to metadata payment_id within tenant',
+    byMeta.ok && byMeta.payment && byMeta.payment.payment_id === 'pay-stale');
+
+  queries.length = 0;
+  const missingMetaSlug = await lookupPaymentForStripeSession(
+    mockPg,
+    { id: 'cs_unknown', metadata: { payment_id: 'pay-stale' } },
+    'sunset',
+  );
+  assert('metadata fallback without client_slug fail-closed no query',
+    missingMetaSlug.ok === false
+    && missingMetaSlug.reason === 'metadata_client_slug_required'
+    && missingMetaSlug.queried === false
+    && queries.every((q) => !/p\.id = \$1::uuid/.test(q.sql)));
+
+  const omitted = await lookupPaymentForStripeSession(mockPg, { id: 'cs_test_abc' }, '');
+  assert('lookup requires expectedClientSlug',
+    omitted.ok === false && omitted.reason === 'expected_client_slug_required' && omitted.queried === false);
 
   console.log(`\nResult: ${pass} passed, ${fail} failed\n`);
   process.exit(fail > 0 ? 1 : 0);

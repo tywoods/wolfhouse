@@ -92,13 +92,35 @@ async function reconcilePaidStripeSession(pg, session, meta) {
   const eventType = meta.eventType || 'checkout.session.completed';
   if (!session || !session.id) return { ok: false, reconciled: false, reason: 'no_session' };
 
-  const pm = await lookupPaymentForStripeSession(pg, session);
+  const expectedClientSlug = typeof meta.expectedClientSlug === 'string'
+    ? meta.expectedClientSlug.trim()
+    : '';
+  if (!expectedClientSlug) {
+    return {
+      ok: false,
+      reconciled: false,
+      reason: 'expected_client_slug_required',
+      no_db_write: true,
+    };
+  }
+
+  const lookup = await lookupPaymentForStripeSession(pg, session, expectedClientSlug);
+  if (!lookup.ok) {
+    return {
+      ok: false,
+      reconciled: false,
+      reason: lookup.reason || 'lookup_rejected',
+      queried: lookup.queried === true,
+      no_db_write: true,
+    };
+  }
+  const pm = lookup.payment;
   if (!pm) return { ok: true, reconciled: false, reason: 'no_matching_payment' };
   if (pm.payment_kind === 'addon_service') {
     return { ok: true, reconciled: false, reason: 'addon_service_skipped', payment_id: pm.payment_id };
   }
 
-  const reasons = validateStripeBookingPaymentEvent(pm, session, eventType);
+  const reasons = validateStripeBookingPaymentEvent(pm, session, eventType, expectedClientSlug);
   if (reasons.length > 0) {
     return { ok: false, reconciled: false, reason: 'validation_failed', reasons, payment_id: pm.payment_id };
   }
@@ -245,6 +267,7 @@ async function reconcilePendingStripePaymentsForDate(pg, stripe, opts) {
       const res = await reconcilePaidStripeSession(pg, session, {
         eventType: 'checkout.session.completed',
         livemode: !!(session && session.livemode),
+        expectedClientSlug: clientSlug,
       });
       if (res.reconciled) reconciled++;
       results.push({ session_id: sid, ...res });
@@ -327,6 +350,7 @@ async function reconcilePendingStripePaymentsForBooking(pg, stripe, opts) {
       const res = await reconcilePaidStripeSession(pg, session, {
         eventType: 'checkout.session.completed',
         livemode: !!(session && session.livemode),
+        expectedClientSlug: clientSlug,
       });
       if (res.reconciled) reconciled += 1;
       results.push({ session_id: sid, payment_id: row.payment_id, ...res });
