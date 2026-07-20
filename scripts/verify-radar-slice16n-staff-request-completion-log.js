@@ -44,6 +44,7 @@ const REQUIRED_RED = [
   'method_allowlist',
   'route_normalization_unit',
   'route_pathname_canaries_unit',
+  'route_adversarial_normalization_unit',
   'logger_throw_swallowed',
   'stale_module_logger_injection_cannot_satisfy_green',
   'no_process_handlers_installed',
@@ -60,6 +61,7 @@ const REQUIRED_GREEN = [
   'listener_canaries_absent',
   'listener_route_pathname_canaries',
   'listener_route_normalization',
+  'listener_route_adversarial_normalization',
   'listener_duration_bounds',
   'listener_logger_throw_http_unchanged',
   'listener_logger_throw_5xx_unchanged',
@@ -382,6 +384,9 @@ async function main() {
     && completion.normalizeCompletionRoute('/healthz') === '/healthz'
     && completion.normalizeCompletionRoute('/readyz') === '/readyz'
     && completion.normalizeCompletionRoute('/nope-16n') === completion.ROUTE_UNMATCHED
+    && completion.normalizeCompletionRoute('') === '/'
+    && completion.normalizeCompletionRoute('/') === '/'
+    && completion.normalizeCompletionRoute('///') === '/'
     && !completion.normalizeCompletionRoute('/a?b=1').includes('?')
     && !completion.normalizeCompletionRoute('/staff/x#frag').includes('#')
     && Object.isFrozen(completion.ROUTE_STATIC_SEGMENT_ALLOWLIST)
@@ -389,7 +394,9 @@ async function main() {
     && completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('healthz')
     && completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('readyz')
     && !completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('wolfhouse-somo')
-    && !completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('details'));
+    && !completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes('details')
+    && !/\[A-Za-z0-9_-\]\{20,\}/.test(libSrc)
+    && !/\[A-Za-z0-9_\-\]\{20,\}/.test(libSrc));
 
   {
     const unitRoutes = PATHNAME_CANARIES.map((c) => completion.normalizeCompletionRoute(c.path));
@@ -399,6 +406,7 @@ async function main() {
         && !route.includes('?')
         && !route.includes('#')
         && !routeHasForbidden(route, c.forbid)
+        && completion.routeSegmentsAreAllowlistedOrPlaceholders(route)
         && completion.assertSafeRequestCompletedRecord({
           event: completion.EVENT_NAME,
           request_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
@@ -414,8 +422,135 @@ async function main() {
       unitOk
       && JSON.stringify(unitRoutes) === JSON.stringify(again)
       && unitRoutes.includes(completion.ROUTE_UNMATCHED)
+      && completion.normalizeCompletionRoute('/staff/radar16n_tok_ABCDEFGHIJKLMNOP')
+        === '/staff/:redacted'
       && unitRoutes.every((r) => r === completion.ROUTE_UNMATCHED || r.startsWith('/staff/')),
       JSON.stringify(PATHNAME_CANARIES.map((c, i) => ({ label: c.label, route: unitRoutes[i] }))));
+  }
+
+  {
+    const longStatic = 'guest-simulator-create-stripe-test-link';
+    const longStaticRoute = completion.normalizeCompletionRoute(`/staff/${longStatic}`);
+    const manySegs = [
+      'staff',
+      'guest-simulator-create-stripe-test-link',
+      'open-demo-whatsapp-inbound-dry-run',
+      'guest-simulator-create-hold-draft',
+      'guest-automation-review-dry-run',
+      'guest-inbound-review-dry-run',
+      'check-guest-automation-gate',
+      'generate-guest-payment-link',
+      'booking-write-eligibility',
+    ];
+    const manyPath = `/${manySegs.join('/')}`;
+    const manyRoute = completion.normalizeCompletionRoute(manyPath);
+    const manySegsOut = manyRoute.split('/').filter(Boolean);
+    const unboundedMany = `/${manySegs.join('/')}`;
+
+    // Exact boundary: 26×staff + pay → length 160 (6*26 + 4 = 160).
+    const exactSegs = [...Array(26).fill('staff'), 'pay'];
+    const exactPath = `/${exactSegs.join('/')}`;
+    const exactNorm = completion.normalizeCompletionRoute(exactPath);
+    const overPath = `${exactPath}/bot`;
+    const overOne = completion.normalizeCompletionRoute(overPath);
+
+    const multibyte = completion.normalizeCompletionRoute('/staff/%E6%97%A5%E6%9C%AC%E8%AA%9E');
+    const encodedName = completion.normalizeCompletionRoute('/staff/Alice%20Example');
+    const malformed = completion.normalizeCompletionRoute('/staff/bad%ZZtoken');
+    const whCode = completion.normalizeCompletionRoute('/pay/WH-260528-1493');
+    const uuidRoute = completion.normalizeCompletionRoute(
+      '/staff/bookings/aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+    );
+    const longToken = completion.normalizeCompletionRoute('/staff/radar16n_tok_ABCDEFGHIJKLMNOP');
+
+    const adversarialSamples = [
+      longStaticRoute,
+      manyRoute,
+      exactNorm,
+      overOne,
+      multibyte,
+      encodedName,
+      malformed,
+      whCode,
+      uuidRoute,
+      longToken,
+      completion.normalizeCompletionRoute(''),
+      completion.normalizeCompletionRoute('/'),
+    ];
+
+    const allLegal = adversarialSamples.every((r) =>
+      completion.routeSegmentsAreAllowlistedOrPlaceholders(r)
+      && completion.assertSafeRequestCompletedRecord({
+        event: completion.EVENT_NAME,
+        request_id: 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee',
+        method: 'GET',
+        route: r,
+        status_code: 200,
+        duration_ms: 5,
+      }).ok);
+
+    const noPartialCuts = adversarialSamples.every((r) => {
+      if (r === '/' || r === completion.ROUTE_UNMATCHED) return true;
+      const segs = r.split('/').filter(Boolean);
+      return segs.every((seg) => (
+        seg === completion.ROUTE_ID_PLACEHOLDER
+        || seg === completion.ROUTE_REDACTED_PLACEHOLDER
+        || seg === completion.ROUTE_TRUNCATED_PLACEHOLDER
+        || completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes(seg)
+      ));
+    });
+
+    // many-route must be a full-segment prefix of unbounded, optionally + :truncated
+    const manyPrefixOk = (() => {
+      const out = manySegsOut.filter((s) => s !== completion.ROUTE_TRUNCATED_PLACEHOLDER);
+      const prefix = `/${out.join('/')}`;
+      return unboundedMany === prefix || unboundedMany.startsWith(`${prefix}/`);
+    })();
+
+    red('route_adversarial_normalization_unit',
+      exactPath.length === completion.ROUTE_MAX_LEN
+      && longStaticRoute === `/staff/${longStatic}`
+      && longToken === '/staff/:redacted'
+      && !completion.isRecognizedIdSegment('radar16n_tok_ABCDEFGHIJKLMNOP')
+      && !completion.isRecognizedIdSegment(longStatic)
+      && completion.isUuidOrNumericIdSegment('12345')
+      && completion.isUuidOrNumericIdSegment('aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee')
+      && completion.isStrictTypedIdSegment('WH-260528-1493')
+      && whCode === '/pay/:id'
+      && uuidRoute === '/staff/bookings/:id'
+      && multibyte === '/staff/:redacted'
+      && encodedName === '/staff/:redacted'
+      && malformed === '/staff/:redacted'
+      && manyPath.length > completion.ROUTE_MAX_LEN
+      && manyRoute.length <= completion.ROUTE_MAX_LEN
+      && manySegsOut.every((seg) => (
+        seg === completion.ROUTE_TRUNCATED_PLACEHOLDER
+        || completion.ROUTE_STATIC_SEGMENT_ALLOWLIST.includes(seg)
+      ))
+      && manyPrefixOk
+      && manyRoute.includes(completion.ROUTE_TRUNCATED_PLACEHOLDER)
+      && exactNorm === exactPath
+      && exactNorm.length === completion.ROUTE_MAX_LEN
+      && !exactNorm.includes(completion.ROUTE_TRUNCATED_PLACEHOLDER)
+      && overOne === exactNorm
+      && overOne.length === completion.ROUTE_MAX_LEN
+      && !overOne.includes('bot')
+      && allLegal
+      && noPartialCuts
+      && !/route\.slice\(0,\s*ROUTE_MAX_LEN\)/.test(libSrc)
+      && !/\.slice\(0,\s*ROUTE_MAX_LEN\)/.test(libSrc),
+      JSON.stringify({
+        longStaticRoute,
+        longToken,
+        manyRoute,
+        manyLen: manyRoute.length,
+        exactLen: exactNorm.length,
+        exactPathLen: exactPath.length,
+        overOne,
+        multibyte,
+        encodedName,
+        malformed,
+      }));
   }
 
   {
@@ -803,6 +938,91 @@ async function main() {
       && !routeRecs[0].route.includes('details')
       && !routeRecs[0].route.includes('42'),
       JSON.stringify(routeRecs[0]));
+
+    // Adversarial real-listener: long token, long allowlisted static, many-seg truncate,
+    // multibyte/encoded/malformed — every emitted route segment legal + validator ok.
+    mark = consoleCalls.length;
+    const advCases = [
+      {
+        label: 'long_token',
+        path: '/staff/radar16n_tok_ABCDEFGHIJKLMNOP',
+        expect: '/staff/:redacted',
+        forbid: ['radar16n_tok_'],
+      },
+      {
+        label: 'long_static',
+        path: '/staff/guest-simulator-create-stripe-test-link',
+        expect: '/staff/guest-simulator-create-stripe-test-link',
+        forbid: [],
+      },
+      {
+        label: 'many_segs',
+        path: '/staff/guest-simulator-create-stripe-test-link/open-demo-whatsapp-inbound-dry-run/guest-simulator-create-hold-draft/guest-automation-review-dry-run/guest-inbound-review-dry-run/check-guest-automation-gate/generate-guest-payment-link/booking-write-eligibility',
+        expect: null,
+        forbid: [],
+      },
+      {
+        label: 'multibyte',
+        path: '/staff/%E6%97%A5%E6%9C%AC%E8%AA%9E',
+        expect: '/staff/:redacted',
+        forbid: ['%E6', '日本語'],
+      },
+      {
+        label: 'encoded_name',
+        path: '/staff/Alice%20Example',
+        expect: '/staff/:redacted',
+        forbid: ['Alice', 'Example'],
+      },
+      {
+        label: 'malformed',
+        path: '/staff/bad%ZZtoken',
+        expect: '/staff/:redacted',
+        forbid: ['bad%ZZ', '%ZZ'],
+      },
+    ];
+    api.setStaffQueryApiRequestHandlerForOfflineTest(async (req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    });
+    const advResults = [];
+    for (let i = 0; i < advCases.length; i += 1) {
+      const c = advCases[i];
+      const before = consoleCalls.length;
+      const idAdv = `aaaaaaaa-bbbb-4ccc-8ddd-${String(700000000000 + i).padStart(12, '0')}`;
+      await httpRequest(port, {
+        method: 'GET',
+        reqPath: c.path,
+        headers: { 'x-request-id': idAdv, accept: 'application/json' },
+      });
+      const recs = takeRecordsSince(before);
+      const route = recs[0] && recs[0].route;
+      const safe = recs[0]
+        ? liveCompletion.assertSafeRequestCompletedRecord(recs[0]).ok
+        : false;
+      const legal = typeof route === 'string'
+        && liveCompletion.routeSegmentsAreAllowlistedOrPlaceholders(route);
+      const forbidHit = routeHasForbidden(route, c.forbid)
+        || consoleCalls.slice(before).some((line) => routeHasForbidden(line, c.forbid));
+      advResults.push({
+        label: c.label,
+        route,
+        n: recs.length,
+        safe,
+        legal,
+        forbidHit,
+        expectOk: c.expect == null
+          ? (typeof route === 'string'
+            && route.length <= liveCompletion.ROUTE_MAX_LEN
+            && route.startsWith('/staff/')
+            && (route.includes(liveCompletion.ROUTE_TRUNCATED_PLACEHOLDER)
+              || route.length < c.path.split('?')[0].length))
+          : route === c.expect,
+      });
+    }
+    api.setStaffQueryApiRequestHandlerForOfflineTest(null);
+    green('listener_route_adversarial_normalization',
+      advResults.every((r) => r.n === 1 && r.safe && r.legal && !r.forbidHit && r.expectOk),
+      JSON.stringify(advResults));
 
     green('listener_duration_bounds',
       [rec2xx[0], rec4xx[0], rec5xx[0], ...recConc, ...canaryRecs, ...routeRecs].every((r) =>

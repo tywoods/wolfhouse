@@ -27,7 +27,7 @@
     "request_id": "from_ALS_16J",
     "tenant_slug": "trusted_construction_binding_only_else_omit",
     "method": "allowlisted_uppercased",
-    "route": "fail_closed_allowlisted_static_segments_only_ids_to_:id_else_:redacted_or_/:unmatched_no_query_fragment",
+    "route": "fail_closed_allowlisted_static_before_typed_ids_strict_uuid_digits_typed_only_no_broad_20plus_classifier_segment_aware_bound_optional_:truncated_else_:redacted_or_/:unmatched_no_query_fragment",
     "status_code": "res.statusCode_bounded_integer",
     "duration_ms": {
       "bucket_ms": 5,

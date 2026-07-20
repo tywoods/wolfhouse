@@ -8,8 +8,10 @@
  * (try/catch/finally around the awaited ALS-wrapped handler).
  *
  * Route field is fail-closed / low-cardinality: only immutable allowlisted static
- * vocabulary (verified from router) plus `:id` / `:redacted` / `/:unmatched`.
- * Never emits arbitrary pathname segment text.
+ * vocabulary (verified from router) plus exact placeholders `:id` / `:redacted`
+ * (and `:truncated` when segment-bounded) or whole-path `/:unmatched`.
+ * Never emits arbitrary pathname segment text. Segment-aware length bound never
+ * cuts a segment, percent sequence, UTF-8 character, or placeholder.
  *
  * Explicitly does NOT:
  * - attach req/res finish/close/aborted/error listeners
@@ -39,7 +41,17 @@ const ROUTE_MAX_LEN = 160;
 
 const ROUTE_ID_PLACEHOLDER = ':id';
 const ROUTE_REDACTED_PLACEHOLDER = ':redacted';
+const ROUTE_TRUNCATED_PLACEHOLDER = ':truncated';
 const ROUTE_UNMATCHED = '/:unmatched';
+
+/** Canonical UUID (v1–v5 variant bits). */
+const ROUTE_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+/** Pure numeric path ids (router-style). */
+const ROUTE_NUMERIC_ID_RE = /^\d{1,18}$/;
+/** Long hex tokens (structurally strict; same family as 16J correlation). */
+const ROUTE_HEX_ID_RE = /^[0-9a-f]{16,}$/i;
+/** Booking-code grammar proven in router docs (e.g. WH-260528-1493). */
+const ROUTE_WH_BOOKING_CODE_RE = /^WH-[A-Z0-9-]{4,40}$/i;
 
 /**
  * Immutable allowlist of known static route vocabulary for operational grouping.
@@ -337,42 +349,119 @@ function completionPathnameOnly(rawUrl) {
 }
 
 /**
- * Recognized identifier / opaque token segments → `:id`.
+ * Canonical UUID or pure numeric id → `:id` (before allowlist is fine).
+ * @param {string} seg
+ * @returns {boolean}
+ */
+function isUuidOrNumericIdSegment(seg) {
+  if (!seg) return false;
+  return ROUTE_UUID_RE.test(seg) || ROUTE_NUMERIC_ID_RE.test(seg);
+}
+
+/**
+ * Strict typed ID grammars proven alongside the router / 16J correlation.
+ * Does NOT include broad alphanumeric/underscore/hyphen length classifiers.
+ * @param {string} seg
+ * @returns {boolean}
+ */
+function isStrictTypedIdSegment(seg) {
+  if (!seg) return false;
+  return ROUTE_HEX_ID_RE.test(seg) || ROUTE_WH_BOOKING_CODE_RE.test(seg);
+}
+
+/**
+ * Recognized identifier segments → `:id` (UUID, digits, strict typed IDs only).
+ * Broad 20+ `[A-Za-z0-9_-]` classifiers are intentionally absent.
  * @param {string} seg
  * @returns {boolean}
  */
 function isRecognizedIdSegment(seg) {
-  if (!seg) return false;
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(seg)) {
-    return true;
+  return isUuidOrNumericIdSegment(seg) || isStrictTypedIdSegment(seg);
+}
+
+/**
+ * Segment-aware length bound: output contains ONLY full allowlisted static
+ * segments or exact fixed placeholders. Never cuts a segment / percent /
+ * UTF-8 / placeholder. If the next full segment would exceed max, append
+ * `:truncated` only when that full placeholder fits; otherwise stop at the
+ * previous full segment.
+ * @param {string[]} segs
+ * @returns {string}
+ */
+function boundNormalizedRouteSegments(segs) {
+  if (!Array.isArray(segs) || segs.length === 0) return '/';
+
+  const kept = [];
+  for (const seg of segs) {
+    const candidate = `/${[...kept, seg].join('/')}`;
+    if (candidate.length <= ROUTE_MAX_LEN) {
+      kept.push(seg);
+      continue;
+    }
+    const truncCandidate = `/${[...kept, ROUTE_TRUNCATED_PLACEHOLDER].join('/')}`;
+    if (truncCandidate.length <= ROUTE_MAX_LEN) {
+      kept.push(ROUTE_TRUNCATED_PLACEHOLDER);
+    }
+    break;
   }
-  if (/^[0-9a-f]{16,}$/i.test(seg)) return true;
-  if (/^\d{1,18}$/.test(seg)) return true;
-  if (/^WH-[A-Z0-9-]{4,40}$/i.test(seg)) return true;
-  if (/^[A-Za-z0-9_-]{20,}$/.test(seg)) return true;
-  return false;
+  if (kept.length === 0) return '/';
+  return `/${kept.join('/')}`;
+}
+
+/**
+ * True when every route segment is allowlisted static or an exact placeholder.
+ * Whole-path `/` and `/:unmatched` are accepted as special forms.
+ * @param {string} route
+ * @returns {boolean}
+ */
+function routeSegmentsAreAllowlistedOrPlaceholders(route) {
+  if (typeof route !== 'string' || !route) return false;
+  if (route === '/' || route === ROUTE_UNMATCHED) return true;
+  if (!route.startsWith('/') || route.includes('?') || route.includes('#')) return false;
+  const segs = route.split('/').filter((s) => s.length > 0);
+  if (segs.length === 0) return route === '/';
+  for (const seg of segs) {
+    if (
+      seg === ROUTE_ID_PLACEHOLDER
+      || seg === ROUTE_REDACTED_PLACEHOLDER
+      || seg === ROUTE_TRUNCATED_PLACEHOLDER
+    ) {
+      continue;
+    }
+    if (!ROUTE_STATIC_SEGMENT_SET.has(seg)) return false;
+  }
+  return true;
 }
 
 /**
  * Fail-closed low-cardinality route for completion logs.
  * Emits allowlisted static segments only; IDs → `:id`; everything else → `:redacted`.
  * Paths with no allowlisted static segment collapse to `/:unmatched`.
+ * Immutable static allowlist is evaluated before non-UUID/non-numeric typed-ID
+ * logic so long allowlisted static segments keep their exact value.
  * Query/fragment never retained. Decode failures never throw.
+ * Length bound is segment-aware (optional trailing `:truncated`).
  *
  * @param {unknown} rawUrl
  * @returns {string}
  */
 function normalizeCompletionRoute(rawUrl) {
   const p = completionPathnameOnly(rawUrl);
-  if (p === '/') return '/';
+  if (p === '/' || p === '') return '/';
 
   const rawSegs = p.split('/').filter((s) => s.length > 0);
+  if (rawSegs.length === 0) return '/';
+
   const out = [];
   let sawAllowlistedStatic = false;
 
   for (const rawSeg of rawSegs) {
     const seg = safeDecodeURIComponent(rawSeg);
-    if (seg === ROUTE_ID_PLACEHOLDER || seg === ROUTE_REDACTED_PLACEHOLDER) {
+    if (
+      seg === ROUTE_ID_PLACEHOLDER
+      || seg === ROUTE_REDACTED_PLACEHOLDER
+      || seg === ROUTE_TRUNCATED_PLACEHOLDER
+    ) {
       out.push(seg);
       continue;
     }
@@ -381,13 +470,19 @@ function normalizeCompletionRoute(rawUrl) {
       out.push(ROUTE_ID_PLACEHOLDER);
       continue;
     }
-    if (isRecognizedIdSegment(seg)) {
+    // UUID + numeric before allowlist (structurally unambiguous).
+    if (isUuidOrNumericIdSegment(seg)) {
       out.push(ROUTE_ID_PLACEHOLDER);
       continue;
     }
+    // Immutable static allowlist BEFORE non-UUID/non-numeric typed-ID logic.
     if (ROUTE_STATIC_SEGMENT_SET.has(seg)) {
       out.push(seg);
       sawAllowlistedStatic = true;
+      continue;
+    }
+    if (isStrictTypedIdSegment(seg)) {
+      out.push(ROUTE_ID_PLACEHOLDER);
       continue;
     }
     out.push(ROUTE_REDACTED_PLACEHOLDER);
@@ -396,11 +491,7 @@ function normalizeCompletionRoute(rawUrl) {
   if (out.length === 0) return '/';
   if (!sawAllowlistedStatic) return ROUTE_UNMATCHED;
 
-  let route = `/${out.join('/')}`;
-  if (route.length > ROUTE_MAX_LEN) {
-    route = route.slice(0, ROUTE_MAX_LEN);
-  }
-  return route;
+  return boundNormalizedRouteSegments(out);
 }
 
 /**
@@ -567,15 +658,10 @@ function assertSafeRequestCompletedRecord(event) {
   if (typeof event.route !== 'string' || !event.route || event.route.includes('?') || event.route.includes('#')) {
     return { ok: false, detail: 'bad_route' };
   }
-  // Fail-closed route: only `/`, allowlisted static segments, `:id`, `:redacted`, or `/:unmatched`.
-  if (event.route !== '/' && event.route !== ROUTE_UNMATCHED) {
-    const segs = event.route.split('/').filter((s) => s.length > 0);
-    for (const seg of segs) {
-      if (seg === ROUTE_ID_PLACEHOLDER || seg === ROUTE_REDACTED_PLACEHOLDER) continue;
-      if (!ROUTE_STATIC_SEGMENT_SET.has(seg)) {
-        return { ok: false, detail: `route_non_allowlisted_segment:${seg}` };
-      }
-    }
+  // Fail-closed route: only `/`, allowlisted static segments, `:id`, `:redacted`,
+  // `:truncated`, or whole-path `/:unmatched`. Never partial segments.
+  if (!routeSegmentsAreAllowlistedOrPlaceholders(event.route)) {
+    return { ok: false, detail: 'route_non_allowlisted_or_partial_segment' };
   }
   if (!Number.isFinite(event.status_code)
     || event.status_code < 0
@@ -628,19 +714,25 @@ module.exports = {
   DURATION_MS_CAP,
   STATUS_CODE_MIN,
   STATUS_CODE_MAX,
+  ROUTE_MAX_LEN,
   ALLOWED_METHODS,
   EVENT_ALLOWED_KEYS,
   FORBIDDEN_EVENT_KEYS,
   ROUTE_STATIC_SEGMENT_ALLOWLIST,
   ROUTE_ID_PLACEHOLDER,
   ROUTE_REDACTED_PLACEHOLDER,
+  ROUTE_TRUNCATED_PLACEHOLDER,
   ROUTE_UNMATCHED,
   allowlistMethod,
   boundStatusCode,
   bucketDurationMs,
   safeDecodeURIComponent,
   completionPathnameOnly,
+  isUuidOrNumericIdSegment,
+  isStrictTypedIdSegment,
   isRecognizedIdSegment,
+  boundNormalizedRouteSegments,
+  routeSegmentsAreAllowlistedOrPlaceholders,
   normalizeCompletionRoute,
   buildRequestCompletedRecord,
   emitStaffApiRequestCompleted,
