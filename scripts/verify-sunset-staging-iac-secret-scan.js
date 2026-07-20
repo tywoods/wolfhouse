@@ -31,6 +31,8 @@ const DISCOVERY_PATHSPECS = [
   'scripts/lib/radar-slice16b-staging-cost-budgets.js',
   'scripts/verify-radar-slice16b-staging-cost-budgets.js',
   'scripts/preflight-radar-slice16b-staging-cost-budgets.js',
+  'infra/azure/staging-staff-api-metric-alerts',
+  'scripts/verify-radar-slice16h-staff-api-metric-alerts.js',
   'scripts/lib/phase-d-kv-dsn-verify-full-plan.js',
   'scripts/lib/phase-d-kv-dsn-verify-full-apply.js',
   'scripts/lib/phase-d-lunabox-pg-firewall-apply.js',
